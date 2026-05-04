@@ -447,6 +447,7 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
           ? { benchmarkVersion: parsed.benchmarkVersion }
           : {}),
         ...(parsed.caseIds !== undefined ? { caseIds: parsed.caseIds } : {}),
+        ...(parsed.templateIds !== undefined ? { templateIds: parsed.templateIds } : {}),
         ...(parsed.canaryOnly !== undefined
           ? { canaryOnly: parsed.canaryOnly }
           : {}),

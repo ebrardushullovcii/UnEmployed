@@ -821,7 +821,7 @@ describe("createFileJobFinderRepository", () => {
           status: "ready",
           label: "Tailored Resume",
           version: "v2",
-          templateName: "Classic ATS",
+          templateName: "Chronology Classic",
           compatibilityScore: 97,
           progressPercent: 100,
           updatedAt: "2026-03-20T10:08:00.000Z",

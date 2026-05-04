@@ -21,6 +21,7 @@ import {
    type ResumeValidationResult,
    type SavedJob,
    type TailoredAsset,
+   type WorkHistoryReviewSuggestion,
 } from "@unemployed/contracts";
 import { createLocalKnowledgeIndex } from "@unemployed/knowledge-base";
 import { createUniqueId, normalizeText, tokenize, uniqueStrings } from "./shared";
@@ -34,6 +35,10 @@ import {
   buildTailoredResumeTextFromResumeDraft as buildStructuredTailoredResumeTextFromResumeDraft,
   seedResumeDraft as seedStructuredResumeDraft,
 } from "./resume-workspace-structure";
+import {
+  buildResumeEntryDateQualityIssues,
+  normalizeResumeDraftEntryOrdering,
+} from "./resume-entry-ordering";
 
 export interface ResumeWorkspaceEvidence {
   summary: readonly string[];
@@ -370,7 +375,8 @@ export function sanitizeResumeDraft(input: {
   const candidateLanguageBank = buildCandidateLanguageBank(input.profile);
   const seenLines = new Set<string>();
 
-  const nextSections = input.draft.sections.map((section) => {
+  const orderedDraft = normalizeResumeDraftEntryOrdering(input.draft);
+  const nextSections = orderedDraft.sections.map((section) => {
     const normalizedSectionText = normalizeText(section.text ?? "");
     const nextText = (() => {
       if (!section.text?.trim()) {
@@ -500,7 +506,7 @@ export function sanitizeResumeDraft(input: {
   });
 
   return {
-    ...input.draft,
+    ...orderedDraft,
     sections: nextSections,
   };
 }
@@ -737,12 +743,73 @@ export function validateResumeDraft(input: {
     });
   }
 
+  issues.push(...buildResumeEntryDateQualityIssues(input.draft));
+
   return ResumeValidationResultSchema.parse({
     id: `resume_validation_${input.draft.id}`,
     draftId: input.draft.id,
     issues,
     pageCount: input.pageCount ?? null,
     validatedAt,
+  });
+}
+
+function buildCoverageMetadataMap(draft: TailoredResumeDraft) {
+  return new Map(
+    draft.coverageMetadata.map((metadata) => [metadata.profileRecordId, metadata]),
+  );
+}
+
+export function buildWorkHistoryReviewSuggestions(input: {
+  draft: ResumeDraft;
+  tailoredDraft: TailoredResumeDraft;
+}): WorkHistoryReviewSuggestion[] {
+  const coverageByRecordId = buildCoverageMetadataMap(input.tailoredDraft);
+  const experienceSection = input.draft.sections.find((section) => section.kind === "experience") ?? null;
+  const entriesByRecordId = new Map(
+    (experienceSection?.entries ?? [])
+      .filter((entry) => entry.profileRecordId)
+      .map((entry) => [entry.profileRecordId as string, entry]),
+  );
+
+  return input.tailoredDraft.coverageMetadata.flatMap((metadata) => {
+    const guidance = metadata.reviewGuidance[0] ?? metadata.reasons[0] ?? null;
+    const entry = entriesByRecordId.get(metadata.profileRecordId) ?? null;
+
+    if (!guidance) {
+      return [];
+    }
+
+    if (metadata.classification === "detailed" || metadata.classification === "omitted") {
+      return [];
+    }
+
+    const kind = metadata.coversMeaningfulGap
+      ? "gap_coverage"
+      : metadata.classification === "compact"
+        ? "compact_recommended"
+        : "weak_fit";
+    const action = metadata.classification === "suggested_hidden"
+      ? "consider_showing"
+      : "keep_compact";
+
+    if (metadata.classification === "suggested_hidden" && !entry) {
+      return [];
+    }
+
+    return [{
+      id: `work_history_review_${metadata.profileRecordId}`,
+      profileRecordId: metadata.profileRecordId,
+      sectionId: experienceSection?.id ?? null,
+      entryId: entry?.id ?? null,
+      kind,
+      action,
+      severity: metadata.classification === "suggested_hidden" ? "info" : "info",
+      message: guidance,
+    } satisfies WorkHistoryReviewSuggestion];
+  }).filter((suggestion, index, suggestions) => {
+    const existingIndex = suggestions.findIndex((entry) => entry.id === suggestion.id);
+    return existingIndex === index && coverageByRecordId.has(suggestion.profileRecordId);
   });
 }
 

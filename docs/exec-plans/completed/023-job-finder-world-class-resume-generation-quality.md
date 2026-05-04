@@ -13,8 +13,8 @@ Ship grounded, ATS-safe resume generation that real users can trust, with determ
 - `sanitizeResumeDraft` and `validateResumeDraft` now cover company and job bleed, copied JD prose, keyword stuffing, vague filler, duplicate content, thin drafts, and page overflow
 - direct low-level regression coverage lives in `packages/job-finder/src/internal/resume-workspace-quality.test.ts`
 - desktop resume rendering is extracted and directly tested in `apps/desktop/src/main/adapters/job-finder-resume-renderer.ts`
-- six ATS-safe templates are now shipped and selectable: `Classic ATS`, `Compact ATS`, `Modern Split ATS`, `Technical Matrix`, `Project Showcase`, and `Credentials Focus`
-- A replayable end-to-end benchmark is available at `pnpm --filter @unemployed/desktop benchmark:resume-quality`, exercising generation, sanitation, validation, and HTML rendering over a fixed corpus with 5 scenarios x 6 themes (30 cases) across all six ATS-safe templates.
+- the resume generation path is protected by shipped ATS-safe templates; `031` later renamed and expanded the selectable apply-safe catalog to eight templates
+- A replayable end-to-end benchmark is available at `pnpm --filter @unemployed/desktop benchmark:resume-quality`, exercising generation, sanitation, validation, and HTML rendering over a fixed corpus across the shipped ATS-safe templates.
 
 ## Latest Evidence
 

@@ -167,14 +167,16 @@ function renderTemplate(
 }
 
 describe('job finder resume renderer', () => {
-  test('lists six ATS-safe local templates with family metadata', () => {
+  test('lists eight ATS-safe local templates with family metadata', () => {
     expect(listLocalResumeTemplates()).toEqual([
-      expect.objectContaining({ id: 'classic_ats', label: 'Swiss Minimal - Standard', familyLabel: 'Swiss Minimal', density: 'balanced' }),
-      expect.objectContaining({ id: 'compact_exec', label: 'Executive Brief - Dense', familyLabel: 'Executive Brief', density: 'compact' }),
-      expect.objectContaining({ id: 'modern_split', label: 'Swiss Minimal - Accent', familyLabel: 'Swiss Minimal', density: 'balanced' }),
-      expect.objectContaining({ id: 'technical_matrix', label: 'Engineering Spec - Systems', familyLabel: 'Engineering Spec', density: 'compact' }),
-      expect.objectContaining({ id: 'project_showcase', label: 'Portfolio Narrative - Proof-led', familyLabel: 'Portfolio Narrative', density: 'comfortable' }),
-      expect.objectContaining({ id: 'credentials_focus', label: 'Executive Brief - Credentials', familyLabel: 'Executive Brief', density: 'balanced' }),
+      expect.objectContaining({ id: 'classic_ats', label: 'Chronology Classic', familyLabel: 'Chronology Classic', density: 'balanced' }),
+      expect.objectContaining({ id: 'compact_exec', label: 'Senior Brief', familyLabel: 'Senior Brief', density: 'compact' }),
+      expect.objectContaining({ id: 'modern_split', label: 'Modern Editorial', familyLabel: 'Modern Editorial', density: 'balanced' }),
+      expect.objectContaining({ id: 'technical_matrix', label: 'Engineering Spec', familyLabel: 'Engineering Spec', density: 'compact' }),
+      expect.objectContaining({ id: 'project_showcase', label: 'Proof Portfolio', familyLabel: 'Proof Portfolio', density: 'comfortable' }),
+      expect.objectContaining({ id: 'credentials_focus', label: 'Credential Ledger', familyLabel: 'Credential Ledger', density: 'balanced' }),
+      expect.objectContaining({ id: 'timeline_longform', label: 'Longform Timeline', familyLabel: 'Longform Timeline', density: 'compact' }),
+      expect.objectContaining({ id: 'career_pivot', label: 'Career Pivot Bridge', familyLabel: 'Career Pivot Bridge', density: 'balanced' }),
     ])
   })
 
@@ -204,7 +206,7 @@ describe('job finder resume renderer', () => {
     expect(html).not.toContain('<h3>Additional Skills</h3>')
     expect(html).not.toContain('Targeted Keywords')
     expect(html).not.toContain('Should not render')
-    expect(html).not.toContain('letter-spacing: 0.15em')
+    expect(html).not.toContain('.theme-classic_ats .eyebrow { letter-spacing: 0.15em; }')
   })
 
   test('renders preview targeting attributes for identity, sections, entries, and bullets', () => {
@@ -274,7 +276,7 @@ describe('job finder resume renderer', () => {
     expect(html).not.toContain('class="headline"')
   })
 
-  test('renders executive brief dense with executive header treatment and denser chronology', () => {
+  test('renders senior brief with executive header treatment and denser chronology', () => {
     const html = renderTemplate('compact_exec', baseRenderDocument, 'space_grotesk_display')
 
     expect(html).toContain('page-compact')
@@ -282,7 +284,7 @@ describe('job finder resume renderer', () => {
     expect(html).toContain('header-executive')
     expect(html).toContain('meta-pill-list')
     expect(html).toContain('section-dense-chronology')
-    expect(html).toContain('Executive Brief')
+    expect(html).toContain('Senior Brief')
     expect(html).toContain("'Space Grotesk', 'Segoe UI', sans-serif")
     expect(html).toContain('grid-template-columns: 1fr;')
     expect(html).toContain('break-inside: avoid;')
@@ -339,6 +341,29 @@ describe('job finder resume renderer', () => {
     expect(summaryIndex).toBeLessThan(experienceIndex)
   })
 
+  test('renders long-history and career-pivot templates with distinct apply-safe structures', () => {
+    const longformHtml = renderTemplate('timeline_longform', credentialHeavyRenderDocument)
+    const pivotHtml = renderTemplate('career_pivot', credentialHeavyRenderDocument)
+
+    expect(longformHtml).toContain('header-longform')
+    expect(longformHtml).toContain('career-snapshot')
+    expect(longformHtml).toContain('section-longform-chronology')
+    expect(longformHtml).toContain('<h3>Career Snapshot</h3>')
+    expect(longformHtml.indexOf('<h3>Career Snapshot</h3>')).toBeLessThan(
+      longformHtml.indexOf('<h3>Experience</h3>'),
+    )
+
+    expect(pivotHtml).toContain('header-pivot')
+    expect(pivotHtml).toContain('section-pivot-bridge')
+    expect(pivotHtml).toContain('section-pivot-proof')
+    expect(pivotHtml.indexOf('<h3>Summary</h3>')).toBeLessThan(
+      pivotHtml.indexOf('<h3>Projects</h3>'),
+    )
+    expect(pivotHtml.indexOf('<h3>Projects</h3>')).toBeLessThan(
+      pivotHtml.indexOf('<h3>Experience</h3>'),
+    )
+  })
+
   test('renders catalog preview shell from the shared renderer for every shipped template', () => {
     for (const template of listLocalResumeTemplates()) {
       const html = renderResumeTemplateCatalogPreviewHtml(template.id)
@@ -370,6 +395,12 @@ describe('job finder resume renderer', () => {
 
       expect(html).toContain('@page')
       expect(html).toContain('grid-template-columns: 1fr;')
+      const gridTemplateColumnValues = [...html.matchAll(/grid-template-columns:\s*([^;]+);/g)]
+        .map((match) => match[1]?.trim())
+      expect(gridTemplateColumnValues).toEqual(
+        expect.arrayContaining(['1fr']),
+      )
+      expect(gridTemplateColumnValues.every((value) => value === '1fr')).toBe(true)
       expect(html).not.toContain('<table')
       expect(html).not.toContain('data-resume-section-id=')
       expect(html).not.toContain('data-resume-entry-id=')

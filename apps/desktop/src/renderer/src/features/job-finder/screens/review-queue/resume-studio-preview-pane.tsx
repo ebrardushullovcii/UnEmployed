@@ -5,7 +5,7 @@ import {
   LoaderCircle,
   RefreshCcw,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import type { JobFinderResumePreview } from "@unemployed/contracts";
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
@@ -61,9 +61,6 @@ function parseSelectionTarget(node: EventTarget | null) {
 export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const scrollRegionRef = useRef<HTMLDivElement | null>(null);
-  const [previewFrameHeight, setPreviewFrameHeight] = useState<number | null>(
-    null,
-  );
   const hasReadyPreview =
     props.previewStatus === "ready" && Boolean(props.preview);
   const warningCount = props.preview?.warnings.length ?? 0;
@@ -196,86 +193,6 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
     props.selectedTargetId,
   ]);
 
-  useEffect(() => {
-    const frame = frameRef.current;
-    let resizeObserver: { observe: (target: Element) => void; disconnect: () => void } | null = null;
-
-    if (!frame || !props.preview) {
-      setPreviewFrameHeight(null);
-      return;
-    }
-
-    const measureHeight = () => {
-      const frameDocument = frame.contentDocument;
-
-      if (!frameDocument) {
-        return;
-      }
-
-      const previewContent =
-        frameDocument.querySelector<HTMLElement>(".preview-shell") ??
-        frameDocument.querySelector<HTMLElement>(".page") ??
-        frameDocument.body;
-      const contentHeight = previewContent
-        ? previewContent.getBoundingClientRect().height
-        : 0;
-      const nextHeight = Math.ceil(
-        Math.max(
-          contentHeight,
-          previewContent?.scrollHeight ?? 0,
-        ) + 8,
-      );
-
-      if (nextHeight > 0) {
-        setPreviewFrameHeight((current) =>
-          current === nextHeight ? current : nextHeight,
-        );
-      }
-    };
-
-    const observeLoadedFrame = (event: Event) => {
-      resizeObserver?.disconnect();
-      resizeObserver = null;
-      measureHeight();
-
-      const loadedFrame = event.target instanceof HTMLIFrameElement
-        ? event.target
-        : frame;
-      const frameBody = loadedFrame.contentDocument?.body;
-
-      if (frameBody && "ResizeObserver" in globalThis) {
-        const ResizeObserverConstructor = globalThis.ResizeObserver as {
-          new (callback: ResizeObserverCallback): {
-            observe: (target: Element) => void;
-            disconnect: () => void;
-          };
-        };
-        resizeObserver = new ResizeObserverConstructor(() => {
-          measureHeight();
-        });
-        resizeObserver.observe(frameBody);
-      }
-    };
-
-    frame.addEventListener("load", observeLoadedFrame);
-
-    if (typeof window !== "undefined") {
-      window.addEventListener("resize", measureHeight);
-    }
-
-    if (frame.contentDocument) {
-      observeLoadedFrame(new Event("load"));
-    }
-
-    return () => {
-      frame.removeEventListener("load", observeLoadedFrame);
-      if (typeof window !== "undefined") {
-        window.removeEventListener("resize", measureHeight);
-      }
-      resizeObserver?.disconnect();
-    };
-  }, [props.preview]);
-
   return (
     <section className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full">
       <header className="border-b border-(--surface-panel-border) px-3.5 py-2">
@@ -350,18 +267,15 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
             </div>
           </div>
         ) : props.preview ? (
-          <div className="relative min-h-168 w-fit max-w-full overflow-hidden rounded-[0.9rem] border border-(--surface-panel-border) bg-white p-0.5 shadow-[0_3px_10px_rgba(0,0,0,0.12)]">
+          <div className="relative h-full min-h-0 w-fit max-w-full overflow-hidden rounded-[0.9rem] border border-(--surface-panel-border) bg-white p-0.5 shadow-[0_3px_10px_rgba(0,0,0,0.12)]">
             <iframe
-              className="block max-w-full rounded-xl border-0 bg-white"
+              className="block h-full max-w-full rounded-xl border-0 bg-white"
               ref={frameRef}
               sandbox="allow-same-origin"
               srcDoc={props.preview.html}
               style={{
                 width: "8.95in",
                 maxWidth: "100%",
-                height: previewFrameHeight
-                  ? `${previewFrameHeight}px`
-                  : "72rem",
               }}
               title="Live resume preview"
             />

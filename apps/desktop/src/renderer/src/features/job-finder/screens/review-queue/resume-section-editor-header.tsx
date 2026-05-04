@@ -1,4 +1,4 @@
-import { Lock, LockOpen, RefreshCcw } from 'lucide-react'
+import { ArrowDownAZ, Lock, LockOpen, RefreshCcw } from 'lucide-react'
 import type { ResumeDraftSection } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
 import { StatusBadge } from '../../components/status-badge'
@@ -28,6 +28,11 @@ export function ResumeSectionHeaderActions(props: ResumeSectionHeaderActionsProp
         <StatusBadge tone={section.locked ? 'muted' : 'active'}>
           {section.locked ? 'Locked' : 'Editable'}
         </StatusBadge>
+        {section.entries.length > 0 ? (
+          <StatusBadge tone={section.entryOrderMode === 'manual' ? 'muted' : 'active'}>
+            {section.entryOrderMode === 'manual' ? 'Manual order' : 'Chronology'}
+          </StatusBadge>
+        ) : null}
         <Button
           disabled={disabled}
           onClick={() =>
@@ -77,6 +82,27 @@ export function ResumeSectionHeaderActions(props: ResumeSectionHeaderActionsProp
           <RefreshCcw className="size-4" />
           Rewrite section
         </Button>
+        {section.entries.length > 0 ? (
+          <Button
+            disabled={disabled || section.entryOrderMode !== 'manual'}
+            onClick={() =>
+              onPatch(
+                createResumeDraftPatch({
+                  idPrefix: `resume_patch_section_entry_order_reset_${section.id}`,
+                  operation: 'reset_entry_order',
+                  sectionId: section.id,
+                }),
+                'Reset entry order to chronology',
+              )
+            }
+            size="compact"
+            type="button"
+            variant="secondary"
+          >
+            <ArrowDownAZ className="size-4" />
+            Reset to chronology
+          </Button>
+        ) : null}
       </div>
     </header>
   )

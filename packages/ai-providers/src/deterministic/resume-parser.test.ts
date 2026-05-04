@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { createJobPosting, createPreferences, createProfile, createSettings } from "../test-fixtures";
+import {
+  createJobPosting,
+  createPreferences,
+  createProfile,
+  createSettings,
+} from "../test-fixtures";
 import { buildDeterministicResumeProfileExtraction } from "./resume-parser";
 import { EBRAR_IMPORTED_TEXT } from "../resume-import-fixtures";
 import { buildDeterministicTailoredResume } from "./tailoring";
@@ -25,7 +30,9 @@ describe("buildDeterministicResumeProfileExtraction", () => {
       "Test provider",
     );
 
-    expect(extraction.summary).toContain("A passionate software developer with 6+ years of full-stack experience");
+    expect(extraction.summary).toContain(
+      "A passionate software developer with 6+ years of full-stack experience",
+    );
     expect(extraction.summary).toContain("AWS/Azure");
     expect(extraction.currentLocation).toBe("Prishtina, Kosovo");
   });
@@ -156,6 +163,52 @@ describe("buildDeterministicResumeProfileExtraction", () => {
     expect(extraction.yearsExperience).toBe(4);
   });
 
+  test("parses day-month-year slash ranges without dropping completed roles", () => {
+    const extraction = buildDeterministicResumeProfileExtraction(
+      {
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: [
+          "WORK EXPERIENCE",
+          "SENIOR FULL-STACK SOFTWARE ENGINEER – AUTOMATEDPROS – 01/07/2023 – Current – REMOTE, KOSOVO",
+          "• Engineered a real-time restaurant order platform with React and Next.js.",
+          "SENIOR FULL-STACK SOFTWARE ENGINEER (PART-TIME CONSULTANT) – INFOTECH L.L.C – 01/11/2021 – Current – REMOTE, KOSOVO",
+          "• Provide on-call architecture and performance triage.",
+          "CHIEF EXPERIENCE OFFICER – AUTOMATEDPROS – 01/11/2021 – 30/06/2023 – REMOTE, KOSOVO",
+          "• Led and oversaw customer experience initiatives.",
+          "FULL-STACK SOFTWARE ENGINEER – CREA-KO – 01/12/2018 – 31/07/2019 – PRISHTINA, KOSOVO",
+          "• Assisted in migrating a web-based ERP system from .NET Framework to .NET Core MVC.",
+        ].join("\n"),
+      },
+      "deterministic",
+      "Test provider",
+      { preserveExistingValues: false },
+    );
+
+    expect(extraction.experiences).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "Senior Full-Stack Software Engineer",
+          companyName: "AUTOMATEDPROS",
+          startDate: "01/07/2023",
+          isCurrent: true,
+        }),
+        expect.objectContaining({
+          title: "Chief Experience Officer",
+          companyName: "AUTOMATEDPROS",
+          startDate: "01/11/2021",
+          endDate: "30/06/2023",
+        }),
+        expect.objectContaining({
+          title: "Full-Stack Software Engineer",
+          companyName: "CREA-KO",
+          startDate: "01/12/2018",
+          endDate: "31/07/2019",
+        }),
+      ]),
+    );
+  });
+
   test("does not inflate ISO month date ranges into a full year of experience", () => {
     const extraction = buildDeterministicResumeProfileExtraction(
       {
@@ -266,7 +319,10 @@ describe("buildDeterministicResumeProfileExtraction", () => {
       endDate: "07/2019",
     });
     expect(
-      [extraction.experiences[0]?.summary ?? "", ...(extraction.experiences[0]?.achievements ?? [])].join(" "),
+      [
+        extraction.experiences[0]?.summary ?? "",
+        ...(extraction.experiences[0]?.achievements ?? []),
+      ].join(" "),
     ).toContain("refactoring both front-end");
     expect(extraction.experiences[1]).toMatchObject({
       title: "Technical Support Agent",
@@ -291,7 +347,11 @@ describe("buildDeterministicResumeProfileExtraction", () => {
     expect(extraction.fullName).toBe("Ebrar Dushullovci");
     expect(extraction.currentLocation).toBe("Prishtina, Kosovo");
     expect(extraction.summary).toContain("6+ years of full-stack experience");
-    expect(extraction.experiences.some((entry) => entry.companyName === "AUTOMATEDPROS")).toBe(true);
+    expect(
+      extraction.experiences.some(
+        (entry) => entry.companyName === "AUTOMATEDPROS",
+      ),
+    ).toBe(true);
   });
 
   test("parses professional experience headings and inline date headers", () => {
@@ -486,9 +546,25 @@ describe("buildDeterministicResumeProfileExtraction", () => {
         }),
       ]),
     );
-    expect(titles.some((title) => title?.includes("Prishtina, Kosovo.net"))).toBe(false);
-    expect(titles.some((title) => title?.includes("99.9 % Uptime"))).toBe(false);
-    expect(titles.some((title) => title?.includes("Real-time Tracking"))).toBe(false);
+    expect(
+      extraction.experiences.some(
+        (entry) => entry.companyName === "AUTOMATEDPROS - 01/",
+      ),
+    ).toBe(false);
+    expect(
+      extraction.experiences.some(
+        (entry) => entry.companyName === "INFOTECH L.L.C - 01/",
+      ),
+    ).toBe(false);
+    expect(
+      titles.some((title) => title?.includes("Prishtina, Kosovo.net")),
+    ).toBe(false);
+    expect(titles.some((title) => title?.includes("99.9 % Uptime"))).toBe(
+      false,
+    );
+    expect(titles.some((title) => title?.includes("Real-time Tracking"))).toBe(
+      false,
+    );
   });
 
   test("repairs the real extracted Ebrar PDF text around INFOTECH and CREA-KO", () => {
@@ -548,8 +624,14 @@ describe("buildDeterministicResumeProfileExtraction", () => {
         }),
       ]),
     );
-    expect(titles.some((title) => title?.includes("Prishtina, Kosovo.net"))).toBe(false);
-    expect(titles.some((title) => title?.includes("99.9 % Uptime"))).toBe(false);
-    expect(titles.some((title) => title?.includes("Real-time Tracking"))).toBe(false);
+    expect(
+      titles.some((title) => title?.includes("Prishtina, Kosovo.net")),
+    ).toBe(false);
+    expect(titles.some((title) => title?.includes("99.9 % Uptime"))).toBe(
+      false,
+    );
+    expect(titles.some((title) => title?.includes("Real-time Tracking"))).toBe(
+      false,
+    );
   });
 });

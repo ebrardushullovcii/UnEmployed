@@ -23,7 +23,7 @@ Ship a production-grade resume theme catalog for Job Finder that lets users choo
 
 ## What Landed
 
-- one truthful shipped theme catalog now exists across contracts, job-finder, desktop renderer, settings UI, and resume workspace UI: `Classic ATS`, `Compact ATS`, `Modern Split ATS`, `Technical Matrix`, `Project Showcase`, and `Credentials Focus`
+- one truthful shipped theme catalog was established across contracts, job-finder, desktop renderer, settings UI, and resume workspace UI; `031` later renamed and expanded it to the current eight-template apply-safe catalog
 - `ResumeTemplateDefinition` now carries fit guidance and density metadata so the renderer can present meaningful theme choices without leaking renderer-only implementation details into contracts
 - resume theme ownership now lives on `draft.templateId`; `settings.resumeTemplateId` remains the default only for newly seeded drafts
 - generation, regeneration, save, export, approval, artifact naming, and tailored-asset labeling now preserve the selected draft theme instead of silently snapping back to the settings default

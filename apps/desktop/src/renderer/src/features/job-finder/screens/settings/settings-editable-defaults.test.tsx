@@ -10,10 +10,10 @@ function makeResumeTemplate(
   overrides: Partial<ResumeTemplateDefinition> & Pick<ResumeTemplateDefinition, 'id' | 'label'>,
 ): ResumeTemplateDefinition {
   return {
-    familyId: 'swiss_minimal',
-    familyLabel: 'Swiss Minimal',
+    familyId: 'chronology_classic',
+    familyLabel: 'Chronology Classic',
     familyDescription: 'Calm ATS-safe layouts.',
-    variantLabel: 'Standard',
+    variantLabel: 'Recruiter Standard',
     description: 'Single-column, conservative, and recruiter-friendly for high parsing reliability.',
     fitSummary: 'A clean all-rounder.',
     avoidSummary: 'Less distinctive for project-led portfolios.',
@@ -33,15 +33,15 @@ function makeResumeTemplate(
 const resumeTemplateFixtures = {
   classicAts: makeResumeTemplate({
     id: 'classic_ats',
-    label: 'Swiss Minimal - Standard',
+    label: 'Chronology Classic',
   }),
   compactExec: makeResumeTemplate({
     id: 'compact_exec',
-    label: 'Executive Brief - Dense',
-    familyId: 'executive_brief',
-    familyLabel: 'Executive Brief',
+    label: 'Senior Brief',
+    familyId: 'senior_brief',
+    familyLabel: 'Senior Brief',
     familyDescription: 'Leadership-oriented ATS-safe layouts.',
-    variantLabel: 'Dense',
+    variantLabel: 'Dense Timeline',
     description: 'Single-column, tighter spacing, and still ATS-safe for concise two-page submissions.',
     fitSummary: 'Good for dense senior resumes.',
     avoidSummary: 'Can feel tight for early-career profiles.',
@@ -113,10 +113,9 @@ describe('SettingsEditableDefaults', () => {
     })
 
     expect(container?.textContent).toContain('Default resume template')
-    expect(container?.textContent).toContain('Executive Brief')
-    expect(container?.textContent).toContain('Executive Brief - Dense')
+    expect(container?.textContent).toContain('Senior Brief')
     expect(container?.textContent).toContain('Single-column, tighter spacing, and still ATS-safe for concise two-page submissions.')
-    expect(container?.textContent).toContain('Dense')
+    expect(container?.textContent).toContain('Dense Timeline')
     expect(container?.textContent).toContain('Apply-safe')
     expect(container?.textContent).toContain('Default template picker')
     expect(container?.textContent).toContain('Applies to new drafts')
@@ -150,7 +149,7 @@ describe('SettingsEditableDefaults', () => {
     })
 
     expect(container?.textContent).toContain('Default resume template')
-    expect(container?.textContent).toContain('Swiss Minimal - Standard')
+    expect(container?.textContent).toContain('Chronology Classic')
 
     const button = Array.from(container?.querySelectorAll('button') ?? []).find(
       (element) => element.textContent?.trim() === 'Save settings',

@@ -224,7 +224,7 @@ describe("createJobFinderWorkspaceService", () => {
       status: "ready",
       label: "Tailored Resume",
       version: "v1",
-      templateName: "Swiss Minimal - Standard",
+      templateName: "Chronology Classic",
       compatibilityScore: 94,
       progressPercent: 100,
       updatedAt: "2026-03-20T10:04:00.000Z",
@@ -554,6 +554,7 @@ describe("createJobFinderWorkspaceService", () => {
             projectEntries: [],
             educationEntries: [],
             certificationEntries: [],
+            coverageMetadata: [],
             additionalSkills: ["Remote-first collaboration", "Figma"],
             languages: [],
             fullText: "placeholder",
@@ -590,6 +591,7 @@ describe("createJobFinderWorkspaceService", () => {
                 operation: "replace_section_text" as const,
                 targetSectionId: "section_summary",
                 targetEntryId: null,
+                anchorEntryId: null,
                 targetBulletId: null,
                 anchorBulletId: null,
                 position: null,
@@ -607,6 +609,7 @@ describe("createJobFinderWorkspaceService", () => {
                 operation: "update_bullet" as const,
                 targetSectionId: "section_experience",
                 targetEntryId: "missing_entry",
+                anchorEntryId: null,
                 targetBulletId: "missing_bullet",
                 anchorBulletId: null,
                 position: null,
@@ -827,6 +830,301 @@ describe("createJobFinderWorkspaceService", () => {
     ).rejects.toThrow(/older than the current draft/i);
   });
 
+  test("preserves work-history review guidance after user include and save actions", async () => {
+    const seed = createSeed();
+    const hiddenExperience = {
+      id: "experience_sales_bridge",
+      companyName: "Bright Market",
+      companyUrl: null,
+      title: "Sales Operations Associate",
+      employmentType: "Full-time",
+      location: "Remote",
+      workMode: ["remote" as const],
+      startDate: "2019-01",
+      endDate: "2019-12",
+      isCurrent: false,
+      isDraft: false,
+      summary: "Maintained customer operations reporting.",
+      achievements: ["Prepared weekly pipeline reporting for account teams."],
+      skills: [],
+      domainTags: [],
+      peopleManagementScope: null,
+      ownershipScope: null,
+    };
+    const baseAiClient = createAiClient();
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...seed,
+        profile: {
+          ...seed.profile,
+          experiences: [...seed.profile.experiences, hiddenExperience],
+        },
+        searchPreferences: {
+          ...seed.searchPreferences,
+          tailoringMode: "balanced",
+        },
+      },
+      aiClient: {
+        ...baseAiClient,
+        async createResumeDraft(input) {
+          const base = await baseAiClient.createResumeDraft(input);
+          return {
+            ...base,
+            coverageMetadata: [
+              ...base.coverageMetadata.filter(
+                (metadata) => metadata.profileRecordId !== hiddenExperience.id,
+              ),
+              {
+                profileRecordId: hiddenExperience.id,
+                classification: "suggested_hidden" as const,
+                careerFamilyFit: "weak" as const,
+                reasons: ["weak career-family fit"],
+                reviewGuidance: ["Hidden by default for review: this role has a weaker career-family fit for the target job."],
+                coversMeaningfulGap: false,
+              },
+            ],
+          };
+        },
+      },
+    });
+
+    await workspaceService.generateResume("job_ready");
+    const generatedWorkspace = await workspaceService.getResumeWorkspace("job_ready");
+    const suggestion = generatedWorkspace.workHistoryReviewSuggestions.find(
+      (entry) => entry.profileRecordId === hiddenExperience.id,
+    );
+
+    expect(suggestion).toMatchObject({
+      kind: "weak_fit",
+      action: "consider_showing",
+    });
+    expect(suggestion?.message).toContain("weaker career-family fit");
+
+    if (!suggestion?.sectionId || !suggestion.entryId) {
+      throw new Error("Expected hidden work-history suggestion to reference a draft entry.");
+    }
+
+    await workspaceService.applyResumePatch({
+      id: "patch_show_sales_bridge",
+      draftId: generatedWorkspace.draft.id,
+      operation: "toggle_include",
+      targetSectionId: suggestion.sectionId,
+      targetEntryId: suggestion.entryId,
+      anchorEntryId: null,
+      targetBulletId: null,
+      anchorBulletId: null,
+      position: null,
+      newText: null,
+      newIncluded: true,
+      newLocked: null,
+      newBullets: [],
+      appliedAt: "2026-03-20T10:05:00.000Z",
+      origin: "user",
+      conflictReason: null,
+    });
+
+    const patchedWorkspace = await workspaceService.getResumeWorkspace("job_ready");
+    const patchedSuggestion = patchedWorkspace.workHistoryReviewSuggestions.find(
+      (entry) => entry.profileRecordId === hiddenExperience.id,
+    );
+
+    expect(patchedSuggestion?.message).toContain("weaker career-family fit");
+    expect(patchedSuggestion?.action).toBe("keep_compact");
+
+    await workspaceService.saveResumeDraft(patchedWorkspace.draft);
+    const savedWorkspace = await workspaceService.getResumeWorkspace("job_ready");
+    const savedSuggestion = savedWorkspace.workHistoryReviewSuggestions.find(
+      (entry) => entry.profileRecordId === hiddenExperience.id,
+    );
+
+    expect(savedSuggestion?.message).toContain("weaker career-family fit");
+    expect(savedSuggestion?.action).toBe("keep_compact");
+  });
+
+  test("preserves chronological and manual experience ordering through hide, show, save, assistant edits, and export", async () => {
+    const seed = createSeed();
+    seed.profile = {
+      ...seed.profile,
+      experiences: [
+        {
+          ...seed.profile.experiences[0]!,
+          id: "older_role",
+          title: ".NET Developer",
+          startDate: "2016-01",
+          endDate: "2018-08",
+          isCurrent: false,
+          achievements: ["Maintained legacy services."],
+        },
+        {
+          ...seed.profile.experiences[0]!,
+          id: "current_role",
+          title: "Lead Engineer",
+          startDate: "2023-07",
+          endDate: null,
+          isCurrent: true,
+          achievements: ["Led platform modernization."],
+        },
+        {
+          ...seed.profile.experiences[0]!,
+          id: "middle_role",
+          title: ".NET Developer",
+          startDate: "2019-08",
+          endDate: "2022-01",
+          isCurrent: false,
+          achievements: ["Built workflow applications."],
+        },
+      ],
+    };
+    const renderedEntryOrders: string[][] = [];
+    const documentManager = createDocumentManager();
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      documentManager: {
+        ...documentManager,
+        renderResumeArtifact(input: Parameters<JobFinderDocumentManager["renderResumeArtifact"]>[0]) {
+          renderedEntryOrders.push(
+            input.renderDocument.sections
+              .find((section) => section.kind === "experience")
+              ?.entries.map((entry) => entry.id) ?? [],
+          );
+          return documentManager.renderResumeArtifact(input);
+        },
+      },
+    });
+
+    await workspaceService.generateResume("job_ready");
+    const generatedWorkspace = await workspaceService.getResumeWorkspace("job_ready");
+    const experienceSection = generatedWorkspace.draft.sections.find((section) => section.kind === "experience");
+    const chronologicalIds = experienceSection?.entries.map((entry) => entry.id) ?? [];
+
+    expect(chronologicalIds).toEqual([
+      "experience_current_role",
+      "experience_middle_role",
+      "experience_older_role",
+    ]);
+
+    const middleEntryId = "experience_middle_role";
+    await workspaceService.applyResumePatch({
+      id: "patch_hide_middle_role",
+      draftId: generatedWorkspace.draft.id,
+      operation: "toggle_include",
+      targetSectionId: "section_experience",
+      targetEntryId: middleEntryId,
+      anchorEntryId: null,
+      targetBulletId: null,
+      anchorBulletId: null,
+      position: null,
+      newText: null,
+      newIncluded: false,
+      newLocked: null,
+      newBullets: null,
+      appliedAt: "2026-03-20T10:05:00.000Z",
+      origin: "user",
+      conflictReason: null,
+    });
+    const hiddenWorkspace = await workspaceService.getResumeWorkspace("job_ready");
+    expect(hiddenWorkspace.draft.sections.find((section) => section.kind === "experience")?.entries.map((entry) => entry.id)).toEqual(chronologicalIds);
+
+    await workspaceService.applyResumePatch({
+      id: "patch_show_middle_role",
+      draftId: hiddenWorkspace.draft.id,
+      operation: "toggle_include",
+      targetSectionId: "section_experience",
+      targetEntryId: middleEntryId,
+      anchorEntryId: null,
+      targetBulletId: null,
+      anchorBulletId: null,
+      position: null,
+      newText: null,
+      newIncluded: true,
+      newLocked: null,
+      newBullets: null,
+      appliedAt: "2026-03-20T10:06:00.000Z",
+      origin: "user",
+      conflictReason: null,
+    });
+    const shownWorkspace = await workspaceService.getResumeWorkspace("job_ready");
+    expect(shownWorkspace.draft.sections.find((section) => section.kind === "experience")?.entries.map((entry) => entry.id)).toEqual(chronologicalIds);
+
+    await workspaceService.applyResumePatch({
+      id: "patch_move_older_to_top",
+      draftId: shownWorkspace.draft.id,
+      operation: "move_entry",
+      targetSectionId: "section_experience",
+      targetEntryId: "experience_older_role",
+      anchorEntryId: "experience_current_role",
+      targetBulletId: null,
+      anchorBulletId: null,
+      position: "before",
+      newText: null,
+      newIncluded: null,
+      newLocked: null,
+      newBullets: null,
+      appliedAt: "2026-03-20T10:07:00.000Z",
+      origin: "user",
+      conflictReason: null,
+    });
+    const manuallyOrderedWorkspace = await workspaceService.getResumeWorkspace("job_ready");
+    const manualSection = manuallyOrderedWorkspace.draft.sections.find((section) => section.kind === "experience");
+
+    expect(manualSection?.entryOrderMode).toBe("manual");
+    expect(manualSection?.entries.map((entry) => entry.id)).toEqual([
+      "experience_older_role",
+      "experience_current_role",
+      "experience_middle_role",
+    ]);
+
+    await workspaceService.sendResumeAssistantMessage(
+      "job_ready",
+      "Shorten one experience bullet without reordering entries.",
+    );
+    const assistantWorkspace = await workspaceService.getResumeWorkspace("job_ready");
+    expect(assistantWorkspace.draft.sections.find((section) => section.kind === "experience")?.entries.map((entry) => entry.id)).toEqual([
+      "experience_older_role",
+      "experience_current_role",
+      "experience_middle_role",
+    ]);
+
+    await workspaceService.saveResumeDraft(assistantWorkspace.draft);
+    const savedWorkspace = await workspaceService.getResumeWorkspace("job_ready");
+    expect(savedWorkspace.draft.sections.find((section) => section.kind === "experience")?.entries.map((entry) => entry.id)).toEqual([
+      "experience_older_role",
+      "experience_current_role",
+      "experience_middle_role",
+    ]);
+
+    await workspaceService.exportResumePdf("job_ready");
+    expect(renderedEntryOrders.at(-1)).toEqual([
+      "experience_older_role",
+      "experience_current_role",
+      "experience_middle_role",
+    ]);
+
+    await workspaceService.applyResumePatch({
+      id: "patch_reset_entry_order",
+      draftId: savedWorkspace.draft.id,
+      operation: "reset_entry_order",
+      targetSectionId: "section_experience",
+      targetEntryId: null,
+      anchorEntryId: null,
+      targetBulletId: null,
+      anchorBulletId: null,
+      position: null,
+      newText: null,
+      newIncluded: null,
+      newLocked: null,
+      newBullets: null,
+      appliedAt: "2026-03-20T10:08:00.000Z",
+      origin: "user",
+      conflictReason: null,
+    });
+    const resetWorkspace = await workspaceService.getResumeWorkspace("job_ready");
+    const resetSection = resetWorkspace.draft.sections.find((section) => section.kind === "experience");
+
+    expect(resetSection?.entryOrderMode).toBe("chronology");
+    expect(resetSection?.entries.map((entry) => entry.id)).toEqual(chronologicalIds);
+  });
+
   test("clears previous approved export flags after the approved draft changes", async () => {
     const { workspaceService } = createWorkspaceServiceHarness();
 
@@ -904,7 +1202,7 @@ describe("createJobFinderWorkspaceService", () => {
       status: "ready",
       label: "Tailored Resume",
       version: "v1",
-      templateName: "Swiss Minimal - Standard",
+      templateName: "Chronology Classic",
       compatibilityScore: 94,
       progressPercent: 100,
       updatedAt: "2026-03-20T10:04:00.000Z",
@@ -1810,7 +2108,7 @@ describe("createJobFinderWorkspaceService", () => {
     expect(workspace.exports.some((artifact) => artifact.isApproved)).toBe(false);
   });
 
-  test("accepts Swiss Minimal - Accent as a supported default theme", async () => {
+  test("accepts Modern Editorial as a supported default theme", async () => {
     const { workspaceService } = createWorkspaceServiceHarness();
 
     const snapshot = await workspaceService.saveSettings({
@@ -1819,38 +2117,46 @@ describe("createJobFinderWorkspaceService", () => {
     });
 
     expect(snapshot.settings.resumeTemplateId).toBe("modern_split");
-    expect(snapshot.availableResumeTemplates).toHaveLength(6);
+    expect(snapshot.availableResumeTemplates).toHaveLength(8);
     expect(snapshot.availableResumeTemplates).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           id: "classic_ats",
-          label: "Swiss Minimal - Standard",
+          label: "Chronology Classic",
         }),
         expect.objectContaining({
           id: "compact_exec",
-          label: "Executive Brief - Dense",
+          label: "Senior Brief",
         }),
         expect.objectContaining({
           id: "modern_split",
-          label: "Swiss Minimal - Accent",
+          label: "Modern Editorial",
         }),
         expect.objectContaining({
           id: "technical_matrix",
-          label: "Engineering Spec - Systems",
+          label: "Engineering Spec",
         }),
         expect.objectContaining({
           id: "project_showcase",
-          label: "Portfolio Narrative - Proof-led",
+          label: "Proof Portfolio",
         }),
         expect.objectContaining({
           id: "credentials_focus",
-          label: "Executive Brief - Credentials",
+          label: "Credential Ledger",
+        }),
+        expect.objectContaining({
+          id: "timeline_longform",
+          label: "Longform Timeline",
+        }),
+        expect.objectContaining({
+          id: "career_pivot",
+          label: "Career Pivot Bridge",
         }),
       ]),
     );
   });
 
-  test("keeps Executive Brief - Dense when it is part of the supported theme set", async () => {
+  test("keeps Senior Brief when it is part of the supported theme set", async () => {
     const { workspaceService } = createWorkspaceServiceHarness();
 
     const snapshot = await workspaceService.saveSettings({
@@ -1861,7 +2167,7 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.settings.resumeTemplateId).toBe("compact_exec");
   });
 
-  test("keeps existing Modern Split drafts because the theme is shipped", async () => {
+  test("keeps existing Modern Editorial drafts because the theme is shipped", async () => {
     const seed = createSeed();
     seed.resumeDrafts = [
       {
@@ -1882,6 +2188,7 @@ describe("createJobFinderWorkspaceService", () => {
             locked: false,
             included: true,
             sortOrder: 0,
+            entryOrderMode: "chronology",
             profileRecordId: null,
             sourceRefs: [],
             updatedAt: "2026-04-18T12:00:00.000Z",
@@ -1928,11 +2235,11 @@ describe("createJobFinderWorkspaceService", () => {
           return ResumeTemplateDefinitionSchema.array().parse([
             {
               id: "classic_ats",
-              label: "Swiss Minimal - Standard",
-              familyId: "swiss_minimal",
-              familyLabel: "Swiss Minimal",
+              label: "Chronology Classic",
+              familyId: "chronology_classic",
+              familyLabel: "Chronology Classic",
               familyDescription: "Calm ATS-safe layouts.",
-              variantLabel: "Standard",
+              variantLabel: "Recruiter Standard",
               description: "Low-risk ATS-safe default.",
               bestFor: ["General applications"],
               visualTags: ["Minimal"],
@@ -1946,11 +2253,11 @@ describe("createJobFinderWorkspaceService", () => {
             },
             {
               id: "modern_split",
-              label: "Swiss Minimal - Accent",
-              familyId: "swiss_minimal",
-              familyLabel: "Swiss Minimal",
+              label: "Modern Editorial",
+              familyId: "modern_editorial",
+              familyLabel: "Modern Editorial",
               familyDescription: "Calm ATS-safe layouts.",
-              variantLabel: "Accent",
+              variantLabel: "Polished Default",
               description: "Expressive preview-forward variant.",
               bestFor: ["Share links"],
               visualTags: ["Accent header"],
@@ -2035,7 +2342,7 @@ describe("createJobFinderWorkspaceService", () => {
         status: "ready",
         label: "Tailored Resume",
         version: "v1",
-        templateName: "Swiss Minimal - Accent",
+        templateName: "Modern Editorial",
         compatibilityScore: 95,
         progressPercent: 100,
         updatedAt: "2026-04-18T12:00:00.000Z",
@@ -2055,11 +2362,11 @@ describe("createJobFinderWorkspaceService", () => {
           return ResumeTemplateDefinitionSchema.array().parse([
             {
               id: "classic_ats",
-              label: "Swiss Minimal - Standard",
-              familyId: "swiss_minimal",
-              familyLabel: "Swiss Minimal",
+              label: "Chronology Classic",
+              familyId: "chronology_classic",
+              familyLabel: "Chronology Classic",
               familyDescription: "Calm ATS-safe layouts.",
-              variantLabel: "Standard",
+              variantLabel: "Recruiter Standard",
               description: "Low-risk ATS-safe default.",
               bestFor: ["General applications"],
               visualTags: ["Minimal"],
@@ -2073,11 +2380,11 @@ describe("createJobFinderWorkspaceService", () => {
             },
             {
               id: "modern_split",
-              label: "Swiss Minimal - Accent",
-              familyId: "swiss_minimal",
-              familyLabel: "Swiss Minimal",
+              label: "Modern Editorial",
+              familyId: "modern_editorial",
+              familyLabel: "Modern Editorial",
               familyDescription: "Calm ATS-safe layouts.",
-              variantLabel: "Accent",
+              variantLabel: "Polished Default",
               description: "Expressive preview-forward variant.",
               bestFor: ["Share links"],
               visualTags: ["Accent header"],

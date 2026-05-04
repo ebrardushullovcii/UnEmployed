@@ -30,6 +30,30 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 - latest evidence lives under `apps/desktop/test-artifacts/ui/1440x920/`, `apps/desktop/test-artifacts/ui/applications-recovery/`, `apps/desktop/test-artifacts/ui/applications-queue-recovery/`, `apps/desktop/test-artifacts/ui/applications-consent-states/`, `apps/desktop/test-artifacts/ui/resume-import/`, and `apps/desktop/test-artifacts/ui/resume-import-benchmark/`
 - reopen only for a fresh screenshot-backed contradiction, benchmark regression, or new hotspot work in another touched surface
 
+### `030 Resume Coverage And Copy Quality`
+
+- status: `done`
+- linked plan: `docs/exec-plans/completed/030-resume-coverage-and-copy-quality.md`
+- resume generation now uses a derived coverage policy instead of a fixed first-3 work-history cap, preserving resume chronology while keeping grounded dev/dev-adjacent and gap-coverage history visible at the right detail level
+- Resume Studio now shows app-only weak-fit, gap-coverage, and compacting guidance using existing include/hide draft behavior; guidance remains outside rendered resume content and persists through patch/save flows
+- replayable evidence now covers synthetic archetypes plus the real imported fixture corpus, with latest artifacts under `apps/desktop/test-artifacts/ui/resume-quality-benchmark/`, `apps/desktop/test-artifacts/ui/resume-import-benchmark/`, and `apps/desktop/test-artifacts/ui/resume-workspace/`
+- reopen only for a new coverage-policy regression, app-only guidance leaking into preview/export text, provider normalization dropping grounded fallback history, or a benchmark-backed real-fixture quality regression
+
+### `031 Functional Resume Template Variety`
+
+- status: `done`
+- linked plan: `docs/exec-plans/completed/031-functional-resume-template-variety.md`
+- the resume template catalog now ships eight apply-safe template ids with distinct functional layouts, neutral default coloring, and one-click selection: `Chronology Classic`, `Senior Brief`, `Modern Editorial`, `Engineering Spec`, `Proof Portfolio`, `Credential Ledger`, `Longform Timeline`, and `Career Pivot Bridge`
+- reopen only for a concrete catalog wiring regression, a benchmark-backed ATS or approval-safety issue, or a new evidence-backed functional layout gap
+
+### `032 Resume Studio Experience Ordering And Manual Control`
+
+- status: `done`
+- linked plan: `docs/exec-plans/completed/032-resume-studio-experience-ordering-and-manual-control.md`
+- Resume Studio now enforces shared deterministic structured entry ordering, defaults experience newest-first with current roles first, preserves hidden-entry slots, and keeps preview/export/render paths aligned with the same normalized draft order
+- per-draft manual ordering now ships through typed `move_entry` and `reset_entry_order` patches, visible up/down controls, section order-mode badges, and reset-to-chronology behavior backed by renderer, service, contract, and UI harness evidence
+- reopen only for a concrete preview/export order drift, hide/show reinsertion regression, manual ordering persistence bug, or excessive app-only date-quality guidance backed by fresh evidence
+
 ### `027 Job Finder Resume Experience UX Reset`
 
 - status: `done`
@@ -50,8 +74,8 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 
 - status: `done`
 - linked plan: `docs/exec-plans/completed/026-job-finder-resume-template-families-variants-and-catalog-selection.md`
-- family-first template selection now ships truthful family, variant, lane, ATS confidence, and eligibility metadata with sample-content family cards in Settings, draft-backed preview flows in Resume Studio, compare flow, deterministic recommendations, and lane plus density filters
-- the shared renderer now uses family-oriented ATS-safe builders that make `Swiss Minimal`, `Executive Brief`, `Engineering Spec`, and `Portfolio Narrative` materially distinct by hierarchy and content emphasis while preserving benchmark coverage
+- direct template selection now ships truthful template, lane, ATS confidence, and eligibility metadata with sample-content preview cards in Settings, draft-backed preview flows in Resume Studio, and deterministic recommendations
+- the shared renderer now uses layout-oriented ATS-safe builders that make the shipped template options materially distinct by hierarchy and content emphasis while preserving benchmark coverage
 - reopen only for a concrete family-rendering or selection regression, a benchmark-backed ATS or approval-safety issue, or a deliberate decision to ship real `share-ready` templates
 
 ### `025 Job Finder Resume Studio Live Preview And Editing`
@@ -130,7 +154,9 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 
 ## Baselines
 
-- `026`: family-first resume template families and selection
+- `026`: resume template catalog selection baseline
+- `032`: resume studio structured entry ordering and manual control
+- `031`: functional resume template variety and eight-template apply-safe catalog
 - `023`: resume generation quality
 - `025`: resume studio live preview and editing
 - `013`: source intelligence/discovery
@@ -143,8 +169,6 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 
 ## Ready Queue
 
-- `030 Resume Coverage And Copy Quality`: queued plan at `docs/exec-plans/queued/030-resume-coverage-and-copy-quality.md`; next resume/application-process prep track covering resume coverage policy, role-specific copy quality, app-only weak-fit/gap guidance, and real-fixture resume-quality coverage
-- `031 Functional Resume Template Variety`: queued plan at `docs/exec-plans/queued/031-functional-resume-template-variety.md`; follows `030` and rebuilds the template catalog around distinct layout purposes using the improved generated draft evidence
 - Validate cross-platform sidecar packaging for `019` only for regressions, newly added targets, or periodic matrix revalidation
 - Expand Applications recovery and retry tooling
 - Add broader runtime tests for unsupported apply paths, live-browser extraction, and resume import

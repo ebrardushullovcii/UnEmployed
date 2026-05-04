@@ -64,7 +64,7 @@ function buildYearsExperienceEvidenceCandidates(
   evidenceCandidates: string[];
   evidenceBundleScope: "experience" | "full_resume";
 } {
-  const dateTokenPattern = String.raw`(?:current|present|\d{4}-\d{2}(?:-\d{2})?|(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+)?(?:\d{1,2}\/)?\d{4})`;
+  const dateTokenPattern = String.raw`(?:current|present|\d{4}-\d{2}(?:-\d{2})?|\d{1,2}\/\d{1,2}\/\d{4}|(?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+)?(?:\d{1,2}\/)?\d{4})`;
   const dateRangePattern = new RegExp(
     String.raw`\b${dateTokenPattern}\s*[–—-]\s*${dateTokenPattern}\b`,
     "i",

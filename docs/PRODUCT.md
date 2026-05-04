@@ -21,7 +21,7 @@ Current product baseline:
 - browser-driven job discovery across configured targets
 - source-debug for learning reusable target instructions
 - resume workspace with ATS-first PDF approval
-- resume template selection is now family-first with truthful family and variant metadata, real preview-backed selection, explicit lane badges, deterministic per-draft recommendations when job and draft evidence justify them, and lane plus density filters; the shared preview and export renderer now gives the shipped `apply-safe` catalog materially distinct `Swiss Minimal`, `Executive Brief`, `Engineering Spec`, and `Portfolio Narrative` families across six stable template ids
+- resume template selection is direct and one-click in Settings and Resume Studio with truthful template metadata, real preview-backed selection, explicit lane badges, and deterministic per-draft recommendations when job and draft evidence justify them; the shared preview and export renderer gives the shipped `apply-safe` catalog eight materially distinct layout options: `Chronology Classic`, `Senior Brief`, `Modern Editorial`, `Engineering Spec`, `Proof Portfolio`, `Credential Ledger`, `Longform Timeline`, and `Career Pivot Bridge`
 - apply flows that stop before final submission with Applications recovery
 - hard product rule: live submit remains intentionally disabled until explicitly re-authorized; see `docs/exec-plans/completed/015-job-finder-automatic-job-apply.md` for provenance
 

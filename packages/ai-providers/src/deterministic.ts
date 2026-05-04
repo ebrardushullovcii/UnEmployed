@@ -9,6 +9,10 @@ export {
   normalizeTitleCompanyPair,
 } from "./deterministic/job-extraction";
 export {
+  deriveResumeCoveragePlan,
+  type ResumeCoverageDecision,
+} from "./deterministic/resume-coverage";
+export {
   composeDeterministicFullText,
   buildDeterministicResumeText,
   buildDeterministicStructuredResumeDraft,

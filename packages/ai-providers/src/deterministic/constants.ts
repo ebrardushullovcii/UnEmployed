@@ -110,7 +110,7 @@ export const skillCategoryHeadingPattern =
   /^(frameworks|programming languages|languages|databases|tools|security(?:\s*&\s*authentication)?|soft skills)$/i;
 
 export const dateRangePattern =
-  /((?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\s+)?(?:\d{1,2}\/)?\d{4})\s*[–—-]\s*(current|present|(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\s+)?(?:\d{1,2}\/)?\d{4})/i;
+  /((?:\d{1,2}\/\d{1,2}\/\d{4})|(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\s+)?(?:\d{1,2}\/)?\d{4})\s*[–—-]\s*(current|present|(?:\d{1,2}\/\d{1,2}\/\d{4})|(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\s+)?(?:\d{1,2}\/)?\d{4})/i;
 
 export const knownPersonalWebsitePlatformDomains = [
   "coursera.org",

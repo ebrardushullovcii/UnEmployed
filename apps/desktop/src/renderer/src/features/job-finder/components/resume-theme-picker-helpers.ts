@@ -3,10 +3,7 @@ import type {
   ResumeTemplateId,
 } from "@unemployed/contracts";
 import {
-  getResumeTemplateAtsConfidence,
-  getResumeTemplateDeliveryLane,
-  getResumeTemplateFamilyId,
-  getResumeTemplateFamilyLabel,
+  getResumeTemplateVariantLabel,
 } from "@unemployed/contracts";
 
 export interface ResumeThemePickerRecommendationContext {
@@ -22,17 +19,6 @@ export interface ResumeThemePickerRecommendationContext {
 export interface ResumeThemePickerRecommendation {
   templateId: ResumeTemplateId;
   reason: string;
-}
-
-export interface ResumeTemplateFamilyViewModel {
-  id: string;
-  label: string;
-  description: string;
-  deliveryLane: "apply_safe" | "share_ready" | null;
-  atsConfidence: "high" | "medium" | "low" | null;
-  fitSummary: string | null;
-  familySortOrder: number;
-  templates: readonly ResumeTemplateDefinition[];
 }
 
 export function getLaneLabel(lane: "apply_safe" | "share_ready") {
@@ -54,6 +40,27 @@ export function getAtsConfidenceLabel(confidence: "high" | "medium" | "low") {
 
 export function getLaneBadgeVariant(lane: "apply_safe" | "share_ready") {
   return lane === "apply_safe" ? "default" : "outline";
+}
+
+export function sortResumeThemeOptions(
+  themes: readonly ResumeTemplateDefinition[],
+): readonly ResumeTemplateDefinition[] {
+  return [...themes].sort(
+    (left, right) =>
+      (left.sortOrder ?? Number.MAX_SAFE_INTEGER) -
+        (right.sortOrder ?? Number.MAX_SAFE_INTEGER) ||
+      left.label.localeCompare(right.label),
+  );
+}
+
+export function getTemplateOptionLabel(
+  theme: Pick<ResumeTemplateDefinition, "label" | "variantLabel">,
+): string {
+  const variantLabel = getResumeTemplateVariantLabel(theme);
+
+  return variantLabel === theme.label
+    ? theme.label
+    : `${theme.label} · ${variantLabel}`;
 }
 
 function normalizeRecommendationSignal(value: string): string {
@@ -101,6 +108,7 @@ export function buildResumeThemePickerRecommendations(input: {
     .filter(Boolean);
   const hasDenseSignal =
     context.experienceEntryCount >= 3 || context.totalIncludedBulletCount >= 10;
+  const hasLongHistorySignal = context.experienceEntryCount >= 5;
   const isTechnicalRole = hasAnySignal(jobSignals, [
     "engineer",
     "engineering",
@@ -146,6 +154,13 @@ export function buildResumeThemePickerRecommendations(input: {
     let reason: string | null = null;
 
     switch (theme.id) {
+      case "timeline_longform":
+        if (hasLongHistorySignal) {
+          score = 5;
+          reason =
+            "This draft has a long work history, so the longform timeline gives recruiters a snapshot before the full chronology.";
+        }
+        break;
       case "technical_matrix":
         if (isTechnicalRole) {
           score = 4;
@@ -158,6 +173,13 @@ export function buildResumeThemePickerRecommendations(input: {
           score = 4;
           reason =
             "You already have project proof in this draft, so the proof-led layout can earn more attention early.";
+        }
+        break;
+      case "career_pivot":
+        if (context.hasProjects && (isTechnicalRole || isProductOrDesignRole) && !hasLongHistorySignal) {
+          score = 4;
+          reason =
+            "The draft has bridgeable project proof, so the hybrid pivot layout connects transferable experience to the target role early.";
         }
         break;
       case "credentials_focus":
@@ -221,58 +243,4 @@ export function buildResumeThemePickerRecommendations(input: {
     )
     .slice(0, 3)
     .map(({ templateId, reason }) => ({ templateId, reason }));
-}
-
-export function buildFamilyViewModels(
-  themes: readonly ResumeTemplateDefinition[],
-): readonly ResumeTemplateFamilyViewModel[] {
-  const families = new Map<string, ResumeTemplateDefinition[]>();
-
-  for (const theme of themes) {
-    const familyId = getResumeTemplateFamilyId(theme);
-    const entries = families.get(familyId) ?? [];
-    entries.push(theme);
-    families.set(familyId, entries);
-  }
-
-  return [...families.values()]
-    .map((templates) => {
-      const sortedTemplates = [...templates].sort(
-        (left, right) =>
-          (left.sortOrder ?? Number.MAX_SAFE_INTEGER) -
-          (right.sortOrder ?? Number.MAX_SAFE_INTEGER),
-      );
-      const firstTemplate = sortedTemplates[0]!;
-      const familySortOrder = firstTemplate.sortOrder ?? Number.MAX_SAFE_INTEGER;
-      const firstDeliveryLane = getResumeTemplateDeliveryLane(firstTemplate);
-      const firstAtsConfidence = getResumeTemplateAtsConfidence(firstTemplate);
-      const deliveryLane = sortedTemplates.every(
-        (template) => getResumeTemplateDeliveryLane(template) === firstDeliveryLane,
-      )
-        ? firstDeliveryLane
-        : null;
-      const atsConfidence = sortedTemplates.every(
-        (template) => getResumeTemplateAtsConfidence(template) === firstAtsConfidence,
-      )
-        ? firstAtsConfidence
-        : null;
-
-      return {
-        id: getResumeTemplateFamilyId(firstTemplate),
-        label: getResumeTemplateFamilyLabel(firstTemplate),
-        description:
-          firstTemplate.familyDescription ??
-          firstTemplate.description ??
-          "Resume family",
-        deliveryLane,
-        atsConfidence,
-        fitSummary: firstTemplate.fitSummary ?? null,
-        familySortOrder,
-        templates: sortedTemplates,
-      };
-    })
-    .sort(
-      (left, right) =>
-        left.familySortOrder - right.familySortOrder || left.id.localeCompare(right.id),
-    );
 }

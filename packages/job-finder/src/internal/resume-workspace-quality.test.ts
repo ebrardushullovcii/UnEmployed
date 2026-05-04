@@ -36,6 +36,7 @@ function createBaseDraft(): ResumeDraft {
         locked: false,
         included: true,
         sortOrder: 0,
+        entryOrderMode: 'chronology',
         profileRecordId: null,
         sourceRefs: [],
         updatedAt: '2026-03-20T10:04:00.000Z',
@@ -51,6 +52,7 @@ function createBaseDraft(): ResumeDraft {
         locked: false,
         included: true,
         sortOrder: 1,
+        entryOrderMode: 'chronology',
         profileRecordId: null,
         sourceRefs: [],
         updatedAt: '2026-03-20T10:04:00.000Z',
@@ -86,6 +88,7 @@ function createBaseDraft(): ResumeDraft {
         locked: false,
         included: true,
         sortOrder: 2,
+        entryOrderMode: 'chronology',
         profileRecordId: null,
         sourceRefs: [],
         updatedAt: '2026-03-20T10:04:00.000Z',
@@ -227,6 +230,7 @@ describe('resume workspace quality helpers', () => {
           locked: false,
           included: true,
           sortOrder: 3,
+          entryOrderMode: 'chronology' as const,
           profileRecordId: null,
           sourceRefs: [],
           updatedAt: '2026-03-20T10:04:00.000Z',
@@ -424,6 +428,39 @@ describe('resume workspace quality helpers', () => {
       pageCount: 3,
     })
 
+    expect(validation.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          category: 'page_overflow',
+          severity: 'error',
+        }),
+      ]),
+    )
+  })
+
+  test('validateResumeDraft preserves user-included compact roles when page overflow guidance is raised', () => {
+    const { profile, job } = getSeedContext()
+    const userIncludedWeakFit = {
+      ...getExperienceEntry(createBaseDraft()),
+      id: 'experience_user_included_gap_role',
+      title: 'Sales Operations Associate',
+      subtitle: 'Bright Market',
+      summary: 'Kept customer operations reporting concise.',
+      included: true,
+      profileRecordId: 'experience_sales_bridge',
+    }
+    const draft = updateSection(createBaseDraft(), 'section_experience', (section) => ({
+      ...section,
+      entries: [...section.entries, userIncludedWeakFit],
+    }))
+    const validation = validateResumeDraft({
+      draft,
+      job,
+      profile,
+      pageCount: 3,
+    })
+
+    expect(getSection(draft, 'section_experience').entries.find((entry) => entry.id === 'experience_user_included_gap_role')?.included).toBe(true)
     expect(validation.issues).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

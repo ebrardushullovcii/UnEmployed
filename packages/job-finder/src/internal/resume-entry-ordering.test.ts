@@ -1,0 +1,196 @@
+import { describe, expect, test } from "vitest";
+import type { ResumeDraftEntry, ResumeDraftSection } from "@unemployed/contracts";
+import {
+  buildResumeEntryDateQualityIssues,
+  moveSectionEntry,
+  normalizeResumeDraftSectionEntryOrdering,
+  orderEntriesNewestFirst,
+  parseResumeEntryDateRange,
+  resetSectionEntryOrderToChronology,
+} from "./resume-entry-ordering";
+
+const now = "2026-03-20T00:00:00.000Z";
+
+function buildEntry(input: {
+  id: string;
+  dateRange?: string | null;
+  included?: boolean;
+  sortOrder: number;
+  title?: string;
+}): ResumeDraftEntry {
+  return {
+    id: input.id,
+    entryType: "experience",
+    title: input.title ?? input.id,
+    subtitle: "Example Co",
+    location: null,
+    dateRange: input.dateRange ?? null,
+    summary: `${input.id} summary`,
+    bullets: [],
+    origin: "imported",
+    locked: false,
+    included: input.included ?? true,
+    sortOrder: input.sortOrder,
+    profileRecordId: input.id,
+    sourceRefs: [],
+    updatedAt: now,
+  };
+}
+
+function buildSection(entries: readonly ResumeDraftEntry[]): ResumeDraftSection {
+  return {
+    id: "section_experience",
+    kind: "experience",
+    label: "Experience",
+    text: null,
+    bullets: [],
+    entries: [...entries],
+    origin: "imported",
+    locked: false,
+    included: true,
+    sortOrder: 1,
+    entryOrderMode: "chronology",
+    profileRecordId: null,
+    sourceRefs: [],
+    updatedAt: now,
+  };
+}
+
+describe("resume entry ordering", () => {
+  test("parses common imported date ranges for ordering", () => {
+    expect(parseResumeEntryDateRange("Jul 2023 - Present")).toMatchObject({
+      hasParseableDate: true,
+      isCurrent: true,
+    });
+    expect(parseResumeEntryDateRange("11/2021 - 07/2023")).toMatchObject({
+      endMonth: 2023 * 12 + 6,
+      startMonth: 2021 * 12 + 10,
+    });
+    expect(parseResumeEntryDateRange("Aug 2019 - Jan 2022")).toMatchObject({
+      endMonth: 2022 * 12,
+      startMonth: 2019 * 12 + 7,
+    });
+    expect(parseResumeEntryDateRange("01/11/2021 - 30/06/2023")).toMatchObject({
+      endMonth: 2023 * 12 + 5,
+      startMonth: 2021 * 12 + 10,
+    });
+    expect(parseResumeEntryDateRange("Jan 2020 through Feb 2021")).toMatchObject({
+      endMonth: 2021 * 12 + 1,
+      startMonth: 2020 * 12,
+    });
+    expect(parseResumeEntryDateRange(null)).toMatchObject({
+      hasMissingDateRange: true,
+      hasParseableDate: false,
+    });
+  });
+
+  test("orders current roles first, then past roles newest first, and undated entries last", () => {
+    const ordered = orderEntriesNewestFirst([
+      buildEntry({ id: "older", dateRange: "Aug 2019 - Jan 2022", sortOrder: 0 }),
+      buildEntry({ id: "undated", dateRange: null, sortOrder: 1 }),
+      buildEntry({ id: "past_newer", dateRange: "11/2021 - 07/2023", sortOrder: 2 }),
+      buildEntry({ id: "past_day_month_year", dateRange: "01/11/2021 - 30/06/2023", sortOrder: 3 }),
+      buildEntry({ id: "current_older_start", dateRange: "Jan 2022 - Present", sortOrder: 4 }),
+      buildEntry({ id: "current_newer_start", dateRange: "Jul 2023 - Present", sortOrder: 5 }),
+    ]);
+
+    expect(ordered.map((entry) => entry.id)).toEqual([
+      "current_newer_start",
+      "current_older_start",
+      "past_newer",
+      "past_day_month_year",
+      "older",
+      "undated",
+    ]);
+    expect(ordered.map((entry) => entry.sortOrder)).toEqual([0, 1, 2, 3, 4, 5]);
+  });
+
+  test("preserves manual ordering until reset to chronology", () => {
+    const section = {
+      ...buildSection([
+        buildEntry({ id: "current", dateRange: "2024 - Present", sortOrder: 0 }),
+        buildEntry({ id: "past", dateRange: "2020 - 2021", sortOrder: 1 }),
+      ]),
+      entryOrderMode: "chronology" as const,
+    };
+    const moved = moveSectionEntry({
+      anchorEntryId: "past",
+      position: "after",
+      section,
+      targetEntryId: "current",
+      updatedAt: "2026-03-20T10:03:00.000Z",
+    });
+    const normalizedManual = normalizeResumeDraftSectionEntryOrdering(moved);
+    const reset = resetSectionEntryOrderToChronology(moved);
+
+    expect(moved.entryOrderMode).toBe("manual");
+    expect(normalizedManual.entries.map((entry) => entry.id)).toEqual(["past", "current"]);
+    expect(reset.entryOrderMode).toBe("chronology");
+    expect(reset.entries.map((entry) => entry.id)).toEqual(["current", "past"]);
+  });
+
+  test("keeps hidden entries in their chronological slot when shown again", () => {
+    const section = normalizeResumeDraftSectionEntryOrdering(buildSection([
+      buildEntry({ id: "older", dateRange: "2018 - 2019", sortOrder: 0 }),
+      buildEntry({ id: "hidden_middle", dateRange: "2020 - 2021", included: false, sortOrder: 1 }),
+      buildEntry({ id: "newer", dateRange: "2022 - 2023", sortOrder: 2 }),
+    ]));
+    const shownAgain = normalizeResumeDraftSectionEntryOrdering({
+      ...section,
+      entries: section.entries.map((entry) =>
+        entry.id === "hidden_middle" ? { ...entry, included: true } : entry,
+      ),
+    });
+
+    expect(section.entries.map((entry) => entry.id)).toEqual([
+      "newer",
+      "hidden_middle",
+      "older",
+    ]);
+    expect(shownAgain.entries.map((entry) => entry.id)).toEqual([
+      "newer",
+      "hidden_middle",
+      "older",
+    ]);
+  });
+
+  test("emits app-only date-quality issues for ambiguous chronology", () => {
+    const draft = {
+      id: "resume_draft_job_ready",
+      jobId: "job_ready",
+      status: "needs_review" as const,
+      templateId: "classic_ats" as const,
+      identity: null,
+      sections: [
+        buildSection([
+          buildEntry({ id: "missing", dateRange: null, sortOrder: 0 }),
+          buildEntry({ id: "reversed", dateRange: "2024 - 2022", sortOrder: 1 }),
+          buildEntry({ id: "future", dateRange: "Jan 2030 - Dec 2030", sortOrder: 2 }),
+          buildEntry({ id: "current_a", dateRange: "2020 - Present", sortOrder: 3 }),
+          buildEntry({ id: "current_b", dateRange: "2021 - Present", sortOrder: 4 }),
+        ]),
+      ],
+      targetPageCount: 2,
+      generationMethod: "manual" as const,
+      approvedAt: null,
+      approvedExportId: null,
+      staleReason: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const issueIds = buildResumeEntryDateQualityIssues(
+      draft,
+      new Date("2026-03-20T00:00:00.000Z"),
+    ).map((issue) => issue.id);
+
+    expect(issueIds).toEqual(expect.arrayContaining([
+      "issue_date_missing_missing",
+      "issue_date_reversed_reversed",
+      "issue_date_future_future",
+      "issue_date_duplicate_current_current_a",
+      "issue_date_duplicate_current_current_b",
+    ]));
+    expect(issueIds.some((id) => id.startsWith("issue_date_overlap_"))).toBe(true);
+  });
+});

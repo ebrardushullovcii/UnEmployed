@@ -559,6 +559,8 @@ export const resumeTemplateIdValues = [
   "technical_matrix",
   "project_showcase",
   "credentials_focus",
+  "timeline_longform",
+  "career_pivot",
 ] as const;
 
 export const ResumeTemplateIdSchema = z.enum(resumeTemplateIdValues);

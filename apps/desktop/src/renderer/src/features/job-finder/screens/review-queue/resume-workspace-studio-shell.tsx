@@ -146,9 +146,9 @@ export function ResumeWorkspaceStudioShell(
         </Tabs>
       </div>
 
-      <div className="hidden min-h-0 flex-1 p-2.5 xl:grid">
-        <div className="grid min-h-0 min-w-0 gap-2.5 xl:grid-cols-[minmax(0,52rem)_minmax(30rem,1fr)]">
-          <div className="min-h-0 min-w-0 overflow-hidden">{props.previewPane}</div>
+      <div className="hidden min-h-0 flex-1 p-2.5 xl:grid xl:h-full">
+        <div className="grid h-full min-h-0 min-w-0 gap-2.5 xl:grid-cols-[minmax(0,52rem)_minmax(30rem,1fr)]">
+          <div className="h-full min-h-0 min-w-0 overflow-hidden">{props.previewPane}</div>
           <div
             className="flex h-full min-h-0 min-w-0 flex-col gap-2.5 overflow-y-auto overflow-x-hidden pr-1"
             data-resume-workspace-scroll-region

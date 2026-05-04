@@ -1,4 +1,4 @@
-import { TailoredResumeDraftSchema } from "./shared";
+import { TailoredResumeDraftSchema, type TailoredResumeDraft } from "./shared";
 import {
   buildDeterministicStructuredResumeDraft,
   composeDeterministicFullText,
@@ -97,6 +97,59 @@ function normalizeNullableString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
+function hasVisibleExperienceContent(entry: {
+  title?: string | null;
+  employer?: string | null;
+  location?: string | null;
+  dateRange?: string | null;
+  summary?: string | null;
+  bullets?: string[];
+}): boolean {
+  return Boolean(
+    normalizeNullableString(entry.title) ||
+      normalizeNullableString(entry.employer) ||
+      normalizeNullableString(entry.location) ||
+      normalizeNullableString(entry.dateRange) ||
+      normalizeNullableString(entry.summary) ||
+      sanitizeStringArray(entry.bullets).length > 0,
+  );
+}
+
+type FallbackExperienceEntry = TailoredResumeDraft["experienceEntries"][number];
+
+function normalizeComparableText(value: string | null | undefined): string {
+  return (value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function entryMatchesFallback(
+  entry: {
+    title?: string | null;
+    employer?: string | null;
+    dateRange?: string | null;
+  },
+  fallbackEntry: FallbackExperienceEntry,
+): boolean {
+  const entryTitle = normalizeComparableText(entry.title);
+  const fallbackTitle = normalizeComparableText(fallbackEntry.title);
+  const entryEmployer = normalizeComparableText(entry.employer);
+  const fallbackEmployer = normalizeComparableText(fallbackEntry.employer);
+  const entryDateRange = normalizeComparableText(entry.dateRange);
+  const fallbackDateRange = normalizeComparableText(fallbackEntry.dateRange);
+
+  if (entryTitle && fallbackTitle && entryEmployer && fallbackEmployer) {
+    return entryTitle === fallbackTitle && entryEmployer === fallbackEmployer;
+  }
+
+  if (entryTitle && fallbackTitle && entryDateRange && fallbackDateRange) {
+    return entryTitle === fallbackTitle && entryDateRange === fallbackDateRange;
+  }
+
+  return false;
+}
+
 function normalizeExperienceEntries(
   entries: Array<{
     title?: string | null;
@@ -111,30 +164,77 @@ function normalizeExperienceEntries(
     typeof buildDeterministicStructuredResumeDraft
   >["experienceEntries"],
 ) {
-  return entries.map((entry, index) => {
-    const fallbackEntry = fallbackEntries[index];
+  const knownFallbackIds = new Set(
+    fallbackEntries
+      .map((entry) => entry.profileRecordId)
+      .filter((value): value is string => Boolean(value)),
+  );
+  const entriesByFallbackId = new Map<string, typeof entries[number]>();
+  const usedEntryIndexes = new Set<number>();
+
+  entries.forEach((entry, index) => {
+    const entryRecordId = normalizeNullableString(entry.profileRecordId);
+    if (!entryRecordId || !knownFallbackIds.has(entryRecordId)) {
+      return;
+    }
+
+    if (!entriesByFallbackId.has(entryRecordId)) {
+      entriesByFallbackId.set(entryRecordId, entry);
+      usedEntryIndexes.add(index);
+    }
+  });
+
+  fallbackEntries.forEach((fallbackEntry) => {
+    if (!fallbackEntry.profileRecordId || entriesByFallbackId.has(fallbackEntry.profileRecordId)) {
+      return;
+    }
+
+    const matchedIndex = entries.findIndex((entry, index) => {
+      if (usedEntryIndexes.has(index)) {
+        return false;
+      }
+
+      return entryMatchesFallback(entry, fallbackEntry);
+    });
+
+    if (matchedIndex >= 0) {
+      entriesByFallbackId.set(fallbackEntry.profileRecordId, entries[matchedIndex]!);
+      usedEntryIndexes.add(matchedIndex);
+    }
+  });
+
+  return fallbackEntries.map((fallbackEntry, index) => {
+    const matchedEntry = fallbackEntry.profileRecordId
+      ? entriesByFallbackId.get(fallbackEntry.profileRecordId) ??
+        (!entries[index] || usedEntryIndexes.has(index) || !hasVisibleExperienceContent(entries[index])
+          ? undefined
+          : entries[index])
+      : entries[index];
+
+    if (!matchedEntry) {
+      return fallbackEntry;
+    }
 
     return {
       title:
-        normalizeNullableString(entry.title) ?? fallbackEntry?.title ?? null,
+        normalizeNullableString(matchedEntry.title) ?? fallbackEntry.title ?? null,
       employer:
-        normalizeNullableString(entry.employer) ??
-        fallbackEntry?.employer ??
+        normalizeNullableString(matchedEntry.employer) ??
+        fallbackEntry.employer ??
         null,
       location:
-        normalizeNullableString(entry.location) ??
-        fallbackEntry?.location ??
+        normalizeNullableString(matchedEntry.location) ??
+        fallbackEntry.location ??
         null,
       dateRange:
-        normalizeNullableString(entry.dateRange) ??
-        fallbackEntry?.dateRange ??
+        normalizeNullableString(matchedEntry.dateRange) ??
+        fallbackEntry.dateRange ??
         null,
-      summary: normalizeNullableString(entry.summary),
-      bullets: sanitizeStringArray(entry.bullets),
-      profileRecordId:
-        normalizeNullableString(entry.profileRecordId) ??
-        fallbackEntry?.profileRecordId ??
-        null,
+      summary: normalizeNullableString(matchedEntry.summary) ?? fallbackEntry.summary,
+      bullets: sanitizeStringArray(matchedEntry.bullets).length > 0
+        ? sanitizeStringArray(matchedEntry.bullets)
+        : fallbackEntry.bullets,
+      profileRecordId: fallbackEntry.profileRecordId ?? null,
     };
   });
 }
@@ -251,18 +351,18 @@ export function completeTailoredResumeDraft(
         )
       : []),
   ]);
+  const experienceEntries = sanitizedExperienceEntries.length > 0
+    ? normalizeExperienceEntries(
+        sanitizedExperienceEntries,
+        fallback.experienceEntries,
+      )
+    : fallback.experienceEntries;
   const fullText = composeDeterministicFullText({
     label,
     summary,
     experienceHighlights,
     coreSkills: groundedCoreSkills,
-    experienceEntries:
-      sanitizedExperienceEntries.length > 0
-        ? normalizeExperienceEntries(
-            sanitizedExperienceEntries,
-            fallback.experienceEntries,
-          )
-        : fallback.experienceEntries,
+    experienceEntries,
     projectEntries:
       sanitizedProjectEntries.length > 0
         ? sanitizedProjectEntries.map((entry) => ({
@@ -312,13 +412,9 @@ export function completeTailoredResumeDraft(
     experienceHighlights,
     coreSkills: groundedCoreSkills,
     targetedKeywords,
+    coverageMetadata: fallback.coverageMetadata,
     experienceEntries:
-      sanitizedExperienceEntries.length > 0
-        ? normalizeExperienceEntries(
-            sanitizedExperienceEntries,
-            fallback.experienceEntries,
-          )
-        : fallback.experienceEntries,
+      experienceEntries,
     projectEntries:
       sanitizedProjectEntries.length > 0
         ? sanitizedProjectEntries.map((entry) => ({
