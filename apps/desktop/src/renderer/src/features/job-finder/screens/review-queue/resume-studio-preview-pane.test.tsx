@@ -49,14 +49,14 @@ describe('ResumeStudioPreviewPane', () => {
         selectedEntryId={null}
         selectedSectionId="section_summary"
         selectedTargetId={null}
-        templateLabel="Swiss Minimal - Standard"
+        templateLabel="Chronology Classic"
       />,
     )
 
     expect(screen.getByText('Unsaved edits rendered')).toBeTruthy()
     expect(screen.getByText(/1 warning/i)).toBeTruthy()
     expect(screen.queryByText(/Add one more role-specific keyword to the summary/i)).toBeNull()
-    expect(screen.getByText('Swiss Minimal - Standard')).toBeTruthy()
+    expect(screen.getByText('Chronology Classic')).toBeTruthy()
     expect(screen.getByTitle('Live resume preview')).toBeTruthy()
   })
 
@@ -95,7 +95,7 @@ describe('ResumeStudioPreviewPane', () => {
         selectedEntryId={null}
         selectedSectionId="section_experience"
         selectedTargetId={null}
-        templateLabel="Swiss Minimal - Standard"
+        templateLabel="Chronology Classic"
       />,
     )
 

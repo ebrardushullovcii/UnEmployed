@@ -764,7 +764,7 @@ export function createPrimaryPageActions(
       ),
     onSaveResumeDraftAndThen: (
       draft: ResumeDraft,
-      next: () => void,
+      next: () => void | Promise<void>,
       successMessage?: string | null,
     ) =>
       void (async () => {
@@ -782,7 +782,17 @@ export function createPrimaryPageActions(
         )
 
         if (saveSucceeded && isCurrentResumeWorkspaceJob(jobId)) {
-          next()
+          try {
+            await next()
+          } catch (error) {
+            console.error('Resume workspace follow-up action failed.', error)
+            setActionState({
+              message:
+                error instanceof Error
+                  ? `Changes were saved, but the follow-up action failed. ${error.message}`
+                  : 'Changes were saved, but the follow-up action failed.',
+            })
+          }
         }
       })(),
     onApplyResumePatch: (

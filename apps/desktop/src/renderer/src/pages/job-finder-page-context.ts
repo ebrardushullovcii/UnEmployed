@@ -75,7 +75,7 @@ export interface JobFinderPageContext {
   onSaveResumeDraft: (draft: ResumeDraft) => void
   onSaveResumeDraftAndThen: (
     draft: ResumeDraft,
-    next: () => void,
+    next: () => void | Promise<void>,
     successMessage?: string | null,
   ) => void
   onSaveSetupStep: (

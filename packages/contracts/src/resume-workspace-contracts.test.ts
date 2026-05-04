@@ -3,6 +3,7 @@ import {
   JobFinderResumePreviewSchema,
   JobFinderResumeWorkspaceSchema,
   ResumeDraftSectionSchema,
+  ResumeDraftPatchSchema,
   ResumeAssistantMessageSchema,
   ResumeExportArtifactSchema,
   ResumeQualityBenchmarkReportSchema,
@@ -195,6 +196,18 @@ describe("contracts resume workspace schemas", () => {
         },
       ],
       tailoredAsset: null,
+      workHistoryReviewSuggestions: [
+        {
+          id: "work_history_review_experience_1",
+          profileRecordId: "experience_1",
+          sectionId: "section_experience",
+          entryId: "experience_1",
+          kind: "compact_recommended",
+          action: "keep_compact",
+          severity: "info",
+          message: "Compact older strong-fit role: included for career coverage without crowding recent experience.",
+        },
+      ],
     });
 
     expect(workspace.draft.sections[0]?.kind).toBe("summary");
@@ -214,6 +227,9 @@ describe("contracts resume workspace schemas", () => {
       "poor_keyword_coverage",
     );
     expect(workspace.exports[0]?.format).toBe("pdf");
+    expect(workspace.workHistoryReviewSuggestions[0]?.kind).toBe(
+      "compact_recommended",
+    );
   });
 
   test("rejects unsupported resume export formats", () => {
@@ -286,6 +302,59 @@ describe("contracts resume workspace schemas", () => {
     ).toBe(2);
   });
 
+  test("parses entry ordering patch operations and section order metadata", () => {
+    const section = ResumeDraftSectionSchema.parse({
+      id: "section_experience",
+      kind: "experience",
+      label: "Experience",
+      text: null,
+      bullets: [],
+      entries: [],
+      origin: "user_edited",
+      locked: false,
+      included: true,
+      sortOrder: 1,
+      entryOrderMode: "manual",
+      profileRecordId: null,
+      sourceRefs: [],
+      updatedAt: "2026-03-20T10:02:30.000Z",
+    });
+    const movePatch = ResumeDraftPatchSchema.parse({
+      id: "resume_patch_move_entry",
+      draftId: "resume_draft_1",
+      operation: "move_entry",
+      targetSectionId: "section_experience",
+      targetEntryId: "experience_older",
+      anchorEntryId: "experience_newer",
+      targetBulletId: null,
+      anchorBulletId: null,
+      position: "before",
+      newText: null,
+      newIncluded: null,
+      newLocked: null,
+      newBullets: null,
+      appliedAt: "2026-03-20T10:02:40.000Z",
+      origin: "user",
+      conflictReason: null,
+    });
+    const resetPatch = ResumeDraftPatchSchema.parse({
+      id: "resume_patch_reset_entry_order",
+      draftId: "resume_draft_1",
+      operation: "reset_entry_order",
+      targetSectionId: "section_experience",
+      appliedAt: "2026-03-20T10:02:41.000Z",
+      origin: "user",
+    });
+
+    expect(section.entryOrderMode).toBe("manual");
+    expect(movePatch.anchorEntryId).toBe("experience_newer");
+    expect(resetPatch).toMatchObject({
+      anchorEntryId: null,
+      operation: "reset_entry_order",
+      targetEntryId: null,
+    });
+  });
+
   test("parses resume quality benchmark reports", () => {
     const report = ResumeQualityBenchmarkReportSchema.parse({
       benchmarkVersion: "023-local-benchmark-v1",
@@ -297,6 +366,8 @@ describe("contracts resume workspace schemas", () => {
         "technical_matrix",
         "project_showcase",
         "credentials_focus",
+        "timeline_longform",
+        "career_pivot",
       ],
       persistedArtifactsDirectory: "apps/desktop/test-artifacts/ui/resume-quality-benchmark",
       cases: [
@@ -342,6 +413,8 @@ describe("contracts resume workspace schemas", () => {
       "technical_matrix",
       "project_showcase",
       "credentials_focus",
+      "timeline_longform",
+      "career_pivot",
     ]);
     expect(report.persistedArtifactsDirectory).toBe(
       "apps/desktop/test-artifacts/ui/resume-quality-benchmark",

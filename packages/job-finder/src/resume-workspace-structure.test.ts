@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { ResumeDraft } from "@unemployed/contracts";
 import {
   buildResumeRenderDocument,
+  buildResumeDraftFromTailoredDraft,
   seedResumeDraft,
 } from "./internal/resume-workspace-structure";
 import { createSeed } from "./workspace-service.test-support";
@@ -67,6 +68,7 @@ describe("buildResumeRenderDocument", () => {
           locked: false,
           included: true,
           sortOrder: 0,
+          entryOrderMode: "chronology",
           profileRecordId: null,
           sourceRefs: [],
           updatedAt: "2026-03-20T10:04:00.000Z",
@@ -112,6 +114,237 @@ describe("buildResumeRenderDocument", () => {
     const experience = draft.sections.find((section) => section.kind === "experience")?.entries[0];
 
     expect(experience?.dateRange).toMatch(/^[A-Z][a-z]{2} \d{4} – Present$/);
+  });
+
+  test("seedResumeDraft normalizes imported profile experience to newest-first chronology", () => {
+    const seed = createSeed();
+    const profile = {
+      ...seed.profile,
+      experiences: [
+        {
+          ...seed.profile.experiences[0]!,
+          id: "older_dotnet",
+          title: ".NET Developer",
+          startDate: "2016-01",
+          endDate: "2018-08",
+          isCurrent: false,
+        },
+        {
+          ...seed.profile.experiences[0]!,
+          id: "recent_dotnet",
+          title: ".NET Developer",
+          startDate: "2019-08",
+          endDate: "2022-01",
+          isCurrent: false,
+        },
+        {
+          ...seed.profile.experiences[0]!,
+          id: "current_platform",
+          title: "Platform Engineer",
+          startDate: "2023-07",
+          endDate: null,
+          isCurrent: true,
+        },
+      ],
+    };
+
+    const draft = seedResumeDraft({
+      profile,
+      job: seed.savedJobs[0]!,
+      templateId: seed.settings.resumeTemplateId,
+    });
+    const experienceEntries = draft.sections.find((section) => section.kind === "experience")?.entries ?? [];
+    const documentEntries = buildResumeRenderDocument(profile, draft).sections
+      .find((section) => section.kind === "experience")?.entries ?? [];
+
+    expect(experienceEntries.map((entry) => entry.profileRecordId)).toEqual([
+      "current_platform",
+      "recent_dotnet",
+      "older_dotnet",
+    ]);
+    expect(experienceEntries.map((entry) => entry.sortOrder)).toEqual([0, 1, 2]);
+    expect(documentEntries.map((entry) => entry.id)).toEqual(
+      experienceEntries.map((entry) => entry.id),
+    );
+  });
+
+  test("buildResumeDraftFromTailoredDraft keeps suggested-hidden guidance out of rendered resume content", () => {
+    const seed = createSeed();
+    const profile = {
+      ...seed.profile,
+      experiences: [
+        ...seed.profile.experiences,
+        {
+          id: "experience_sales_bridge",
+          companyName: "Bright Market",
+          companyUrl: null,
+          title: "Sales Operations Associate",
+          employmentType: "Full-time",
+          location: "Remote",
+          workMode: ["remote" as const],
+          startDate: "2019-01",
+          endDate: "2020-01",
+          isCurrent: false,
+          isDraft: false,
+          summary: "Coordinated customer operations reporting.",
+          achievements: ["Prepared weekly pipeline reporting for account teams."],
+          skills: [],
+          domainTags: [],
+          peopleManagementScope: null,
+          ownershipScope: null,
+        },
+      ],
+    };
+    const draft = buildResumeDraftFromTailoredDraft({
+      job: seed.savedJobs[0]!,
+      templateId: seed.settings.resumeTemplateId,
+      createdAt: "2026-03-20T10:04:00.000Z",
+      generationMethod: "deterministic",
+      profile,
+      draft: {
+        label: "Tailored Resume",
+        summary: "Grounded software summary.",
+        experienceHighlights: [],
+        coreSkills: ["React"],
+        targetedKeywords: ["React"],
+        experienceEntries: [
+          {
+            title: "Senior systems designer",
+            employer: "Signal Systems",
+            location: "London, UK",
+            dateRange: "Jan 2020 – Present",
+            summary: "Built workflow systems.",
+            bullets: ["Built workflow systems with React."],
+            profileRecordId: seed.profile.experiences[0]?.id ?? "experience_1",
+          },
+        ],
+        projectEntries: [],
+        educationEntries: [],
+        certificationEntries: [],
+        coverageMetadata: [
+          {
+            profileRecordId: "experience_sales_bridge",
+            classification: "suggested_hidden",
+            careerFamilyFit: "weak",
+            reasons: ["weak career-family fit"],
+            reviewGuidance: [
+              "Hidden by default for review: this role has a weaker career-family fit for the target job.",
+            ],
+            coversMeaningfulGap: false,
+          },
+        ],
+        additionalSkills: [],
+        languages: [],
+        fullText: "Grounded software summary.",
+        compatibilityScore: 80,
+        notes: [],
+      },
+    });
+    const experienceSection = draft.sections.find((section) => section.kind === "experience");
+    const hiddenEntry = experienceSection?.entries.find(
+      (entry) => entry.profileRecordId === "experience_sales_bridge",
+    );
+    const document = buildResumeRenderDocument(profile, draft);
+
+    expect(hiddenEntry).toMatchObject({
+      included: false,
+      title: "Sales Operations Associate",
+    });
+    expect(JSON.stringify(document)).not.toContain("weaker career-family fit");
+    expect(JSON.stringify(document)).not.toContain("Sales Operations Associate");
+  });
+
+  test("buildResumeDraftFromTailoredDraft chronologically reinserts suggested-hidden entries", () => {
+    const seed = createSeed();
+    const profile = {
+      ...seed.profile,
+      experiences: [
+        {
+          ...seed.profile.experiences[0]!,
+          id: "current_role",
+          title: "Current role",
+          startDate: "2023-07",
+          endDate: null,
+          isCurrent: true,
+        },
+        {
+          ...seed.profile.experiences[0]!,
+          id: "hidden_middle",
+          title: "Hidden middle role",
+          startDate: "2019-08",
+          endDate: "2022-01",
+          isCurrent: false,
+        },
+        {
+          ...seed.profile.experiences[0]!,
+          id: "older_role",
+          title: "Older role",
+          startDate: "2016-01",
+          endDate: "2018-08",
+          isCurrent: false,
+        },
+      ],
+    };
+    const draft = buildResumeDraftFromTailoredDraft({
+      job: seed.savedJobs[0]!,
+      templateId: seed.settings.resumeTemplateId,
+      createdAt: "2026-03-20T10:04:00.000Z",
+      generationMethod: "deterministic",
+      profile,
+      draft: {
+        label: "Tailored Resume",
+        summary: "Grounded software summary.",
+        experienceHighlights: [],
+        coreSkills: ["React"],
+        targetedKeywords: ["React"],
+        experienceEntries: [
+          {
+            title: "Older role",
+            employer: "Example Co",
+            location: "Remote",
+            dateRange: "Jan 2016 - Aug 2018",
+            summary: "Older summary.",
+            bullets: ["Older impact."],
+            profileRecordId: "older_role",
+          },
+          {
+            title: "Current role",
+            employer: "Example Co",
+            location: "Remote",
+            dateRange: "Jul 2023 - Present",
+            summary: "Current summary.",
+            bullets: ["Current impact."],
+            profileRecordId: "current_role",
+          },
+        ],
+        projectEntries: [],
+        educationEntries: [],
+        certificationEntries: [],
+        coverageMetadata: [
+          {
+            profileRecordId: "hidden_middle",
+            classification: "suggested_hidden",
+            careerFamilyFit: "weak",
+            reasons: ["weak fit"],
+            reviewGuidance: ["Hidden for review."],
+            coversMeaningfulGap: false,
+          },
+        ],
+        additionalSkills: [],
+        languages: [],
+        fullText: "Grounded software summary.",
+        compatibilityScore: 80,
+        notes: [],
+      },
+    });
+    const experienceEntries = draft.sections.find((section) => section.kind === "experience")?.entries ?? [];
+
+    expect(experienceEntries.map((entry) => entry.profileRecordId)).toEqual([
+      "current_role",
+      "hidden_middle",
+      "older_role",
+    ]);
+    expect(experienceEntries.find((entry) => entry.profileRecordId === "hidden_middle")?.included).toBe(false);
   });
 
   test("surfaces preferred links and project URLs without turning project skills into bullets", () => {

@@ -11,6 +11,324 @@ import {
 } from "./test-fixtures";
 
 describe("resume generation quality", () => {
+  test("uses coverage policy instead of silently capping work history at the first three roles", () => {
+    const baseProfile = createProfile();
+    const profile: typeof baseProfile = {
+      ...baseProfile,
+      skills: ["React", "TypeScript", "C#", ".NET"],
+      experiences: [
+        {
+          id: "experience_current_frontend",
+          companyName: "Atlas Product",
+          companyUrl: null,
+          title: "Senior Frontend Engineer",
+          employmentType: "Full-time",
+          location: "Remote",
+          workMode: ["remote"],
+          startDate: "2024-01",
+          endDate: null,
+          isCurrent: true,
+          isDraft: false,
+          summary: "Builds React product experiences for workflow teams.",
+          achievements: ["Built React workspace flows used by product teams."],
+          skills: ["React", "TypeScript"],
+          domainTags: ["frontend platform"],
+          peopleManagementScope: null,
+          ownershipScope: null,
+        },
+        {
+          id: "experience_sales",
+          companyName: "Bright Market",
+          companyUrl: null,
+          title: "Sales Associate",
+          employmentType: "Full-time",
+          location: "Remote",
+          workMode: ["remote"],
+          startDate: "2022-01",
+          endDate: "2023-12",
+          isCurrent: false,
+          isDraft: false,
+          summary: "Coordinated CRM workflow automation handoffs with engineering.",
+          achievements: ["Helped account teams prepare renewal notes and automation handoff checklists."],
+          skills: ["Automation"],
+          domainTags: ["workflow operations"],
+          peopleManagementScope: null,
+          ownershipScope: null,
+        },
+        {
+          id: "experience_support",
+          companyName: "CareDesk",
+          companyUrl: null,
+          title: "Customer Support Lead",
+          employmentType: "Full-time",
+          location: "Remote",
+          workMode: ["remote"],
+          startDate: "2020-01",
+          endDate: "2021-12",
+          isCurrent: false,
+          isDraft: false,
+          summary: "Coordinated support operations.",
+          achievements: ["Documented customer escalation playbooks."],
+          skills: [],
+          domainTags: [],
+          peopleManagementScope: null,
+          ownershipScope: null,
+        },
+        {
+          id: "experience_dotnet",
+          companyName: "CoreLedger",
+          companyUrl: null,
+          title: ".NET Developer",
+          employmentType: "Full-time",
+          location: "Prishtina, Kosovo",
+          workMode: ["hybrid"],
+          startDate: "2018-01",
+          endDate: "2019-12",
+          isCurrent: false,
+          isDraft: false,
+          summary: "Built .NET web applications and API integrations.",
+          achievements: ["Migrated .NET services and improved API response time by 25% using cached reads."],
+          skills: [".NET", "C#", "SQL"],
+          domainTags: ["web applications"],
+          peopleManagementScope: null,
+          ownershipScope: null,
+        },
+      ],
+    };
+
+    const result = buildDeterministicStructuredResumeDraft({
+      profile,
+      searchPreferences: createPreferences(),
+      settings: createSettings(),
+      job: {
+        ...createJobPosting(),
+        title: "Senior Full-Stack Engineer",
+        keySkills: ["React", ".NET", "TypeScript"],
+      },
+      resumeText: profile.baseResume.textContent,
+      evidence: {
+        summary: [],
+        candidateSummary: [],
+        experience: [],
+        skills: ["React", ".NET"],
+        keywords: ["React", ".NET"],
+      },
+      researchContext: {
+        companyNotes: [],
+        domainVocabulary: [],
+        priorityThemes: [],
+      },
+    });
+
+    expect(result.experienceEntries.map((entry) => entry.profileRecordId)).toEqual([
+      "experience_current_frontend",
+      "experience_dotnet",
+    ]);
+    expect(result.experienceEntries).toHaveLength(2);
+    expect(result.experienceEntries[1]?.bullets).toEqual([
+      "Migrated .NET services and improved API response time by 25% using cached reads.",
+    ]);
+    expect(result.coverageMetadata).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          profileRecordId: "experience_dotnet",
+          classification: "compact",
+          careerFamilyFit: "strong",
+        }),
+        expect.objectContaining({
+          profileRecordId: "experience_sales",
+          classification: "suggested_hidden",
+        }),
+      ]),
+    );
+  });
+
+  test("tailoring mode changes weak-fit defaults without inventing technical claims", () => {
+    const baseProfile = createProfile();
+    const weakFitExperience = {
+      id: "experience_ops_tooling",
+      companyName: "OpsBridge",
+      companyUrl: null,
+      title: "Operations Coordinator",
+      employmentType: "Full-time",
+      location: "Remote",
+      workMode: ["remote" as const],
+      startDate: "2021-01",
+      endDate: "2022-12",
+      isCurrent: false,
+      isDraft: false,
+      summary: "Maintained workflow automation dashboards for support operations.",
+      achievements: ["Built workflow automation dashboards that reduced manual QA checks by 30% using Airtable and SQL exports."],
+      skills: ["SQL", "Automation"],
+      domainTags: ["workflow automation"],
+      peopleManagementScope: null,
+      ownershipScope: null,
+    };
+    const profile: typeof baseProfile = {
+      ...baseProfile,
+      skills: ["React", "TypeScript", "SQL", "Automation"],
+      experiences: [
+        {
+          ...weakFitExperience,
+        },
+      ],
+    };
+    const input = {
+      profile,
+      settings: createSettings(),
+      job: {
+        ...createJobPosting(),
+        title: "Frontend Engineer",
+        keySkills: ["React", "TypeScript"],
+      },
+      resumeText: profile.baseResume.textContent,
+      evidence: {
+        summary: [],
+        candidateSummary: [],
+        experience: [],
+        skills: ["React", "TypeScript"],
+        keywords: ["React", "TypeScript"],
+      },
+      researchContext: {
+        companyNotes: [],
+        domainVocabulary: [],
+        priorityThemes: [],
+      },
+    };
+
+    const balancedResult = buildDeterministicStructuredResumeDraft({
+      ...input,
+      searchPreferences: createPreferences(),
+    });
+    const aggressiveResult = buildDeterministicStructuredResumeDraft({
+      ...input,
+      searchPreferences: {
+        ...createPreferences(),
+        tailoringMode: "aggressive" as const,
+      },
+    });
+
+    expect(balancedResult.experienceEntries).toEqual([]);
+    expect(balancedResult.coverageMetadata[0]).toMatchObject({
+      profileRecordId: "experience_ops_tooling",
+      classification: "suggested_hidden",
+      careerFamilyFit: "weak",
+    });
+    expect(aggressiveResult.experienceEntries[0]).toMatchObject({
+      profileRecordId: "experience_ops_tooling",
+      title: "Operations Coordinator",
+      employer: "OpsBridge",
+      bullets: [
+        "Built workflow automation dashboards that reduced manual QA checks by 30% using Airtable and SQL exports.",
+      ],
+    });
+    expect(aggressiveResult.fullText).not.toMatch(/React.*OpsBridge|Frontend Engineer.*OpsBridge/);
+  });
+
+  test("requires actual missing-month overlap before using weak roles as gap coverage", () => {
+    const baseProfile = createProfile();
+    const profile: typeof baseProfile = {
+      ...baseProfile,
+      skills: ["React", "TypeScript", "SQL", "Automation"],
+      experiences: [
+        {
+          id: "experience_current_frontend",
+          companyName: "Atlas Product",
+          companyUrl: null,
+          title: "Senior Frontend Engineer",
+          employmentType: "Full-time",
+          location: "Remote",
+          workMode: ["remote"],
+          startDate: "2024-01",
+          endDate: null,
+          isCurrent: true,
+          isDraft: false,
+          summary: "Builds React workflow products.",
+          achievements: ["Built React workflow products."],
+          skills: ["React", "TypeScript"],
+          domainTags: ["frontend platform"],
+          peopleManagementScope: null,
+          ownershipScope: null,
+        },
+        {
+          id: "experience_boundary_touching_ops",
+          companyName: "OpsBridge",
+          companyUrl: null,
+          title: "Operations Coordinator",
+          employmentType: "Full-time",
+          location: "Remote",
+          workMode: ["remote"],
+          startDate: "2023-12",
+          endDate: "2023-12",
+          isCurrent: false,
+          isDraft: false,
+          summary: "Maintained workflow automation dashboards for support operations.",
+          achievements: ["Maintained workflow automation dashboards using SQL exports."],
+          skills: ["SQL", "Automation"],
+          domainTags: ["workflow automation"],
+          peopleManagementScope: null,
+          ownershipScope: null,
+        },
+        {
+          id: "experience_dotnet",
+          companyName: "CoreLedger",
+          companyUrl: null,
+          title: ".NET Developer",
+          employmentType: "Full-time",
+          location: "Remote",
+          workMode: ["remote"],
+          startDate: "2019-01",
+          endDate: "2023-12",
+          isCurrent: false,
+          isDraft: false,
+          summary: "Built .NET APIs and web applications.",
+          achievements: ["Improved API latency by 25% through cached .NET endpoints."],
+          skills: [".NET", "C#"],
+          domainTags: ["web applications"],
+          peopleManagementScope: null,
+          ownershipScope: null,
+        },
+      ],
+    };
+
+    const result = buildDeterministicStructuredResumeDraft({
+      profile,
+      searchPreferences: createPreferences(),
+      settings: createSettings(),
+      job: {
+        ...createJobPosting(),
+        title: "Full-Stack Engineer",
+        keySkills: ["React", ".NET", "TypeScript"],
+      },
+      resumeText: profile.baseResume.textContent,
+      evidence: {
+        summary: [],
+        candidateSummary: [],
+        experience: [],
+        skills: ["React", ".NET"],
+        keywords: ["React", ".NET"],
+      },
+      researchContext: {
+        companyNotes: [],
+        domainVocabulary: [],
+        priorityThemes: [],
+      },
+    });
+
+    expect(result.coverageMetadata).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          profileRecordId: "experience_boundary_touching_ops",
+          classification: "suggested_hidden",
+          coversMeaningfulGap: false,
+        }),
+      ]),
+    );
+    expect(result.experienceEntries.map((entry) => entry.profileRecordId)).not.toContain(
+      "experience_boundary_touching_ops",
+    );
+  });
+
   test("keeps visible skills grounded to the candidate instead of job-only terms", () => {
     const baseProfile = createProfile();
     const profile = {

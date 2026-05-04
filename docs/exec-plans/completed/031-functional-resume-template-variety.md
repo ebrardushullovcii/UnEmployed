@@ -1,12 +1,12 @@
 # 031 Functional Resume Template Variety
 
-Status: ready
+Status: completed
 
 ## Goal
 
 Rebuild the resume template catalog around functional layout variety, using realistic draft evidence from `030` so users get meaningfully different apply-safe choices instead of near-duplicate visual treatments.
 
-This plan depends on `docs/exec-plans/queued/030-resume-coverage-and-copy-quality.md` for improved long-history and mixed-history draft inputs.
+This plan depends on `docs/exec-plans/completed/030-resume-coverage-and-copy-quality.md` for improved long-history and mixed-history draft inputs.
 
 ## Constraints
 
@@ -73,3 +73,10 @@ This plan depends on `docs/exec-plans/queued/030-resume-coverage-and-copy-qualit
 - Any new template ID is fully wired through contracts, catalog, renderer, UI, benchmark selection, and approval safety.
 - Real fixture and synthetic resume-quality outputs remain ATS-safe across all approval-eligible templates.
 - Representative screenshot evidence covers each distinct layout purpose and high-risk long-history/mixed-history cases.
+
+## Completion Notes
+
+- The shipped apply-safe catalog now keeps the original six stable ids and adds `timeline_longform` and `career_pivot`.
+- Shipped families and variants are `Chronology Classic` / `Recruiter Standard`, `Senior Brief` / `Dense Timeline`, `Modern Editorial` / `Polished Default`, `Engineering Spec` / `Skills First`, `Proof Portfolio` / `Projects First`, `Credential Ledger` / `Credentials First`, `Longform Timeline` / `Career Depth`, and `Career Pivot Bridge` / `Hybrid Bridge`.
+- Renderer, contract, benchmark, and workspace references were updated to expect the eight-template catalog where they reflect shipped behavior.
+- Follow-up polish simplified the picker from a two-step family flow to direct one-click template selection and neutralized template coloring while preserving layout variety.
