@@ -797,7 +797,7 @@ describe("openai-compatible chat and draft behavior", () => {
         "experience_orbit_old",
       ]);
       expect(result.experienceEntries[1]?.bullets).toEqual([
-        "Maintained legacy workflow tooling.",
+        "Model text for the older Orbit stint.",
       ]);
     } finally {
       restoreFetch();

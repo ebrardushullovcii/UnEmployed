@@ -177,7 +177,9 @@ function canonicalizeComparableDateRange(value: string | null | undefined): stri
     return null;
   }
 
-  const parts = trimmed.split(/\s*[–—-]\s*/).map((part) => canonicalizeComparableDatePart(part));
+  const parts = trimmed
+    .split(/\s*[–—]\s*|\s+-\s+/)
+    .map((part) => canonicalizeComparableDatePart(part));
   if (parts.length >= 2 && parts[0] && parts[1]) {
     return `${parts[0]}__${parts[1]}`;
   }
