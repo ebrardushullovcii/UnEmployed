@@ -81,11 +81,10 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
 
       const page = document.querySelector<HTMLElement>(".page");
       const body = document.body;
-      const nextHeight = Math.ceil(
-        (page?.getBoundingClientRect().height ?? body?.scrollHeight ?? 0) + 8,
-      );
+      const rawHeight = page?.getBoundingClientRect().height ?? body?.scrollHeight ?? 0;
 
-      if (nextHeight > 0) {
+      if (rawHeight > 0) {
+        const nextHeight = Math.ceil(rawHeight + 8);
         setPreviewHeight(`${nextHeight}px`);
       }
     };

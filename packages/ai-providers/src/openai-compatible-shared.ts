@@ -106,6 +106,85 @@ function normalizeComparableText(value: string | null | undefined): string {
     .trim();
 }
 
+function canonicalizeComparableDatePart(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) {
+    return null;
+  }
+
+  if (/^present$/i.test(trimmed)) {
+    return "present";
+  }
+
+  if (/^\d{4}$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  const yearMonthMatch = /^(\d{4})-(\d{2})(?:-\d{2})?$/.exec(trimmed);
+  if (yearMonthMatch) {
+    const month = Number(yearMonthMatch[2]);
+    return month >= 1 && month <= 12 ? `${yearMonthMatch[1]}-${yearMonthMatch[2]}` : null;
+  }
+
+  const monthYearSlashMatch = /^(\d{1,2})\/(\d{4})$/.exec(trimmed);
+  if (monthYearSlashMatch) {
+    const month = Number(monthYearSlashMatch[1]);
+    return month >= 1 && month <= 12
+      ? `${monthYearSlashMatch[2]}-${String(month).padStart(2, "0")}`
+      : null;
+  }
+
+  const namedMonthMatch = /^([A-Za-z]+)\.?\s+(\d{4})$/.exec(trimmed);
+  if (namedMonthMatch) {
+    const monthByName: Record<string, number> = {
+      jan: 1,
+      january: 1,
+      feb: 2,
+      february: 2,
+      mar: 3,
+      march: 3,
+      apr: 4,
+      april: 4,
+      may: 5,
+      jun: 6,
+      june: 6,
+      jul: 7,
+      july: 7,
+      aug: 8,
+      august: 8,
+      sep: 9,
+      sept: 9,
+      september: 9,
+      oct: 10,
+      october: 10,
+      nov: 11,
+      november: 11,
+      dec: 12,
+      december: 12,
+    };
+    const month = monthByName[namedMonthMatch[1]?.toLowerCase() ?? ""] ?? null;
+    return month
+      ? `${namedMonthMatch[2]}-${String(month).padStart(2, "0")}`
+      : null;
+  }
+
+  return normalizeComparableText(trimmed) || null;
+}
+
+function canonicalizeComparableDateRange(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) {
+    return null;
+  }
+
+  const parts = trimmed.split(/\s*[–—-]\s*/).map((part) => canonicalizeComparableDatePart(part));
+  if (parts.length >= 2 && parts[0] && parts[1]) {
+    return `${parts[0]}__${parts[1]}`;
+  }
+
+  return canonicalizeComparableDatePart(trimmed);
+}
+
 function entryMatchesFallback(
   entry: {
     title?: string | null;
@@ -118,8 +197,8 @@ function entryMatchesFallback(
   const fallbackTitle = normalizeComparableText(fallbackEntry.title);
   const entryEmployer = normalizeComparableText(entry.employer);
   const fallbackEmployer = normalizeComparableText(fallbackEntry.employer);
-  const entryDateRange = normalizeComparableText(entry.dateRange);
-  const fallbackDateRange = normalizeComparableText(fallbackEntry.dateRange);
+  const entryDateRange = canonicalizeComparableDateRange(entry.dateRange);
+  const fallbackDateRange = canonicalizeComparableDateRange(fallbackEntry.dateRange);
 
   if (
     entryTitle &&
@@ -167,8 +246,8 @@ function entryConflictsWithFallback(
     return true;
   }
 
-  const entryDateRange = normalizeComparableText(entry.dateRange);
-  const fallbackDateRange = normalizeComparableText(fallbackEntry.dateRange);
+  const entryDateRange = canonicalizeComparableDateRange(entry.dateRange);
+  const fallbackDateRange = canonicalizeComparableDateRange(fallbackEntry.dateRange);
   if (entryDateRange && fallbackDateRange && entryDateRange !== fallbackDateRange) {
     return true;
   }

@@ -698,6 +698,109 @@ describe("openai-compatible chat and draft behavior", () => {
     }
   });
 
+  test("matches semantically equivalent date-range formats across normalized inputs", async () => {
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              label: "Tailored Resume",
+              summary: "Tailored summary",
+              experienceEntries: [
+                {
+                  title: "Software Engineer",
+                  employer: "Orbit Commerce",
+                  dateRange: "2019-01 – 2021-12",
+                  bullets: ["Model text for the older Orbit stint."],
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    });
+
+    try {
+      const client = createOpenAiCompatibleJobFinderAiClient({
+        apiKey: "test-key",
+        baseUrl: "https://example.com/v1",
+        model: "test-model",
+      });
+      const baseProfile = createProfile();
+      const input = {
+        profile: {
+          ...baseProfile,
+          experiences: [
+            {
+              id: "experience_orbit_new",
+              companyName: "Orbit Commerce",
+              companyUrl: null,
+              title: "Software Engineer",
+              employmentType: null,
+              location: "Remote",
+              workMode: ["remote" as const],
+              startDate: "2022-01",
+              endDate: "2024-02",
+              isCurrent: false,
+              isDraft: false,
+              summary: "Newest Orbit stint.",
+              achievements: ["Built modern workflow tooling."],
+              skills: ["React"],
+              domainTags: ["commerce"],
+              peopleManagementScope: null,
+              ownershipScope: null,
+            },
+            {
+              id: "experience_orbit_old",
+              companyName: "Orbit Commerce",
+              companyUrl: null,
+              title: "Software Engineer",
+              employmentType: null,
+              location: "Remote",
+              workMode: ["remote" as const],
+              startDate: "2019-01",
+              endDate: "2021-12",
+              isCurrent: false,
+              isDraft: false,
+              summary: "Older Orbit stint.",
+              achievements: ["Maintained legacy workflow tooling."],
+              skills: ["TypeScript"],
+              domainTags: ["commerce"],
+              peopleManagementScope: null,
+              ownershipScope: null,
+            },
+          ],
+        },
+        searchPreferences: createPreferences(),
+        settings: createSettings(),
+        job: createJobPosting(),
+        resumeText: "Resume text",
+        evidence: {
+          summary: [],
+          candidateSummary: [],
+          experience: [],
+          skills: ["React", "TypeScript"],
+          keywords: ["React", "TypeScript"],
+        },
+        researchContext: {
+          companyNotes: [],
+          domainVocabulary: [],
+          priorityThemes: [],
+        },
+      } satisfies Parameters<typeof client.createResumeDraft>[0];
+
+      const result = await client.createResumeDraft(input);
+
+      expect(result.experienceEntries[1]?.profileRecordId).toBe("experience_orbit_old");
+      expect(result.experienceEntries.map((entry) => entry.profileRecordId)).toEqual([
+        "experience_orbit_new",
+        "experience_orbit_old",
+      ]);
+    } finally {
+      restoreFetch();
+    }
+  });
+
   test("treats invalid ISO months as unknown for deterministic chronology", () => {
     const baseProfile = createProfile();
     const input = {

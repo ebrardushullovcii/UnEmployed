@@ -339,7 +339,7 @@ function hasPollutedTitleSignals(value: string): boolean {
 
 function isCompanyMarkerLine(line: string): boolean {
   const cleaned = cleanLine(line.replace(/^[^A-Za-z0-9]+/, ""));
-  return /^[A-Z0-9&.'()/-]+(?:\s+[A-Z0-9&.'()/-]+)*\s*[–—-]\s*[A-Z][A-Z\s.'-]+,\s*[A-Z][A-Z\s.'-]+$/.test(
+  return /^[A-Za-z0-9&.'()/-]+(?:\s+[A-Za-z0-9&.'()/-]+)*\s*[–—-]\s*[A-Z][A-Za-z\s.'-]+,\s*[A-Z][A-Za-z\s.'-]+$/.test(
     cleaned,
   );
 }
@@ -347,7 +347,7 @@ function isCompanyMarkerLine(line: string): boolean {
 function parseCompanyMarker(line: string) {
   const cleaned = cleanLine(line.replace(/^[^A-Za-z0-9]+/, ""));
   const match = cleaned.match(
-    /^([A-Z0-9&.'()/-]+(?:\s+[A-Z0-9&.'()/-]+)*)\s*[–—-]\s*([A-Z][A-Z\s.'-]+,\s*[A-Z][A-Z\s.'-]+)$/,
+    /^([A-Za-z0-9&.'()/-]+(?:\s+[A-Za-z0-9&.'()/-]+)*)\s*[–—-]\s*([A-Z][A-Za-z\s.'-]+,\s*[A-Z][A-Za-z\s.'-]+)$/,
   );
 
   if (!match) {
@@ -564,7 +564,7 @@ function splitExperienceBlocks(lines: readonly string[]): string[][] {
       if (looksLikeUpcomingHeader) {
         blocks.push(currentBlock);
         currentBlock = [];
-        pendingHeaderLines = [...pendingHeaderLines.slice(-1), line];
+        pendingHeaderLines = [...pendingHeaderLines.slice(-2), line];
         continue;
       }
 
