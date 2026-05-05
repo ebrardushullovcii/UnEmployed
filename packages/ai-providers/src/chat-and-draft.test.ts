@@ -796,6 +796,9 @@ describe("openai-compatible chat and draft behavior", () => {
         "experience_orbit_new",
         "experience_orbit_old",
       ]);
+      expect(result.experienceEntries[1]?.bullets).toEqual([
+        "Maintained legacy workflow tooling.",
+      ]);
     } finally {
       restoreFetch();
     }
@@ -995,6 +998,13 @@ describe("openai-compatible chat and draft behavior", () => {
       expect(userPayload.request).toContain("please improve this draft");
       expect(userPayload.request).toContain("[truncated");
       expect(userPayload.draft?.sections?.length).toBeLessThan(12);
+      expect(userPayload.draft?.sections?.every((section) => {
+        if (!section || typeof section !== "object") {
+          return true;
+        }
+
+        return "entryOrderMode" in section;
+      })).toBe(true);
       expect(userPayload.validationIssues?.length ?? 0).toBeLessThanOrEqual(12);
     } finally {
       fetchMock.restore();

@@ -96,14 +96,14 @@ function isStandaloneTitle(value: string): boolean {
 
 function looksLikeCompanyHeader(value: string): boolean {
   const cleaned = cleanLine(value);
-  if (!cleaned || /[.!?;:]$/.test(cleaned)) {
-    return false;
-  }
-
   const normalized = cleaned
     .replace(/[(),]/g, " ")
     .replace(/\b(inc|llc|ltd|corp|co|company|gmbh|plc)\b\.?/gi, "")
     .trim();
+  if (!normalized || /[.!?;:]$/.test(normalized)) {
+    return false;
+  }
+
   if (!normalized) {
     return false;
   }
