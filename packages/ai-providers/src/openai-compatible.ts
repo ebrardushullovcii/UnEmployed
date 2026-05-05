@@ -595,7 +595,7 @@ export function createJobFinderAiClientFromEnvironment(
   const primaryClient = createOpenAiCompatibleJobFinderAiClient({
     apiKey,
     baseUrl: env.UNEMPLOYED_AI_BASE_URL ?? "https://ai.automatedpros.link/v1",
-    model: env.UNEMPLOYED_AI_MODEL ?? "FelidaeAI-Pro-2.5",
+    model: env.UNEMPLOYED_AI_MODEL ?? "FelidaeAI-Pro-2.7",
     label: "AI resume agent",
     requestTimeoutMs: parsedRequestTimeoutMs,
     resumeExtractionTimeoutMs: parsedResumeExtractionTimeoutMs,
