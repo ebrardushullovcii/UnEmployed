@@ -169,6 +169,7 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 
 ## Ready Queue
 
+- `033`: small note for model upgrade and multimodal evaluation; linked plan: `docs/exec-plans/queued/033-ai-model-upgrade-and-multimodal-evaluation.md`
 - Validate cross-platform sidecar packaging for `019` only for regressions, newly added targets, or periodic matrix revalidation
 - Expand Applications recovery and retry tooling
 - Add broader runtime tests for unsupported apply paths, live-browser extraction, and resume import
