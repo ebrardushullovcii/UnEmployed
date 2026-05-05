@@ -5,7 +5,7 @@ import {
   LoaderCircle,
   RefreshCcw,
 } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { JobFinderResumePreview } from "@unemployed/contracts";
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
@@ -61,6 +61,7 @@ function parseSelectionTarget(node: EventTarget | null) {
 export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const scrollRegionRef = useRef<HTMLDivElement | null>(null);
+  const [previewHeight, setPreviewHeight] = useState("72rem");
   const hasReadyPreview =
     props.previewStatus === "ready" && Boolean(props.preview);
   const warningCount = props.preview?.warnings.length ?? 0;
@@ -85,7 +86,7 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
       );
 
       if (nextHeight > 0) {
-        frame.style.height = `${nextHeight}px`;
+        setPreviewHeight(`${nextHeight}px`);
       }
     };
 
@@ -97,6 +98,17 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
       }
 
       measurePreviewHeight();
+      const page = document.querySelector<HTMLElement>(".page");
+      const resizeObserver =
+        typeof ResizeObserver === "undefined"
+          ? null
+          : new ResizeObserver(() => {
+              measurePreviewHeight();
+            });
+      resizeObserver?.observe(document.body);
+      if (page) {
+        resizeObserver?.observe(page);
+      }
 
       const allTargets = document.querySelectorAll<HTMLElement>(
         "[data-resume-section-id], [data-resume-entry-id], [data-resume-target-id]",
@@ -191,6 +203,7 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
       document.addEventListener("keydown", handleKeyDown);
 
       return () => {
+        resizeObserver?.disconnect();
         document.removeEventListener("click", handleClick);
         document.removeEventListener("keydown", handleKeyDown);
       };
@@ -304,7 +317,7 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
               sandbox="allow-same-origin"
               srcDoc={props.preview.html}
               style={{
-                height: "72rem",
+                height: previewHeight,
                 width: "8.95in",
                 maxWidth: "100%",
               }}

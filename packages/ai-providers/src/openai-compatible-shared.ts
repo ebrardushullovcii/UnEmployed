@@ -239,10 +239,30 @@ function normalizeExperienceEntries(
     }
   });
 
+  let nextUnusedEntryIndex = 0;
+
   return fallbackEntries.map((fallbackEntry, index) => {
-    const matchedEntry = fallbackEntry.profileRecordId
-      ? entriesByFallbackId.get(fallbackEntry.profileRecordId)
-      : entries[index];
+    let matchedEntry: typeof entries[number] | null;
+
+    if (fallbackEntry.profileRecordId) {
+      matchedEntry = entriesByFallbackId.get(fallbackEntry.profileRecordId) ?? null;
+    } else {
+      const directMatch = usedEntryIndexes.has(index) ? null : entries[index] ?? null;
+      if (directMatch) {
+        usedEntryIndexes.add(index);
+        matchedEntry = directMatch;
+      } else {
+        while (nextUnusedEntryIndex < entries.length && usedEntryIndexes.has(nextUnusedEntryIndex)) {
+          nextUnusedEntryIndex += 1;
+        }
+
+        matchedEntry = entries[nextUnusedEntryIndex] ?? null;
+        if (matchedEntry) {
+          usedEntryIndexes.add(nextUnusedEntryIndex);
+          nextUnusedEntryIndex += 1;
+        }
+      }
+    }
 
     if (!matchedEntry) {
       return fallbackEntry;

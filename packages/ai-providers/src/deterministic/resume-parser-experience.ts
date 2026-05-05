@@ -85,6 +85,35 @@ function isStandaloneTitle(value: string): boolean {
   });
 }
 
+function looksLikeCompanyHeader(value: string): boolean {
+  const cleaned = cleanLine(value);
+  if (!cleaned || /[.!?;:]$/.test(cleaned)) {
+    return false;
+  }
+
+  const normalized = cleaned
+    .replace(/[(),]/g, " ")
+    .replace(/\b(inc|llc|ltd|corp|co|company|gmbh|plc)\b\.?/gi, "")
+    .trim();
+  if (!normalized) {
+    return false;
+  }
+
+  const words = normalized.split(/\s+/).filter(Boolean);
+  if (words.length === 0 || words.length > 6) {
+    return false;
+  }
+
+  const connectorWords = new Set(["of", "and", "the", "for", "at", "&"]);
+  return words.every((word, index) => {
+    if (connectorWords.has(word.toLowerCase())) {
+      return index > 0;
+    }
+
+    return /^[A-Z][A-Za-z0-9&.'()/-]*$/.test(word);
+  });
+}
+
 export function normalizeHeadlineText(value: string): string {
   const normalized = cleanLine(
     value
@@ -598,9 +627,7 @@ function inferUndatedExperienceEntries(lines: readonly string[]) {
       }
 
       if (
-        /^[A-Z][A-Za-z0-9&.'()/-]+(?:\s+[A-Z][A-Za-z0-9&.'()/-]+){0,4}$/.test(
-          detailLine,
-        ) &&
+        looksLikeCompanyHeader(detailLine) &&
         looksLikeRoleTitle(cleanLine(lines[detailIndex + 1] ?? ""))
       ) {
         break;
