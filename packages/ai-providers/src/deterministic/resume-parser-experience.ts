@@ -56,7 +56,7 @@ function parseCompanyAndLocation(segment: string): {
 
 function cleanCompanyName(value: string | null | undefined): string {
   return cleanLine(value ?? "")
-    .replace(/\s+[–—-]\s*(?:\d{1,2}\/?(?:\d{4})?|\d{4}(?:-\d{2}(?:-\d{2})?)?)\s*$/i, "")
+    .replace(/\s+[–—-]\s*(?:\d{1,2}\/\d{4}|\d{4}(?:-\d{2}(?:-\d{2})?)?)\s*$/i, "")
     .replace(/\s+[–—-]\s*(?=\d)/g, " ")
     .replace(/\s+[–—-]\s*$/g, "")
     .trim();
@@ -72,11 +72,20 @@ function isStandaloneTitle(value: string): boolean {
   }
 
   const words = cleaned.split(/\s+/).filter(Boolean);
-  if (words.length === 0 || words.length > 3) {
+  if (words.length === 0 || words.length > 4) {
     return false;
   }
 
-  return words.every((word) => {
+  return words.every((word, index) => {
+    if (
+      index > 0 &&
+      index < words.length - 1 &&
+      /^[a-z&]{1,3}$/.test(word) &&
+      ["of", "and", "for", "&"].includes(word)
+    ) {
+      return true;
+    }
+
     if (/^[A-Z][A-Za-z0-9&.'()/-]*$/.test(word)) {
       return true;
     }

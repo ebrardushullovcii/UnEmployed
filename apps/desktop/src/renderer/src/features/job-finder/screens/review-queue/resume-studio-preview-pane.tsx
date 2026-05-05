@@ -231,6 +231,7 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
   }, [
     props.onSelectTarget,
     props.preview,
+    props.previewStatus,
     props.selectedEntryId,
     props.selectedSectionId,
     props.selectedTargetId,

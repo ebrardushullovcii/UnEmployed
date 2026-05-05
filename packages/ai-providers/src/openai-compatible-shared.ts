@@ -230,6 +230,11 @@ function normalizeExperienceEntries(
         return false;
       }
 
+      const entryRecordId = normalizeNullableString(entry.profileRecordId);
+      if (entryRecordId && knownFallbackIds.has(entryRecordId)) {
+        return false;
+      }
+
       return entryMatchesFallback(entry, fallbackEntry);
     });
 
@@ -268,6 +273,8 @@ function normalizeExperienceEntries(
       return fallbackEntry;
     }
 
+    const sanitizedBullets = sanitizeStringArray(matchedEntry.bullets);
+
     return {
       title:
         normalizeNullableString(matchedEntry.title) ?? fallbackEntry.title ?? null,
@@ -284,8 +291,8 @@ function normalizeExperienceEntries(
         fallbackEntry.dateRange ??
         null,
       summary: normalizeNullableString(matchedEntry.summary) ?? fallbackEntry.summary,
-      bullets: sanitizeStringArray(matchedEntry.bullets).length > 0
-        ? sanitizeStringArray(matchedEntry.bullets)
+      bullets: sanitizedBullets.length > 0
+        ? sanitizedBullets
         : fallbackEntry.bullets,
       profileRecordId: fallbackEntry.profileRecordId ?? null,
     };

@@ -580,10 +580,10 @@ describe("openai-compatible chat and draft behavior", () => {
         "experience_dotnet",
       ]);
       expect(result.experienceEntries[0]?.bullets).toEqual([
-        "Model swapped the newer role id.",
+        "Built React workflow products for hiring teams.",
       ]);
       expect(result.experienceEntries[1]?.bullets).toEqual([
-        "Model swapped the older role id.",
+        "Improved API latency by 25% through cached .NET endpoints.",
       ]);
     } finally {
       restoreFetch();
