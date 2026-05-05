@@ -471,6 +471,125 @@ describe("openai-compatible chat and draft behavior", () => {
     }
   });
 
+  test("ignores conflicting known profileRecordId values and rematches experience entries by content", async () => {
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              label: "Tailored Resume",
+              summary: "Tailored summary",
+              experienceEntries: [
+                {
+                  title: ".NET Developer",
+                  employer: "CoreLedger",
+                  profileRecordId: "experience_frontend",
+                  bullets: ["Model swapped the older role id."],
+                },
+                {
+                  title: "Senior Frontend Engineer",
+                  employer: "Atlas Product",
+                  profileRecordId: "experience_dotnet",
+                  bullets: ["Model swapped the newer role id."],
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    });
+
+    try {
+      const client = createOpenAiCompatibleJobFinderAiClient({
+        apiKey: "test-key",
+        baseUrl: "https://example.com/v1",
+        model: "test-model",
+      });
+      const baseProfile = createProfile();
+      const input = {
+        profile: {
+          ...baseProfile,
+          skills: ["React", "TypeScript", ".NET"],
+          experiences: [
+            {
+              id: "experience_frontend",
+              companyName: "Atlas Product",
+              companyUrl: null,
+              title: "Senior Frontend Engineer",
+              employmentType: null,
+              location: "Remote",
+              workMode: ["remote" as const],
+              startDate: "2022-01",
+              endDate: null,
+              isCurrent: true,
+              isDraft: false,
+              summary: "Builds React workflow products.",
+              achievements: ["Built React workflow products for hiring teams."],
+              skills: ["React", "TypeScript"],
+              domainTags: ["frontend platform"],
+              peopleManagementScope: null,
+              ownershipScope: null,
+            },
+            {
+              id: "experience_dotnet",
+              companyName: "CoreLedger",
+              companyUrl: null,
+              title: ".NET Developer",
+              employmentType: null,
+              location: "Remote",
+              workMode: ["remote" as const],
+              startDate: "2019-01",
+              endDate: "2021-12",
+              isCurrent: false,
+              isDraft: false,
+              summary: "Built .NET APIs and web applications.",
+              achievements: ["Improved API latency by 25% through cached .NET endpoints."],
+              skills: [".NET", "C#"],
+              domainTags: ["web applications"],
+              peopleManagementScope: null,
+              ownershipScope: null,
+            },
+          ],
+        },
+        searchPreferences: createPreferences(),
+        settings: createSettings(),
+        job: {
+          ...createJobPosting(),
+          title: "Full-Stack Engineer",
+          keySkills: ["React", ".NET"],
+        },
+        resumeText: "Resume text",
+        evidence: {
+          summary: [],
+          candidateSummary: [],
+          experience: [],
+          skills: ["React", ".NET"],
+          keywords: ["React", ".NET"],
+        },
+        researchContext: {
+          companyNotes: [],
+          domainVocabulary: [],
+          priorityThemes: [],
+        },
+      } satisfies Parameters<typeof client.createResumeDraft>[0];
+
+      const result = await client.createResumeDraft(input);
+
+      expect(result.experienceEntries.map((entry) => entry.profileRecordId)).toEqual([
+        "experience_frontend",
+        "experience_dotnet",
+      ]);
+      expect(result.experienceEntries[0]?.bullets).toEqual([
+        "Model swapped the newer role id.",
+      ]);
+      expect(result.experienceEntries[1]?.bullets).toEqual([
+        "Model swapped the older role id.",
+      ]);
+    } finally {
+      restoreFetch();
+    }
+  });
+
   test("uses date ranges to match repeated title and employer stints", async () => {
     const restoreFetch = mockJsonFetch({
       choices: [

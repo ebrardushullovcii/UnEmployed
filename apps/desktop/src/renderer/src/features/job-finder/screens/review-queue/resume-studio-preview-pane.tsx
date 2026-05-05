@@ -72,12 +72,31 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
       return;
     }
 
+    const measurePreviewHeight = () => {
+      const document = frame.contentDocument;
+      if (!document) {
+        return;
+      }
+
+      const page = document.querySelector<HTMLElement>(".page");
+      const body = document.body;
+      const nextHeight = Math.ceil(
+        (page?.getBoundingClientRect().height ?? body?.scrollHeight ?? 0) + 8,
+      );
+
+      if (nextHeight > 0) {
+        frame.style.height = `${nextHeight}px`;
+      }
+    };
+
     const bindPreviewDocument = () => {
       const document = frame.contentDocument;
 
       if (!document) {
         return () => {};
       }
+
+      measurePreviewHeight();
 
       const allTargets = document.querySelectorAll<HTMLElement>(
         "[data-resume-section-id], [data-resume-entry-id], [data-resume-target-id]",
@@ -146,6 +165,26 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
           behavior: "auto",
           block: "nearest",
         });
+
+        const scrollRegion = scrollRegionRef.current;
+        if (scrollRegion) {
+          const targetRect = selectedPreviewTarget.getBoundingClientRect();
+          const iframeRect = frame.getBoundingClientRect();
+          const regionRect = scrollRegion.getBoundingClientRect();
+          const targetTop =
+            scrollRegion.scrollTop + iframeRect.top + targetRect.top - regionRect.top;
+          const targetBottom =
+            scrollRegion.scrollTop + iframeRect.top + targetRect.bottom - regionRect.top;
+
+          if (targetTop < scrollRegion.scrollTop + 24) {
+            scrollRegion.scrollTop = Math.max(0, targetTop - 24);
+          } else if (
+            targetBottom > scrollRegion.scrollTop + scrollRegion.clientHeight - 24
+          ) {
+            scrollRegion.scrollTop =
+              targetBottom - scrollRegion.clientHeight + 24;
+          }
+        }
       }
 
       document.addEventListener("click", handleClick);
@@ -163,12 +202,17 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
       cleanupDocument();
       cleanupDocument = bindPreviewDocument();
     };
+    const handleResize = () => {
+      measurePreviewHeight();
+    };
 
     cleanupDocument = bindPreviewDocument();
     frame.addEventListener("load", handleLoad);
+    window.addEventListener("resize", handleResize);
 
     return () => {
       frame.removeEventListener("load", handleLoad);
+      window.removeEventListener("resize", handleResize);
       cleanupDocument();
     };
   }, [
@@ -253,13 +297,14 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
             </div>
           </div>
         ) : props.preview ? (
-          <div className="relative h-full min-h-0 w-fit max-w-full overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--resume-preview-frame) p-1.5 shadow-[var(--resume-preview-shell-shadow)]">
+          <div className="relative w-fit max-w-full overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--resume-preview-frame) p-1.5 shadow-[var(--resume-preview-shell-shadow)]">
             <iframe
-              className="block h-full max-w-full rounded-(--radius-field) border-0 bg-card"
+              className="block max-w-full rounded-(--radius-field) border-0 bg-card"
               ref={frameRef}
               sandbox="allow-same-origin"
               srcDoc={props.preview.html}
               style={{
+                height: "72rem",
                 width: "8.95in",
                 maxWidth: "100%",
               }}

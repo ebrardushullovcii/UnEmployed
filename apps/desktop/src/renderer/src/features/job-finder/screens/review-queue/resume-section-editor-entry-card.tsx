@@ -50,6 +50,9 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
   const rowLocked = disabled || section.locked
   const moveUpDisabled = rowLocked || entryIndex <= 0
   const moveDownDisabled = rowLocked || entryIndex >= section.entries.length - 1
+  const reviewHeading = section.kind === 'experience'
+    ? 'Work-history review'
+    : `${section.label} review`
   const workHistoryHeadingId = `work_history_review_heading_${entry.id}`
   const handleEntryFocusCapture = () => {
     onSelectEntry(section.id, entry.id)
@@ -182,7 +185,7 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
           role="region"
         >
           <h3 className="font-medium text-foreground" id={workHistoryHeadingId}>
-            Work-history review
+            {reviewHeading}
           </h3>
           {workHistoryReviewSuggestions.map((suggestion) => (
             <p key={suggestion.id}>

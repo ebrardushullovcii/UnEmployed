@@ -147,6 +147,35 @@ function entryMatchesFallback(
   return false;
 }
 
+function entryConflictsWithFallback(
+  entry: {
+    title?: string | null;
+    employer?: string | null;
+    dateRange?: string | null;
+  },
+  fallbackEntry: FallbackExperienceEntry,
+): boolean {
+  const entryTitle = normalizeComparableText(entry.title);
+  const fallbackTitle = normalizeComparableText(fallbackEntry.title);
+  if (entryTitle && fallbackTitle && entryTitle !== fallbackTitle) {
+    return true;
+  }
+
+  const entryEmployer = normalizeComparableText(entry.employer);
+  const fallbackEmployer = normalizeComparableText(fallbackEntry.employer);
+  if (entryEmployer && fallbackEmployer && entryEmployer !== fallbackEmployer) {
+    return true;
+  }
+
+  const entryDateRange = normalizeComparableText(entry.dateRange);
+  const fallbackDateRange = normalizeComparableText(fallbackEntry.dateRange);
+  if (entryDateRange && fallbackDateRange && entryDateRange !== fallbackDateRange) {
+    return true;
+  }
+
+  return false;
+}
+
 function normalizeExperienceEntries(
   entries: Array<{
     title?: string | null;
@@ -166,12 +195,22 @@ function normalizeExperienceEntries(
       .map((entry) => entry.profileRecordId)
       .filter((value): value is string => Boolean(value)),
   );
+  const fallbackEntriesById = new Map(
+    fallbackEntries.flatMap((entry) =>
+      entry.profileRecordId ? [[entry.profileRecordId, entry] as const] : [],
+    ),
+  );
   const entriesByFallbackId = new Map<string, typeof entries[number]>();
   const usedEntryIndexes = new Set<number>();
 
   entries.forEach((entry, index) => {
     const entryRecordId = normalizeNullableString(entry.profileRecordId);
     if (!entryRecordId || !knownFallbackIds.has(entryRecordId)) {
+      return;
+    }
+
+    const fallbackEntry = fallbackEntriesById.get(entryRecordId);
+    if (!fallbackEntry || entryConflictsWithFallback(entry, fallbackEntry)) {
       return;
     }
 

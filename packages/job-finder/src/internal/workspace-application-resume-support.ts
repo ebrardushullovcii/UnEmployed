@@ -134,6 +134,9 @@ function buildWorkHistoryReviewSuggestionsFromValidation(input: {
         entry,
       })),
     );
+  const experienceSectionId = input.draft.sections.find(
+    (section) => section.kind === "experience",
+  )?.id ?? null;
 
   return (input.validation?.issues ?? [])
     .filter((issue) => issue.category === "work_history_review" || issue.category === "date_quality")
@@ -191,7 +194,7 @@ function buildWorkHistoryReviewSuggestionsFromValidation(input: {
       return [{
         id: issue.id.replace(/^issue_/, ""),
         profileRecordId,
-        sectionId: issue.sectionId ?? matchedEntry?.sectionId ?? "experience",
+        sectionId: issue.sectionId ?? matchedEntry?.sectionId ?? experienceSectionId,
         entryId: issue.entryId,
         kind,
         action,

@@ -56,10 +56,33 @@ function parseCompanyAndLocation(segment: string): {
 
 function cleanCompanyName(value: string | null | undefined): string {
   return cleanLine(value ?? "")
-    .replace(/\s+[–—-]\s*(?:\d{1,2}\/?|\d{1,2}\/\d{4}|\d{4})\s*$/i, "")
+    .replace(/\s+[–—-]\s*(?:\d{1,2}\/?(?:\d{4})?|\d{4}(?:-\d{2}(?:-\d{2})?)?)\s*$/i, "")
     .replace(/\s+[–—-]\s*(?=\d)/g, " ")
     .replace(/\s+[–—-]\s*$/g, "")
     .trim();
+}
+
+function isStandaloneTitle(value: string): boolean {
+  const cleaned = cleanLine(
+    value.replace(/^[-|,]+\s*/, "").replace(/\([^)]*\)\s*$/g, ""),
+  );
+
+  if (!cleaned || !looksLikeRoleTitle(cleaned) || /[.!?;:]$/.test(cleaned)) {
+    return false;
+  }
+
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (words.length === 0 || words.length > 3) {
+    return false;
+  }
+
+  return words.every((word) => {
+    if (/^[A-Z][A-Za-z0-9&.'()/-]*$/.test(word)) {
+      return true;
+    }
+
+    return /[A-Z]/.test(word) && word === word.toUpperCase();
+  });
 }
 
 export function normalizeHeadlineText(value: string): string {
@@ -569,7 +592,7 @@ function inferUndatedExperienceEntries(lines: readonly string[]) {
 
       if (
         !detailLine ||
-        (looksLikeRoleTitle(detailLine) && detailLines.length > 0)
+        (isStandaloneTitle(detailLine) && detailLines.length > 0)
       ) {
         break;
       }

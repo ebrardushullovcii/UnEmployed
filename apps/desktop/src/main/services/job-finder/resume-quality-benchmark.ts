@@ -1055,8 +1055,11 @@ async function importRealFixtureProfile(input: {
     sessions: [],
     catalog: [],
   })
+  const tempOutputDirectory = await mkdtemp(
+    path.join(os.tmpdir(), `unemployed-quality-import-${input.fixtureId}-`),
+  )
   const documentManager = createLocalJobFinderDocumentManager({
-    outputDirectory: path.join(os.tmpdir(), `unemployed-quality-import-${input.fixtureId}`),
+    outputDirectory: tempOutputDirectory,
   })
   const workspaceService = createJobFinderWorkspaceService({
     aiClient: buildResumeImportBenchmarkAiClient(false),
@@ -1078,6 +1081,7 @@ async function importRealFixtureProfile(input: {
       workspaceService.shutdown(),
       repository.close(),
     ])
+    await rm(tempOutputDirectory, { recursive: true, force: true })
   }
 }
 
@@ -1107,11 +1111,6 @@ function buildRealFixtureQualityCases(): ResumeQualityBenchmarkFixture[] {
           const profile = CandidateProfileSchema.parse({
             ...importedProfile,
             targetRoles: [target.title],
-            skills: [...new Set([...importedProfile.skills, ...target.keySkills])],
-            skillGroups: {
-              ...importedProfile.skillGroups,
-              coreSkills: [...new Set([...importedProfile.skillGroups.coreSkills, ...target.keySkills.slice(0, 4)])],
-            },
           })
           return buildStateForCase({
             templateId,
@@ -1141,6 +1140,15 @@ function parseMonthForSort(value: string | null | undefined): number | null {
     const month = Number(monthYearMatch[1])
     if (month >= 1 && month <= 12) {
       return Number(monthYearMatch[2]) * 12 + month
+    }
+  }
+
+  const dayMonthYearMatch = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(trimmed)
+  if (dayMonthYearMatch) {
+    const day = Number(dayMonthYearMatch[1])
+    const month = Number(dayMonthYearMatch[2])
+    if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+      return Number(dayMonthYearMatch[3]) * 12 + month
     }
   }
 
@@ -1538,78 +1546,83 @@ export async function runDesktopResumeQualityBenchmark(
 
       try {
         for (const templateId of templates) {
+          let workspaceService: ReturnType<typeof createJobFinderWorkspaceService> | null = null
           const state = await resolveFixtureState(fixture, templateId)
           await repository.reset(state)
           const aiClient = buildBenchmarkAiClient(fixture)
           const documentManager = createLocalJobFinderDocumentManager({
             outputDirectory: path.join(tempRoot, fixture.definition.id, templateId),
           })
-          const workspaceService = createJobFinderWorkspaceService({
-            aiClient,
-            browserRuntime,
-            documentManager,
-            repository,
-          })
+          try {
+            workspaceService = createJobFinderWorkspaceService({
+              aiClient,
+              browserRuntime,
+              documentManager,
+              repository,
+            })
 
-          const jobId = state.savedJobs[0]?.id
+            const jobId = state.savedJobs[0]?.id
 
-          if (!jobId) {
-            throw new Error(`Resume quality benchmark case '${fixture.definition.id}' is missing a saved job.`)
+            if (!jobId) {
+              throw new Error(`Resume quality benchmark case '${fixture.definition.id}' is missing a saved job.`)
+            }
+
+            await workspaceService.generateResume(jobId)
+            const workspace = await workspaceService.getResumeWorkspace(jobId)
+            const asset = workspace.tailoredAsset
+
+            if (!asset?.storagePath) {
+              throw new Error(`Resume quality benchmark case '${fixture.definition.id}' did not produce a rendered artifact.`)
+            }
+
+            const html = asset.storagePath.endsWith('.html')
+              ? await readFile(asset.storagePath, 'utf8')
+              : ''
+            const htmlArtifactRelativePath = await persistHtmlArtifact({
+              sourcePath: asset.storagePath,
+              persistArtifactsDirectory: request.persistArtifactsDirectory,
+              caseId: fixture.definition.id,
+              templateId,
+            })
+            const metrics = scoreCaseMetrics({
+              job: workspace.job,
+              html,
+              workspace,
+              profile: state.profile,
+            })
+            const issueCategories = Array.from(
+              new Set((workspace.validation?.issues ?? []).map((issue) => issue.category)),
+            )
+            const passed =
+              metrics.groundedVisibleSkillRate === 1 &&
+              metrics.bleedFreeCaseRate === 1 &&
+              metrics.keywordCoverageRate === 1 &&
+              metrics.duplicateIssueFreeRate === 1 &&
+              metrics.thinOutputFreeRate === 1 &&
+              metrics.pageTargetPassRate === 1 &&
+              metrics.atsRenderPassRate === 1
+
+            const templateName = asset.templateName?.trim() ?? ''
+            const notes = [
+              ...(templateName ? [`Template: ${templateName}.`] : []),
+              ...(asset.notes ?? []).map((note) => note.trim()).filter(Boolean),
+            ]
+
+            results.push({
+              caseId: fixture.definition.id,
+              label: fixture.definition.label,
+              templateId,
+              passed,
+              visibleSkills: collectVisibleSkills(workspace.draft),
+              issueCategories,
+              issueCount: workspace.validation?.issues.length ?? 0,
+              metrics,
+              htmlArtifactRelativePath,
+              notes,
+            })
+          } finally {
+            await workspaceService?.shutdown()
           }
-
-          await workspaceService.generateResume(jobId)
-          const workspace = await workspaceService.getResumeWorkspace(jobId)
-          const asset = workspace.tailoredAsset
-
-          if (!asset?.storagePath) {
-            throw new Error(`Resume quality benchmark case '${fixture.definition.id}' did not produce a rendered artifact.`)
-          }
-
-          const html = asset.storagePath.endsWith('.html')
-            ? await readFile(asset.storagePath, 'utf8')
-            : ''
-          const htmlArtifactRelativePath = await persistHtmlArtifact({
-            sourcePath: asset.storagePath,
-            persistArtifactsDirectory: request.persistArtifactsDirectory,
-            caseId: fixture.definition.id,
-            templateId,
-          })
-          const metrics = scoreCaseMetrics({
-            job: workspace.job,
-            html,
-            workspace,
-            profile: state.profile,
-          })
-          const issueCategories = Array.from(
-            new Set((workspace.validation?.issues ?? []).map((issue) => issue.category)),
-          )
-          const passed =
-            metrics.groundedVisibleSkillRate === 1 &&
-            metrics.bleedFreeCaseRate === 1 &&
-            metrics.keywordCoverageRate === 1 &&
-            metrics.duplicateIssueFreeRate === 1 &&
-            metrics.thinOutputFreeRate === 1 &&
-            metrics.pageTargetPassRate === 1 &&
-            metrics.atsRenderPassRate === 1
-
-          const templateName = asset.templateName?.trim() ?? ''
-          const notes = [
-            ...(templateName ? [`Template: ${templateName}.`] : []),
-            ...(asset.notes ?? []).map((note) => note.trim()).filter(Boolean),
-          ]
-
-          results.push({
-            caseId: fixture.definition.id,
-            label: fixture.definition.label,
-            templateId,
-            passed,
-            visibleSkills: collectVisibleSkills(workspace.draft),
-            issueCategories,
-            issueCount: workspace.validation?.issues.length ?? 0,
-            metrics,
-            htmlArtifactRelativePath,
-            notes,
-          })
         }
       } finally {
         await Promise.allSettled([
