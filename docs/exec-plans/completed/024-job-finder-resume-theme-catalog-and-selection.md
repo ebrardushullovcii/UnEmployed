@@ -23,14 +23,14 @@ Ship a production-grade resume theme catalog for Job Finder that lets users choo
 
 ## What Landed
 
-- one truthful shipped theme catalog now exists across contracts, job-finder, desktop renderer, settings UI, and resume workspace UI: `Classic ATS`, `Compact ATS`, `Modern Split ATS`, `Technical Matrix`, `Project Showcase`, and `Credentials Focus`
+- one truthful shipped theme catalog was established across contracts, job-finder, desktop renderer, settings UI, and resume workspace UI; `031` later renamed and expanded it to the current eight-template apply-safe catalog
 - `ResumeTemplateDefinition` now carries fit guidance and density metadata so the renderer can present meaningful theme choices without leaking renderer-only implementation details into contracts
 - resume theme ownership now lives on `draft.templateId`; `settings.resumeTemplateId` remains the default only for newly seeded drafts
 - generation, regeneration, save, export, approval, artifact naming, and tailored-asset labeling now preserve the selected draft theme instead of silently snapping back to the settings default
 - changing the default theme in `Settings` no longer stale already approved resumes, while changing the theme on a resume draft is a real draft edit that requires a fresh export and approval
-- desktop resume rendering was refactored into a catalog-driven six-theme ATS-safe renderer while preserving the existing benchmark safety requirements: single-column body grid, safe escaping, no table-based layout, and deterministic HTML debug output
+- desktop resume rendering was refactored into the original catalog-driven six-theme ATS-safe renderer while preserving the existing benchmark safety requirements: single-column body grid, safe escaping, no table-based layout, and deterministic HTML debug output
 - `Settings` now uses a theme picker for the default theme, and `Resume Workspace` now has its own theme picker so users can choose the exact theme for that draft before export
-- renderer tests, workspace-service tests, contract tests, and resume-quality benchmark tests were widened from two-theme assumptions to the shipped six-theme catalog
+- renderer tests, workspace-service tests, contract tests, and resume-quality benchmark tests were widened from two-theme assumptions to the original six-theme catalog; `031` later extended that same tested catalog path to eight apply-safe templates
 - the full desktop resume workspace UI harness and the replayable desktop resume-quality benchmark both passed after the feature landed
 
 ## Validation

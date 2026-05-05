@@ -1,4 +1,8 @@
-import type { ResumeDraft, ResumeDraftPatch } from "@unemployed/contracts";
+import type {
+  ResumeDraft,
+  ResumeDraftPatch,
+  WorkHistoryReviewSuggestion,
+} from "@unemployed/contracts";
 import { ResumeIdentityEditor } from "./resume-identity-editor";
 import { ResumeSectionEditor } from "./resume-section-editor";
 
@@ -19,12 +23,15 @@ interface ResumeWorkspaceEditorPanelProps {
   onSectionChange: (section: ResumeDraftSection) => void;
   onSelectEntry: (sectionId: string, entryId: string) => void;
   onSelectSection: (sectionId: string) => void;
-  runWithSavedDraft: (next: () => void, successMessage?: string | null) => void;
+  runWithSavedDraft: (
+    next: () => void | Promise<void>,
+    successMessage?: string | null,
+  ) => void;
   selectionScrollKey?: number;
   selectedEntryId: string | null;
   selectedSectionId: string | null;
   selectedTargetId: string | null;
-  withDraftPatch: (patch: ResumeDraftPatch) => ResumeDraftPatch;
+  workHistoryReviewSuggestions: readonly WorkHistoryReviewSuggestion[];
 }
 
 export function ResumeWorkspaceEditorPanel(
@@ -86,7 +93,7 @@ export function ResumeWorkspaceEditorPanel(
               props.runWithSavedDraft(
                 () =>
                   props.onApplyPatch(
-                    props.withDraftPatch(patch),
+                    patch,
                     revisionReason,
                   ),
                 "Saved your draft before applying this update.",
@@ -100,6 +107,9 @@ export function ResumeWorkspaceEditorPanel(
                 "Saved your draft before refreshing this section.",
               )
             }
+            workHistoryReviewSuggestions={props.workHistoryReviewSuggestions.filter(
+              (suggestion) => suggestion.sectionId === section.id,
+            )}
             {...(props.selectionScrollKey === undefined
               ? {}
               : { selectionScrollKey: props.selectionScrollKey })}

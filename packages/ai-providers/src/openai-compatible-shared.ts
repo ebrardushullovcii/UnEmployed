@@ -1,4 +1,4 @@
-import { TailoredResumeDraftSchema } from "./shared";
+import { TailoredResumeDraftSchema, type TailoredResumeDraft } from "./shared";
 import {
   buildDeterministicStructuredResumeDraft,
   composeDeterministicFullText,
@@ -97,6 +97,166 @@ function normalizeNullableString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
+type FallbackExperienceEntry = TailoredResumeDraft["experienceEntries"][number];
+
+function normalizeComparableText(value: string | null | undefined): string {
+  return (value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function canonicalizeComparableDatePart(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) {
+    return null;
+  }
+
+  if (/^present$/i.test(trimmed)) {
+    return "present";
+  }
+
+  if (/^\d{4}$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  const yearMonthMatch = /^(\d{4})-(\d{2})(?:-\d{2})?$/.exec(trimmed);
+  if (yearMonthMatch) {
+    const month = Number(yearMonthMatch[2]);
+    return month >= 1 && month <= 12 ? `${yearMonthMatch[1]}-${yearMonthMatch[2]}` : null;
+  }
+
+  const monthYearSlashMatch = /^(\d{1,2})\/(\d{4})$/.exec(trimmed);
+  if (monthYearSlashMatch) {
+    const month = Number(monthYearSlashMatch[1]);
+    return month >= 1 && month <= 12
+      ? `${monthYearSlashMatch[2]}-${String(month).padStart(2, "0")}`
+      : null;
+  }
+
+  const namedMonthMatch = /^([A-Za-z]+)\.?\s+(\d{4})$/.exec(trimmed);
+  if (namedMonthMatch) {
+    const monthByName: Record<string, number> = {
+      jan: 1,
+      january: 1,
+      feb: 2,
+      february: 2,
+      mar: 3,
+      march: 3,
+      apr: 4,
+      april: 4,
+      may: 5,
+      jun: 6,
+      june: 6,
+      jul: 7,
+      july: 7,
+      aug: 8,
+      august: 8,
+      sep: 9,
+      sept: 9,
+      september: 9,
+      oct: 10,
+      october: 10,
+      nov: 11,
+      november: 11,
+      dec: 12,
+      december: 12,
+    };
+    const month = monthByName[namedMonthMatch[1]?.toLowerCase() ?? ""] ?? null;
+    return month
+      ? `${namedMonthMatch[2]}-${String(month).padStart(2, "0")}`
+      : null;
+  }
+
+  return normalizeComparableText(trimmed) || null;
+}
+
+function canonicalizeComparableDateRange(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) {
+    return null;
+  }
+
+  const parts = trimmed
+    .split(/\s*[–—]\s*|\s+-\s+/)
+    .map((part) => canonicalizeComparableDatePart(part));
+  if (parts.length >= 2 && parts[0] && parts[1]) {
+    return `${parts[0]}__${parts[1]}`;
+  }
+
+  return canonicalizeComparableDatePart(trimmed);
+}
+
+function entryMatchesFallback(
+  entry: {
+    title?: string | null;
+    employer?: string | null;
+    dateRange?: string | null;
+  },
+  fallbackEntry: FallbackExperienceEntry,
+): boolean {
+  const entryTitle = normalizeComparableText(entry.title);
+  const fallbackTitle = normalizeComparableText(fallbackEntry.title);
+  const entryEmployer = normalizeComparableText(entry.employer);
+  const fallbackEmployer = normalizeComparableText(fallbackEntry.employer);
+  const entryDateRange = canonicalizeComparableDateRange(entry.dateRange);
+  const fallbackDateRange = canonicalizeComparableDateRange(fallbackEntry.dateRange);
+
+  if (
+    entryTitle &&
+    fallbackTitle &&
+    entryEmployer &&
+    fallbackEmployer &&
+    entryDateRange &&
+    fallbackDateRange
+  ) {
+    return (
+      entryTitle === fallbackTitle &&
+      entryEmployer === fallbackEmployer &&
+      entryDateRange === fallbackDateRange
+    );
+  }
+
+  if (entryTitle && fallbackTitle && entryEmployer && fallbackEmployer) {
+    return entryTitle === fallbackTitle && entryEmployer === fallbackEmployer;
+  }
+
+  if (entryTitle && fallbackTitle && entryDateRange && fallbackDateRange) {
+    return entryTitle === fallbackTitle && entryDateRange === fallbackDateRange;
+  }
+
+  return false;
+}
+
+function entryConflictsWithFallback(
+  entry: {
+    title?: string | null;
+    employer?: string | null;
+    dateRange?: string | null;
+  },
+  fallbackEntry: FallbackExperienceEntry,
+): boolean {
+  const entryTitle = normalizeComparableText(entry.title);
+  const fallbackTitle = normalizeComparableText(fallbackEntry.title);
+  if (entryTitle && fallbackTitle && entryTitle !== fallbackTitle) {
+    return true;
+  }
+
+  const entryEmployer = normalizeComparableText(entry.employer);
+  const fallbackEmployer = normalizeComparableText(fallbackEntry.employer);
+  if (entryEmployer && fallbackEmployer && entryEmployer !== fallbackEmployer) {
+    return true;
+  }
+
+  const entryDateRange = canonicalizeComparableDateRange(entry.dateRange);
+  const fallbackDateRange = canonicalizeComparableDateRange(fallbackEntry.dateRange);
+  if (entryDateRange && fallbackDateRange && entryDateRange !== fallbackDateRange) {
+    return true;
+  }
+
+  return false;
+}
+
 function normalizeExperienceEntries(
   entries: Array<{
     title?: string | null;
@@ -111,30 +271,111 @@ function normalizeExperienceEntries(
     typeof buildDeterministicStructuredResumeDraft
   >["experienceEntries"],
 ) {
-  return entries.map((entry, index) => {
-    const fallbackEntry = fallbackEntries[index];
+  const knownFallbackIds = new Set(
+    fallbackEntries
+      .map((entry) => entry.profileRecordId)
+      .filter((value): value is string => Boolean(value)),
+  );
+  const fallbackEntriesById = new Map(
+    fallbackEntries.flatMap((entry) =>
+      entry.profileRecordId ? [[entry.profileRecordId, entry] as const] : [],
+    ),
+  );
+  const entriesByFallbackId = new Map<string, typeof entries[number]>();
+  const usedEntryIndexes = new Set<number>();
+
+  entries.forEach((entry, index) => {
+    const entryRecordId = normalizeNullableString(entry.profileRecordId);
+    if (!entryRecordId || !knownFallbackIds.has(entryRecordId)) {
+      return;
+    }
+
+    const fallbackEntry = fallbackEntriesById.get(entryRecordId);
+    if (!fallbackEntry || entryConflictsWithFallback(entry, fallbackEntry)) {
+      return;
+    }
+
+    if (!entriesByFallbackId.has(entryRecordId)) {
+      entriesByFallbackId.set(entryRecordId, entry);
+      usedEntryIndexes.add(index);
+    }
+  });
+
+  fallbackEntries.forEach((fallbackEntry) => {
+    if (!fallbackEntry.profileRecordId || entriesByFallbackId.has(fallbackEntry.profileRecordId)) {
+      return;
+    }
+
+    const matchedIndex = entries.findIndex((entry, index) => {
+      if (usedEntryIndexes.has(index)) {
+        return false;
+      }
+
+      const entryRecordId = normalizeNullableString(entry.profileRecordId);
+      if (entryRecordId && knownFallbackIds.has(entryRecordId)) {
+        return false;
+      }
+
+      return entryMatchesFallback(entry, fallbackEntry);
+    });
+
+    if (matchedIndex >= 0) {
+      entriesByFallbackId.set(fallbackEntry.profileRecordId, entries[matchedIndex]!);
+      usedEntryIndexes.add(matchedIndex);
+    }
+  });
+
+  let nextUnusedEntryIndex = 0;
+
+  return fallbackEntries.map((fallbackEntry, index) => {
+    let matchedEntry: typeof entries[number] | null;
+
+    if (fallbackEntry.profileRecordId) {
+      matchedEntry = entriesByFallbackId.get(fallbackEntry.profileRecordId) ?? null;
+    } else {
+      const directMatch = usedEntryIndexes.has(index) ? null : entries[index] ?? null;
+      if (directMatch) {
+        usedEntryIndexes.add(index);
+        matchedEntry = directMatch;
+      } else {
+        while (nextUnusedEntryIndex < entries.length && usedEntryIndexes.has(nextUnusedEntryIndex)) {
+          nextUnusedEntryIndex += 1;
+        }
+
+        matchedEntry = entries[nextUnusedEntryIndex] ?? null;
+        if (matchedEntry) {
+          usedEntryIndexes.add(nextUnusedEntryIndex);
+          nextUnusedEntryIndex += 1;
+        }
+      }
+    }
+
+    if (!matchedEntry) {
+      return fallbackEntry;
+    }
+
+    const sanitizedBullets = sanitizeStringArray(matchedEntry.bullets);
 
     return {
       title:
-        normalizeNullableString(entry.title) ?? fallbackEntry?.title ?? null,
+        normalizeNullableString(matchedEntry.title) ?? fallbackEntry.title ?? null,
       employer:
-        normalizeNullableString(entry.employer) ??
-        fallbackEntry?.employer ??
+        normalizeNullableString(matchedEntry.employer) ??
+        fallbackEntry.employer ??
         null,
       location:
-        normalizeNullableString(entry.location) ??
-        fallbackEntry?.location ??
+        normalizeNullableString(matchedEntry.location) ??
+        fallbackEntry.location ??
         null,
       dateRange:
-        normalizeNullableString(entry.dateRange) ??
-        fallbackEntry?.dateRange ??
+        normalizeNullableString(matchedEntry.dateRange) ??
+        fallbackEntry.dateRange ??
         null,
-      summary: normalizeNullableString(entry.summary),
-      bullets: sanitizeStringArray(entry.bullets),
-      profileRecordId:
-        normalizeNullableString(entry.profileRecordId) ??
-        fallbackEntry?.profileRecordId ??
-        null,
+      summary: normalizeNullableString(matchedEntry.summary) ?? fallbackEntry.summary,
+      bullets: sanitizedBullets.length > 0
+        ? sanitizedBullets
+        : fallbackEntry.bullets,
+      profileRecordId: fallbackEntry.profileRecordId ?? null,
     };
   });
 }
@@ -251,18 +492,18 @@ export function completeTailoredResumeDraft(
         )
       : []),
   ]);
+  const experienceEntries = sanitizedExperienceEntries.length > 0
+    ? normalizeExperienceEntries(
+        sanitizedExperienceEntries,
+        fallback.experienceEntries,
+      )
+    : fallback.experienceEntries;
   const fullText = composeDeterministicFullText({
     label,
     summary,
     experienceHighlights,
     coreSkills: groundedCoreSkills,
-    experienceEntries:
-      sanitizedExperienceEntries.length > 0
-        ? normalizeExperienceEntries(
-            sanitizedExperienceEntries,
-            fallback.experienceEntries,
-          )
-        : fallback.experienceEntries,
+    experienceEntries,
     projectEntries:
       sanitizedProjectEntries.length > 0
         ? sanitizedProjectEntries.map((entry) => ({
@@ -312,13 +553,9 @@ export function completeTailoredResumeDraft(
     experienceHighlights,
     coreSkills: groundedCoreSkills,
     targetedKeywords,
+    coverageMetadata: fallback.coverageMetadata,
     experienceEntries:
-      sanitizedExperienceEntries.length > 0
-        ? normalizeExperienceEntries(
-            sanitizedExperienceEntries,
-            fallback.experienceEntries,
-          )
-        : fallback.experienceEntries,
+      experienceEntries,
     projectEntries:
       sanitizedProjectEntries.length > 0
         ? sanitizedProjectEntries.map((entry) => ({

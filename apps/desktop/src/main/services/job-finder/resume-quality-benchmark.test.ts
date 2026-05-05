@@ -15,7 +15,7 @@ describe('desktop resume quality benchmark', () => {
     const templates: ResumeTemplateDefinition[] = [
       {
         id: 'classic_ats',
-        label: 'Swiss Minimal - Standard',
+        label: 'Chronology Classic',
         description: 'Apply-safe baseline.',
         bestFor: ['General applications'],
         density: 'balanced',
@@ -24,7 +24,7 @@ describe('desktop resume quality benchmark', () => {
       },
       {
         id: 'modern_split',
-        label: 'Swiss Minimal - Accent',
+        label: 'Modern Editorial',
         description: 'Polished variant.',
         bestFor: ['Product roles'],
         density: 'balanced',
@@ -33,7 +33,7 @@ describe('desktop resume quality benchmark', () => {
       },
       {
         id: 'compact_exec',
-        label: 'Executive Brief - Dense',
+        label: 'Senior Brief',
         description: 'Dense ATS-safe variant.',
         bestFor: ['Leadership screens'],
         density: 'compact',
@@ -60,12 +60,14 @@ describe('desktop resume quality benchmark', () => {
       'technical_matrix',
       'project_showcase',
       'credentials_focus',
+      'timeline_longform',
+      'career_pivot',
     ])
-    expect(report.cases.length).toBe(defaultResumeQualityBenchmarkCases.filter((entry) => entry.definition.canary).length * 6)
+    expect(report.cases.length).toBe(defaultResumeQualityBenchmarkCases.filter((entry) => entry.definition.canary).length * 8)
     expect(report.aggregate.groundedVisibleSkillRate).toBe(1)
     expect(report.aggregate.atsRenderPassRate).toBe(1)
     expect(report.notes).toEqual([])
-  })
+  }, 10_000)
 
   test('keeps contamination guard cases free of visible skill bleed after sanitation', async () => {
     const report = await runDesktopResumeQualityBenchmark({
@@ -73,7 +75,7 @@ describe('desktop resume quality benchmark', () => {
       caseIds: ['contamination_guard'],
     })
 
-    expect(report.cases).toHaveLength(6)
+    expect(report.cases).toHaveLength(8)
     for (const result of report.cases) {
       expect(result.visibleSkills).toEqual(expect.arrayContaining(['Figma']))
       expect(result.visibleSkills).not.toContain('Signal Systems')
@@ -90,7 +92,7 @@ describe('desktop resume quality benchmark', () => {
       caseIds: ['thin_profile'],
     })
 
-    expect(report.cases).toHaveLength(6)
+    expect(report.cases).toHaveLength(8)
     for (const result of report.cases) {
       expect(result.passed).toBe(true)
       expect(result.issueCategories).not.toContain('thin_output')
@@ -112,7 +114,7 @@ describe('desktop resume quality benchmark', () => {
       })
 
       expect(report.persistedArtifactsDirectory).toBe(persistArtifactsDirectory)
-      expect(report.cases).toHaveLength(6)
+      expect(report.cases).toHaveLength(8)
 
       for (const result of report.cases) {
         expect(result.htmlArtifactRelativePath).toBeTruthy()
@@ -136,7 +138,7 @@ describe('desktop resume quality benchmark', () => {
       caseIds: ['frontend_platform', 'analytics_lead'],
     })
 
-    expect(report.cases).toHaveLength(12)
+    expect(report.cases).toHaveLength(16)
 
     for (const result of report.cases) {
       expect(result.passed).toBe(true)
@@ -145,4 +147,33 @@ describe('desktop resume quality benchmark', () => {
       expect(result.visibleSkills.length).toBeGreaterThan(0)
     }
   })
+
+  test('includes real imported resume fixtures in the full quality corpus', () => {
+    const realCaseIds = defaultResumeQualityBenchmarkCases
+      .map((entry) => entry.definition.id)
+      .filter((id) => id.startsWith('real_'))
+
+    expect(realCaseIds).toEqual([
+      'real_ebrar',
+      'real_ebrar_new',
+      'real_aaron_murphy',
+      'real_paul_asselin',
+      'real_ryan_holstien',
+    ])
+  })
+
+  test('runs an imported real fixture through quality generation', async () => {
+    const report = await runDesktopResumeQualityBenchmark({
+      benchmarkVersion: '030-test-real-fixture-v1',
+      caseIds: ['real_ebrar_new'],
+      templateIds: ['classic_ats'],
+    })
+
+    expect(report.cases).toHaveLength(1)
+    for (const result of report.cases) {
+      expect(result.metrics.atsRenderPassRate).toBe(1)
+      expect(result.metrics.bleedFreeCaseRate).toBe(1)
+      expect(result.issueCategories).not.toContain('thin_output')
+    }
+  }, 20_000)
 })

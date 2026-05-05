@@ -25,6 +25,7 @@ import {
   filterSourceInstructionLines,
   prefixedLines,
 } from "./source-instructions";
+import { normalizeResumeDraftEntryOrdering } from "./resume-entry-ordering";
 import { uniqueStrings } from "./shared";
 import {
   DEFAULT_MAX_TARGET_ROLES,
@@ -154,20 +155,22 @@ export function normalizeResumeDraftTemplate(
 ): ResumeDraft {
   const fallbackTemplate = availableResumeTemplates[0] ?? {
     id: "classic_ats",
-    label: "Classic ATS",
+    label: "Chronology Classic",
   };
   const selectedTemplateAvailable = availableResumeTemplates.some(
     (template) => template.id === draft.templateId,
   );
 
+  const orderedDraft = normalizeResumeDraftEntryOrdering(draft);
+
   if (selectedTemplateAvailable) {
-    return draft;
+    return orderedDraft;
   }
 
   const shouldClearApproval = wasResumeDraftApproved(draft);
 
   return ResumeDraftSchema.parse({
-    ...draft,
+    ...orderedDraft,
     templateId: fallbackTemplate.id,
     status: shouldClearApproval ? "stale" : draft.status,
     approvedAt: shouldClearApproval ? null : draft.approvedAt,

@@ -88,6 +88,7 @@ export function createSection(
     locked: false,
     included: true,
     sortOrder: input.sortOrder,
+    entryOrderMode: "chronology",
     profileRecordId: null,
     sourceRefs: [...(input.sourceRefs ?? [])],
     updatedAt: input.updatedAt,

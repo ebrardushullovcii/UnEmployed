@@ -22,7 +22,7 @@ export interface ResumeWorkspaceScreenProps {
   onSaveDraft: (draft: ResumeDraft) => void
   onSaveDraftAndThen: (
     draft: ResumeDraft,
-    next: () => void,
+    next: () => void | Promise<void>,
     successMessage?: string | null,
   ) => void
   onExportPdf: (jobId: string) => void

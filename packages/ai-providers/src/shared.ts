@@ -5,7 +5,11 @@ import {
   type ProfileCopilotRelevantReviewItem,
   type ProfileCopilotReply,
   type ResumeDocumentBundle,
+  type ResumeCareerFamilyFit,
+  type ResumeCoverageClassification,
   ResumeDraftPatchSchema,
+  TailoredResumeCoverageMetadataSchema,
+  type TailoredResumeCoverageMetadata,
   WorkModeListSchema,
   candidateLinkKindValues,
   type CandidateProfile,
@@ -150,6 +154,12 @@ export type ResumeProfileExtraction = z.infer<
   typeof ResumeProfileExtractionSchema
 >;
 
+export type {
+  ResumeCareerFamilyFit,
+  ResumeCoverageClassification,
+  TailoredResumeCoverageMetadata,
+};
+
 export const TailoredResumeDraftSchema = z.object({
   label: NullableStringSchema,
   summary: NonEmptyStringSchema,
@@ -188,6 +198,7 @@ export const TailoredResumeDraftSchema = z.object({
     dateRange: NullableStringSchema,
     profileRecordId: NullableStringSchema,
   })).default([]),
+  coverageMetadata: z.array(TailoredResumeCoverageMetadataSchema).default([]),
   additionalSkills: z.array(NonEmptyStringSchema).default([]),
   languages: z.array(NonEmptyStringSchema).default([]),
   fullText: NonEmptyStringSchema,

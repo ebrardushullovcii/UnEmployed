@@ -59,6 +59,7 @@ import {
   ResumeResearchArtifactSchema,
   ResumeResearchArtifactSummarySchema,
   ResumeValidationResultSchema,
+  WorkHistoryReviewSuggestionSchema,
 } from "./resume";
 import {
   EditableSourceInstructionArtifactSchema,
@@ -505,6 +506,7 @@ export const JobFinderResumeWorkspaceSchema = z.object({
   assistantMessages: z.array(ResumeAssistantMessageSchema).default([]),
   tailoredAsset: TailoredAssetSchema.nullable().default(null),
   sharedProfile: JobFinderResumeWorkspaceSharedProfileSchema.default({}),
+  workHistoryReviewSuggestions: z.array(WorkHistoryReviewSuggestionSchema).default([]),
 });
 export type JobFinderResumeWorkspace = z.infer<
   typeof JobFinderResumeWorkspaceSchema

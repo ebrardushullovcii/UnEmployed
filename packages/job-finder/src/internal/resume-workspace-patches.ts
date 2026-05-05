@@ -1,4 +1,8 @@
 import { ResumeDraftSchema, type ResumeDraft, type ResumeDraftBullet, type ResumeDraftPatch, type ResumeDraftSection } from "@unemployed/contracts";
+import {
+  moveSectionEntry,
+  resetSectionEntryOrderToChronology,
+} from "./resume-entry-ordering";
 import { createBullet } from "./resume-workspace-primitives";
 import { createUniqueId } from "./shared";
 
@@ -30,6 +34,15 @@ function assertAssistantMayEdit(
 
   if (section.locked || bullet?.locked) {
     throw new Error("Assistant patches cannot overwrite locked resume content.");
+  }
+}
+
+function assertAssistantMayUseOperation(patch: ResumeDraftPatch): void {
+  if (
+    patch.origin === "assistant" &&
+    (patch.operation === "move_entry" || patch.operation === "reset_entry_order")
+  ) {
+    throw new Error("Assistant patches cannot reorder resume entries.");
   }
 }
 
@@ -114,6 +127,7 @@ export function applyPatchToResumeDraft(input: {
       : null;
 
     assertAssistantMayEdit(patch, section, targetBullet);
+    assertAssistantMayUseOperation(patch);
     if (patch.origin === "assistant" && targetEntry?.locked) {
       throw new Error("Assistant patches cannot overwrite locked resume content.");
     }
@@ -361,6 +375,39 @@ export function applyPatchToResumeDraft(input: {
           patch,
           updatedAt,
         );
+      }
+      case "move_entry": {
+        if (!patch.targetEntryId) {
+          throw new Error("move_entry requires an entry id.");
+        }
+
+        const movedSection = moveSectionEntry({
+          anchorEntryId: patch.anchorEntryId,
+          position: patch.position,
+          section,
+          targetEntryId: patch.targetEntryId,
+          updatedAt,
+        });
+
+        if (JSON.stringify(movedSection.entries) === JSON.stringify(section.entries) &&
+          movedSection.entryOrderMode === section.entryOrderMode) {
+          return section;
+        }
+
+        sectionsChanged = true;
+        return updateSectionMeta(movedSection, patch, updatedAt);
+      }
+      case "reset_entry_order": {
+        const resetSection = resetSectionEntryOrderToChronology(section);
+        if (
+          JSON.stringify(resetSection.entries) === JSON.stringify(section.entries) &&
+          resetSection.entryOrderMode === section.entryOrderMode
+        ) {
+          return section;
+        }
+
+        sectionsChanged = true;
+        return updateSectionMeta(resetSection, patch, updatedAt);
       }
       case "toggle_include": {
         if (patch.targetBulletId) {

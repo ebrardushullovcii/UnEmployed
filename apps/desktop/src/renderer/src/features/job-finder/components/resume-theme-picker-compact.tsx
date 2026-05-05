@@ -2,7 +2,6 @@ import type { ResumeTemplateDefinition, ResumeTemplateId } from "@unemployed/con
 import {
   getResumeTemplateAtsConfidence,
   getResumeTemplateDeliveryLane,
-  getResumeTemplateVariantLabel,
 } from "@unemployed/contracts";
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
@@ -11,33 +10,18 @@ import {
   getAtsConfidenceLabel,
   getLaneBadgeVariant,
   getLaneLabel,
-  type ResumeTemplateFamilyViewModel,
+  getTemplateOptionLabel,
 } from "./resume-theme-picker-helpers";
 
 export function ResumeThemePickerCompact(props: {
   disabled: boolean;
-  families: readonly ResumeTemplateFamilyViewModel[];
-  focusedFamily: ResumeTemplateFamilyViewModel;
   id?: string | undefined;
-  leadingRecommendedFamily: ResumeTemplateFamilyViewModel | null;
   onChange: (themeId: ResumeTemplateId) => void;
   recommendationReasons: ReadonlyMap<ResumeTemplateId, string>;
-  selectedFamily: ResumeTemplateFamilyViewModel | null;
   selectedThemeId: ResumeTemplateId;
-  setFocusedFamilyId: (familyId: string) => void;
+  themes: readonly ResumeTemplateDefinition[];
 }) {
-  const {
-    disabled,
-    families,
-    focusedFamily,
-    id,
-    leadingRecommendedFamily,
-    onChange,
-    recommendationReasons,
-    selectedFamily,
-    selectedThemeId,
-    setFocusedFamilyId,
-  } = props;
+  const { disabled, id, onChange, recommendationReasons, selectedThemeId, themes } = props;
 
   return (
     <div className="grid gap-3" aria-labelledby={id}>
@@ -45,58 +29,12 @@ export function ResumeThemePickerCompact(props: {
         <div className="grid content-start gap-3 p-3">
           <div className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/55 px-3 py-2.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="label-mono-xs">Choose a family</p>
-              {focusedFamily.deliveryLane ? (
-                <Badge variant={getLaneBadgeVariant(focusedFamily.deliveryLane)}>
-                  {getLaneLabel(focusedFamily.deliveryLane)}
-                </Badge>
-              ) : null}
-            </div>
-
-            {selectedFamily || leadingRecommendedFamily ? (
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-(length:--text-small) leading-5 text-foreground-soft">
-                {selectedFamily ? <span>Current: {selectedFamily.label}</span> : null}
-                {leadingRecommendedFamily ? <Badge variant="section">Recommended</Badge> : null}
-                {leadingRecommendedFamily ? (
-                  <span>{leadingRecommendedFamily.label}</span>
-                ) : null}
-              </div>
-            ) : null}
-
-            <div className="grid gap-1.5 md:grid-cols-2 xl:grid-cols-4">
-              {families.map((family) => {
-                const isActive = family.id === focusedFamily.id;
-
-                return (
-                  <button
-                    aria-pressed={isActive}
-                    key={family.id}
-                    className={cn(
-                      "flex min-h-10 items-center rounded-(--radius-field) border px-3 py-2 text-left transition-[border-color,background-color,box-shadow]",
-                      isActive
-                        ? "border-primary/35 bg-primary/7 shadow-[inset_0_1px_0_var(--focus-inset-highlight)]"
-                        : "border-(--surface-panel-border) bg-background/45 hover:border-border/80 hover:bg-background/65",
-                    )}
-                    disabled={disabled}
-                    onClick={() => setFocusedFamilyId(family.id)}
-                    type="button"
-                  >
-                    <span className="text-(length:--text-description) font-semibold leading-5 text-foreground">
-                      {family.label}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="grid gap-2.5 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/55 px-3 py-2.5">
-            <div className="grid gap-1">
-              <p className="label-mono-xs">{focusedFamily.label} variants</p>
+              <p className="label-mono-xs">Choose a template</p>
+              <Badge variant="section">{themes.length} options</Badge>
             </div>
 
             <div className="grid gap-1.5">
-              {focusedFamily.templates.map((theme) => (
+              {themes.map((theme) => (
                 <CompactVariantCard
                   disabled={disabled}
                   key={theme.id}
@@ -128,6 +66,7 @@ function CompactVariantCard(props: {
 
   return (
     <div
+      data-resume-template-option={theme.id}
       className={cn(
         "grid gap-2 rounded-(--radius-field) border px-3 py-2.5 transition-[border-color,background-color,box-shadow]",
         selected
@@ -139,7 +78,7 @@ function CompactVariantCard(props: {
         <div className="grid gap-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold text-foreground">
-              {getResumeTemplateVariantLabel(theme)}
+              {getTemplateOptionLabel(theme)}
             </span>
             {selected ? <Badge variant="default">Selected</Badge> : null}
             <Badge variant={getLaneBadgeVariant(deliveryLane)}>
@@ -153,13 +92,14 @@ function CompactVariantCard(props: {
         </div>
         <Button
           className="xl:min-w-44"
+          data-resume-template-select={theme.id}
           disabled={disabled}
           onClick={() => onChange(theme.id)}
           size="compact"
           type="button"
           variant={selected ? "primary" : "secondary"}
         >
-          {selected ? "Selected variant" : "Use this variant"}
+          {selected ? "Selected template" : "Use this template"}
         </Button>
       </div>
     </div>

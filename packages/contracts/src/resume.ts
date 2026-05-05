@@ -89,12 +89,52 @@ export type ResumeDraftGenerationMethod = z.infer<
   typeof ResumeDraftGenerationMethodSchema
 >;
 
+export const resumeCoverageClassificationValues = [
+  "detailed",
+  "compact",
+  "suggested_hidden",
+  "omitted",
+] as const;
+
+export const ResumeCoverageClassificationSchema = z.enum(
+  resumeCoverageClassificationValues,
+);
+export type ResumeCoverageClassification = z.infer<
+  typeof ResumeCoverageClassificationSchema
+>;
+
+export const resumeCareerFamilyFitValues = [
+  "strong",
+  "weak",
+  "unrelated",
+] as const;
+
+export const ResumeCareerFamilyFitSchema = z.enum(resumeCareerFamilyFitValues);
+export type ResumeCareerFamilyFit = z.infer<typeof ResumeCareerFamilyFitSchema>;
+
+export const ResumeCoverageDecisionSchema = z.object({
+  profileRecordId: NonEmptyStringSchema,
+  classification: ResumeCoverageClassificationSchema,
+  careerFamilyFit: ResumeCareerFamilyFitSchema,
+  reasons: z.array(NonEmptyStringSchema).default([]),
+  reviewGuidance: z.array(NonEmptyStringSchema).default([]),
+  coversMeaningfulGap: z.boolean().default(false),
+});
+export type ResumeCoverageDecision = z.infer<typeof ResumeCoverageDecisionSchema>;
+
+export const TailoredResumeCoverageMetadataSchema = ResumeCoverageDecisionSchema;
+export type TailoredResumeCoverageMetadata = z.infer<
+  typeof TailoredResumeCoverageMetadataSchema
+>;
+
 export const resumePatchOperationValues = [
   "replace_section_text",
   "insert_bullet",
   "update_bullet",
   "remove_bullet",
   "move_bullet",
+  "move_entry",
+  "reset_entry_order",
   "toggle_include",
   "set_lock",
   "replace_section_bullets",
@@ -139,8 +179,10 @@ export const resumeValidationCategoryValues = [
   "poor_keyword_coverage",
   "empty_section",
   "page_overflow",
+  "work_history_review",
   "low_confidence_fact",
   "stale_approval",
+  "date_quality",
 ] as const;
 
 export const ResumeValidationCategorySchema = z.enum(
@@ -220,6 +262,15 @@ export const ResumeDraftEntrySchema = z.object({
 });
 export type ResumeDraftEntry = z.infer<typeof ResumeDraftEntrySchema>;
 
+export const resumeDraftEntryOrderModeValues = ["chronology", "manual"] as const;
+
+export const ResumeDraftEntryOrderModeSchema = z.enum(
+  resumeDraftEntryOrderModeValues,
+);
+export type ResumeDraftEntryOrderMode = z.infer<
+  typeof ResumeDraftEntryOrderModeSchema
+>;
+
 export const ResumeDraftSectionSchema = z.object({
   id: NonEmptyStringSchema,
   kind: ResumeDraftSectionKindSchema,
@@ -231,11 +282,12 @@ export const ResumeDraftSectionSchema = z.object({
   locked: z.boolean().default(false),
   included: z.boolean().default(true),
   sortOrder: z.number().int().min(0),
+  entryOrderMode: ResumeDraftEntryOrderModeSchema.default("chronology"),
   profileRecordId: NonEmptyStringSchema.nullable().default(null),
   sourceRefs: z.array(ResumeDraftSourceRefSchema).default([]),
   updatedAt: IsoDateTimeSchema,
 });
-export type ResumeDraftSection = z.infer<typeof ResumeDraftSectionSchema>;
+export type ResumeDraftSection = z.output<typeof ResumeDraftSectionSchema>;
 
 export const ResumeDraftSchema = z.object({
   id: NonEmptyStringSchema,
@@ -252,7 +304,7 @@ export const ResumeDraftSchema = z.object({
   createdAt: IsoDateTimeSchema,
   updatedAt: IsoDateTimeSchema,
 });
-export type ResumeDraft = z.infer<typeof ResumeDraftSchema>;
+export type ResumeDraft = z.output<typeof ResumeDraftSchema>;
 
 export const ResumeDraftPatchSchema = z.object({
   id: NonEmptyStringSchema,
@@ -260,6 +312,7 @@ export const ResumeDraftPatchSchema = z.object({
   operation: ResumeDraftPatchOperationSchema,
   targetSectionId: NonEmptyStringSchema,
   targetEntryId: NonEmptyStringSchema.nullable().default(null),
+  anchorEntryId: NonEmptyStringSchema.nullable().default(null),
   targetBulletId: NonEmptyStringSchema.nullable().default(null),
   anchorBulletId: NonEmptyStringSchema.nullable().default(null),
   position: z.enum(["before", "after"]).nullable().default(null),
@@ -271,7 +324,7 @@ export const ResumeDraftPatchSchema = z.object({
   origin: ResumeDraftPatchOriginSchema,
   conflictReason: NonEmptyStringSchema.nullable().default(null),
 });
-export type ResumeDraftPatch = z.infer<typeof ResumeDraftPatchSchema>;
+export type ResumeDraftPatch = z.output<typeof ResumeDraftPatchSchema>;
 
 export const ResumeDraftRevisionSchema = z.object({
   id: NonEmptyStringSchema,
@@ -302,6 +355,47 @@ export const ResumeValidationResultSchema = z.object({
   validatedAt: IsoDateTimeSchema,
 });
 export type ResumeValidationResult = z.infer<typeof ResumeValidationResultSchema>;
+
+export const workHistoryReviewSuggestionKindValues = [
+  "weak_fit",
+  "gap_coverage",
+  "compact_recommended",
+  "date_quality",
+] as const;
+export const WorkHistoryReviewSuggestionKindSchema = z.enum(
+  workHistoryReviewSuggestionKindValues,
+);
+export type WorkHistoryReviewSuggestionKind = z.infer<
+  typeof WorkHistoryReviewSuggestionKindSchema
+>;
+
+export const workHistoryReviewSuggestionActionValues = [
+  "review",
+  "consider_showing",
+  "consider_hiding",
+  "keep_compact",
+  "fix_dates",
+] as const;
+export const WorkHistoryReviewSuggestionActionSchema = z.enum(
+  workHistoryReviewSuggestionActionValues,
+);
+export type WorkHistoryReviewSuggestionAction = z.infer<
+  typeof WorkHistoryReviewSuggestionActionSchema
+>;
+
+export const WorkHistoryReviewSuggestionSchema = z.object({
+  id: NonEmptyStringSchema,
+  profileRecordId: NonEmptyStringSchema,
+  sectionId: NonEmptyStringSchema.nullable().default(null),
+  entryId: NonEmptyStringSchema.nullable().default(null),
+  kind: WorkHistoryReviewSuggestionKindSchema,
+  action: WorkHistoryReviewSuggestionActionSchema,
+  severity: ResumeValidationSeveritySchema.default("info"),
+  message: NonEmptyStringSchema,
+});
+export type WorkHistoryReviewSuggestion = z.infer<
+  typeof WorkHistoryReviewSuggestionSchema
+>;
 
 export const resumePreviewWarningSourceValues = [
   "validation",
@@ -410,6 +504,7 @@ export type ResumeQualityBenchmarkCase = z.infer<
 export const ResumeQualityBenchmarkRequestSchema = z.object({
   benchmarkVersion: NonEmptyStringSchema.default("023-local-benchmark-v1"),
   caseIds: z.array(NonEmptyStringSchema).default([]),
+  templateIds: z.array(ResumeTemplateIdSchema).default([]),
   canaryOnly: z.boolean().default(false),
   persistArtifactsDirectory: NonEmptyStringSchema.nullable().default(null),
 });

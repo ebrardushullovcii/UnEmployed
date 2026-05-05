@@ -226,8 +226,6 @@ describe("openai-compatible chat and draft behavior", () => {
 
       expect(result.experienceEntries[0]).toEqual({
         ...deterministicFallback.experienceEntries[0],
-        summary: "Tailored platform ownership summary",
-        bullets: ["Tailored platform ownership impact"],
       });
       expect(result.fullText).toContain("Senior Frontend Engineer");
       expect(result.fullText).toContain("Acme Labs");
@@ -237,6 +235,645 @@ describe("openai-compatible chat and draft behavior", () => {
     } finally {
       restoreFetch();
     }
+  });
+
+  test("keeps fallback coverage entries when a model returns a partial experience list", async () => {
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              label: "Tailored Resume",
+              summary: "Tailored summary",
+              experienceEntries: [
+                {
+                  title: "Senior Frontend Engineer",
+                  employer: "Atlas Product",
+                  summary: "Model kept only the newest role.",
+                  bullets: ["Model bullet for newest role."],
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    });
+
+    try {
+      const client = createOpenAiCompatibleJobFinderAiClient({
+        apiKey: "test-key",
+        baseUrl: "https://example.com/v1",
+        model: "test-model",
+      });
+      const baseProfile = createProfile();
+      const input = {
+        profile: {
+          ...baseProfile,
+          skills: ["React", "TypeScript", ".NET"],
+          experiences: [
+            {
+              id: "experience_frontend",
+              companyName: "Atlas Product",
+              companyUrl: null,
+              title: "Senior Frontend Engineer",
+              employmentType: null,
+              location: "Remote",
+              workMode: ["remote" as const],
+              startDate: "2022-01",
+              endDate: null,
+              isCurrent: true,
+              isDraft: false,
+              summary: "Builds React workflow products.",
+              achievements: ["Built React workflow products for hiring teams."],
+              skills: ["React", "TypeScript"],
+              domainTags: ["frontend platform"],
+              peopleManagementScope: null,
+              ownershipScope: null,
+            },
+            {
+              id: "experience_dotnet",
+              companyName: "CoreLedger",
+              companyUrl: null,
+              title: ".NET Developer",
+              employmentType: null,
+              location: "Remote",
+              workMode: ["remote" as const],
+              startDate: "2019-01",
+              endDate: "2021-12",
+              isCurrent: false,
+              isDraft: false,
+              summary: "Built .NET APIs and web applications.",
+              achievements: ["Improved API latency by 25% through cached .NET endpoints."],
+              skills: [".NET", "C#"],
+              domainTags: ["web applications"],
+              peopleManagementScope: null,
+              ownershipScope: null,
+            },
+          ],
+        },
+        searchPreferences: createPreferences(),
+        settings: createSettings(),
+        job: {
+          ...createJobPosting(),
+          title: "Full-Stack Engineer",
+          keySkills: ["React", ".NET"],
+        },
+        resumeText: "Resume text",
+        evidence: {
+          summary: [],
+          candidateSummary: [],
+          experience: [],
+          skills: ["React", ".NET"],
+          keywords: ["React", ".NET"],
+        },
+        researchContext: {
+          companyNotes: [],
+          domainVocabulary: [],
+          priorityThemes: [],
+        },
+      } satisfies Parameters<typeof client.createResumeDraft>[0];
+
+      const result = await client.createResumeDraft(input);
+
+      expect(result.experienceEntries.map((entry) => entry.profileRecordId)).toEqual([
+        "experience_frontend",
+        "experience_dotnet",
+      ]);
+      expect(result.experienceEntries[0]).toMatchObject({
+        profileRecordId: "experience_frontend",
+        summary: "Model kept only the newest role.",
+      });
+      expect(result.experienceEntries[1]).toMatchObject({
+        profileRecordId: "experience_dotnet",
+        employer: "CoreLedger",
+      });
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("rejects unknown model profileRecordId values and restores reverse chronological fallback order", async () => {
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              label: "Tailored Resume",
+              summary: "Tailored summary",
+              experienceEntries: [
+                {
+                  title: ".NET Developer",
+                  employer: "CoreLedger",
+                  profileRecordId: "fake_id",
+                  bullets: ["Model reordered older role first."],
+                },
+                {
+                  title: "Senior Frontend Engineer",
+                  employer: "Atlas Product",
+                  bullets: ["Model omitted id for newest role."],
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    });
+
+    try {
+      const client = createOpenAiCompatibleJobFinderAiClient({
+        apiKey: "test-key",
+        baseUrl: "https://example.com/v1",
+        model: "test-model",
+      });
+      const baseProfile = createProfile();
+      const input = {
+        profile: {
+          ...baseProfile,
+          skills: ["React", "TypeScript", ".NET"],
+          experiences: [
+            {
+              id: "experience_frontend",
+              companyName: "Atlas Product",
+              companyUrl: null,
+              title: "Senior Frontend Engineer",
+              employmentType: null,
+              location: "Remote",
+              workMode: ["remote" as const],
+              startDate: "2022-01",
+              endDate: null,
+              isCurrent: true,
+              isDraft: false,
+              summary: "Builds React workflow products.",
+              achievements: ["Built React workflow products for hiring teams."],
+              skills: ["React", "TypeScript"],
+              domainTags: ["frontend platform"],
+              peopleManagementScope: null,
+              ownershipScope: null,
+            },
+            {
+              id: "experience_dotnet",
+              companyName: "CoreLedger",
+              companyUrl: null,
+              title: ".NET Developer",
+              employmentType: null,
+              location: "Remote",
+              workMode: ["remote" as const],
+              startDate: "2019-01",
+              endDate: "2021-12",
+              isCurrent: false,
+              isDraft: false,
+              summary: "Built .NET APIs and web applications.",
+              achievements: ["Improved API latency by 25% through cached .NET endpoints."],
+              skills: [".NET", "C#"],
+              domainTags: ["web applications"],
+              peopleManagementScope: null,
+              ownershipScope: null,
+            },
+          ],
+        },
+        searchPreferences: createPreferences(),
+        settings: createSettings(),
+        job: {
+          ...createJobPosting(),
+          title: "Full-Stack Engineer",
+          keySkills: ["React", ".NET"],
+        },
+        resumeText: "Resume text",
+        evidence: {
+          summary: [],
+          candidateSummary: [],
+          experience: [],
+          skills: ["React", ".NET"],
+          keywords: ["React", ".NET"],
+        },
+        researchContext: {
+          companyNotes: [],
+          domainVocabulary: [],
+          priorityThemes: [],
+        },
+      } satisfies Parameters<typeof client.createResumeDraft>[0];
+
+      const result = await client.createResumeDraft(input);
+
+      expect(result.experienceEntries.map((entry) => entry.profileRecordId)).toEqual([
+        "experience_frontend",
+        "experience_dotnet",
+      ]);
+      expect(result.experienceEntries.map((entry) => entry.profileRecordId)).not.toContain("fake_id");
+      expect(result.experienceEntries[0]?.bullets).toEqual([
+        "Model omitted id for newest role.",
+      ]);
+      expect(result.experienceEntries[1]?.bullets).toEqual([
+        "Model reordered older role first.",
+      ]);
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("ignores conflicting known profileRecordId values and rematches experience entries by content", async () => {
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              label: "Tailored Resume",
+              summary: "Tailored summary",
+              experienceEntries: [
+                {
+                  title: ".NET Developer",
+                  employer: "CoreLedger",
+                  profileRecordId: "experience_frontend",
+                  bullets: ["Model swapped the older role id."],
+                },
+                {
+                  title: "Senior Frontend Engineer",
+                  employer: "Atlas Product",
+                  profileRecordId: "experience_dotnet",
+                  bullets: ["Model swapped the newer role id."],
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    });
+
+    try {
+      const client = createOpenAiCompatibleJobFinderAiClient({
+        apiKey: "test-key",
+        baseUrl: "https://example.com/v1",
+        model: "test-model",
+      });
+      const baseProfile = createProfile();
+      const input = {
+        profile: {
+          ...baseProfile,
+          skills: ["React", "TypeScript", ".NET"],
+          experiences: [
+            {
+              id: "experience_frontend",
+              companyName: "Atlas Product",
+              companyUrl: null,
+              title: "Senior Frontend Engineer",
+              employmentType: null,
+              location: "Remote",
+              workMode: ["remote" as const],
+              startDate: "2022-01",
+              endDate: null,
+              isCurrent: true,
+              isDraft: false,
+              summary: "Builds React workflow products.",
+              achievements: ["Built React workflow products for hiring teams."],
+              skills: ["React", "TypeScript"],
+              domainTags: ["frontend platform"],
+              peopleManagementScope: null,
+              ownershipScope: null,
+            },
+            {
+              id: "experience_dotnet",
+              companyName: "CoreLedger",
+              companyUrl: null,
+              title: ".NET Developer",
+              employmentType: null,
+              location: "Remote",
+              workMode: ["remote" as const],
+              startDate: "2019-01",
+              endDate: "2021-12",
+              isCurrent: false,
+              isDraft: false,
+              summary: "Built .NET APIs and web applications.",
+              achievements: ["Improved API latency by 25% through cached .NET endpoints."],
+              skills: [".NET", "C#"],
+              domainTags: ["web applications"],
+              peopleManagementScope: null,
+              ownershipScope: null,
+            },
+          ],
+        },
+        searchPreferences: createPreferences(),
+        settings: createSettings(),
+        job: {
+          ...createJobPosting(),
+          title: "Full-Stack Engineer",
+          keySkills: ["React", ".NET"],
+        },
+        resumeText: "Resume text",
+        evidence: {
+          summary: [],
+          candidateSummary: [],
+          experience: [],
+          skills: ["React", ".NET"],
+          keywords: ["React", ".NET"],
+        },
+        researchContext: {
+          companyNotes: [],
+          domainVocabulary: [],
+          priorityThemes: [],
+        },
+      } satisfies Parameters<typeof client.createResumeDraft>[0];
+
+      const result = await client.createResumeDraft(input);
+
+      expect(result.experienceEntries.map((entry) => entry.profileRecordId)).toEqual([
+        "experience_frontend",
+        "experience_dotnet",
+      ]);
+      expect(result.experienceEntries[0]?.bullets).toEqual([
+        "Built React workflow products for hiring teams.",
+      ]);
+      expect(result.experienceEntries[1]?.bullets).toEqual([
+        "Improved API latency by 25% through cached .NET endpoints.",
+      ]);
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("uses date ranges to match repeated title and employer stints", async () => {
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              label: "Tailored Resume",
+              summary: "Tailored summary",
+              experienceEntries: [
+                {
+                  title: "Software Engineer",
+                  employer: "Orbit Commerce",
+                  dateRange: "Jan 2019 – Dec 2021",
+                  bullets: ["Model text for the older Orbit stint."],
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    });
+
+    try {
+      const client = createOpenAiCompatibleJobFinderAiClient({
+        apiKey: "test-key",
+        baseUrl: "https://example.com/v1",
+        model: "test-model",
+      });
+      const baseProfile = createProfile();
+      const input = {
+        profile: {
+          ...baseProfile,
+          experiences: [
+            {
+              id: "experience_orbit_new",
+              companyName: "Orbit Commerce",
+              companyUrl: null,
+              title: "Software Engineer",
+              employmentType: null,
+              location: "Remote",
+              workMode: ["remote" as const],
+              startDate: "2022-01",
+              endDate: "2024-02",
+              isCurrent: false,
+              isDraft: false,
+              summary: "Newest Orbit stint.",
+              achievements: ["Built modern workflow tooling."],
+              skills: ["React"],
+              domainTags: ["commerce"],
+              peopleManagementScope: null,
+              ownershipScope: null,
+            },
+            {
+              id: "experience_orbit_old",
+              companyName: "Orbit Commerce",
+              companyUrl: null,
+              title: "Software Engineer",
+              employmentType: null,
+              location: "Remote",
+              workMode: ["remote" as const],
+              startDate: "2019-01",
+              endDate: "2021-12",
+              isCurrent: false,
+              isDraft: false,
+              summary: "Older Orbit stint.",
+              achievements: ["Maintained legacy workflow tooling."],
+              skills: ["TypeScript"],
+              domainTags: ["commerce"],
+              peopleManagementScope: null,
+              ownershipScope: null,
+            },
+          ],
+        },
+        searchPreferences: createPreferences(),
+        settings: createSettings(),
+        job: createJobPosting(),
+        resumeText: "Resume text",
+        evidence: {
+          summary: [],
+          candidateSummary: [],
+          experience: [],
+          skills: ["React", "TypeScript"],
+          keywords: ["React", "TypeScript"],
+        },
+        researchContext: {
+          companyNotes: [],
+          domainVocabulary: [],
+          priorityThemes: [],
+        },
+      } satisfies Parameters<typeof client.createResumeDraft>[0];
+
+      const result = await client.createResumeDraft(input);
+
+      expect(result.experienceEntries.map((entry) => entry.profileRecordId)).toEqual([
+        "experience_orbit_new",
+        "experience_orbit_old",
+      ]);
+      expect(result.experienceEntries[0]?.bullets).toEqual([
+        "Built modern workflow tooling.",
+      ]);
+      expect(result.experienceEntries[1]?.bullets).toEqual([
+        "Model text for the older Orbit stint.",
+      ]);
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("matches semantically equivalent date-range formats across normalized inputs", async () => {
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              label: "Tailored Resume",
+              summary: "Tailored summary",
+              experienceEntries: [
+                {
+                  title: "Software Engineer",
+                  employer: "Orbit Commerce",
+                  dateRange: "2019-01 – 2021-12",
+                  bullets: ["Model text for the older Orbit stint."],
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    });
+
+    try {
+      const client = createOpenAiCompatibleJobFinderAiClient({
+        apiKey: "test-key",
+        baseUrl: "https://example.com/v1",
+        model: "test-model",
+      });
+      const baseProfile = createProfile();
+      const input = {
+        profile: {
+          ...baseProfile,
+          experiences: [
+            {
+              id: "experience_orbit_new",
+              companyName: "Orbit Commerce",
+              companyUrl: null,
+              title: "Software Engineer",
+              employmentType: null,
+              location: "Remote",
+              workMode: ["remote" as const],
+              startDate: "2022-01",
+              endDate: "2024-02",
+              isCurrent: false,
+              isDraft: false,
+              summary: "Newest Orbit stint.",
+              achievements: ["Built modern workflow tooling."],
+              skills: ["React"],
+              domainTags: ["commerce"],
+              peopleManagementScope: null,
+              ownershipScope: null,
+            },
+            {
+              id: "experience_orbit_old",
+              companyName: "Orbit Commerce",
+              companyUrl: null,
+              title: "Software Engineer",
+              employmentType: null,
+              location: "Remote",
+              workMode: ["remote" as const],
+              startDate: "2019-01",
+              endDate: "2021-12",
+              isCurrent: false,
+              isDraft: false,
+              summary: "Older Orbit stint.",
+              achievements: ["Maintained legacy workflow tooling."],
+              skills: ["TypeScript"],
+              domainTags: ["commerce"],
+              peopleManagementScope: null,
+              ownershipScope: null,
+            },
+          ],
+        },
+        searchPreferences: createPreferences(),
+        settings: createSettings(),
+        job: createJobPosting(),
+        resumeText: "Resume text",
+        evidence: {
+          summary: [],
+          candidateSummary: [],
+          experience: [],
+          skills: ["React", "TypeScript"],
+          keywords: ["React", "TypeScript"],
+        },
+        researchContext: {
+          companyNotes: [],
+          domainVocabulary: [],
+          priorityThemes: [],
+        },
+      } satisfies Parameters<typeof client.createResumeDraft>[0];
+
+      const result = await client.createResumeDraft(input);
+
+      expect(result.experienceEntries[1]?.profileRecordId).toBe("experience_orbit_old");
+      expect(result.experienceEntries.map((entry) => entry.profileRecordId)).toEqual([
+        "experience_orbit_new",
+        "experience_orbit_old",
+      ]);
+      expect(result.experienceEntries[1]?.bullets).toEqual([
+        "Model text for the older Orbit stint.",
+      ]);
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("treats invalid ISO months as unknown for deterministic chronology", () => {
+    const baseProfile = createProfile();
+    const input = {
+      profile: {
+        ...baseProfile,
+        experiences: [
+          {
+            id: "experience_invalid_month",
+            companyName: "Future Invalid",
+            companyUrl: null,
+            title: "Software Engineer",
+            employmentType: null,
+            location: "Remote",
+            workMode: ["remote" as const],
+            startDate: "2024-13",
+            endDate: null,
+            isCurrent: false,
+            isDraft: false,
+            summary: "Invalid date should not sort first.",
+            achievements: ["Invalid date achievement."],
+            skills: ["React"],
+            domainTags: ["platform"],
+            peopleManagementScope: null,
+            ownershipScope: null,
+          },
+          {
+            id: "experience_valid_month",
+            companyName: "Valid Systems",
+            companyUrl: null,
+            title: "Software Engineer",
+            employmentType: null,
+            location: "Remote",
+            workMode: ["remote" as const],
+            startDate: "2023-12",
+            endDate: null,
+            isCurrent: false,
+            isDraft: false,
+            summary: "Valid date should sort first.",
+            achievements: ["Valid date achievement."],
+            skills: ["TypeScript"],
+            domainTags: ["platform"],
+            peopleManagementScope: null,
+            ownershipScope: null,
+          },
+        ],
+      },
+      searchPreferences: createPreferences(),
+      settings: createSettings(),
+      job: createJobPosting(),
+      resumeText: "Resume text",
+      evidence: {
+        summary: [],
+        candidateSummary: [],
+        experience: [],
+        skills: ["React", "TypeScript"],
+        keywords: ["React", "TypeScript"],
+      },
+      researchContext: {
+        companyNotes: [],
+        domainVocabulary: [],
+        priorityThemes: [],
+      },
+    } satisfies Parameters<typeof buildDeterministicStructuredResumeDraft>[0];
+
+    const result = buildDeterministicStructuredResumeDraft(input);
+
+    expect(result.experienceEntries.map((entry) => entry.profileRecordId)).toEqual([
+      "experience_valid_month",
+      "experience_invalid_month",
+    ]);
   });
 
   test("compacts oversized resume assistant payloads before sending them to the model", async () => {
@@ -311,6 +948,7 @@ describe("openai-compatible chat and draft behavior", () => {
             locked: false,
             included: true,
             sortOrder: sectionIndex,
+            entryOrderMode: "chronology",
             profileRecordId: null,
             sourceRefs: [],
             updatedAt: "2026-03-20T10:00:00.000Z",
@@ -360,6 +998,13 @@ describe("openai-compatible chat and draft behavior", () => {
       expect(userPayload.request).toContain("please improve this draft");
       expect(userPayload.request).toContain("[truncated");
       expect(userPayload.draft?.sections?.length).toBeLessThan(12);
+      expect(userPayload.draft?.sections?.every((section) => {
+        if (!section || typeof section !== "object") {
+          return true;
+        }
+
+        return "entryOrderMode" in section;
+      })).toBe(true);
       expect(userPayload.validationIssues?.length ?? 0).toBeLessThanOrEqual(12);
     } finally {
       fetchMock.restore();
