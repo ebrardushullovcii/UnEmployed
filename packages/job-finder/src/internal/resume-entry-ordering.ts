@@ -142,6 +142,15 @@ function parseDateSegment(
     return { isCurrent: true, month: null, unparseable: false };
   }
 
+  const isoDate = /^(?<year>\d{4})-(?<month>\d{1,2})-(?<day>\d{1,2})$/.exec(normalized);
+  if (isoDate?.groups?.year && isoDate.groups.month) {
+    const year = Number(isoDate.groups.year);
+    const month = Number(isoDate.groups.month) - 1;
+    return month >= 0 && month <= 11
+      ? { isCurrent: false, month: toMonthIndex(year, month), unparseable: false }
+      : { isCurrent: false, month: null, unparseable: true };
+  }
+
   const isoMonth = /^(?<year>\d{4})-(?<month>\d{1,2})$/.exec(normalized);
   if (isoMonth?.groups?.year && isoMonth.groups.month) {
     const year = Number(isoMonth.groups.year);

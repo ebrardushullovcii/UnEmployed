@@ -191,7 +191,7 @@ function buildWorkHistoryReviewSuggestionsFromValidation(input: {
       return [{
         id: issue.id.replace(/^issue_/, ""),
         profileRecordId,
-        sectionId: issue.sectionId ?? matchedEntry?.sectionId ?? null,
+        sectionId: issue.sectionId ?? matchedEntry?.sectionId ?? "experience",
         entryId: issue.entryId,
         kind,
         action,

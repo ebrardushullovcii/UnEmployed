@@ -1161,13 +1161,29 @@ function parseMonthForSort(value: string | null | undefined): number | null {
 }
 
 function sortProfileForResumeCoverage(profile: JobFinderRepositoryState['profile']) {
+  const experiencesWithImportIndex = profile.experiences.map((experience, __importIndex) => ({
+    ...experience,
+    __importIndex,
+  }))
+
   return CandidateProfileSchema.parse({
     ...profile,
-    experiences: [...profile.experiences].sort((left, right) => {
-      const leftMonth = (left.isCurrent ? Number.MAX_SAFE_INTEGER : parseMonthForSort(left.endDate)) ?? parseMonthForSort(left.startDate) ?? Number.MIN_SAFE_INTEGER
-      const rightMonth = (right.isCurrent ? Number.MAX_SAFE_INTEGER : parseMonthForSort(right.endDate)) ?? parseMonthForSort(right.startDate) ?? Number.MIN_SAFE_INTEGER
-      return rightMonth - leftMonth
-    }),
+    experiences: experiencesWithImportIndex
+      .sort((left, right) => {
+        const leftEndMonth = (left.isCurrent ? Number.MAX_SAFE_INTEGER : parseMonthForSort(left.endDate)) ?? Number.MIN_SAFE_INTEGER
+        const rightEndMonth = (right.isCurrent ? Number.MAX_SAFE_INTEGER : parseMonthForSort(right.endDate)) ?? Number.MIN_SAFE_INTEGER
+        if (rightEndMonth !== leftEndMonth) {
+          return rightEndMonth - leftEndMonth
+        }
+
+        const leftStartMonth = parseMonthForSort(left.startDate) ?? Number.MIN_SAFE_INTEGER
+        const rightStartMonth = parseMonthForSort(right.startDate) ?? Number.MIN_SAFE_INTEGER
+        if (rightStartMonth !== leftStartMonth) {
+          return rightStartMonth - leftStartMonth
+        }
+
+        return left.__importIndex - right.__importIndex
+      }),
   })
 }
 

@@ -253,9 +253,9 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
             </div>
           </div>
         ) : props.preview ? (
-          <div className="relative h-full min-h-0 w-fit max-w-full overflow-hidden rounded-[0.9rem] border border-(--surface-panel-border) bg-white p-0.5 shadow-[0_3px_10px_rgba(0,0,0,0.12)]">
+          <div className="relative h-full min-h-0 w-fit max-w-full overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--resume-preview-frame) p-1.5 shadow-[var(--resume-preview-shell-shadow)]">
             <iframe
-              className="block h-full max-w-full rounded-xl border-0 bg-white"
+              className="block h-full max-w-full rounded-(--radius-field) border-0 bg-card"
               ref={frameRef}
               sandbox="allow-same-origin"
               srcDoc={props.preview.html}

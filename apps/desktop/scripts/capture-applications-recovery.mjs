@@ -29,20 +29,24 @@ async function waitForCondition(
   intervalMs = 150,
 ) {
   const startedAt = Date.now();
+  let lastError;
 
   while (Date.now() - startedAt < timeoutMs) {
     try {
       if (await check()) {
         return;
       }
-    } catch {
+    } catch (error) {
       // Transient hydration errors are treated as not-yet-ready.
+      lastError = error;
     }
 
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
 
-  throw new Error(`Timed out waiting for ${description}.`);
+  throw new Error(`Timed out waiting for ${description}.`, {
+    cause: lastError,
+  });
 }
 
 async function waitForProfileOrSetupHeading(window) {

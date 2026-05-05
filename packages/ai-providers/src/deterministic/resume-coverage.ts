@@ -511,6 +511,8 @@ export function deriveResumeCoveragePlan(input: {
 
   return scored.map((entry): ResumeCoverageDecision => {
     const strongRank = strongRankById.get(entry.experience.id) ?? -1;
+    // Keep strongRank === 1 as a compact-only case: only isOlderStrongFit feeds the
+    // older-fit guidance path in buildGuidance(...), so guidance starts at strongRank >= 2.
     const isOlderStrongFit = entry.careerFamilyFit === "strong" && strongRank >= 2;
     const isDetailedStrongFit =
       entry.careerFamilyFit === "strong" &&

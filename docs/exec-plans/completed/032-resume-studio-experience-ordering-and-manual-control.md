@@ -57,7 +57,7 @@ Experience entries should default to newest-first chronological order every time
 - Show whether the section is using `Chronology` or `Manual order` so users understand why an entry is not newest-first.
 - Preserve preview-to-editor targeting after reorder operations; clicking a preview entry should still focus the matching structured editor entry.
 - Keep controls keyboard-accessible and usable without drag-and-drop. Drag-and-drop can be added later, but it should not be the only reorder mechanism.
-- Allow moving locked entries unless lock currently means positional lock as well as content lock. If content lock only protects AI rewriting, manual user ordering should still be allowed.
+- Locked entries remain movable during manual ordering because entry locks only protect content edits and AI rewriting. Section-level locks block reordering, preview-to-editor targeting stays intact after moves, and the keyboard-accessible move controls continue to work for locked entries whenever the section itself is unlocked.
 
 ## Follow-Up Ideas
 

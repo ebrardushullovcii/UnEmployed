@@ -169,6 +169,10 @@ function TemplateOptionCard(props: {
 }) {
   const { disabled, onChange, recommended, selected, theme } = props;
   const visualTags = getResumeTemplateVisualTags(theme).slice(0, 2);
+  const templateName = getTemplateOptionLabel(theme);
+  const actionLabel = selected
+    ? `Selected template: ${templateName}`
+    : `Use ${templateName}`;
 
   return (
     <div
@@ -184,7 +188,7 @@ function TemplateOptionCard(props: {
         <div className="grid min-w-0 gap-1">
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             <span className="text-[0.8rem] font-semibold leading-4 text-foreground">
-              {getTemplateOptionLabel(theme)}
+              {templateName}
             </span>
             {selected ? <Badge variant="default">Selected</Badge> : null}
             {recommended ? <Badge variant="section">Recommended</Badge> : null}
@@ -197,6 +201,8 @@ function TemplateOptionCard(props: {
         </div>
 
         <Button
+          aria-label={actionLabel}
+          aria-pressed={selected}
           className="w-full"
           data-resume-template-select={theme.id}
           disabled={disabled}

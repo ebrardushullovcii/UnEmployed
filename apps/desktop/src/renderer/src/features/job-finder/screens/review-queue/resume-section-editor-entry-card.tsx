@@ -50,6 +50,7 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
   const rowLocked = disabled || section.locked
   const moveUpDisabled = rowLocked || entryIndex <= 0
   const moveDownDisabled = rowLocked || entryIndex >= section.entries.length - 1
+  const workHistoryHeadingId = `work_history_review_heading_${entry.id}`
   const handleEntryFocusCapture = () => {
     onSelectEntry(section.id, entry.id)
   }
@@ -175,8 +176,14 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
       </div>
 
       {workHistoryReviewSuggestions.length > 0 ? (
-        <div className="grid gap-1 rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) px-3 py-2 text-(length:--text-small) leading-5 text-(--warning-text)">
-          <p className="font-medium text-foreground">Work-history review</p>
+        <div
+          aria-labelledby={workHistoryHeadingId}
+          className="grid gap-1 rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) px-3 py-2 text-(length:--text-small) leading-5 text-(--warning-text)"
+          role="region"
+        >
+          <h3 className="font-medium text-foreground" id={workHistoryHeadingId}>
+            Work-history review
+          </h3>
           {workHistoryReviewSuggestions.map((suggestion) => (
             <p key={suggestion.id}>
               {suggestion.kind === 'date_quality' ? 'Date quality: ' : null}

@@ -33,11 +33,20 @@ function parseCompanyAndLocation(segment: string): {
     .split(",")
     .map((part) => cleanLine(part))
     .filter(Boolean);
-  const suffix = parts.length > 1 ? parts.slice(1).join(", ") : null;
-  const parsedLocation = suffix ? normalizeLocationLabel(suffix) : null;
-  const companyName = parsedLocation
-    ? cleanCompanyName(parts[0] ?? cleaned)
-    : cleanCompanyName(cleaned);
+  let parsedLocation: string | null = null;
+  let companyName = cleanCompanyName(cleaned);
+
+  for (let index = 1; index < parts.length; index += 1) {
+    const candidateSuffix = parts.slice(index).join(", ");
+    const candidateLocation = normalizeLocationLabel(candidateSuffix);
+    if (!candidateLocation) {
+      continue;
+    }
+
+    parsedLocation = candidateLocation;
+    companyName = cleanCompanyName(parts.slice(0, index).join(", ") || cleaned);
+    break;
+  }
 
   return {
     companyName: companyName || null,

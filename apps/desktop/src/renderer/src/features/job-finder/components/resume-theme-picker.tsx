@@ -33,10 +33,11 @@ export function ResumeThemePicker({
   themes,
   onChange,
 }: ResumeThemePickerProps) {
+  const sortedThemes = useMemo(() => sortResumeThemeOptions(themes), [themes]);
   const recommendations = useMemo(
     () =>
-      buildResumeThemePickerRecommendations({ recommendationContext, themes }),
-    [recommendationContext, themes],
+      buildResumeThemePickerRecommendations({ recommendationContext, themes: sortedThemes }),
+    [recommendationContext, sortedThemes],
   );
   const recommendationReasons = useMemo(
     () =>
@@ -52,7 +53,6 @@ export function ResumeThemePicker({
     () => new Set(recommendations.map((recommendation) => recommendation.templateId)),
     [recommendations],
   );
-  const sortedThemes = useMemo(() => sortResumeThemeOptions(themes), [themes]);
   const selectedTemplate =
     sortedThemes.find((theme) => theme.id === selectedThemeId) ?? sortedThemes[0] ?? null;
   const effectiveSelectedThemeId = selectedTemplate?.id ?? selectedThemeId;

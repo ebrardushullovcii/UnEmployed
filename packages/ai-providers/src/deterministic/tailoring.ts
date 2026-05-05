@@ -102,6 +102,34 @@ function shouldKeepSupportingContext(value: string | null | undefined): boolean 
   return tokenizeForQuality(value).length >= 8;
 }
 
+const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const monthByName: Record<string, number> = {
+  jan: 1,
+  january: 1,
+  feb: 2,
+  february: 2,
+  mar: 3,
+  march: 3,
+  apr: 4,
+  april: 4,
+  may: 5,
+  jun: 6,
+  june: 6,
+  jul: 7,
+  july: 7,
+  aug: 8,
+  august: 8,
+  sep: 9,
+  sept: 9,
+  september: 9,
+  oct: 10,
+  october: 10,
+  nov: 11,
+  november: 11,
+  dec: 12,
+  december: 12,
+};
+
 function formatMonthYear(value: string | null | undefined): string | null {
   const trimmed = value?.trim() ?? "";
   if (!trimmed) {
@@ -116,35 +144,7 @@ function formatMonthYear(value: string | null | undefined): string | null {
     return "Present";
   }
 
-  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const monthByName: Record<string, number> = {
-    jan: 1,
-    january: 1,
-    feb: 2,
-    february: 2,
-    mar: 3,
-    march: 3,
-    apr: 4,
-    april: 4,
-    may: 5,
-    jun: 6,
-    june: 6,
-    jul: 7,
-    july: 7,
-    aug: 8,
-    august: 8,
-    sep: 9,
-    sept: 9,
-    september: 9,
-    oct: 10,
-    october: 10,
-    nov: 11,
-    november: 11,
-    dec: 12,
-    december: 12,
-  };
-
-  const yearMonthMatch = /^(\d{4})-(\d{2})$/.exec(trimmed);
+  const yearMonthMatch = /^(\d{4})-(\d{2})(?:-\d{2})?$/.exec(trimmed);
   const monthYearSlashMatch = /^(\d{1,2})\/(\d{4})$/.exec(trimmed);
   const namedMonthMatch = /^([a-zA-Z]+)\.?\s+(\d{4})$/.exec(trimmed);
 
@@ -286,6 +286,23 @@ function parseChronologyMonth(value: string | null | undefined): number | null {
 
   if (/^(present|current|now)$/i.test(trimmed)) {
     return Number.MAX_SAFE_INTEGER;
+  }
+
+  const monthYearSlashMatch = /^(\d{1,2})\/(\d{4})$/.exec(trimmed);
+  if (monthYearSlashMatch) {
+    const month = Number(monthYearSlashMatch[1]);
+    return month >= 1 && month <= 12
+      ? Number(monthYearSlashMatch[2]) * 12 + month
+      : null;
+  }
+
+  const namedMonthMatch = /^([A-Za-z]+)\.?\s+(\d{4})$/i.exec(trimmed);
+  if (namedMonthMatch) {
+    const monthName = namedMonthMatch[1]?.toLowerCase() ?? "";
+    const month = monthByName[monthName] ?? null;
+    return month && month >= 1 && month <= 12
+      ? Number(namedMonthMatch[2]) * 12 + month
+      : null;
   }
 
   const yearMonthMatch = /^(\d{4})-(\d{2})(?:-\d{2})?$/.exec(trimmed);

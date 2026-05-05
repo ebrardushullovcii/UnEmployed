@@ -271,7 +271,7 @@ export type ResumeDraftEntryOrderMode = z.infer<
   typeof ResumeDraftEntryOrderModeSchema
 >;
 
-const ResumeDraftSectionBaseSchema = z.object({
+export const ResumeDraftSectionSchema = z.object({
   id: NonEmptyStringSchema,
   kind: ResumeDraftSectionKindSchema,
   label: NonEmptyStringSchema,
@@ -287,7 +287,6 @@ const ResumeDraftSectionBaseSchema = z.object({
   sourceRefs: z.array(ResumeDraftSourceRefSchema).default([]),
   updatedAt: IsoDateTimeSchema,
 });
-export const ResumeDraftSectionSchema = ResumeDraftSectionBaseSchema;
 export type ResumeDraftSection = z.output<typeof ResumeDraftSectionSchema>;
 
 export const ResumeDraftSchema = z.object({
@@ -296,7 +295,7 @@ export const ResumeDraftSchema = z.object({
   status: ResumeDraftStatusSchema,
   templateId: ResumeTemplateIdSchema,
   identity: ResumeDraftIdentitySchema.nullable().default(null),
-  sections: z.array(ResumeDraftSectionBaseSchema).default([]),
+  sections: z.array(ResumeDraftSectionSchema).default([]),
   targetPageCount: z.number().int().min(1).max(3).default(2),
   generationMethod: ResumeDraftGenerationMethodSchema.nullable().default(null),
   approvedAt: IsoDateTimeSchema.nullable().default(null),
