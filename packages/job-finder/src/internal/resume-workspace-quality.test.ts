@@ -71,6 +71,9 @@ function createBaseDraft(): ResumeDraft {
             subtitle: 'Orbit Commerce',
             location: 'London, UK',
             dateRange: '2020-01 – Present',
+            startDate: '2020-01',
+            endDate: null,
+            isCurrent: true,
             summary: 'Builds resilient workflow tools.',
             bullets: createBullets('experience_bullet', [
               'Led design-system rollout across core surfaces.',

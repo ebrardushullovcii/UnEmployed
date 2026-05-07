@@ -40,7 +40,11 @@ import {
   TailoredAssetSchema,
 } from "./discovery";
 import { CandidateProfileSchema } from "./profile";
-import { ProfileSetupStateSchema } from "./profile-setup";
+import {
+  ProfileSetupReviewActionOptionsSchema,
+  ProfileSetupReviewActionSchema,
+  ProfileSetupStateSchema,
+} from "./profile-setup";
 import {
   ProfileCopilotContextSchema,
   ProfileCopilotMessageSchema,
@@ -150,7 +154,8 @@ export type JobFinderResumeAssistantMessageInput = z.infer<
 
 export const JobFinderProfileSetupReviewActionInputSchema = z.object({
   reviewItemId: NonEmptyStringSchema,
-  action: z.enum(["confirm", "dismiss", "clear_value"]),
+  action: ProfileSetupReviewActionSchema,
+  options: ProfileSetupReviewActionOptionsSchema.optional(),
 });
 export type JobFinderProfileSetupReviewActionInput = z.infer<
   typeof JobFinderProfileSetupReviewActionInputSchema
@@ -278,11 +283,14 @@ export type SourceAccessPrompt = z.infer<typeof SourceAccessPromptSchema>;
 
 export const AgentProviderStatusSchema = z.object({
   kind: AiProviderKindSchema,
+  role: z.enum(["chat", "vision", "embedding", "stt"]).default("chat"),
   ready: z.boolean(),
   label: NonEmptyStringSchema,
   model: NonEmptyStringSchema.nullable().default(null),
   baseUrl: NonEmptyStringSchema.nullable().default(null),
   modelContextWindowTokens: z.number().int().positive().nullable().default(null),
+  reservedHeadroomTokens: z.number().int().positive().nullable().default(null),
+  requestTimeoutMs: z.number().int().positive().nullable().default(null),
   detail: NonEmptyStringSchema.nullable().default(null),
 });
 export type AgentProviderStatus = z.infer<typeof AgentProviderStatusSchema>;
@@ -521,6 +529,7 @@ export const JobFinderWorkspaceSnapshotSchema = z.object({
   module: z.literal("job-finder"),
   generatedAt: IsoDateTimeSchema,
   agentProvider: AgentProviderStatusSchema,
+  visionProvider: AgentProviderStatusSchema.nullable().default(null),
   availableResumeTemplates: z.array(ResumeTemplateDefinitionSchema).default([]),
   profile: CandidateProfileSchema,
   searchPreferences: JobSearchPreferencesSchema,

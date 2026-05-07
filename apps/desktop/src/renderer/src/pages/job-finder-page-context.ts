@@ -45,6 +45,7 @@ export interface JobFinderPageContext {
   onApplyProfileSetupReviewAction: (
     reviewItemId: string,
     action: 'confirm' | 'dismiss' | 'clear_value',
+    options?: { selectedConflictChoiceId?: string },
   ) => void
   onCheckBrowserSession: () => void
   onDismissJob: (jobId: string) => void

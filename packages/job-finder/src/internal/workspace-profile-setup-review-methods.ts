@@ -3,12 +3,15 @@ import {
   CandidateProfileSchema,
   CandidateWorkEligibilitySchema,
   JobSearchPreferencesSchema,
+  ProfileSetupReviewActionOptionsSchema,
   ProfileSetupReviewActionSchema,
   ProfileSetupStateSchema,
   type CandidateProfile,
   type JobSearchPreferences,
   type ProfileSetupReviewAction,
+  type ProfileSetupReviewActionOptions,
   type ProfileSetupState,
+  type ResumeImportFieldCandidate,
 } from "@unemployed/contracts";
 
 import { deriveAndPersistProfileSetupState } from "./profile-workspace-state";
@@ -54,6 +57,45 @@ function getClearedStructuredFieldValue(currentValue: unknown): unknown {
   }
 
   return null;
+}
+
+function applySelectedConflictChoice(
+  candidate: ResumeImportFieldCandidate,
+  selectedConflictChoiceId: string | undefined,
+): ResumeImportFieldCandidate {
+  if (!selectedConflictChoiceId) {
+    return candidate;
+  }
+
+  const selectedChoice = (candidate.conflictChoices ?? []).find(
+    (choice) => choice.id === selectedConflictChoiceId,
+  );
+
+  if (!selectedChoice) {
+    throw new Error(
+      `Unknown import conflict choice '${selectedConflictChoiceId}' for '${candidate.label}'.`,
+    );
+  }
+
+  return {
+    ...candidate,
+    value: selectedChoice.value,
+    normalizedValue: selectedChoice.value,
+    valuePreview: selectedChoice.valuePreview,
+    evidenceText: selectedChoice.evidenceText,
+    confidence: selectedChoice.confidence,
+    notes: [
+      ...candidate.notes,
+      `setup_selected_conflict_choice:${selectedChoice.sourceLabel}`,
+    ],
+    ...(selectedChoice.visualEvidence.length > 0
+      ? { visualEvidence: selectedChoice.visualEvidence }
+      : {}),
+    conflictChoices: (candidate.conflictChoices ?? []).map((choice) => ({
+      ...choice,
+      recommended: choice.id === selectedChoice.id,
+    })),
+  };
 }
 
 function clearProfileRecordValue(
@@ -127,8 +169,10 @@ export function createWorkspaceProfileSetupReviewMethods(input: {
   async function applyProfileSetupReviewAction(
     reviewItemId: string,
     action: ProfileSetupReviewAction,
+    options: ProfileSetupReviewActionOptions = {},
   ) {
     const parsedAction = ProfileSetupReviewActionSchema.parse(action);
+    const parsedOptions = ProfileSetupReviewActionOptionsSchema.parse(options);
     const currentSetupContext = await getCurrentSetupStateContext();
     const targetItem = currentSetupContext.profileSetupState.reviewItems.find(
       (item) => item.id === reviewItemId,
@@ -148,6 +192,16 @@ export function createWorkspaceProfileSetupReviewMethods(input: {
     const linkedCandidate = targetItem.sourceCandidateId
       ? nextCandidates.find((candidate) => candidate.id === targetItem.sourceCandidateId) ?? null
       : null;
+    const resolvedRun = () =>
+      currentSetupContext.latestResumeImportRun
+        ? {
+            ...currentSetupContext.latestResumeImportRun,
+            status: hasBlockingResumeImportCandidates(nextCandidates)
+              ? "review_ready" as const
+              : "applied" as const,
+            candidateCounts: countResumeImportCandidates(nextCandidates),
+          }
+        : null;
 
     if (parsedAction === "confirm") {
       if (!linkedCandidate) {
@@ -159,9 +213,14 @@ export function createWorkspaceProfileSetupReviewMethods(input: {
       nextCandidates = nextCandidates.map((candidate) =>
         candidate.id === linkedCandidate.id
           ? {
-              ...candidate,
+              ...applySelectedConflictChoice(
+                candidate,
+                parsedOptions.selectedConflictChoiceId,
+              ),
               resolution: "auto_applied",
-              resolutionReason: "setup_confirmed",
+              resolutionReason: parsedOptions.selectedConflictChoiceId
+                ? "setup_confirmed_conflict_choice"
+                : "setup_confirmed",
               resolvedAt: now,
             }
           : candidate,
@@ -314,14 +373,7 @@ export function createWorkspaceProfileSetupReviewMethods(input: {
       nextCandidates !== currentSetupContext.latestResumeImportAllCandidates
     ) {
       await ctx.repository.replaceResumeImportRunArtifacts({
-        run: {
-          ...currentSetupContext.latestResumeImportRun,
-          status:
-            hasBlockingResumeImportCandidates(nextCandidates)
-              ? "review_ready"
-              : "applied",
-          candidateCounts: countResumeImportCandidates(nextCandidates),
-        },
+        run: resolvedRun() ?? currentSetupContext.latestResumeImportRun,
         documentBundles: currentSetupContext.latestResumeImportBundles,
         fieldCandidates: nextCandidates,
       });

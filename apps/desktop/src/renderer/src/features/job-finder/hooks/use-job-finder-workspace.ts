@@ -228,11 +228,13 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
       applyProfileSetupReviewAction: (
         reviewItemId: string,
         action: "confirm" | "dismiss" | "clear_value",
+        options?: { selectedConflictChoiceId?: string },
       ) =>
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.applyProfileSetupReviewAction(
             reviewItemId,
             action,
+            options,
           ),
         ),
       sendProfileCopilotMessage: (

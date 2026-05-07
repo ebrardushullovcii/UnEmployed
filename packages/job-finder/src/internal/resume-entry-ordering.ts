@@ -204,10 +204,25 @@ function parseDateSegment(
 }
 
 export function parseResumeEntryDateRange(
-  value: string | null | undefined,
+  valueOrEntry: string | Pick<ResumeDraftEntry, "dateRange" | "endDate" | "isCurrent" | "startDate"> | null | undefined,
   now = new Date(),
 ): ParsedResumeEntryDateRange {
-  const trimmed = value?.trim() ?? "";
+  const structuredEntry = typeof valueOrEntry === "object" && valueOrEntry !== null
+    ? valueOrEntry
+    : null;
+  const structuredHasAnyDate = Boolean(
+    structuredEntry?.startDate?.trim() ||
+      structuredEntry?.endDate?.trim() ||
+      structuredEntry?.isCurrent,
+  );
+  const trimmed = structuredHasAnyDate
+    ? [
+        structuredEntry?.startDate,
+        structuredEntry?.isCurrent ? "Present" : structuredEntry?.endDate,
+      ].filter((value): value is string => Boolean(value?.trim())).join(" – ")
+    : typeof valueOrEntry === "string"
+      ? valueOrEntry.trim()
+      : structuredEntry?.dateRange?.trim() ?? "";
   if (!trimmed) {
     return {
       endBeforeStart: false,
@@ -264,8 +279,8 @@ function compareEntriesNewestFirst(
   left: { entry: ResumeDraftEntry; index: number },
   right: { entry: ResumeDraftEntry; index: number },
 ): number {
-  const leftDate = parseResumeEntryDateRange(left.entry.dateRange);
-  const rightDate = parseResumeEntryDateRange(right.entry.dateRange);
+  const leftDate = parseResumeEntryDateRange(left.entry);
+  const rightDate = parseResumeEntryDateRange(right.entry);
   const leftConfident = leftDate.hasParseableDate && !leftDate.hasUnparseableDateRange;
   const rightConfident = rightDate.hasParseableDate && !rightDate.hasUnparseableDateRange;
 
@@ -485,7 +500,7 @@ export function buildResumeEntryDateQualityIssues(
 
     const parsedEntries = section.entries.map((entry) => ({
       entry,
-      parsed: parseResumeEntryDateRange(entry.dateRange, now),
+      parsed: parseResumeEntryDateRange(entry, now),
     }));
 
     for (const { entry, parsed } of parsedEntries) {
@@ -502,7 +517,8 @@ export function buildResumeEntryDateQualityIssues(
         });
       } else if (
         parsed.hasUnparseableDateRange ||
-        (!parsed.hasParseableDate && Boolean(entry.dateRange?.trim()))
+        (!parsed.hasParseableDate &&
+          Boolean(entry.dateRange?.trim() || entry.startDate?.trim() || entry.endDate?.trim()))
       ) {
         issues.push({
           id: `issue_date_ambiguous_${entry.id}`,

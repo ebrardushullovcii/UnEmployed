@@ -119,17 +119,74 @@ function formatProjectSummary(input: {
 function formatDateRange(start: string | null | undefined, end: string | null | undefined, isCurrent?: boolean): string | null {
   const formatMonthYear = (value: string | null | undefined): string | null => {
     const trimmed = value?.trim() ?? "";
-    const match = /^(\d{4})-(\d{2})$/.exec(trimmed);
+    if (!trimmed) {
+      return null;
+    }
 
-    if (!match) {
-      return trimmed || null;
+    if (/^(present|current)$/i.test(trimmed)) {
+      return "Present";
     }
 
     const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    const monthIndex = Number(match[2]) - 1;
-    const month = monthNames[monthIndex];
+    const monthByName: Record<string, number> = {
+      jan: 1,
+      january: 1,
+      feb: 2,
+      february: 2,
+      mar: 3,
+      march: 3,
+      apr: 4,
+      april: 4,
+      may: 5,
+      jun: 6,
+      june: 6,
+      jul: 7,
+      july: 7,
+      aug: 8,
+      august: 8,
+      sep: 9,
+      sept: 9,
+      september: 9,
+      oct: 10,
+      october: 10,
+      nov: 11,
+      november: 11,
+      dec: 12,
+      december: 12,
+    };
 
-    return month ? `${month} ${match[1]}` : trimmed;
+    const yearMonthMatch = /^(\d{4})-(\d{1,2})(?:-\d{1,2})?$/.exec(trimmed);
+    const monthYearSlashMatch = /^(\d{1,2})\/(\d{4})$/.exec(trimmed);
+    const dayMonthYearSlashMatch = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(trimmed);
+    const namedMonthMatch = /^([a-zA-Z]+)\.?\s+(\d{4})$/.exec(trimmed);
+
+    if (/^\d{4}$/.test(trimmed)) {
+      return trimmed;
+    }
+
+    const formatByMonth = (monthNumber: number, year: string) => {
+      const month = monthNames[monthNumber - 1];
+      return month ? `${month} ${year}` : null;
+    };
+
+    if (yearMonthMatch) {
+      return formatByMonth(Number(yearMonthMatch[2]), yearMonthMatch[1] ?? "");
+    }
+
+    if (monthYearSlashMatch) {
+      return formatByMonth(Number(monthYearSlashMatch[1]), monthYearSlashMatch[2] ?? "");
+    }
+
+    if (dayMonthYearSlashMatch) {
+      return formatByMonth(Number(dayMonthYearSlashMatch[2]), dayMonthYearSlashMatch[3] ?? "");
+    }
+
+    if (namedMonthMatch) {
+      const month = monthByName[namedMonthMatch[1]?.toLowerCase() ?? ""] ?? null;
+      return month ? formatByMonth(month, namedMonthMatch[2] ?? "") : null;
+    }
+
+    return trimmed;
   };
 
   const from = formatMonthYear(start);
@@ -140,6 +197,64 @@ function formatDateRange(start: string | null | undefined, end: string | null | 
   }
 
   return from ?? to ?? null;
+}
+
+function parseResumeDatePart(value: string | null | undefined): string | null {
+  const normalized = formatDateRange(value, null);
+  const trimmed = normalized?.trim() ?? "";
+
+  if (!trimmed) {
+    return null;
+  }
+
+  return /^(?:[A-Z][a-z]{2}\s+\d{4}|\d{4}|Present)$/.test(trimmed)
+    ? trimmed
+    : null;
+}
+
+function isPlausibleResumeDateRange(value: string | null | undefined): boolean {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) {
+    return false;
+  }
+
+  const parts = trimmed.split(/\s*[–—]\s*|\s+-\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return Boolean(parseResumeDatePart(parts[0]) && parseResumeDatePart(parts[1]));
+  }
+
+  return Boolean(parseResumeDatePart(trimmed));
+}
+
+function parseResumeDateRange(value: string | null | undefined): {
+  endDate: string | null;
+  isCurrent: boolean;
+  startDate: string | null;
+} {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) {
+    return { endDate: null, isCurrent: false, startDate: null };
+  }
+
+  const parts = trimmed.split(/\s*[–—]\s*|\s+-\s+/).filter(Boolean);
+  const startPart = parts[0] ?? trimmed;
+  const endPart = parts.length >= 2 ? (parts.at(-1) ?? null) : null;
+  const endIsCurrent = Boolean(endPart && /^(present|current)$/i.test(endPart.trim()));
+
+  return {
+    startDate: parseResumeDatePart(startPart),
+    endDate: endIsCurrent ? null : parseResumeDatePart(endPart),
+    isCurrent: endIsCurrent,
+  };
+}
+
+function formatEntryDateRange(entry: {
+  dateRange?: string | null;
+  endDate?: string | null;
+  isCurrent?: boolean;
+  startDate?: string | null;
+}): string | null {
+  return formatDateRange(entry.startDate, entry.endDate, entry.isCurrent) ?? entry.dateRange ?? null;
 }
 
 function toSectionPreviewLines(section: ResumeDraftSection): string[] {
@@ -153,10 +268,11 @@ function toSectionPreviewLines(section: ResumeDraftSection): string[] {
   for (const entry of orderedSection.entries
     .filter((item) => item.included)
     .sort((left, right) => left.sortOrder - right.sortOrder)) {
+    const entryDateRange = formatEntryDateRange(entry);
     const heading = joinCompact(
       [
         joinCompact([entry.title, entry.subtitle], " — "),
-        joinCompact([entry.location, entry.dateRange], " | "),
+        joinCompact([entry.location, entryDateRange], " | "),
       ],
       " | ",
     );
@@ -193,6 +309,9 @@ export interface ResumeRenderSectionEntry {
   subtitle: string | null;
   location: string | null;
   dateRange: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  isCurrent: boolean;
   heading: string | null;
   summary: string | null;
   bullets: Array<{ id: string; text: string }>;
@@ -275,6 +394,116 @@ function buildThinDraftSupportBullets(input: {
   ).slice(0, 3);
 }
 
+function selectCanonicalDateRange(input: {
+  profileDateRange: string | null;
+  generatedDateRange: string | null | undefined;
+}): string | null {
+  if (input.profileDateRange) {
+    return input.profileDateRange;
+  }
+
+  return isPlausibleResumeDateRange(input.generatedDateRange)
+    ? (input.generatedDateRange?.trim() ?? null)
+    : null;
+}
+
+function tokenizeResumeDetail(value: string | null | undefined): string[] {
+  return (value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function isWeakGeneratedSummary(input: {
+  generated: string | null | undefined;
+  title: string | null | undefined;
+  subtitle: string | null | undefined;
+  location: string | null | undefined;
+  dateRange: string | null | undefined;
+}): boolean {
+  const generated = input.generated?.trim() ?? "";
+  if (!generated) {
+    return true;
+  }
+
+  const tokens = tokenizeResumeDetail(generated);
+  if (tokens.length < 6) {
+    return true;
+  }
+
+  const metadata = normalizeText(
+    [input.title, input.subtitle, input.location, input.dateRange]
+      .filter((value): value is string => Boolean(value?.trim()))
+      .join(" "),
+  );
+
+  return Boolean(metadata && normalizeText(generated) === metadata);
+}
+
+function selectEntrySummary(input: {
+  generated: string | null | undefined;
+  profile: string | null | undefined;
+  title: string | null | undefined;
+  subtitle: string | null | undefined;
+  location: string | null | undefined;
+  dateRange: string | null | undefined;
+}): string | null {
+  const generated = input.generated?.trim() || null;
+  const profile = input.profile?.trim() || null;
+
+  if (!profile) {
+    return generated;
+  }
+
+  if (isWeakGeneratedSummary({ ...input, generated })) {
+    return profile;
+  }
+
+  return generated;
+}
+
+function splitResumeDetailLine(value: string): string[] {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  if (trimmed.length < 220 && !/[.!?]\s+\S/.test(trimmed)) {
+    return [trimmed];
+  }
+
+  const sentenceParts = trimmed
+    .split(/(?<=[.!?])\s+(?=[A-Z0-9])/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (sentenceParts.length > 1) {
+    return sentenceParts;
+  }
+
+  if (trimmed.length >= 260 && /;\s+/.test(trimmed)) {
+    return trimmed
+      .split(/;\s+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+
+  return [trimmed];
+}
+
+function mergeEntryBullets(
+  tailoredBullets: readonly string[],
+  profileBullets: readonly string[],
+  maxBullets = 3,
+): string[] {
+  const normalizedTailoredBullets = tailoredBullets.flatMap(splitResumeDetailLine);
+  const normalizedProfileBullets = profileBullets.flatMap(splitResumeDetailLine);
+
+  return uniqueStrings([...normalizedTailoredBullets, ...normalizedProfileBullets]).slice(0, maxBullets);
+}
+
 function resolveCoverageMetadataByRecordId(draft: TailoredResumeDraft) {
   return new Map(
     draft.coverageMetadata.map((metadata) => [metadata.profileRecordId, metadata]),
@@ -308,15 +537,40 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
   );
 
   const visibleExperienceEntries = draft.experienceEntries.map((entry, index) => {
+    const profileExperience = entry.profileRecordId
+      ? profile?.experiences.find((experience) => experience.id === entry.profileRecordId)
+      : null;
+    const profileDateRange = profileExperience
+      ? formatDateRange(
+          profileExperience.startDate,
+          profileExperience.endDate,
+          profileExperience.isCurrent,
+        )
+      : null;
+    const canonicalDateRange = selectCanonicalDateRange({
+      profileDateRange,
+      generatedDateRange: entry.dateRange,
+    });
+    const generatedDates = parseResumeDateRange(entry.dateRange);
     const createdEntry = createEntry({
       id: entry.profileRecordId ? `experience_${entry.profileRecordId}` : `experience_entry_${index + 1}`,
       entryType: "experience",
       title: entry.title,
       subtitle: entry.employer,
-      location: entry.location,
-      dateRange: entry.dateRange,
-      summary: entry.summary,
-      bullets: entry.bullets,
+      location: entry.location ?? profileExperience?.location ?? null,
+      dateRange: canonicalDateRange,
+      startDate: profileExperience?.startDate ?? generatedDates.startDate,
+      endDate: profileExperience?.endDate ?? generatedDates.endDate,
+      isCurrent: profileExperience?.isCurrent ?? generatedDates.isCurrent,
+      summary: selectEntrySummary({
+        generated: entry.summary,
+        profile: profileExperience?.summary,
+        title: entry.title,
+        subtitle: entry.employer,
+        location: entry.location ?? profileExperience?.location ?? null,
+        dateRange: canonicalDateRange ?? entry.dateRange,
+      }),
+      bullets: mergeEntryBullets(entry.bullets, profileExperience?.achievements ?? []),
       updatedAt: createdAt,
       origin,
       sortOrder: index,
@@ -362,6 +616,9 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
             profileExperience.endDate,
             profileExperience.isCurrent,
           ),
+          startDate: profileExperience.startDate,
+          endDate: profileExperience.endDate,
+          isCurrent: profileExperience.isCurrent,
           summary: profileExperience.summary,
           bullets: profileExperience.achievements,
           updatedAt: createdAt,
@@ -418,6 +675,9 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
       title: entry.name,
       subtitle: entry.role,
       location: pickProjectLink(profileProject),
+      startDate: null,
+      endDate: null,
+      isCurrent: false,
       summary: formatProjectSummary({
         summary: entry.summary,
         outcome: entry.outcome,
@@ -448,20 +708,26 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
   }
 
   const educationEntries = orderEntriesNewestFirst(draft.educationEntries.map((entry, index) =>
-    createEntry({
-      id: entry.profileRecordId ? `education_${entry.profileRecordId}` : `education_entry_${index + 1}`,
-      entryType: "education",
-      title: entry.school,
-      subtitle: joinCompact([entry.degree, entry.fieldOfStudy], ", "),
-      location: entry.location,
-      dateRange: entry.dateRange,
-      summary: entry.summary,
-      updatedAt: createdAt,
-      origin,
-      sortOrder: index,
-      profileRecordId: entry.profileRecordId,
-      sourceRefs: sharedRefs,
-    }),
+    {
+      const parsedDates = parseResumeDateRange(entry.dateRange);
+      return createEntry({
+        id: entry.profileRecordId ? `education_${entry.profileRecordId}` : `education_entry_${index + 1}`,
+        entryType: "education",
+        title: entry.school,
+        subtitle: joinCompact([entry.degree, entry.fieldOfStudy], ", "),
+        location: entry.location,
+        dateRange: entry.dateRange,
+        startDate: parsedDates.startDate,
+        endDate: parsedDates.endDate,
+        isCurrent: parsedDates.isCurrent,
+        summary: entry.summary,
+        updatedAt: createdAt,
+        origin,
+        sortOrder: index,
+        profileRecordId: entry.profileRecordId,
+        sourceRefs: sharedRefs,
+      });
+    },
   ));
 
   if (educationEntries.length > 0) {
@@ -480,18 +746,24 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
   }
 
   const certificationEntries = orderEntriesNewestFirst(draft.certificationEntries.map((entry, index) =>
-    createEntry({
-      id: entry.profileRecordId ? `certification_${entry.profileRecordId}` : `certification_entry_${index + 1}`,
-      entryType: "certification",
-      title: entry.name,
-      subtitle: entry.issuer,
-      dateRange: entry.dateRange,
-      updatedAt: createdAt,
-      origin,
-      sortOrder: index,
-      profileRecordId: entry.profileRecordId,
-      sourceRefs: sharedRefs,
-    }),
+    {
+      const parsedDates = parseResumeDateRange(entry.dateRange);
+      return createEntry({
+        id: entry.profileRecordId ? `certification_${entry.profileRecordId}` : `certification_entry_${index + 1}`,
+        entryType: "certification",
+        title: entry.name,
+        subtitle: entry.issuer,
+        dateRange: entry.dateRange,
+        startDate: parsedDates.startDate,
+        endDate: parsedDates.endDate,
+        isCurrent: parsedDates.isCurrent,
+        updatedAt: createdAt,
+        origin,
+        sortOrder: index,
+        profileRecordId: entry.profileRecordId,
+        sourceRefs: sharedRefs,
+      });
+    },
   ));
 
   if (certificationEntries.length > 0) {
@@ -638,28 +910,35 @@ export function buildResumeRenderDocument(
         entries: section.entries
           .filter((entry) => entry.included)
           .sort((left, right) => left.sortOrder - right.sortOrder)
-          .map((entry) => ({
-            id: entry.id,
-            title: entry.title?.trim() || null,
-            subtitle: entry.subtitle?.trim() || null,
-            location: entry.location?.trim() || null,
-            dateRange: entry.dateRange?.trim() || null,
-            heading: joinCompact(
-              [
-                joinCompact([entry.title, entry.subtitle], " — "),
-                joinCompact([entry.location, entry.dateRange], " | "),
-              ],
-              " | ",
-            ),
-            summary: entry.summary?.trim() || null,
-            bullets: entry.bullets
-              .filter((bullet) => bullet.included)
-              .map((bullet) => ({
-                id: bullet.id,
-                text: bullet.text.trim(),
-              }))
-              .filter((bullet) => Boolean(bullet.text)),
-          })),
+          .map((entry) => {
+            const dateRange = formatEntryDateRange(entry);
+
+            return {
+              id: entry.id,
+              title: entry.title?.trim() || null,
+              subtitle: entry.subtitle?.trim() || null,
+              location: entry.location?.trim() || null,
+              dateRange,
+              startDate: entry.startDate?.trim() || null,
+              endDate: entry.endDate?.trim() || null,
+              isCurrent: entry.isCurrent,
+              heading: joinCompact(
+                [
+                  joinCompact([entry.title, entry.subtitle], " — "),
+                  joinCompact([entry.location, dateRange], " | "),
+                ],
+                " | ",
+              ),
+              summary: entry.summary?.trim() || null,
+              bullets: entry.bullets
+                .filter((bullet) => bullet.included)
+                .map((bullet) => ({
+                  id: bullet.id,
+                  text: bullet.text.trim(),
+                }))
+                .filter((bullet) => Boolean(bullet.text)),
+            };
+          }),
       }))
       .filter((section) =>
         Boolean(section.text) ||
@@ -674,12 +953,14 @@ export function buildResumeDraftFromTailoredDraft(input: {
   templateId: ResumeTemplateId;
   draft: TailoredResumeDraft;
   createdAt: string;
+  updatedAt?: string;
   existingDraftId?: string | null;
   generationMethod: ResumeDraft["generationMethod"];
   profile?: CandidateProfile;
   research?: readonly ResumeResearchArtifact[];
 }): ResumeDraft {
   const { createdAt, draft, existingDraftId, generationMethod, job, templateId } = input;
+  const updatedAt = input.updatedAt ?? createdAt;
   const jobRef = createSourceRef(
     "job",
     job.id,
@@ -704,7 +985,7 @@ export function buildResumeDraftFromTailoredDraft(input: {
     templateId,
     identity: input.profile ? buildResumeDraftIdentity(input.profile) : null,
     sections: buildDraftSectionsFromStructuredTailoredDraft({
-      createdAt,
+      createdAt: updatedAt,
       draft,
       origin,
       profile: input.profile,
@@ -716,7 +997,7 @@ export function buildResumeDraftFromTailoredDraft(input: {
     approvedExportId: null,
     staleReason: null,
     createdAt,
-    updatedAt: createdAt,
+    updatedAt,
   }));
 }
 
@@ -794,6 +1075,9 @@ export function seedResumeDraft(input: {
       subtitle: experience.companyName,
       location: experience.location,
       dateRange: formatDateRange(experience.startDate, experience.endDate, experience.isCurrent),
+      startDate: experience.startDate,
+      endDate: experience.endDate,
+      isCurrent: experience.isCurrent,
       summary: experience.summary,
       bullets: experience.achievements,
       updatedAt: now,
@@ -809,6 +1093,9 @@ export function seedResumeDraft(input: {
       title: project.name,
       subtitle: project.role,
       location: pickProjectLink(project),
+      startDate: null,
+      endDate: null,
+      isCurrent: false,
       summary: formatProjectSummary({
         summary: project.summary,
         outcome: project.outcome,
@@ -829,6 +1116,9 @@ export function seedResumeDraft(input: {
       subtitle: joinCompact([education.degree, education.fieldOfStudy], ", "),
       location: education.location,
       dateRange: formatDateRange(education.startDate, education.endDate),
+      startDate: education.startDate,
+      endDate: education.endDate,
+      isCurrent: false,
       summary: education.summary,
       updatedAt: now,
       origin: "imported",
@@ -843,6 +1133,9 @@ export function seedResumeDraft(input: {
       title: certification.name,
       subtitle: certification.issuer,
       dateRange: formatDateRange(certification.issueDate, certification.expiryDate),
+      startDate: certification.issueDate,
+      endDate: certification.expiryDate,
+      isCurrent: false,
       updatedAt: now,
       origin: "imported",
       sortOrder: index,

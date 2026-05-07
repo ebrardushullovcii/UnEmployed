@@ -1,6 +1,8 @@
 import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
 import {
   JobPostingSchema,
+  ResumeDraftSchema,
+  ResumeValidationResultSchema,
   type ResumeTemplateId,
   ResumeTemplateDefinitionSchema,
   SavedJobSchema,
@@ -2563,6 +2565,108 @@ describe("createJobFinderWorkspaceService", () => {
     await expect(workspaceService.regenerateResumeDraft("job_ready")).rejects.toThrow(
       /unlock pinned resume sections or bullets/i,
     );
+  });
+
+  test("full-draft regeneration rebuilds an existing stale draft from profile-backed dates and descriptions", async () => {
+    const seed = createSeed();
+    const staleDraft = ResumeDraftSchema.parse({
+      id: "resume_draft_job_ready",
+      jobId: "job_ready",
+      status: "needs_review",
+      templateId: "classic_ats",
+      identity: null,
+      sections: [
+        {
+          id: "section_experience",
+          kind: "experience",
+          label: "Experience",
+          text: null,
+          bullets: [],
+          entries: [
+            {
+              id: "experience_experience_1",
+              entryType: "experience",
+              title: "Senior systems designer",
+              subtitle: "Signal Systems",
+              location: "London, UK",
+              dateRange: "Present",
+              startDate: null,
+              endDate: null,
+              isCurrent: false,
+              summary: "Senior systems designer — Signal Systems | London, UK | Present",
+              bullets: [],
+              origin: "ai_generated",
+              locked: false,
+              included: true,
+              sortOrder: 0,
+              profileRecordId: "experience_1",
+              sourceRefs: [],
+              updatedAt: "2026-03-20T10:00:00.000Z",
+            },
+          ],
+          origin: "ai_generated",
+          locked: false,
+          included: true,
+          sortOrder: 0,
+          entryOrderMode: "chronology",
+          profileRecordId: null,
+          sourceRefs: [],
+          updatedAt: "2026-03-20T10:00:00.000Z",
+        },
+      ],
+      targetPageCount: 2,
+      generationMethod: "ai",
+      approvedAt: null,
+      approvedExportId: null,
+      staleReason: null,
+      createdAt: "2026-03-20T10:00:00.000Z",
+      updatedAt: "2026-03-20T10:00:00.000Z",
+    });
+    const futureStaleDraft = ResumeDraftSchema.parse({
+      ...staleDraft,
+      updatedAt: "2099-01-01T00:00:00.000Z",
+      sections: staleDraft.sections.map((section) => ({
+        ...section,
+        updatedAt: "2099-01-01T00:00:00.000Z",
+        entries: section.entries.map((entry) => ({
+          ...entry,
+          updatedAt: "2099-01-01T00:00:00.000Z",
+        })),
+      })),
+    });
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...seed,
+        resumeDrafts: [futureStaleDraft],
+        resumeValidationResults: [
+          ResumeValidationResultSchema.parse({
+            id: `resume_validation_${futureStaleDraft.id}`,
+            draftId: futureStaleDraft.id,
+            issues: [],
+            pageCount: null,
+            validatedAt: futureStaleDraft.updatedAt,
+          }),
+        ],
+      },
+    });
+
+    await workspaceService.regenerateResumeDraft("job_ready");
+    const regeneratedDraft = await repository.getResumeDraftByJobId("job_ready");
+    const regeneratedExperience = regeneratedDraft?.sections
+      .find((section) => section.kind === "experience")
+      ?.entries.find((entry) => entry.profileRecordId === "experience_1");
+
+    expect(regeneratedDraft?.id).toBe(futureStaleDraft.id);
+    expect(regeneratedDraft?.createdAt).toBe(futureStaleDraft.createdAt);
+    expect(regeneratedDraft?.updatedAt).toBe("2099-01-01T00:00:00.001Z");
+    expect(regeneratedExperience).toMatchObject({
+      dateRange: "Jan 2020 – Present",
+      startDate: "2020-01",
+      endDate: null,
+      isCurrent: true,
+      summary: "Builds resilient workflow tools.",
+    });
+    expect(regeneratedExperience?.bullets.length).toBeGreaterThan(0);
   });
 
   test("blocks section regeneration when the target section has locked content", async () => {

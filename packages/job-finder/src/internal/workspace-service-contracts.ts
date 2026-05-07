@@ -1,4 +1,4 @@
-import type { JobFinderAiClient } from "@unemployed/ai-providers";
+import type { JobFinderAiClient, ResumeVisionProvider } from "@unemployed/ai-providers";
 import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
 import type {
   ApplyRunDetails,
@@ -11,6 +11,7 @@ import type {
   ResumeDocumentBundle,
   ResumeImportFieldCandidate,
   ResumeImportRun,
+  ResumeImportVisionArtifact,
   ResumeSourceDocument,
   JobFinderResumeWorkspace,
   JobFinderSettings,
@@ -19,6 +20,7 @@ import type {
   ProfileCopilotContext,
   ProfileSetupState,
   ProfileSetupReviewAction,
+  ProfileSetupReviewActionOptions,
   ResumeAssistantMessage,
   ResumeDraft,
   ResumeDraftPatch,
@@ -61,6 +63,7 @@ export interface JobFinderWorkspaceService {
     baseResume: ResumeSourceDocument;
     documentBundle: ResumeDocumentBundle;
     importWarnings?: readonly string[];
+    visionArtifact?: ResumeImportVisionArtifact | null;
   }): Promise<JobFinderWorkspaceSnapshot>;
   analyzeProfileFromResume(): Promise<JobFinderWorkspaceSnapshot>;
   saveSearchPreferences(
@@ -72,6 +75,7 @@ export interface JobFinderWorkspaceService {
   applyProfileSetupReviewAction(
     reviewItemId: string,
     action: ProfileSetupReviewAction,
+    options?: ProfileSetupReviewActionOptions,
   ): Promise<JobFinderWorkspaceSnapshot>;
   sendProfileCopilotMessage(
     content: string,
@@ -231,6 +235,7 @@ export interface ResumeResearchAdapter {
 
 export interface CreateJobFinderWorkspaceServiceOptions {
   aiClient: JobFinderAiClient;
+  visionProvider?: ResumeVisionProvider;
   documentManager: JobFinderDocumentManager;
   exportFileVerifier?: ResumeExportFileVerifier;
   repository: JobFinderRepository;

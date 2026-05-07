@@ -525,6 +525,7 @@ export type AssetGenerationMethod = z.infer<typeof AssetGenerationMethodSchema>;
 export const aiProviderKindValues = [
   "deterministic",
   "openai_compatible",
+  "openai_compatible_vision",
 ] as const;
 
 export const AiProviderKindSchema = z.enum(aiProviderKindValues);

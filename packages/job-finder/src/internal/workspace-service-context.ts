@@ -1,4 +1,4 @@
-import type { JobFinderAiClient } from "@unemployed/ai-providers";
+import type { JobFinderAiClient, ResumeVisionProvider } from "@unemployed/ai-providers";
 import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
 import type {
   JobFinderDiscoveryState,
@@ -25,6 +25,7 @@ export interface MutableRef<T> {
 
 export interface WorkspaceServiceContext {
   aiClient: JobFinderAiClient;
+  visionProvider?: ResumeVisionProvider;
   browserRuntime: BrowserSessionRuntime;
   documentManager: JobFinderDocumentManager;
   exportFileVerifier?: ResumeExportFileVerifier;

@@ -708,6 +708,9 @@ export function createDocumentManager() {
             subtitle: string | null
             location: string | null
             dateRange: string | null
+            startDate: string | null
+            endDate: string | null
+            isCurrent: boolean
             heading: string | null
             summary: string | null
             bullets: Array<{ id: string; text: string }>

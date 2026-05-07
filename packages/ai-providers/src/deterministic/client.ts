@@ -17,6 +17,8 @@ function buildDeterministicStatus(detail: string) {
     model: null,
     baseUrl: null,
     modelContextWindowTokens: null,
+    reservedHeadroomTokens: null,
+    requestTimeoutMs: null,
     detail,
   });
 }
@@ -46,6 +48,15 @@ export function createDeterministicJobFinderAiClient(
       return Promise.resolve(
         buildDeterministicResumeImportStageExtraction(input, status.label),
       );
+    },
+    adjudicateResumeImportCandidates() {
+      return Promise.resolve({
+        candidates: [],
+        notes: [
+          "Deterministic resume import adjudication deferred material conflicts to review.",
+        ],
+        warnings: [],
+      });
     },
     createResumeDraft(input) {
       return Promise.resolve(buildDeterministicStructuredResumeDraft(input));

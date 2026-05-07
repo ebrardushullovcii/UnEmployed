@@ -4,12 +4,13 @@ Read this for active feature work, handoff updates, broad repo changes, or uncle
 
 ## Current Truth
 
-- Completed foundations: `007`, `009`, `010`, `011`, `012`, `013`, `014`, `015`, `016`, `017`, `018`, `019`, `020`, `021`, `022`, `023`, `024`, `025`, `026`, `027`, `028`, `029`, `030`, `031`, `032`
+- Completed foundations: `007`, `009`, `010`, `011`, `012`, `013`, `014`, `015`, `016`, `017`, `018`, `019`, `020`, `021`, `022`, `023`, `024`, `025`, `026`, `027`, `028`, `029`, `030`, `031`, `032`, `033`
 - Active work: none
 - Baseline landed: desktop app, typed Electron boundaries, SQLite persistence, guided setup, profile copilot, discovery, resume workspace, safe non-submitting apply
 
 ## What Matters Now
 
+- `033` is completed: resume import now creates local temporary page images for PDF, DOCX, TXT, and MD, runs text and vision branches with separate provider roles and a graceful 10-minute default vision deadline, reconciles visual candidates/evidence into the existing setup review flow, and gives users actionable `Document text` / `Visual scan` choices for material conflicts; vision defaults to `FelidaeAI-Omni-3.6` and can reuse the shared AI provider key/base URL when vision-specific config is absent; latest real configured-Omni comparison across all six repo fixtures completed without vision failures/timeouts (`apps/desktop/test-artifacts/ui/resume-import-vision-comparison-full-fix-omni-600/resume-import-vision-comparison-report.json`) with literal recall `1.000`, education F1 `1.000`, experience F1 `0.906` vs normal `0.915`, auto-apply precision `1.000`, and lower unresolved rate `0.216` vs normal `0.285`; latest focused evidence is green for `pnpm validate:package ai-providers`, `pnpm validate:job-finder`, `pnpm validate:desktop`, and desktop build; see `docs/exec-plans/completed/033-parallel-vision-resume-import.md`
 - `030` is completed: resume generation now uses a derived coverage policy instead of the old first-3 work-history cap, preserves grounded fallback history through AI normalization, surfaces weak-fit/gap/compact work-history review suggestions as app-only Resume Studio guidance, and extends replayable resume-quality evidence with real imported fixtures; see `docs/exec-plans/completed/030-resume-coverage-and-copy-quality.md`
 - `031` is completed: the shipped apply-safe resume catalog now has eight stable template ids, neutral default coloring, and direct one-click template selection in Settings and Resume Studio: `Chronology Classic`, `Senior Brief`, `Modern Editorial`, `Engineering Spec`, `Proof Portfolio`, `Credential Ledger`, `Longform Timeline`, and `Career Pivot Bridge`; see `docs/exec-plans/completed/031-functional-resume-template-variety.md`
 - `032` is completed: Resume Studio now normalizes structured entry order through the shared draft/service path, defaults experience to current-then-newest-first chronology, preserves hide/show slots, exposes per-draft manual move and reset-to-chronology controls, and keeps preview/export order faithful; latest evidence is green for `pnpm validate:package contracts`, `pnpm validate:package job-finder`, `pnpm validate:package desktop`, `pnpm --filter @unemployed/desktop ui:resume-workspace`, and `pnpm validate:docs-only`; see `docs/exec-plans/completed/032-resume-studio-experience-ordering-and-manual-control.md`
@@ -58,6 +59,7 @@ Read this for active feature work, handoff updates, broad repo changes, or uncle
 ## Key References
 
 - `docs/TRACKS.md`
+- `docs/exec-plans/completed/033-parallel-vision-resume-import.md`
 - `docs/exec-plans/completed/030-resume-coverage-and-copy-quality.md`
 - `docs/exec-plans/completed/031-functional-resume-template-variety.md`
 - `docs/exec-plans/completed/032-resume-studio-experience-ordering-and-manual-control.md`

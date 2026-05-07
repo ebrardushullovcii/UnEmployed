@@ -66,6 +66,8 @@ export function summarizeReviewCandidates(
     resolution: candidate.resolution,
     resolutionReason: candidate.resolutionReason ?? null,
     notes: candidate.notes,
+    conflictChoices: candidate.conflictChoices ?? [],
+    visualEvidence: candidate.visualEvidence ?? [],
   }));
 }
 

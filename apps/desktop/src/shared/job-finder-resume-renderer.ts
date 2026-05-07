@@ -71,6 +71,130 @@ function formatContactItem(value: string): string {
     .replace(/\/$/, '')
 }
 
+function formatDateSegment(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? ''
+  if (!trimmed) {
+    return null
+  }
+
+  if (/^(present|current|now|ongoing)$/i.test(trimmed)) {
+    return 'Present'
+  }
+
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const monthByName: Record<string, number> = {
+    jan: 1,
+    january: 1,
+    feb: 2,
+    february: 2,
+    mar: 3,
+    march: 3,
+    apr: 4,
+    april: 4,
+    may: 5,
+    jun: 6,
+    june: 6,
+    jul: 7,
+    july: 7,
+    aug: 8,
+    august: 8,
+    sep: 9,
+    sept: 9,
+    september: 9,
+    oct: 10,
+    october: 10,
+    nov: 11,
+    november: 11,
+    dec: 12,
+    december: 12,
+  }
+  const formatMonthYear = (monthNumber: number, year: string) => {
+    const month = monthNames[monthNumber - 1]
+
+    return month ? `${month} ${year}` : null
+  }
+
+  const yearMonthMatch = /^(\d{4})-(\d{1,2})(?:-\d{1,2})?$/.exec(trimmed)
+  if (yearMonthMatch) {
+    return formatMonthYear(Number(yearMonthMatch[2]), yearMonthMatch[1] ?? '')
+  }
+
+  const monthYearSlashMatch = /^(\d{1,2})\/(\d{4})$/.exec(trimmed)
+  if (monthYearSlashMatch) {
+    return formatMonthYear(Number(monthYearSlashMatch[1]), monthYearSlashMatch[2] ?? '')
+  }
+
+  const dayMonthYearSlashMatch = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(trimmed)
+  if (dayMonthYearSlashMatch) {
+    return formatMonthYear(Number(dayMonthYearSlashMatch[2]), dayMonthYearSlashMatch[3] ?? '')
+  }
+
+  const namedMonthMatch = /^([a-zA-Z]+)\.?\s+(\d{4})$/.exec(trimmed)
+  if (namedMonthMatch) {
+    const month = monthByName[namedMonthMatch[1]?.toLowerCase() ?? ''] ?? null
+
+    return month ? formatMonthYear(month, namedMonthMatch[2] ?? '') : trimmed
+  }
+
+  return trimmed
+}
+
+function normalizeDisplayDateRange(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? ''
+  if (!trimmed) {
+    return null
+  }
+
+  const parts = trimmed
+    .split(/\s*[–—]\s*|\s+-\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+
+  if (parts.length >= 2) {
+    return `${formatDateSegment(parts[0]) ?? parts[0]} – ${formatDateSegment(parts.at(-1)) ?? parts.at(-1)}`
+  }
+
+  return formatDateSegment(trimmed) ?? trimmed
+}
+
+function formatEntryDateRange(input: {
+  dateRange: string | null
+  endDate?: string | null | undefined
+  isCurrent?: boolean | undefined
+  startDate?: string | null | undefined
+}): string | null {
+  const displayDateRange = normalizeDisplayDateRange(input.dateRange)
+  if (displayDateRange) {
+    return displayDateRange
+  }
+
+  const start = formatDateSegment(input.startDate)
+  const end = input.isCurrent ? 'Present' : formatDateSegment(input.endDate)
+
+  if (start && end) {
+    return `${start} – ${end}`
+  }
+
+  return start ?? end ?? null
+}
+
+function getEntryDateTargetField(input: {
+  dateRange: string | null
+  endDate?: string | null | undefined
+  isCurrent?: boolean | undefined
+  startDate?: string | null | undefined
+}) {
+  if (input.startDate?.trim() || input.dateRange?.trim()) {
+    return 'startDate'
+  }
+
+  if (input.endDate?.trim()) {
+    return 'endDate'
+  }
+
+  return input.isCurrent ? 'isCurrent' : 'startDate'
+}
+
 function renderIdentityFieldTag(input: {
   mode: ResumeRenderHtmlOptions['mode']
   field: ResumePreviewIdentityField
@@ -91,6 +215,9 @@ function renderEntryHeading(input: {
   subtitle: string | null
   location: string | null
   dateRange: string | null
+  startDate?: string | null | undefined
+  endDate?: string | null | undefined
+  isCurrent?: boolean | undefined
   heading: string | null
   mode: ResumeRenderHtmlOptions['mode']
   sectionId: string
@@ -118,6 +245,7 @@ function renderEntryHeading(input: {
         })}>${escapeHtml(input.subtitle)}</span>`
       : null,
   ].filter((value): value is string => Boolean(value))
+  const displayDateRange = formatEntryDateRange(input)
   const metaParts = [
     input.location
       ? `<span${renderPreviewAttributes({
@@ -127,17 +255,17 @@ function renderEntryHeading(input: {
             entryId: input.entryId,
             targetId: getResumeEntryFieldTargetId(input.sectionId, input.entryId, 'location'),
           }),
-        })}>${escapeHtml(input.location)}</span>`
+          })}>${escapeHtml(input.location)}</span>`
       : null,
-    input.dateRange
+    displayDateRange
       ? `<span${renderPreviewAttributes({
           ...withPreviewSelection({
             mode: input.mode ?? 'export',
             sectionId: input.sectionId,
             entryId: input.entryId,
-            targetId: getResumeEntryFieldTargetId(input.sectionId, input.entryId, 'dateRange'),
+            targetId: getResumeEntryFieldTargetId(input.sectionId, input.entryId, getEntryDateTargetField(input)),
           }),
-        })}>${escapeHtml(input.dateRange)}</span>`
+        })}>${escapeHtml(displayDateRange)}</span>`
       : null,
   ].filter((value): value is string => Boolean(value))
 
@@ -204,6 +332,9 @@ function renderStructuredSection(input: {
     subtitle: string | null
     location: string | null
     dateRange: string | null
+    startDate?: string | null
+    endDate?: string | null
+    isCurrent?: boolean
     heading: string | null
     summary: string | null
     bullets: Array<{ id: string; text: string }>
@@ -247,6 +378,9 @@ function renderStructuredSection(input: {
                 subtitle: entry.subtitle,
                 location: entry.location,
                 dateRange: entry.dateRange,
+                startDate: entry.startDate,
+                endDate: entry.endDate,
+                isCurrent: entry.isCurrent,
                 heading: entry.heading,
                 mode: input.mode ?? 'export',
                 sectionId: input.sectionId,
@@ -314,6 +448,9 @@ function renderSection(
       subtitle: string | null
       location: string | null
       dateRange: string | null
+      startDate?: string | null
+      endDate?: string | null
+      isCurrent?: boolean
       heading: string | null
       summary: string | null
       bullets: Array<{ id: string; text: string }>
@@ -1476,6 +1613,9 @@ const catalogPreviewDocument: ResumeRenderDocument = {
           subtitle: 'Northstar',
           location: null,
           dateRange: '2021 - Present',
+          startDate: '2021',
+          endDate: null,
+          isCurrent: true,
           heading: 'Senior platform engineer | Northstar | 2021 - Present',
           summary: 'Leads platform reliability, workflow automation, and internal developer tooling.',
           bullets: [{ id: 'preview_exp_bullet_1', text: 'Cut deployment rollback time by 43% through safer release automation.' }],
@@ -1486,6 +1626,9 @@ const catalogPreviewDocument: ResumeRenderDocument = {
           subtitle: 'Beacon Labs',
           location: null,
           dateRange: '2018 - 2021',
+          startDate: '2018',
+          endDate: '2021',
+          isCurrent: false,
           heading: 'Software engineer | Beacon Labs | 2018 - 2021',
           summary: 'Shipped customer-facing product workflows and API integrations for growth teams.',
           bullets: [],
@@ -1505,6 +1648,9 @@ const catalogPreviewDocument: ResumeRenderDocument = {
           subtitle: 'Technical lead',
           location: null,
           dateRange: null,
+          startDate: null,
+          endDate: null,
+          isCurrent: false,
           heading: 'Interview copilot | Technical lead',
           summary: 'Built an interview prep workspace with typed prompts, scoring, and export flows.',
           bullets: [{ id: 'preview_project_bullet_1', text: 'Increased weekly returning users by 28%.' }],
@@ -1515,6 +1661,9 @@ const catalogPreviewDocument: ResumeRenderDocument = {
           subtitle: 'Builder',
           location: null,
           dateRange: null,
+          startDate: null,
+          endDate: null,
+          isCurrent: false,
           heading: 'Hiring pipeline analytics | Builder',
           summary: 'Created dashboards that surfaced interview bottlenecks and approval lag.',
           bullets: [],
@@ -1534,6 +1683,9 @@ const catalogPreviewDocument: ResumeRenderDocument = {
           subtitle: 'Amazon Web Services',
           location: null,
           dateRange: '2024',
+          startDate: '2024',
+          endDate: null,
+          isCurrent: false,
           heading: 'AWS Certified Developer | Amazon Web Services | 2024',
           summary: null,
           bullets: [{ id: 'preview_cert_bullet_1', text: 'Validated cloud delivery and systems operations depth.' }],
@@ -1553,6 +1705,9 @@ const catalogPreviewDocument: ResumeRenderDocument = {
           subtitle: 'University of Texas',
           location: null,
           dateRange: '2018',
+          startDate: '2018',
+          endDate: null,
+          isCurrent: false,
           heading: 'BSc Computer Science | University of Texas | 2018',
           summary: null,
           bullets: [{ id: 'preview_edu_bullet_1', text: 'Focused on distributed systems and human-centered tooling.' }],

@@ -40,7 +40,10 @@ import {
   buildJobsExtractionPrompt,
   normalizeExtractedJobs,
 } from "./openai-compatible-jobs";
-import { extractOpenAiCompatibleResumeImportStage } from "./openai-compatible-resume-import";
+import {
+  adjudicateOpenAiCompatibleResumeImportCandidates,
+  extractOpenAiCompatibleResumeImportStage,
+} from "./openai-compatible-resume-import";
 
 const DEFAULT_MODEL_TIMEOUT_MS = 60_000;
 const DEFAULT_RESUME_EXTRACTION_TIMEOUT_MS = 120_000;
@@ -108,6 +111,10 @@ export function createOpenAiCompatibleJobFinderAiClient(
     baseUrl: validatedOptions?.baseUrl ?? null,
     modelContextWindowTokens: configuredOptions.success
       ? (validatedOptions?.contextWindowTokens ?? DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS)
+      : null,
+    reservedHeadroomTokens: null,
+    requestTimeoutMs: configuredOptions.success
+      ? (validatedOptions?.requestTimeoutMs ?? DEFAULT_MODEL_TIMEOUT_MS)
       : null,
     detail:
       configuredOptions.success
@@ -273,6 +280,17 @@ export function createOpenAiCompatibleJobFinderAiClient(
           DEFAULT_RESUME_EXTRACTION_TIMEOUT_MS,
       });
     },
+    async adjudicateResumeImportCandidates(input) {
+      return adjudicateOpenAiCompatibleResumeImportCandidates({
+        adjudicationInput: input,
+        status,
+        fetchModelJson,
+        timeoutMs:
+          validatedOptions?.resumeExtractionTimeoutMs ??
+          validatedOptions?.requestTimeoutMs ??
+          DEFAULT_RESUME_EXTRACTION_TIMEOUT_MS,
+      });
+    },
     async createResumeDraft(input) {
       const payload = await fetchModelJson(
         "createResumeDraft",
@@ -281,7 +299,9 @@ export function createOpenAiCompatibleJobFinderAiClient(
           "Return JSON only.",
           "Use the provided evidence and research only to prioritize or reframe existing candidate facts.",
           "Never invent candidate dates, titles, employers, metrics, or credentials.",
-          "Preserve profileRecordId for every experience entry you keep, keep work history in reverse chronological order, and do not drop fallback dev, dev-adjacent, or gap-coverage entries.",
+          "Preserve profileRecordId for every experience entry you keep, copy the canonical dateRange from the matching profile record, keep work history in reverse chronological order, and do not drop fallback dev, dev-adjacent, or gap-coverage entries.",
+          "Do not put locations, employers, titles, or other metadata in dateRange; dateRange must only be a real date span like 'Jan 2020 – Present'.",
+          "Keep useful imported role summaries and achievements; rewrite for relevance only when the original meaning, metrics, and technologies remain grounded.",
           "Compact older or weak-fit roles when needed, but never turn an unrelated role into a software role unless the profile record explicitly contains technical evidence.",
           "Keep the output ATS-friendly and concise.",
         ].join(" "),
@@ -357,7 +377,9 @@ export function createOpenAiCompatibleJobFinderAiClient(
           "Return JSON only.",
           "Ground every section in the provided profile, resume text, and job posting.",
           "Do not invent employers, achievements, dates, or credentials.",
-          "Preserve profileRecordId for experience entries, keep reverse chronological work-history order, and do not omit fallback dev, dev-adjacent, or gap-coverage entries.",
+          "Preserve profileRecordId for experience entries, copy the canonical dateRange from the matching profile record, keep reverse chronological work-history order, and do not omit fallback dev, dev-adjacent, or gap-coverage entries.",
+          "Do not put locations, employers, titles, or other metadata in dateRange; dateRange must only be a real date span like 'Jan 2020 – Present'.",
+          "Keep useful imported role summaries and achievements; rewrite for relevance only when the original meaning, metrics, and technologies remain grounded.",
           "Compact older or weak-fit roles when needed, but do not recast unrelated roles as technical roles without explicit stored evidence.",
           "Write concise ATS-friendly content.",
         ].join(" "),
@@ -652,6 +674,35 @@ export function createJobFinderAiClientFromEnvironment(
             "Fell back to the deterministic staged resume importer after the model call failed.",
             `Primary AI import stage failed: ${summarizeError(error)}`,
           ]),
+        };
+      }
+    },
+    async adjudicateResumeImportCandidates(input) {
+      if (!primaryClient.adjudicateResumeImportCandidates) {
+        const fallback = await fallbackClient.adjudicateResumeImportCandidates?.(input);
+        return {
+          candidates: fallback?.candidates ?? [],
+          notes: uniqueStrings([
+            ...(fallback?.notes ?? []),
+            "Primary AI import adjudication is unavailable; material conflicts stayed in setup review.",
+          ]),
+          warnings: fallback?.warnings ?? [],
+        };
+      }
+
+      try {
+        return await primaryClient.adjudicateResumeImportCandidates(input);
+      } catch (error) {
+        logFallbackError("adjudicateResumeImportCandidates", error);
+        const fallback = await fallbackClient.adjudicateResumeImportCandidates?.(input);
+        return {
+          candidates: fallback?.candidates ?? [],
+          notes: uniqueStrings([
+            ...(fallback?.notes ?? []),
+            "Fell back to deterministic review-first resume import adjudication after the model call failed.",
+            `Primary AI import adjudication failed: ${summarizeError(error)}`,
+          ]),
+          warnings: fallback?.warnings ?? [],
         };
       }
     },

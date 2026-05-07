@@ -4,13 +4,17 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  ResumeImportVisionArtifactSchema,
   ResumeParserWorkerResponseSchema,
+  type ResumeDocumentFileKind,
+  type ResumeImportVisionArtifact,
   type ResumeParserWorkerRequest,
   type ResumeParserWorkerResponse,
 } from "@unemployed/contracts";
 
 const DEFAULT_PARSER_TIMEOUT_MS = 45_000;
 const MAX_SIDECAR_OUTPUT_BYTES = 512_000;
+const MAX_VISION_IMAGE_OUTPUT_BYTES = 64_000_000;
 const SIDECAR_BINARY_NAME = process.platform === "win32"
   ? "resume_parser_sidecar.exe"
   : "resume_parser_sidecar";
@@ -317,6 +321,37 @@ function createSidecarFailureResponse(input: {
   });
 }
 
+function createVisionImageFailureResponse(input: {
+  artifactId: string;
+  runId: string;
+  sourceResumeId: string;
+  sourceFileKind: ResumeDocumentFileKind;
+  message: string;
+  warnings?: readonly string[];
+}): {
+  ok: false;
+  artifact: ResumeImportVisionArtifact;
+  warnings: string[];
+  errorMessage: string;
+} {
+  const warnings = [...(input.warnings ?? [])];
+  return {
+    ok: false,
+    artifact: ResumeImportVisionArtifactSchema.parse({
+      id: input.artifactId,
+      runId: input.runId,
+      sourceResumeId: input.sourceResumeId,
+      sourceFileKind: input.sourceFileKind,
+      createdAt: new Date().toISOString(),
+      retained: "temporary",
+      pages: [],
+      warnings,
+    }),
+    warnings,
+    errorMessage: input.message,
+  };
+}
+
 function isMissingCommandError(error: unknown): boolean {
   if (!error || typeof error !== "object") {
     return false;
@@ -333,12 +368,24 @@ function appendSidecarOutput(current: string, chunk: Buffer | string): string {
     : next;
 }
 
-async function invokeSidecarCandidate(input: {
+export function appendBoundedSidecarOutputForTest(current: string, chunk: Buffer | string, maxBytes: number): string {
+  const next = current + chunk.toString();
+
+  if (next.length > maxBytes) {
+    throw new Error(`Python resume parser sidecar output exceeded ${maxBytes} bytes.`);
+  }
+
+  return next;
+}
+
+async function invokeSidecarCandidate<TResult>(input: {
   candidate: SidecarCommandCandidate;
-  request: ResumeParserWorkerRequest;
+  request: ResumeParserWorkerRequest | Record<string, unknown>;
   timeoutMs: number;
-}): Promise<ResumeParserWorkerResponse> {
-  return await new Promise<ResumeParserWorkerResponse>((resolve, reject) => {
+  maxOutputBytes?: number;
+  parseOutput: (output: unknown) => TResult;
+}): Promise<TResult> {
+  return await new Promise<TResult>((resolve, reject) => {
     const child = spawn(input.candidate.command, input.candidate.args, {
       env: input.candidate.env,
       stdio: ["pipe", "pipe", "pipe"],
@@ -375,6 +422,20 @@ async function invokeSidecarCandidate(input: {
     });
 
     child.stdout.on("data", (chunk: Buffer | string) => {
+      if (input.maxOutputBytes) {
+        try {
+          stdout = appendBoundedSidecarOutputForTest(stdout, chunk, input.maxOutputBytes);
+        } catch (error) {
+          child.kill();
+          finish(() => reject(
+            error instanceof Error
+              ? error
+              : new Error("Python resume parser sidecar output exceeded the configured limit."),
+          ));
+        }
+        return;
+      }
+
       stdout = appendSidecarOutput(stdout, chunk);
     });
 
@@ -394,7 +455,7 @@ async function invokeSidecarCandidate(input: {
           }
 
           const parsed = JSON.parse(stdout) as unknown;
-          resolve(ResumeParserWorkerResponseSchema.parse(parsed));
+          resolve(input.parseOutput(parsed));
         } catch (error) {
           const details = stderr.trim();
           const message =
@@ -416,6 +477,29 @@ async function invokeSidecarCandidate(input: {
     child.stdin.write(JSON.stringify(input.request));
     child.stdin.end();
   });
+}
+
+export type ResumeVisionImageSidecarResponse = {
+  ok: boolean;
+  artifact: ResumeImportVisionArtifact;
+  warnings: string[];
+  errorMessage: string | null;
+};
+
+function parseVisionImageSidecarResponse(value: unknown): ResumeVisionImageSidecarResponse {
+  const record = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  return {
+    ok: record.ok === true,
+    artifact: ResumeImportVisionArtifactSchema.parse(record.artifact),
+    warnings: Array.isArray(record.warnings)
+      ? record.warnings.flatMap((entry) => typeof entry === "string" && entry.trim() ? [entry.trim()] : [])
+      : [],
+    errorMessage: typeof record.errorMessage === "string" && record.errorMessage.trim()
+      ? record.errorMessage.trim()
+      : null,
+  };
 }
 
 export async function runResumeParserSidecar(
@@ -472,6 +556,7 @@ export async function runResumeParserSidecar(
         candidate,
         request,
         timeoutMs,
+        parseOutput: (output) => ResumeParserWorkerResponseSchema.parse(output),
       });
     } catch (error) {
       lastError = error;
@@ -493,6 +578,112 @@ export async function runResumeParserSidecar(
     message: fallbackMessage,
     warnings: [
       "Python resume parser sidecar could not complete, so desktop import will fall back to the embedded parser.",
+    ],
+  });
+}
+
+export async function runResumeVisionImageSidecar(input: {
+  filePath: string;
+  fileKind: ResumeDocumentFileKind;
+  artifactId: string;
+  runId: string;
+  sourceResumeId: string;
+  retention?: "temporary" | "debug_retained" | "benchmark_retained";
+  timeoutMs?: number;
+}): Promise<ResumeVisionImageSidecarResponse> {
+  if (!sidecarAvailability.logged) {
+    sidecarAvailability.logged = true;
+    logBundledSidecarAvailability();
+  }
+
+  const bundledBinaryPath = getBundledSidecarBinaryPath();
+  let scriptPath: string | null = null;
+
+  try {
+    scriptPath = getResumeParserSidecarScriptPath();
+  } catch (error) {
+    if (!bundledBinaryPath) {
+      return createVisionImageFailureResponse({
+        artifactId: input.artifactId,
+        runId: input.runId,
+        sourceResumeId: input.sourceResumeId,
+        sourceFileKind: input.fileKind,
+        message:
+          error instanceof Error
+            ? error.message
+            : "Python resume parser sidecar script is unavailable.",
+        warnings: [
+          "Local resume vision image generation could not start because the parser sidecar script was unavailable.",
+        ],
+      });
+    }
+
+    scriptPath = resolveBundledScriptPathFromManifest();
+  }
+
+  if (!scriptPath && !bundledBinaryPath) {
+    return createVisionImageFailureResponse({
+      artifactId: input.artifactId,
+      runId: input.runId,
+      sourceResumeId: input.sourceResumeId,
+      sourceFileKind: input.fileKind,
+      message: "Python resume parser sidecar script is unavailable.",
+      warnings: [
+        "Local resume vision image generation could not start because the parser sidecar script was unavailable.",
+      ],
+    });
+  }
+
+  const candidates = scriptPath
+    ? getSidecarCommandCandidates(scriptPath)
+    : bundledBinaryPath
+      ? [{ command: bundledBinaryPath, args: [], label: path.basename(bundledBinaryPath) }]
+      : [];
+  const request = {
+    operation: "render_vision_images",
+    requestId: `resume_vision_images_${Date.now()}`,
+    filePath: input.filePath,
+    fileKind: input.fileKind,
+    artifactId: input.artifactId,
+    runId: input.runId,
+    sourceResumeId: input.sourceResumeId,
+    retention: input.retention ?? "temporary",
+  };
+  let lastError: unknown = null;
+
+  for (const candidate of candidates) {
+    try {
+      const response = await invokeSidecarCandidate({
+        candidate,
+        request,
+        timeoutMs: input.timeoutMs ?? DEFAULT_PARSER_TIMEOUT_MS,
+        maxOutputBytes: MAX_VISION_IMAGE_OUTPUT_BYTES,
+        parseOutput: parseVisionImageSidecarResponse,
+      });
+      return response;
+    } catch (error) {
+      lastError = error;
+
+      if (isMissingCommandError(error)) {
+        continue;
+      }
+
+      break;
+    }
+  }
+
+  const fallbackMessage = lastError instanceof Error
+    ? lastError.message
+    : "Python resume parser sidecar could not render local resume page images.";
+
+  return createVisionImageFailureResponse({
+    artifactId: input.artifactId,
+    runId: input.runId,
+    sourceResumeId: input.sourceResumeId,
+    sourceFileKind: input.fileKind,
+    message: fallbackMessage,
+    warnings: [
+      "Local resume vision image generation failed; import can continue with text extraction only.",
     ],
   });
 }

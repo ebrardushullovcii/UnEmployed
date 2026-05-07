@@ -352,6 +352,107 @@ describe("openai-compatible chat and draft behavior", () => {
     }
   });
 
+  test("repairs model metadata mistakes and preserves imported role detail", async () => {
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              label: "Tailored Resume",
+              summary: "Tailored summary",
+              experienceEntries: [
+                {
+                  title: "Full-Stack Software Engineer",
+                  employer: "AUTOMATEDPROS",
+                  location: "Remote, Kosovo",
+                  dateRange: "Remote, Kosovo | Present",
+                  summary: "AUTOMATEDPROS Remote Kosovo Present",
+                  bullets: ["React and WebSockets"],
+                  profileRecordId: "experience_full_stack",
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    });
+
+    try {
+      const client = createOpenAiCompatibleJobFinderAiClient({
+        apiKey: "test-key",
+        baseUrl: "https://example.com/v1",
+        model: "test-model",
+      });
+      const baseProfile = createProfile();
+      const input = {
+        profile: {
+          ...baseProfile,
+          skills: ["React", "TypeScript", "Next.js"],
+          experiences: [
+            {
+              id: "experience_full_stack",
+              companyName: "AUTOMATEDPROS",
+              companyUrl: null,
+              title: "Full-Stack Software Engineer",
+              employmentType: null,
+              location: "Remote, Kosovo",
+              workMode: ["remote" as const],
+              startDate: "2023-07",
+              endDate: null,
+              isCurrent: true,
+              isDraft: false,
+              summary: "Led hands-on product engineering across order, kitchen, and billing workflows.",
+              achievements: [
+                "Engineered a real-time restaurant order platform with React, Next.js, TailwindCSS & WebSockets, synchronizing POS and kitchen screens and eliminating manual order calls. Improved release confidence across kitchen workflows.",
+                "Integrated car-repair parts tracking and service scheduling; reducing car-parts load time by 87% (15s to 2s); improving ordering logic aligned with safety protocols.",
+              ],
+              skills: ["React", "Next.js", "WebSockets"],
+              domainTags: ["restaurant operations"],
+              peopleManagementScope: null,
+              ownershipScope: null,
+            },
+          ],
+        },
+        searchPreferences: createPreferences(),
+        settings: createSettings(),
+        job: {
+          ...createJobPosting(),
+          title: "Full-Stack Engineer",
+          keySkills: ["React", "Next.js"],
+        },
+        resumeText: "Resume text",
+        evidence: {
+          summary: [],
+          candidateSummary: [],
+          experience: [],
+          skills: ["React", "Next.js"],
+          keywords: ["React", "Next.js"],
+        },
+        researchContext: {
+          companyNotes: [],
+          domainVocabulary: [],
+          priorityThemes: [],
+        },
+      } satisfies Parameters<typeof client.createResumeDraft>[0];
+
+      const result = await client.createResumeDraft(input);
+
+      expect(result.experienceEntries[0]).toMatchObject({
+        profileRecordId: "experience_full_stack",
+        dateRange: "Jul 2023 – Present",
+        summary: "Led hands-on product engineering across order, kitchen, and billing workflows.",
+      });
+      expect(result.experienceEntries[0]?.bullets).toEqual([
+        "Engineered a real-time restaurant order platform with React, Next.js, TailwindCSS & WebSockets, synchronizing POS and kitchen screens and eliminating manual order calls. Improved release confidence across kitchen workflows.",
+        "Integrated car-repair parts tracking and service scheduling; reducing car-parts load time by 87% (15s to 2s); improving ordering logic aligned with safety protocols.",
+      ]);
+      expect(result.fullText).toContain("Remote, Kosovo | Jul 2023 – Present");
+      expect(result.fullText).not.toContain("Remote, Kosovo | Present");
+    } finally {
+      restoreFetch();
+    }
+  });
+
   test("rejects unknown model profileRecordId values and restores reverse chronological fallback order", async () => {
     const restoreFetch = mockJsonFetch({
       choices: [
@@ -462,9 +563,11 @@ describe("openai-compatible chat and draft behavior", () => {
       expect(result.experienceEntries.map((entry) => entry.profileRecordId)).not.toContain("fake_id");
       expect(result.experienceEntries[0]?.bullets).toEqual([
         "Model omitted id for newest role.",
+        "Built React workflow products for hiring teams.",
       ]);
       expect(result.experienceEntries[1]?.bullets).toEqual([
         "Model reordered older role first.",
+        "Improved API latency by 25% through cached .NET endpoints.",
       ]);
     } finally {
       restoreFetch();
@@ -692,6 +795,7 @@ describe("openai-compatible chat and draft behavior", () => {
       ]);
       expect(result.experienceEntries[1]?.bullets).toEqual([
         "Model text for the older Orbit stint.",
+        "Maintained legacy workflow tooling.",
       ]);
     } finally {
       restoreFetch();
@@ -798,6 +902,7 @@ describe("openai-compatible chat and draft behavior", () => {
       ]);
       expect(result.experienceEntries[1]?.bullets).toEqual([
         "Model text for the older Orbit stint.",
+        "Maintained legacy workflow tooling.",
       ]);
     } finally {
       restoreFetch();
@@ -926,6 +1031,9 @@ describe("openai-compatible chat and draft behavior", () => {
               subtitle: `Company ${entryIndex + 1}`,
               location: "Remote",
               dateRange: "2020 - Present",
+              startDate: "2020",
+              endDate: null,
+              isCurrent: true,
               summary: `Entry summary ${"grounded detail ".repeat(160)}`,
               bullets: Array.from({ length: 10 }, (_, nestedBulletIndex) => ({
                 id: `entry_bullet_${sectionIndex + 1}_${entryIndex + 1}_${nestedBulletIndex + 1}`,

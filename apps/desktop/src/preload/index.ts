@@ -16,6 +16,9 @@ import type {
   ResumeQualityBenchmarkRequest,
   ResumeImportBenchmarkReport,
   ResumeImportBenchmarkRequest,
+  ResumeImportFieldCandidate,
+  ResumeImportRun,
+  ResumeDocumentBundle,
   JobFinderResumeWorkspace,
   JobFinderRepositoryState,
   JobFinderAgentDiscoveryActionInput,
@@ -163,10 +166,12 @@ const desktopApi = {
     applyProfileSetupReviewAction: (
       reviewItemId: string,
       action: "confirm" | "dismiss" | "clear_value",
+      options?: { selectedConflictChoiceId?: string },
     ) =>
       ipcRenderer.invoke("job-finder:apply-profile-setup-review-action", {
         reviewItemId,
         action,
+        options,
       }) as Promise<JobFinderWorkspaceSnapshot>,
     sendProfileCopilotMessage: (
       content: string,
@@ -472,6 +477,14 @@ const desktopApi = {
                 "job-finder:test-run-resume-import-benchmark",
                 input ?? {},
               ) as Promise<ResumeImportBenchmarkReport>,
+            getResumeImportState: () =>
+              ipcRenderer.invoke(
+                "job-finder:test-get-resume-import-state",
+              ) as Promise<{
+                resumeImportRuns: readonly ResumeImportRun[];
+                resumeImportDocumentBundles: readonly ResumeDocumentBundle[];
+                resumeImportFieldCandidates: readonly ResumeImportFieldCandidate[];
+              }>,
             runResumeQualityBenchmark: (
               input?: Partial<ResumeQualityBenchmarkRequest>,
             ) =>
@@ -479,9 +492,11 @@ const desktopApi = {
                 "job-finder:test-run-resume-quality-benchmark",
                 input ?? {},
               ) as Promise<ResumeQualityBenchmarkReport>,
-            importResumeFromPath: (sourcePath: string) =>
+            importResumeFromPath: (
+              sourcePath: string | { sourcePath: string; useVision?: boolean },
+            ) =>
               ipcRenderer.invoke("job-finder:test-import-resume-from-path", {
-                sourcePath,
+                ...(typeof sourcePath === "string" ? { sourcePath } : sourcePath),
               }) as Promise<JobFinderWorkspaceSnapshot>,
           },
         }

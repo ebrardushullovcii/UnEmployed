@@ -37,7 +37,7 @@ describe('ResumeStudioPreviewPane', () => {
   })
 
   it('surfaces compact preview warnings and unsaved live-preview status', () => {
-    render(
+    const rendered = render(
       <ResumeStudioPreviewPane
         isDirty
         isPending={false}
@@ -58,6 +58,17 @@ describe('ResumeStudioPreviewPane', () => {
     expect(screen.queryByText(/Add one more role-specific keyword to the summary/i)).toBeNull()
     expect(screen.getByText('Chronology Classic')).toBeTruthy()
     expect(screen.getByTitle('Live resume preview')).toBeTruthy()
+    const previewContent = rendered.container.querySelector(
+      '[data-resume-preview-scroll-region] > div',
+    )
+    expect(previewContent?.classList.contains('min-h-full')).toBe(true)
+    expect(previewContent?.classList.contains('pb-4')).toBe(true)
+    const iframe = screen.getByTitle('Live resume preview')
+    if (!(iframe instanceof HTMLIFrameElement)) {
+      throw new Error('Expected the live preview element to be an iframe.')
+    }
+    expect(iframe.contentDocument?.documentElement.style.overflow).toBe('hidden')
+    expect(iframe.contentDocument?.body.style.overflow).toBe('hidden')
   })
 
   it('shows the preview failure fallback with the renderer error message', () => {

@@ -1,6 +1,38 @@
 # 033 Parallel Vision Resume Import
 
-Status: ready
+Status: completed
+
+## Completion Summary
+
+- Added local resume page-image generation for PDF, DOCX, TXT, and MD before any vision provider call, with temporary-by-default artifacts and opt-in debug/benchmark retention.
+- Added a narrow resume vision provider role, OpenAI-compatible omni configuration, deterministic fallback behavior, branch status tracking, and a single vision deadline so text import is not held indefinitely by slow vision analysis; the default configured vision model is `FelidaeAI-Omni-3.6`, the default vision deadline is 10 minutes, and vision can use the shared `UNEMPLOYED_AI_API_KEY`/`UNEMPLOYED_AI_BASE_URL` when vision-specific overrides are absent.
+- Ran text extraction and local image generation in parallel from desktop import, then reconciled text and visual candidates into the existing reviewable candidate pipeline without changing canonical-profile write semantics.
+- Added material text-vs-vision conflict choices labeled `Document text` and `Visual scan`, including typed setup-review actions that let users apply a specific selected choice.
+- Extended the resume-import benchmark with `--use-vision` and kept baseline text benchmarks from paying vision image-generation cost.
+
+## Latest Evidence
+
+- `pnpm validate:contracts`
+- `pnpm validate:package ai-providers`
+- `pnpm validate:job-finder`
+- `pnpm validate:desktop`
+- `pnpm --filter @unemployed/ai-providers test -- src/resume-vision.test.ts`
+- `pnpm validate:browser-runtime`
+- local sidecar smoke for TXT, MD, DOCX, and PDF image generation using `apps/desktop/dist/resume-parser-sidecar/bin/win32-x64/resume_parser_sidecar.exe`
+- `pnpm --filter @unemployed/desktop benchmark:resume-import -- --canary-only --label resume-import-benchmark-text-smoke`
+- `pnpm --filter @unemployed/desktop benchmark:resume-import -- --canary-only --use-vision --label resume-import-benchmark-vision-smoke`
+- `pnpm --filter @unemployed/desktop benchmark:resume-import -- --canary-only --use-vision --label resume-import-benchmark-vision-shared-key-final`
+- `pnpm --filter @unemployed/ai-providers test -- src/resume-vision.test.ts`
+- `pnpm --filter @unemployed/job-finder test -- src/resume-import-benchmark.test.ts src/resume-import-reconciliation.test.ts src/workspace-service.core.test.ts`
+- `pnpm --filter @unemployed/desktop test -- src/main/adapters/resume-vision-images.test.ts src/main/services/job-finder/import-resume.test.ts src/main/services/job-finder/create-workspace-service.test.ts`
+- `pnpm --filter @unemployed/desktop build`
+- real configured Omni comparison: `UNEMPLOYED_RESUME_VISION_TIMEOUT_MS=600000 node ./scripts/compare-resume-import-vision.mjs --label resume-import-vision-comparison-full-fix-omni-600 --import-timeout-ms 780000`; artifact: `apps/desktop/test-artifacts/ui/resume-import-vision-comparison-full-fix-omni-600/resume-import-vision-comparison-report.json`; all six repo fixtures completed with no timed-out/failed vision branch, normal literal recall `1.000`, Omni literal recall `1.000`, normal experience F1 `0.915`, Omni experience F1 `0.906`, normal education F1 `1.000`, Omni education F1 `1.000`, auto-apply precision `1.000`, and lower Omni unresolved rate `0.216` vs normal `0.285`
+
+## Remaining Limitations
+
+- Real Omni response time is provider-dependent; the shipped default vision deadline is 10 minutes and timeout/failure remains graceful so text import still completes.
+- DOCX visual import currently uses a local text/table SVG preview rather than a true DOCX-to-PDF render because no cross-platform DOCX renderer is bundled.
+- In the latest full-corpus live comparison, Omni preserved all literal fields and education records but had one small aggregate experience F1 dip (`-0.009`) from the `ebrar_pdf` case; it also reduced unresolved review rate by about `0.069`. Treat future provider-response-time and experience-deduplication tuning as follow-up, not a ship blocker.
 
 ## Goal
 

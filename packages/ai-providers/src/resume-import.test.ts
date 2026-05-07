@@ -87,6 +87,8 @@ describe("selectBlocksForResumeImportStage", () => {
             confidence: 0.98,
             notes: [],
             alternatives: [],
+            conflictChoices: [],
+            visualEvidence: [],
           },
         ],
         notes: [],

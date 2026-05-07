@@ -418,11 +418,14 @@ describe("playwright browser runtime", () => {
           .mockResolvedValue({ content: "done", toolCalls: [] }),
         getStatus: () => ({
           kind: "deterministic",
+          role: "chat",
           ready: true,
           label: "Test AI client ready",
           model: null,
           baseUrl: null,
           modelContextWindowTokens: null,
+          reservedHeadroomTokens: null,
+          requestTimeoutMs: null,
           detail: null,
         }),
       } satisfies Pick<JobFinderAiClient, "chatWithTools" | "getStatus">;

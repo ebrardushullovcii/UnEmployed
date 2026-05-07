@@ -20,6 +20,16 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 
 - no active plan right now
 
+## Recently Completed
+
+### `033 Parallel Vision Resume Import`
+
+- status: `done`
+- linked plan: `docs/exec-plans/completed/033-parallel-vision-resume-import.md`
+- resume import now renders supported local documents into temporary page images, runs text and vision branches with separate provider roles and a graceful 10-minute default vision deadline, defaults configured vision to `FelidaeAI-Omni-3.6` with shared AI key/base URL fallback, reconciles visual evidence into reviewable candidates, and surfaces text-vs-visual choices as actionable setup confirmations
+- latest evidence includes local TXT/MD/DOCX/PDF image-generation smoke, text-only and `--use-vision` resume-import canary benchmarks, focused shared-key vision provider tests, real configured-Omni comparison across all six repo fixtures at `apps/desktop/test-artifacts/ui/resume-import-vision-comparison-full-fix-omni-600/resume-import-vision-comparison-report.json`, `pnpm validate:package ai-providers`, `pnpm validate:job-finder`, `pnpm validate:desktop`, and desktop build
+- reopen only for configured omni quality regressions, cross-platform sidecar packaging issues, or a deliberate upgrade from DOCX text-preview rendering to true DOCX page rendering
+
 ## Reopenable Baselines
 
 ### `029 Full Product Critical QA And Improvement Plan`
@@ -169,7 +179,7 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 
 ## Ready Queue
 
-- `033`: parallel omni vision resume-import branch; linked plan: `docs/exec-plans/queued/033-parallel-vision-resume-import.md`
+- `036`: internal importer DOCX/PDF skill exploration; linked plan: `docs/exec-plans/queued/036-internal-importer-docx-pdf-skill-exploration.md`
 - `034`: browser/source-debug visual evidence; linked plan: `docs/exec-plans/queued/034-browser-source-debug-visual-evidence.md`
 - `035`: apply visual assistance; linked plan: `docs/exec-plans/queued/035-apply-visual-assistance.md`
 - Validate cross-platform sidecar packaging for `019` only for regressions, newly added targets, or periodic matrix revalidation

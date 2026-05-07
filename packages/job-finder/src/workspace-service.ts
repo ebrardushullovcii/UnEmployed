@@ -69,6 +69,7 @@ export function createJobFinderWorkspaceService(
 ): JobFinderWorkspaceService {
   const {
     aiClient,
+    visionProvider,
     browserRuntime,
     documentManager,
     exportFileVerifier,
@@ -94,6 +95,7 @@ export function createJobFinderWorkspaceService(
 
   const context: WorkspaceServiceContext = {
     aiClient,
+    ...(visionProvider ? { visionProvider } : {}),
     browserRuntime,
     documentManager,
     ...(exportFileVerifier ? { exportFileVerifier } : {}),

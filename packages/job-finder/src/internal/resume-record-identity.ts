@@ -27,6 +27,18 @@ function normalizeRecordDate(value: unknown): string {
     return `${isoMonthMatch[1]}-${isoMonthMatch[2]}`;
   }
 
+  const slashFullDateMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slashFullDateMatch) {
+    const first = Number.parseInt(slashFullDateMatch[1] ?? "", 10);
+    const second = Number.parseInt(slashFullDateMatch[2] ?? "", 10);
+    const year = slashFullDateMatch[3] ?? "";
+    const month = second >= 1 && second <= 12 ? second : first;
+
+    if (Number.isInteger(month) && month >= 1 && month <= 12 && year) {
+      return `${year}-${String(month).padStart(2, "0")}`;
+    }
+  }
+
   const slashMonthMatch = trimmed.match(/^(\d{1,2})\/(\d{4})$/);
   if (slashMonthMatch) {
     const month = Number.parseInt(slashMonthMatch[1] ?? "", 10);
@@ -94,7 +106,7 @@ function fieldsMatch(left: string, right: string): boolean {
 }
 
 function fieldsCompatible(left: string, right: string): boolean {
-  return !left || !right || left === right;
+  return !left || !right || left === right || left.includes(right) || right.includes(left);
 }
 
 function countTruthyFields(values: readonly unknown[]): number {
@@ -172,12 +184,16 @@ export function areEquivalentEducationRecords(
 
   const strongSchool = fieldsMatch(leftSchool, rightSchool);
   const strongDegree = fieldsMatch(leftDegree, rightDegree);
+  const strongField = fieldsMatch(leftField, rightField);
   const strongStart = fieldsMatch(leftStart, rightStart);
   const strongEnd = fieldsMatch(leftEnd, rightEnd);
+  const degreeCompatible = fieldsCompatible(leftDegree, rightDegree);
+  const fieldCompatible = fieldsCompatible(leftField, rightField);
 
   return (
-    (strongSchool && strongDegree && (strongStart || strongEnd) && fieldsCompatible(leftField, rightField)) ||
-    (strongSchool && strongStart && fieldsCompatible(leftDegree, rightDegree) && fieldsCompatible(leftField, rightField))
+    (strongSchool && strongDegree && (strongStart || strongEnd || fieldCompatible)) ||
+    (strongSchool && strongStart && degreeCompatible && fieldCompatible) ||
+    (strongSchool && degreeCompatible && fieldCompatible && (strongDegree || strongField))
   );
 }
 

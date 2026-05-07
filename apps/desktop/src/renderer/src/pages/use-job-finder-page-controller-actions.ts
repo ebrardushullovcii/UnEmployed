@@ -374,12 +374,15 @@ export function createPrimaryPageActions(
     onApplyProfileSetupReviewAction: (
       reviewItemId: string,
       action: 'confirm' | 'dismiss' | 'clear_value',
+      options?: { selectedConflictChoiceId?: string },
     ) =>
       void runAction(
-        () => actions.applyProfileSetupReviewAction(reviewItemId, action),
+        () => actions.applyProfileSetupReviewAction(reviewItemId, action, options),
         () => undefined,
         action === 'confirm'
-          ? 'Imported suggestion confirmed.'
+          ? options?.selectedConflictChoiceId
+            ? 'Imported comparison choice confirmed.'
+            : 'Imported suggestion confirmed.'
           : action === 'dismiss'
             ? 'Review item dismissed for now.'
             : 'Current value cleared and the review item was resolved.',

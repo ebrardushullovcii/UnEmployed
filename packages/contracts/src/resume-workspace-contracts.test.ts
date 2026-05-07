@@ -104,6 +104,9 @@ describe("contracts resume workspace schemas", () => {
                 subtitle: "Signal Systems",
                 location: "Remote",
                 dateRange: "2023 – Present",
+                startDate: "2023",
+                endDate: null,
+                isCurrent: true,
                 summary: "Owned design-system adoption across platform surfaces.",
                 bullets: [
                   {
@@ -221,6 +224,9 @@ describe("contracts resume workspace schemas", () => {
       title: "Senior Product Designer",
       subtitle: "Signal Systems",
       dateRange: "2023 – Present",
+      startDate: "2023",
+      endDate: null,
+      isCurrent: true,
     });
     expect(Array.isArray(parsedExperienceSection.entries[0]?.bullets)).toBe(true);
     expect(workspace.validation?.issues[0]?.category).toBe(

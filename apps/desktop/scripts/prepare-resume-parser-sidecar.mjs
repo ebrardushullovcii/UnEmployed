@@ -11,7 +11,7 @@ const sourceScriptPath = path.join(desktopDir, 'src', 'main', 'adapters', 'scrip
 const outputRoot = path.join(desktopDir, 'dist', 'resume-parser-sidecar')
 const buildRoot = path.join(outputRoot, 'build')
 const manifestPath = path.join(outputRoot, 'manifest.json')
-const bundledRequirements = ['pdfplumber', 'pypdf', 'python-docx', 'pyinstaller']
+const bundledRequirements = ['pdfplumber', 'pypdf', 'python-docx', 'pypdfium2', 'Pillow', 'pyinstaller']
 
 function readCliOption(flag) {
   const index = process.argv.indexOf(flag)
@@ -256,6 +256,8 @@ async function prepareSidecarBundleForTarget(target, signature) {
       'docx',
       '--collect-all',
       'pypdfium2',
+      '--collect-all',
+      'PIL',
       '--collect-all',
       'pdfminer',
       copiedScriptPath,

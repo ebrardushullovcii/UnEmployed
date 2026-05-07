@@ -18,6 +18,9 @@ export const resumePreviewEntryFieldValues = [
   'subtitle',
   'location',
   'dateRange',
+  'startDate',
+  'endDate',
+  'isCurrent',
   'summary',
 ] as const
 

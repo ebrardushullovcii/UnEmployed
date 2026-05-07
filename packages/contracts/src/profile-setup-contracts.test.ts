@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   ProfileSetupReviewActionSchema,
+  ProfileSetupReviewActionOptionsSchema,
   ProfileSetupStateSchema,
   ProfileReviewItemSchema,
   evaluateProfileSetupReadiness,
@@ -116,6 +117,11 @@ describe("contracts profile setup schemas", () => {
     expect(ProfileSetupReviewActionSchema.parse("clear_value")).toBe(
       "clear_value",
     );
+    expect(
+      ProfileSetupReviewActionOptionsSchema.parse({
+        selectedConflictChoiceId: "choice_visual_scan",
+      }).selectedConflictChoiceId,
+    ).toBe("choice_visual_scan");
   });
 
   test("derives completed setup state from materially complete profile inputs", () => {

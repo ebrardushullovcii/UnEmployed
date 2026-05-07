@@ -22,7 +22,9 @@ import {
 } from "@unemployed/contracts";
 import { z } from "zod";
 import type {
+  AdjudicateResumeImportCandidatesInput,
   ExtractResumeImportStageInput,
+  ResumeImportAdjudicationResult,
   ResumeImportStageExtractionResult,
 } from "./resume-import";
 
@@ -315,6 +317,9 @@ export interface JobFinderAiClient {
   extractResumeImportStage(
     input: ExtractResumeImportStageTransportInput,
   ): Promise<ResumeImportStageExtractionResult>;
+  adjudicateResumeImportCandidates?(
+    input: AdjudicateResumeImportCandidatesInput,
+  ): Promise<ResumeImportAdjudicationResult>;
   createResumeDraft(input: CreateResumeDraftInput): Promise<TailoredResumeDraft>;
   reviseResumeDraft(input: ReviseResumeDraftInput): Promise<ResumeAssistantReply>;
   reviseCandidateProfile(

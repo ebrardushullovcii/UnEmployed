@@ -44,6 +44,7 @@ import {
   JobSearchPreferencesSchema,
   JobFinderUndoProfileRevisionInputSchema,
   ResumeImportBenchmarkReportSchema,
+  ResumeImportFieldCandidateSchema,
   ResumeQualityBenchmarkReportSchema,
 } from "@unemployed/contracts";
 import {
@@ -190,13 +191,14 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
   ipcMain.handle(
     "job-finder:apply-profile-setup-review-action",
     async (_event, payload: unknown) => {
-      const { reviewItemId, action } =
+      const { reviewItemId, action, options } =
         JobFinderProfileSetupReviewActionInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
       const snapshot =
         await jobFinderWorkspaceService.applyProfileSetupReviewAction(
           reviewItemId,
           action,
+          options,
         );
 
       return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
@@ -423,10 +425,35 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
         ...(parsed.useConfiguredAi !== undefined
           ? { useConfiguredAi: parsed.useConfiguredAi }
           : {}),
+        ...(parsed.useVision !== undefined
+          ? { useVision: parsed.useVision }
+          : {}),
       };
 
       const report = await runDesktopResumeImportBenchmark(options);
       return ResumeImportBenchmarkReportSchema.parse(report);
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:test-get-resume-import-state",
+    async () => {
+      if (!isDesktopTestApiEnabled()) {
+        throw new Error(
+          "Desktop test API is disabled. Set UNEMPLOYED_ENABLE_TEST_API=1 to enable scripted UI flows.",
+        );
+      }
+
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const state = await jobFinderWorkspaceService.getResumeImportState();
+
+      return {
+        resumeImportRuns: state.resumeImportRuns,
+        resumeImportDocumentBundles: state.resumeImportDocumentBundles,
+        resumeImportFieldCandidates: ResumeImportFieldCandidateSchema.array().parse(
+          state.resumeImportFieldCandidates,
+        ),
+      };
     },
   );
 
@@ -470,8 +497,11 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
         );
       }
 
-      const { sourcePath } = parseResumeImportPathPayload(payload);
-      return importResumeFromSourcePath(sourcePath);
+      const { sourcePath, useVision } = parseResumeImportPathPayload(payload);
+      return importResumeFromSourcePath(
+        sourcePath,
+        typeof useVision === "boolean" ? { useVision } : {},
+      );
     },
   );
 

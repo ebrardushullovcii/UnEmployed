@@ -82,6 +82,7 @@ export interface JobFinderShellActions {
   applyProfileSetupReviewAction: (
     reviewItemId: string,
     action: "confirm" | "dismiss" | "clear_value",
+    options?: { selectedConflictChoiceId?: string },
   ) => Promise<JobFinderWorkspaceSnapshot>;
   sendProfileCopilotMessage: (
     content: string,

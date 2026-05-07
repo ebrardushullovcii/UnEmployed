@@ -89,8 +89,8 @@ export function updateSectionEntry(
 export function updateEntryField(
   section: ResumeDraftSection,
   entryId: string,
-  field: "dateRange" | "location" | "subtitle" | "summary" | "title",
-  value: string | null,
+  field: "dateRange" | "endDate" | "isCurrent" | "location" | "startDate" | "subtitle" | "summary" | "title",
+  value: boolean | string | null,
 ) {
   return updateSectionEntry(section, entryId, (entry) => ({
     ...entry,

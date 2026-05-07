@@ -29,6 +29,17 @@ const booleanSelectOptions = [
   { label: 'No', value: 'no' },
 ] as const
 
+function getImportConflictSummary(candidate: ResumeImportFieldCandidateSummary): string | null {
+  if ((candidate.conflictChoices?.length ?? 0) < 2) {
+    return null
+  }
+
+  const sourceLabels = Array.from(new Set((candidate.conflictChoices ?? []).map((choice) => choice.sourceLabel)))
+  return sourceLabels.length > 0
+    ? `Compare ${sourceLabels.join(' and ')} before confirming.`
+    : 'Compare imported alternatives before confirming.'
+}
+
 function SetupBooleanField(props: {
   control: UseFormReturn<ProfileEditorValues>['control']
   id?: string
@@ -114,6 +125,12 @@ export function ProfileSetupImportStep(props: {
                   <Badge variant="outline">{formatStatusLabel(candidate.resolution)}</Badge>
                 </div>
                 <p className="mt-1 text-sm text-foreground-soft">{candidate.valuePreview ?? candidate.evidenceText ?? 'Review this imported suggestion.'}</p>
+                {(() => {
+                  const conflictSummary = getImportConflictSummary(candidate)
+                  return conflictSummary ? (
+                    <p className="mt-1 text-xs text-muted-foreground">{conflictSummary}</p>
+                  ) : null
+                })()}
               </div>
             ))}
           </div>

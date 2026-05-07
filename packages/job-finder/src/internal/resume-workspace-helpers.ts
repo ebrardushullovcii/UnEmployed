@@ -95,6 +95,7 @@ export function buildResumeDraftFromTailoredDraft(input: {
   templateId: ResumeDraft["templateId"];
   draft: TailoredResumeDraft;
   createdAt: string;
+  updatedAt?: string;
   existingDraftId?: string | null;
   generationMethod: ResumeDraft["generationMethod"];
   profile?: CandidateProfile;
@@ -351,6 +352,9 @@ function hasVisibleEntryContent(input: {
   subtitle?: string | null;
   location?: string | null;
   dateRange?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  isCurrent?: boolean;
   summary?: string | null;
   bullets: readonly { included: boolean }[];
 }): boolean {
@@ -359,6 +363,9 @@ function hasVisibleEntryContent(input: {
     Boolean(input.subtitle) ||
     Boolean(input.location) ||
     Boolean(input.dateRange) ||
+    Boolean(input.startDate) ||
+    Boolean(input.endDate) ||
+    input.isCurrent === true ||
     Boolean(input.summary) ||
     input.bullets.some((bullet) => bullet.included)
   );

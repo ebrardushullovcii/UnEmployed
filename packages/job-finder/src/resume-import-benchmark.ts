@@ -1,5 +1,6 @@
 import {
   type JobFinderAiClient,
+  type ResumeVisionProvider,
   buildDeterministicResumeProfileExtraction,
   buildDeterministicResumeImportStageExtraction,
 } from "@unemployed/ai-providers";
@@ -17,6 +18,7 @@ import {
   type ResumeImportBenchmarkRequest,
   type ResumeImportErrorTaxonomy,
   type ResumeImportFieldCandidate,
+  type ResumeImportVisionArtifact,
   type JobFinderRepositoryState,
 } from "@unemployed/contracts";
 import { createInMemoryJobFinderRepository } from "@unemployed/db";
@@ -30,8 +32,10 @@ type ResumeImportBenchmarkHarness = {
   searchPreferences: JobSearchPreferences;
   documentBundle: ResumeDocumentBundle;
   aiClient: JobFinderAiClient | null;
+  visionProvider?: ResumeVisionProvider | null;
   parseMethod: string;
   workerManifestVersion: string | null;
+  visionArtifact?: ResumeImportVisionArtifact | null;
 };
 
 export type ResumeImportBenchmarkHarnessFactory = (
@@ -202,11 +206,14 @@ function buildBenchmarkAiClient(useConfiguredAi: boolean): JobFinderAiClient {
     getStatus() {
       return {
         kind: providerKind,
+        role: "chat",
         ready: true,
         label: providerLabel,
         model: null,
         baseUrl: null,
         modelContextWindowTokens: null,
+        reservedHeadroomTokens: null,
+        requestTimeoutMs: null,
         detail: "Resume import benchmark harness",
       };
     },
@@ -223,6 +230,13 @@ function buildBenchmarkAiClient(useConfiguredAi: boolean): JobFinderAiClient {
       return Promise.resolve(
         buildDeterministicResumeImportStageExtraction(input, providerLabel),
       );
+    },
+    adjudicateResumeImportCandidates() {
+      return Promise.resolve({
+        candidates: [],
+        notes: ["Benchmark import adjudication uses deterministic review-first handling."],
+        warnings: [],
+      });
     },
     createResumeDraft() {
       return Promise.reject(
@@ -325,6 +339,35 @@ export function buildBenchmarkRepositoryState(input: {
       recentSourceDebugRuns: [],
       discoveryLedger: [],
       pendingDiscoveryJobs: [],
+    },
+  };
+}
+
+function createBenchmarkVisionProvider(): ResumeVisionProvider {
+  return {
+    getStatus() {
+      return {
+        kind: "deterministic",
+        role: "vision",
+        ready: true,
+        label: "Benchmark rendered-preview vision fallback",
+        model: null,
+        baseUrl: null,
+        modelContextWindowTokens: null,
+        reservedHeadroomTokens: null,
+        requestTimeoutMs: null,
+        detail: "Benchmark harness validates local vision artifact wiring without calling an external model.",
+      };
+    },
+    extractResumeVision() {
+      return Promise.resolve({
+        analysisProviderKind: "deterministic",
+        analysisProviderLabel: "Benchmark rendered-preview vision fallback",
+        candidates: [],
+        notes: ["Benchmark vision branch consumed local rendered resume page images."],
+        warnings: [],
+        primaryErrorMessage: null,
+      });
     },
   };
 }
@@ -769,6 +812,7 @@ function createBenchmarkContext(input: {
   aiClient: JobFinderAiClient;
   profile: CandidateProfile;
   searchPreferences: JobSearchPreferences;
+  visionProvider?: ResumeVisionProvider;
 }): WorkspaceServiceContext {
   const repository = createInMemoryJobFinderRepository(
     buildBenchmarkRepositoryState({
@@ -801,6 +845,7 @@ function createBenchmarkContext(input: {
 
   return {
     aiClient: input.aiClient,
+    ...(input.visionProvider ? { visionProvider: input.visionProvider } : {}),
     browserRuntime,
     documentManager,
     repository,
@@ -868,6 +913,9 @@ export async function runResumeImportBenchmark(input: {
       aiClient,
       profile: harness.profile,
       searchPreferences: harness.searchPreferences,
+      ...(request.useVision && harness.visionArtifact
+        ? { visionProvider: harness.visionProvider ?? createBenchmarkVisionProvider() }
+        : {}),
     });
     const workflowResult = await runResumeImportWorkflow(ctx, {
       profile: harness.profile,
@@ -875,6 +923,9 @@ export async function runResumeImportBenchmark(input: {
       documentBundle: harness.documentBundle,
       trigger: "import",
       importWarnings: harness.documentBundle.warnings,
+      ...(request.useVision && harness.visionArtifact
+        ? { visionArtifact: harness.visionArtifact }
+        : {}),
     });
     const providerStatus = aiClient.getStatus();
 
@@ -919,7 +970,7 @@ export async function runResumeImportBenchmark(input: {
       providerLabels.size === 1 ? ([...providerLabels][0] ?? null) : null,
     cases: results,
     aggregate: aggregateBenchmarkMetrics(results),
-    notes: [],
+    notes: request.useVision ? ["Vision branch enabled for benchmark run."] : [],
   });
 }
 

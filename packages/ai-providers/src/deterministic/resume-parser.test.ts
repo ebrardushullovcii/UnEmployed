@@ -460,6 +460,31 @@ describe("buildDeterministicResumeProfileExtraction", () => {
     });
   });
 
+  test("parses school and degree education entries split across adjacent lines", () => {
+    const extraction = buildDeterministicResumeProfileExtraction(
+      {
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: [
+          "EDUCATION",
+          "The University of Texas at Austin (Sep 2012 - Jun 2016)",
+          "Bachelor of Science (B.S.), Computer Science",
+        ].join("\n"),
+      },
+      "deterministic",
+      "Test provider",
+      { preserveExistingValues: false },
+    );
+
+    expect(extraction.education[0]).toMatchObject({
+      schoolName: "The University of Texas at Austin",
+      degree: "Bachelor of Science (B.S.)",
+      fieldOfStudy: "Computer Science",
+      startDate: "Sep 2012",
+      endDate: "Jun 2016",
+    });
+  });
+
   test("starts a new experience block when a new header appears before the next date line", () => {
     const extraction = buildDeterministicResumeProfileExtraction(
       {

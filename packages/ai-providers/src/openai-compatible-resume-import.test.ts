@@ -5,11 +5,14 @@ import { extractOpenAiCompatibleResumeImportStage } from "./openai-compatible-re
 
 const status: AgentProviderStatus = {
   kind: "openai_compatible",
+  role: "chat",
   ready: true,
   label: "AI resume agent",
   model: "test-model",
   baseUrl: "https://example.com/v1",
   modelContextWindowTokens: null,
+  reservedHeadroomTokens: null,
+  requestTimeoutMs: null,
   detail: null,
 };
 

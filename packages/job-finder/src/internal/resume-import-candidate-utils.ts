@@ -16,10 +16,11 @@ export const RESUME_IMPORT_STAGES = ResumeImportExtractionStageSchema.options;
 
 function createCandidateId(
   runId: string,
+  sourceKind: ResumeImportFieldCandidate["sourceKind"],
   index: number,
   draft: ResumeImportFieldCandidateDraft,
 ): string {
-  return buildExtractionId(`resume_import_${runId}`, index, [
+  return buildExtractionId(`resume_import_${runId}_${sourceKind}_${index}`, index, [
     draft.target.section,
     draft.target.key,
     draft.target.recordId,
@@ -48,7 +49,7 @@ export function toCandidate(
 
   return ResumeImportFieldCandidateSchema.parse({
     ...draft,
-    id: createCandidateId(runId, index, draft),
+    id: createCandidateId(runId, sourceKind, index, draft),
     runId,
     sourceKind,
     resolution:

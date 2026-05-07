@@ -1019,12 +1019,13 @@ export function createWorkspaceApplicationMethods(
         : ctx.aiClient.getStatus().kind === "openai_compatible"
           ? "ai_assisted"
           : "deterministic";
-      const now = new Date().toISOString();
+      const now = createMonotonicTimestamp(existingDraft?.updatedAt ?? null);
       const resumeDraft = buildResumeDraftFromTailoredDraft({
         job,
         templateId: existingDraft?.templateId ?? settings.resumeTemplateId,
         draft,
         createdAt: existingDraft?.createdAt ?? now,
+        updatedAt: now,
         existingDraftId: existingDraft?.id ?? null,
         generationMethod:
           generationMethod === "ai_assisted" ? "ai" : "deterministic",
@@ -1109,7 +1110,7 @@ export function createWorkspaceApplicationMethods(
           draft.compatibilityScore ??
           Math.min(100, job.matchAssessment.score + 3),
         progressPercent: 100,
-        updatedAt: new Date().toISOString(),
+        updatedAt: now,
         storagePath: renderedArtifact.storagePath,
         contentText,
         previewSections,

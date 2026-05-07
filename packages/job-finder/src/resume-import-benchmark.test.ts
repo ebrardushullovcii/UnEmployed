@@ -61,6 +61,7 @@ describe("resume import benchmark", () => {
         benchmarkVersion: "019-test-benchmark-v1",
         canaryOnly: true,
         useConfiguredAi: false,
+        useVision: false,
         cases: [
           {
             id: "txt_canary",
@@ -310,6 +311,7 @@ describe("resume import benchmark", () => {
         benchmarkVersion: "019-test-benchmark-v1",
         canaryOnly: false,
         useConfiguredAi: false,
+        useVision: false,
         cases: [
           {
             id: "case_a",
@@ -397,6 +399,147 @@ describe("resume import benchmark", () => {
 
     expect(report.parserManifestVersion).toBe("mixed:parser-a,parser-b");
     expect(report.parserManifestVersions).toEqual(["parser-a", "parser-b"]);
+  });
+
+  test("runs the vision branch when benchmark harness provides a vision artifact", async () => {
+    const seed = createSeed();
+    let visionProviderCalls = 0;
+    const report = await runResumeImportBenchmark({
+      request: {
+        benchmarkVersion: "033-vision-benchmark-v1",
+        canaryOnly: true,
+        useConfiguredAi: false,
+        useVision: true,
+        cases: [
+          {
+            id: "vision_case",
+            label: "Vision case",
+            resumePath: "vision.txt",
+            canary: true,
+            tags: ["txt", "vision"],
+            expected: {
+              literalFields: { fullName: "Jamie Rivers" },
+              summaryContains: [],
+              experienceRecords: [],
+              educationRecords: [],
+            },
+          },
+        ],
+      },
+      createHarness(benchmarkCase) {
+        const bundle = createResumeImportFixtureBundle({
+          id: benchmarkCase.id,
+          parserManifestVersion: "033-vision-fixture-v1",
+          pageTexts: [["Jamie Rivers"].join("\n")],
+          blocks: [
+            {
+              id: "vision_block_1",
+              pageNumber: 1,
+              readingOrder: 0,
+              text: "Jamie Rivers",
+              kind: "heading",
+              sectionHint: "identity",
+              bbox: null,
+              sourceParserKinds: ["plain_text"],
+              sourceConfidence: 1,
+              lineIds: ["vision_line_1"],
+              parserLineage: ["plain_text"],
+              readingOrderConfidence: 1,
+              textSpan: null,
+            },
+          ],
+          parserKinds: ["plain_text"],
+          routeKind: "plain_text_native",
+          qualityScore: 0.98,
+        });
+
+        return Promise.resolve({
+          profile: {
+            ...seed.profile,
+            fullName: "Jamie Rivers",
+            firstName: "Jamie",
+            lastName: "Rivers",
+            baseResume: {
+              ...seed.profile.baseResume,
+              id: "resume_vision_case",
+              fileName: "vision.txt",
+              textContent: bundle.fullText,
+              extractionStatus: "ready",
+            },
+            experiences: [],
+            education: [],
+            certifications: [],
+            links: [],
+            projects: [],
+            spokenLanguages: [],
+          },
+          searchPreferences: seed.searchPreferences,
+          documentBundle: bundle,
+          aiClient: null,
+          visionProvider: {
+            getStatus() {
+              return {
+                kind: "openai_compatible_vision",
+                role: "vision",
+                ready: true,
+                label: "Configured benchmark vision provider",
+                model: "FelidaeAI-Omni-3.6",
+                baseUrl: "https://example.com/v1",
+                modelContextWindowTokens: 139_000,
+                reservedHeadroomTokens: 30_000,
+                requestTimeoutMs: 75_000,
+                detail: "test",
+              };
+            },
+            extractResumeVision() {
+              visionProviderCalls += 1;
+              return Promise.resolve({
+                analysisProviderKind: "openai_compatible_vision",
+                analysisProviderLabel: "Configured benchmark vision provider",
+                candidates: [],
+                notes: ["Configured benchmark vision provider ran."],
+                warnings: [],
+                primaryErrorMessage: null,
+              });
+            },
+          },
+          parseMethod: "fixture+plain_text",
+          workerManifestVersion: bundle.parserManifest?.manifestVersion ?? null,
+          visionArtifact: {
+            id: "vision_artifact_case",
+            runId: "benchmark_run_vision_case",
+            sourceResumeId: "resume_vision_case",
+            sourceFileKind: "plain_text",
+            createdAt: "2026-04-10T10:00:00.000Z",
+            retained: "temporary",
+            pages: [
+              {
+                id: "vision_page_case_1",
+                sourceResumeId: "resume_vision_case",
+                sourceFileKind: "plain_text",
+                pageNumber: 1,
+                renderKind: "text_rendered_preview",
+                mimeType: "image/svg+xml",
+                width: 1200,
+                height: 1600,
+                byteLength: 4,
+                sha256: "abc123",
+                dataUrl: "data:image/svg+xml;base64,AAAA",
+                storagePath: null,
+                retained: "temporary",
+                generatedAt: "2026-04-10T10:00:00.000Z",
+                warnings: [],
+              },
+            ],
+            warnings: [],
+          },
+        });
+      },
+    });
+
+    expect(report.cases[0]?.passed).toBe(true);
+    expect(visionProviderCalls).toBe(1);
+    expect(report.notes).toContain("Vision branch enabled for benchmark run.");
   });
 
   test("fails a case when auto-applied fields have no evidence", () => {

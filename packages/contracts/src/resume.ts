@@ -243,13 +243,16 @@ export const ResumeDraftBulletSchema = z.object({
 });
 export type ResumeDraftBullet = z.infer<typeof ResumeDraftBulletSchema>;
 
-export const ResumeDraftEntrySchema = z.object({
+const resumeDraftEntryBaseSchema = z.object({
   id: NonEmptyStringSchema,
   entryType: ResumeDraftEntryTypeSchema,
   title: NonEmptyStringSchema.nullable().default(null),
   subtitle: NonEmptyStringSchema.nullable().default(null),
   location: NonEmptyStringSchema.nullable().default(null),
   dateRange: NonEmptyStringSchema.nullable().default(null),
+  startDate: NonEmptyStringSchema.nullable().default(null),
+  endDate: NonEmptyStringSchema.nullable().default(null),
+  isCurrent: z.boolean().default(false),
   summary: NonEmptyStringSchema.nullable().default(null),
   bullets: z.array(ResumeDraftBulletSchema).default([]),
   origin: ResumeDraftOriginSchema,
@@ -260,6 +263,30 @@ export const ResumeDraftEntrySchema = z.object({
   sourceRefs: z.array(ResumeDraftSourceRefSchema).default([]),
   updatedAt: IsoDateTimeSchema,
 });
+export const ResumeDraftEntrySchema = resumeDraftEntryBaseSchema.transform(
+  (entry) => {
+    if (entry.startDate || entry.endDate || entry.isCurrent || !entry.dateRange) {
+      return entry;
+    }
+
+    const parts = entry.dateRange
+      .split(/\s*[–—]\s*|\s+-\s+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (parts.length < 2) {
+      return entry;
+    }
+
+    const end = parts.at(-1) ?? null;
+
+    return {
+      ...entry,
+      startDate: parts[0] ?? null,
+      endDate: end && /^(present|current|now|ongoing)$/i.test(end) ? null : end,
+      isCurrent: Boolean(end && /^(present|current|now|ongoing)$/i.test(end)),
+    };
+  },
+);
 export type ResumeDraftEntry = z.infer<typeof ResumeDraftEntrySchema>;
 
 export const resumeDraftEntryOrderModeValues = ["chronology", "manual"] as const;

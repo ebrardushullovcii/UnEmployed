@@ -1,3 +1,6 @@
+import base64
+import hashlib
+import html
 import json
 import os
 import pathlib
@@ -460,6 +463,283 @@ def detect_file_kind(file_path: str) -> str:
     return "unknown"
 
 
+def truncate_svg_text(value: str, limit: int = 180) -> str:
+    normalized = normalize_inline_text(value)
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: max(0, limit - 1)].rstrip() + "…"
+
+
+def split_text_into_pages(text: Optional[str], max_lines_per_page: int = 42) -> List[List[str]]:
+    if not text:
+        return [[]]
+
+    lines = [normalize_inline_text(line) for line in re.split(r"\r?\n", text)]
+    lines = [line for line in lines if line]
+
+    if not lines:
+        return [[]]
+
+    return [lines[index:index + max_lines_per_page] for index in range(0, len(lines), max_lines_per_page)]
+
+
+def encode_page_image(
+    svg: str,
+    lines: List[str],
+    width: int,
+    height: int,
+    page_number: int,
+    file_kind: str,
+    render_kind: str,
+    retained: str,
+) -> Dict[str, Any]:
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        from io import BytesIO
+
+        def load_font(size: int) -> Any:
+            for candidate in (
+                "arial.ttf",
+                "Arial.ttf",
+                "DejaVuSans.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            ):
+                try:
+                    return ImageFont.truetype(candidate, size=size)
+                except Exception:
+                    continue
+            return ImageFont.load_default()
+
+        def safe_text(value: str) -> str:
+            return value.encode("latin-1", "replace").decode("latin-1")
+
+        image = Image.new("RGB", (width, height), "#f8fafc")
+        draw = ImageDraw.Draw(image)
+        draw.rounded_rectangle((36, 36, 1204, 1718), radius=18, fill="#ffffff", outline="#d8e0eb", width=2)
+        title_font = load_font(24)
+        body_font = load_font(28)
+        title = f"Resume visual import preview - page {page_number}"
+        draw.text((82, 86), safe_text(title), fill="#64748b", font=title_font)
+
+        for index, line in enumerate(lines[:48]):
+            y = 158 + index * 32
+            draw.text((82, y), safe_text(truncate_svg_text(line)), fill="#152033", font=body_font)
+
+        output = BytesIO()
+        image.save(output, format="PNG", optimize=True)
+        raw = output.getvalue()
+        digest = hashlib.sha256(raw).hexdigest()
+        return {
+            "id": f"vision_page_{page_number}_{digest[:12]}",
+            "sourceResumeId": "resume_source_pending",
+            "sourceFileKind": file_kind,
+            "pageNumber": page_number,
+            "renderKind": render_kind,
+            "mimeType": "image/png",
+            "width": width,
+            "height": height,
+            "byteLength": len(raw),
+            "sha256": digest,
+            "dataUrl": "data:image/png;base64," + base64.b64encode(raw).decode("ascii"),
+            "storagePath": None if retained == "temporary" else "inline-debug-artifact",
+            "retained": retained,
+            "generatedAt": iso_now(),
+            "warnings": [],
+        }
+    except Exception:
+        raw = svg.encode("utf-8")
+        digest = hashlib.sha256(raw).hexdigest()
+        return {
+            "id": f"vision_page_{page_number}_{digest[:12]}",
+            "sourceResumeId": "resume_source_pending",
+            "sourceFileKind": file_kind,
+            "pageNumber": page_number,
+            "renderKind": render_kind,
+            "mimeType": "image/svg+xml",
+            "width": width,
+            "height": height,
+            "byteLength": len(raw),
+            "sha256": digest,
+            "dataUrl": "data:image/svg+xml;base64," + base64.b64encode(raw).decode("ascii"),
+            "storagePath": None if retained == "temporary" else "inline-debug-artifact",
+            "retained": retained,
+            "generatedAt": iso_now(),
+            "warnings": ["Text preview fell back to SVG because Pillow rasterization was unavailable."],
+        }
+
+
+def render_lines_to_svg_data_url(
+    lines: List[str],
+    page_number: int,
+    file_kind: str,
+    render_kind: str,
+    retained: str,
+) -> Dict[str, Any]:
+    width = 1240
+    height = 1754
+    margin_x = 82
+    margin_y = 86
+    line_height = 32
+    font_size = 21
+    escaped_title = html.escape(f"Resume visual import preview · page {page_number}")
+    text_nodes: List[str] = []
+
+    if not lines:
+        lines = ["No readable text was available for this page preview."]
+
+    for index, line in enumerate(lines[:48]):
+        y = margin_y + 72 + index * line_height
+        escaped_line = html.escape(truncate_svg_text(line))
+        weight = "700" if index == 0 or line.upper() == line else "400"
+        text_nodes.append(
+            f'<text x="{margin_x}" y="{y}" font-family="Arial, Helvetica, sans-serif" font-size="{font_size}" font-weight="{weight}" fill="#152033">{escaped_line}</text>'
+        )
+
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">'
+        '<rect width="100%" height="100%" fill="#f8fafc"/>'
+        '<rect x="36" y="36" width="1168" height="1682" rx="18" fill="#ffffff" stroke="#d8e0eb" stroke-width="2"/>'
+        f'<text x="{margin_x}" y="{margin_y}" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" fill="#64748b" letter-spacing="2">{escaped_title}</text>'
+        + "".join(text_nodes)
+        + '</svg>'
+    )
+    return encode_page_image(svg, lines, width, height, page_number, file_kind, render_kind, retained)
+
+
+def iso_now() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def detect_retention_mode(request: Dict[str, Any]) -> str:
+    raw = request.get("retention") or os.environ.get("UNEMPLOYED_RESUME_VISION_RETAIN_ARTIFACTS", "")
+    normalized = str(raw).strip().lower()
+    if normalized in {"debug", "debug_retained", "1", "true"}:
+        return "debug_retained"
+    if normalized in {"benchmark", "benchmark_retained"}:
+        return "benchmark_retained"
+    return "temporary"
+
+
+def render_plain_or_markdown_images(file_path: str, file_kind: str, retained: str) -> Tuple[List[Dict[str, Any]], List[str]]:
+    text = extract_plain_text(file_path)
+    render_kind = "markdown_rendered_preview" if file_kind == "markdown" else "text_rendered_preview"
+    pages = split_text_into_pages(text)
+    return [render_lines_to_svg_data_url(page, index + 1, file_kind, render_kind, retained) for index, page in enumerate(pages)], []
+
+
+def render_docx_images(file_path: str, retained: str) -> Tuple[List[Dict[str, Any]], List[str]]:
+    text, _parser_kind, warnings = extract_docx_text(file_path)
+    pages = split_text_into_pages(text)
+    images = [render_lines_to_svg_data_url(page, index + 1, "docx", "docx_rendered_preview", retained) for index, page in enumerate(pages)]
+    if text:
+        warnings.append("DOCX visual import used a document-faithful text/table preview because no local DOCX-to-PDF renderer is bundled on this platform.")
+    return images, warnings
+
+
+def render_pdf_images(file_path: str, retained: str) -> Tuple[List[Dict[str, Any]], List[str]]:
+    warnings: List[str] = []
+    try:
+        import pypdfium2 as pdfium  # type: ignore
+
+        pdf = pdfium.PdfDocument(file_path)
+        images: List[Dict[str, Any]] = []
+        try:
+            for page_index in range(len(pdf)):
+                page = pdf[page_index]
+                bitmap = page.render(scale=1.5)
+                pil_image = bitmap.to_pil()
+                from io import BytesIO
+
+                output = BytesIO()
+                pil_image.save(output, format="PNG", optimize=True)
+                raw = output.getvalue()
+                digest = hashlib.sha256(raw).hexdigest()
+                images.append({
+                    "id": f"vision_page_{page_index + 1}_{digest[:12]}",
+                    "sourceResumeId": "resume_source_pending",
+                    "sourceFileKind": "pdf",
+                    "pageNumber": page_index + 1,
+                    "renderKind": "pdf_page_image",
+                    "mimeType": "image/png",
+                    "width": int(pil_image.width),
+                    "height": int(pil_image.height),
+                    "byteLength": len(raw),
+                    "sha256": digest,
+                    "dataUrl": "data:image/png;base64," + base64.b64encode(raw).decode("ascii"),
+                    "storagePath": None if retained == "temporary" else "inline-debug-artifact",
+                    "retained": retained,
+                    "generatedAt": iso_now(),
+                    "warnings": [],
+                })
+        finally:
+            pdf.close()
+        return images, warnings
+    except Exception as error:
+        warnings.append(f"PDF page-faithful rendering was unavailable, so visual import used a rendered text preview: {error}")
+
+    page_texts, text, _parser_kind, parse_warnings, _metadata = extract_pdf_text(file_path)
+    warnings.extend(parse_warnings)
+    if not page_texts and text:
+        page_texts = [text]
+    images = [
+        render_lines_to_svg_data_url(
+            split_text_into_pages(page_text or "")[0],
+            index + 1,
+            "pdf",
+            "fallback_rendered_preview",
+            retained,
+        )
+        for index, page_text in enumerate(page_texts or [""])
+    ]
+    return images, warnings
+
+
+def build_vision_images_response(request: Dict[str, Any]) -> Dict[str, Any]:
+    file_path = request.get("filePath")
+    if not isinstance(file_path, str) or not file_path.strip():
+        raise ValueError("Resume vision image request must include a non-empty filePath.")
+    file_kind = request.get("fileKind") or detect_file_kind(file_path)
+    source_resume_id = request.get("sourceResumeId") if isinstance(request.get("sourceResumeId"), str) else "resume_source_pending"
+    run_id = request.get("runId") if isinstance(request.get("runId"), str) else "resume_vision_run_pending"
+    artifact_id = request.get("artifactId") if isinstance(request.get("artifactId"), str) else f"resume_vision_artifact_{abs(hash(file_path))}"
+    retained = detect_retention_mode(request)
+
+    if file_kind in {"plain_text", "markdown"}:
+        pages, warnings = render_plain_or_markdown_images(file_path, file_kind, retained)
+    elif file_kind == "docx":
+        pages, warnings = render_docx_images(file_path, retained)
+    elif file_kind == "pdf":
+        pages, warnings = render_pdf_images(file_path, retained)
+    else:
+        pages, warnings = [], ["Unsupported file type for local resume vision image generation."]
+
+    patched_pages = [
+        {
+            **page,
+            "sourceResumeId": source_resume_id,
+        }
+        for page in pages
+    ]
+
+    return {
+        "ok": len(patched_pages) > 0,
+        "artifact": {
+            "id": artifact_id,
+            "runId": run_id,
+            "sourceResumeId": source_resume_id,
+            "sourceFileKind": file_kind,
+            "createdAt": iso_now(),
+            "retained": retained,
+            "pages": patched_pages,
+            "warnings": warnings,
+        },
+        "warnings": warnings,
+        "errorMessage": None if patched_pages else "No local resume page images could be generated.",
+    }
+
+
 def extract_plain_text(file_path: str) -> Optional[str]:
     return normalize_multiline_text(
         pathlib.Path(file_path).read_text(encoding="utf-8", errors="ignore"),
@@ -805,7 +1085,10 @@ def main() -> int:
     try:
         raw_input = sys.stdin.read()
         request = json.loads(raw_input)
-        response = build_response(request)
+        if request.get("operation") == "render_vision_images":
+            response = build_vision_images_response(request)
+        else:
+            response = build_response(request)
     except Exception as error:  # pragma: no cover - defensive transport fallback
         request_id = "unknown_request"
 

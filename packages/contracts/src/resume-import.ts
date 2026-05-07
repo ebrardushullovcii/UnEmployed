@@ -159,6 +159,79 @@ export const ResumeDocumentPageSchema = z.object({
 });
 export type ResumeDocumentPage = z.infer<typeof ResumeDocumentPageSchema>;
 
+export const resumeImportArtifactRetentionValues = [
+  "temporary",
+  "debug_retained",
+  "benchmark_retained",
+] as const;
+export const ResumeImportArtifactRetentionSchema = z.enum(
+  resumeImportArtifactRetentionValues,
+);
+export type ResumeImportArtifactRetention = z.infer<
+  typeof ResumeImportArtifactRetentionSchema
+>;
+
+export const resumeImportVisionRenderKindValues = [
+  "pdf_page_image",
+  "docx_rendered_preview",
+  "text_rendered_preview",
+  "markdown_rendered_preview",
+  "fallback_rendered_preview",
+] as const;
+export const ResumeImportVisionRenderKindSchema = z.enum(
+  resumeImportVisionRenderKindValues,
+);
+export type ResumeImportVisionRenderKind = z.infer<
+  typeof ResumeImportVisionRenderKindSchema
+>;
+
+export const ResumeImportVisionPageImageSchema = z.object({
+  id: NonEmptyStringSchema,
+  sourceResumeId: NonEmptyStringSchema,
+  sourceFileKind: ResumeDocumentFileKindSchema,
+  pageNumber: z.number().int().min(1),
+  renderKind: ResumeImportVisionRenderKindSchema,
+  mimeType: NonEmptyStringSchema.default("image/svg+xml"),
+  width: z.number().positive(),
+  height: z.number().positive(),
+  byteLength: z.number().int().min(0).default(0),
+  sha256: NonEmptyStringSchema.nullable().default(null),
+  dataUrl: NonEmptyStringSchema.nullable().default(null),
+  storagePath: NonEmptyStringSchema.nullable().default(null),
+  retained: ResumeImportArtifactRetentionSchema.default("temporary"),
+  generatedAt: IsoDateTimeSchema,
+  warnings: z.array(NonEmptyStringSchema).default([]),
+});
+export type ResumeImportVisionPageImage = z.infer<
+  typeof ResumeImportVisionPageImageSchema
+>;
+
+export const ResumeImportVisionArtifactSchema = z.object({
+  id: NonEmptyStringSchema,
+  runId: NonEmptyStringSchema,
+  sourceResumeId: NonEmptyStringSchema,
+  sourceFileKind: ResumeDocumentFileKindSchema,
+  createdAt: IsoDateTimeSchema,
+  retained: ResumeImportArtifactRetentionSchema.default("temporary"),
+  pages: z.array(ResumeImportVisionPageImageSchema).default([]),
+  warnings: z.array(NonEmptyStringSchema).default([]),
+});
+export type ResumeImportVisionArtifact = z.infer<
+  typeof ResumeImportVisionArtifactSchema
+>;
+
+export const ResumeImportVisualEvidenceRefSchema = z.object({
+  branch: z.enum(["text", "vision", "adjudication"]).default("vision"),
+  sourceFileKind: ResumeDocumentFileKindSchema,
+  pageNumber: z.number().int().min(1).nullable().default(null),
+  regionHint: NonEmptyStringSchema.nullable().default(null),
+  confidence: ProbabilitySchema.nullable().default(null),
+  uncertaintyNotes: z.array(NonEmptyStringSchema).default([]),
+});
+export type ResumeImportVisualEvidenceRef = z.infer<
+  typeof ResumeImportVisualEvidenceRefSchema
+>;
+
 export const ResumeDocumentBlockSchema = z.object({
   id: NonEmptyStringSchema,
   pageNumber: z.number().int().min(1),
@@ -322,12 +395,31 @@ export const ResumeImportJsonValueSchema: z.ZodType<ResumeImportJsonValue> = z.l
   ]),
 );
 
+export const ResumeImportConflictChoiceSchema = z.object({
+  id: NonEmptyStringSchema,
+  label: NonEmptyStringSchema,
+  sourceLabel: NonEmptyStringSchema,
+  value: ResumeImportJsonValueSchema,
+  valuePreview: NonEmptyStringSchema.nullable().default(null),
+  evidenceText: NonEmptyStringSchema.nullable().default(null),
+  confidence: ProbabilitySchema,
+  recommended: z.boolean().default(false),
+  notes: z.array(NonEmptyStringSchema).default([]),
+  sourceCandidateIds: z.array(NonEmptyStringSchema).default([]),
+  visualEvidence: z.array(ResumeImportVisualEvidenceRefSchema).default([]),
+});
+export type ResumeImportConflictChoice = z.infer<
+  typeof ResumeImportConflictChoiceSchema
+>;
+
 export const resumeImportCandidateSourceValues = [
   "parser_literal",
   "model_identity_summary",
   "model_experience",
   "model_background",
   "model_shared_memory",
+  "vision_omni",
+  "adjudicator",
   "reconciler",
 ] as const;
 export const ResumeImportCandidateSourceSchema = z.enum(
@@ -404,6 +496,8 @@ export const ResumeImportFieldCandidateSchema = z.object({
   confidenceBreakdown: ResumeImportConfidenceBreakdownSchema.nullable().optional(),
   notes: z.array(NonEmptyStringSchema).default([]),
   alternatives: z.array(ResumeImportJsonValueSchema).default([]),
+  conflictChoices: z.array(ResumeImportConflictChoiceSchema).default([]).optional(),
+  visualEvidence: z.array(ResumeImportVisualEvidenceRefSchema).default([]).optional(),
   resolution: ResumeImportCandidateResolutionSchema.default("needs_review"),
   resolutionReason: NonEmptyStringSchema.nullable().optional(),
   createdAt: IsoDateTimeSchema,
@@ -427,6 +521,23 @@ export type ResumeImportFieldCandidateDraft = z.infer<
   typeof ResumeImportFieldCandidateDraftSchema
 >;
 
+export const ResumeImportExtractionArtifactSchema = z.object({
+  id: NonEmptyStringSchema,
+  runId: NonEmptyStringSchema,
+  branch: z.enum(["vision", "adjudication"]),
+  providerKind: AiProviderKindSchema,
+  providerLabel: NonEmptyStringSchema,
+  createdAt: IsoDateTimeSchema,
+  sourceFileKind: ResumeDocumentFileKindSchema,
+  pageNumbers: z.array(z.number().int().min(1)).default([]),
+  candidates: z.array(ResumeImportFieldCandidateDraftSchema).default([]),
+  notes: z.array(NonEmptyStringSchema).default([]),
+  warnings: z.array(NonEmptyStringSchema).default([]),
+});
+export type ResumeImportExtractionArtifact = z.infer<
+  typeof ResumeImportExtractionArtifactSchema
+>;
+
 export const ResumeImportFieldCandidateSummarySchema = z.object({
   id: NonEmptyStringSchema,
   target: ResumeImportTargetSchema,
@@ -438,6 +549,8 @@ export const ResumeImportFieldCandidateSummarySchema = z.object({
   resolution: ResumeImportCandidateResolutionSchema,
   resolutionReason: NonEmptyStringSchema.nullable().default(null),
   notes: z.array(NonEmptyStringSchema).default([]),
+  conflictChoices: z.array(ResumeImportConflictChoiceSchema).default([]),
+  visualEvidence: z.array(ResumeImportVisualEvidenceRefSchema).default([]),
 });
 export type ResumeImportFieldCandidateSummary = z.infer<
   typeof ResumeImportFieldCandidateSummarySchema
@@ -452,6 +565,45 @@ export const ResumeImportRunCandidateCountsSchema = z.object({
 });
 export type ResumeImportRunCandidateCounts = z.infer<
   typeof ResumeImportRunCandidateCountsSchema
+>;
+
+export const resumeImportBranchStatusValues = [
+  "not_started",
+  "running",
+  "completed",
+  "failed",
+  "timed_out",
+  "skipped",
+] as const;
+export const ResumeImportBranchStatusSchema = z.enum(
+  resumeImportBranchStatusValues,
+);
+export type ResumeImportBranchStatus = z.infer<
+  typeof ResumeImportBranchStatusSchema
+>;
+
+export const ResumeImportBranchStateSchema = z.object({
+  status: ResumeImportBranchStatusSchema.default("not_started"),
+  startedAt: IsoDateTimeSchema.nullable().default(null),
+  completedAt: IsoDateTimeSchema.nullable().default(null),
+  providerKind: AiProviderKindSchema.nullable().default(null),
+  providerLabel: NonEmptyStringSchema.nullable().default(null),
+  warning: NonEmptyStringSchema.nullable().default(null),
+  errorMessage: NonEmptyStringSchema.nullable().default(null),
+  timeoutMs: z.number().int().positive().nullable().default(null),
+  candidateCount: z.number().int().min(0).default(0),
+});
+export type ResumeImportBranchState = z.infer<
+  typeof ResumeImportBranchStateSchema
+>;
+
+export const ResumeImportModelRoleStateSchema = z.object({
+  text: ResumeImportBranchStateSchema.default({}),
+  vision: ResumeImportBranchStateSchema.default({}),
+  adjudication: ResumeImportBranchStateSchema.default({}),
+});
+export type ResumeImportModelRoleState = z.infer<
+  typeof ResumeImportModelRoleStateSchema
 >;
 
 export const ResumeImportRunSchema = z.object({
@@ -469,6 +621,9 @@ export const ResumeImportRunSchema = z.object({
   qualityScore: ProbabilitySchema.nullable().optional(),
   analysisProviderKind: AiProviderKindSchema.nullable().default(null),
   analysisProviderLabel: NonEmptyStringSchema.nullable().default(null),
+  visionProviderKind: AiProviderKindSchema.nullable().default(null).optional(),
+  visionProviderLabel: NonEmptyStringSchema.nullable().default(null).optional(),
+  modelRoles: ResumeImportModelRoleStateSchema.default({}).optional(),
   warnings: z.array(NonEmptyStringSchema).default([]),
   errorMessage: NonEmptyStringSchema.nullable().default(null),
   candidateCounts: ResumeImportRunCandidateCountsSchema.default({}),
@@ -520,6 +675,7 @@ export const ResumeImportBenchmarkRequestSchema = z.object({
   cases: z.array(ResumeImportBenchmarkCaseSchema).default([]),
   canaryOnly: z.boolean().default(false),
   useConfiguredAi: z.boolean().default(false),
+  useVision: z.boolean().default(false),
 });
 export type ResumeImportBenchmarkRequest = z.infer<
   typeof ResumeImportBenchmarkRequestSchema

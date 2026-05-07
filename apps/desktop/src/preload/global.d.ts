@@ -13,6 +13,9 @@ import type {
   ResumeQualityBenchmarkRequest,
   ResumeImportBenchmarkReport,
   ResumeImportBenchmarkRequest,
+  ResumeImportFieldCandidate,
+  ResumeImportRun,
+  ResumeDocumentBundle,
   JobFinderPerformanceSnapshot,
   JobFinderResumePreview,
   JobFinderResumeWorkspace,
@@ -74,6 +77,7 @@ declare global {
         applyProfileSetupReviewAction: (
           reviewItemId: string,
           action: "confirm" | "dismiss" | "clear_value",
+          options?: { selectedConflictChoiceId?: string },
         ) => Promise<JobFinderWorkspaceSnapshot>;
         sendProfileCopilotMessage: (
           content: string,
@@ -195,11 +199,16 @@ declare global {
           runResumeImportBenchmark: (
             input?: Partial<ResumeImportBenchmarkRequest>,
           ) => Promise<ResumeImportBenchmarkReport>;
+          getResumeImportState: () => Promise<{
+            resumeImportRuns: readonly ResumeImportRun[];
+            resumeImportDocumentBundles: readonly ResumeDocumentBundle[];
+            resumeImportFieldCandidates: readonly ResumeImportFieldCandidate[];
+          }>;
           runResumeQualityBenchmark: (
             input?: Partial<ResumeQualityBenchmarkRequest>,
           ) => Promise<ResumeQualityBenchmarkReport>;
           importResumeFromPath: (
-            sourcePath: string,
+            sourcePath: string | { sourcePath: string; useVision?: boolean },
           ) => Promise<JobFinderWorkspaceSnapshot>;
         };
       };
