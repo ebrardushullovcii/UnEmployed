@@ -80,7 +80,7 @@ function applySelectedConflictChoice(
   return {
     ...candidate,
     value: selectedChoice.value,
-    normalizedValue: selectedChoice.value,
+    normalizedValue: null,
     valuePreview: selectedChoice.valuePreview,
     evidenceText: selectedChoice.evidenceText,
     confidence: selectedChoice.confidence,
@@ -218,9 +218,7 @@ export function createWorkspaceProfileSetupReviewMethods(input: {
                 parsedOptions.selectedConflictChoiceId,
               ),
               resolution: "auto_applied",
-              resolutionReason: parsedOptions.selectedConflictChoiceId
-                ? "setup_confirmed_conflict_choice"
-                : "setup_confirmed",
+              resolutionReason: "review_confirmed",
               resolvedAt: now,
             }
           : candidate,

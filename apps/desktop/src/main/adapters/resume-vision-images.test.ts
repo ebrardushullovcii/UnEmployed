@@ -135,6 +135,7 @@ describe("resume vision image generation", () => {
       timeoutMs: 12_000,
     }));
     expect(result.artifact.retained).toBe("debug_retained");
+    expect(result.artifact.pages[0]?.dataUrl).toBeNull();
     expect(result.artifact.pages[0]?.storagePath).toBe("debug/page-1.png");
   });
 });

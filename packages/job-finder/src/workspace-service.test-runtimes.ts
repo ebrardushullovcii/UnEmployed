@@ -9,10 +9,10 @@ import type {
   BrowserSessionRuntime,
 } from "@unemployed/browser-runtime";
 import {
+  AgentDebugFindingsSchema,
   JobPostingSchema,
   ResumeTemplateDefinitionSchema,
   SourceDebugPhaseEvidenceSchema,
-  type ResumeTemplateId,
 } from "@unemployed/contracts";
 import type {
   AgentDebugFindings,
@@ -31,7 +31,7 @@ import type {
 import { SourceIntelligenceArtifactSchema } from "@unemployed/contracts";
 
 import type { JobFinderDocumentManager } from "./internal/workspace-service-contracts";
-import { toPhaseId, type SourceDebugPhaseMap } from "./workspace-service.test-fixtures";
+import type { SourceDebugPhaseMap } from "./workspace-service.test-fixtures";
 
 export type AgentDebugFindingsInput = Omit<
   AgentDebugFindings,
@@ -50,11 +50,11 @@ export type SourceDebugPhaseEvidenceInput = Omit<
 export function createAgentDebugFindings(
   input: AgentDebugFindingsInput,
 ): AgentDebugFindings {
-  return {
+  return AgentDebugFindingsSchema.parse({
     ...input,
     visualFindings: input.visualFindings ?? [],
     visualObservationSets: input.visualObservationSets ?? [],
-  };
+  });
 }
 
 export function createSourceDebugPhaseEvidence(
@@ -239,7 +239,7 @@ export function createAgentBrowserRuntime(
       source,
       options: AgentDiscoveryOptions,
     ): Promise<DiscoveryRunResult> {
-      const phaseId = toPhaseId(options.taskPacket?.strategyLabel);
+      const phaseId = options.taskPacket?.phase ?? null;
       const debugFindings = phaseId
         ? runtimeOptions?.debugFindingsByPhase?.[phaseId]
           ? createAgentDebugFindings(
@@ -730,33 +730,9 @@ export function createDocumentManager() {
         },
       ]);
     },
-    renderResumePreview(input: {
-      templateId: ResumeTemplateId
-      renderDocument: {
-        fullName: string
-        headline: string | null
-        location: string | null
-        contactItems: Array<{ field: string; text: string }>
-        sections: Array<{
-          id: string
-          text: string | null
-          bullets: Array<{ id: string; text: string }>
-          entries: Array<{
-            id: string
-            title: string | null
-            subtitle: string | null
-            location: string | null
-            dateRange: string | null
-            startDate: string | null
-            endDate: string | null
-            isCurrent: boolean
-            heading: string | null
-            summary: string | null
-            bullets: Array<{ id: string; text: string }>
-          }>
-        }>
-      }
-    }) {
+    renderResumePreview(
+      input: Parameters<JobFinderDocumentManager["renderResumePreview"]>[0],
+    ) {
       const previewBody = input.renderDocument.sections
         .map((section) => {
           const lines = [

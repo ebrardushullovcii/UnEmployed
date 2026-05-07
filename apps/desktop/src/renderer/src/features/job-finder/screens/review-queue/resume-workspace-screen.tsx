@@ -430,7 +430,10 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
             )
           }
           onRegenerateDraft={() =>
-            props.onRegenerateDraft(props.jobId)
+            runWithSavedDraft(
+              () => props.onRegenerateDraft(props.jobId),
+              "Saved your draft before refreshing it.",
+            )
           }
           onSaveDraft={() => props.onSaveDraft(draft)}
           onSetMobileStudioTab={setMobileStudioTab}

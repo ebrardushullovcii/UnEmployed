@@ -86,16 +86,36 @@ export function updateSectionEntry(
   };
 }
 
-export function updateEntryField(
+type ResumeEntryTextField = "dateRange" | "endDate" | "location" | "startDate" | "subtitle" | "summary" | "title";
+
+type ResumeEntryFieldValue = {
+  [K in ResumeEntryTextField]: string | null;
+} & {
+  isCurrent: boolean | null;
+};
+
+export function updateEntryField<TField extends keyof ResumeEntryFieldValue>(
   section: ResumeDraftSection,
   entryId: string,
-  field: "dateRange" | "endDate" | "isCurrent" | "location" | "startDate" | "subtitle" | "summary" | "title",
-  value: boolean | string | null,
+  field: TField,
+  value: ResumeEntryFieldValue[TField],
 ) {
   return updateSectionEntry(section, entryId, (entry) => ({
     ...entry,
     [field]: value,
   }));
+}
+
+function parseStructuredEntryDate(entry: ResumeDraftEntry) {
+  if (entry.startDate?.trim() || entry.endDate?.trim()) {
+    return parseEntryDateRange(
+      [entry.startDate, entry.isCurrent ? "Present" : entry.endDate]
+        .filter((value): value is string => Boolean(value?.trim()))
+        .join(" – "),
+    );
+  }
+
+  return parseEntryDateRange(entry.dateRange);
 }
 
 export function updateEntryBulletText(
@@ -359,8 +379,8 @@ function compareEntriesNewestFirst(
   left: { entry: ResumeDraftEntry; index: number },
   right: { entry: ResumeDraftEntry; index: number },
 ) {
-  const leftDate = parseEntryDateRange(left.entry.dateRange);
-  const rightDate = parseEntryDateRange(right.entry.dateRange);
+  const leftDate = parseStructuredEntryDate(left.entry);
+  const rightDate = parseStructuredEntryDate(right.entry);
   const leftConfident =
     leftDate.hasParseableDate && !leftDate.hasUnparseableDateRange;
   const rightConfident =

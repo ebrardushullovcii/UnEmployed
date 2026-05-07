@@ -1,3 +1,7 @@
+import type {
+  BrowserVisualObservationSet,
+  BrowserVisualSnapshotRef,
+} from "@unemployed/contracts";
 import type { ToolDefinition } from "../types";
 import { z } from "zod";
 
@@ -151,48 +155,60 @@ export const visualTools: ToolDefinition[] = [
                 "Temporary visual analysis input; normal discovery/apply screenshots are not persisted by default.",
               expiresAt: null,
             };
-      const snapshot = await context.config.visualAnalysis.captureSnapshot({
-        purpose,
-        mode,
-        label: parsed.data.label,
-        reason: parsed.data.reason,
-        region: mode === "region" ? parsed.data.region ?? null : null,
-        retention,
-      }, context.page);
-      const observationSet = await context.config.visualAnalysis.analyzeSnapshot({
-        snapshot,
-        context: {
+      let snapshot: BrowserVisualSnapshotRef;
+      try {
+        snapshot = await context.config.visualAnalysis.captureSnapshot({
           purpose,
-          taskGoal: parsed.data.reason,
-          pageUrl,
-          pageTitle,
-          visibleTextSample,
-          domSignals: [
-            ...context.state.phaseEvidence.visibleControls.slice(0, 6),
-            ...context.state.phaseEvidence.routeSignals.slice(0, 6),
-            ...context.state.phaseEvidence.warnings.slice(0, 4),
-          ],
-          sourceDebug: taskPacket
-            ? {
-                phase:
-                  context.config.promptContext.siteLabel.includes("Access")
-                    ? "access_auth_probe"
-                    : context.config.promptContext.siteLabel.includes("Structure")
-                      ? "site_structure_mapping"
-                      : context.config.promptContext.siteLabel.includes("Search")
-                        ? "search_filter_probe"
-                        : context.config.promptContext.siteLabel.includes("Detail")
-                          ? "job_detail_validation"
-                          : context.config.promptContext.siteLabel.includes("Apply")
-                            ? "apply_path_validation"
-                            : "replay_verification",
-                targetLabel: context.config.promptContext.siteLabel,
-                knownFacts: taskPacket.knownFacts,
-              }
-            : null,
-          apply: null,
-        },
-      });
+          mode,
+          label: parsed.data.label,
+          reason: parsed.data.reason,
+          region: mode === "region" ? parsed.data.region ?? null : null,
+          retention,
+        }, context.page);
+      } catch (error) {
+        return {
+          success: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Visual snapshot capture failed.",
+        };
+      }
+
+      let observationSet: BrowserVisualObservationSet;
+      try {
+        observationSet = await context.config.visualAnalysis.analyzeSnapshot({
+          snapshot,
+          context: {
+            purpose,
+            taskGoal: parsed.data.reason,
+            pageUrl,
+            pageTitle,
+            visibleTextSample,
+            domSignals: [
+              ...context.state.phaseEvidence.visibleControls.slice(0, 6),
+              ...context.state.phaseEvidence.routeSignals.slice(0, 6),
+              ...context.state.phaseEvidence.warnings.slice(0, 4),
+            ],
+            sourceDebug: taskPacket
+              ? {
+                  phase: taskPacket.phase,
+                  targetLabel: context.config.promptContext.siteLabel,
+                  knownFacts: taskPacket.knownFacts,
+                }
+              : null,
+            apply: null,
+          },
+        });
+      } catch (error) {
+        return {
+          success: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Visual snapshot analysis failed.",
+        };
+      }
 
       context.state.visualSnapshots.push(snapshot);
       context.state.visualObservationSets.push(observationSet);

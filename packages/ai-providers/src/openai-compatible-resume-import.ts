@@ -1,8 +1,10 @@
 import {
   ResumeImportTargetSectionSchema,
+  ResumeImportConflictChoiceSchema,
   type AgentProviderStatus,
   type ResumeImportFieldCandidateDraft,
   type ResumeImportJsonValue,
+  ResumeImportVisualEvidenceRefSchema,
 } from "@unemployed/contracts";
 import {
   ResumeImportAdjudicationResultSchema,
@@ -145,8 +147,18 @@ function normalizeCandidate(
     confidenceBreakdown: null,
     notes: toStringArray(record.notes),
     alternatives: normalizeAlternatives(record.alternatives),
-    conflictChoices: [],
-    visualEvidence: [],
+    conflictChoices: Array.isArray(record.conflictChoices)
+      ? record.conflictChoices.flatMap((entry) => {
+          const parsed = ResumeImportConflictChoiceSchema.safeParse(entry);
+          return parsed.success ? [parsed.data] : [];
+        })
+      : [],
+    visualEvidence: Array.isArray(record.visualEvidence)
+      ? record.visualEvidence.flatMap((entry) => {
+          const parsed = ResumeImportVisualEvidenceRefSchema.safeParse(entry);
+          return parsed.success ? [parsed.data] : [];
+        })
+      : [],
   };
 }
 

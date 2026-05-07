@@ -405,8 +405,6 @@ function branchStateFromVisionResolution(input: {
 async function completeDeferredVisionBranch(input: {
   ctx: WorkspaceServiceContext;
   promise: Promise<ResumeVisionBranchResult>;
-  profile: CandidateProfile;
-  searchPreferences: JobSearchPreferences;
   bundle: ResumeDocumentBundle;
   run: ResumeImportRun;
   runId: string;
@@ -417,8 +415,6 @@ async function completeDeferredVisionBranch(input: {
   const {
     ctx,
     promise,
-    profile,
-    searchPreferences,
     bundle,
     runId,
     now,
@@ -432,6 +428,8 @@ async function completeDeferredVisionBranch(input: {
       unrefTimer: true,
     });
     const currentCandidates = await ctx.repository.listResumeImportFieldCandidates({ runId });
+    const latestProfile = CandidateProfileSchema.parse(await ctx.repository.getProfile());
+    const latestSearchPreferences = await ctx.repository.getSearchPreferences();
     const currentTextCandidates = currentCandidates.filter(
       (candidate) => candidate.sourceKind !== "vision_omni" && candidate.sourceKind !== "adjudicator",
     );
@@ -476,7 +474,7 @@ async function completeDeferredVisionBranch(input: {
 
     let reconciledCandidates = preserveCurrentCandidateDecisions(
       promoteGroundedSharedMemoryCandidates(
-        reconcileCandidates(profile, searchPreferences, provisionalCandidates),
+        reconcileCandidates(latestProfile, latestSearchPreferences, provisionalCandidates),
       ),
       currentCandidates,
     );
@@ -505,8 +503,8 @@ async function completeDeferredVisionBranch(input: {
     });
 
     const adjudicationResult = await maybeAdjudicateResumeImportCandidates(ctx, {
-      profile,
-      searchPreferences,
+      profile: latestProfile,
+      searchPreferences: latestSearchPreferences,
       bundle,
       runId,
       now,
@@ -514,7 +512,7 @@ async function completeDeferredVisionBranch(input: {
     });
     reconciledCandidates = preserveCurrentCandidateDecisions(
       promoteGroundedSharedMemoryCandidates(
-        reconcileCandidates(profile, searchPreferences, adjudicationResult.candidates),
+        reconcileCandidates(latestProfile, latestSearchPreferences, adjudicationResult.candidates),
       ),
       currentCandidates,
     );
@@ -559,8 +557,8 @@ async function completeDeferredVisionBranch(input: {
     });
 
     const merged = applyResolvedResumeImportCandidatesToWorkspace({
-      profile,
-      searchPreferences,
+      profile: latestProfile,
+      searchPreferences: latestSearchPreferences,
       candidates: reconciledCandidates,
       analysisProviderKind: run.analysisProviderKind,
       analysisProviderLabel: run.analysisProviderLabel,
@@ -601,7 +599,12 @@ async function completeDeferredVisionBranch(input: {
 }
 
 function scheduleDeferredVisionBranchCompletion(input: Parameters<typeof completeDeferredVisionBranch>[0]): void {
-  void completeDeferredVisionBranch(input);
+  void completeDeferredVisionBranch(input).catch((error: unknown) => {
+    console.error(
+      "Deferred resume vision branch completion failed.",
+      error,
+    );
+  });
 }
 
 function modelRolesFor(run: ResumeImportRun): ResumeImportModelRoleState {
@@ -1096,8 +1099,6 @@ export async function runResumeImportWorkflow(
       scheduleDeferredVisionBranchCompletion({
         ctx,
         promise: observedVisionBranch.promise,
-        profile: merged.profile,
-        searchPreferences: merged.searchPreferences,
         bundle,
         run,
         runId,

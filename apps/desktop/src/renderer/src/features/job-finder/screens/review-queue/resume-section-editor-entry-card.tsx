@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { Lock, LockOpen, MoveDown, MoveUp } from 'lucide-react'
 import type {
   ResumeDraftEntry,
@@ -51,6 +52,7 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
   const rowLocked = disabled || section.locked
   const moveUpDisabled = rowLocked || entryIndex <= 0
   const moveDownDisabled = rowLocked || entryIndex >= section.entries.length - 1
+  const previousEndDateByEntryIdRef = useRef(new Map<string, string | null>())
   const reviewHeading = section.kind === 'experience'
     ? 'Work-history review'
     : `${section.label} review`
@@ -58,6 +60,15 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
   const handleEntryFocusCapture = () => {
     onSelectEntry(section.id, entry.id)
   }
+
+  useEffect(() => {
+    const entryIds = new Set(section.entries.map((sectionEntry) => sectionEntry.id))
+    for (const entryId of previousEndDateByEntryIdRef.current.keys()) {
+      if (!entryIds.has(entryId)) {
+        previousEndDateByEntryIdRef.current.delete(entryId)
+      }
+    }
+  }, [section.entries])
 
   return (
     <article
@@ -266,14 +277,17 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
             disabled={fieldDisabled || entry.isCurrent}
             value={entry.endDate ?? ''}
             onChange={(event) =>
-              onChange(
-                updateEntryField(
-                  section,
-                  entry.id,
-                  'endDate',
-                  normalizeNullableText(event.currentTarget.value),
-                ),
-              )
+              {
+                previousEndDateByEntryIdRef.current.delete(entry.id)
+                onChange(
+                  updateEntryField(
+                    section,
+                    entry.id,
+                    'endDate',
+                    normalizeNullableText(event.currentTarget.value),
+                  ),
+                )
+              }
             }
           />
         </Field>
@@ -283,16 +297,27 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
             data-resume-editor-target={getResumeEntryFieldTargetId(section.id, entry.id, 'isCurrent')}
             disabled={fieldDisabled}
             id={`${controlIdPrefix}_entry_current_${entry.id}`}
-            onCheckedChange={(checked) =>
+            onCheckedChange={(checked) => {
+              const isCurrent = checked === true
+              if (isCurrent) {
+                previousEndDateByEntryIdRef.current.set(entry.id, entry.endDate)
+              }
+              const restoredEndDate = isCurrent
+                ? null
+                : previousEndDateByEntryIdRef.current.get(entry.id) ?? entry.endDate
+              if (!isCurrent) {
+                previousEndDateByEntryIdRef.current.delete(entry.id)
+              }
+
               onChange(
                 updateEntryField(
-                  updateEntryField(section, entry.id, 'isCurrent', checked === true),
+                  updateEntryField(section, entry.id, 'isCurrent', isCurrent),
                   entry.id,
                   'endDate',
-                  checked === true ? null : entry.endDate,
+                  restoredEndDate,
                 ),
               )
-            }
+            }}
           />
           Current role / present
         </label>

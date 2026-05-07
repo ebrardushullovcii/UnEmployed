@@ -141,9 +141,9 @@ export function deriveGuidanceFromPhaseEvidence(
   const visualFindingSummaries = (attempt.phaseEvidence.visualFindings ?? []).flatMap(
     (finding) => [finding.summary],
   );
-  const visualEvidenceSummaries = attempt.visualEvidence.map(
-    (evidence) => evidence.summary,
-  );
+  const visualEvidenceSummaries = Array.isArray(attempt.visualEvidence)
+    ? attempt.visualEvidence.map((evidence) => evidence.summary)
+    : [];
   const warnings = [
     ...(attempt.phaseEvidence.warnings ?? []),
     ...visualFindingSummaries,

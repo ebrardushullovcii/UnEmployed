@@ -125,6 +125,7 @@ export function buildSourceDebugPhasePacket(
   };
 
   return {
+    phase,
     phaseGoal: phaseGoalByPhase[phase],
     knownFacts,
     priorPhaseSummary,

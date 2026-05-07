@@ -709,6 +709,12 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
 
   const educationEntries = orderEntriesNewestFirst(draft.educationEntries.map((entry, index) =>
     {
+      const profileEducation = entry.profileRecordId
+        ? profile?.education.find((education) => education.id === entry.profileRecordId)
+        : null;
+      const profileDateRange = profileEducation
+        ? formatDateRange(profileEducation.startDate, profileEducation.endDate)
+        : null;
       const parsedDates = parseResumeDateRange(entry.dateRange);
       return createEntry({
         id: entry.profileRecordId ? `education_${entry.profileRecordId}` : `education_entry_${index + 1}`,
@@ -716,9 +722,12 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
         title: entry.school,
         subtitle: joinCompact([entry.degree, entry.fieldOfStudy], ", "),
         location: entry.location,
-        dateRange: entry.dateRange,
-        startDate: parsedDates.startDate,
-        endDate: parsedDates.endDate,
+        dateRange: selectCanonicalDateRange({
+          profileDateRange,
+          generatedDateRange: entry.dateRange,
+        }),
+        startDate: profileEducation?.startDate ?? parsedDates.startDate,
+        endDate: profileEducation?.endDate ?? parsedDates.endDate,
         isCurrent: parsedDates.isCurrent,
         summary: entry.summary,
         updatedAt: createdAt,
@@ -747,15 +756,24 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
 
   const certificationEntries = orderEntriesNewestFirst(draft.certificationEntries.map((entry, index) =>
     {
+      const profileCertification = entry.profileRecordId
+        ? profile?.certifications.find((certification) => certification.id === entry.profileRecordId)
+        : null;
+      const profileDateRange = profileCertification
+        ? formatDateRange(profileCertification.issueDate, profileCertification.expiryDate)
+        : null;
       const parsedDates = parseResumeDateRange(entry.dateRange);
       return createEntry({
         id: entry.profileRecordId ? `certification_${entry.profileRecordId}` : `certification_entry_${index + 1}`,
         entryType: "certification",
         title: entry.name,
         subtitle: entry.issuer,
-        dateRange: entry.dateRange,
-        startDate: parsedDates.startDate,
-        endDate: parsedDates.endDate,
+        dateRange: selectCanonicalDateRange({
+          profileDateRange,
+          generatedDateRange: entry.dateRange,
+        }),
+        startDate: profileCertification?.issueDate ?? parsedDates.startDate,
+        endDate: profileCertification?.expiryDate ?? parsedDates.endDate,
         isCurrent: parsedDates.isCurrent,
         updatedAt: createdAt,
         origin,

@@ -215,6 +215,34 @@ describe("resume import reconciliation", () => {
     expect(reconciled.some((candidate) => candidate.resolutionReason === "text_vs_visual_conflict_requires_review")).toBe(false);
   });
 
+  test("does not merge skill record candidates through the generic list path", () => {
+    const seed = createSeed();
+    const skillRecordCandidate = ResumeImportFieldCandidateSchema.parse({
+      runId: "resume_import_run_skill_record",
+      ...createStageCandidate({
+        target: { section: "skill", key: "record", recordId: null },
+        label: "Skill",
+        value: "React",
+        sourceBlockIds: [],
+        confidence: 0.76,
+        overall: 0.7,
+        recommendation: "needs_review",
+      }),
+      id: "candidate_skill_record",
+      sourceKind: "vision_omni",
+      resolution: "needs_review",
+      createdAt: "2026-04-10T10:00:00.000Z",
+      resolvedAt: null,
+    });
+
+    const reconciled = reconcileCandidates(seed.profile, seed.searchPreferences, [skillRecordCandidate]);
+
+    expect(reconciled[0]).toMatchObject({
+      id: "candidate_skill_record",
+      resolution: "needs_review",
+    });
+  });
+
   test("auto-applies grounded fresh-start education records", () => {
     const baseSeed = createSeed();
     const seed = {

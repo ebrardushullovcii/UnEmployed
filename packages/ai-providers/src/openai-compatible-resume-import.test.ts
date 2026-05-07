@@ -86,6 +86,16 @@ describe("extractOpenAiCompatibleResumeImportStage", () => {
               confidence: "0.98",
               notes: "literal top line",
               alternatives: null,
+              visualEvidence: [
+                {
+                  branch: "vision",
+                  sourceFileKind: "pdf",
+                  pageNumber: 1,
+                  regionHint: "name heading",
+                  confidence: 0.8,
+                  uncertaintyNotes: [],
+                },
+              ],
             },
           ],
           notes: [],
@@ -102,6 +112,16 @@ describe("extractOpenAiCompatibleResumeImportStage", () => {
       confidence: 0.98,
       notes: ["literal top line"],
       alternatives: [],
+      visualEvidence: [
+        {
+          branch: "vision",
+          sourceFileKind: "pdf",
+          pageNumber: 1,
+          regionHint: "name heading",
+          confidence: 0.8,
+          uncertaintyNotes: [],
+        },
+      ],
     });
 
     expect(result.candidates[0]?.confidenceBreakdown?.overall).toBeGreaterThan(0.8);

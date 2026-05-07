@@ -1,4 +1,3 @@
-import type { SourceDebugPhase } from "@unemployed/contracts";
 import type { Page } from "playwright";
 import type {
   AgentConfig,
@@ -60,16 +59,6 @@ const DISCOVERY_CANDIDATE_HOLD_MIN_JOBS = 2;
 const DISCOVERY_LATE_STEP_STOP_BUFFER = 3;
 const EARLY_FORCED_FINISH_MIN_STEP = 4;
 const EARLY_FORCED_FINISH_STALE_STEP_WINDOW = 2;
-
-function parsePhaseFromSiteLabel(siteLabel: string): SourceDebugPhase | undefined {
-  if (siteLabel.includes("Access")) return "access_auth_probe";
-  if (siteLabel.includes("Structure")) return "site_structure_mapping";
-  if (siteLabel.includes("Search")) return "search_filter_probe";
-  if (siteLabel.includes("Detail")) return "job_detail_validation";
-  if (siteLabel.includes("Apply")) return "apply_path_validation";
-  if (siteLabel.includes("Replay")) return "replay_verification";
-  return undefined;
-}
 
 function buildContextBudgetFailureResult(
   state: AgentState,
@@ -643,7 +632,7 @@ export async function runAgentDiscovery(
           {},
           visualResult,
           state,
-          parsePhaseFromSiteLabel(config.promptContext.siteLabel),
+          config.promptContext.taskPacket?.phase,
         );
         recordEvidenceProgress();
       }
@@ -852,9 +841,7 @@ export async function runAgentDiscovery(
           parsedArguments,
           result,
           state,
-          config.promptContext.taskPacket
-            ? parsePhaseFromSiteLabel(config.promptContext.siteLabel)
-            : undefined,
+          config.promptContext.taskPacket?.phase,
         );
         recordEvidenceProgress();
 

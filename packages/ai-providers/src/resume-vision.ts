@@ -120,6 +120,19 @@ function normalizeConfidence(value: unknown): number | undefined {
 }
 
 function normalizeTarget(value: unknown): ResumeImportFieldCandidateDraft["target"] | undefined {
+  if (typeof value === "string") {
+    const [rawSection, ...rest] = value.trim().split(".");
+    const section = rawSection?.trim() ?? "";
+    const key = rest.join(".").trim();
+    const sectionResult = ResumeImportTargetSectionSchema.safeParse(section);
+
+    if (!sectionResult.success || !key) {
+      return undefined;
+    }
+
+    return { section: sectionResult.data, key, recordId: null };
+  }
+
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return undefined;
   }
@@ -458,7 +471,7 @@ export function createOpenAiCompatibleResumeVisionProvider(
                     },
                   }),
                 },
-                ...pages.map((page) => ({
+                ...pages.filter((page) => page.dataUrl).map((page) => ({
                   type: "image_url",
                   image_url: {
                     url: page.dataUrl,

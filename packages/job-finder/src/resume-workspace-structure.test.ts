@@ -338,6 +338,82 @@ describe("buildResumeRenderDocument", () => {
     ]);
   });
 
+  test("buildResumeDraftFromTailoredDraft preserves profile-backed education and certification dates", () => {
+    const seed = createSeed();
+    const profile = {
+      ...seed.profile,
+      certifications: [
+        {
+          id: "cert_aws",
+          name: "AWS Certified Developer",
+          issuer: "Amazon Web Services",
+          issueDate: "2021-05",
+          expiryDate: "2024-05",
+          credentialUrl: null,
+          isDraft: false,
+        },
+      ],
+    };
+    const draft = buildResumeDraftFromTailoredDraft({
+      job: seed.savedJobs[0]!,
+      templateId: seed.settings.resumeTemplateId,
+      createdAt: "2026-03-20T10:04:00.000Z",
+      generationMethod: "ai",
+      profile,
+      draft: {
+        label: "Tailored Resume",
+        summary: "Grounded software summary.",
+        experienceHighlights: [],
+        coreSkills: ["React"],
+        targetedKeywords: ["React"],
+        experienceEntries: [],
+        projectEntries: [],
+        educationEntries: [
+          {
+            school: "Royal College of Art",
+            degree: "MA",
+            fieldOfStudy: "Design Products",
+            location: "London, UK",
+            dateRange: "London, UK",
+            summary: null,
+            profileRecordId: "education_1",
+          },
+        ],
+        certificationEntries: [
+          {
+            name: "AWS Certified Developer",
+            issuer: "Amazon Web Services",
+            dateRange: "Amazon Web Services",
+            profileRecordId: "cert_aws",
+          },
+        ],
+        coverageMetadata: [],
+        additionalSkills: [],
+        languages: [],
+        fullText: "Grounded software summary.",
+        compatibilityScore: 80,
+        notes: [],
+      },
+    });
+    const education = draft.sections
+      .find((section) => section.kind === "education")
+      ?.entries.find((entry) => entry.profileRecordId === "education_1");
+    const certification = draft.sections
+      .find((section) => section.kind === "certifications")
+      ?.entries.find((entry) => entry.profileRecordId === "cert_aws");
+
+    expect(education).toMatchObject({
+      dateRange: "Sep 2012 – Jun 2014",
+      startDate: "2012-09",
+      endDate: "2014-06",
+    });
+    expect(certification).toMatchObject({
+      dateRange: "May 2021 – May 2024",
+      startDate: "2021-05",
+      endDate: "2024-05",
+    });
+  });
+
   test("buildResumeDraftFromTailoredDraft canonicalizes profile-backed metadata and splits dense imported descriptions", () => {
     const seed = createSeed();
     const profile = {

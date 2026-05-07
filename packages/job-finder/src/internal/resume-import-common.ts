@@ -58,5 +58,5 @@ function splitListString(value: string): string[] {
     .map((entry) => entry.trim())
     .filter(Boolean);
 
-  return parts.length > 1 ? parts : value ? [value] : [];
+  return parts.length > 0 ? parts : [];
 }

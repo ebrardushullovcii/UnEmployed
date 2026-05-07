@@ -217,7 +217,7 @@ async function buildApplyVisualDiagnostics(input: {
       validationErrors: observationSet.validationErrors,
       buttonStates: observationSet.buttonStates,
       questionContextIds: observationSet.questionContexts.map(
-        (context) => context.observationSetId,
+        (context) => context.id,
       ),
       reconciliations: observationSet.reconciliations,
     });

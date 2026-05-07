@@ -6,6 +6,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   CandidateProfileSchema,
   JobFinderWorkspaceSnapshotSchema,
+  ResumeImportVisionArtifactSchema,
   type ResumeDocumentBundle,
   type ResumeSourceDocument,
 } from "@unemployed/contracts";
@@ -231,14 +232,16 @@ describe("importResumeFromSourcePath", () => {
       warnings: [],
     });
 
-    await importResumeFromSourcePath(filePath, { useVision: false });
+    try {
+      await importResumeFromSourcePath(filePath, { useVision: false });
 
-    expect(mockGenerateResumeVisionImages).not.toHaveBeenCalled();
-    expect(workspaceService.runResumeImport).toHaveBeenCalledWith(
-      expect.objectContaining({ visionArtifact: null }),
-    );
-
-    await rm(directory, { recursive: true, force: true });
+      expect(mockGenerateResumeVisionImages).not.toHaveBeenCalled();
+      expect(workspaceService.runResumeImport).toHaveBeenCalledWith(
+        expect.objectContaining({ visionArtifact: null }),
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   test("generates vision artifacts by default", async () => {
@@ -251,7 +254,7 @@ describe("importResumeFromSourcePath", () => {
       getWorkspaceSnapshot: vi.fn(),
       saveProfile: vi.fn(),
     };
-    const visionArtifact = {
+    const visionArtifact = ResumeImportVisionArtifactSchema.parse({
       id: "vision_artifact_test",
       runId: "run_test",
       sourceResumeId: "resume_test",
@@ -260,7 +263,7 @@ describe("importResumeFromSourcePath", () => {
       retained: "temporary",
       pages: [],
       warnings: [],
-    };
+    });
 
     mockMkdir.mockResolvedValue(undefined);
     mockCopyFile.mockResolvedValue(undefined);
@@ -273,13 +276,15 @@ describe("importResumeFromSourcePath", () => {
     });
     mockGenerateResumeVisionImages.mockResolvedValue({ artifact: visionArtifact, warnings: [] });
 
-    await importResumeFromSourcePath(filePath);
+    try {
+      await importResumeFromSourcePath(filePath);
 
-    expect(mockGenerateResumeVisionImages).toHaveBeenCalledTimes(1);
-    expect(workspaceService.runResumeImport).toHaveBeenCalledWith(
-      expect.objectContaining({ visionArtifact }),
-    );
-
-    await rm(directory, { recursive: true, force: true });
+      expect(mockGenerateResumeVisionImages).toHaveBeenCalledTimes(1);
+      expect(workspaceService.runResumeImport).toHaveBeenCalledWith(
+        expect.objectContaining({ visionArtifact }),
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });

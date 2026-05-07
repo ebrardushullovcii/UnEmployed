@@ -22,7 +22,7 @@ describe("resume vision provider", () => {
             content: JSON.stringify({
               candidates: [
                 {
-                  target: { section: "identity", key: "headline", recordId: null },
+                  target: "identity.headline",
                   label: "Headline",
                   value: "Staff Platform Engineer",
                   confidence: "0.84",

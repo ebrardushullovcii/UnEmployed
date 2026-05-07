@@ -1,6 +1,7 @@
 import type {
   ApplyRunDetails,
   JobFinderApplyConsentActionInput,
+  JobFinderApplyCopilotActionInput,
   JobFinderApplyQueueActionInput,
   CandidateProfile,
   DesktopPlatformPing,
@@ -9,6 +10,7 @@ import type {
   DiscoveryActivityEvent,
   JobFinderOpenBrowserSessionInput,
   ProfileCopilotContext,
+  ProfileSetupReviewActionOptions,
   ResumeQualityBenchmarkReport,
   ResumeQualityBenchmarkRequest,
   ResumeImportBenchmarkReport,
@@ -77,7 +79,7 @@ declare global {
         applyProfileSetupReviewAction: (
           reviewItemId: string,
           action: "confirm" | "dismiss" | "clear_value",
-          options?: { selectedConflictChoiceId?: string },
+          options?: ProfileSetupReviewActionOptions,
         ) => Promise<JobFinderWorkspaceSnapshot>;
         sendProfileCopilotMessage: (
           content: string,
@@ -171,7 +173,10 @@ declare global {
         generateResume: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
         startApplyCopilotRun: (
           jobId: string,
-          options?: { visualCheckpointsEnabled?: boolean },
+          options?: Pick<
+            JobFinderApplyCopilotActionInput,
+            "visualCheckpointsEnabled"
+          >,
         ) => Promise<JobFinderWorkspaceSnapshot>;
         startAutoApplyRun: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
         startAutoApplyQueueRun: (

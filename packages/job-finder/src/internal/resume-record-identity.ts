@@ -32,7 +32,7 @@ function normalizeRecordDate(value: unknown): string {
     const first = Number.parseInt(slashFullDateMatch[1] ?? "", 10);
     const second = Number.parseInt(slashFullDateMatch[2] ?? "", 10);
     const year = slashFullDateMatch[3] ?? "";
-    const month = second >= 1 && second <= 12 ? second : first;
+    const month = first >= 1 && first <= 12 ? first : second;
 
     if (Number.isInteger(month) && month >= 1 && month <= 12 && year) {
       return `${year}-${String(month).padStart(2, "0")}`;

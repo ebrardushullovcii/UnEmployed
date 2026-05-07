@@ -593,14 +593,29 @@ export function recordToolEvidence(
     normalizedResult.success &&
     normalizedResult.data
   ) {
+    if (!phase) {
+      appendPhaseEvidence(state, "warnings", [
+        "Visual snapshot evidence was ignored because the source-debug phase was missing.",
+      ]);
+      return;
+    }
+
     const snapshotId =
       typeof normalizedResult.data.snapshotId === "string"
         ? normalizedResult.data.snapshotId
-        : "visual_snapshot_unknown";
+        : null;
     const observationSetId =
       typeof normalizedResult.data.observationSetId === "string"
         ? normalizedResult.data.observationSetId
-        : "visual_observation_unknown";
+        : null;
+
+    if (!snapshotId || !observationSetId) {
+      appendPhaseEvidence(state, "warnings", [
+        "Visual snapshot evidence was ignored because the tool result did not include snapshot and observation IDs.",
+      ]);
+      return;
+    }
+
     const summary =
       typeof normalizedResult.data.summary === "string" &&
       normalizedResult.data.summary.trim()
@@ -618,7 +633,7 @@ export function recordToolEvidence(
       ...(state.phaseEvidence.visualFindings ?? []),
       SourceDebugVisualFindingSchema.parse({
         id: `visual_finding_${snapshotId}`,
-        phase: phase ?? "access_auth_probe",
+        phase,
         snapshotId,
         observationSetId,
         kind: "recovery_note",

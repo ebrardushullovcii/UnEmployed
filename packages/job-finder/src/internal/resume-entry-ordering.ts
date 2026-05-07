@@ -212,8 +212,7 @@ export function parseResumeEntryDateRange(
     : null;
   const structuredHasAnyDate = Boolean(
     structuredEntry?.startDate?.trim() ||
-      structuredEntry?.endDate?.trim() ||
-      structuredEntry?.isCurrent,
+      structuredEntry?.endDate?.trim(),
   );
   const trimmed = structuredHasAnyDate
     ? [

@@ -269,6 +269,7 @@ export type BrowserVisualObservation = z.infer<
 
 export const BrowserVisualQuestionContextSchema = z
   .object({
+    id: NonEmptyStringSchema,
     snapshotId: NonEmptyStringSchema,
     observationSetId: NonEmptyStringSchema,
     promptHint: NonEmptyStringSchema,

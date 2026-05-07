@@ -750,6 +750,10 @@ function shouldAutoApplyAdditionalFreshStartRecordCandidate(
 }
 
 function shouldMergeListCandidate(candidate: ResumeImportFieldCandidate): boolean {
+  if (candidate.target.section === "skill" && candidate.target.key === "record") {
+    return false;
+  }
+
   if (!isListTarget(candidate)) {
     return false;
   }
@@ -987,6 +991,10 @@ function applyConflictChoicesToGroup(
   }
 
   const recommendedCandidate = candidates.find(isStrongLiteralIdentityCandidate) ?? winner;
+  if (recommendedCandidate.sourceKind === "adjudicator") {
+    return [...candidates];
+  }
+
   const ranked = [...candidates].sort((left, right) => candidateScore(right) - candidateScore(left));
   const choices = ranked.map((candidate) =>
     toConflictChoice(candidate, candidate.id === recommendedCandidate.id),

@@ -6,6 +6,7 @@ import type {
   CandidateProfile,
   DiscoveryActivityEvent,
   EditableSourceInstructionArtifact,
+  JobFinderApplyCopilotActionInput,
   JobFinderOpenBrowserSessionInput,
   JobFinderResumePreview,
   ResumeDocumentBundle,
@@ -162,7 +163,10 @@ export interface JobFinderWorkspaceService {
   getApplyRunDetails(runId: string, jobId: string): Promise<ApplyRunDetails>;
   startApplyCopilotRun(
     jobId: string,
-    options?: { visualCheckpointsEnabled?: boolean },
+    options?: Pick<
+      JobFinderApplyCopilotActionInput,
+      "visualCheckpointsEnabled"
+    >,
   ): Promise<JobFinderWorkspaceSnapshot>;
   startAutoApplyRun(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
   startAutoApplyQueueRun(jobIds: readonly string[]): Promise<JobFinderWorkspaceSnapshot>;

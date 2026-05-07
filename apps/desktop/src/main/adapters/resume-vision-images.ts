@@ -62,7 +62,7 @@ export async function generateResumeVisionImages(input: {
       sourceResumeId: input.sourceResumeId,
       sourceFileKind: fileKind,
       retained: retention,
-      dataUrl: retention === 'temporary' ? page.dataUrl : page.dataUrl,
+      dataUrl: retention === 'temporary' ? page.dataUrl : null,
       storagePath: retention === 'temporary' ? null : page.storagePath,
     })),
     warnings: response.warnings.length > 0 ? response.warnings : response.artifact.warnings,

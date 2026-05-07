@@ -30,6 +30,8 @@ import {
   parseSalaryFloor,
 } from './catalog-runtime-utils'
 
+let catalogVisualSnapshotSequence = 0
+
 function filterCatalogDiscoveryJobs(
   jobs: readonly JobPosting[],
   searchPreferences: Parameters<BrowserSessionRuntime["runDiscovery"]>[1],
@@ -886,10 +888,11 @@ export function createCatalogBrowserSessionRuntime(
     captureVisualSnapshot(source, request) {
       const normalizedRequest = BrowserVisualSnapshotRequestSchema.parse(request)
       const now = new Date().toISOString()
+      catalogVisualSnapshotSequence += 1
 
       return Promise.resolve(
         BrowserVisualSnapshotRefSchema.parse({
-          id: `visual_snapshot_catalog_${now.replace(/[^0-9]/g, '')}`,
+          id: `visual_snapshot_catalog_${now.replace(/[^0-9]/g, '')}_${catalogVisualSnapshotSequence}`,
           capturedAt: now,
           url: null,
           pageTitle: null,

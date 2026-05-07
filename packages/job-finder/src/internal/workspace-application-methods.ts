@@ -117,6 +117,14 @@ function createMonotonicTimestamp(
   return new Date(Math.max(now, previous)).toISOString();
 }
 
+function getApplyResultSortTime(input: {
+  completedAt: string | null;
+  updatedAt: string;
+  startedAt: string;
+}): number {
+  return Date.parse(input.completedAt ?? input.updatedAt ?? input.startedAt);
+}
+
 export function createWorkspaceApplicationMethods(
   ctx: WorkspaceServiceContext,
 ): Pick<
@@ -397,7 +405,14 @@ export function createWorkspaceApplicationMethods(
       ctx.repository.listApplyJobResults(),
       ctx.repository.listApplicationReplayCheckpoints({ jobId }),
     ]);
-    const latestResult = results.find((entry) => entry.jobId === jobId) ?? null;
+    const latestResult =
+      results
+        .filter((entry) => entry.jobId === jobId)
+        .sort((left, right) => {
+          const rightTime = getApplyResultSortTime(right);
+          const leftTime = getApplyResultSortTime(left);
+          return rightTime - leftTime;
+        })[0] ?? null;
 
     if (!latestResult) {
       return {
@@ -415,11 +430,14 @@ export function createWorkspaceApplicationMethods(
       };
     }
 
-    const latestCheckpoint = checkpoints[0] ?? null;
+    const latestRunCheckpoints = checkpoints.filter(
+      (checkpoint) => checkpoint.runId === latestResult.runId,
+    );
+    const latestCheckpoint = latestRunCheckpoints[0] ?? null;
     const retainedVisualEvidence = (() => {
       const seenEvidence = new Set<string>();
       const candidates: BrowserVisualEvidenceSummary[] = [
-        ...checkpoints.flatMap((checkpoint) => checkpoint.visualEvidence),
+        ...latestRunCheckpoints.flatMap((checkpoint) => checkpoint.visualEvidence),
         ...latestResult.visualCheckpoints.flatMap((checkpoint) =>
           checkpoint.retained
             ? [
@@ -454,7 +472,7 @@ export function createWorkspaceApplicationMethods(
         });
     })();
     const checkpointUrls = uniqueStrings(
-      checkpoints
+      latestRunCheckpoints
         .map((checkpoint) => checkpoint.url)
         .filter(
           (url): url is string =>

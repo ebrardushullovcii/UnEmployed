@@ -87,6 +87,21 @@ describe("resume entry ordering", () => {
     });
   });
 
+  test("does not treat isCurrent alone as a structured date", () => {
+    expect(
+      parseResumeEntryDateRange({
+        dateRange: null,
+        startDate: null,
+        endDate: null,
+        isCurrent: true,
+      }),
+    ).toMatchObject({
+      hasMissingDateRange: true,
+      hasParseableDate: false,
+      isCurrent: false,
+    });
+  });
+
   test("orders current roles first, then past roles newest first, and undated entries last", () => {
     const ordered = orderEntriesNewestFirst([
       buildEntry({ id: "older", dateRange: "Aug 2019 - Jan 2022", sortOrder: 0 }),

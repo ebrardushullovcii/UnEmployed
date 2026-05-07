@@ -1,6 +1,6 @@
 import { AlertCircle, CheckCircle2, Circle, Compass, FileSearch, Sparkles, Target, UserRound } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import type { ProfileSetupState, ProfileSetupStep, ResumeImportFieldCandidateSummary } from '@unemployed/contracts'
+import type { ProfileSetupReviewActionOptions, ProfileSetupState, ProfileSetupStep, ResumeImportFieldCandidateSummary } from '@unemployed/contracts'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@renderer/components/ui/card'
@@ -176,7 +176,7 @@ export function ProfileSetupReviewQueueCard(props: {
   isReviewItemPending: (reviewItemId: string) => boolean
   items: readonly ProfileSetupReviewItemDisplay[]
   latestResumeImportReviewCandidates: readonly ResumeImportFieldCandidateSummary[]
-  onApplyReviewAction: (reviewItemId: string, action: 'confirm' | 'dismiss' | 'clear_value', options?: { selectedConflictChoiceId?: string }) => void
+  onApplyReviewAction: (reviewItemId: string, action: 'confirm' | 'dismiss' | 'clear_value', options?: ProfileSetupReviewActionOptions) => void
   onEditReviewItem: (item: ProfileSetupReviewItemDisplay) => void
 }) {
   const [pendingReviewAction, setPendingReviewAction] = useState<{
@@ -213,9 +213,13 @@ export function ProfileSetupReviewQueueCard(props: {
   const applyReviewAction = (
     reviewItemId: string,
     action: 'confirm' | 'dismiss' | 'clear_value',
-    options?: { selectedConflictChoiceId?: string },
+    options?: ProfileSetupReviewActionOptions,
   ) => {
-    setPendingReviewAction({ action, reviewItemId, ...options })
+    setPendingReviewAction(
+      options?.selectedConflictChoiceId
+        ? { action, reviewItemId, selectedConflictChoiceId: options.selectedConflictChoiceId }
+        : { action, reviewItemId },
+    )
     props.onApplyReviewAction(reviewItemId, action, options)
   }
 

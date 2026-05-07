@@ -70,6 +70,23 @@ describe("orderResumeEntriesNewestFirst", () => {
 
     expect(ordered.map((entry) => entry.id)).toEqual(["newer", "older"]);
   });
+
+  it("prefers structured dates over legacy dateRange text", () => {
+    const legacyCurrent = buildEntry({
+      id: "legacy_current",
+      dateRange: "Jan 2020 – Jan 2021",
+      sortOrder: 0,
+    });
+    const structuredNewer = {
+      ...buildEntry({ id: "structured_newer", dateRange: "Jan 2020 – Jan 2021", sortOrder: 1 }),
+      startDate: "2025-01",
+      endDate: "2025-12",
+    };
+
+    const ordered = orderResumeEntriesNewestFirst([legacyCurrent, structuredNewer]);
+
+    expect(ordered.map((entry) => entry.id)).toEqual(["structured_newer", "legacy_current"]);
+  });
 });
 
 describe("createResumeDraftPatch", () => {

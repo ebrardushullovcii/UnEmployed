@@ -98,6 +98,43 @@ function createObservationSetId(snapshotId: string): string {
   return `visual_observation_${snapshotId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
 }
 
+function createQuestionContextId(input: {
+  snapshotId: string;
+  observationSetId: string;
+  index: number;
+}): string {
+  return `visual_question_${input.snapshotId.replace(/[^a-zA-Z0-9_-]/g, "_")}_${input.observationSetId.replace(/[^a-zA-Z0-9_-]/g, "_")}_${input.index + 1}`;
+}
+
+function normalizeQuestionContexts(
+  value: unknown,
+  base: { snapshotId: string; observationSetId: string },
+): unknown[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((entry, index) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      return [];
+    }
+
+    const candidate = entry as Record<string, unknown>;
+
+    return [
+      {
+        ...candidate,
+        id:
+          typeof candidate.id === "string" && candidate.id.trim()
+            ? candidate.id.trim()
+            : createQuestionContextId({ ...base, index }),
+        snapshotId: base.snapshotId,
+        observationSetId: base.observationSetId,
+      },
+    ];
+  });
+}
+
 function normalizeVisualPayload(input: {
   rawPayload: unknown;
   analysisInput: BrowserVisualAnalysisInput;
@@ -121,6 +158,7 @@ function normalizeVisualPayload(input: {
     providerKind: input.status.kind,
     providerLabel: input.status.label,
   };
+  const observationSetId = base.id;
   const normalized = {
     ...payload,
     ...base,
@@ -138,9 +176,10 @@ function normalizeVisualPayload(input: {
     recoveryNotes: toStringArray(payload.recoveryNotes),
     uncertainty: toStringArray(payload.uncertainty),
     observations: Array.isArray(payload.observations) ? payload.observations : [],
-    questionContexts: Array.isArray(payload.questionContexts)
-      ? payload.questionContexts
-      : [],
+    questionContexts: normalizeQuestionContexts(payload.questionContexts, {
+      snapshotId: input.analysisInput.snapshot.id,
+      observationSetId,
+    }),
     reconciliations: Array.isArray(payload.reconciliations)
       ? payload.reconciliations
       : [],
@@ -154,7 +193,8 @@ function normalizeVisualPayload(input: {
 
   return BrowserVisualObservationSetSchema.parse({
     ...base,
-    summary: null,
+      summary: null,
+      questionContexts: [],
     rejectedOutputReasons: parsed.error.issues.map((issue) => {
       const path = issue.path.length > 0 ? issue.path.join(".") : "root";
       return `${path}: ${issue.message}`;
@@ -318,6 +358,9 @@ export function createOpenAiCompatibleBrowserVisualAnalysisProvider(
       throw new Error("The configured browser vision provider settings are invalid.");
     }
 
+    const includeImagePayload =
+      Boolean(input.snapshot.dataUrl) &&
+      input.snapshot.retention.redactionLevel !== "sensitive";
     const controller = new AbortController();
     const localTimeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -377,12 +420,12 @@ export function createOpenAiCompatibleBrowserVisualAnalysisProvider(
                     },
                   }),
                 },
-                ...(input.snapshot.dataUrl
+                ...(includeImagePayload
                   ? [
                       {
                         type: "image_url",
                         image_url: {
-                          url: input.snapshot.dataUrl,
+                          url: input.snapshot.dataUrl!,
                           detail:
                             input.snapshot.mode === "full_page" ? "high" : "auto",
                         },
@@ -415,6 +458,16 @@ export function createOpenAiCompatibleBrowserVisualAnalysisProvider(
 
       if (!validatedOptions || !analysisInput.snapshot.dataUrl) {
         return fallbackResult;
+      }
+
+      if (analysisInput.snapshot.retention.redactionLevel === "sensitive") {
+        return BrowserVisualObservationSetSchema.parse({
+          ...fallbackResult,
+          uncertainty: [
+            ...fallbackResult.uncertainty,
+            "Sensitive visual snapshot was not uploaded to the configured vision provider; deterministic visual fallback was used.",
+          ],
+        });
       }
 
       try {

@@ -4,6 +4,7 @@ import type {
   JobFinderWorkspaceSnapshot,
   JobSearchPreferences,
   ProfileCopilotContext,
+  ProfileSetupReviewActionOptions,
   ProfileSetupState,
   ProfileSetupStep,
   ResumeImportFieldCandidateSummary,
@@ -47,7 +48,7 @@ export function ProfileSetupScreen(props: {
   onApplyProfileSetupReviewAction: (
     reviewItemId: string,
     action: 'confirm' | 'dismiss' | 'clear_value',
-    options?: { selectedConflictChoiceId?: string },
+    options?: ProfileSetupReviewActionOptions,
   ) => void
   onContinueToProfile: () => void
   onImportResume: () => void

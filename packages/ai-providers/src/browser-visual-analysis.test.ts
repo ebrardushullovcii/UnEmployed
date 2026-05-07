@@ -1,9 +1,12 @@
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   BrowserVisualObservationSetSchema,
   type BrowserVisualAnalysisInput,
 } from "@unemployed/contracts";
-import { createDeterministicBrowserVisualAnalysisProvider } from "./browser-visual-analysis";
+import {
+  createDeterministicBrowserVisualAnalysisProvider,
+  createOpenAiCompatibleBrowserVisualAnalysisProvider,
+} from "./browser-visual-analysis";
 
 function createInput(overrides: Partial<BrowserVisualAnalysisInput> = {}): BrowserVisualAnalysisInput {
   const base: BrowserVisualAnalysisInput = {
@@ -53,6 +56,10 @@ function createInput(overrides: Partial<BrowserVisualAnalysisInput> = {}): Brows
 }
 
 describe("browser visual analysis providers", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   test("deterministic provider returns schema-valid apply observations", async () => {
     const provider = createDeterministicBrowserVisualAnalysisProvider();
 
@@ -83,5 +90,26 @@ describe("browser visual analysis providers", () => {
         visibleControls: ["Click the #submit button"],
       }),
     ).toThrow(/cannot include selectors|cannot direct browser actions/i);
+  });
+
+  test("openai-compatible provider does not upload sensitive image data", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ summary: "Visible form state." }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const provider = createOpenAiCompatibleBrowserVisualAnalysisProvider({
+      apiKey: "test-key",
+      baseUrl: "https://vision.example.com/v1",
+      model: "vision-test",
+    });
+
+    const result = await provider.analyzeBrowserVisualSnapshot(createInput());
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(result.uncertainty).toContain(
+      "Sensitive visual snapshot was not uploaded to the configured vision provider; deterministic visual fallback was used.",
+    );
   });
 });

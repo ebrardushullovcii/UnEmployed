@@ -9,6 +9,7 @@ import type {
   ProfileCopilotMessage,
   JobSearchPreferences,
   ProfileCopilotContext,
+  ProfileSetupReviewActionOptions,
   ProfileSetupState,
   ProfileSetupStep,
   ResumeAssistantMessage,
@@ -374,7 +375,7 @@ export function createPrimaryPageActions(
     onApplyProfileSetupReviewAction: (
       reviewItemId: string,
       action: 'confirm' | 'dismiss' | 'clear_value',
-      options?: { selectedConflictChoiceId?: string },
+      options?: ProfileSetupReviewActionOptions,
     ) =>
       void runAction(
         () => actions.applyProfileSetupReviewAction(reviewItemId, action, options),

@@ -45,7 +45,9 @@ import {
   JobSearchPreferencesSchema,
   JobFinderUndoProfileRevisionInputSchema,
   ResumeImportBenchmarkReportSchema,
+  ResumeDocumentBundleSchema,
   ResumeImportFieldCandidateSchema,
+  ResumeImportRunSchema,
   ResumeQualityBenchmarkReportSchema,
 } from "@unemployed/contracts";
 import {
@@ -449,8 +451,12 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
       const state = await jobFinderWorkspaceService.getResumeImportState();
 
       return {
-        resumeImportRuns: state.resumeImportRuns,
-        resumeImportDocumentBundles: state.resumeImportDocumentBundles,
+        resumeImportRuns: ResumeImportRunSchema.array().parse(
+          state.resumeImportRuns,
+        ),
+        resumeImportDocumentBundles: ResumeDocumentBundleSchema.array().parse(
+          state.resumeImportDocumentBundles,
+        ),
         resumeImportFieldCandidates: ResumeImportFieldCandidateSchema.array().parse(
           state.resumeImportFieldCandidates,
         ),

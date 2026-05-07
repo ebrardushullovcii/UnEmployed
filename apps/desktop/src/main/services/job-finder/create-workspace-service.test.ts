@@ -66,9 +66,11 @@ describe("createDesktopResumeVisionProvider", () => {
       UNEMPLOYED_AI_BASE_URL: "https://example.invalid/v1",
     });
 
-    expect(provider.getStatus().kind).toBe("openai_compatible_vision");
-    expect(provider.getStatus().model).toBe("FelidaeAI-Omni-3.6");
-    expect(provider.getStatus().baseUrl).toBe("https://example.invalid/v1");
+    const status = provider.getStatus();
+
+    expect(status.kind).toBe("openai_compatible_vision");
+    expect(status.model).toBe("FelidaeAI-Omni-3.6");
+    expect(status.baseUrl).toBe("https://example.invalid/v1");
   });
 });
 
@@ -217,6 +219,15 @@ describe("parseResumeImportPathPayload", () => {
         useVision: false,
       }),
     ).toEqual({ sourcePath: "C:/tmp/resume.pdf", useVision: false });
+  });
+
+  test("preserves explicit useVision enabled overrides", () => {
+    expect(
+      parseResumeImportPathPayload({
+        sourcePath: "C:/tmp/resume.pdf",
+        useVision: true,
+      }),
+    ).toEqual({ sourcePath: "C:/tmp/resume.pdf", useVision: true });
   });
 
   test("ignores non-boolean useVision values", () => {

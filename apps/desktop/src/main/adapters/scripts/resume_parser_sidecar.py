@@ -497,7 +497,7 @@ def encode_page_image(
         from PIL import Image, ImageDraw, ImageFont
         from io import BytesIO
 
-        def load_font(size: int) -> Any:
+        def load_font(size: int) -> Tuple[Any, bool]:
             for candidate in (
                 "arial.ttf",
                 "Arial.ttf",
@@ -505,25 +505,27 @@ def encode_page_image(
                 "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
             ):
                 try:
-                    return ImageFont.truetype(candidate, size=size)
+                    return ImageFont.truetype(candidate, size=size), True
                 except Exception:
                     continue
-            return ImageFont.load_default()
+            return ImageFont.load_default(), False
 
-        def safe_text(value: str) -> str:
+        def safe_text(value: str, is_unicode_font: bool) -> str:
+            if is_unicode_font:
+                return value
             return value.encode("latin-1", "replace").decode("latin-1")
 
         image = Image.new("RGB", (width, height), "#f8fafc")
         draw = ImageDraw.Draw(image)
         draw.rounded_rectangle((36, 36, 1204, 1718), radius=18, fill="#ffffff", outline="#d8e0eb", width=2)
-        title_font = load_font(24)
-        body_font = load_font(28)
+        title_font, title_uses_unicode = load_font(24)
+        body_font, body_uses_unicode = load_font(28)
         title = f"Resume visual import preview - page {page_number}"
-        draw.text((82, 86), safe_text(title), fill="#64748b", font=title_font)
+        draw.text((82, 86), safe_text(title, title_uses_unicode), fill="#64748b", font=title_font)
 
         for index, line in enumerate(lines[:48]):
             y = 158 + index * 32
-            draw.text((82, y), safe_text(truncate_svg_text(line)), fill="#152033", font=body_font)
+            draw.text((82, y), safe_text(truncate_svg_text(line), body_uses_unicode), fill="#152033", font=body_font)
 
         output = BytesIO()
         image.save(output, format="PNG", optimize=True)

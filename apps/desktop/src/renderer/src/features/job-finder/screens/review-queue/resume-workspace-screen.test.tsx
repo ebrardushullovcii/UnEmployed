@@ -577,7 +577,7 @@ describe("ResumeWorkspaceScreen", () => {
     );
   });
 
-  it("regenerates the full draft without saving unsaved stale edits first", async () => {
+  it("saves unsaved edits before regenerating the full draft", async () => {
     const onPreviewDraft = vi.fn((previewDraft: ResumeDraft) =>
       Promise.resolve(buildPreview(previewDraft.updatedAt, "ready-preview")),
     );
@@ -605,8 +605,14 @@ describe("ResumeWorkspaceScreen", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: /refresh draft/i })[0]!);
 
+    expect(onSaveDraftAndThen).toHaveBeenCalledTimes(1);
+    expect(onRegenerateDraft).not.toHaveBeenCalled();
+    const followUp = onSaveDraftAndThen.mock.calls[0]?.[1] as
+      | (() => void | Promise<void>)
+      | undefined;
+    expect(followUp).toBeTypeOf("function");
+    await followUp?.();
     expect(onRegenerateDraft).toHaveBeenCalledWith("job_ready");
-    expect(onSaveDraftAndThen).not.toHaveBeenCalled();
   });
 
   it("shows work-history review guidance in the editor", async () => {

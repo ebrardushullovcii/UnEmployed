@@ -14,6 +14,7 @@ import type {
   JobSearchPreferences,
   JobSource,
   ResumeExportArtifact,
+  SourceDebugPhase,
   SharedAgentCompactionPolicy,
   SavedJob,
 } from "@unemployed/contracts";
@@ -98,6 +99,7 @@ export interface AgentDiscoveryOptions {
   siteInstructions?: string[];
   toolUsageNotes?: string[];
   taskPacket?: {
+    phase: SourceDebugPhase;
     phaseGoal: string;
     knownFacts: string[];
     priorPhaseSummary?: string | null;

@@ -380,7 +380,7 @@ async function loadDocumentBundle(input: {
         sourceResumeId: input.profile.baseResume.id,
         artifactId: `benchmark_vision_artifact_${input.benchmarkCase.id}`,
         env: process.env,
-      }).then((result) => result.artifact).catch(() => null)
+      }).then((result) => result.artifact)
     : null;
 
   return {
@@ -431,7 +431,7 @@ export async function runDesktopResumeImportBenchmark(
         searchPreferences,
         documentBundle,
         aiClient: buildAiClient(normalizedRequest),
-        visionProvider: normalizedRequest.useConfiguredAi
+        visionProvider: normalizedRequest.useConfiguredAi && normalizedRequest.useVision
           ? createResumeVisionProviderFromEnvironment(process.env)
           : null,
         parseMethod,

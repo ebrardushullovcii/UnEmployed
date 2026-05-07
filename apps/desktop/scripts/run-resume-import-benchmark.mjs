@@ -236,8 +236,10 @@ async function main() {
           ? defaultCases.filter((entry) => caseIds.includes(entry.id))
           : []
 
-        if (caseIds.length > 0 && selectedCases.length !== caseIds.length) {
-          throw new Error(`Unknown resume import benchmark case id(s): ${caseIds.filter((id) => !selectedCases.some((entry) => entry.id === id)).join(', ')}`)
+        const validIds = new Set(defaultCases.map((entry) => entry.id))
+        const missingIds = caseIds.filter((id) => !validIds.has(id))
+        if (missingIds.length > 0) {
+          throw new Error(`Unknown resume import benchmark case id(s): ${missingIds.join(', ')}`)
         }
 
         return window.unemployed.jobFinder.test.runResumeImportBenchmark({

@@ -12,6 +12,7 @@ import type {
   SharedAgentCompactionSnapshot,
   SharedAgentCompactionTriggerKind,
   SourceDebugCompactionState,
+  SourceDebugPhase,
   SourceDebugPhaseCompletionMode,
   SourceDebugPhaseEvidence,
   Tool,
@@ -43,6 +44,7 @@ export interface AgentPromptContext {
   toolUsageNotes?: string[];
   experimental?: boolean;
   taskPacket?: {
+    phase: SourceDebugPhase;
     phaseGoal: string;
     knownFacts: string[];
     priorPhaseSummary?: string | null;

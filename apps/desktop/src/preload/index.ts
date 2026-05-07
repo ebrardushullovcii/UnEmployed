@@ -7,9 +7,11 @@ import type {
   DesktopWindowControlsState,
   DiscoveryActivityEvent,
   JobFinderApplyConsentActionInput,
+  JobFinderApplyCopilotActionInput,
   JobFinderApplyQueueActionInput,
   JobFinderOpenBrowserSessionInput,
   ProfileCopilotContext,
+  ProfileSetupReviewActionOptions,
   JobFinderPerformanceSnapshot,
   JobFinderResumePreview,
   ResumeQualityBenchmarkReport,
@@ -166,7 +168,7 @@ const desktopApi = {
     applyProfileSetupReviewAction: (
       reviewItemId: string,
       action: "confirm" | "dismiss" | "clear_value",
-      options?: { selectedConflictChoiceId?: string },
+      options?: ProfileSetupReviewActionOptions,
     ) =>
       ipcRenderer.invoke("job-finder:apply-profile-setup-review-action", {
         reviewItemId,
@@ -403,7 +405,10 @@ const desktopApi = {
       }) as Promise<JobFinderWorkspaceSnapshot>,
     startApplyCopilotRun: (
       jobId: string,
-      options?: { visualCheckpointsEnabled?: boolean },
+      options?: Pick<
+        JobFinderApplyCopilotActionInput,
+        "visualCheckpointsEnabled"
+      >,
     ) =>
       ipcRenderer.invoke("job-finder:start-apply-copilot-run", {
         jobId,

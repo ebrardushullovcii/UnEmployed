@@ -12,7 +12,6 @@ import { describe, expect, test } from "vitest";
 import {
   createAgentAiClient,
   createAgentBrowserRuntime,
-  parsePhaseFromSiteLabel,
   createSeed,
   createStrongSourceDebugFindingsByPhase,
   createWorkspaceServiceHarness,
@@ -529,7 +528,7 @@ describe("createJobFinderWorkspaceService", () => {
     const browserRuntime: BrowserSessionRuntime = {
       ...baseRuntime,
       runAgentDiscovery(source, options) {
-        const phase = parsePhaseFromSiteLabel(options.siteLabel);
+        const phase = options.taskPacket?.phase ?? "replay_verification";
         phaseCalls.push(phase);
 
         return Promise.resolve(createDiscoveryRunResult({
@@ -660,7 +659,7 @@ describe("createJobFinderWorkspaceService", () => {
     const browserRuntime: BrowserSessionRuntime = {
       ...baseRuntime,
       runAgentDiscovery(source, options) {
-        const phase = parsePhaseFromSiteLabel(options.siteLabel);
+        const phase = options.taskPacket?.phase ?? "replay_verification";
         phaseCalls.push(phase);
 
         return Promise.resolve(createDiscoveryRunResult({
@@ -780,7 +779,7 @@ describe("createJobFinderWorkspaceService", () => {
     const browserRuntime: BrowserSessionRuntime = {
       ...baseRuntime,
       runAgentDiscovery(source, options) {
-        const phase = parsePhaseFromSiteLabel(options.siteLabel);
+        const phase = options.taskPacket?.phase ?? "replay_verification";
         phaseCalls.push(phase);
 
         if (phase === "apply_path_validation") {

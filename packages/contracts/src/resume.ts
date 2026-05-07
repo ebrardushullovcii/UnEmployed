@@ -278,12 +278,13 @@ export const ResumeDraftEntrySchema = resumeDraftEntryBaseSchema.transform(
     }
 
     const end = parts.at(-1) ?? null;
+    const matchesCurrent = Boolean(end && /^(present|current|now|ongoing)$/i.test(end));
 
     return {
       ...entry,
       startDate: parts[0] ?? null,
-      endDate: end && /^(present|current|now|ongoing)$/i.test(end) ? null : end,
-      isCurrent: Boolean(end && /^(present|current|now|ongoing)$/i.test(end)),
+      endDate: matchesCurrent ? null : end,
+      isCurrent: matchesCurrent,
     };
   },
 );

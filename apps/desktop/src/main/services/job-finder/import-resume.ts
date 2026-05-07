@@ -79,7 +79,7 @@ export async function importResumeFromSourcePath(
           : ['Paste plain-text resume content below if you want the agent to extract profile details from this file.']
   }
 
-  if (!extractedResume.textContent) {
+  if (!extractedResume.textContent && !generatedVisionArtifact.artifact?.pages.length) {
     const currentSnapshot = await jobFinderWorkspaceService.getWorkspaceSnapshot()
     const snapshot = await jobFinderWorkspaceService.saveProfile({
       ...currentSnapshot.profile,
