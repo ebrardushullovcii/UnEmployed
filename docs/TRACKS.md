@@ -179,7 +179,6 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 
 ## Ready Queue
 
-- `036`: internal importer DOCX/PDF skill exploration; linked plan: `docs/exec-plans/queued/036-internal-importer-docx-pdf-skill-exploration.md`
 - `034`: browser/source-debug visual evidence; linked plan: `docs/exec-plans/queued/034-browser-source-debug-visual-evidence.md`
 - `035`: apply visual assistance; linked plan: `docs/exec-plans/queued/035-apply-visual-assistance.md`
 - Validate cross-platform sidecar packaging for `019` only for regressions, newly added targets, or periodic matrix revalidation
