@@ -47,7 +47,7 @@ describe("runAgentDiscovery recovery behavior", () => {
 
     expect(llmClient.chatWithTools).toHaveBeenCalledTimes(3);
     expect(result.error).toBeUndefined();
-    expect(result.debugFindings?.reliableControls[0]).toContain(
+    expect(result.debugFindings?.reliableControls?.[0]).toContain(
       "Keyword search box",
     );
   });

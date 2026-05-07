@@ -2,6 +2,10 @@ import type {
   AgentDiscoveryProgress,
   ApplyExecutionResult,
   ApplyRecoveryContext,
+  BrowserVisualAnalysisContext,
+  BrowserVisualObservationSet,
+  BrowserVisualSnapshotRef,
+  BrowserVisualSnapshotRequest,
   BrowserSessionState,
   CandidateProfile,
   DiscoveryRunResult,
@@ -34,6 +38,18 @@ export type ApplicationExecutionMode = "prepare_only" | "submit_when_ready";
 export interface ExecuteApplicationFlowInput extends ExecuteEasyApplyInput {
   mode: ApplicationExecutionMode;
   recoveryContext?: ApplyRecoveryContext;
+  captureVisualSnapshot?: (
+    request: BrowserVisualSnapshotRequest,
+  ) => Promise<BrowserVisualSnapshotRef>;
+  /**
+   * Explicitly opt in to runtime-owned visual diagnostics for safe apply checkpoints.
+   * The runtime must not infer this from an ambient AI client because application
+   * pages can contain sensitive account, profile, and resume data.
+   */
+  analyzeVisualSnapshot?: (input: {
+    snapshot: BrowserVisualSnapshotRef;
+    context: BrowserVisualAnalysisContext;
+  }) => Promise<BrowserVisualObservationSet>;
 }
 
 export interface BrowserSessionRuntime {
@@ -55,6 +71,10 @@ export interface BrowserSessionRuntime {
     source: JobSource,
     input: ExecuteApplicationFlowInput,
   ): Promise<ApplyExecutionResult>;
+  captureVisualSnapshot?(
+    source: JobSource,
+    request: BrowserVisualSnapshotRequest,
+  ): Promise<BrowserVisualSnapshotRef>;
   runAgentDiscovery?(
     source: JobSource,
     options: AgentDiscoveryOptions,
@@ -95,6 +115,7 @@ export interface AgentDiscoveryOptions {
   relevantUrlSubstrings?: string[];
   experimental?: boolean;
   skipSessionValidation?: boolean;
+  captureVisualSnapshots?: boolean;
   aiClient?: JobFinderAiClient;
   onProgress?: (progress: AgentDiscoveryProgress) => void;
   signal?: AbortSignal;

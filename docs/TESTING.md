@@ -85,6 +85,7 @@ Common package aliases:
 - do not run live-site submit flows or final-submit QA unless the user explicitly re-authorizes it
 - validate apply work with deterministic contracts, service tests, and desktop harnesses by default
 - capture artifacts under `apps/desktop/test-artifacts/ui/`; they are QA output, not source files
+- validate browser visual evidence changes with contract guard tests, source-generic checks, focused browser-agent/browser-runtime/job-finder tests, and desktop Applications recovery UI evidence when apply surfaces change
 
 Track-specific validation and product-bar requirements live in the handoff layer: `docs/STATUS.md`, `docs/TRACKS.md`, and the active plan under `docs/exec-plans/active/`.
 

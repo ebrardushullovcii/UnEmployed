@@ -87,6 +87,14 @@ export type JobFinderJobActionInput = z.infer<
   typeof JobFinderJobActionInputSchema
 >;
 
+export const JobFinderApplyCopilotActionInputSchema = z.object({
+  jobId: NonEmptyStringSchema,
+  visualCheckpointsEnabled: z.boolean().default(false),
+});
+export type JobFinderApplyCopilotActionInput = z.infer<
+  typeof JobFinderApplyCopilotActionInputSchema
+>;
+
 export const JobFinderApplyQueueActionInputSchema = z.object({
   jobIds: z.array(NonEmptyStringSchema).min(1),
 });

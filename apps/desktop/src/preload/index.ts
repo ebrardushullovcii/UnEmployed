@@ -401,9 +401,15 @@ const desktopApi = {
       ipcRenderer.invoke("job-finder:generate-resume", {
         jobId,
       }) as Promise<JobFinderWorkspaceSnapshot>,
-    startApplyCopilotRun: (jobId: string) =>
+    startApplyCopilotRun: (
+      jobId: string,
+      options?: { visualCheckpointsEnabled?: boolean },
+    ) =>
       ipcRenderer.invoke("job-finder:start-apply-copilot-run", {
         jobId,
+        ...(options?.visualCheckpointsEnabled === true
+          ? { visualCheckpointsEnabled: true }
+          : {}),
       }) as Promise<JobFinderWorkspaceSnapshot>,
     startAutoApplyRun: (jobId: string) =>
       ipcRenderer.invoke("job-finder:start-auto-apply-run", {

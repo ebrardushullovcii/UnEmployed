@@ -11,6 +11,7 @@ import {
   type ApplyExecutionResult,
   type ApplyJobResult,
   type ApplyRun,
+  type BrowserVisualEvidenceSummary,
   type JobFinderWorkspaceSnapshot,
   type SavedJob,
 } from "@unemployed/contracts";
@@ -189,6 +190,13 @@ export function buildMissingResumeCopilotArtifacts(input: {
     artifactRef,
     checkpoint,
     consentRequest,
+  };
+}
+
+export function createEmptyApplyVisualState() {
+  return {
+    visualObservationSets: [],
+    visualCheckpoints: [],
   };
 }
 
@@ -382,6 +390,7 @@ export function buildApplyCopilotArtifacts(input: {
   job: SavedJob;
   executionResult: ApplyExecutionResult;
   detectedAt: string;
+  visualCheckpointsEnabled?: boolean;
 }): {
   run: ApplyRun;
   result: ApplyJobResult;
@@ -398,6 +407,7 @@ export function buildApplyCopilotArtifacts(input: {
   const persistedAnswerIdByExecutionId = new Map<string, string>();
   const checkpointArtifactIdsByExecutionId = new Map<string, string[]>();
   const executionQuestionIdByPersistedId = new Map<string, string>();
+  const lastCheckpointIndex = input.executionResult.checkpoints.length - 1;
   input.executionResult.questions.forEach((question) => {
     const persistedQuestionId = createUniqueId("apply_question");
     persistedQuestionIdByExecutionId.set(question.id, persistedQuestionId);
@@ -427,6 +437,19 @@ export function buildApplyCopilotArtifacts(input: {
           ? 'question_capture'
           : 'filling'
     }
+  }
+
+  function visualEvidenceForCheckpoint(
+    checkpoint: ApplyExecutionResult["checkpoints"][number],
+    checkpointIndex: number,
+  ): BrowserVisualEvidenceSummary[] {
+    if (checkpoint.visualEvidence.length > 0) {
+      return checkpoint.visualEvidence;
+    }
+
+    return checkpointIndex === lastCheckpointIndex
+      ? input.executionResult.visualEvidence
+      : [];
   }
 
   const answerRecords = input.executionResult.questions.flatMap((question) =>
@@ -480,6 +503,7 @@ export function buildApplyCopilotArtifacts(input: {
       submittedAnswer: question.submittedAnswer,
       status: question.status,
       pageUrl: canonicalApplyUrl,
+      visualContext: input.executionResult.visualEvidence[0] ?? null,
     });
   });
   const blockerQuestionIds = input.executionResult.blocker?.questionIds ?? [];
@@ -502,12 +526,17 @@ export function buildApplyCopilotArtifacts(input: {
           storagePath: null,
           url: record.pageUrl,
           textSnippet: record.prompt,
+          visualEvidence: input.executionResult.visualEvidence[0] ?? null,
         }),
       ),
-    ...input.executionResult.checkpoints.map((checkpoint) => {
+    ...input.executionResult.checkpoints.map((checkpoint, checkpointIndex) => {
       const artifactId = createUniqueId("apply_artifact");
       const existingArtifactIds = checkpointArtifactIdsByExecutionId.get(checkpoint.id) ?? [];
       checkpointArtifactIdsByExecutionId.set(checkpoint.id, [...existingArtifactIds, artifactId]);
+      const checkpointVisualEvidence = visualEvidenceForCheckpoint(
+        checkpoint,
+        checkpointIndex,
+      );
 
       return ApplicationArtifactRefSchema.parse({
         id: artifactId,
@@ -521,11 +550,19 @@ export function buildApplyCopilotArtifacts(input: {
         storagePath: null,
         url: canonicalApplyUrl,
         textSnippet: checkpoint.detail,
+        visualEvidence: checkpointVisualEvidence[0] ?? null,
       });
     }),
   ];
-  const checkpoints = input.executionResult.checkpoints.map((checkpoint) => {
+  const visualReconciliations = input.executionResult.visualCheckpoints.flatMap(
+    (checkpoint) => checkpoint.reconciliations,
+  );
+  const checkpoints = input.executionResult.checkpoints.map((checkpoint, checkpointIndex) => {
     const persistedCheckpointId = createUniqueId("apply_checkpoint");
+    const checkpointVisualEvidence = visualEvidenceForCheckpoint(
+      checkpoint,
+      checkpointIndex,
+    );
 
     return ApplicationReplayCheckpointSchema.parse({
       id: persistedCheckpointId,
@@ -538,6 +575,9 @@ export function buildApplyCopilotArtifacts(input: {
       url: canonicalApplyUrl,
       jobState: mapCheckpointStateToJobState(checkpoint),
       artifactRefIds: checkpointArtifactIdsByExecutionId.get(checkpoint.id) ?? [],
+      visualEvidence: checkpointVisualEvidence,
+      visualReconciliations:
+        checkpointIndex === lastCheckpointIndex ? visualReconciliations : [],
     });
   });
   const consentRequests = input.executionResult.consentDecisions
@@ -593,6 +633,8 @@ export function buildApplyCopilotArtifacts(input: {
       input.executionResult.blocker,
     ),
     blockerSummary: input.executionResult.blocker?.summary ?? null,
+    visualObservationSets: input.executionResult.visualObservationSets,
+    visualCheckpoints: input.executionResult.visualCheckpoints,
     latestQuestionCount: questionRecords.length,
     latestAnswerCount: answerRecords.length,
     pendingConsentRequestCount: consentRequests.length,
@@ -607,6 +649,7 @@ export function buildApplyCopilotArtifacts(input: {
     jobIds: [input.job.id],
     currentJobId: input.job.id,
     submitApprovalId: null,
+    visualCheckpointsEnabled: input.visualCheckpointsEnabled === true,
     createdAt: input.detectedAt,
     updatedAt: input.detectedAt,
     completedAt:

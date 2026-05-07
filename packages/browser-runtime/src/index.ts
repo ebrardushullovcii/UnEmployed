@@ -8,6 +8,10 @@ export type {
   OpenBrowserSessionOptions,
   StubBrowserSessionRuntimeSeed,
 } from './runtime-types'
+export type {
+  BrowserVisualSnapshotRef,
+  BrowserVisualSnapshotRequest,
+} from '@unemployed/contracts'
 
 export {
   createCatalogBrowserSessionRuntime,

@@ -231,6 +231,7 @@ describe("createInMemoryJobFinderRepository", () => {
       jobIds: ["job_1"],
       currentJobId: "job_1",
       submitApprovalId: null,
+      visualCheckpointsEnabled: false,
       createdAt: "2026-04-18T10:00:00.000Z",
       updatedAt: "2026-04-18T10:03:00.000Z",
       completedAt: null,

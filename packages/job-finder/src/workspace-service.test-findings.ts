@@ -1,9 +1,41 @@
-import type { AgentDebugFindings } from "@unemployed/contracts";
+import type { AgentDebugFindings, SourceDebugPhase } from "@unemployed/contracts";
 
+import type { AgentDebugFindingsInput } from "./workspace-service.test-runtimes";
 import type { SourceDebugPhaseMap } from "./workspace-service.test-fixtures";
 
+const sourceDebugPhaseOrder: SourceDebugPhase[] = [
+  "access_auth_probe",
+  "site_structure_mapping",
+  "search_filter_probe",
+  "job_detail_validation",
+  "apply_path_validation",
+  "replay_verification",
+];
+
+function withEmptyVisualFindings(
+  findingsByPhase: SourceDebugPhaseMap<AgentDebugFindingsInput | null>,
+): SourceDebugPhaseMap<AgentDebugFindings | null> {
+  return Object.fromEntries(
+    sourceDebugPhaseOrder.flatMap((phase) => {
+      const findings = findingsByPhase[phase];
+      return findings
+        ? [
+            [
+              phase,
+              {
+                visualFindings: [],
+                visualObservationSets: [],
+                ...findings,
+              },
+            ],
+          ]
+        : [];
+    }),
+  ) as SourceDebugPhaseMap<AgentDebugFindings | null>;
+}
+
 export function createStrongSourceDebugFindingsByPhase(): SourceDebugPhaseMap<AgentDebugFindings | null> {
-  return {
+  return withEmptyVisualFindings({
     access_auth_probe: {
       summary:
         "Public job browsing is available without login or consent blockers.",
@@ -83,11 +115,11 @@ export function createStrongSourceDebugFindingsByPhase(): SourceDebugPhaseMap<Ag
       applyTips: [],
       warnings: [],
     },
-  };
+  });
 }
 
 export function createThinSourceDebugFindingsByPhase(): SourceDebugPhaseMap<AgentDebugFindings | null> {
-  return {
+  return withEmptyVisualFindings({
     job_detail_validation: {
       summary:
         "Job details resolve to same-host detail pages instead of only inline cards.",
@@ -116,11 +148,11 @@ export function createThinSourceDebugFindingsByPhase(): SourceDebugPhaseMap<Agen
       applyTips: [],
       warnings: [],
     },
-  };
+  });
 }
 
 export function createUnprovenVisibleControlFindingsByPhase(): SourceDebugPhaseMap<AgentDebugFindings | null> {
-  return {
+  return withEmptyVisualFindings({
     site_structure_mapping: {
       summary: "Jobs are listed directly on the homepage.",
       reliableControls: ["Use the homepage as the initial jobs surface."],
@@ -171,11 +203,11 @@ export function createUnprovenVisibleControlFindingsByPhase(): SourceDebugPhaseM
       applyTips: [],
       warnings: [],
     },
-  };
+  });
 }
 
 export function createUrlShortcutOnlyFindingsByPhase(): SourceDebugPhaseMap<AgentDebugFindings | null> {
-  return {
+  return withEmptyVisualFindings({
     site_structure_mapping: {
       summary:
         "Direct URL navigation to /jobs/search with geoId reaches a results page.",
@@ -234,11 +266,11 @@ export function createUrlShortcutOnlyFindingsByPhase(): SourceDebugPhaseMap<Agen
       applyTips: [],
       warnings: [],
     },
-  };
+  });
 }
 
 export function createMixedAuthSurfaceFindingsByPhase(): SourceDebugPhaseMap<AgentDebugFindings | null> {
-  return {
+  return withEmptyVisualFindings({
     access_auth_probe: {
       summary:
         "The /jobs page showed a login form before authenticated browsing was available.",
@@ -309,11 +341,11 @@ export function createMixedAuthSurfaceFindingsByPhase(): SourceDebugPhaseMap<Age
       applyTips: [],
       warnings: [],
     },
-  };
+  });
 }
 
 export function createNoisySourceDebugFindingsByPhase(): SourceDebugPhaseMap<AgentDebugFindings | null> {
-  return {
+  return withEmptyVisualFindings({
     site_structure_mapping: {
       summary: 'Clicked link "Show all top job picks for you"',
       reliableControls: [
@@ -381,6 +413,5 @@ export function createNoisySourceDebugFindingsByPhase(): SourceDebugPhaseMap<Age
       applyTips: [],
       warnings: [],
     },
-  };
+  });
 }
-

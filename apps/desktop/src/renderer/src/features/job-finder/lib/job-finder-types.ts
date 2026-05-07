@@ -126,7 +126,10 @@ export interface JobFinderShellActions {
     content: string,
   ) => Promise<readonly ResumeAssistantMessage[]>;
   generateResume: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
-  startApplyCopilotRun: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
+  startApplyCopilotRun: (
+    jobId: string,
+    options?: { visualCheckpointsEnabled?: boolean },
+  ) => Promise<JobFinderWorkspaceSnapshot>;
   startAutoApplyRun: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
   startAutoApplyQueueRun: (
     jobIds: JobFinderApplyQueueActionInput['jobIds'],

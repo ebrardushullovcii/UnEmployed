@@ -2,6 +2,7 @@ import { extractionTools } from "./tooling/extraction-tools";
 import { finishTool } from "./tooling/finish-tool";
 import { interactionTools } from "./tooling/interaction-tools";
 import { navigationTools } from "./tooling/navigation-tools";
+import { visualTools } from "./tooling/visual-tools";
 import type { ToolDefinition } from "./types";
 import {
   MAX_NAVIGATION_TIMEOUT,
@@ -24,6 +25,7 @@ function buildBrowserTools(): ToolDefinition[] {
     ...navigationTools,
     ...interactionTools,
     ...extractionTools,
+    ...visualTools,
     finishTool,
   ]) {
     if (registry.has(tool.name)) {

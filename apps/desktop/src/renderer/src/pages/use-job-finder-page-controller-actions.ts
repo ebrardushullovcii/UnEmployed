@@ -456,9 +456,14 @@ export function createPrimaryPageActions(
       )
     },
     onStartApplyCopilot: (jobId: string) => {
+      const visualCheckpointsEnabled = window.confirm(
+        'Optional visual checkpoints can analyze a temporary screenshot of the application page to help classify visible blockers. Screenshots are sensitive and temporary by default. Enable visual checkpoints for this apply run?',
+      )
       startAutoFlow(
-        () => actions.startApplyCopilotRun(jobId),
-        'Apply copilot prepared the application and paused before final submit. Review it in Applications.',
+        () => actions.startApplyCopilotRun(jobId, { visualCheckpointsEnabled }),
+        visualCheckpointsEnabled
+          ? 'Apply copilot prepared the application with visual checkpoints and paused before final submit. Review it in Applications.'
+          : 'Apply copilot prepared the application and paused before final submit. Review it in Applications.',
         jobFinderPendingActions.apply(),
       )
     },

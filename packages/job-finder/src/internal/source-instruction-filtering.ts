@@ -36,7 +36,7 @@ export function normalizeInstructionLine(value: string): string {
     .replace(/&&+/g, "&")
     .replace(/[?&](?=(?:[).,;!?\s]|$))/g, "")
     .replace(
-      /^(Reliable control|Filter note|Navigation note|Apply note|Validated behavior|Validated navigation|Verification):\s*/i,
+      /^(Reliable control|Filter note|Navigation note|Apply note|Visual evidence|Validated behavior|Validated navigation|Verification):\s*/i,
       "",
     )
     .replace(/\s*\(index\s+\d+\)/gi, "")

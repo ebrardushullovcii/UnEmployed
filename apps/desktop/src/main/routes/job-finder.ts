@@ -7,6 +7,7 @@ import {
   DiscoveryActivityEventSchema,
   DesktopTestOkResponseSchema,
   JobFinderAgentDiscoveryActionInputSchema,
+  JobFinderApplyCopilotActionInputSchema,
   JobFinderApplyConsentActionInputSchema,
   JobFinderApplyQueueActionInputSchema,
   JobFinderApplyRunActionInputSchema,
@@ -947,10 +948,13 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
   ipcMain.handle(
     "job-finder:start-apply-copilot-run",
     async (_event, payload: unknown) => {
-      const { jobId } = JobFinderJobActionInputSchema.parse(payload);
+      const { jobId, visualCheckpointsEnabled } =
+        JobFinderApplyCopilotActionInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
       const snapshot =
-        await jobFinderWorkspaceService.startApplyCopilotRun(jobId);
+        await jobFinderWorkspaceService.startApplyCopilotRun(jobId, {
+          visualCheckpointsEnabled,
+        });
 
       return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
     },

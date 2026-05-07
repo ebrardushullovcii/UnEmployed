@@ -1,5 +1,9 @@
 import type {
   AgentDebugFindings,
+  BrowserVisualAnalysisContext,
+  BrowserVisualObservationSet,
+  BrowserVisualSnapshotRef,
+  BrowserVisualSnapshotRequest,
   JobPosting,
   CandidateProfile,
   AgentDiscoveryProgress,
@@ -119,6 +123,20 @@ export interface AgentConfig {
   compaction?: Partial<SharedAgentCompactionPolicy>;
   compactionCapability?: AgentCompactionCapability;
   resolveLivePage?: () => Promise<Page>;
+  visualAnalysis?: AgentVisualAnalysisCapability;
+}
+
+export interface AgentVisualAnalysisCapability {
+  enabled: boolean;
+  captureSnapshot: (
+    request: BrowserVisualSnapshotRequest,
+    page?: Page,
+  ) => Promise<BrowserVisualSnapshotRef>;
+  analyzeSnapshot: (input: {
+    snapshot: BrowserVisualSnapshotRef;
+    context: BrowserVisualAnalysisContext;
+  }) => Promise<BrowserVisualObservationSet>;
+  persistScreenshots?: boolean;
 }
 
 export interface AgentState {
@@ -132,6 +150,8 @@ export interface AgentState {
   stepCount: number;
   currentUrl: string;
   lastStableUrl: string;
+  visualObservationSets: BrowserVisualObservationSet[];
+  visualSnapshots: BrowserVisualSnapshotRef[];
   isRunning: boolean;
   phaseEvidence: SourceDebugPhaseEvidence;
   compactionState: SourceDebugCompactionState | null;

@@ -17,6 +17,8 @@ function createState(): AgentState {
     stepCount: 0,
     currentUrl: "https://jobs.example.com/search?debug=1",
     lastStableUrl: "https://jobs.example.com/search",
+    visualObservationSets: [],
+    visualSnapshots: [],
     isRunning: true,
     phaseEvidence: {
       visibleControls: [],
@@ -24,6 +26,7 @@ function createState(): AgentState {
       routeSignals: [],
       attemptedControls: [],
       warnings: [],
+      visualFindings: [],
     },
     compactionState: null,
     compactionStatus: {
@@ -87,6 +90,37 @@ describe("recordToolEvidence", () => {
     } finally {
       errorSpy.mockRestore();
     }
+  });
+
+  test("records visual snapshot observations as phase evidence", () => {
+    const state = createState();
+
+    recordToolEvidence(
+      "capture_visual_snapshot",
+      {},
+      {
+        success: true,
+        data: {
+          snapshotId: "visual_snapshot_1",
+          observationSetId: "visual_observation_1",
+          summary: "Visible job cards appear below a search form.",
+          retained: false,
+          storagePath: null,
+        },
+      },
+      state,
+      "search_filter_probe",
+    );
+
+    expect(state.phaseEvidence.visualFindings).toEqual([
+      expect.objectContaining({
+        phase: "search_filter_probe",
+        snapshotId: "visual_snapshot_1",
+        observationSetId: "visual_observation_1",
+        summary: "Visible job cards appear below a search form.",
+        retention: "temporary",
+      }),
+    ]);
   });
 });
 

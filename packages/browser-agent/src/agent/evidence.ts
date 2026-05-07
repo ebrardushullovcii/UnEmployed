@@ -1,6 +1,8 @@
 import {
   AgentDebugFindingsSchema,
+  SourceDebugVisualFindingSchema,
   JobPostingSchema,
+  type SourceDebugPhase,
   SourceDebugPhaseEvidenceSchema,
   type JobPosting,
   type SourceDebugPhaseEvidence,
@@ -271,7 +273,7 @@ export function createEmptyPhaseEvidence(): SourceDebugPhaseEvidence {
 
 export function appendPhaseEvidence(
   state: AgentState,
-  key: keyof SourceDebugPhaseEvidence,
+  key: Exclude<keyof SourceDebugPhaseEvidence, "visualFindings">,
   values: readonly (string | null | undefined)[],
 ) {
   state.phaseEvidence[key] = uniqueStrings([
@@ -422,6 +424,7 @@ export function hasMeaningfulPhaseEvidence(state: AgentState): boolean {
     state.phaseEvidence.routeSignals.length > 0 ||
     state.phaseEvidence.attemptedControls.length > 0 ||
     state.phaseEvidence.warnings.length > 0 ||
+    (state.phaseEvidence.visualFindings?.length ?? 0) > 0 ||
     state.collectedJobs.length > 0
   );
 }
@@ -431,6 +434,7 @@ export function recordToolEvidence(
   args: Record<string, unknown>,
   result: unknown,
   state: AgentState,
+  phase?: SourceDebugPhase,
 ) {
   const normalizedResult = isToolResult(result) ? result : {};
   const controlLabel = formatControlLabel(
@@ -581,6 +585,58 @@ export function recordToolEvidence(
       jobsExtracted > 0
         ? `Job extraction found ${jobsExtracted} candidate jobs on ${pageUrl}`
         : null,
+    ]);
+  }
+
+  if (
+    toolName === "capture_visual_snapshot" &&
+    normalizedResult.success &&
+    normalizedResult.data
+  ) {
+    const snapshotId =
+      typeof normalizedResult.data.snapshotId === "string"
+        ? normalizedResult.data.snapshotId
+        : "visual_snapshot_unknown";
+    const observationSetId =
+      typeof normalizedResult.data.observationSetId === "string"
+        ? normalizedResult.data.observationSetId
+        : "visual_observation_unknown";
+    const summary =
+      typeof normalizedResult.data.summary === "string" &&
+      normalizedResult.data.summary.trim()
+        ? normalizedResult.data.summary.trim()
+        : "Visual snapshot captured structured page-state observations.";
+    const storagePath =
+      typeof normalizedResult.data.storagePath === "string" &&
+      normalizedResult.data.storagePath.trim()
+        ? normalizedResult.data.storagePath.trim()
+        : null;
+    const retained = normalizedResult.data.retained === true;
+    const capturedAt = new Date().toISOString();
+
+    state.phaseEvidence.visualFindings = [
+      ...(state.phaseEvidence.visualFindings ?? []),
+      SourceDebugVisualFindingSchema.parse({
+        id: `visual_finding_${snapshotId}`,
+        phase: phase ?? "access_auth_probe",
+        snapshotId,
+        observationSetId,
+        kind: "recovery_note",
+        summary,
+        capturedAt,
+        storagePath,
+        retention: retained ? "retained" : "temporary",
+        redactionLevel: "standard",
+        confidence: 0.62,
+        reconciliationStatus: null,
+      }),
+    ];
+    appendPhaseEvidence(state, "warnings", [
+      storagePath
+        ? null
+        : retained
+          ? "Visual snapshot was requested for retention but no storage path was available."
+          : null,
     ]);
   }
 

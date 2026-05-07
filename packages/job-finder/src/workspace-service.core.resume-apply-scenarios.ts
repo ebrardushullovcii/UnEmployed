@@ -156,6 +156,74 @@ describe("createJobFinderWorkspaceService", () => {
       outcome: null,
       nextActionLabel: expect.stringMatching(/submit manually when ready/i) as string,
     });
+    expect(applicationAttempt?.visualEvidence).toEqual([]);
+    expect(applicationAttempt?.visualObservationSets).toEqual([]);
+    expect(applicationAttempt?.visualCheckpoints).toEqual([]);
+    expect(applyResult?.visualObservationSets).toEqual([]);
+    expect(applyResult?.visualCheckpoints).toEqual([]);
+    expect(
+      applicationAttempt?.questions.every(
+        (question) => !('visualContext' in question),
+      ),
+    ).toBe(true);
+    expect(applicationAttempt?.checkpoints.every((checkpoint) => checkpoint.visualEvidence.length === 0)).toBe(true);
+    expect(applicationRecord).toMatchObject({
+      lastAttemptState: "paused",
+      questionSummary: expect.objectContaining({ total: 1, answered: 1 }) as {
+        total: number;
+        answered: number;
+      },
+    });
+  });
+
+  test("captures apply visual checkpoints only when explicitly opted in", async () => {
+    const baseRuntime = createBrowserRuntime();
+    let visualCallbacksPassed = false;
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseRuntime,
+      async executeApplicationFlow(source, input) {
+        visualCallbacksPassed =
+          typeof input.captureVisualSnapshot === "function" &&
+          typeof input.analyzeVisualSnapshot === "function";
+        return baseRuntime.executeApplicationFlow(source, input);
+      },
+    };
+    const { workspaceService } = createWorkspaceServiceHarness({
+      browserRuntime,
+    });
+
+    await workspaceService.generateResume("job_ready");
+    const exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
+      (artifact) => artifact.jobId === "job_ready",
+    );
+    expect(approvedExport).toBeTruthy();
+
+    await workspaceService.approveResume("job_ready", approvedExport!.id);
+
+    const snapshot = await workspaceService.startApplyCopilotRun("job_ready", {
+      visualCheckpointsEnabled: true,
+    });
+    const applyRun = snapshot.applyRuns[0];
+    const applyResult = snapshot.applyJobResults[0];
+    const applicationAttempt = snapshot.applicationAttempts[0];
+
+    expect(applyRun?.visualCheckpointsEnabled).toBe(true);
+    expect(applicationAttempt?.visualEvidence[0]?.summary).toMatch(
+      /resume|upload|visual context/i,
+    );
+    expect(applicationAttempt?.visualObservationSets[0]?.purpose).toBe(
+      "apply_checkpoint",
+    );
+    expect(applicationAttempt?.visualCheckpoints[0]?.purpose).toBe(
+      "apply_checkpoint",
+    );
+    expect(applyResult?.visualObservationSets[0]?.purpose).toBe(
+      "apply_checkpoint",
+    );
+    expect(applyResult?.visualCheckpoints[0]?.summary).toMatch(
+      /resume|upload|visual context/i,
+    );
     expect(applicationAttempt?.questions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -170,13 +238,7 @@ describe("createJobFinderWorkspaceService", () => {
         state: "paused",
       }),
     );
-    expect(applicationRecord).toMatchObject({
-      lastAttemptState: "paused",
-      questionSummary: expect.objectContaining({ total: 1, answered: 1 }) as {
-        total: number;
-        answered: number;
-      },
-    });
+    expect(visualCallbacksPassed).toBe(true);
   });
 
   test("captures apply copilot answer, artifact, checkpoint, and consent records for review-ready questions", async () => {
@@ -299,6 +361,7 @@ describe("createJobFinderWorkspaceService", () => {
     expect(questions.map((question) => question.kind)).toEqual(
       expect.arrayContaining(["resume", "work_authorization"]),
     );
+    expect(questions.every((question) => question.visualContext === null)).toBe(true);
     expect(answers).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -308,7 +371,11 @@ describe("createJobFinderWorkspaceService", () => {
       ]),
     );
     expect(artifacts.length).toBeGreaterThan(0);
+    expect(artifacts.every((artifact) => artifact.visualEvidence === null)).toBe(true);
     expect(checkpoints.some((checkpoint) => checkpoint.jobState === "awaiting_review")).toBe(
+      true,
+    );
+    expect(checkpoints.every((checkpoint) => checkpoint.visualEvidence.length === 0)).toBe(
       true,
     );
     expect(consentRequests).toEqual([]);
@@ -332,7 +399,9 @@ describe("createJobFinderWorkspaceService", () => {
     expect(approvedExport).toBeTruthy();
 
     await workspaceService.approveResume("job_ready", approvedExport!.id);
-    const snapshot = await workspaceService.startApplyCopilotRun("job_ready");
+    const snapshot = await workspaceService.startApplyCopilotRun("job_ready", {
+      visualCheckpointsEnabled: true,
+    });
     const runId = snapshot.applyRuns[0]?.id;
 
     expect(runId).toBeTruthy();
@@ -373,6 +442,12 @@ describe("createJobFinderWorkspaceService", () => {
         }),
       ]),
     );
+    expect(details.result?.visualCheckpoints[0]?.purpose).toBe(
+      "apply_checkpoint",
+    );
+    expect(
+      details.checkpoints.some((checkpoint) => checkpoint.visualEvidence.length > 0),
+    ).toBe(true);
   });
 
   test("reuses retained checkpoint context when a job is retried through apply copilot", async () => {
@@ -386,7 +461,9 @@ describe("createJobFinderWorkspaceService", () => {
     expect(approvedExport).toBeTruthy();
 
     await workspaceService.approveResume("job_ready", approvedExport!.id);
-    const initialSnapshot = await workspaceService.startApplyCopilotRun("job_ready");
+    const initialSnapshot = await workspaceService.startApplyCopilotRun("job_ready", {
+      visualCheckpointsEnabled: true,
+    });
     const initialRunId = initialSnapshot.applyRuns[0]?.id;
 
     expect(initialRunId).toBeTruthy();

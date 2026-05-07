@@ -1,3 +1,4 @@
+import type { SourceDebugPhase } from "@unemployed/contracts";
 import type { Page } from "playwright";
 import type {
   AgentConfig,
@@ -60,6 +61,16 @@ const DISCOVERY_LATE_STEP_STOP_BUFFER = 3;
 const EARLY_FORCED_FINISH_MIN_STEP = 4;
 const EARLY_FORCED_FINISH_STALE_STEP_WINDOW = 2;
 
+function parsePhaseFromSiteLabel(siteLabel: string): SourceDebugPhase | undefined {
+  if (siteLabel.includes("Access")) return "access_auth_probe";
+  if (siteLabel.includes("Structure")) return "site_structure_mapping";
+  if (siteLabel.includes("Search")) return "search_filter_probe";
+  if (siteLabel.includes("Detail")) return "job_detail_validation";
+  if (siteLabel.includes("Apply")) return "apply_path_validation";
+  if (siteLabel.includes("Replay")) return "replay_verification";
+  return undefined;
+}
+
 function buildContextBudgetFailureResult(
   state: AgentState,
   requiresExplicitFinish: boolean,
@@ -119,6 +130,8 @@ export async function runAgentDiscovery(
     stepCount: 0,
     currentUrl: "",
     lastStableUrl: "",
+    visualObservationSets: [],
+    visualSnapshots: [],
     isRunning: true,
     phaseEvidence: createEmptyPhaseEvidence(),
     compactionState: null,
@@ -587,6 +600,54 @@ export async function runAgentDiscovery(
         waitReason: "waiting_on_ai",
       });
 
+      if (
+        config.visualAnalysis?.enabled &&
+        requiresExplicitFinish &&
+        state.stepCount >= 2 &&
+        state.visualObservationSets.length === 0 &&
+        getNonRouteEvidenceSignalCount(state) === 0
+      ) {
+        emitProgress({
+          currentUrl: state.currentUrl,
+          jobsFound: state.collectedJobs.length,
+          stepCount: state.stepCount,
+          currentAction: "capture_visual_snapshot",
+          message:
+            "Analyzing a bounded visual snapshot because structured page evidence is weak.",
+          waitReason: "analyzing_visual_snapshot",
+        });
+        const visualResult = await executeToolCall(
+          {
+            id: `auto_visual_snapshot_${state.stepCount}`,
+            type: "function",
+            function: {
+              name: "capture_visual_snapshot",
+              arguments: JSON.stringify({
+                purpose: "source_debug",
+                mode: "viewport",
+                label: "Source-debug weak-signal visual check",
+                reason:
+                  "Source-debug phase has not produced non-route evidence yet; classify visible page state before continuing.",
+              }),
+            },
+          },
+          pageRef,
+          state,
+          config,
+          jobExtractor,
+          onProgress,
+          signal,
+        );
+        recordToolEvidence(
+          "capture_visual_snapshot",
+          {},
+          visualResult,
+          state,
+          parsePhaseFromSiteLabel(config.promptContext.siteLabel),
+        );
+        recordEvidenceProgress();
+      }
+
       let response: {
         content?: string;
         toolCalls?: ToolCall[];
@@ -791,6 +852,9 @@ export async function runAgentDiscovery(
           parsedArguments,
           result,
           state,
+          config.promptContext.taskPacket
+            ? parsePhaseFromSiteLabel(config.promptContext.siteLabel)
+            : undefined,
         );
         recordEvidenceProgress();
 

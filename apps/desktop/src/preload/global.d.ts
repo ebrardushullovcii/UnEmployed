@@ -171,6 +171,7 @@ declare global {
         generateResume: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
         startApplyCopilotRun: (
           jobId: string,
+          options?: { visualCheckpointsEnabled?: boolean },
         ) => Promise<JobFinderWorkspaceSnapshot>;
         startAutoApplyRun: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
         startAutoApplyQueueRun: (

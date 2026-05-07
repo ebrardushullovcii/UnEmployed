@@ -20,6 +20,8 @@ function createState(): AgentState {
     stepCount: 1,
     currentUrl: 'https://jobs.example.com/search?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo',
     lastStableUrl: 'https://jobs.example.com/search?location=Prishtina%2C+Kosovo&keywords=Senior+Full-Stack+Software+Engineer',
+    visualObservationSets: [],
+    visualSnapshots: [],
     isRunning: true,
     phaseEvidence: {
       visibleControls: [],
@@ -27,6 +29,7 @@ function createState(): AgentState {
       routeSignals: [],
       attemptedControls: [],
       warnings: [],
+      visualFindings: [],
     },
     compactionState: null,
     compactionStatus: {

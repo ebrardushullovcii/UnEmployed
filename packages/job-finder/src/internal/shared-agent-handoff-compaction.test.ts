@@ -22,6 +22,7 @@ function createPhaseContext(
     confirmedFacts: ["Keyword search box changed results"],
     attemptedActions: ["Filled searchbox", "Submitted search"],
     phaseEvidence: null,
+    visualEvidence: [],
     compactionState: null,
     reviewTranscript: ["assistant: inspected search controls"],
     ...overrides,

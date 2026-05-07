@@ -5,6 +5,7 @@ import {
   type ApplicationAttemptBlocker,
   type ApplicationAttemptConsentDecision,
   type ApplicationAttemptQuestion,
+  type BrowserVisualEvidenceSummary,
   type SourceDebugWorkerAttempt,
   type SourceInstructionArtifact,
 } from "@unemployed/contracts";
@@ -67,11 +68,19 @@ export function buildConsentSummary(
   };
 }
 
-export function buildReplaySummary(replay: ApplicationAttempt["replay"]) {
+export function buildReplaySummary(
+  replay: ApplicationAttempt["replay"],
+  visualEvidence: readonly BrowserVisualEvidenceSummary[] = [],
+) {
+  const retainedVisualEvidenceCount = visualEvidence.filter(
+    (evidence) => evidence.retention !== "temporary",
+  ).length;
+
   return {
     lastUrl: replay.lastUrl,
     checkpointCount: replay.checkpointUrls.length,
-    evidenceCount: replay.sourceDebugEvidenceRefIds.length,
+    evidenceCount:
+      replay.sourceDebugEvidenceRefIds.length + retainedVisualEvidenceCount,
     sourceInstructionArtifactId: replay.sourceInstructionArtifactId,
   };
 }

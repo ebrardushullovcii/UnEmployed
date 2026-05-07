@@ -3,7 +3,9 @@ import {
   type BrowserSessionRuntime,
 } from "@unemployed/browser-runtime";
 import {
+  DiscoveryRunResultSchema,
   JobPostingSchema,
+  type DiscoveryRunResultInput,
   type SourceDebugProgressEvent,
 } from "@unemployed/contracts";
 import { describe, expect, test } from "vitest";
@@ -16,6 +18,10 @@ import {
   createWorkspaceServiceHarness,
 } from "./workspace-service.test-support";
 
+function createDiscoveryRunResult(input: DiscoveryRunResultInput) {
+  return DiscoveryRunResultSchema.parse(input);
+}
+
 describe("createJobFinderWorkspaceService", () => {
   test("pauses source debug when the phase worker reports a login blocker", async () => {
     const baseRuntime = createCatalogBrowserSessionRuntime({
@@ -25,7 +31,7 @@ describe("createJobFinderWorkspaceService", () => {
     const browserRuntime: BrowserSessionRuntime = {
       ...baseRuntime,
       runAgentDiscovery(source) {
-        return Promise.resolve({
+        return Promise.resolve(createDiscoveryRunResult({
           source,
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:01:00.000Z",
@@ -54,7 +60,7 @@ describe("createJobFinderWorkspaceService", () => {
               warnings: ["Sign in before continuing the source-debug run."],
             },
           },
-        });
+        }));
       },
     };
     const { repository, workspaceService } = createWorkspaceServiceHarness({
@@ -113,7 +119,7 @@ describe("createJobFinderWorkspaceService", () => {
         });
       },
       runAgentDiscovery(source) {
-        return Promise.resolve({
+        return Promise.resolve(createDiscoveryRunResult({
           source,
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:01:00.000Z",
@@ -142,7 +148,7 @@ describe("createJobFinderWorkspaceService", () => {
               warnings: ["Sign in before continuing the source-debug run."],
             },
           },
-        });
+        }));
       },
     };
     const { workspaceService } = createWorkspaceServiceHarness({
@@ -204,7 +210,7 @@ describe("createJobFinderWorkspaceService", () => {
       },
       runAgentDiscovery(source, options) {
         skipSessionValidationFlags.push(options.skipSessionValidation === true);
-        return Promise.resolve({
+        return Promise.resolve(createDiscoveryRunResult({
           source,
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:01:00.000Z",
@@ -225,7 +231,7 @@ describe("createJobFinderWorkspaceService", () => {
             phaseEvidence: null,
             debugFindings: null,
           },
-        });
+        }));
       },
     };
     const { repository, workspaceService } = createWorkspaceServiceHarness({
@@ -526,7 +532,7 @@ describe("createJobFinderWorkspaceService", () => {
         const phase = parsePhaseFromSiteLabel(options.siteLabel);
         phaseCalls.push(phase);
 
-        return Promise.resolve({
+        return Promise.resolve(createDiscoveryRunResult({
           source,
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:10.000Z",
@@ -600,7 +606,7 @@ describe("createJobFinderWorkspaceService", () => {
                   : [],
             },
           },
-        });
+        }));
       },
     };
 
@@ -657,7 +663,7 @@ describe("createJobFinderWorkspaceService", () => {
         const phase = parsePhaseFromSiteLabel(options.siteLabel);
         phaseCalls.push(phase);
 
-        return Promise.resolve({
+        return Promise.resolve(createDiscoveryRunResult({
           source,
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:10.000Z",
@@ -722,7 +728,7 @@ describe("createJobFinderWorkspaceService", () => {
               warnings: [],
             },
           },
-        });
+        }));
       },
     };
 
@@ -778,7 +784,7 @@ describe("createJobFinderWorkspaceService", () => {
         phaseCalls.push(phase);
 
         if (phase === "apply_path_validation") {
-          return Promise.resolve({
+          return Promise.resolve(createDiscoveryRunResult({
             source,
             startedAt: "2026-03-20T10:00:00.000Z",
             completedAt: "2026-03-20T10:00:10.000Z",
@@ -838,11 +844,11 @@ describe("createJobFinderWorkspaceService", () => {
                 ],
               },
             },
-          });
+          }));
         }
 
         if (phase === "replay_verification") {
-          return Promise.resolve({
+          return Promise.resolve(createDiscoveryRunResult({
             source,
             startedAt: "2026-03-20T10:00:00.000Z",
             completedAt: "2026-03-20T10:00:10.000Z",
@@ -872,10 +878,10 @@ describe("createJobFinderWorkspaceService", () => {
                 ],
               },
             },
-          });
+          }));
         }
 
-        return Promise.resolve({
+        return Promise.resolve(createDiscoveryRunResult({
           source,
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:10.000Z",
@@ -937,7 +943,7 @@ describe("createJobFinderWorkspaceService", () => {
               warnings: [],
             },
           },
-        });
+        }));
       },
     };
 
@@ -1096,7 +1102,7 @@ describe("createJobFinderWorkspaceService", () => {
     const browserRuntime: BrowserSessionRuntime = {
       ...baseRuntime,
       runAgentDiscovery(source) {
-        return Promise.resolve({
+        return Promise.resolve(createDiscoveryRunResult({
           source,
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:01:00.000Z",
@@ -1169,7 +1175,7 @@ describe("createJobFinderWorkspaceService", () => {
               ],
             },
           },
-        });
+        }));
       },
     };
     const { repository, workspaceService } = createWorkspaceServiceHarness({

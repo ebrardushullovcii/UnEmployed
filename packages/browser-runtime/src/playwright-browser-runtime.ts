@@ -1,12 +1,18 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { Browser, BrowserContext, Page } from "playwright";
 import {
   ApplyExecutionResultSchema,
+  ApplyVisualCheckpointSchema,
+  BrowserVisualEvidenceSummarySchema,
+  BrowserVisualSnapshotRefSchema,
+  BrowserVisualSnapshotRequestSchema,
   BrowserSessionStateSchema,
   DiscoveryRunResultSchema,
   type ApplyExecutionResult,
   type BrowserSessionState,
+  type BrowserVisualSnapshotRequest,
   type DiscoveryRunResult,
   type JobPosting,
   type JobSource,
@@ -63,6 +69,9 @@ function buildUnsupportedApplyResult(input: {
   startedAt: string;
   mode: "easy_apply" | ExecuteApplicationFlowInput["mode"];
   targetUrl?: string | null;
+  visualEvidence?: ApplyExecutionResult["visualEvidence"];
+  visualObservationSets?: ApplyExecutionResult["visualObservationSets"];
+  visualCheckpoints?: ApplyExecutionResult["visualCheckpoints"];
 }): ApplyExecutionResult {
   const targetUrl =
     input.targetUrl ?? input.job.applicationUrl ?? input.job.canonicalUrl;
@@ -95,6 +104,9 @@ function buildUnsupportedApplyResult(input: {
       lastUrl: targetUrl,
       checkpointUrls: targetUrl ? [targetUrl] : [],
     },
+    visualEvidence: input.visualEvidence ?? [],
+    visualObservationSets: input.visualObservationSets ?? [],
+    visualCheckpoints: input.visualCheckpoints ?? [],
     nextActionLabel: "Open the listing manually",
     checkpoints: [
       {
@@ -105,9 +117,140 @@ function buildUnsupportedApplyResult(input: {
           ? "This target uses the generic debugger flow, so application preparation and submission stay manual until a target-agnostic runtime exists."
           : "This target uses the generic debugger flow, so submission stays manual until a target-agnostic apply runtime exists.",
         state: "unsupported",
+        visualEvidence: input.visualEvidence ?? [],
       },
     ],
   });
+}
+
+async function buildApplyVisualDiagnostics(input: {
+  job: ExecuteApplicationFlowInput["job"];
+  mode: ExecuteApplicationFlowInput["mode"];
+  targetUrl: string | null;
+  captureVisualSnapshot?: ExecuteApplicationFlowInput["captureVisualSnapshot"];
+  analyzeVisualSnapshot?: ExecuteApplicationFlowInput["analyzeVisualSnapshot"];
+}): Promise<{
+  visualEvidence: NonNullable<ApplyExecutionResult["visualEvidence"]>;
+  visualObservationSets: NonNullable<ApplyExecutionResult["visualObservationSets"]>;
+  visualCheckpoints: NonNullable<ApplyExecutionResult["visualCheckpoints"]>;
+}> {
+  if (!input.captureVisualSnapshot || !input.analyzeVisualSnapshot) {
+    return {
+      visualEvidence: [],
+      visualObservationSets: [],
+      visualCheckpoints: [],
+    };
+  }
+
+  try {
+    const snapshot = await input.captureVisualSnapshot({
+      purpose: "apply_checkpoint",
+      mode: "viewport",
+      label: "Apply page visual checkpoint",
+      reason:
+        "Classify visible application page state before stopping the safe non-submitting apply flow.",
+      region: null,
+      retention: {
+        retention: "temporary",
+        redactionLevel: "sensitive",
+        reason:
+          "Temporary apply visual analysis input; screenshots are not persisted by default.",
+        expiresAt: null,
+      },
+    });
+    const observationSet = await input.analyzeVisualSnapshot({
+      snapshot,
+      context: {
+        purpose: "apply_checkpoint",
+        taskGoal:
+          "Classify visible application form state, blockers, field/control hints, validation errors, and recovery context without directing browser actions.",
+        pageUrl: snapshot.url ?? input.targetUrl,
+        pageTitle: snapshot.pageTitle,
+        visibleTextSample: null,
+        domSignals: [
+          input.mode === "prepare_only"
+            ? "Safe apply flow is running in prepare-only mode."
+            : "Safe apply flow is not authorized for live final submit.",
+        ],
+        sourceDebug: null,
+        apply: {
+          jobTitle: input.job.title,
+          company: input.job.company,
+          checkpointLabel: "Apply page visual checkpoint",
+          recoveryMode: false,
+        },
+      },
+    });
+    const summary =
+      observationSet.summary ??
+      observationSet.blockers[0] ??
+      observationSet.fieldControls[0] ??
+      observationSet.validationErrors[0] ??
+      observationSet.recoveryNotes[0] ??
+      "Visual apply checkpoint captured no strong visible blocker.";
+    const evidence = BrowserVisualEvidenceSummarySchema.parse({
+      snapshotId: snapshot.id,
+      observationSetId: observationSet.id,
+      summary,
+      capturedAt: snapshot.capturedAt,
+      storagePath: snapshot.storagePath,
+      retention: snapshot.retention.retention,
+      redactionLevel: snapshot.retention.redactionLevel,
+      confidence:
+        observationSet.observations[0]?.confidence ??
+        observationSet.reconciliations[0]?.confidence ??
+        0.6,
+      reconciliationStatus: observationSet.reconciliations[0]?.status ?? null,
+    });
+    const checkpoint = ApplyVisualCheckpointSchema.parse({
+      id: `apply_visual_checkpoint_${input.job.id}_${snapshot.id}`,
+      label: "Apply page visual checkpoint",
+      purpose: snapshot.purpose,
+      snapshotId: snapshot.id,
+      observationSetId: observationSet.id,
+      summary,
+      capturedAt: snapshot.capturedAt,
+      retained: snapshot.retention.retention !== "temporary",
+      storagePath: snapshot.storagePath,
+      blockers: observationSet.blockers,
+      fieldControls: observationSet.fieldControls,
+      validationErrors: observationSet.validationErrors,
+      buttonStates: observationSet.buttonStates,
+      questionContextIds: observationSet.questionContexts.map(
+        (context) => context.observationSetId,
+      ),
+      reconciliations: observationSet.reconciliations,
+    });
+
+    return {
+      visualEvidence: [evidence],
+      visualObservationSets: [observationSet],
+      visualCheckpoints: [checkpoint],
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Visual apply checkpoint failed.";
+    const capturedAt = new Date().toISOString();
+    const evidence = BrowserVisualEvidenceSummarySchema.parse({
+      snapshotId: `apply_visual_snapshot_failed_${input.job.id}`,
+      observationSetId: `apply_visual_observation_failed_${input.job.id}`,
+      summary: `Visual apply checkpoint unavailable: ${message}`,
+      capturedAt,
+      storagePath: null,
+      retention: "temporary",
+      redactionLevel: "sensitive",
+      confidence: 0,
+      reconciliationStatus: "not_compared",
+    });
+
+    return {
+      visualEvidence: [evidence],
+      visualObservationSets: [],
+      visualCheckpoints: [],
+    };
+  }
 }
 
 export interface BrowserAgentRuntimeOptions {
@@ -146,6 +289,114 @@ async function isDebuggerEndpointReady(debugPort: number): Promise<boolean> {
 
 function normalizeUserDataDir(value: string): string {
   return value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
+function createVisualSnapshotId(): string {
+  return `visual_snapshot_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
+}
+
+function createVisualSnapshotFileName(snapshotId: string): string {
+  return `${snapshotId.replace(/[^a-zA-Z0-9_-]/g, "_")}.png`;
+}
+
+function createVisualSnapshotMetadataFileName(snapshotId: string): string {
+  return `${snapshotId.replace(/[^a-zA-Z0-9_-]/g, "_")}.json`;
+}
+
+function getVisualSnapshotArtifactDir(userDataDir: string): string {
+  return join(userDataDir, "visual-snapshots");
+}
+
+async function cleanupExpiredVisualSnapshots(input: {
+  artifactDir: string;
+  nowMs?: number;
+  maxAgeMs?: number;
+  maxFiles?: number;
+}): Promise<void> {
+  const nowMs = input.nowMs ?? Date.now();
+  const maxAgeMs = input.maxAgeMs ?? 7 * 24 * 60 * 60 * 1000;
+  const maxFiles = input.maxFiles ?? 200;
+
+  try {
+    const entries = await readdir(input.artifactDir, { withFileTypes: true });
+    const pngEntries = await Promise.all(
+      entries
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".png"))
+        .map(async (entry) => {
+          const path = join(input.artifactDir, entry.name);
+          const metadataPath = join(
+            input.artifactDir,
+            `${entry.name.slice(0, -4)}.json`,
+          );
+          try {
+            const stats = await stat(path);
+            const expiresAtMs = await readFile(metadataPath, "utf8")
+              .then((content) => {
+                const payload = JSON.parse(content) as { expiresAt?: unknown };
+                return typeof payload.expiresAt === "string"
+                  ? Date.parse(payload.expiresAt)
+                  : Number.NaN;
+              })
+              .catch(() => Number.NaN);
+            return { path, metadataPath, mtimeMs: stats.mtimeMs, expiresAtMs };
+          } catch {
+            return null;
+          }
+        }),
+    );
+    const files = pngEntries
+      .filter(
+        (
+          entry,
+        ): entry is {
+          path: string;
+          metadataPath: string;
+          mtimeMs: number;
+          expiresAtMs: number;
+        } => entry !== null,
+      )
+      .sort((a, b) => b.mtimeMs - a.mtimeMs);
+    const expired = files.filter((entry) => {
+      if (Number.isFinite(entry.expiresAtMs)) {
+        return entry.expiresAtMs <= nowMs;
+      }
+
+      return nowMs - entry.mtimeMs > maxAgeMs;
+    });
+    const overflow = files.slice(maxFiles);
+    const pathsToDelete = new Set<string>();
+    [...expired, ...overflow].forEach((entry) => {
+      pathsToDelete.add(entry.path);
+      pathsToDelete.add(entry.metadataPath);
+    });
+
+    await Promise.all(
+      [...pathsToDelete].map((path) => rm(path, { force: true }).catch(() => {})),
+    );
+  } catch {
+    // Retention cleanup is best-effort and must never block browser work.
+  }
+}
+
+async function safePageTitle(page: Page): Promise<string | null> {
+  try {
+    const title = await page.title();
+    return title.trim() ? title.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function safePageUrl(page: Page): string | null {
+  try {
+    const url = page.url();
+    if (!url || url === "about:blank") {
+      return null;
+    }
+    return url;
+  } catch {
+    return null;
+  }
 }
 
 async function isDebuggerEndpointOwnedByUserDataDir(
@@ -276,6 +527,23 @@ async function getPrimaryPage(context: BrowserContext): Promise<Page> {
   return openPages[openPages.length - 1] ?? context.newPage();
 }
 
+async function navigatePageToTarget(input: {
+  page: Page;
+  targetUrl: string;
+  timeout?: number;
+}): Promise<boolean> {
+  if (areStructurallyEquivalentHttpUrls(input.page.url(), input.targetUrl)) {
+    return false;
+  }
+
+  await input.page.goto(input.targetUrl, {
+    waitUntil: "domcontentloaded",
+    ...(input.timeout ? { timeout: input.timeout } : {}),
+  });
+
+  return true;
+}
+
 async function resolveLivePageForContext(
   context: BrowserContext,
   options?: { bringToFront?: boolean },
@@ -289,6 +557,78 @@ async function resolveLivePageForContext(
     await page.bringToFront().catch(() => undefined);
   }
   return page;
+}
+
+async function resolveAutomationPageForContext(
+  context: BrowserContext,
+  options: { targetUrl?: string | null; bringToFront?: boolean } = {},
+): Promise<Page> {
+  const normalizedTargetUrl =
+    typeof options.targetUrl === "string" ? options.targetUrl.trim() : "";
+  const currentPages = context.pages();
+  const openPages = currentPages.filter((page) => !page.isClosed());
+  const exactTargetPage = isHttpUrlLike(normalizedTargetUrl)
+    ? openPages.find((page) =>
+        areStructurallyEquivalentHttpUrls(page.url(), normalizedTargetUrl),
+      )
+    : null;
+  const blankPage = openPages.find((page) => !isHttpUrlLike(page.url())) ?? null;
+  const page = blankPage ?? exactTargetPage ?? (await context.newPage());
+
+  if (options.bringToFront !== false) {
+    await page.bringToFront().catch(() => undefined);
+  }
+
+  return page;
+}
+
+async function prepareAutomationPageForTarget(
+  context: BrowserContext,
+  options: {
+    targetUrl: string;
+    setBlockedState: (detail: string) => void;
+    bringToFront?: boolean;
+  },
+): Promise<{
+  page: Page;
+  alreadyAtTarget: boolean;
+  navigatedToTarget: boolean;
+}> {
+  const page = await resolveAutomationPageForContext(context, {
+    targetUrl: options.targetUrl,
+    bringToFront: false,
+  });
+  const alreadyAtTarget = areStructurallyEquivalentHttpUrls(
+    page.url(),
+    options.targetUrl,
+  );
+  let navigatedToTarget = false;
+
+  if (!alreadyAtTarget) {
+    try {
+      navigatedToTarget = await navigatePageToTarget({
+        page,
+        targetUrl: options.targetUrl,
+      });
+    } catch (error) {
+      const detail =
+        error instanceof Error
+          ? error.message
+          : `The dedicated browser profile could not open ${options.targetUrl}.`;
+      options.setBlockedState(detail);
+      throw error;
+    }
+  }
+
+  if (options.bringToFront !== false || navigatedToTarget) {
+    await page.bringToFront().catch(() => undefined);
+  }
+
+  return {
+    page,
+    alreadyAtTarget,
+    navigatedToTarget,
+  };
 }
 
 async function getPrimaryPageIfReady(context: BrowserContext): Promise<Page> {
@@ -576,48 +916,167 @@ export function createBrowserAgentRuntime(
     return page;
   }
 
+  async function getAgentRunPage(
+    source: JobSource,
+    agentOptions: AgentDiscoveryOptions,
+  ): Promise<Page> {
+    const navigationTarget =
+      agentOptions.startingUrls.find((url) => isHttpUrlLike(url)) ?? null;
+
+    if (!navigationTarget) {
+      return getReadyPage(source);
+    }
+
+    const context = await getContext();
+    const prepared = await prepareAutomationPageForTarget(context, {
+      targetUrl: navigationTarget,
+      bringToFront: currentSessionState.status !== "ready",
+      setBlockedState: (detail) => {
+        setSessionState(source, "blocked", "Browser navigation failed", detail);
+      },
+    });
+    setSessionState(
+      source,
+      "ready",
+      "Browser profile ready",
+      "The dedicated browser profile is open and ready for target-specific discovery.",
+    );
+    return prepared.page;
+  }
+
   async function openSessionAtTarget(input: {
     source: JobSource;
     targetUrl?: string | null;
   }): Promise<BrowserSessionState> {
-    const sessionWasReady = currentSessionState.status === "ready";
-    const page = await getReadyPage(input.source);
     const normalizedTargetUrl =
       typeof input.targetUrl === "string" ? input.targetUrl.trim() : "";
-    let navigatedToTarget = false;
-
-    if (
-      isHttpUrlLike(normalizedTargetUrl) &&
-      !areStructurallyEquivalentHttpUrls(page.url(), normalizedTargetUrl)
-    ) {
-      try {
-        await page.goto(normalizedTargetUrl, {
-          waitUntil: "domcontentloaded",
+    if (isHttpUrlLike(normalizedTargetUrl)) {
+      await prepareAutomationPageForTarget(await getContext(), {
+          targetUrl: normalizedTargetUrl,
+          bringToFront: true,
+          setBlockedState: (detail) => {
+            setSessionState(
+              input.source,
+              "blocked",
+              "Browser navigation failed",
+              detail,
+            );
+          },
         });
-        navigatedToTarget = true;
-      } catch (error) {
-        const detail =
-          error instanceof Error
-            ? error.message
-            : `The dedicated browser profile could not open ${normalizedTargetUrl}.`;
-        setSessionState(
-          input.source,
-          "blocked",
-          "Browser navigation failed",
-          detail,
-        );
-        throw error;
-      }
+    } else {
+      await getReadyPage(input.source);
     }
 
-    if (sessionWasReady || navigatedToTarget) {
-      await page.bringToFront().catch(() => undefined);
-    }
+    setSessionState(
+      input.source,
+      "ready",
+      "Browser profile ready",
+      "The dedicated browser profile is open and ready for target-specific discovery.",
+    );
 
     return BrowserSessionStateSchema.parse({
       ...currentSessionState,
       source: input.source,
     });
+  }
+
+  async function captureVisualSnapshotForPage(
+    page: Page,
+    request: BrowserVisualSnapshotRequest,
+  ) {
+    const normalizedRequest = BrowserVisualSnapshotRequestSchema.parse(request);
+    const viewportSize = page.viewportSize();
+    const screenshotBuffer = await page.screenshot({
+      type: "png",
+      animations: "disabled",
+      timeout: 10_000,
+      fullPage: normalizedRequest.mode === "full_page",
+      ...(normalizedRequest.mode === "region" && normalizedRequest.region
+        ? {
+            clip: {
+              x: normalizedRequest.region.x,
+              y: normalizedRequest.region.y,
+              width: normalizedRequest.region.width,
+              height: normalizedRequest.region.height,
+            },
+          }
+        : {}),
+    });
+    const capturedAt = new Date().toISOString();
+    const dataUrl = `data:image/png;base64,${screenshotBuffer.toString("base64")}`;
+    const snapshotId = createVisualSnapshotId();
+    let storagePath: string | null = null;
+    const warnings: string[] = [];
+
+    if (normalizedRequest.retention.retention !== "temporary") {
+      try {
+        const visualArtifactDir = getVisualSnapshotArtifactDir(
+          options.userDataDir,
+        );
+        await mkdir(visualArtifactDir, { recursive: true });
+        await cleanupExpiredVisualSnapshots({ artifactDir: visualArtifactDir });
+        storagePath = join(
+          visualArtifactDir,
+          createVisualSnapshotFileName(snapshotId),
+        );
+        await writeFile(storagePath, screenshotBuffer);
+        await writeFile(
+          join(
+            visualArtifactDir,
+            createVisualSnapshotMetadataFileName(snapshotId),
+          ),
+          JSON.stringify(
+            {
+              snapshotId,
+              capturedAt,
+              purpose: normalizedRequest.purpose,
+              mode: normalizedRequest.mode,
+              retention: normalizedRequest.retention.retention,
+              redactionLevel: normalizedRequest.retention.redactionLevel,
+              expiresAt: normalizedRequest.retention.expiresAt,
+            },
+            null,
+            2,
+          ),
+          "utf8",
+        );
+      } catch (error) {
+        warnings.push(
+          `Screenshot was captured in memory but could not be retained on disk: ${error instanceof Error ? error.message : "unknown storage error"}.`,
+        );
+      }
+    }
+
+    return BrowserVisualSnapshotRefSchema.parse({
+      id: snapshotId,
+      capturedAt,
+      url: safePageUrl(page),
+      pageTitle: await safePageTitle(page),
+      mode: normalizedRequest.mode,
+      purpose: normalizedRequest.purpose,
+      label: normalizedRequest.label,
+      region: normalizedRequest.region,
+      viewport: viewportSize
+        ? {
+            x: 0,
+            y: 0,
+            width: viewportSize.width,
+            height: viewportSize.height,
+          }
+        : null,
+      mimeType: "image/png",
+      dataUrl,
+      storagePath,
+      retention: normalizedRequest.retention,
+      warnings,
+    });
+  }
+
+  async function captureVisualSnapshotForSource(
+    source: JobSource,
+    request: BrowserVisualSnapshotRequest,
+  ) {
+    return captureVisualSnapshotForPage(await getReadyPage(source), request);
   }
 
   return {
@@ -704,14 +1163,33 @@ export function createBrowserAgentRuntime(
       const startedAt = new Date().toISOString();
       const targetUrl = input.job.applicationUrl ?? input.job.canonicalUrl;
 
-      return Promise.resolve(
+      return buildApplyVisualDiagnostics({
+        job: input.job,
+        mode: input.mode,
+        targetUrl,
+        ...(input.captureVisualSnapshot
+          ? { captureVisualSnapshot: input.captureVisualSnapshot }
+          : {}),
+        ...(input.analyzeVisualSnapshot
+          ? { analyzeVisualSnapshot: input.analyzeVisualSnapshot }
+          : {}),
+      }).then((visualDiagnostics) =>
         buildUnsupportedApplyResult({
           job: input.job,
           startedAt,
           mode: input.mode,
           targetUrl,
+          visualEvidence: visualDiagnostics.visualEvidence,
+          visualObservationSets: visualDiagnostics.visualObservationSets,
+          visualCheckpoints: visualDiagnostics.visualCheckpoints,
         }),
       );
+    },
+    async captureVisualSnapshot(
+      source,
+      request: BrowserVisualSnapshotRequest,
+    ) {
+      return captureVisualSnapshotForSource(source, request);
     },
     async runAgentDiscovery(
       source: JobSource,
@@ -756,7 +1234,7 @@ export function createBrowserAgentRuntime(
       let page: Page | null = null;
 
       try {
-        page = await getReadyPage(source);
+        page = await getAgentRunPage(source, agentOptions);
 
         if (
           !isWarmPageReusable({ pageUrl: page.url(), options: agentOptions })
@@ -809,6 +1287,27 @@ export function createBrowserAgentRuntime(
               ? getPrimaryPageIfReady(context)
               : getReadyPage(source);
           },
+          ...(agentOptions.captureVisualSnapshots || agentOptions.taskPacket
+            ? {
+                visualAnalysis: {
+                  enabled: true,
+                  captureSnapshot: (request, snapshotPage) =>
+                    captureVisualSnapshotForPage(snapshotPage ?? page!, request),
+                  analyzeSnapshot: ({ snapshot, context }) =>
+                    ensuredAiClient.analyzeBrowserVisualSnapshot
+                      ? ensuredAiClient.analyzeBrowserVisualSnapshot({
+                          snapshot,
+                          context,
+                        })
+                      : Promise.reject(
+                          new Error(
+                            "AI client does not support browser visual analysis.",
+                          ),
+                        ),
+                  persistScreenshots: Boolean(agentOptions.taskPacket),
+                },
+              }
+            : {}),
           ...(agentOptions.compaction
             ? { compaction: agentOptions.compaction }
             : {}),

@@ -1,5 +1,8 @@
 import {
   type AgentProviderStatus,
+  BrowserVisualObservationSetSchema,
+  type BrowserVisualAnalysisInput,
+  type BrowserVisualObservationSet,
   NonEmptyStringSchema,
   type ProfileCopilotContext,
   type ProfileCopilotRelevantReviewItem,
@@ -298,6 +301,13 @@ export interface ExtractJobsFromPageInput {
   signal?: AbortSignal;
 }
 
+export const BrowserVisualAnalysisResultSchema = BrowserVisualObservationSetSchema;
+export type BrowserVisualAnalysisResult = z.infer<
+  typeof BrowserVisualAnalysisResultSchema
+>;
+
+export type { BrowserVisualAnalysisInput, BrowserVisualObservationSet };
+
 export interface ExtractResumeImportStageTransportInput
   extends ExtractResumeImportStageInput {
   documentBundle: ResumeDocumentBundle;
@@ -328,6 +338,9 @@ export interface JobFinderAiClient {
   tailorResume(input: TailorResumeInput): Promise<TailoredResumeDraft>;
   assessJobFit(input: AssessJobFitInput): Promise<JobFitAssessment | null>;
   extractJobsFromPage(input: ExtractJobsFromPageInput): Promise<JobPosting[]>;
+  analyzeBrowserVisualSnapshot?(
+    input: BrowserVisualAnalysisInput,
+  ): Promise<BrowserVisualObservationSet>;
   chatWithTools?: AgentCapableJobFinderAiClient["chatWithTools"];
 }
 

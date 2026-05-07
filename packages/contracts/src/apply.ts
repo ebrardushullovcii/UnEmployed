@@ -13,6 +13,12 @@ import {
   ApplicationQuestionKindSchema,
   ApplicationQuestionStatusSchema,
 } from "./discovery";
+import {
+  BrowserVisualEvidenceSummarySchema,
+  BrowserVisualObservationSetSchema,
+  BrowserVisualReconciliationSchema,
+  ApplyVisualCheckpointSchema,
+} from "./visual";
 
 export const applyRunModeValues = [
   "copilot",
@@ -152,6 +158,7 @@ export const ApplyRecoveryContextSchema = z.object({
   }).nullable().default(null),
   checkpointUrls: z.array(UrlStringSchema).default([]),
   blockerSummary: NonEmptyStringSchema.nullable().default(null),
+  retainedVisualEvidence: z.array(BrowserVisualEvidenceSummarySchema).default([]),
 });
 export type ApplyRecoveryContext = z.infer<typeof ApplyRecoveryContextSchema>;
 
@@ -184,8 +191,12 @@ export const ApplicationQuestionRecordSchema = z.object({
   submittedAnswer: NonEmptyStringSchema.nullable().default(null),
   status: ApplicationQuestionStatusSchema.default("detected"),
   pageUrl: UrlStringSchema.nullable().default(null),
+  visualContext: BrowserVisualEvidenceSummarySchema.nullable().default(null),
 });
 export type ApplicationQuestionRecord = z.infer<
+  typeof ApplicationQuestionRecordSchema
+>;
+export type ApplicationQuestionRecordInput = z.input<
   typeof ApplicationQuestionRecordSchema
 >;
 
@@ -220,8 +231,12 @@ export const ApplicationArtifactRefSchema = z.object({
   storagePath: NonEmptyStringSchema.nullable().default(null),
   url: UrlStringSchema.nullable().default(null),
   textSnippet: NonEmptyStringSchema.nullable().default(null),
+  visualEvidence: BrowserVisualEvidenceSummarySchema.nullable().default(null),
 });
 export type ApplicationArtifactRef = z.infer<
+  typeof ApplicationArtifactRefSchema
+>;
+export type ApplicationArtifactRefInput = z.input<
   typeof ApplicationArtifactRefSchema
 >;
 
@@ -236,8 +251,13 @@ export const ApplicationReplayCheckpointSchema = z.object({
   url: UrlStringSchema.nullable().default(null),
   jobState: ApplyJobStateSchema.default("planned"),
   artifactRefIds: z.array(NonEmptyStringSchema).default([]),
+  visualEvidence: z.array(BrowserVisualEvidenceSummarySchema).default([]),
+  visualReconciliations: z.array(BrowserVisualReconciliationSchema).default([]),
 });
 export type ApplicationReplayCheckpoint = z.infer<
+  typeof ApplicationReplayCheckpointSchema
+>;
+export type ApplicationReplayCheckpointInput = z.input<
   typeof ApplicationReplayCheckpointSchema
 >;
 
@@ -272,6 +292,8 @@ export const ApplyJobResultSchema = z.object({
   completedAt: IsoDateTimeSchema.nullable().default(null),
   blockerReason: ApplyBlockerReasonSchema.nullable().default(null),
   blockerSummary: NonEmptyStringSchema.nullable().default(null),
+  visualObservationSets: z.array(BrowserVisualObservationSetSchema).default([]),
+  visualCheckpoints: z.array(ApplyVisualCheckpointSchema).default([]),
   latestQuestionCount: z.number().int().nonnegative().default(0),
   latestAnswerCount: z.number().int().nonnegative().default(0),
   pendingConsentRequestCount: z.number().int().nonnegative().default(0),
@@ -279,6 +301,7 @@ export const ApplyJobResultSchema = z.object({
   latestCheckpointId: NonEmptyStringSchema.nullable().default(null),
 });
 export type ApplyJobResult = z.infer<typeof ApplyJobResultSchema>;
+export type ApplyJobResultInput = z.input<typeof ApplyJobResultSchema>;
 
 export const ApplyRunSchema = z.object({
   id: NonEmptyStringSchema,
@@ -287,6 +310,7 @@ export const ApplyRunSchema = z.object({
   jobIds: z.array(NonEmptyStringSchema).default([]),
   currentJobId: NonEmptyStringSchema.nullable().default(null),
   submitApprovalId: NonEmptyStringSchema.nullable().default(null),
+  visualCheckpointsEnabled: z.boolean().default(false),
   createdAt: IsoDateTimeSchema,
   updatedAt: IsoDateTimeSchema,
   completedAt: IsoDateTimeSchema.nullable().default(null),

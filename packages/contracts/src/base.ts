@@ -362,6 +362,7 @@ export const browserRunWaitReasonValues = [
   "attaching_browser",
   "waiting_on_page",
   "waiting_on_ai",
+  "analyzing_visual_snapshot",
   "retrying_ai",
   "executing_tool",
   "retrying_tool",

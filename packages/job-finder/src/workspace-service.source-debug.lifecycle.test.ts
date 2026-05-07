@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { createInMemoryJobFinderRepository } from "@unemployed/db";
+import type { AgentDebugFindings } from "@unemployed/contracts";
 import { createJobFinderWorkspaceService } from "./index";
 import {
   createAgentAiClient,
@@ -20,6 +21,56 @@ describe("createJobFinderWorkspaceService", () => {
       savedJobs: [],
       tailoredAssets: [],
     });
+    const visualSearchFindings: AgentDebugFindings = {
+      summary:
+        "Visible search controls and job cards were confirmed by visual analysis.",
+      reliableControls: [
+        "Use the keyword search box and location filter together; they refresh the visible job set on the results surface.",
+      ],
+      trickyFilters: [],
+      navigationTips: [],
+      applyTips: [],
+      warnings: [],
+      visualFindings: [
+        {
+          snapshotId: "visual_snapshot_search_probe",
+          observationSetId: "visual_observation_search_probe",
+          summary: "Visible search controls and job cards appear in the viewport.",
+          capturedAt: "2026-03-20T10:00:45.000Z",
+          storagePath: "/tmp/source-debug/visual-search-probe.png",
+          retention: "retained",
+          redactionLevel: "standard",
+          confidence: 0.78,
+          reconciliationStatus: "not_compared",
+        },
+      ],
+      visualObservationSets: [
+        {
+          id: "visual_observation_search_probe",
+          snapshotId: "visual_snapshot_search_probe",
+          observedAt: "2026-03-20T10:00:45.000Z",
+          url: "https://www.linkedin.com/jobs/search/",
+          purpose: "source_debug",
+          providerKind: "deterministic",
+          providerLabel: "Deterministic browser visual analysis",
+          summary: "Visible search controls and job cards appear in the viewport.",
+          observations: [],
+          blockers: [],
+          visibleControls: ["Keyword search and location filter are visible"],
+          jobCardClues: ["Several job-card rows are visible"],
+          applyPathClues: [],
+          fieldControls: [],
+          validationErrors: [],
+          buttonStates: [],
+          questionContexts: [],
+          recoveryNotes: [],
+          uncertainty: [],
+          reconciliations: [],
+          rejectedOutputReasons: [],
+        },
+      ],
+    };
+    const strongFindings = createStrongSourceDebugFindingsByPhase();
     const browserRuntime = createAgentBrowserRuntime(
       [
         {
@@ -58,7 +109,10 @@ describe("createJobFinderWorkspaceService", () => {
           preservedContext: ["Staff Product Designer at Signal Systems"],
           stickyWorkflowState: ["Phase goal: Map the site structure"],
         },
-        debugFindingsByPhase: createStrongSourceDebugFindingsByPhase(),
+        debugFindingsByPhase: {
+          ...strongFindings,
+          search_filter_probe: visualSearchFindings,
+        },
       },
     );
     const workspaceService = createJobFinderWorkspaceService({
@@ -121,6 +175,22 @@ describe("createJobFinderWorkspaceService", () => {
     ];
     expect(new Set(learnedLines).size).toBe(learnedLines.length);
     expect(evidenceRefs.length).toBeGreaterThan(0);
+    expect(
+      attempts.some((attempt) => attempt.visualEvidence.length > 0),
+    ).toBe(true);
+    expect(
+      attempts.some((attempt) =>
+        attempt.confirmedFacts.some((fact) => fact.includes("Visual evidence:")),
+      ),
+    ).toBe(true);
+    const visualEvidenceRef = evidenceRefs.find(
+      (evidenceRef) => evidenceRef.kind === "screenshot",
+    );
+    expect(visualEvidenceRef).toMatchObject({
+      storagePath: "/tmp/source-debug/visual-search-probe.png",
+      visualSnapshotId: "visual_snapshot_search_probe",
+      visualObservationSetId: "visual_observation_search_probe",
+    });
   });
 
   test("marks lingering running source-debug runs as interrupted on workspace load", async () => {

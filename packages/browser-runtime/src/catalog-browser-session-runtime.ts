@@ -1,5 +1,10 @@
 import {
   ApplyExecutionResultSchema,
+  ApplyVisualCheckpointSchema,
+  BrowserVisualEvidenceSummarySchema,
+  BrowserVisualObservationSetSchema,
+  BrowserVisualSnapshotRefSchema,
+  BrowserVisualSnapshotRequestSchema,
   BrowserSessionStateSchema,
   DiscoveryRunResultSchema,
   JobPostingSchema,
@@ -252,6 +257,105 @@ function buildScreeningQuestions(input: {
   return questions
 }
 
+function buildCatalogApplyVisualDiagnostics(input: {
+  input: ExecuteApplicationFlowInput
+  now: string
+}): Pick<
+  ApplyExecutionResult,
+  'visualEvidence' | 'visualObservationSets' | 'visualCheckpoints'
+> {
+  if (!input.input.captureVisualSnapshot || !input.input.analyzeVisualSnapshot) {
+    return {
+      visualEvidence: [],
+      visualObservationSets: [],
+      visualCheckpoints: [],
+    }
+  }
+
+  const explicitCaptureVisualSnapshot = input.input.captureVisualSnapshot
+  const explicitAnalyzeVisualSnapshot = input.input.analyzeVisualSnapshot
+  void explicitCaptureVisualSnapshot
+  void explicitAnalyzeVisualSnapshot
+
+  const { job } = input.input
+  const normalizedDescription = job.description.toLowerCase()
+  const blockers = [
+    normalizedDescription.includes('sign up') ||
+    normalizedDescription.includes('already have an account')
+      ? 'Application description indicates a consent or account-choice blocker.'
+      : null,
+  ].filter((value): value is string => Boolean(value))
+  const fieldControls = [
+    'Approved resume upload is represented by the saved apply runtime contract.',
+    normalizedDescription.includes('portfolio')
+      ? 'Portfolio field may be visible in the application form.'
+      : null,
+    normalizedDescription.includes('email') ||
+    normalizedDescription.includes('phone')
+      ? 'Contact-detail fields may be visible in the application form.'
+      : null,
+  ].filter((value): value is string => Boolean(value))
+  const validationErrors = [
+    normalizedDescription.includes('required')
+      ? 'Application description includes required-field language.'
+      : null,
+  ].filter((value): value is string => Boolean(value))
+  const summary =
+    blockers[0] ??
+    fieldControls[0] ??
+    'Catalog runtime produced deterministic apply visual context.'
+  const evidence = BrowserVisualEvidenceSummarySchema.parse({
+    snapshotId: `catalog_apply_visual_snapshot_${job.id}`,
+    observationSetId: `catalog_apply_visual_observation_${job.id}`,
+    summary,
+    capturedAt: input.now,
+    storagePath: null,
+    retention: 'temporary',
+    redactionLevel: 'sensitive',
+    confidence: 0.52,
+    reconciliationStatus: 'not_compared',
+  })
+  const observationSet = BrowserVisualObservationSetSchema.parse({
+    id: evidence.observationSetId,
+    snapshotId: evidence.snapshotId,
+    observedAt: input.now,
+    url: job.applicationUrl ?? job.canonicalUrl,
+    purpose: 'apply_checkpoint',
+    providerKind: 'deterministic',
+    providerLabel: 'Catalog apply visual diagnostics',
+    summary,
+    blockers,
+    fieldControls,
+    validationErrors,
+    recoveryNotes: [
+      'Catalog runtime produced deterministic visual context without capturing screenshots.',
+    ],
+  })
+  const checkpoint = ApplyVisualCheckpointSchema.parse({
+    id: `catalog_apply_visual_checkpoint_${job.id}`,
+    label: 'Deterministic apply visual checkpoint',
+    purpose: 'apply_checkpoint',
+    snapshotId: evidence.snapshotId,
+    observationSetId: evidence.observationSetId,
+    summary,
+    capturedAt: input.now,
+    retained: false,
+    storagePath: null,
+    blockers,
+    fieldControls,
+    validationErrors,
+    buttonStates: [],
+    questionContextIds: [],
+    reconciliations: [],
+  })
+
+  return {
+    visualEvidence: [evidence],
+    visualObservationSets: [observationSet],
+    visualCheckpoints: [checkpoint],
+  }
+}
+
 function executeCatalogApplicationFlow(
   input: ExecuteApplicationFlowInput,
 ): ApplyExecutionResult {
@@ -272,6 +376,7 @@ function executeCatalogApplicationFlow(
         state: 'in_progress' as const,
       }
     : null
+  const visualDiagnostics = buildCatalogApplyVisualDiagnostics({ input, now })
 
   if (!resumeFilePath.trim()) {
     return ApplyExecutionResultSchema.parse({
@@ -293,6 +398,9 @@ function executeCatalogApplicationFlow(
       },
       consentDecisions: [],
       replay,
+      visualEvidence: visualDiagnostics.visualEvidence,
+      visualObservationSets: visualDiagnostics.visualObservationSets,
+      visualCheckpoints: visualDiagnostics.visualCheckpoints,
       nextActionLabel: 'Re-export and approve the tailored resume',
       checkpoints: [
         ...(recoveryCheckpoint ? [recoveryCheckpoint] : []),
@@ -303,6 +411,7 @@ function executeCatalogApplicationFlow(
           detail:
             'The catalog runtime refused to continue without an approved resume export file path.',
           state: 'failed',
+          visualEvidence: visualDiagnostics.visualEvidence,
         },
       ],
     })
@@ -357,6 +466,9 @@ function executeCatalogApplicationFlow(
       },
       consentDecisions: [],
       replay,
+      visualEvidence: visualDiagnostics.visualEvidence,
+      visualObservationSets: visualDiagnostics.visualObservationSets,
+      visualCheckpoints: visualDiagnostics.visualCheckpoints,
       nextActionLabel: 'Inspect the listing manually',
       checkpoints: [
         ...(recoveryCheckpoint ? [recoveryCheckpoint] : []),
@@ -422,6 +534,9 @@ function executeCatalogApplicationFlow(
         },
       ],
       replay,
+      visualEvidence: visualDiagnostics.visualEvidence,
+      visualObservationSets: visualDiagnostics.visualObservationSets,
+      visualCheckpoints: visualDiagnostics.visualCheckpoints,
       nextActionLabel:
         'Review the consent request and decide whether to continue or skip this job',
       checkpoints: [
@@ -501,6 +616,9 @@ function executeCatalogApplicationFlow(
         },
       ],
       replay,
+      visualEvidence: visualDiagnostics.visualEvidence,
+      visualObservationSets: visualDiagnostics.visualObservationSets,
+      visualCheckpoints: visualDiagnostics.visualCheckpoints,
       nextActionLabel: requiresHumanPause
         ? 'Review the prepared answers and continue manually when ready'
         : 'Review the prepared application and submit manually when ready',
@@ -572,6 +690,9 @@ function executeCatalogApplicationFlow(
         },
       ],
       replay,
+      visualEvidence: visualDiagnostics.visualEvidence,
+      visualObservationSets: visualDiagnostics.visualObservationSets,
+      visualCheckpoints: visualDiagnostics.visualCheckpoints,
       nextActionLabel:
         'Open the application and finish the unsupported fields manually',
       checkpoints: [
@@ -621,6 +742,9 @@ function executeCatalogApplicationFlow(
       },
     ],
     replay,
+    visualEvidence: visualDiagnostics.visualEvidence,
+    visualObservationSets: visualDiagnostics.visualObservationSets,
+    visualCheckpoints: visualDiagnostics.visualCheckpoints,
     nextActionLabel: null,
     checkpoints: [
       ...(recoveryCheckpoint ? [recoveryCheckpoint] : []),
@@ -758,6 +882,35 @@ export function createCatalogBrowserSessionRuntime(
       }
 
       return Promise.resolve(executeCatalogApplicationFlow(input))
+    },
+    captureVisualSnapshot(source, request) {
+      const normalizedRequest = BrowserVisualSnapshotRequestSchema.parse(request)
+      const now = new Date().toISOString()
+
+      return Promise.resolve(
+        BrowserVisualSnapshotRefSchema.parse({
+          id: `visual_snapshot_catalog_${now.replace(/[^0-9]/g, '')}`,
+          capturedAt: now,
+          url: null,
+          pageTitle: null,
+          mode: normalizedRequest.mode,
+          purpose: normalizedRequest.purpose,
+          label: normalizedRequest.label,
+          region: normalizedRequest.region,
+          viewport: null,
+          mimeType: 'image/png',
+          dataUrl: null,
+          storagePath: null,
+          retention: {
+            ...normalizedRequest.retention,
+            retention: 'temporary',
+            reason: `${normalizedRequest.retention.reason} Catalog runtime does not capture screenshots for ${source}.`,
+          },
+          warnings: [
+            'Catalog browser runtime does not provide visual screenshot capture.',
+          ],
+        }),
+      )
     },
     runAgentDiscovery(source, options) {
       const session = getSession(source)

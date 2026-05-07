@@ -114,9 +114,12 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.generateResume(jobId),
         ),
-      startApplyCopilotRun: (jobId: string) =>
+      startApplyCopilotRun: (
+        jobId: string,
+        options?: { visualCheckpointsEnabled?: boolean },
+      ) =>
         runWorkspaceAction(() =>
-          window.unemployed.jobFinder.startApplyCopilotRun(jobId),
+          window.unemployed.jobFinder.startApplyCopilotRun(jobId, options),
         ),
       startAutoApplyRun: (jobId: string) =>
         runWorkspaceAction(() =>

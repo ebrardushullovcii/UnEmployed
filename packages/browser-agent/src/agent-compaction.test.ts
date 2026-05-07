@@ -108,12 +108,12 @@ describe("runAgentDiscovery compaction", () => {
     config.compaction = {
       ...config.compaction,
       warningTokenBudget: 6800,
-      targetTokenBudget: 7600,
+      targetTokenBudget: 9800,
       minimumResponseHeadroomTokens: 20,
     };
     config.compactionCapability = {
       tokenEstimator: createTokenEstimator(3),
-      modelContextWindowTokens: 8000,
+      modelContextWindowTokens: 10000,
       compactionWorkflowKey: "browser_agent_live_discovery",
     };
 
@@ -137,7 +137,7 @@ describe("runAgentDiscovery compaction", () => {
     expect(result.transcriptMessageCount).toBeLessThanOrEqual(6);
     expect(result.compactionUsedFallbackTrigger).toBe(false);
     expect(result.debugFindings?.summary).toContain("Keyword search");
-    expect(result.debugFindings?.trickyFilters[0]).toContain("category chips");
+    expect(result.debugFindings?.trickyFilters?.[0]).toContain("category chips");
   });
 
   test("compaction preserves tool-call context so later llm requests do not start with orphan tool messages", async () => {
@@ -285,6 +285,8 @@ describe("runAgentDiscovery compaction", () => {
       stepCount: 3,
       currentUrl: "https://www.linkedin.com/jobs/search/",
       lastStableUrl: "https://www.linkedin.com/jobs/search/",
+      visualObservationSets: [],
+      visualSnapshots: [],
       isRunning: true,
       phaseEvidence: {
         visibleControls: [],
@@ -292,6 +294,7 @@ describe("runAgentDiscovery compaction", () => {
         routeSignals: [],
         attemptedControls: [],
         warnings: [],
+        visualFindings: [],
       },
       compactionState: null,
       compactionStatus: {
@@ -348,6 +351,8 @@ describe("runAgentDiscovery compaction", () => {
       stepCount: 3,
       currentUrl: "https://www.linkedin.com/jobs/search/",
       lastStableUrl: "https://www.linkedin.com/jobs/search/",
+      visualObservationSets: [],
+      visualSnapshots: [],
       isRunning: true,
       phaseEvidence: {
         visibleControls: [],
@@ -355,6 +360,7 @@ describe("runAgentDiscovery compaction", () => {
         routeSignals: [],
         attemptedControls: [],
         warnings: [],
+        visualFindings: [],
       },
       compactionState: null,
       compactionStatus: {

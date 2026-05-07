@@ -10,6 +10,7 @@ Owns profile, resume import, discovery, source-debug, resume workspace, review q
 - Keep boundaries typed through `packages/contracts`.
 - Treat source instructions and browser recovery as generic capabilities, not hardcoded board branches.
 - Preserve resume approval and stale-state checks before apply; keep live submit disabled unless explicitly re-authorized.
+- Treat browser visual evidence as schema-validated review/recovery context only; it must not become selectors, direct browser actions, saved-job behavior, generated answers, final-submit guidance, or site-specific workflow rules.
 
 ## Important Defaults
 
@@ -17,6 +18,7 @@ Owns profile, resume import, discovery, source-debug, resume workspace, review q
 - source-debug and discovery use typed target instructions
 - resume approval is required before apply work
 - live submit remains intentionally disabled unless explicitly re-authorized
+- apply visual checkpoints require explicit orchestrator opt-in and are temporary by default unless retained evidence is needed for review/recovery
 
 ## Where To Continue
 

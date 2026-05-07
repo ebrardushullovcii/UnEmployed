@@ -1,4 +1,7 @@
-import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
+import type {
+  BrowserSessionRuntime,
+  OpenBrowserSessionOptions,
+} from "@unemployed/browser-runtime";
 import {
   JobFinderDiscoveryStateSchema,
   JobSourceSchema,
@@ -256,8 +259,11 @@ export function createJobFinderWorkspaceService(
         });
       }
     },
-    async openRunBrowserSession(source: JobSource): Promise<void> {
-      const session = await browserRuntime.openSession(source);
+    async openRunBrowserSession(
+      source: JobSource,
+      options?: OpenBrowserSessionOptions,
+    ): Promise<void> {
+      const session = await browserRuntime.openSession(source, options);
       await context.persistBrowserSessionState(session);
     },
     async closeRunBrowserSession(source: JobSource): Promise<void> {

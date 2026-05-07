@@ -27,6 +27,9 @@ export function createSubmittedAttempt(): ApplicationAttempt {
       lastUrl: "https://jobs.example.com/roles/target_job_1/apply",
       checkpointUrls: ["https://jobs.example.com/roles/target_job_1/apply"],
     },
+    visualEvidence: [],
+    visualObservationSets: [],
+    visualCheckpoints: [],
     nextActionLabel: "Monitor inbox",
     checkpoints: [
       {
@@ -35,6 +38,7 @@ export function createSubmittedAttempt(): ApplicationAttempt {
         label: "Submission confirmed",
         detail: "The supported path completed successfully.",
         state: "submitted" as const,
+        visualEvidence: [],
       },
     ],
   };

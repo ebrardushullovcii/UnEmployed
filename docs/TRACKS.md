@@ -22,6 +22,22 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 
 ## Recently Completed
 
+### `035 Apply Visual Assistance`
+
+- status: `done`
+- linked plan: `docs/exec-plans/completed/035-apply-visual-assistance.md`
+- safe non-submitting apply now supports explicit visual checkpoint opt-in, schema-validated apply visual observations/checkpoints/reconciliations, persisted review/recovery metadata, and Applications UI review data while preserving consent/review gates and the no-live-submit rule
+- latest evidence includes `pnpm verify:affected`, focused contracts/browser-runtime/job-finder tests, desktop build, and Applications recovery UI harness artifacts under `apps/desktop/test-artifacts/ui/applications-recovery/`
+- reopen only for a concrete apply visual privacy regression, schema guard bypass, Applications UI evidence mismatch, or evidence-backed need for broader recovery diagnostics
+
+### `034 Browser Source-Debug Visual Evidence`
+
+- status: `done`
+- linked plan: `docs/exec-plans/completed/034-browser-source-debug-visual-evidence.md`
+- source-debug now has generic visual snapshot tooling, schema-safe visual observation contracts, source-generic phase evidence/findings, retained screenshot metadata cleanup, and provider-backed/deterministic browser visual analysis
+- latest evidence includes `pnpm verify:affected`, focused contracts/browser-runtime/job-finder tests, and `pnpm source-generic:check` via affected verification
+- reopen only for a concrete source-generic browser recovery gap, visual-output safety regression, retained screenshot privacy issue, or replayable live-source evidence that DOM/text-only debugging misses visible state
+
 ### `033 Parallel Vision Resume Import`
 
 - status: `done`
@@ -179,8 +195,6 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 
 ## Ready Queue
 
-- `034`: browser/source-debug visual evidence; linked plan: `docs/exec-plans/queued/034-browser-source-debug-visual-evidence.md`
-- `035`: apply visual assistance; linked plan: `docs/exec-plans/queued/035-apply-visual-assistance.md`
 - Validate cross-platform sidecar packaging for `019` only for regressions, newly added targets, or periodic matrix revalidation
 - Expand Applications recovery and retry tooling
 - Add broader runtime tests for unsupported apply paths, live-browser extraction, and resume import

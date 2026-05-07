@@ -44,6 +44,7 @@ import {
   adjudicateOpenAiCompatibleResumeImportCandidates,
   extractOpenAiCompatibleResumeImportStage,
 } from "./openai-compatible-resume-import";
+import { createBrowserVisualAnalysisProviderFromEnvironment } from "./browser-visual-analysis";
 
 const DEFAULT_MODEL_TIMEOUT_MS = 60_000;
 const DEFAULT_RESUME_EXTRACTION_TIMEOUT_MS = 120_000;
@@ -610,8 +611,16 @@ export function createJobFinderAiClientFromEnvironment(
     env.UNEMPLOYED_AI_RESUME_TIMEOUT_MS,
   );
 
+  const browserVisualProvider = createBrowserVisualAnalysisProviderFromEnvironment(env);
+
   if (!apiKey) {
-    return createDeterministicJobFinderAiClient();
+    const deterministicClient = createDeterministicJobFinderAiClient();
+
+    return {
+      ...deterministicClient,
+      analyzeBrowserVisualSnapshot: (input) =>
+        browserVisualProvider.analyzeBrowserVisualSnapshot(input),
+    };
   }
 
   const primaryClient = createOpenAiCompatibleJobFinderAiClient({
@@ -625,7 +634,6 @@ export function createJobFinderAiClientFromEnvironment(
   const fallbackClient = createDeterministicJobFinderAiClient(
     "The configured model is enabled, and deterministic fallbacks protect the app when a model call fails.",
   );
-
   return {
     getStatus() {
       return primaryClient.getStatus();
@@ -795,6 +803,14 @@ export function createJobFinderAiClientFromEnvironment(
       } catch (error) {
         logFallbackError("extractJobsFromPage", error);
         return fallbackClient.extractJobsFromPage(input);
+      }
+    },
+    async analyzeBrowserVisualSnapshot(input) {
+      try {
+        return await browserVisualProvider.analyzeBrowserVisualSnapshot(input);
+      } catch (error) {
+        logFallbackError("analyzeBrowserVisualSnapshot", error);
+        return fallbackClient.analyzeBrowserVisualSnapshot!(input);
       }
     },
     async chatWithTools(
