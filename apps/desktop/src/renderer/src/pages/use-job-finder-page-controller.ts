@@ -28,6 +28,7 @@ import {
 export type ApplyCopilotVisualCheckpointRequest = {
   jobId: string
   onResolve: (visualCheckpointsEnabled: boolean) => void
+  onCancel?: () => void
 }
 
 export function useJobFinderPageController() {
@@ -303,8 +304,10 @@ export function useJobFinderPageController() {
     [confirmLeaveDirtyResumeWorkspace, navigate],
   )
   const cancelApplyCopilotVisualCheckpointRequest = useCallback(() => {
+    const currentRequest = applyCopilotVisualCheckpointRequest
     setApplyCopilotVisualCheckpointRequest(null)
-  }, [])
+    currentRequest?.onCancel?.()
+  }, [applyCopilotVisualCheckpointRequest])
   const resolveApplyCopilotVisualCheckpointRequest = useCallback(
     (visualCheckpointsEnabled: boolean) => {
       const currentRequest = applyCopilotVisualCheckpointRequest

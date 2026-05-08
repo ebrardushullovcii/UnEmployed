@@ -48,6 +48,7 @@ type BaseActionArgs = {
   requestApplyCopilotVisualCheckpoints: (request: {
     jobId: string
     onResolve: (visualCheckpointsEnabled: boolean) => void
+    onCancel?: () => void
   }) => void
   refreshResumeWorkspace: (
     jobId: string,
