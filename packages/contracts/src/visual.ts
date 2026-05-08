@@ -463,6 +463,8 @@ export const BrowserVisualEvidenceSummarySchema = z.object({
   reconciliationStatus: BrowserVisualReconciliationStatusSchema.nullable().default(
     null,
   ),
+}).superRefine((value, ctx) => {
+  addVisualTextIssues(ctx, ["summary"], value.summary);
 });
 export type BrowserVisualEvidenceSummary = z.infer<
   typeof BrowserVisualEvidenceSummarySchema
@@ -483,6 +485,8 @@ export const SourceDebugVisualFindingSchema = z.object({
   reconciliationStatus: BrowserVisualReconciliationStatusSchema.nullable().default(
     null,
   ),
+}).superRefine((value, ctx) => {
+  addVisualTextIssues(ctx, ["summary"], value.summary);
 });
 export type SourceDebugVisualFinding = z.infer<
   typeof SourceDebugVisualFindingSchema

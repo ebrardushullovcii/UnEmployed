@@ -383,8 +383,9 @@ export function useJobFinderPageController() {
       profileCopilotPendingContextKey,
       profileCopilotRequestTokenRef,
       profileSetupState,
-      requestApplyCopilotVisualCheckpoints:
-        setApplyCopilotVisualCheckpointRequest,
+      requestApplyCopilotVisualCheckpoints: (request) => {
+        setApplyCopilotVisualCheckpointRequest(request)
+      },
       refreshResumeWorkspace,
       resumeAssistantRequestTokenRef,
       selectedApplicationAttempt,

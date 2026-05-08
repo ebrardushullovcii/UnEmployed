@@ -703,16 +703,20 @@ def render_pdf_images(file_path: str, retained: str) -> Tuple[List[Dict[str, Any
     warnings.extend(parse_warnings)
     if not page_texts and text:
         page_texts = [text]
-    images = [
-        render_lines_to_svg_data_url(
-            split_text_into_pages(page_text or "")[0],
-            index + 1,
-            "pdf",
-            "fallback_rendered_preview",
-            retained,
-        )
-        for index, page_text in enumerate(page_texts or [""])
-    ]
+    images = []
+    page_counter = 0
+    for page_text in (page_texts or [""]):
+        for chunk in split_text_into_pages(page_text or ""):
+            page_counter += 1
+            images.append(
+                render_lines_to_svg_data_url(
+                    chunk,
+                    page_counter,
+                    "pdf",
+                    "fallback_rendered_preview",
+                    retained,
+                )
+            )
     return images, warnings
 
 
