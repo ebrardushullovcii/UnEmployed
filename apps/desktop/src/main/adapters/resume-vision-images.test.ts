@@ -63,7 +63,7 @@ describe("resume vision image generation", () => {
     expect(sidecarSpy).toHaveBeenCalledWith(expect.objectContaining({
       fileKind: "pdf",
       retention: "temporary",
-      timeoutMs: 45_000,
+      timeoutMs: 600_000,
     }));
     expect(result.artifact).toMatchObject({
       id: "vision_artifact_1",

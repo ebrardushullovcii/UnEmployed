@@ -423,6 +423,20 @@ export const ApplyVisualCheckpointSchema = z.object({
   buttonStates: z.array(NonEmptyStringSchema).default([]),
   questionContextIds: z.array(NonEmptyStringSchema).default([]),
   reconciliations: z.array(BrowserVisualReconciliationSchema).default([]),
+}).superRefine((value, ctx) => {
+  addVisualTextIssues(ctx, ["summary"], value.summary);
+  value.blockers.forEach((text, index) => {
+    addVisualTextIssues(ctx, ["blockers", index], text);
+  });
+  value.fieldControls.forEach((text, index) => {
+    addVisualTextIssues(ctx, ["fieldControls", index], text);
+  });
+  value.validationErrors.forEach((text, index) => {
+    addVisualTextIssues(ctx, ["validationErrors", index], text);
+  });
+  value.buttonStates.forEach((text, index) => {
+    addVisualTextIssues(ctx, ["buttonStates", index], text);
+  });
 });
 export type ApplyVisualCheckpoint = z.infer<
   typeof ApplyVisualCheckpointSchema

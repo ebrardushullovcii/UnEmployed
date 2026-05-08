@@ -334,6 +334,19 @@ export async function adjudicateOpenAiCompatibleResumeImportCandidates(input: {
     },
     { timeoutMs: input.timeoutMs },
   );
+
+  const truncationWarnings: string[] = [];
+  if (input.adjudicationInput.documentBundle.blocks.length > 80) {
+    truncationWarnings.push(
+      `Adjudication input truncated: ${input.adjudicationInput.documentBundle.blocks.length} blocks (>80 limit)`,
+    );
+  }
+  if (input.adjudicationInput.candidates.length > 24) {
+    truncationWarnings.push(
+      `Adjudication input truncated: ${input.adjudicationInput.candidates.length} candidates (>24 limit)`,
+    );
+  }
+
   const normalizedPayload =
     payload && typeof payload === "object" && !Array.isArray(payload)
       ? (payload as Record<string, unknown>)
@@ -363,6 +376,9 @@ export async function adjudicateOpenAiCompatibleResumeImportCandidates(input: {
   return ResumeImportAdjudicationResultSchema.parse({
     candidates,
     notes: toStringArray(normalizedPayload.notes),
-    warnings: toStringArray(normalizedPayload.warnings),
+    warnings: [
+      ...truncationWarnings,
+      ...toStringArray(normalizedPayload.warnings),
+    ],
   });
 }

@@ -244,7 +244,8 @@ describe('ProfileSetupImportStep', () => {
     })
 
     const genericConfirmButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'Confirm')
-    expect(genericConfirmButton).toBeUndefined()
+    expect(genericConfirmButton).toBeTruthy()
+    expect(genericConfirmButton?.hasAttribute('disabled')).toBe(true)
 
     const visualChoiceButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent?.includes('Use Visual scan'))
     expect(visualChoiceButton).toBeTruthy()

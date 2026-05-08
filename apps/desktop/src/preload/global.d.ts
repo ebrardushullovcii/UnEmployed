@@ -14,6 +14,7 @@ import type {
   ResumeQualityBenchmarkReport,
   ResumeQualityBenchmarkRequest,
   ResumeImportBenchmarkReport,
+  ResumeImportBenchmarkCase,
   ResumeImportBenchmarkRequest,
   ResumeImportFieldCandidate,
   ResumeImportRun,
@@ -205,6 +206,9 @@ declare global {
           runResumeImportBenchmark: (
             input?: Partial<ResumeImportBenchmarkRequest>,
           ) => Promise<ResumeImportBenchmarkReport>;
+          getResumeImportBenchmarkCases: () => Promise<
+            readonly ResumeImportBenchmarkCase[]
+          >;
           getResumeImportState: () => Promise<{
             resumeImportRuns: readonly ResumeImportRun[];
             resumeImportDocumentBundles: readonly ResumeDocumentBundle[];

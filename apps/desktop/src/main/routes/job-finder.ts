@@ -45,6 +45,7 @@ import {
   JobSearchPreferencesSchema,
   JobFinderUndoProfileRevisionInputSchema,
   ResumeImportBenchmarkReportSchema,
+  ResumeImportBenchmarkCaseSchema,
   ResumeDocumentBundleSchema,
   ResumeImportFieldCandidateSchema,
   ResumeImportRunSchema,
@@ -61,6 +62,7 @@ import {
   resetJobFinderWorkspace,
   runDesktopResumeQualityBenchmark,
   runDesktopResumeImportBenchmark,
+  defaultBenchmarkCases,
   setJobFinderWorkspaceServiceTestEnv,
 } from "../services/job-finder";
 
@@ -439,6 +441,19 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
   );
 
   ipcMain.handle(
+    "job-finder:test-get-resume-import-benchmark-cases",
+    () => {
+      if (!isDesktopTestApiEnabled()) {
+        throw new Error(
+          "Desktop test API is disabled. Set UNEMPLOYED_ENABLE_TEST_API=1 to enable scripted UI flows.",
+        );
+      }
+
+      return ResumeImportBenchmarkCaseSchema.array().parse(defaultBenchmarkCases);
+    },
+  );
+
+  ipcMain.handle(
     "job-finder:test-get-resume-import-state",
     async () => {
       if (!isDesktopTestApiEnabled()) {
@@ -507,7 +522,7 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
       const { sourcePath, useVision } = parseResumeImportPathPayload(payload);
       return importResumeFromSourcePath(
         sourcePath,
-        typeof useVision === "boolean" ? { useVision } : {},
+        useVision !== undefined ? { useVision } : {},
       );
     },
   );

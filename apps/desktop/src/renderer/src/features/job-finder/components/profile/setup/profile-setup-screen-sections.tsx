@@ -298,7 +298,7 @@ export function ProfileSetupReviewQueueCard(props: {
                               </div>
                               {item.status === 'pending' ? (
                                 <Button
-                                  disabled={Boolean(props.actionsDisabledReason) || props.isReviewItemPending(item.id)}
+                                  disabled={Boolean(props.actionsDisabledReason) || props.isReviewItemPending(item.id) || !canConfirmReviewItem(item)}
                                   pending={isReviewActionPending(item.id, 'confirm', choice.id)}
                                   onClick={() => applyReviewAction(item.id, 'confirm', { selectedConflictChoiceId: choice.id })}
                                   size="sm"
@@ -325,8 +325,16 @@ export function ProfileSetupReviewQueueCard(props: {
                   {item.status === 'pending' ? (
                     <div className="mt-3 flex flex-wrap gap-2">
                       <Button aria-label={`Edit ${item.label}`} disabled={Boolean(props.actionsDisabledReason)} onClick={() => props.onEditReviewItem(item)} size="sm" type="button" variant="secondary">Edit this</Button>
-                      {canConfirmReviewItem(item) && (linkedCandidate?.conflictChoices?.length ?? 0) === 0 ? (
-                        <Button disabled={Boolean(props.actionsDisabledReason) || props.isReviewItemPending(item.id)} pending={isRowReviewActionPending} onClick={() => applyReviewAction(item.id, 'confirm')} size="sm" type="button">Confirm</Button>
+                      {canConfirmReviewItem(item) ? (
+                        <Button 
+                          disabled={Boolean(props.actionsDisabledReason) || props.isReviewItemPending(item.id) || (linkedCandidate?.conflictChoices?.length ?? 0) > 0} 
+                          pending={isRowReviewActionPending} 
+                          onClick={() => applyReviewAction(item.id, 'confirm')} 
+                          size="sm" 
+                          type="button"
+                        >
+                          Confirm
+                        </Button>
                       ) : null}
                       {canClearReviewItem(item) ? (
                         <Button disabled={Boolean(props.actionsDisabledReason) || props.isReviewItemPending(item.id)} pending={isRowReviewActionPending} onClick={() => applyReviewAction(item.id, 'clear_value')} size="sm" type="button" variant="secondary">Clear current value</Button>

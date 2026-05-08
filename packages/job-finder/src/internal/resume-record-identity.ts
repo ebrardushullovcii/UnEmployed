@@ -105,8 +105,27 @@ function fieldsMatch(left: string, right: string): boolean {
   return left.length > 0 && right.length > 0 && left === right;
 }
 
-function fieldsCompatible(left: string, right: string): boolean {
-  return !left || !right || left === right || left.includes(right) || right.includes(left);
+function fieldsCompatible(
+  left: string,
+  right: string,
+  kind?: "text" | "date" | "substring",
+): boolean {
+  // Dates (start/end): strict normalized equality only
+  if (kind === "date") {
+    return !left || !right || left === right;
+  }
+
+  // Degree / fieldOfStudy: substring matching is appropriate for long structured phrases
+  if (kind === "substring") {
+    return !left || !right || left === right || left.includes(right) || right.includes(left);
+  }
+
+  // Company / title ("text"): equality or meaningful token overlap — prevents false positives
+  // from short numbers or common substrings that substring matching would allow
+  if (!left || !right) return true;
+  if (left === right) return true;
+  const leftTokens = new Set(left.split(/\s+/).filter((t) => t.length >= 3));
+  return right.split(/\s+/).some((t) => t.length >= 3 && leftTokens.has(t));
 }
 
 function countTruthyFields(values: readonly unknown[]): number {
@@ -151,10 +170,10 @@ export function areEquivalentExperienceRecords(
   const strongStart = fieldsMatch(leftStart, rightStart);
   const strongEnd = fieldsMatch(leftEnd, rightEnd);
   const strongLocation = fieldsMatch(leftLocation, rightLocation);
-  const companyCompatible = fieldsCompatible(leftCompany, rightCompany);
-  const titleCompatible = fieldsCompatible(leftTitle, rightTitle);
-  const startCompatible = fieldsCompatible(leftStart, rightStart);
-  const endCompatible = fieldsCompatible(leftEnd, rightEnd);
+  const companyCompatible = fieldsCompatible(leftCompany, rightCompany, "text");
+  const titleCompatible = fieldsCompatible(leftTitle, rightTitle, "text");
+  const startCompatible = fieldsCompatible(leftStart, rightStart, "date");
+  const endCompatible = fieldsCompatible(leftEnd, rightEnd, "date");
 
   return (
     (strongTitle && strongStart && companyCompatible && (strongCompany || strongLocation)) ||
@@ -187,8 +206,8 @@ export function areEquivalentEducationRecords(
   const strongField = fieldsMatch(leftField, rightField);
   const strongStart = fieldsMatch(leftStart, rightStart);
   const strongEnd = fieldsMatch(leftEnd, rightEnd);
-  const degreeCompatible = fieldsCompatible(leftDegree, rightDegree);
-  const fieldCompatible = fieldsCompatible(leftField, rightField);
+  const degreeCompatible = fieldsCompatible(leftDegree, rightDegree, "substring");
+  const fieldCompatible = fieldsCompatible(leftField, rightField, "substring");
 
   return (
     (strongSchool && strongDegree && (strongStart || strongEnd || fieldCompatible)) ||

@@ -705,7 +705,7 @@ def build_vision_images_response(request: Dict[str, Any]) -> Dict[str, Any]:
     file_kind = request.get("fileKind") or detect_file_kind(file_path)
     source_resume_id = request.get("sourceResumeId") if isinstance(request.get("sourceResumeId"), str) else "resume_source_pending"
     run_id = request.get("runId") if isinstance(request.get("runId"), str) else "resume_vision_run_pending"
-    artifact_id = request.get("artifactId") if isinstance(request.get("artifactId"), str) else f"resume_vision_artifact_{abs(hash(file_path))}"
+    artifact_id = request.get("artifactId") if isinstance(request.get("artifactId"), str) else f"resume_vision_artifact_{hashlib.sha256(file_path.encode("utf-8")).hexdigest()[:16]}"
     retained = detect_retention_mode(request)
 
     if file_kind in {"plain_text", "markdown"}:
@@ -1081,6 +1081,25 @@ def build_failure_response(request_id: str, error_message: str) -> Dict[str, Any
     }
 
 
+def build_vision_images_failure_response(request_id: str, error_message: str) -> Dict[str, Any]:
+    return {
+        "requestId": request_id,
+        "ok": False,
+        "artifact": {
+            "id": "resume_vision_artifact_error",
+            "runId": "resume_vision_run_pending",
+            "sourceResumeId": "resume_source_pending",
+            "sourceFileKind": "unknown",
+            "createdAt": iso_now(),
+            "retained": "temporary",
+            "pages": [],
+            "warnings": [],
+        },
+        "warnings": [],
+        "errorMessage": error_message,
+    }
+
+
 def main() -> int:
     raw_input = ""
 
@@ -1093,13 +1112,20 @@ def main() -> int:
             response = build_response(request)
     except Exception as error:  # pragma: no cover - defensive transport fallback
         request_id = "unknown_request"
+        operation = None
 
         try:
-            request_id = json.loads(raw_input).get("requestId", request_id)
+            parsed_request = json.loads(raw_input)
+            request_id = parsed_request.get("requestId", request_id)
+            operation = parsed_request.get("operation")
         except Exception:
             pass
 
-        response = build_failure_response(request_id, str(error))
+        response = (
+            build_vision_images_failure_response(request_id, str(error))
+            if operation == "render_vision_images"
+            else build_failure_response(request_id, str(error))
+        )
 
     sys.stdout.write(json.dumps(response))
     return 0

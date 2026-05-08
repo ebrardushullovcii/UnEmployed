@@ -511,8 +511,17 @@ export function createOpenAiCompatibleResumeVisionProvider(
       const warnings: string[] = [...input.visionArtifact.warnings];
       const maxPagesPerBatch = validatedOptions.maxPagesPerBatch ?? MAX_PAGES_PER_BATCH;
 
+      // Filter pages with valid dataUrl before batching
+      const visiblePages = input.visionArtifact.pages.filter(
+        (page) => page.dataUrl !== null,
+      );
+
+      if (visiblePages.length === 0) {
+        return fallbackResult;
+      }
+
       try {
-        for (const batch of pageBatches(input.visionArtifact.pages, maxPagesPerBatch)) {
+        for (const batch of pageBatches(visiblePages, maxPagesPerBatch)) {
           const payload = await fetchVisionJson(batch, input);
           const record = payload && typeof payload === "object" && !Array.isArray(payload)
             ? payload as Record<string, unknown>
@@ -524,9 +533,9 @@ export function createOpenAiCompatibleResumeVisionProvider(
                   return [];
                 }
 
-                const visualEvidence = (candidate && typeof candidate === "object" && !Array.isArray(candidate)
-                  ? normalizeVisualEvidence(fallbackPage, (candidate as Record<string, unknown>).visualEvidence)
-                  : []) ?? [];
+                const visualEvidence = candidate && typeof candidate === "object" && !Array.isArray(candidate)
+                  ? normalizeVisualEvidence(fallbackPage, (candidate as Record<string, unknown>).visualEvidence) ?? []
+                  : [];
                 const pageNumber = visualEvidence[0]?.pageNumber ?? null;
                 const page = batch.find((entry) => entry.pageNumber === pageNumber) ?? fallbackPage;
                 return page ? [normalizeVisionCandidate(candidate, page, input.documentBundle)].filter((entry): entry is ResumeImportFieldCandidateDraft => entry !== null) : [];

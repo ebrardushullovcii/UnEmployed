@@ -191,15 +191,28 @@ function normalizeVisualPayload(input: {
     return parsed.data;
   }
 
+  const rejectedOutputReasons = parsed.error.issues.map((issue) => {
+    const path = issue.path.length > 0 ? issue.path.join(".") : "root";
+    return `${path}: ${issue.message}`;
+  });
+
+  // Targeted stripping: only null/empty the specific top-level fields that failed validation.
+  const recovery: Record<string, unknown> = { ...normalized };
+  const clearedKeys = new Set<string>();
+  for (const issue of parsed.error.issues) {
+    const topKey = issue.path[0];
+    if (typeof topKey === "string" && !clearedKeys.has(topKey)) {
+      clearedKeys.add(topKey);
+      const current = recovery[topKey];
+      recovery[topKey] = Array.isArray(current) ? [] : null;
+    }
+  }
+
   return BrowserVisualObservationSetSchema.parse({
-    ...base,
-      summary: null,
-      questionContexts: [],
-    rejectedOutputReasons: parsed.error.issues.map((issue) => {
-      const path = issue.path.length > 0 ? issue.path.join(".") : "root";
-      return `${path}: ${issue.message}`;
-    }),
+    ...recovery,
+    rejectedOutputReasons,
     uncertainty: [
+      ...toStringArray((recovery as { uncertainty?: unknown }).uncertainty),
       "The browser visual provider returned output that did not satisfy the safe observation schema.",
     ],
   });
@@ -480,28 +493,17 @@ export function createOpenAiCompatibleBrowserVisualAnalysisProvider(
 
         return BrowserVisualObservationSetSchema.parse({
           ...primary,
-          blockers: [...primary.blockers, ...fallbackResult.blockers],
-          visibleControls: [
-            ...primary.visibleControls,
-            ...fallbackResult.visibleControls,
-          ],
-          jobCardClues: [
-            ...primary.jobCardClues,
-            ...fallbackResult.jobCardClues,
-          ],
-          applyPathClues: [
-            ...primary.applyPathClues,
-            ...fallbackResult.applyPathClues,
-          ],
-          fieldControls: [
-            ...primary.fieldControls,
-            ...fallbackResult.fieldControls,
-          ],
-          validationErrors: [
-            ...primary.validationErrors,
-            ...fallbackResult.validationErrors,
-          ],
-          uncertainty: [...primary.uncertainty, ...fallbackResult.uncertainty],
+          blockers: [...new Set([...primary.blockers, ...fallbackResult.blockers])],
+          visibleControls: [...new Set([...primary.visibleControls, ...fallbackResult.visibleControls])],
+          jobCardClues: [...new Set([...primary.jobCardClues, ...fallbackResult.jobCardClues])],
+          applyPathClues: [...new Set([...primary.applyPathClues, ...fallbackResult.applyPathClues])],
+          fieldControls: [...new Set([...primary.fieldControls, ...fallbackResult.fieldControls])],
+          validationErrors: [...new Set([...primary.validationErrors, ...fallbackResult.validationErrors])],
+          buttonStates: [...new Set([...primary.buttonStates, ...fallbackResult.buttonStates])],
+          recoveryNotes: [...new Set([...primary.recoveryNotes, ...fallbackResult.recoveryNotes])],
+          observations: [...primary.observations, ...fallbackResult.observations],
+          questionContexts: [...primary.questionContexts, ...fallbackResult.questionContexts],
+          uncertainty: [...new Set([...primary.uncertainty, ...fallbackResult.uncertainty])],
         });
       } catch (error) {
         const message =

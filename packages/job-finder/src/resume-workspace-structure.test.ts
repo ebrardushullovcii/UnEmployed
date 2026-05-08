@@ -474,7 +474,7 @@ describe("buildResumeRenderDocument", () => {
       .find((section) => section.kind === "experience")
       ?.entries.find((item) => item.profileRecordId === "experience_operations_system");
 
-    expect(entry?.dateRange).toBe("Jul 2023 – Present");
+    expect(entry?.dateRange).toBe("Jan 2023 – Present");
     expect(entry?.startDate).toBe("01/07/2023");
     expect(entry?.endDate).toBeNull();
     expect(entry?.isCurrent).toBe(true);

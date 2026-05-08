@@ -634,6 +634,10 @@ export async function runAgentDiscovery(
           state,
           config.promptContext.taskPacket?.phase,
         );
+        appendConversationMessage(state, {
+          role: "user",
+          content: `[auto visual snapshot] ${compactToolContent(JSON.stringify(visualResult), getEffectiveCompactionConfig(config).maxToolPayloadChars)}`,
+        });
         recordEvidenceProgress();
       }
 

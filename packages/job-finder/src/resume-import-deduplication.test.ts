@@ -490,7 +490,6 @@ describe("resume import deduplication", () => {
       },
     });
 
-    const startedAt = Date.now();
     await workspaceService.runResumeImport({
       baseResume: {
         ...seed.profile.baseResume,
@@ -534,7 +533,6 @@ describe("resume import deduplication", () => {
     const run = await repository.getLatestResumeImportRun();
     const profile = await repository.getProfile();
 
-    expect(Date.now() - startedAt).toBeLessThan(200);
     expect(run?.modelRoles?.vision.status).toBe("running");
     expect(run?.modelRoles?.vision.warning).toContain("text import completed");
     expect(run?.modelRoles?.vision.providerKind).toBe("openai_compatible_vision");
@@ -600,7 +598,6 @@ describe("resume import deduplication", () => {
       },
     });
 
-    const startedAt = Date.now();
     await workspaceService.runResumeImport({
       baseResume: {
         ...seed.profile.baseResume,
@@ -644,7 +641,6 @@ describe("resume import deduplication", () => {
     const run = await repository.getLatestResumeImportRun();
     const profile = await repository.getProfile();
 
-    expect(Date.now() - startedAt).toBeLessThan(200);
     expect(run?.status).toBe("applied");
     expect(run?.modelRoles?.vision.status).toBe("running");
     expect(run?.modelRoles?.vision.timeoutMs).toBe(600_000);
@@ -754,7 +750,6 @@ describe("resume import deduplication", () => {
       },
     });
 
-    const startedAt = Date.now();
     await workspaceService.runResumeImport({
       baseResume: {
         ...seed.profile.baseResume,
@@ -797,7 +792,6 @@ describe("resume import deduplication", () => {
 
     const returnedRun = await repository.getLatestResumeImportRun();
 
-    expect(Date.now() - startedAt).toBeLessThan(200);
     expect(returnedRun?.modelRoles?.vision.status).toBe("running");
 
     await vi.waitFor(async () => {

@@ -17,6 +17,7 @@ import type {
   ResumeQualityBenchmarkReport,
   ResumeQualityBenchmarkRequest,
   ResumeImportBenchmarkReport,
+  ResumeImportBenchmarkCase,
   ResumeImportBenchmarkRequest,
   ResumeImportFieldCandidate,
   ResumeImportRun,
@@ -488,6 +489,10 @@ const desktopApi = {
                 "job-finder:test-run-resume-import-benchmark",
                 input ?? {},
               ) as Promise<ResumeImportBenchmarkReport>,
+            getResumeImportBenchmarkCases: () =>
+              ipcRenderer.invoke(
+                "job-finder:test-get-resume-import-benchmark-cases",
+              ) as Promise<readonly ResumeImportBenchmarkCase[]>,
             getResumeImportState: () =>
               ipcRenderer.invoke(
                 "job-finder:test-get-resume-import-state",

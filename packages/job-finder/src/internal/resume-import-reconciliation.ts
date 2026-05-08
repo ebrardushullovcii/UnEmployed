@@ -1113,6 +1113,7 @@ export function reconcileCandidates(
       if (isRecordTarget(first)) {
         const rankedGroup = [...sorted].sort(compareRecordCandidates);
         let hasAutoAppliedCollectionCandidate = false;
+        const recordGroupResolved: ResumeImportFieldCandidate[] = [];
 
         rankedGroup.forEach((candidate, index) => {
           const recommendation = recommendationForCandidate(candidate);
@@ -1139,13 +1140,13 @@ export function reconcileCandidates(
             candidate,
             resolution,
           );
-          resolved.push(resolvedCandidate);
+          recordGroupResolved.push(resolvedCandidate);
         });
-        const lastGroup = resolved.splice(resolved.length - rankedGroup.length, rankedGroup.length);
-        appendResolvedConflictGroup(resolved, lastGroup);
+        appendResolvedConflictGroup(resolved, recordGroupResolved);
         continue;
       }
 
+      const listGroupResolved: ResumeImportFieldCandidate[] = [];
       for (const candidate of sorted) {
         const recommendation = recommendationForCandidate(candidate);
         const shouldAutoApplyCollectionCandidate =
@@ -1163,10 +1164,9 @@ export function reconcileCandidates(
           candidate,
           resolution,
         );
-        resolved.push(resolvedCandidate);
+        listGroupResolved.push(resolvedCandidate);
       }
-      const lastGroup = resolved.splice(resolved.length - sorted.length, sorted.length);
-      appendResolvedConflictGroup(resolved, lastGroup);
+      appendResolvedConflictGroup(resolved, listGroupResolved);
       continue;
     }
 

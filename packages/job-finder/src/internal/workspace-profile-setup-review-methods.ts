@@ -88,9 +88,7 @@ function applySelectedConflictChoice(
       ...candidate.notes,
       `setup_selected_conflict_choice:${selectedChoice.sourceLabel}`,
     ],
-    ...(selectedChoice.visualEvidence.length > 0
-      ? { visualEvidence: selectedChoice.visualEvidence }
-      : {}),
+    visualEvidence: selectedChoice.visualEvidence,
     conflictChoices: (candidate.conflictChoices ?? []).map((choice) => ({
       ...choice,
       recommended: choice.id === selectedChoice.id,

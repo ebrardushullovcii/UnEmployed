@@ -178,7 +178,11 @@ function formatDateRange(start: string | null | undefined, end: string | null | 
     }
 
     if (dayMonthYearSlashMatch) {
-      return formatByMonth(Number(dayMonthYearSlashMatch[2]), dayMonthYearSlashMatch[3] ?? "");
+      // Treat first segment as month (MM/DD/YYYY) unless it exceeds 12, in which case it must be a day (DD/MM/YYYY).
+      const firstGroup = Number(dayMonthYearSlashMatch[1]);
+      const secondGroup = Number(dayMonthYearSlashMatch[2]);
+      const month = firstGroup > 12 ? secondGroup : firstGroup;
+      return formatByMonth(month, dayMonthYearSlashMatch[3] ?? "");
     }
 
     if (namedMonthMatch) {

@@ -227,26 +227,10 @@ async function buildApplyVisualDiagnostics(input: {
       visualObservationSets: [observationSet],
       visualCheckpoints: [checkpoint],
     };
-  } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Visual apply checkpoint failed.";
-    const capturedAt = new Date().toISOString();
-    const evidence = BrowserVisualEvidenceSummarySchema.parse({
-      snapshotId: `apply_visual_snapshot_failed_${input.job.id}`,
-      observationSetId: `apply_visual_observation_failed_${input.job.id}`,
-      summary: `Visual apply checkpoint unavailable: ${message}`,
-      capturedAt,
-      storagePath: null,
-      retention: "temporary",
-      redactionLevel: "sensitive",
-      confidence: 0,
-      reconciliationStatus: "not_compared",
-    });
-
+  } catch {
+    // Return empty results instead of fabricated evidence with dangling IDs
     return {
-      visualEvidence: [evidence],
+      visualEvidence: [],
       visualObservationSets: [],
       visualCheckpoints: [],
     };

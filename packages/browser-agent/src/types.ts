@@ -128,18 +128,20 @@ export interface AgentConfig {
   visualAnalysis?: AgentVisualAnalysisCapability;
 }
 
-export interface AgentVisualAnalysisCapability {
-  enabled: boolean;
-  captureSnapshot: (
-    request: BrowserVisualSnapshotRequest,
-    page?: Page,
-  ) => Promise<BrowserVisualSnapshotRef>;
-  analyzeSnapshot: (input: {
-    snapshot: BrowserVisualSnapshotRef;
-    context: BrowserVisualAnalysisContext;
-  }) => Promise<BrowserVisualObservationSet>;
-  persistScreenshots?: boolean;
-}
+export type AgentVisualAnalysisCapability =
+  | { enabled: false }
+  | {
+      enabled: true;
+      captureSnapshot: (
+        request: BrowserVisualSnapshotRequest,
+        page?: Page,
+      ) => Promise<BrowserVisualSnapshotRef>;
+      analyzeSnapshot: (input: {
+        snapshot: BrowserVisualSnapshotRef;
+        context: BrowserVisualAnalysisContext;
+      }) => Promise<BrowserVisualObservationSet>;
+      persistScreenshots?: boolean;
+    };
 
 export interface AgentState {
   conversation: AgentMessage[];

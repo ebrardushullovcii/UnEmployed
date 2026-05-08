@@ -91,6 +91,7 @@ export const visualTools: ToolDefinition[] = [
             width: { type: "number" },
             height: { type: "number" },
           },
+          required: ["x", "y", "width", "height"],
           description: "Bounding box when mode is region.",
         },
       },

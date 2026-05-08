@@ -91,7 +91,7 @@ type ResumeEntryTextField = "dateRange" | "endDate" | "location" | "startDate" |
 type ResumeEntryFieldValue = {
   [K in ResumeEntryTextField]: string | null;
 } & {
-  isCurrent: boolean | null;
+  isCurrent: boolean;
 };
 
 export function updateEntryField<TField extends keyof ResumeEntryFieldValue>(
@@ -107,9 +107,9 @@ export function updateEntryField<TField extends keyof ResumeEntryFieldValue>(
 }
 
 function parseStructuredEntryDate(entry: ResumeDraftEntry) {
-  if (entry.startDate?.trim() || entry.endDate?.trim()) {
+  if (entry.startDate?.trim() || entry.endDate?.trim() || entry.isCurrent === true) {
     return parseEntryDateRange(
-      [entry.startDate, entry.isCurrent ? "Present" : entry.endDate]
+      [entry.startDate, entry.isCurrent === true ? "Present" : entry.endDate]
         .filter((value): value is string => Boolean(value?.trim()))
         .join(" – "),
     );

@@ -23,7 +23,7 @@ function parseRetentionMode(env: NodeJS.ProcessEnv): ResumeImportArtifactRetenti
 
 function parseTimeoutMs(env: NodeJS.ProcessEnv): number {
   const parsed = Number.parseInt(env.UNEMPLOYED_RESUME_VISION_IMAGE_TIMEOUT_MS ?? '', 10)
-  return Number.isFinite(parsed) && parsed >= 1_000 ? parsed : 45_000
+  return Number.isFinite(parsed) && parsed >= 1_000 ? parsed : 600_000
 }
 
 export async function generateResumeVisionImages(input: {
@@ -50,6 +50,12 @@ export async function generateResumeVisionImages(input: {
     retention,
     timeoutMs: parseTimeoutMs(env),
   })
+  const baseWarnings = response.warnings.length > 0
+    ? response.warnings
+    : response.artifact.warnings
+  const mergedWarnings = response.errorMessage
+    ? [...baseWarnings, response.errorMessage]
+    : baseWarnings
   const artifact = ResumeImportVisionArtifactSchema.parse({
     ...response.artifact,
     id: artifactId,
@@ -65,13 +71,11 @@ export async function generateResumeVisionImages(input: {
       dataUrl: retention === 'temporary' ? page.dataUrl : null,
       storagePath: retention === 'temporary' ? null : page.storagePath,
     })),
-    warnings: response.warnings.length > 0 ? response.warnings : response.artifact.warnings,
+    warnings: mergedWarnings,
   })
 
   return {
     artifact,
-    warnings: response.errorMessage
-      ? [...artifact.warnings, response.errorMessage]
-      : artifact.warnings,
+    warnings: mergedWarnings,
   }
 }
