@@ -281,9 +281,9 @@ export function ProfileSetupReviewQueueCard(props: {
                     </div>
                   ) : null}
                   {(linkedCandidate?.conflictChoices?.length ?? 0) >= 2 ? (
-                    <div className="mt-3 rounded-(--radius-field) border border-amber-500/30 bg-amber-500/10 p-3">
+                    <div className="mt-3 rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) p-3">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-(length:--text-tiny) uppercase tracking-[0.2em] text-amber-200/90">Import comparison</p>
+                        <p className="text-(length:--text-tiny) uppercase tracking-[0.2em] text-(--warning-text)">Import comparison</p>
                         {conflictLabel ? <Badge variant="status">Needs choice</Badge> : null}
                       </div>
                       {conflictLabel ? <p className="mt-2 text-sm leading-6 text-foreground-soft">{conflictLabel}</p> : null}

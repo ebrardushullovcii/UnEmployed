@@ -21,6 +21,11 @@ import type { OpenAiCompatibleJsonOperation } from "./openai-compatible-request-
 
 const ADJUDICATION_BLOCK_LIMIT = 80;
 const ADJUDICATION_CANDIDATE_LIMIT = 24;
+// Post-adjudication confidence weighting: adjudicated candidates are assigned a lower
+// normalization risk and higher conflict risk compared with extract-path defaults,
+// reflecting the pro-normalization review pass that produced them.
+const POST_ADJ_NORMALIZATION_RISK = 0.1;
+const POST_ADJ_CONFLICT_RISK = 0.34;
 
 function toStringArray(value: unknown): string[] {
   if (typeof value === "string") {
@@ -316,6 +321,8 @@ export async function adjudicateOpenAiCompatibleResumeImportCandidates(input: {
       "Use Pro-style normalization only: produce validated import candidate drafts when a safer normalized value can be grounded in the supplied candidates and document blocks.",
       "Do not invent values. Do not write to the canonical profile. If the conflict is still ambiguous, return no candidates and explain the review need in notes.",
       "Each candidate must include target, label, value, normalizedValue when useful, evidenceText, sourceBlockIds, confidence, notes, alternatives, and may include visualEvidence.",
+      "Each candidate target must be an object, not a string.",
+      'Example candidate: {"target":{"section":"experience","key":"record","recordId":"experience_1"},"label":"Current role","value":{"title":"Engineer"},"confidence":0.9,"evidenceText":"Senior Engineer at Acme","sourceBlockIds":["b1"],"notes":[],"alternatives":[],"conflictChoices":[{"id":"c1","sourceLabel":"Text extraction","sourceKind":"document_text","confidence":0.85,"valuePreview":"Engineer","recommended":true}],"visualEvidence":[]}',
     ].join(" "),
     {
       existingProfile: input.adjudicationInput.existingProfile,
@@ -370,8 +377,8 @@ export async function adjudicateOpenAiCompatibleResumeImportCandidates(input: {
               sourceBlockIds: candidate.sourceBlockIds,
             },
             bundle: input.adjudicationInput.documentBundle,
-            normalizationRisk: 0.1,
-            conflictRisk: 0.34,
+            normalizationRisk: POST_ADJ_NORMALIZATION_RISK,
+            conflictRisk: POST_ADJ_CONFLICT_RISK,
           }),
         }))
     : [];

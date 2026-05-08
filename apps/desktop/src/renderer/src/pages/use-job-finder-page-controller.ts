@@ -307,12 +307,11 @@ export function useJobFinderPageController() {
   }, [])
   const resolveApplyCopilotVisualCheckpointRequest = useCallback(
     (visualCheckpointsEnabled: boolean) => {
-      setApplyCopilotVisualCheckpointRequest((request) => {
-        request?.onResolve(visualCheckpointsEnabled)
-        return null
-      })
+      const currentRequest = applyCopilotVisualCheckpointRequest
+      setApplyCopilotVisualCheckpointRequest(null)
+      currentRequest?.onResolve(visualCheckpointsEnabled)
     },
-    [],
+    [applyCopilotVisualCheckpointRequest],
   )
 
   const selectedDiscoveryJob = useMemo(

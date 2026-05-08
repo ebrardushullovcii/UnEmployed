@@ -30,6 +30,7 @@ function ApplyCopilotVisualCheckpointDialog(props: {
   request: ApplyCopilotVisualCheckpointRequest | null;
 }) {
   const dialogTitleId = useId();
+  const descriptionId = useId();
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const open = props.request !== null;
   useModalFocusTrap(open, dialogRef, props.onClose);
@@ -44,6 +45,7 @@ function ApplyCopilotVisualCheckpointDialog(props: {
       onClick={props.onClose}
     >
       <div
+        aria-describedby={descriptionId}
         aria-labelledby={dialogTitleId}
         aria-modal="true"
         className="surface-panel-shell grid w-full max-w-lg gap-5 rounded-(--radius-field) border border-(--surface-panel-border) p-5 shadow-(--modal-shadow)"
@@ -58,7 +60,7 @@ function ApplyCopilotVisualCheckpointDialog(props: {
               Apply copilot
             </p>
             <h2
-              className="text-[1.15rem] font-semibold text-(--text-headline)"
+              className="text-(length:--text-section-title) font-semibold text-(--text-headline)"
               id={dialogTitleId}
             >
               Enable visual checkpoints?
@@ -75,7 +77,7 @@ function ApplyCopilotVisualCheckpointDialog(props: {
             <X className="size-4" />
           </Button>
         </div>
-        <p className="text-[0.9rem] leading-6 text-foreground-soft">
+        <p className="text-(length:--text-item) leading-6 text-foreground-soft" id={descriptionId}>
           Optional visual checkpoints analyze temporary screenshots of the
           application page to help classify visible blockers. Screenshots are
           sensitive and temporary by default.

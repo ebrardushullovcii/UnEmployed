@@ -470,7 +470,10 @@ def truncate_svg_text(value: str, limit: int = 180) -> str:
     return normalized[: max(0, limit - 1)].rstrip() + "…"
 
 
-def split_text_into_pages(text: Optional[str], max_lines_per_page: int = 42) -> List[List[str]]:
+MAX_VISION_LINES_PER_PAGE = 48
+
+
+def split_text_into_pages(text: Optional[str], max_lines_per_page: int = MAX_VISION_LINES_PER_PAGE) -> List[List[str]]:
     if not text:
         return [[]]
 
@@ -517,15 +520,21 @@ def encode_page_image(
 
         image = Image.new("RGB", (width, height), "#f8fafc")
         draw = ImageDraw.Draw(image)
-        draw.rounded_rectangle((36, 36, 1204, 1718), radius=18, fill="#ffffff", outline="#d8e0eb", width=2)
+        card_margin = round(min(width, height) * 36 / 1240)
+        card_radius = max(4, card_margin // 2)
+        text_x = round(width * 82 / 1240)
+        title_y = round(height * 86 / 1754)
+        body_start_y = round(height * 158 / 1754)
+        line_gap = round(height * 32 / 1754)
+        draw.rounded_rectangle((card_margin, card_margin, width - card_margin, height - card_margin), radius=card_radius, fill="#ffffff", outline="#d8e0eb", width=2)
         title_font, title_uses_unicode = load_font(24)
         body_font, body_uses_unicode = load_font(28)
         title = f"Resume visual import preview - page {page_number}"
-        draw.text((82, 86), safe_text(title, title_uses_unicode), fill="#64748b", font=title_font)
+        draw.text((text_x, title_y), safe_text(title, title_uses_unicode), fill="#64748b", font=title_font)
 
-        for index, line in enumerate(lines[:48]):
-            y = 158 + index * 32
-            draw.text((82, y), safe_text(truncate_svg_text(line), body_uses_unicode), fill="#152033", font=body_font)
+        for index, line in enumerate(lines[:MAX_VISION_LINES_PER_PAGE]):
+            y = body_start_y + index * line_gap
+            draw.text((text_x, y), safe_text(truncate_svg_text(line), body_uses_unicode), fill="#152033", font=body_font)
 
         output = BytesIO()
         image.save(output, format="PNG", optimize=True)
@@ -579,9 +588,12 @@ def render_lines_to_svg_data_url(
 ) -> Dict[str, Any]:
     width = 1240
     height = 1754
-    margin_x = 82
-    margin_y = 86
-    line_height = 32
+    card_margin = round(min(width, height) * 36 / 1240)
+    card_radius = max(4, card_margin // 2)
+    text_x = round(width * 82 / 1240)
+    title_y = round(height * 86 / 1754)
+    body_start_y = round(height * 158 / 1754)
+    line_gap = round(height * 32 / 1754)
     font_size = 21
     escaped_title = html.escape(f"Resume visual import preview · page {page_number}")
     text_nodes: List[str] = []
@@ -589,19 +601,19 @@ def render_lines_to_svg_data_url(
     if not lines:
         lines = ["No readable text was available for this page preview."]
 
-    for index, line in enumerate(lines[:48]):
-        y = margin_y + 72 + index * line_height
+    for index, line in enumerate(lines[:MAX_VISION_LINES_PER_PAGE]):
+        y = body_start_y + index * line_gap
         escaped_line = html.escape(truncate_svg_text(line))
         weight = "700" if index == 0 or line.upper() == line else "400"
         text_nodes.append(
-            f'<text x="{margin_x}" y="{y}" font-family="Arial, Helvetica, sans-serif" font-size="{font_size}" font-weight="{weight}" fill="#152033">{escaped_line}</text>'
+            f'<text x="{text_x}" y="{y}" font-family="Arial, Helvetica, sans-serif" font-size="{font_size}" font-weight="{weight}" fill="#152033">{escaped_line}</text>'
         )
 
     svg = (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">'
         '<rect width="100%" height="100%" fill="#f8fafc"/>'
-        '<rect x="36" y="36" width="1168" height="1682" rx="18" fill="#ffffff" stroke="#d8e0eb" stroke-width="2"/>'
-        f'<text x="{margin_x}" y="{margin_y}" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" fill="#64748b" letter-spacing="2">{escaped_title}</text>'
+        f'<rect x="{card_margin}" y="{card_margin}" width="{width - 2 * card_margin}" height="{height - 2 * card_margin}" rx="{card_radius}" fill="#ffffff" stroke="#d8e0eb" stroke-width="2"/>'
+        f'<text x="{text_x}" y="{title_y}" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" fill="#64748b" letter-spacing="2">{escaped_title}</text>'
         + "".join(text_nodes)
         + '</svg>'
     )
@@ -650,31 +662,37 @@ def render_pdf_images(file_path: str, retained: str) -> Tuple[List[Dict[str, Any
         try:
             for page_index in range(len(pdf)):
                 page = pdf[page_index]
-                bitmap = page.render(scale=1.5)
-                pil_image = bitmap.to_pil()
-                from io import BytesIO
+                try:
+                    bitmap = page.render(scale=1.5)
+                    try:
+                        pil_image = bitmap.to_pil()
+                        from io import BytesIO
 
-                output = BytesIO()
-                pil_image.save(output, format="PNG", optimize=True)
-                raw = output.getvalue()
-                digest = hashlib.sha256(raw).hexdigest()
-                images.append({
-                    "id": f"vision_page_{page_index + 1}_{digest[:12]}",
-                    "sourceResumeId": "resume_source_pending",
-                    "sourceFileKind": "pdf",
-                    "pageNumber": page_index + 1,
-                    "renderKind": "pdf_page_image",
-                    "mimeType": "image/png",
-                    "width": int(pil_image.width),
-                    "height": int(pil_image.height),
-                    "byteLength": len(raw),
-                    "sha256": digest,
-                    "dataUrl": "data:image/png;base64," + base64.b64encode(raw).decode("ascii"),
-                    "storagePath": None if retained == "temporary" else "inline-debug-artifact",
-                    "retained": retained,
-                    "generatedAt": iso_now(),
-                    "warnings": [],
-                })
+                        output = BytesIO()
+                        pil_image.save(output, format="PNG", optimize=True)
+                        raw = output.getvalue()
+                        digest = hashlib.sha256(raw).hexdigest()
+                        images.append({
+                            "id": f"vision_page_{page_index + 1}_{digest[:12]}",
+                            "sourceResumeId": "resume_source_pending",
+                            "sourceFileKind": "pdf",
+                            "pageNumber": page_index + 1,
+                            "renderKind": "pdf_page_image",
+                            "mimeType": "image/png",
+                            "width": int(pil_image.width),
+                            "height": int(pil_image.height),
+                            "byteLength": len(raw),
+                            "sha256": digest,
+                            "dataUrl": "data:image/png;base64," + base64.b64encode(raw).decode("ascii"),
+                            "storagePath": None if retained == "temporary" else "inline-debug-artifact",
+                            "retained": retained,
+                            "generatedAt": iso_now(),
+                            "warnings": [],
+                        })
+                    finally:
+                        bitmap.close()
+                finally:
+                    page.close()
         finally:
             pdf.close()
         return images, warnings
@@ -1081,15 +1099,19 @@ def build_failure_response(request_id: str, error_message: str) -> Dict[str, Any
     }
 
 
-def build_vision_images_failure_response(request_id: str, error_message: str) -> Dict[str, Any]:
+def build_vision_images_failure_response(request: Optional[Dict[str, Any]], error_message: str) -> Dict[str, Any]:
+    request_id = request.get("requestId", "unknown_request") if request is not None else "unknown_request"
+    run_id = request.get("runId") if request is not None and isinstance(request.get("runId"), str) else "resume_vision_run_pending"
+    source_resume_id = request.get("sourceResumeId") if request is not None and isinstance(request.get("sourceResumeId"), str) else "resume_source_pending"
+    source_file_kind = request.get("fileKind") if request is not None and isinstance(request.get("fileKind"), str) else "unknown"
     return {
         "requestId": request_id,
         "ok": False,
         "artifact": {
             "id": "resume_vision_artifact_error",
-            "runId": "resume_vision_run_pending",
-            "sourceResumeId": "resume_source_pending",
-            "sourceFileKind": "unknown",
+            "runId": run_id,
+            "sourceResumeId": source_resume_id,
+            "sourceFileKind": source_file_kind,
             "createdAt": iso_now(),
             "retained": "temporary",
             "pages": [],
@@ -1102,27 +1124,32 @@ def build_vision_images_failure_response(request_id: str, error_message: str) ->
 
 def main() -> int:
     raw_input = ""
+    request: Optional[Dict[str, Any]] = None
 
     try:
         raw_input = sys.stdin.read()
-        request = json.loads(raw_input)
+        parsed = json.loads(raw_input)
+        if isinstance(parsed, dict):
+            request = parsed
+        if request is None:
+            raise ValueError(f"Expected a JSON object, got {type(parsed).__name__}")
         if request.get("operation") == "render_vision_images":
             response = build_vision_images_response(request)
         else:
             response = build_response(request)
     except Exception as error:  # pragma: no cover - defensive transport fallback
-        request_id = "unknown_request"
-        operation = None
-
-        try:
-            parsed_request = json.loads(raw_input)
-            request_id = parsed_request.get("requestId", request_id)
-            operation = parsed_request.get("operation")
-        except Exception:
-            pass
+        if request is None:
+            try:
+                parsed = json.loads(raw_input)
+                if isinstance(parsed, dict):
+                    request = parsed
+            except json.JSONDecodeError:
+                pass
+        request_id = request.get("requestId", "unknown_request") if request is not None else "unknown_request"
+        operation = request.get("operation") if request is not None else None
 
         response = (
-            build_vision_images_failure_response(request_id, str(error))
+            build_vision_images_failure_response(request, str(error))
             if operation == "render_vision_images"
             else build_failure_response(request_id, str(error))
         )

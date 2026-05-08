@@ -185,8 +185,10 @@ const SAVE_JOB_PATTERN =
   /(?:^|[.!?]\s+)save\s+(?:this\s+|the\s+|a\s+)?job\b|\bsave-job\b|\bsaved-job\b/i;
 const GENERATED_ANSWER_PATTERN =
   /\b(?:answer|respond)\s+(?:with|as)\b|\buse\s+this\s+answer\b|\bgenerated\s+answer\b/i;
+// "indeed" and "lever" are common English words; only flag them when accompanied
+// by site-reference context (on/at/via/through/using <name>) or a domain suffix.
 const SITE_SPECIFIC_WORKFLOW_RULE_PATTERN =
-  /\b(?:linkedin|indeed|greenhouse|lever|workday|ashby|smartrecruiters|icims|bamboohr|jobvite|kosovajob|wellfound|glassdoor|ziprecruiter)\b/i;
+  /\b(?:linkedin|greenhouse|workday|ashby|smartrecruiters|icims|bamboohr|jobvite|kosovajob|wellfound|glassdoor|ziprecruiter)\b|(?:on|at|via|through|using)\s+(?:indeed|lever)\b|\b(?:indeed|lever)\.com\b/i;
 
 export function validateBrowserVisualObservationText(
   value: string,
