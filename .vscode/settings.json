@@ -17,5 +17,6 @@
   "search.exclude": {
     "**/.turbo": true,
     "**/node_modules": true
-  }
+  },
+  "tailwindCSS.lint.suggestCanonicalClasses": "ignore"
 }
