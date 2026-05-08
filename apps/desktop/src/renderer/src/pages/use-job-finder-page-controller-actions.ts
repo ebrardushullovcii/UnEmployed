@@ -45,6 +45,10 @@ type BaseActionArgs = {
   navigate: (path: string, options?: { replace?: boolean; state?: unknown }) => void
   profileSetupState: ProfileSetupState | null
   profileCopilotRequestTokenRef: MutableRefObject<number>
+  requestApplyCopilotVisualCheckpoints: (request: {
+    jobId: string
+    onResolve: (visualCheckpointsEnabled: boolean) => void
+  }) => void
   refreshResumeWorkspace: (
     jobId: string,
     options?: {
@@ -279,6 +283,7 @@ export function createPrimaryPageActions(
     navigate,
     profileSetupState,
     profileCopilotRequestTokenRef,
+    requestApplyCopilotVisualCheckpoints,
     refreshResumeWorkspace,
     resumeAssistantRequestTokenRef,
     runAction,
@@ -457,16 +462,18 @@ export function createPrimaryPageActions(
       )
     },
     onStartApplyCopilot: (jobId: string) => {
-      const visualCheckpointsEnabled = window.confirm(
-        'Optional visual checkpoints can analyze a temporary screenshot of the application page to help classify visible blockers. Screenshots are sensitive and temporary by default. Enable visual checkpoints for this apply run?',
-      )
-      startAutoFlow(
-        () => actions.startApplyCopilotRun(jobId, { visualCheckpointsEnabled }),
-        visualCheckpointsEnabled
-          ? 'Apply copilot prepared the application with visual checkpoints and paused before final submit. Review it in Applications.'
-          : 'Apply copilot prepared the application and paused before final submit. Review it in Applications.',
-        jobFinderPendingActions.apply(),
-      )
+      requestApplyCopilotVisualCheckpoints({
+        jobId,
+        onResolve: (visualCheckpointsEnabled) => {
+          startAutoFlow(
+            () => actions.startApplyCopilotRun(jobId, { visualCheckpointsEnabled }),
+            visualCheckpointsEnabled
+              ? 'Apply copilot prepared the application with visual checkpoints and paused before final submit. Review it in Applications.'
+              : 'Apply copilot prepared the application and paused before final submit. Review it in Applications.',
+            jobFinderPendingActions.apply(),
+          )
+        },
+      })
     },
     onCheckBrowserSession: () =>
       void runAction(

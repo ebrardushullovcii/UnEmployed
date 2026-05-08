@@ -4,7 +4,9 @@ import {
   BrowserVisualObservationSetSchema,
   type AgentProviderStatus,
   type BrowserVisualAnalysisInput,
+  type BrowserVisualObservation,
   type BrowserVisualObservationSet,
+  type BrowserVisualQuestionContext,
 } from "@unemployed/contracts";
 import { z } from "zod";
 import {
@@ -59,6 +61,43 @@ function toStringArray(value: unknown): string[] {
     const trimmed = entry.trim();
     return trimmed ? [trimmed] : [];
   });
+}
+
+function uniqueBy<T>(values: readonly T[], getKey: (value: T) => string): T[] {
+  const seen = new Set<string>();
+  const unique: T[] = [];
+
+  for (const value of values) {
+    const key = getKey(value);
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    unique.push(value);
+  }
+
+  return unique;
+}
+
+function visualObservationKey(value: BrowserVisualObservation): string {
+  return [
+    value.id,
+    value.kind,
+    value.label,
+    value.description,
+    value.relatedText ?? "",
+  ].join("\u0000");
+}
+
+function visualQuestionContextKey(value: BrowserVisualQuestionContext): string {
+  return [
+    value.id,
+    value.snapshotId,
+    value.observationSetId,
+    value.promptHint,
+    value.fieldKindHint ?? "",
+  ].join("\u0000");
 }
 
 function normalizeTimeoutLikeError(error: unknown, timeoutMs: number): unknown {
@@ -501,8 +540,14 @@ export function createOpenAiCompatibleBrowserVisualAnalysisProvider(
           validationErrors: [...new Set([...primary.validationErrors, ...fallbackResult.validationErrors])],
           buttonStates: [...new Set([...primary.buttonStates, ...fallbackResult.buttonStates])],
           recoveryNotes: [...new Set([...primary.recoveryNotes, ...fallbackResult.recoveryNotes])],
-          observations: [...primary.observations, ...fallbackResult.observations],
-          questionContexts: [...primary.questionContexts, ...fallbackResult.questionContexts],
+          observations: uniqueBy(
+            [...primary.observations, ...fallbackResult.observations],
+            visualObservationKey,
+          ),
+          questionContexts: uniqueBy(
+            [...primary.questionContexts, ...fallbackResult.questionContexts],
+            visualQuestionContextKey,
+          ),
           uncertainty: [...new Set([...primary.uncertainty, ...fallbackResult.uncertainty])],
         });
       } catch (error) {
