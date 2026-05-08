@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   createJobFinderAiClientFromEnvironment,
+  createResumeVisionProviderFromEnvironment,
   type JobFinderAiClient,
 } from "@unemployed/ai-providers";
 import {
@@ -23,6 +24,8 @@ import {
 
 import { createEmptyJobFinderRepositoryState } from "../../adapters/job-finder-initial-state";
 import { extractResumeDocument } from "../../adapters/resume-document";
+import { detectResumeDocumentFileKind } from "../../adapters/resume-document/worker";
+import { generateResumeVisionImages } from "../../adapters/resume-vision-images";
 
 const defaultBenchmarkCases = [
   {
@@ -91,6 +94,14 @@ const defaultBenchmarkCases = [
           title: "Digital Marketing Manager",
           companyName: "BEAUTYQUE",
         },
+        {
+          title: "Technical Support Agent",
+          companyName: "BIT BY BIT",
+        },
+        {
+          title: "Call Center Agent",
+          companyName: "TREGI KOSOVO",
+        },
       ],
       educationRecords: [
         {
@@ -129,7 +140,27 @@ const defaultBenchmarkCases = [
         },
         {
           title: "Full-Stack Software Engineer",
+          companyName: "INFOTECH L.L.C",
+        },
+        {
+          title: "Full-Stack Software Engineer",
           companyName: "CREA-KO",
+        },
+        {
+          title: "Project Manager",
+          companyName: "BEAUTYQUE",
+        },
+        {
+          title: "Digital Marketing Manager",
+          companyName: "BEAUTYQUE",
+        },
+        {
+          title: "Technical Support Agent",
+          companyName: "BIT BY BIT",
+        },
+        {
+          title: "Call Center Agent",
+          companyName: "TREGI KOSOVO",
         },
       ],
       educationRecords: [
@@ -248,7 +279,12 @@ const defaultBenchmarkCases = [
           companyName: "Infor",
         },
       ],
-      educationRecords: [],
+      educationRecords: [
+        {
+          schoolName: "The University of Texas at Austin",
+          degree: "Bachelor of Science",
+        },
+      ],
     },
   },
 ] satisfies ResumeImportBenchmarkCase[];
@@ -321,10 +357,12 @@ function buildAiClient(
 async function loadDocumentBundle(input: {
   benchmarkCase: ResumeImportBenchmarkCase;
   profile: CandidateProfile;
+  useVision: boolean;
 }): Promise<{
   documentBundle: ResumeDocumentBundle;
   parseMethod: string;
   workerManifestVersion: string | null;
+  visionArtifact: Awaited<ReturnType<typeof generateResumeVisionImages>>["artifact"] | null;
 }> {
   const repoRoot = resolveRepoRoot();
   const resumePath = path.resolve(repoRoot, input.benchmarkCase.resumePath);
@@ -334,6 +372,16 @@ async function loadDocumentBundle(input: {
     runId: `benchmark_run_${input.benchmarkCase.id}`,
     sourceResumeId: input.profile.baseResume.id,
   });
+  const visionArtifact = input.useVision
+    ? await generateResumeVisionImages({
+        filePath: resumePath,
+        fileKind: detectResumeDocumentFileKind(resumePath),
+        runId: `benchmark_run_${input.benchmarkCase.id}`,
+        sourceResumeId: input.profile.baseResume.id,
+        artifactId: `benchmark_vision_artifact_${input.benchmarkCase.id}`,
+        env: process.env,
+      }).then((result) => result.artifact)
+    : null;
 
   return {
     documentBundle: extracted.bundle,
@@ -342,6 +390,7 @@ async function loadDocumentBundle(input: {
       extracted.bundle.primaryParserKind,
     ].filter(Boolean).join("+"),
     workerManifestVersion: extracted.bundle.parserManifest?.manifestVersion ?? null,
+    visionArtifact,
   };
 }
 
@@ -362,9 +411,10 @@ export async function runDesktopResumeImportBenchmark(
     async createHarness(benchmarkCase, normalizedRequest) {
       const profile = buildBenchmarkProfile(path.basename(benchmarkCase.resumePath));
       const searchPreferences = buildBenchmarkSearchPreferences();
-      const { documentBundle, parseMethod, workerManifestVersion } = await loadDocumentBundle({
+      const { documentBundle, parseMethod, workerManifestVersion, visionArtifact } = await loadDocumentBundle({
         benchmarkCase,
         profile,
+        useVision: normalizedRequest.useVision,
       });
 
       return {
@@ -381,8 +431,12 @@ export async function runDesktopResumeImportBenchmark(
         searchPreferences,
         documentBundle,
         aiClient: buildAiClient(normalizedRequest),
+        visionProvider: normalizedRequest.useConfiguredAi && normalizedRequest.useVision
+          ? createResumeVisionProviderFromEnvironment(process.env)
+          : null,
         parseMethod,
         workerManifestVersion,
+        ...(normalizedRequest.useVision ? { visionArtifact } : {}),
       };
     },
   });

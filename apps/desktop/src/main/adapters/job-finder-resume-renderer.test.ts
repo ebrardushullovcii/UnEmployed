@@ -38,6 +38,9 @@ const baseRenderDocument: ResumeRenderDocument = {
           subtitle: 'Signal Systems',
           location: 'London, UK',
           dateRange: 'Jan 2020 – Present',
+          startDate: '2020-01',
+          endDate: null,
+          isCurrent: true,
           heading: 'Senior systems designer — Signal Systems | London, UK | Jan 2020 – Present',
           summary: 'Owns workflow platform delivery.',
           bullets: [{ id: 'entry_1_bullet_1', text: 'Improved designer-engineer handoff <quality> by 30%.' }],
@@ -65,6 +68,9 @@ const baseRenderDocument: ResumeRenderDocument = {
           subtitle: 'Design lead',
           location: null,
           dateRange: null,
+          startDate: null,
+          endDate: null,
+          isCurrent: false,
           heading: 'Workflow OS — Design lead',
           summary: 'Scaled an internal design system.',
           bullets: [{ id: 'project_1_bullet_1', text: 'Created accessible interaction patterns.' }],
@@ -115,6 +121,9 @@ const credentialHeavyRenderDocument: ResumeRenderDocument = {
           subtitle: 'Amazon Web Services',
           location: null,
           dateRange: '2024',
+          startDate: '2024',
+          endDate: null,
+          isCurrent: false,
           heading: 'AWS Certified Solutions Architect | Amazon Web Services | 2024',
           summary: 'Validated distributed systems depth for platform-heavy roles.',
           bullets: [{ id: 'cert_1_bullet_1', text: 'Maintains current cloud architecture certification.' }],
@@ -134,6 +143,9 @@ const credentialHeavyRenderDocument: ResumeRenderDocument = {
           subtitle: 'City University',
           location: null,
           dateRange: '2015',
+          startDate: '2015',
+          endDate: null,
+          isCurrent: false,
           heading: 'MSc Human Computer Interaction | City University | 2015',
           summary: null,
           bullets: [{ id: 'edu_1_bullet_1', text: 'Research focus on applied systems design.' }],
@@ -224,6 +236,9 @@ describe('job finder resume renderer', () => {
                   subtitle: null,
                   location: null,
                   dateRange: null,
+                  startDate: null,
+                  endDate: null,
+                  isCurrent: false,
                   heading: null,
                   summary: null,
                   bullets: [{ id: 'entry_bullet_only_1', text: 'Lead architect for platform reliability.' }],
@@ -256,7 +271,7 @@ describe('job finder resume renderer', () => {
     expect(html).toContain('data-resume-target-id="entry:section_experience:entry_1:title"')
     expect(html).toContain('data-resume-target-id="entry:section_experience:entry_1:subtitle"')
     expect(html).toContain('data-resume-target-id="entry:section_experience:entry_1:location"')
-    expect(html).toContain('data-resume-target-id="entry:section_experience:entry_1:dateRange"')
+    expect(html).toContain('data-resume-target-id="entry:section_experience:entry_1:startDate"')
     expect(html).toContain('data-resume-target-id="entry:section_experience:entry_1:bullet:entry_1_bullet_1"')
     expect(html).toContain('data-resume-entry-id="entry_bullet_only"')
     expect(html).toContain('data-resume-target-id="entry:section_experience:entry_bullet_only:bullet:entry_bullet_only_1"')

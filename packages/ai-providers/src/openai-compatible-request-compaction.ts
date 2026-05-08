@@ -11,6 +11,7 @@ import {
 export type OpenAiCompatibleJsonOperation =
   | "extractProfileFromResume"
   | "extractResumeImportStage"
+  | "adjudicateResumeImportCandidates"
   | "createResumeDraft"
   | "reviseResumeDraft"
   | "reviseCandidateProfile"
@@ -263,6 +264,7 @@ function responseHeadroomTokensForOperation(
   switch (operation) {
     case "extractProfileFromResume":
     case "extractResumeImportStage":
+    case "adjudicateResumeImportCandidates":
     case "createResumeDraft":
     case "tailorResume":
       return 4_096;

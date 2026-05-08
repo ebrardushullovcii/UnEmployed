@@ -137,6 +137,8 @@ export function createStageCandidate(input: {
     },
     notes: [],
     alternatives: [],
+    conflictChoices: [],
+    visualEvidence: [],
   };
 }
 

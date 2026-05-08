@@ -201,6 +201,7 @@ export function createWorkspaceSnapshotProfileMethods(
       module: "job-finder",
       generatedAt,
       agentProvider: ctx.aiClient.getStatus(),
+      visionProvider: ctx.visionProvider?.getStatus() ?? null,
       availableResumeTemplates,
       profile: setupContext.profile,
       searchPreferences: setupContext.searchPreferences,
@@ -411,6 +412,7 @@ export function createWorkspaceSnapshotProfileMethods(
         documentBundle,
         trigger: "import",
         ...(input.importWarnings ? { importWarnings: input.importWarnings } : {}),
+        ...(input.visionArtifact ? { visionArtifact: input.visionArtifact } : {}),
       });
 
       if (hasResumeAffectingProfileChange(currentProfile, workflowResult.profile)) {

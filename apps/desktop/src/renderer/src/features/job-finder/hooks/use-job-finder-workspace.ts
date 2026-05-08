@@ -4,12 +4,15 @@ import type {
   DiscoveryActivityEvent,
   EditableSourceInstructionArtifact,
   JobFinderApplyConsentActionInput,
+  JobFinderApplyCopilotActionInput,
   JobFinderApplyQueueActionInput,
   JobFinderOpenBrowserSessionInput,
   JobFinderSettings,
   JobFinderWorkspaceSnapshot,
   JobSearchPreferences,
   ProfileCopilotContext,
+  ProfileSetupReviewAction,
+  ProfileSetupReviewActionOptions,
   ProfileSetupState,
   ResumeDraft,
   ResumeDraftPatch,
@@ -114,9 +117,15 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.generateResume(jobId),
         ),
-      startApplyCopilotRun: (jobId: string) =>
+      startApplyCopilotRun: (
+        jobId: string,
+        options?: Pick<
+          JobFinderApplyCopilotActionInput,
+          "visualCheckpointsEnabled"
+        >,
+      ) =>
         runWorkspaceAction(() =>
-          window.unemployed.jobFinder.startApplyCopilotRun(jobId),
+          window.unemployed.jobFinder.startApplyCopilotRun(jobId, options),
         ),
       startAutoApplyRun: (jobId: string) =>
         runWorkspaceAction(() =>
@@ -227,12 +236,14 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         ),
       applyProfileSetupReviewAction: (
         reviewItemId: string,
-        action: "confirm" | "dismiss" | "clear_value",
+        action: ProfileSetupReviewAction,
+        options?: ProfileSetupReviewActionOptions,
       ) =>
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.applyProfileSetupReviewAction(
             reviewItemId,
             action,
+            options,
           ),
         ),
       sendProfileCopilotMessage: (

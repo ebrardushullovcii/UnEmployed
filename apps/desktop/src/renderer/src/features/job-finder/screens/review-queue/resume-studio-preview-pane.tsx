@@ -73,13 +73,16 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
       return;
     }
 
-    const measurePreviewHeight = () => {
-      const document = frame.contentDocument;
-      if (!document) {
-        return;
-      }
+      const measurePreviewHeight = () => {
+        const document = frame.contentDocument;
+        if (!document) {
+          return;
+        }
 
-      const page = document.querySelector<HTMLElement>(".page");
+        document.documentElement.style.overflow = "hidden";
+        document.body.style.overflow = "hidden";
+
+        const page = document.querySelector<HTMLElement>(".page");
       const body = document.body;
       const rawHeight = page?.getBoundingClientRect().height ?? body?.scrollHeight ?? 0;
 
@@ -293,7 +296,7 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
         data-resume-preview-scroll-region
         ref={scrollRegionRef}
       >
-        <div className="grid h-full justify-items-center">
+        <div className="grid min-h-full justify-items-center pb-4">
         {props.previewStatus === "error" ? (
           <div className="grid h-full place-items-center rounded-(--radius-field) border border-dashed border-critical/35 bg-critical/10 p-6 text-center">
             <div className="grid max-w-md gap-3">

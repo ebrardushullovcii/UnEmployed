@@ -6,6 +6,7 @@ import type {
   DiscoveryActivityEvent,
   EditableSourceInstructionArtifact,
   JobFinderApplyConsentActionInput,
+  JobFinderApplyCopilotActionInput,
   JobFinderApplyQueueActionInput,
   JobFinderOpenBrowserSessionInput,
   JobFinderResumePreview,
@@ -15,6 +16,8 @@ import type {
   JobFinderWorkspaceSnapshot,
   JobSourceAdapterKind,
   ProfileCopilotContext,
+  ProfileSetupReviewAction,
+  ProfileSetupReviewActionOptions,
   ProfileSetupState,
   ResumeAssistantMessage,
   ResumeDraft,
@@ -81,7 +84,8 @@ export interface JobFinderShellActions {
   ) => Promise<JobFinderWorkspaceSnapshot>;
   applyProfileSetupReviewAction: (
     reviewItemId: string,
-    action: "confirm" | "dismiss" | "clear_value",
+    action: ProfileSetupReviewAction,
+    options?: ProfileSetupReviewActionOptions,
   ) => Promise<JobFinderWorkspaceSnapshot>;
   sendProfileCopilotMessage: (
     content: string,
@@ -125,7 +129,13 @@ export interface JobFinderShellActions {
     content: string,
   ) => Promise<readonly ResumeAssistantMessage[]>;
   generateResume: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
-  startApplyCopilotRun: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
+  startApplyCopilotRun: (
+    jobId: string,
+    options?: Pick<
+      JobFinderApplyCopilotActionInput,
+      "visualCheckpointsEnabled"
+    >,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
   startAutoApplyRun: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
   startAutoApplyQueueRun: (
     jobIds: JobFinderApplyQueueActionInput['jobIds'],

@@ -20,6 +20,13 @@ import {
   SharedAgentCompactionSnapshotSchema,
   type SharedAgentCompactionSnapshot,
 } from "./agent-compaction";
+import {
+  BrowserVisualEvidenceSummarySchema,
+  BrowserVisualObservationSetSchema,
+  BrowserVisualRetentionPolicySchema,
+  BrowserVisualSnapshotModeSchema,
+  SourceDebugVisualFindingSchema,
+} from "./visual";
 
 export const SourceInstructionVersionInfoSchema = z.object({
   promptProfileVersion: NonEmptyStringSchema,
@@ -41,6 +48,7 @@ export const SourceDebugPhaseEvidenceSchema = z.object({
   routeSignals: z.array(NonEmptyStringSchema).default([]),
   attemptedControls: z.array(NonEmptyStringSchema).default([]),
   warnings: z.array(NonEmptyStringSchema).default([]),
+  visualFindings: z.array(SourceDebugVisualFindingSchema).default([]),
 });
 export type SourceDebugPhaseEvidence = z.infer<
   typeof SourceDebugPhaseEvidenceSchema
@@ -69,6 +77,11 @@ const SourceDebugScreenshotEvidenceRefSchema =
     url: UrlStringSchema.nullable().default(null),
     storagePath: NonEmptyStringSchema,
     excerpt: NonEmptyStringSchema.nullable().default(null),
+    visualSnapshotId: NonEmptyStringSchema.nullable().default(null),
+    visualObservationSetId: NonEmptyStringSchema.nullable().default(null),
+    visualMode: BrowserVisualSnapshotModeSchema.nullable().default(null),
+    visualRetention: BrowserVisualRetentionPolicySchema.nullable().default(null),
+    visualObservations: BrowserVisualObservationSetSchema.nullable().default(null),
   });
 
 const SourceDebugNoteEvidenceRefSchema = SourceDebugEvidenceRefBaseSchema.extend(
@@ -141,10 +154,14 @@ export const SourceDebugWorkerAttemptSchema = z.object({
   avoidStrategyFingerprints: z.array(NonEmptyStringSchema).default([]),
   evidenceRefIds: z.array(NonEmptyStringSchema).default([]),
   phaseEvidence: SourceDebugPhaseEvidenceSchema.nullable().default(null),
+  visualEvidence: z.array(BrowserVisualEvidenceSummarySchema).default([]),
   compactionState: SourceDebugCompactionStateSchema.nullable().default(null),
   timing: SourceDebugTimingSummarySchema.nullable().default(null),
 });
 export type SourceDebugWorkerAttempt = z.infer<
+  typeof SourceDebugWorkerAttemptSchema
+>;
+export type SourceDebugWorkerAttemptInput = z.input<
   typeof SourceDebugWorkerAttemptSchema
 >;
 

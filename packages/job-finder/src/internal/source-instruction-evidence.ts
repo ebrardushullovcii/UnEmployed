@@ -138,7 +138,17 @@ export function deriveGuidanceFromPhaseEvidence(
   const successfulInteractions =
     attempt.phaseEvidence.successfulInteractions ?? [];
   const attemptedControls = attempt.phaseEvidence.attemptedControls ?? [];
-  const warnings = attempt.phaseEvidence.warnings ?? [];
+  const visualFindingSummaries = (attempt.phaseEvidence.visualFindings ?? []).flatMap(
+    (finding) => [finding.summary],
+  );
+  const visualEvidenceSummaries = Array.isArray(attempt.visualEvidence)
+    ? attempt.visualEvidence.map((evidence) => evidence.summary)
+    : [];
+  const warnings = [
+    ...(attempt.phaseEvidence.warnings ?? []),
+    ...visualFindingSummaries,
+    ...visualEvidenceSummaries,
+  ];
   const locationControls = summarizeNamedVisibleControls(controls, [
     "location",
     "city",
@@ -616,4 +626,3 @@ export function isUrlShortcutSourceInstruction(value: string): boolean {
     normalized.includes("direct url")
   );
 }
-

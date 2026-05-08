@@ -320,7 +320,7 @@ export function ResumeGuidedEditsPopup(props: {
                             <span>{isAssistant ? "Assistant" : "You"}</span>
                             <span>{formatTimestamp(message.createdAt)}</span>
                           </div>
-                          <p className="whitespace-pre-wrap wrap-break-word">
+                          <p className="whitespace-pre-wrap break-words">
                             {message.content}
                           </p>
                         </div>

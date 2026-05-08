@@ -1,5 +1,7 @@
+import type { ExecuteApplicationFlowInput } from "@unemployed/browser-runtime";
 import {
   ApplyJobResultSchema,
+  ApplyRecoveryContextSchema,
   ApplyRunSchema,
   ApplySubmitApprovalSchema,
   ApplicationConsentRequestSchema,
@@ -17,6 +19,7 @@ import {
   SavedJobSchema,
   TailoredAssetSchema,
   type ApplyExecutionResult,
+  type BrowserVisualEvidenceSummary,
   type JobSource,
   type ResumeValidationIssue,
   type ResumeValidationResult,
@@ -112,6 +115,14 @@ function createMonotonicTimestamp(
     : Number.NaN;
   const previous = Number.isNaN(parsedPrevious) ? now : parsedPrevious + 1;
   return new Date(Math.max(now, previous)).toISOString();
+}
+
+function getApplyResultSortTime(input: {
+  completedAt: string | null;
+  updatedAt: string;
+  startedAt: string;
+}): number {
+  return Date.parse(input.completedAt ?? input.updatedAt ?? input.startedAt);
 }
 
 export function createWorkspaceApplicationMethods(
@@ -359,13 +370,49 @@ export function createWorkspaceApplicationMethods(
     });
   }
 
+  function buildApplyVisualExecutionOptions(input: {
+    enabled: boolean;
+    source: JobSource;
+  }): Pick<
+    ExecuteApplicationFlowInput,
+    "captureVisualSnapshot" | "analyzeVisualSnapshot"
+  > | Record<string, never> {
+    if (
+      !input.enabled ||
+      !ctx.browserRuntime.captureVisualSnapshot ||
+      !ctx.aiClient.analyzeBrowserVisualSnapshot
+    ) {
+      return {};
+    }
+
+    const captureVisualSnapshot = ctx.browserRuntime.captureVisualSnapshot.bind(
+      ctx.browserRuntime,
+    );
+    const analyzeVisualSnapshot = ctx.aiClient.analyzeBrowserVisualSnapshot.bind(
+      ctx.aiClient,
+    );
+
+    return {
+      captureVisualSnapshot: (request) =>
+        captureVisualSnapshot(input.source, request),
+      analyzeVisualSnapshot,
+    };
+  }
+
   async function buildApplyRecoveryContext(jobId: string) {
     const [runs, results, checkpoints] = await Promise.all([
       ctx.repository.listApplyRuns(),
       ctx.repository.listApplyJobResults(),
       ctx.repository.listApplicationReplayCheckpoints({ jobId }),
     ]);
-    const latestResult = results.find((entry) => entry.jobId === jobId) ?? null;
+    const latestResult =
+      results
+        .filter((entry) => entry.jobId === jobId)
+        .sort((left, right) => {
+          const rightTime = getApplyResultSortTime(right);
+          const leftTime = getApplyResultSortTime(left);
+          return rightTime - leftTime;
+        })[0] ?? null;
 
     if (!latestResult) {
       return {
@@ -383,9 +430,49 @@ export function createWorkspaceApplicationMethods(
       };
     }
 
-    const latestCheckpoint = checkpoints[0] ?? null;
+    const latestRunCheckpoints = checkpoints.filter(
+      (checkpoint) => checkpoint.runId === latestResult.runId,
+    );
+    const latestCheckpoint = latestRunCheckpoints[0] ?? null;
+    const retainedVisualEvidence = (() => {
+      const seenEvidence = new Set<string>();
+      const candidates: BrowserVisualEvidenceSummary[] = [
+        ...latestRunCheckpoints.flatMap((checkpoint) => checkpoint.visualEvidence),
+        ...latestResult.visualCheckpoints.flatMap((checkpoint) =>
+          checkpoint.retained
+            ? [
+                {
+                  snapshotId: checkpoint.snapshotId,
+                  observationSetId: checkpoint.observationSetId,
+                  summary: checkpoint.summary,
+                  capturedAt: checkpoint.capturedAt,
+                  storagePath: checkpoint.storagePath,
+                  retention: "retained" as const,
+                  redactionLevel: "sensitive" as const,
+                  confidence: 0.5,
+                  reconciliationStatus:
+                    checkpoint.reconciliations[0]?.status ??
+                    ("not_compared" as const),
+                },
+              ]
+            : [],
+        ),
+      ];
+
+      return candidates
+        .filter((entry) => entry.retention !== "temporary")
+        .flatMap((entry) => {
+          const key = `${entry.snapshotId}:${entry.observationSetId}`;
+          if (seenEvidence.has(key)) {
+            return [];
+          }
+
+          seenEvidence.add(key);
+          return [entry];
+        });
+    })();
     const checkpointUrls = uniqueStrings(
-      checkpoints
+      latestRunCheckpoints
         .map((checkpoint) => checkpoint.url)
         .filter(
           (url): url is string =>
@@ -394,7 +481,7 @@ export function createWorkspaceApplicationMethods(
     );
 
     return {
-      recoveryContext: {
+      recoveryContext: ApplyRecoveryContextSchema.parse({
         previousRunId: previousRun.id,
         previousResultId: latestResult.id,
         previousRunMode: previousRun.mode,
@@ -410,7 +497,8 @@ export function createWorkspaceApplicationMethods(
           : null,
         checkpointUrls,
         blockerSummary: latestResult.blockerSummary,
-      },
+        retainedVisualEvidence,
+      }),
       recoveryInstructions: buildRecoveryInstructions({
         blockerSummary: latestResult.blockerSummary,
         latestCheckpointDetail: latestCheckpoint?.detail ?? null,
@@ -574,6 +662,10 @@ export function createWorkspaceApplicationMethods(
             ...(applyInstructions.length > 0
               ? { instructions: applyInstructions }
               : {}),
+            ...buildApplyVisualExecutionOptions({
+              enabled: currentRunState.visualCheckpointsEnabled,
+              source: job.source,
+            }),
           },
         );
         const detectedAt = new Date().toISOString();
@@ -601,6 +693,7 @@ export function createWorkspaceApplicationMethods(
           job,
           executionResult: normalizedExecutionResult,
           detectedAt,
+          visualCheckpointsEnabled: currentRunState.visualCheckpointsEnabled,
         });
         const existingQuestionIds = new Set(
           questionRecords
@@ -655,6 +748,8 @@ export function createWorkspaceApplicationMethods(
             normalizedExecutionResult.blocker,
           ),
           blockerSummary: normalizedExecutionResult.blocker?.summary ?? null,
+          visualObservationSets: normalizedExecutionResult.visualObservationSets,
+          visualCheckpoints: normalizedExecutionResult.visualCheckpoints,
           latestQuestionCount: runArtifacts.questionRecords.length,
           latestAnswerCount: runArtifacts.answerRecords.length,
           pendingConsentRequestCount: runArtifacts.consentRequests.length,
@@ -734,6 +829,9 @@ export function createWorkspaceApplicationMethods(
               ApplicationAttemptConsentDecisionSchema.parse(decision),
           ),
           replay,
+          visualEvidence: normalizedExecutionResult.visualEvidence,
+          visualObservationSets: normalizedExecutionResult.visualObservationSets,
+          visualCheckpoints: normalizedExecutionResult.visualCheckpoints,
           nextActionLabel: normalizedExecutionResult.nextActionLabel,
         });
         await ctx.repository.upsertApplicationAttempt(attempt);
@@ -777,7 +875,7 @@ export function createWorkspaceApplicationMethods(
               ? "Resolve the consent request in Applications to continue the queue."
               : normalizedExecutionResult.nextActionLabel,
           questionSummary: buildQuestionSummary(attempt.questions),
-          replaySummary: buildReplaySummary(attempt.replay),
+          replaySummary: buildReplaySummary(attempt.replay, attempt.visualEvidence),
           updatedAt: detectedAt,
         });
 
@@ -1019,12 +1117,13 @@ export function createWorkspaceApplicationMethods(
         : ctx.aiClient.getStatus().kind === "openai_compatible"
           ? "ai_assisted"
           : "deterministic";
-      const now = new Date().toISOString();
+      const now = createMonotonicTimestamp(existingDraft?.updatedAt ?? null);
       const resumeDraft = buildResumeDraftFromTailoredDraft({
         job,
         templateId: existingDraft?.templateId ?? settings.resumeTemplateId,
         draft,
         createdAt: existingDraft?.createdAt ?? now,
+        updatedAt: now,
         existingDraftId: existingDraft?.id ?? null,
         generationMethod:
           generationMethod === "ai_assisted" ? "ai" : "deterministic",
@@ -1109,7 +1208,7 @@ export function createWorkspaceApplicationMethods(
           draft.compatibilityScore ??
           Math.min(100, job.matchAssessment.score + 3),
         progressPercent: 100,
-        updatedAt: new Date().toISOString(),
+        updatedAt: now,
         storagePath: renderedArtifact.storagePath,
         contentText,
         previewSections,
@@ -1822,6 +1921,9 @@ export function createWorkspaceApplicationMethods(
         blocker,
         consentDecisions,
         replay,
+        visualEvidence: executionResult.visualEvidence,
+        visualObservationSets: executionResult.visualObservationSets,
+        visualCheckpoints: executionResult.visualCheckpoints,
         nextActionLabel: executionResult.nextActionLabel,
       });
 
@@ -1843,7 +1945,7 @@ export function createWorkspaceApplicationMethods(
         questionSummary: buildQuestionSummary(attempt.questions),
         latestBlocker: buildLatestBlockerSummary(attempt.blocker),
         consentSummary: buildConsentSummary(attempt.consentDecisions),
-        replaySummary: buildReplaySummary(attempt.replay),
+        replaySummary: buildReplaySummary(attempt.replay, attempt.visualEvidence),
         events: mergeEvents(
           existingRecord?.events ?? [],
           toApplicationEvents(job, executionResult.checkpoints),
@@ -1882,7 +1984,7 @@ export function createWorkspaceApplicationMethods(
 
       return ctx.getWorkspaceSnapshot();
     },
-    async startApplyCopilotRun(jobId) {
+    async startApplyCopilotRun(jobId, options) {
       const [
         profile,
         searchPreferences,
@@ -1947,7 +2049,13 @@ export function createWorkspaceApplicationMethods(
             applicationRecords.find((record) => record.jobId === jobId) ?? null;
 
           await Promise.all([
-            ctx.repository.upsertApplyRun(ApplyRunSchema.parse(artifacts.run)),
+            ctx.repository.upsertApplyRun(
+              ApplyRunSchema.parse({
+                ...artifacts.run,
+                visualCheckpointsEnabled:
+                  options?.visualCheckpointsEnabled === true,
+              }),
+            ),
             ctx.repository.upsertApplyJobResult(artifacts.result),
             ctx.repository.upsertApplicationQuestionRecord(
               artifacts.questionRecord,
@@ -1981,7 +2089,13 @@ export function createWorkspaceApplicationMethods(
           applicationRecords.find((record) => record.jobId === jobId) ?? null;
 
         await Promise.all([
-          ctx.repository.upsertApplyRun(ApplyRunSchema.parse(artifacts.run)),
+          ctx.repository.upsertApplyRun(
+            ApplyRunSchema.parse({
+              ...artifacts.run,
+              visualCheckpointsEnabled:
+                options?.visualCheckpointsEnabled === true,
+            }),
+          ),
           ctx.repository.upsertApplyJobResult(artifacts.result),
           ctx.repository.upsertApplicationQuestionRecord(
             artifacts.questionRecord,
@@ -2044,6 +2158,10 @@ export function createWorkspaceApplicationMethods(
           ...(applyInstructions.length > 0
             ? { instructions: applyInstructions }
             : {}),
+          ...buildApplyVisualExecutionOptions({
+            enabled: options?.visualCheckpointsEnabled === true,
+            source: job.source,
+          }),
         },
       );
       const detectedAt = new Date().toISOString();
@@ -2084,6 +2202,9 @@ export function createWorkspaceApplicationMethods(
         blocker,
         consentDecisions,
         replay,
+        visualEvidence: executionResult.visualEvidence,
+        visualObservationSets: executionResult.visualObservationSets,
+        visualCheckpoints: executionResult.visualCheckpoints,
         nextActionLabel: executionResult.nextActionLabel,
       });
       const runArtifacts = buildApplyCopilotArtifacts({
@@ -2094,6 +2215,7 @@ export function createWorkspaceApplicationMethods(
           replay,
         },
         detectedAt,
+        visualCheckpointsEnabled: options?.visualCheckpointsEnabled === true,
       });
 
       await ctx.repository.upsertApplicationAttempt(attempt);
@@ -2133,7 +2255,7 @@ export function createWorkspaceApplicationMethods(
         questionSummary: buildQuestionSummary(attempt.questions),
         latestBlocker: buildLatestBlockerSummary(attempt.blocker),
         consentSummary: buildConsentSummary(attempt.consentDecisions),
-        replaySummary: buildReplaySummary(attempt.replay),
+        replaySummary: buildReplaySummary(attempt.replay, attempt.visualEvidence),
         events: mergeEvents(
           existingRecord?.events ?? [],
           toApplicationEvents(job, executionResult.checkpoints),

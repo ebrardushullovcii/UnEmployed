@@ -25,6 +25,9 @@ function buildEntry(input: {
     subtitle: "Example Co",
     location: null,
     dateRange: input.dateRange ?? null,
+    startDate: null,
+    endDate: null,
+    isCurrent: false,
     summary: `${input.id} summary`,
     bullets: [],
     origin: "imported",
@@ -81,6 +84,21 @@ describe("resume entry ordering", () => {
     expect(parseResumeEntryDateRange(null)).toMatchObject({
       hasMissingDateRange: true,
       hasParseableDate: false,
+    });
+  });
+
+  test("does not treat isCurrent alone as a structured date", () => {
+    expect(
+      parseResumeEntryDateRange({
+        dateRange: null,
+        startDate: null,
+        endDate: null,
+        isCurrent: true,
+      }),
+    ).toMatchObject({
+      hasMissingDateRange: true,
+      hasParseableDate: false,
+      isCurrent: false,
     });
   });
 

@@ -7,15 +7,21 @@ import type {
   DesktopWindowControlsState,
   DiscoveryActivityEvent,
   JobFinderApplyConsentActionInput,
+  JobFinderApplyCopilotActionInput,
   JobFinderApplyQueueActionInput,
   JobFinderOpenBrowserSessionInput,
   ProfileCopilotContext,
+  ProfileSetupReviewActionOptions,
   JobFinderPerformanceSnapshot,
   JobFinderResumePreview,
   ResumeQualityBenchmarkReport,
   ResumeQualityBenchmarkRequest,
   ResumeImportBenchmarkReport,
+  ResumeImportBenchmarkCase,
   ResumeImportBenchmarkRequest,
+  ResumeImportFieldCandidate,
+  ResumeImportRun,
+  ResumeDocumentBundle,
   JobFinderResumeWorkspace,
   JobFinderRepositoryState,
   JobFinderAgentDiscoveryActionInput,
@@ -163,10 +169,12 @@ const desktopApi = {
     applyProfileSetupReviewAction: (
       reviewItemId: string,
       action: "confirm" | "dismiss" | "clear_value",
+      options?: ProfileSetupReviewActionOptions,
     ) =>
       ipcRenderer.invoke("job-finder:apply-profile-setup-review-action", {
         reviewItemId,
         action,
+        options,
       }) as Promise<JobFinderWorkspaceSnapshot>,
     sendProfileCopilotMessage: (
       content: string,
@@ -396,9 +404,18 @@ const desktopApi = {
       ipcRenderer.invoke("job-finder:generate-resume", {
         jobId,
       }) as Promise<JobFinderWorkspaceSnapshot>,
-    startApplyCopilotRun: (jobId: string) =>
+    startApplyCopilotRun: (
+      jobId: string,
+      options?: Pick<
+        JobFinderApplyCopilotActionInput,
+        "visualCheckpointsEnabled"
+      >,
+    ) =>
       ipcRenderer.invoke("job-finder:start-apply-copilot-run", {
         jobId,
+        ...(options?.visualCheckpointsEnabled === true
+          ? { visualCheckpointsEnabled: true }
+          : {}),
       }) as Promise<JobFinderWorkspaceSnapshot>,
     startAutoApplyRun: (jobId: string) =>
       ipcRenderer.invoke("job-finder:start-auto-apply-run", {
@@ -472,6 +489,18 @@ const desktopApi = {
                 "job-finder:test-run-resume-import-benchmark",
                 input ?? {},
               ) as Promise<ResumeImportBenchmarkReport>,
+            getResumeImportBenchmarkCases: () =>
+              ipcRenderer.invoke(
+                "job-finder:test-get-resume-import-benchmark-cases",
+              ) as Promise<readonly ResumeImportBenchmarkCase[]>,
+            getResumeImportState: () =>
+              ipcRenderer.invoke(
+                "job-finder:test-get-resume-import-state",
+              ) as Promise<{
+                resumeImportRuns: readonly ResumeImportRun[];
+                resumeImportDocumentBundles: readonly ResumeDocumentBundle[];
+                resumeImportFieldCandidates: readonly ResumeImportFieldCandidate[];
+              }>,
             runResumeQualityBenchmark: (
               input?: Partial<ResumeQualityBenchmarkRequest>,
             ) =>
@@ -479,9 +508,11 @@ const desktopApi = {
                 "job-finder:test-run-resume-quality-benchmark",
                 input ?? {},
               ) as Promise<ResumeQualityBenchmarkReport>,
-            importResumeFromPath: (sourcePath: string) =>
+            importResumeFromPath: (
+              sourcePath: string | { sourcePath: string; useVision?: boolean },
+            ) =>
               ipcRenderer.invoke("job-finder:test-import-resume-from-path", {
-                sourcePath,
+                ...(typeof sourcePath === "string" ? { sourcePath } : sourcePath),
               }) as Promise<JobFinderWorkspaceSnapshot>,
           },
         }

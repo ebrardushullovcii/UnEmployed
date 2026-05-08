@@ -1,14 +1,19 @@
 import type {
   ApplyJobResult,
+  ApplyJobResultInput,
   ApplyRun,
   ApplySubmitApproval,
   ApplicationAttempt,
+  ApplicationAttemptInput,
   ApplicationAnswerRecord,
   ApplicationArtifactRef,
+  ApplicationArtifactRefInput,
   ApplicationConsentRequest,
   ApplicationRecord,
   ApplicationQuestionRecord,
+  ApplicationQuestionRecordInput,
   ApplicationReplayCheckpoint,
+  ApplicationReplayCheckpointInput,
   CandidateProfile,
   JobFinderDiscoveryState,
   JobFinderRepositoryState,
@@ -32,6 +37,7 @@ import type {
   SourceDebugEvidenceRef,
   SourceDebugRunRecord,
   SourceDebugWorkerAttempt,
+  SourceDebugWorkerAttemptInput,
   SourceInstructionArtifact,
   TailoredAsset,
 } from "@unemployed/contracts";
@@ -136,7 +142,7 @@ export interface JobFinderRepository {
   listApplyRuns(options?: { id?: string }): Promise<readonly ApplyRun[]>;
   upsertApplyRun(run: ApplyRun): Promise<void>;
   listApplyJobResults(options?: { runId?: string; jobId?: string }): Promise<readonly ApplyJobResult[]>;
-  upsertApplyJobResult(result: ApplyJobResult): Promise<void>;
+  upsertApplyJobResult(result: ApplyJobResultInput): Promise<void>;
   listApplySubmitApprovals(options?: { id?: string; runId?: string }): Promise<readonly ApplySubmitApproval[]>;
   upsertApplySubmitApproval(approval: ApplySubmitApproval): Promise<void>;
   listApplicationQuestionRecords(options?: {
@@ -145,7 +151,7 @@ export interface JobFinderRepository {
     resultId?: string;
   }): Promise<readonly ApplicationQuestionRecord[]>;
   upsertApplicationQuestionRecord(
-    record: ApplicationQuestionRecord,
+    record: ApplicationQuestionRecordInput,
   ): Promise<void>;
   listApplicationAnswerRecords(options?: {
     runId?: string;
@@ -159,14 +165,14 @@ export interface JobFinderRepository {
     jobId?: string;
     resultId?: string;
   }): Promise<readonly ApplicationArtifactRef[]>;
-  upsertApplicationArtifactRef(ref: ApplicationArtifactRef): Promise<void>;
+  upsertApplicationArtifactRef(ref: ApplicationArtifactRefInput): Promise<void>;
   listApplicationReplayCheckpoints(options?: {
     runId?: string;
     jobId?: string;
     resultId?: string;
   }): Promise<readonly ApplicationReplayCheckpoint[]>;
   upsertApplicationReplayCheckpoint(
-    checkpoint: ApplicationReplayCheckpoint,
+    checkpoint: ApplicationReplayCheckpointInput,
   ): Promise<void>;
   listApplicationConsentRequests(options?: {
     runId?: string;
@@ -202,12 +208,12 @@ export interface JobFinderRepository {
   upsertApplicationRecord(applicationRecord: ApplicationRecord): Promise<void>;
   listApplicationAttempts(): Promise<readonly ApplicationAttempt[]>;
   upsertApplicationAttempt(
-    applicationAttempt: ApplicationAttempt,
+    applicationAttempt: ApplicationAttemptInput,
   ): Promise<void>;
   listSourceDebugRuns(): Promise<readonly SourceDebugRunRecord[]>;
   upsertSourceDebugRun(run: SourceDebugRunRecord): Promise<void>;
   listSourceDebugAttempts(): Promise<readonly SourceDebugWorkerAttempt[]>;
-  upsertSourceDebugAttempt(attempt: SourceDebugWorkerAttempt): Promise<void>;
+  upsertSourceDebugAttempt(attempt: SourceDebugWorkerAttemptInput): Promise<void>;
   listSourceInstructionArtifacts(): Promise<
     readonly SourceInstructionArtifact[]
   >;

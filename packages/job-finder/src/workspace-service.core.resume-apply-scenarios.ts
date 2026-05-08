@@ -1,6 +1,8 @@
 import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
 import {
   JobPostingSchema,
+  ResumeDraftSchema,
+  ResumeValidationResultSchema,
   type ResumeTemplateId,
   ResumeTemplateDefinitionSchema,
   SavedJobSchema,
@@ -154,6 +156,74 @@ describe("createJobFinderWorkspaceService", () => {
       outcome: null,
       nextActionLabel: expect.stringMatching(/submit manually when ready/i) as string,
     });
+    expect(applicationAttempt?.visualEvidence).toEqual([]);
+    expect(applicationAttempt?.visualObservationSets).toEqual([]);
+    expect(applicationAttempt?.visualCheckpoints).toEqual([]);
+    expect(applyResult?.visualObservationSets).toEqual([]);
+    expect(applyResult?.visualCheckpoints).toEqual([]);
+    expect(
+      applicationAttempt?.questions.every(
+        (question) => !('visualContext' in question),
+      ),
+    ).toBe(true);
+    expect(applicationAttempt?.checkpoints.every((checkpoint) => checkpoint.visualEvidence.length === 0)).toBe(true);
+    expect(applicationRecord).toMatchObject({
+      lastAttemptState: "paused",
+      questionSummary: expect.objectContaining({ total: 1, answered: 1 }) as {
+        total: number;
+        answered: number;
+      },
+    });
+  });
+
+  test("captures apply visual checkpoints only when explicitly opted in", async () => {
+    const baseRuntime = createBrowserRuntime();
+    let visualCallbacksPassed = false;
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseRuntime,
+      async executeApplicationFlow(source, input) {
+        visualCallbacksPassed =
+          typeof input.captureVisualSnapshot === "function" &&
+          typeof input.analyzeVisualSnapshot === "function";
+        return baseRuntime.executeApplicationFlow(source, input);
+      },
+    };
+    const { workspaceService } = createWorkspaceServiceHarness({
+      browserRuntime,
+    });
+
+    await workspaceService.generateResume("job_ready");
+    const exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
+      (artifact) => artifact.jobId === "job_ready",
+    );
+    expect(approvedExport).toBeTruthy();
+
+    await workspaceService.approveResume("job_ready", approvedExport!.id);
+
+    const snapshot = await workspaceService.startApplyCopilotRun("job_ready", {
+      visualCheckpointsEnabled: true,
+    });
+    const applyRun = snapshot.applyRuns[0];
+    const applyResult = snapshot.applyJobResults[0];
+    const applicationAttempt = snapshot.applicationAttempts[0];
+
+    expect(applyRun?.visualCheckpointsEnabled).toBe(true);
+    expect(applicationAttempt?.visualEvidence[0]?.summary).toMatch(
+      /resume|upload|visual context/i,
+    );
+    expect(applicationAttempt?.visualObservationSets[0]?.purpose).toBe(
+      "apply_checkpoint",
+    );
+    expect(applicationAttempt?.visualCheckpoints[0]?.purpose).toBe(
+      "apply_checkpoint",
+    );
+    expect(applyResult?.visualObservationSets[0]?.purpose).toBe(
+      "apply_checkpoint",
+    );
+    expect(applyResult?.visualCheckpoints[0]?.summary).toMatch(
+      /resume|upload|visual context/i,
+    );
     expect(applicationAttempt?.questions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -168,13 +238,7 @@ describe("createJobFinderWorkspaceService", () => {
         state: "paused",
       }),
     );
-    expect(applicationRecord).toMatchObject({
-      lastAttemptState: "paused",
-      questionSummary: expect.objectContaining({ total: 1, answered: 1 }) as {
-        total: number;
-        answered: number;
-      },
-    });
+    expect(visualCallbacksPassed).toBe(true);
   });
 
   test("captures apply copilot answer, artifact, checkpoint, and consent records for review-ready questions", async () => {
@@ -297,6 +361,7 @@ describe("createJobFinderWorkspaceService", () => {
     expect(questions.map((question) => question.kind)).toEqual(
       expect.arrayContaining(["resume", "work_authorization"]),
     );
+    expect(questions.every((question) => question.visualContext === null)).toBe(true);
     expect(answers).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -306,7 +371,11 @@ describe("createJobFinderWorkspaceService", () => {
       ]),
     );
     expect(artifacts.length).toBeGreaterThan(0);
+    expect(artifacts.every((artifact) => artifact.visualEvidence === null)).toBe(true);
     expect(checkpoints.some((checkpoint) => checkpoint.jobState === "awaiting_review")).toBe(
+      true,
+    );
+    expect(checkpoints.every((checkpoint) => checkpoint.visualEvidence.length === 0)).toBe(
       true,
     );
     expect(consentRequests).toEqual([]);
@@ -330,7 +399,9 @@ describe("createJobFinderWorkspaceService", () => {
     expect(approvedExport).toBeTruthy();
 
     await workspaceService.approveResume("job_ready", approvedExport!.id);
-    const snapshot = await workspaceService.startApplyCopilotRun("job_ready");
+    const snapshot = await workspaceService.startApplyCopilotRun("job_ready", {
+      visualCheckpointsEnabled: true,
+    });
     const runId = snapshot.applyRuns[0]?.id;
 
     expect(runId).toBeTruthy();
@@ -371,6 +442,12 @@ describe("createJobFinderWorkspaceService", () => {
         }),
       ]),
     );
+    expect(details.result?.visualCheckpoints[0]?.purpose).toBe(
+      "apply_checkpoint",
+    );
+    expect(
+      details.checkpoints.some((checkpoint) => checkpoint.visualEvidence.length > 0),
+    ).toBe(true);
   });
 
   test("reuses retained checkpoint context when a job is retried through apply copilot", async () => {
@@ -384,7 +461,9 @@ describe("createJobFinderWorkspaceService", () => {
     expect(approvedExport).toBeTruthy();
 
     await workspaceService.approveResume("job_ready", approvedExport!.id);
-    const initialSnapshot = await workspaceService.startApplyCopilotRun("job_ready");
+    const initialSnapshot = await workspaceService.startApplyCopilotRun("job_ready", {
+      visualCheckpointsEnabled: true,
+    });
     const initialRunId = initialSnapshot.applyRuns[0]?.id;
 
     expect(initialRunId).toBeTruthy();
@@ -2563,6 +2642,108 @@ describe("createJobFinderWorkspaceService", () => {
     await expect(workspaceService.regenerateResumeDraft("job_ready")).rejects.toThrow(
       /unlock pinned resume sections or bullets/i,
     );
+  });
+
+  test("full-draft regeneration rebuilds an existing stale draft from profile-backed dates and descriptions", async () => {
+    const seed = createSeed();
+    const staleDraft = ResumeDraftSchema.parse({
+      id: "resume_draft_job_ready",
+      jobId: "job_ready",
+      status: "needs_review",
+      templateId: "classic_ats",
+      identity: null,
+      sections: [
+        {
+          id: "section_experience",
+          kind: "experience",
+          label: "Experience",
+          text: null,
+          bullets: [],
+          entries: [
+            {
+              id: "experience_experience_1",
+              entryType: "experience",
+              title: "Senior systems designer",
+              subtitle: "Signal Systems",
+              location: "London, UK",
+              dateRange: "Present",
+              startDate: null,
+              endDate: null,
+              isCurrent: false,
+              summary: "Senior systems designer — Signal Systems | London, UK | Present",
+              bullets: [],
+              origin: "ai_generated",
+              locked: false,
+              included: true,
+              sortOrder: 0,
+              profileRecordId: "experience_1",
+              sourceRefs: [],
+              updatedAt: "2026-03-20T10:00:00.000Z",
+            },
+          ],
+          origin: "ai_generated",
+          locked: false,
+          included: true,
+          sortOrder: 0,
+          entryOrderMode: "chronology",
+          profileRecordId: null,
+          sourceRefs: [],
+          updatedAt: "2026-03-20T10:00:00.000Z",
+        },
+      ],
+      targetPageCount: 2,
+      generationMethod: "ai",
+      approvedAt: null,
+      approvedExportId: null,
+      staleReason: null,
+      createdAt: "2026-03-20T10:00:00.000Z",
+      updatedAt: "2026-03-20T10:00:00.000Z",
+    });
+    const futureStaleDraft = ResumeDraftSchema.parse({
+      ...staleDraft,
+      updatedAt: "2099-01-01T00:00:00.000Z",
+      sections: staleDraft.sections.map((section) => ({
+        ...section,
+        updatedAt: "2099-01-01T00:00:00.000Z",
+        entries: section.entries.map((entry) => ({
+          ...entry,
+          updatedAt: "2099-01-01T00:00:00.000Z",
+        })),
+      })),
+    });
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...seed,
+        resumeDrafts: [futureStaleDraft],
+        resumeValidationResults: [
+          ResumeValidationResultSchema.parse({
+            id: `resume_validation_${futureStaleDraft.id}`,
+            draftId: futureStaleDraft.id,
+            issues: [],
+            pageCount: null,
+            validatedAt: futureStaleDraft.updatedAt,
+          }),
+        ],
+      },
+    });
+
+    await workspaceService.regenerateResumeDraft("job_ready");
+    const regeneratedDraft = await repository.getResumeDraftByJobId("job_ready");
+    const regeneratedExperience = regeneratedDraft?.sections
+      .find((section) => section.kind === "experience")
+      ?.entries.find((entry) => entry.profileRecordId === "experience_1");
+
+    expect(regeneratedDraft?.id).toBe(futureStaleDraft.id);
+    expect(regeneratedDraft?.createdAt).toBe(futureStaleDraft.createdAt);
+    expect(regeneratedDraft?.updatedAt).toBe("2099-01-01T00:00:00.001Z");
+    expect(regeneratedExperience).toMatchObject({
+      dateRange: "Jan 2020 – Present",
+      startDate: "2020-01",
+      endDate: null,
+      isCurrent: true,
+      summary: "Builds resilient workflow tools.",
+    });
+    expect(regeneratedExperience?.bullets.length).toBeGreaterThan(0);
   });
 
   test("blocks section regeneration when the target section has locked content", async () => {

@@ -1,4 +1,4 @@
-import type { JobFinderAiClient } from "@unemployed/ai-providers";
+import type { JobFinderAiClient, ResumeVisionProvider } from "@unemployed/ai-providers";
 import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
 import {
   createInMemoryJobFinderRepository,
@@ -18,6 +18,7 @@ export function createWorkspaceServiceHarness(
     seed?: JobFinderRepositorySeed;
     browserRuntime?: BrowserSessionRuntime;
     aiClient?: JobFinderAiClient;
+    visionProvider?: ResumeVisionProvider;
     documentManager?: ReturnType<typeof createDocumentManager>;
     exportFileVerifier?: { exists(filePath: string): Promise<boolean> };
     researchAdapter?: ReturnType<typeof createResearchAdapter>;
@@ -38,6 +39,7 @@ export function createWorkspaceServiceHarness(
     repository,
     browserRuntime,
     aiClient,
+    ...(options.visionProvider ? { visionProvider: options.visionProvider } : {}),
     documentManager,
     exportFileVerifier,
     researchAdapter,

@@ -1,5 +1,8 @@
-import type { JobFinderAiClient } from "@unemployed/ai-providers";
-import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
+import type { JobFinderAiClient, ResumeVisionProvider } from "@unemployed/ai-providers";
+import type {
+  BrowserSessionRuntime,
+  OpenBrowserSessionOptions,
+} from "@unemployed/browser-runtime";
 import type {
   JobFinderDiscoveryState,
   JobFinderWorkspaceSnapshot,
@@ -25,6 +28,7 @@ export interface MutableRef<T> {
 
 export interface WorkspaceServiceContext {
   aiClient: JobFinderAiClient;
+  visionProvider?: ResumeVisionProvider;
   browserRuntime: BrowserSessionRuntime;
   documentManager: JobFinderDocumentManager;
   exportFileVerifier?: ResumeExportFileVerifier;
@@ -66,7 +70,10 @@ export interface WorkspaceServiceContext {
     staleReason: string,
     jobIds?: readonly string[],
   ) => Promise<void>;
-  openRunBrowserSession: (source: JobSource) => Promise<void>;
+  openRunBrowserSession: (
+    source: JobSource,
+    options?: OpenBrowserSessionOptions,
+  ) => Promise<void>;
   closeRunBrowserSession: (source: JobSource) => Promise<void>;
   updateJob: (jobId: string, updater: (job: SavedJob) => SavedJob) => Promise<void>;
 }

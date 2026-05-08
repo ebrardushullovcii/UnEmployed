@@ -106,6 +106,10 @@ function normalizeComparableText(value: string | null | undefined): string {
     .trim();
 }
 
+function tokenizeResumeDetail(value: string | null | undefined): string[] {
+  return normalizeComparableText(value).split(/\s+/).filter(Boolean);
+}
+
 function canonicalizeComparableDatePart(value: string | null | undefined): string | null {
   const trimmed = value?.trim() ?? "";
   if (!trimmed) {
@@ -187,6 +191,117 @@ function canonicalizeComparableDateRange(value: string | null | undefined): stri
   return canonicalizeComparableDatePart(trimmed);
 }
 
+function isPlausibleResumeDateRange(value: string | null | undefined): boolean {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) {
+    return false;
+  }
+
+  const parts = trimmed
+    .split(/\s*[–—]\s*|\s+-\s+/)
+    .map((part) => canonicalizeComparableDatePart(part));
+  if (parts.length >= 2) {
+    return Boolean(parts[0] && parts[1]);
+  }
+
+  return Boolean(canonicalizeComparableDatePart(trimmed));
+}
+
+function selectCanonicalDateRange(input: {
+  generated: string | null | undefined;
+  fallback: string | null | undefined;
+}): string | null {
+  if (input.fallback && isPlausibleResumeDateRange(input.fallback)) {
+    return input.fallback;
+  }
+
+  return input.generated && isPlausibleResumeDateRange(input.generated)
+    ? input.generated
+    : null;
+}
+
+function isWeakGeneratedSummary(input: {
+  generated: string | null | undefined;
+  title: string | null | undefined;
+  employer: string | null | undefined;
+  location: string | null | undefined;
+  dateRange: string | null | undefined;
+}): boolean {
+  const generated = input.generated?.trim() ?? "";
+  if (!generated) {
+    return true;
+  }
+
+  if (tokenizeResumeDetail(generated).length < 6) {
+    return true;
+  }
+
+  const metadata = normalizeComparableText([
+    input.title,
+    input.employer,
+    input.location,
+    input.dateRange,
+  ].filter((value): value is string => Boolean(value?.trim())).join(" "));
+
+  return Boolean(metadata && normalizeComparableText(generated) === metadata);
+}
+
+function selectSummary(input: {
+  generated: string | null | undefined;
+  fallback: string | null | undefined;
+  title: string | null | undefined;
+  employer: string | null | undefined;
+  location: string | null | undefined;
+  dateRange: string | null | undefined;
+}): string | null {
+  const generated = normalizeNullableString(input.generated);
+  const fallback = normalizeNullableString(input.fallback);
+  if (!fallback) {
+    return generated;
+  }
+
+  return isWeakGeneratedSummary({ ...input, generated }) ? fallback : generated;
+}
+
+function splitResumeDetailLine(value: string): string[] {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  if (trimmed.length < 220 && !/[.!?]\s+\S/.test(trimmed)) {
+    return [trimmed];
+  }
+
+  const sentenceParts = trimmed
+    .split(/(?<=[.!?])\s+(?=[A-Z0-9])/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (sentenceParts.length > 1) {
+    return sentenceParts;
+  }
+
+  if (trimmed.length >= 260 && /;\s+/.test(trimmed)) {
+    return trimmed
+      .split(/;\s+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+
+  return [trimmed];
+}
+
+function mergeBullets(
+  generatedBullets: unknown,
+  fallbackBullets: readonly string[],
+  maxBullets = 3,
+): string[] {
+  return uniqueStrings([
+    ...sanitizeStringArray(generatedBullets).flatMap(splitResumeDetailLine),
+    ...fallbackBullets.flatMap(splitResumeDetailLine),
+  ]).slice(0, maxBullets);
+}
+
 function entryMatchesFallback(
   entry: {
     title?: string | null;
@@ -250,7 +365,13 @@ function entryConflictsWithFallback(
 
   const entryDateRange = canonicalizeComparableDateRange(entry.dateRange);
   const fallbackDateRange = canonicalizeComparableDateRange(fallbackEntry.dateRange);
-  if (entryDateRange && fallbackDateRange && entryDateRange !== fallbackDateRange) {
+  if (
+    isPlausibleResumeDateRange(entry.dateRange) &&
+    isPlausibleResumeDateRange(fallbackEntry.dateRange) &&
+    entryDateRange &&
+    fallbackDateRange &&
+    entryDateRange !== fallbackDateRange
+  ) {
     return true;
   }
 
@@ -354,7 +475,12 @@ function normalizeExperienceEntries(
       return fallbackEntry;
     }
 
-    const sanitizedBullets = sanitizeStringArray(matchedEntry.bullets);
+    const fallbackDateRange = fallbackEntry.dateRange ?? null;
+    const dateRange = selectCanonicalDateRange({
+      generated: matchedEntry.dateRange,
+      fallback: fallbackDateRange,
+    });
+    const bullets = mergeBullets(matchedEntry.bullets, fallbackEntry.bullets);
 
     return {
       title:
@@ -367,14 +493,16 @@ function normalizeExperienceEntries(
         normalizeNullableString(matchedEntry.location) ??
         fallbackEntry.location ??
         null,
-      dateRange:
-        normalizeNullableString(matchedEntry.dateRange) ??
-        fallbackEntry.dateRange ??
-        null,
-      summary: normalizeNullableString(matchedEntry.summary) ?? fallbackEntry.summary,
-      bullets: sanitizedBullets.length > 0
-        ? sanitizedBullets
-        : fallbackEntry.bullets,
+      dateRange,
+      summary: selectSummary({
+        generated: matchedEntry.summary,
+        fallback: fallbackEntry.summary,
+        title: matchedEntry.title ?? fallbackEntry.title,
+        employer: matchedEntry.employer ?? fallbackEntry.employer,
+        location: matchedEntry.location ?? fallbackEntry.location,
+        dateRange,
+      }),
+      bullets,
       profileRecordId: fallbackEntry.profileRecordId ?? null,
     };
   });

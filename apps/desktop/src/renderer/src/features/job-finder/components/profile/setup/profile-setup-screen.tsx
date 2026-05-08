@@ -4,6 +4,7 @@ import type {
   JobFinderWorkspaceSnapshot,
   JobSearchPreferences,
   ProfileCopilotContext,
+  ProfileSetupReviewActionOptions,
   ProfileSetupState,
   ProfileSetupStep,
   ResumeImportFieldCandidateSummary,
@@ -47,6 +48,7 @@ export function ProfileSetupScreen(props: {
   onApplyProfileSetupReviewAction: (
     reviewItemId: string,
     action: 'confirm' | 'dismiss' | 'clear_value',
+    options?: ProfileSetupReviewActionOptions,
   ) => void
   onContinueToProfile: () => void
   onImportResume: () => void
@@ -247,6 +249,7 @@ export function ProfileSetupScreen(props: {
             actionsDisabledReason={hasUserDraftChanges ? unsavedSetupReviewActionsMessage : null}
             isReviewItemPending={isReviewItemPending}
             items={currentStepReviewItems}
+            latestResumeImportReviewCandidates={latestResumeImportReviewCandidates}
             onApplyReviewAction={onApplyProfileSetupReviewAction}
             onEditReviewItem={handleEditReviewItem}
           />

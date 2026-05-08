@@ -362,6 +362,7 @@ export const browserRunWaitReasonValues = [
   "attaching_browser",
   "waiting_on_page",
   "waiting_on_ai",
+  "analyzing_visual_snapshot",
   "retrying_ai",
   "executing_tool",
   "retrying_tool",
@@ -525,6 +526,7 @@ export type AssetGenerationMethod = z.infer<typeof AssetGenerationMethodSchema>;
 export const aiProviderKindValues = [
   "deterministic",
   "openai_compatible",
+  "openai_compatible_vision",
 ] as const;
 
 export const AiProviderKindSchema = z.enum(aiProviderKindValues);

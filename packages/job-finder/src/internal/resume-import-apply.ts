@@ -119,7 +119,9 @@ function buildResolvedSelection(
           selection.experiences.push(value as CandidateProfile["experiences"][number]);
           break;
         case "education":
-          selection.education.push(value as CandidateProfile["education"][number]);
+          if (candidate.target.key === "record") {
+            selection.education.push(value as CandidateProfile["education"][number]);
+          }
           break;
         case "certification":
           selection.certifications.push(value as CandidateProfile["certifications"][number]);
@@ -165,6 +167,14 @@ function buildResolvedSelection(
 
     if (isListTarget(candidate)) {
       switch (candidate.target.key) {
+        case "record":
+          if (candidate.target.section === "skill") {
+            selection.scalarFields.skills = uniqueStrings([
+              ...(selection.scalarFields.skills ?? []),
+              ...toStringArray(candidate.value),
+            ]);
+          }
+          break;
         case "targetRoles":
           selection.scalarFields.targetRoles = uniqueStrings([
             ...(selection.scalarFields.targetRoles ?? []),

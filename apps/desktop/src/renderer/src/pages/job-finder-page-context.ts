@@ -12,6 +12,7 @@ import type {
   JobFinderWorkspaceSnapshot,
   JobSearchPreferences,
   ProfileCopilotContext,
+  ProfileSetupReviewActionOptions,
   ProfileSetupStep,
   ResumeAssistantMessage,
   ResumeDraft,
@@ -45,6 +46,7 @@ export interface JobFinderPageContext {
   onApplyProfileSetupReviewAction: (
     reviewItemId: string,
     action: 'confirm' | 'dismiss' | 'clear_value',
+    options?: ProfileSetupReviewActionOptions,
   ) => void
   onCheckBrowserSession: () => void
   onDismissJob: (jobId: string) => void

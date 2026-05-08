@@ -1,18 +1,31 @@
 import {
   ResumeImportTargetSectionSchema,
+  ResumeImportConflictChoiceSchema,
   type AgentProviderStatus,
   type ResumeImportFieldCandidateDraft,
   type ResumeImportJsonValue,
+  ResumeImportVisualEvidenceRefSchema,
 } from "@unemployed/contracts";
 import {
+  ResumeImportAdjudicationResultSchema,
   ResumeImportStageExtractionResultSchema,
   sanitizeStageCandidates,
   selectBlocksForResumeImportStage,
+  type AdjudicateResumeImportCandidatesInput,
   type ExtractResumeImportStageInput,
+  type ResumeImportAdjudicationResult,
   type ResumeImportStageExtractionResult,
 } from "./resume-import";
 import { buildCandidateConfidenceBreakdown } from "./resume-import-helpers";
 import type { OpenAiCompatibleJsonOperation } from "./openai-compatible-request-compaction";
+
+const ADJUDICATION_BLOCK_LIMIT = 80;
+const ADJUDICATION_CANDIDATE_LIMIT = 24;
+// Post-adjudication confidence weighting: adjudicated candidates are assigned a lower
+// normalization risk and higher conflict risk compared with extract-path defaults,
+// reflecting the pro-normalization review pass that produced them.
+const POST_ADJ_NORMALIZATION_RISK = 0.1;
+const POST_ADJ_CONFLICT_RISK = 0.34;
 
 function toStringArray(value: unknown): string[] {
   if (typeof value === "string") {
@@ -142,6 +155,18 @@ function normalizeCandidate(
     confidenceBreakdown: null,
     notes: toStringArray(record.notes),
     alternatives: normalizeAlternatives(record.alternatives),
+    conflictChoices: Array.isArray(record.conflictChoices)
+      ? record.conflictChoices.flatMap((entry) => {
+          const parsed = ResumeImportConflictChoiceSchema.safeParse(entry);
+          return parsed.success ? [parsed.data] : [];
+        })
+      : [],
+    visualEvidence: Array.isArray(record.visualEvidence)
+      ? record.visualEvidence.flatMap((entry) => {
+          const parsed = ResumeImportVisualEvidenceRefSchema.safeParse(entry);
+          return parsed.success ? [parsed.data] : [];
+        })
+      : [],
   };
 }
 
@@ -174,7 +199,10 @@ function buildStageInstructions(stage: ExtractResumeImportStageInput["stage"]): 
       return [
         "Return only background candidates for skills, education, certifications, links, projects, and languages.",
         "Valid target sections: skill, education, certification, link, project, language.",
-        "Use key 'record' for object records and explicit keys like skills or skillGroups.coreSkills for list fields.",
+        "Use target {\"section\":\"skill\",\"key\":\"skills\",\"recordId\":null} for a complete skills array, and optional skillGroups.coreSkills, skillGroups.tools, skillGroups.languagesAndFrameworks, skillGroups.softSkills, or skillGroups.highlightedSkills for grouped skill arrays.",
+        "Use target {\"section\":\"education\",\"key\":\"record\",\"recordId\":\"education_1\"} for each education object with schoolName, degree, fieldOfStudy, location, startDate, endDate, and summary fields.",
+        "Do not emit education.institution, education.startDate, education.graduationDate, or education.education scalar targets; fold those values into an education record object.",
+        "Use key 'record' for certification, link, project, and language object records.",
       ].join(" ");
     case "shared_memory":
       return [
@@ -272,4 +300,95 @@ export async function extractOpenAiCompatibleResumeImportStage(input: {
       notes: toStringArray(normalizedPayload.notes),
     }),
   );
+}
+
+export async function adjudicateOpenAiCompatibleResumeImportCandidates(input: {
+  adjudicationInput: AdjudicateResumeImportCandidatesInput;
+  status: AgentProviderStatus;
+  fetchModelJson: (
+    operation: OpenAiCompatibleJsonOperation,
+    systemPrompt: string,
+    userPayload: unknown,
+    options?: { timeoutMs?: number },
+  ) => Promise<unknown>;
+  timeoutMs: number;
+}): Promise<ResumeImportAdjudicationResult> {
+  const payload = await input.fetchModelJson(
+    "adjudicateResumeImportCandidates",
+    [
+      "You adjudicate conflicting resume import candidates produced by document text extraction and visual scan extraction.",
+      "Return JSON only with candidates, notes, and warnings arrays.",
+      "Use Pro-style normalization only: produce validated import candidate drafts when a safer normalized value can be grounded in the supplied candidates and document blocks.",
+      "Do not invent values. Do not write to the canonical profile. If the conflict is still ambiguous, return no candidates and explain the review need in notes.",
+      "Each candidate must include target, label, value, normalizedValue when useful, evidenceText, sourceBlockIds, confidence, notes, alternatives, and may include visualEvidence.",
+      "Each candidate target must be an object, not a string.",
+      'Example candidate: {"target":{"section":"experience","key":"record","recordId":"experience_1"},"label":"Current role","value":{"title":"Engineer"},"confidence":0.9,"evidenceText":"Senior Engineer at Acme","sourceBlockIds":["b1"],"notes":[],"alternatives":[],"conflictChoices":[{"id":"c1","sourceLabel":"Text extraction","sourceKind":"document_text","confidence":0.85,"valuePreview":"Engineer","recommended":true}],"visualEvidence":[]}',
+    ].join(" "),
+    {
+      existingProfile: input.adjudicationInput.existingProfile,
+      existingSearchPreferences: input.adjudicationInput.existingSearchPreferences,
+      documentBundle: {
+        id: input.adjudicationInput.documentBundle.id,
+        sourceFileKind: input.adjudicationInput.documentBundle.sourceFileKind,
+        quality: input.adjudicationInput.documentBundle.quality ?? null,
+        warnings: input.adjudicationInput.documentBundle.warnings,
+        blocks: input.adjudicationInput.documentBundle.blocks.slice(0, ADJUDICATION_BLOCK_LIMIT).map((block) => ({
+          id: block.id,
+          pageNumber: block.pageNumber,
+          sectionHint: block.sectionHint,
+          kind: block.kind,
+          text: block.text,
+        })),
+      },
+      candidates: input.adjudicationInput.candidates.slice(0, ADJUDICATION_CANDIDATE_LIMIT),
+    },
+    { timeoutMs: input.timeoutMs },
+  );
+
+  const truncationWarnings: string[] = [];
+  if (input.adjudicationInput.documentBundle.blocks.length > ADJUDICATION_BLOCK_LIMIT) {
+    truncationWarnings.push(
+      `Adjudication input truncated: ${input.adjudicationInput.documentBundle.blocks.length} blocks (>${ADJUDICATION_BLOCK_LIMIT} limit)`,
+    );
+  }
+  if (input.adjudicationInput.candidates.length > ADJUDICATION_CANDIDATE_LIMIT) {
+    truncationWarnings.push(
+      `Adjudication input truncated: ${input.adjudicationInput.candidates.length} candidates (>${ADJUDICATION_CANDIDATE_LIMIT} limit)`,
+    );
+  }
+
+  const normalizedPayload =
+    payload && typeof payload === "object" && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)
+      : {};
+  const candidates = Array.isArray(normalizedPayload.candidates)
+    ? normalizedPayload.candidates
+        .map((candidate) => normalizeCandidate(candidate))
+        .filter(
+          (candidate): candidate is ResumeImportFieldCandidateDraft =>
+            Boolean(candidate),
+        )
+        .map((candidate) => ({
+          ...candidate,
+          confidenceBreakdown: buildCandidateConfidenceBreakdown({
+            candidate: {
+              target: candidate.target,
+              confidence: candidate.confidence,
+              sourceBlockIds: candidate.sourceBlockIds,
+            },
+            bundle: input.adjudicationInput.documentBundle,
+            normalizationRisk: POST_ADJ_NORMALIZATION_RISK,
+            conflictRisk: POST_ADJ_CONFLICT_RISK,
+          }),
+        }))
+    : [];
+
+  return ResumeImportAdjudicationResultSchema.parse({
+    candidates,
+    notes: toStringArray(normalizedPayload.notes),
+    warnings: [
+      ...truncationWarnings,
+      ...toStringArray(normalizedPayload.warnings),
+    ],
+  });
 }

@@ -8,12 +8,12 @@ describe('desktop env loader', () => {
       parseDotEnvContent([
         '# comment',
         'UNEMPLOYED_AI_API_KEY=abc123',
-        'UNEMPLOYED_AI_MODEL="FelidaeAI-Pro-2.5"',
+        'UNEMPLOYED_AI_MODEL="FelidaeAI-Pro-2.7"',
         "export UNEMPLOYED_AI_BASE_URL='https://ai.automatedpros.link/v1'"
       ].join('\n'))
     ).toEqual({
       UNEMPLOYED_AI_API_KEY: 'abc123',
-      UNEMPLOYED_AI_MODEL: 'FelidaeAI-Pro-2.5',
+      UNEMPLOYED_AI_MODEL: 'FelidaeAI-Pro-2.7',
       UNEMPLOYED_AI_BASE_URL: 'https://ai.automatedpros.link/v1'
     })
   })

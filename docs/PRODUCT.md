@@ -19,10 +19,10 @@ Current product baseline:
 - resume import and profile editing
 - guided setup and profile copilot
 - browser-driven job discovery across configured targets
-- source-debug for learning reusable target instructions
+- source-debug for learning reusable target instructions, including bounded visual evidence when visible page state explains weak DOM/text evidence or blockers
 - resume workspace with ATS-first PDF approval
 - resume template selection is direct and one-click in Settings and Resume Studio with truthful template metadata, real preview-backed selection, explicit lane badges, and deterministic per-draft recommendations when job and draft evidence justify them; Resume Studio also supports per-draft manual experience ordering with move controls and reset-to-chronology, and the shared preview/export renderer respects the same order for exported resumes; the shipped `apply-safe` catalog has eight materially distinct layout options: `Chronology Classic`, `Senior Brief`, `Modern Editorial`, `Engineering Spec`, `Proof Portfolio`, `Credential Ledger`, `Longform Timeline`, and `Career Pivot Bridge`
-- apply flows that stop before final submission with Applications recovery
+- apply flows that stop before final submission with Applications recovery, including explicit visual checkpoints for visible form/blocker/recovery context when safe
 - hard product rule: live submit remains intentionally disabled until explicitly re-authorized; see `docs/exec-plans/completed/015-job-finder-automatic-job-apply.md` for provenance
 
 ## Interview Helper

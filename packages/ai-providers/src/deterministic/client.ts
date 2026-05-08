@@ -1,5 +1,6 @@
 import { AgentProviderStatusSchema } from "@unemployed/contracts";
 import type { JobFinderAiClient } from "../shared";
+import { createDeterministicBrowserVisualAnalysisProvider } from "../browser-visual-analysis";
 import { buildDeterministicProfileCopilotReply } from "./profile-copilot";
 import { buildDeterministicResumeImportStageExtraction } from "./resume-import";
 import { buildDeterministicResumeProfileExtraction } from "./resume-parser";
@@ -17,6 +18,8 @@ function buildDeterministicStatus(detail: string) {
     model: null,
     baseUrl: null,
     modelContextWindowTokens: null,
+    reservedHeadroomTokens: null,
+    requestTimeoutMs: null,
     detail,
   });
 }
@@ -27,6 +30,9 @@ export function createDeterministicJobFinderAiClient(
   const status = buildDeterministicStatus(
     detail ??
       "Deterministic fallback is active. Set UNEMPLOYED_AI_API_KEY to use the configured OpenAI-compatible provider for resume extraction and tailoring.",
+  );
+  const visualProvider = createDeterministicBrowserVisualAnalysisProvider(
+    "Deterministic AI client fallback provides browser visual observations from page text and runtime metadata.",
   );
 
   return {
@@ -46,6 +52,15 @@ export function createDeterministicJobFinderAiClient(
       return Promise.resolve(
         buildDeterministicResumeImportStageExtraction(input, status.label),
       );
+    },
+    adjudicateResumeImportCandidates() {
+      return Promise.resolve({
+        candidates: [],
+        notes: [
+          "Deterministic resume import adjudication deferred material conflicts to review.",
+        ],
+        warnings: [],
+      });
     },
     createResumeDraft(input) {
       return Promise.resolve(buildDeterministicStructuredResumeDraft(input));
@@ -68,6 +83,9 @@ export function createDeterministicJobFinderAiClient(
       }
 
       return Promise.resolve([]);
+    },
+    analyzeBrowserVisualSnapshot(input) {
+      return visualProvider.analyzeBrowserVisualSnapshot(input);
     },
   };
 }

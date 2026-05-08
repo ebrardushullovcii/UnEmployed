@@ -119,6 +119,8 @@ export async function runAgentDiscovery(
     stepCount: 0,
     currentUrl: "",
     lastStableUrl: "",
+    visualObservationSets: [],
+    visualSnapshots: [],
     isRunning: true,
     phaseEvidence: createEmptyPhaseEvidence(),
     compactionState: null,
@@ -587,6 +589,58 @@ export async function runAgentDiscovery(
         waitReason: "waiting_on_ai",
       });
 
+      if (
+        config.visualAnalysis?.enabled &&
+        requiresExplicitFinish &&
+        state.stepCount >= 2 &&
+        state.visualObservationSets.length === 0 &&
+        getNonRouteEvidenceSignalCount(state) === 0
+      ) {
+        emitProgress({
+          currentUrl: state.currentUrl,
+          jobsFound: state.collectedJobs.length,
+          stepCount: state.stepCount,
+          currentAction: "capture_visual_snapshot",
+          message:
+            "Analyzing a bounded visual snapshot because structured page evidence is weak.",
+          waitReason: "analyzing_visual_snapshot",
+        });
+        const visualResult = await executeToolCall(
+          {
+            id: `auto_visual_snapshot_${state.stepCount}`,
+            type: "function",
+            function: {
+              name: "capture_visual_snapshot",
+              arguments: JSON.stringify({
+                purpose: "source_debug",
+                mode: "viewport",
+                label: "Source-debug weak-signal visual check",
+                reason:
+                  "Source-debug phase has not produced non-route evidence yet; classify visible page state before continuing.",
+              }),
+            },
+          },
+          pageRef,
+          state,
+          config,
+          jobExtractor,
+          onProgress,
+          signal,
+        );
+        recordToolEvidence(
+          "capture_visual_snapshot",
+          {},
+          visualResult,
+          state,
+          config.promptContext.taskPacket?.phase,
+        );
+        appendConversationMessage(state, {
+          role: "user",
+          content: `[auto visual snapshot] ${compactToolContent(JSON.stringify(visualResult), getEffectiveCompactionConfig(config).maxToolPayloadChars)}`,
+        });
+        recordEvidenceProgress();
+      }
+
       let response: {
         content?: string;
         toolCalls?: ToolCall[];
@@ -791,6 +845,7 @@ export async function runAgentDiscovery(
           parsedArguments,
           result,
           state,
+          config.promptContext.taskPacket?.phase,
         );
         recordEvidenceProgress();
 

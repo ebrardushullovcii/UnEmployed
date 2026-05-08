@@ -526,6 +526,8 @@ function describeToolAction(toolName: string): string {
       return "Returning to the previous page.";
     case "extract_jobs":
       return "Preparing the current page for job extraction.";
+    case "capture_visual_snapshot":
+      return "Capturing bounded visual evidence for weak page signals.";
     case "finish":
       return "Wrapping up this browser pass.";
     default:

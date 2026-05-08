@@ -160,19 +160,54 @@ export function inferEducationEntries(resumeText: string) {
   const lines = splitLines(resumeText);
   const educationLines = findSectionBodyLinesByAliases(lines, ["EDUCATION AND TRAINING", "EDUCATION"] as const);
   const candidatePool = educationLines.length > 0 ? educationLines : lines;
-  const educationLineIndex = candidatePool.findIndex(
+
+  const directEducationLineIndex = candidatePool.findIndex(
     (line) =>
       /degree|bachelor|master|phd/i.test(line) &&
       /(college|university|school|institute|kolegji)/i.test(line) &&
       !isResumeSectionHeading(line),
   );
+  const schoolOnlyLineIndex = candidatePool.findIndex(
+    (line, index) =>
+      /(college|university|school|institute|kolegji)/i.test(line) &&
+      !isResumeSectionHeading(line) &&
+      [candidatePool[index - 1], candidatePool[index + 1], candidatePool[index + 2]]
+        .some((nearbyLine) => /degree|bachelor|master|phd/i.test(nearbyLine ?? "")),
+  );
+  const degreeOnlyLineIndex = candidatePool.findIndex(
+    (line, index) =>
+      /degree|bachelor|master|phd/i.test(line) &&
+      !isResumeSectionHeading(line) &&
+      [candidatePool[index - 2], candidatePool[index - 1], candidatePool[index + 1]]
+        .some((nearbyLine) => /(college|university|school|institute|kolegji)/i.test(nearbyLine ?? "")),
+  );
+  const educationLineIndex = directEducationLineIndex !== -1
+    ? directEducationLineIndex
+    : schoolOnlyLineIndex !== -1
+      ? schoolOnlyLineIndex
+      : degreeOnlyLineIndex;
 
   if (educationLineIndex === -1) {
     return [];
   }
 
   const educationLine = candidatePool[educationLineIndex] ?? "";
-  const schoolMatch = educationLine.match(
+  const educationLineForParsing = cleanLine(
+    educationLine.replace(/\s*\(([^)]*)\)/g, (match, content: string) =>
+      dateRangePattern.test(content) ? "" : match,
+    ),
+  );
+  const nearbyEducationLines = [
+    candidatePool[educationLineIndex - 2],
+    candidatePool[educationLineIndex - 1],
+    educationLineForParsing || educationLine,
+    candidatePool[educationLineIndex + 1],
+    candidatePool[educationLineIndex + 2],
+  ].map((line) => cleanLine(line ?? "")).filter(Boolean);
+  const combinedEducationLine = cleanLine(nearbyEducationLines.join(" "));
+  const schoolMatch = (educationLineForParsing || educationLine).match(
+    /((?:[A-Z][A-Za-z'().&-]*\s+){0,6}(?:College|University|School|Institute|Kolegji)(?:\s+[A-Z][A-Za-z'().&-]*)*(?:\s*\([^)]*\))?)/i,
+  ) ?? combinedEducationLine.match(
     /((?:[A-Z][A-Za-z'().&-]*\s+){0,6}(?:College|University|School|Institute|Kolegji)(?:\s+[A-Z][A-Za-z'().&-]*)*(?:\s*\([^)]*\))?)/i,
   );
 
@@ -180,7 +215,7 @@ export function inferEducationEntries(resumeText: string) {
   let degree: string | null = null;
   let fieldOfStudy: string | null = null;
 
-  const splitParts = educationLine
+  const splitParts = (educationLineForParsing || educationLine)
     .split(/\s+[–—-]\s+/)
     .map((part) => cleanLine(part))
     .filter(Boolean);
@@ -199,11 +234,19 @@ export function inferEducationEntries(resumeText: string) {
     }
   }
 
-  const schoolKeywordIndex = educationLine.search(/\b(?:College|University|School|Institute|Kolegji)\b/i);
+  if (!degree) {
+    const degreeLine = nearbyEducationLines.find((line) =>
+      /degree|bachelor|master|phd/i.test(line) &&
+      !/(college|university|school|institute|kolegji)/i.test(line),
+    );
+    degree = degreeLine ?? null;
+  }
 
-  if (!schoolName && schoolKeywordIndex !== -1 && /degree|bachelor|master|phd/i.test(educationLine.slice(0, schoolKeywordIndex))) {
-    schoolName = cleanLine(educationLine.slice(schoolKeywordIndex));
-    const detailParts = cleanLine(educationLine.slice(0, schoolKeywordIndex)).replace(/^[,\s–—-]+|[,\s–—-]+$/g, "");
+  const schoolKeywordIndex = (educationLineForParsing || educationLine).search(/\b(?:College|University|School|Institute|Kolegji)\b/i);
+
+  if (!schoolName && schoolKeywordIndex !== -1 && /degree|bachelor|master|phd/i.test((educationLineForParsing || educationLine).slice(0, schoolKeywordIndex))) {
+    schoolName = cleanLine((educationLineForParsing || educationLine).slice(schoolKeywordIndex));
+    const detailParts = cleanLine((educationLineForParsing || educationLine).slice(0, schoolKeywordIndex)).replace(/^[,\s–—-]+|[,\s–—-]+$/g, "");
 
     if (detailParts) {
       const segments = detailParts.split(",").map((part) => cleanLine(part)).filter(Boolean);
@@ -214,7 +257,7 @@ export function inferEducationEntries(resumeText: string) {
 
   if (!schoolName && schoolMatch?.[1]) {
     schoolName = cleanLine(schoolMatch[1]);
-    const detailParts = cleanLine(educationLine.replace(schoolMatch[1], "")).replace(/^[,\s–—-]+|[,\s–—-]+$/g, "");
+    const detailParts = cleanLine((educationLineForParsing || educationLine).replace(schoolMatch[1], "")).replace(/^[,\s–—-]+|[,\s–—-]+$/g, "");
 
     if (detailParts) {
       const segments = detailParts.split(",").map((part) => cleanLine(part)).filter(Boolean);
@@ -230,9 +273,15 @@ export function inferEducationEntries(resumeText: string) {
       degree = cleanLine(degreeWithFieldMatch[1] ?? degree);
       fieldOfStudy = fieldOfStudy ?? (cleanLine(degreeWithFieldMatch[2] ?? "") || null);
     }
+
+    const parenthesizedDegreeMatch = degree.match(/^(.*?\([^)]*\))\s*,\s*(.+)$/i);
+    if (parenthesizedDegreeMatch && !fieldOfStudy) {
+      degree = cleanLine(parenthesizedDegreeMatch[1] ?? degree);
+      fieldOfStudy = cleanLine(parenthesizedDegreeMatch[2] ?? "") || null;
+    }
   }
 
-  const dateLine = [candidatePool[educationLineIndex + 1], candidatePool[educationLineIndex - 1]]
+  const dateLine = [educationLine, candidatePool[educationLineIndex + 1], candidatePool[educationLineIndex - 1], candidatePool[educationLineIndex + 2], candidatePool[educationLineIndex - 2]]
     .map((line) => cleanLine(line ?? ""))
     .find((line) => dateRangePattern.test(line)) ?? null;
   const dateMatch = dateLine?.match(dateRangePattern) ?? null;

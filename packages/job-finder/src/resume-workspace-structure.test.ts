@@ -43,6 +43,9 @@ describe("buildResumeRenderDocument", () => {
               subtitle: "Signal Systems",
               location: "London, UK",
               dateRange: "2020-01 – Present",
+              startDate: "2020-01",
+              endDate: null,
+              isCurrent: true,
               summary: "Tailored workflow platform summary.",
               bullets: [
                 {
@@ -90,9 +93,12 @@ describe("buildResumeRenderDocument", () => {
       title: "Senior systems designer",
       subtitle: "Signal Systems",
       location: "London, UK",
-      dateRange: "2020-01 – Present",
+      dateRange: "Jan 2020 – Present",
+      startDate: "2020-01",
+      endDate: null,
+      isCurrent: true,
       heading:
-        "Senior systems designer — Signal Systems | London, UK | 2020-01 – Present",
+        "Senior systems designer — Signal Systems | London, UK | Jan 2020 – Present",
       summary: "Tailored workflow platform summary.",
       bullets: [
         {
@@ -114,6 +120,9 @@ describe("buildResumeRenderDocument", () => {
     const experience = draft.sections.find((section) => section.kind === "experience")?.entries[0];
 
     expect(experience?.dateRange).toMatch(/^[A-Z][a-z]{2} \d{4} – Present$/);
+    expect(experience?.startDate).toMatch(/^\d{4}-\d{2}$/);
+    expect(experience?.endDate).toBeNull();
+    expect(experience?.isCurrent).toBe(true);
   });
 
   test("seedResumeDraft normalizes imported profile experience to newest-first chronology", () => {
@@ -252,6 +261,229 @@ describe("buildResumeRenderDocument", () => {
     });
     expect(JSON.stringify(document)).not.toContain("weaker career-family fit");
     expect(JSON.stringify(document)).not.toContain("Sales Operations Associate");
+  });
+
+  test("buildResumeDraftFromTailoredDraft preserves imported dates and detail when tailored entries are thin", () => {
+    const seed = createSeed();
+    const profile = {
+      ...seed.profile,
+      experiences: [
+        {
+          ...seed.profile.experiences[0]!,
+          id: "experience_full_stack",
+          title: "Full-Stack Software Engineer",
+          companyName: "INFOTECH L.L.C",
+          location: "Hybrid, Kosovo",
+          startDate: "2019-08",
+          endDate: "2021-10",
+          isCurrent: false,
+          summary:
+            "Supported and enhanced a comprehensive .NET desktop application for business management covering inventory, sales, tax documentation, POS, restaurant orders, car repair, and fuel-pump control.",
+          achievements: [
+            "Improved Inventory Management accuracy by integrating live sales data for reliable stock tracking.",
+            "Automated invoice generation, reporting, and customer management workflows.",
+          ],
+        },
+      ],
+    };
+    const draft = buildResumeDraftFromTailoredDraft({
+      job: seed.savedJobs[0]!,
+      templateId: seed.settings.resumeTemplateId,
+      createdAt: "2026-03-20T10:04:00.000Z",
+      generationMethod: "ai",
+      profile,
+      draft: {
+        label: "Tailored Resume",
+        summary: "Grounded software summary.",
+        experienceHighlights: [],
+        coreSkills: ["React"],
+        targetedKeywords: ["React"],
+        experienceEntries: [
+          {
+            title: "Full-Stack Software Engineer",
+            employer: "INFOTECH L.L.C",
+            location: "Hybrid, Kosovo",
+            dateRange: "Hybrid, Kosovo",
+            summary: null,
+            bullets: [
+              "Supported and enhanced a comprehensive .NET desktop application for business management covering inventory, sales, tax documentation, POS, restaurant orders, car repair, and fuel-pump control.",
+            ],
+            profileRecordId: "experience_full_stack",
+          },
+        ],
+        projectEntries: [],
+        educationEntries: [],
+        certificationEntries: [],
+        coverageMetadata: [],
+        additionalSkills: [],
+        languages: [],
+        fullText: "Grounded software summary.",
+        compatibilityScore: 80,
+        notes: [],
+      },
+    });
+    const entry = draft.sections
+      .find((section) => section.kind === "experience")
+      ?.entries.find((item) => item.profileRecordId === "experience_full_stack");
+
+    expect(entry?.dateRange).toBe("Aug 2019 – Oct 2021");
+    expect(entry?.startDate).toBe("2019-08");
+    expect(entry?.endDate).toBe("2021-10");
+    expect(entry?.isCurrent).toBe(false);
+    expect(entry?.summary).toBe(profile.experiences[0]?.summary);
+    expect(entry?.bullets.map((bullet) => bullet.text)).toEqual([
+      "Supported and enhanced a comprehensive .NET desktop application for business management covering inventory, sales, tax documentation, POS, restaurant orders, car repair, and fuel-pump control.",
+      "Improved Inventory Management accuracy by integrating live sales data for reliable stock tracking.",
+      "Automated invoice generation, reporting, and customer management workflows.",
+    ]);
+  });
+
+  test("buildResumeDraftFromTailoredDraft preserves profile-backed education and certification dates", () => {
+    const seed = createSeed();
+    const profile = {
+      ...seed.profile,
+      certifications: [
+        {
+          id: "cert_aws",
+          name: "AWS Certified Developer",
+          issuer: "Amazon Web Services",
+          issueDate: "2021-05",
+          expiryDate: "2024-05",
+          credentialUrl: null,
+          isDraft: false,
+        },
+      ],
+    };
+    const draft = buildResumeDraftFromTailoredDraft({
+      job: seed.savedJobs[0]!,
+      templateId: seed.settings.resumeTemplateId,
+      createdAt: "2026-03-20T10:04:00.000Z",
+      generationMethod: "ai",
+      profile,
+      draft: {
+        label: "Tailored Resume",
+        summary: "Grounded software summary.",
+        experienceHighlights: [],
+        coreSkills: ["React"],
+        targetedKeywords: ["React"],
+        experienceEntries: [],
+        projectEntries: [],
+        educationEntries: [
+          {
+            school: "Royal College of Art",
+            degree: "MA",
+            fieldOfStudy: "Design Products",
+            location: "London, UK",
+            dateRange: "London, UK",
+            summary: null,
+            profileRecordId: "education_1",
+          },
+        ],
+        certificationEntries: [
+          {
+            name: "AWS Certified Developer",
+            issuer: "Amazon Web Services",
+            dateRange: "Amazon Web Services",
+            profileRecordId: "cert_aws",
+          },
+        ],
+        coverageMetadata: [],
+        additionalSkills: [],
+        languages: [],
+        fullText: "Grounded software summary.",
+        compatibilityScore: 80,
+        notes: [],
+      },
+    });
+    const education = draft.sections
+      .find((section) => section.kind === "education")
+      ?.entries.find((entry) => entry.profileRecordId === "education_1");
+    const certification = draft.sections
+      .find((section) => section.kind === "certifications")
+      ?.entries.find((entry) => entry.profileRecordId === "cert_aws");
+
+    expect(education).toMatchObject({
+      dateRange: "Sep 2012 – Jun 2014",
+      startDate: "2012-09",
+      endDate: "2014-06",
+    });
+    expect(certification).toMatchObject({
+      dateRange: "May 2021 – May 2024",
+      startDate: "2021-05",
+      endDate: "2024-05",
+    });
+  });
+
+  test("buildResumeDraftFromTailoredDraft canonicalizes profile-backed metadata and splits dense imported descriptions", () => {
+    const seed = createSeed();
+    const profile = {
+      ...seed.profile,
+      experiences: [
+        {
+          ...seed.profile.experiences[0]!,
+          id: "experience_operations_system",
+          title: "Operations Systems Engineer",
+          companyName: "AUTOMATEDPROS",
+          location: "Remote, Kosovo",
+          startDate: "01/07/2023",
+          endDate: null,
+          isCurrent: true,
+          summary: "Led hands-on product engineering across order, kitchen, and billing workflows.",
+          achievements: [
+            "Engineered a real-time restaurant order platform with React, Next.js, TailwindCSS & WebSockets, synchronizing POS and kitchen screens and eliminating manual order calls. Improved release confidence across kitchen workflows.",
+            "Integrated car-repair parts tracking and service scheduling; reducing car-parts load time by 87% (15s to 2s); improving ordering logic aligned with safety protocols.",
+          ],
+        },
+      ],
+    };
+    const draft = buildResumeDraftFromTailoredDraft({
+      job: seed.savedJobs[0]!,
+      templateId: seed.settings.resumeTemplateId,
+      createdAt: "2026-03-20T10:04:00.000Z",
+      generationMethod: "ai",
+      profile,
+      draft: {
+        label: "Tailored Resume",
+        summary: "Grounded software summary.",
+        experienceHighlights: [],
+        coreSkills: ["React", "Next.js"],
+        targetedKeywords: ["React"],
+        experienceEntries: [
+          {
+            title: "Operations Systems Engineer",
+            employer: "AUTOMATEDPROS",
+            location: "Remote, Kosovo",
+            dateRange: "Remote, Kosovo | Present",
+            summary: "AUTOMATEDPROS Remote Kosovo Present",
+            bullets: ["React and WebSockets"],
+            profileRecordId: "experience_operations_system",
+          },
+        ],
+        projectEntries: [],
+        educationEntries: [],
+        certificationEntries: [],
+        coverageMetadata: [],
+        additionalSkills: [],
+        languages: [],
+        fullText: "Grounded software summary.",
+        compatibilityScore: 80,
+        notes: [],
+      },
+    });
+    const entry = draft.sections
+      .find((section) => section.kind === "experience")
+      ?.entries.find((item) => item.profileRecordId === "experience_operations_system");
+
+    expect(entry?.dateRange).toBe("Jan 2023 – Present");
+    expect(entry?.startDate).toBe("01/07/2023");
+    expect(entry?.endDate).toBeNull();
+    expect(entry?.isCurrent).toBe(true);
+    expect(entry?.summary).toBe("Led hands-on product engineering across order, kitchen, and billing workflows.");
+    expect(entry?.bullets.map((bullet) => bullet.text)).toEqual([
+      "React and WebSockets",
+      "Engineered a real-time restaurant order platform with React, Next.js, TailwindCSS & WebSockets, synchronizing POS and kitchen screens and eliminating manual order calls.",
+      "Improved release confidence across kitchen workflows.",
+    ]);
   });
 
   test("buildResumeDraftFromTailoredDraft chronologically reinserts suggested-hidden entries", () => {
@@ -406,6 +638,9 @@ describe("buildResumeRenderDocument", () => {
       subtitle: "Design lead",
       location: "https://alex.example.com/workflow-os-case-study",
       dateRange: null,
+      startDate: null,
+      endDate: null,
+      isCurrent: false,
       heading: "Workflow OS — Design lead | https://alex.example.com/workflow-os-case-study",
       summary: "Scaled a workflow design system. Reduced release churn. Technologies: Figma, React.",
       bullets: [],

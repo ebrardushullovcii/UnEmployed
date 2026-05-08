@@ -19,6 +19,26 @@ function readCliOption(flag) {
 
 const canaryOnly = process.argv.includes('--canary-only')
 const useConfiguredAi = process.argv.includes('--use-configured-ai')
+const useVision = process.argv.includes('--use-vision')
+const caseIds = process.argv
+  .flatMap((entry, index, argv) => {
+    if (entry === '--case-id' || entry === '--case') {
+      return argv[index + 1] ? [argv[index + 1]] : []
+    }
+
+    if (entry.startsWith('--case-id=')) {
+      return [entry.slice('--case-id='.length)]
+    }
+
+    if (entry.startsWith('--case=')) {
+      return [entry.slice('--case='.length)]
+    }
+
+    return []
+  })
+  .flatMap((entry) => entry.split(','))
+  .map((entry) => entry.trim())
+  .filter(Boolean)
 const benchmarkVersion =
   readCliOption('--benchmark-version') ?? process.env.UI_RESUME_IMPORT_BENCHMARK_VERSION ?? '019-local-benchmark-v1'
 const runLabel = readCliOption('--label') ?? process.env.UI_CAPTURE_LABEL ?? 'resume-import-benchmark'
@@ -48,18 +68,31 @@ async function main() {
     ])
 
     const report = await window.evaluate(
-      async ({ benchmarkVersion, canaryOnly, useConfiguredAi }) => {
+      async ({ benchmarkVersion, canaryOnly, useConfiguredAi, useVision, caseIds }) => {
         if (!window.unemployed.jobFinder.test) {
           throw new Error('Desktop test API is not available in the renderer context.')
+        }
+
+        const defaultCases = await window.unemployed.jobFinder.test.getResumeImportBenchmarkCases()
+        const selectedCases = caseIds.length > 0
+          ? defaultCases.filter((entry) => caseIds.includes(entry.id))
+          : []
+
+        const validIds = new Set(defaultCases.map((entry) => entry.id))
+        const missingIds = caseIds.filter((id) => !validIds.has(id))
+        if (missingIds.length > 0) {
+          throw new Error(`Unknown resume import benchmark case id(s): ${missingIds.join(', ')}`)
         }
 
         return window.unemployed.jobFinder.test.runResumeImportBenchmark({
           benchmarkVersion,
           canaryOnly,
           useConfiguredAi,
+          useVision,
+          ...(selectedCases.length > 0 ? { cases: selectedCases } : {}),
         })
       },
-      { benchmarkVersion, canaryOnly, useConfiguredAi },
+      { benchmarkVersion, canaryOnly, useConfiguredAi, useVision, caseIds },
     )
 
     const reportPath = path.join(outputDir, 'resume-import-benchmark-report.json')

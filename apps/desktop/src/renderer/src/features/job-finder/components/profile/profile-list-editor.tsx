@@ -123,7 +123,7 @@ export function ProfileListEditor({
                 className="grid gap-2 rounded-(--radius-field) border border-border/60 bg-(--surface-fill-soft) px-3 py-2.5 text-(length:--text-item) leading-6 text-foreground-soft"
               >
                 <div className="flex items-start justify-between gap-3">
-                  <span className="min-w-0 whitespace-pre-wrap wrap-break-word">{value}</span>
+                  <span className="min-w-0 whitespace-pre-wrap break-words">{value}</span>
                   <button
                     aria-label={`Remove ${value}`}
                     className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-(length:--text-icon-small) leading-none text-muted-foreground transition-colors hover:bg-(--surface-panel) hover:text-foreground"

@@ -6,9 +6,12 @@ import {
   SourceDebugWorkerAttemptSchema,
   SourceInstructionArtifactSchema,
   SourceInstructionVerificationSchema,
+  type AgentDebugFindings,
+  type BrowserVisualEvidenceSummary,
   type JobDiscoveryTarget,
   type SourceDebugProgressEvent,
   type SourceDebugPhase,
+  type SourceDebugVisualFinding,
   type SourceInstructionArtifact,
   type SourceDebugWorkerAttempt,
 } from "@unemployed/contracts";
@@ -55,6 +58,90 @@ import {
 } from "./source-debug-timing";
 
 const MAX_PROGRESS_EVENTS = 1000;
+
+function buildSourceDebugVisualEvidenceSummary(
+  finding: SourceDebugVisualFinding,
+): BrowserVisualEvidenceSummary {
+  return {
+    snapshotId: finding.snapshotId,
+    observationSetId: finding.observationSetId,
+    summary: finding.summary,
+    capturedAt: finding.capturedAt,
+    storagePath: finding.storagePath,
+    retention: finding.retention,
+    redactionLevel: finding.redactionLevel,
+    confidence: finding.confidence,
+    reconciliationStatus: finding.reconciliationStatus,
+  };
+}
+
+function buildSourceDebugVisualArtifacts(input: {
+  attemptId: string;
+  debugFindings: AgentDebugFindings | null;
+  phase: SourceDebugPhase;
+  phaseVisualFindings: readonly SourceDebugVisualFinding[];
+  runId: string;
+  targetId: string;
+}) {
+  const observationSetsById = new Map(
+    (input.debugFindings?.visualObservationSets ?? []).map((observationSet) => [
+      observationSet.id,
+      observationSet,
+    ]),
+  );
+  const evidenceByKey = new Map<string, BrowserVisualEvidenceSummary>();
+
+  for (const finding of input.debugFindings?.visualFindings ?? []) {
+    const key = `${finding.snapshotId}:${finding.observationSetId}`;
+    evidenceByKey.set(key, finding);
+  }
+
+  for (const finding of input.phaseVisualFindings) {
+    const key = `${finding.snapshotId}:${finding.observationSetId}`;
+    if (!evidenceByKey.has(key)) {
+      evidenceByKey.set(key, buildSourceDebugVisualEvidenceSummary(finding));
+    }
+  }
+
+  const visualEvidence = [...evidenceByKey.values()];
+  const evidenceRefs = visualEvidence.flatMap((evidence, index) => {
+    if (!evidence.storagePath) {
+      return [];
+    }
+
+    const observationSet = observationSetsById.get(evidence.observationSetId) ?? null;
+
+    return [
+      SourceDebugEvidenceRefSchema.parse({
+        id: `${input.attemptId}_visual_${index + 1}`,
+        runId: input.runId,
+        attemptId: input.attemptId,
+        targetId: input.targetId,
+        phase: input.phase,
+        kind: "screenshot",
+        label: "Visual source-debug evidence",
+        capturedAt: evidence.capturedAt,
+        url: observationSet?.url ?? null,
+        storagePath: evidence.storagePath,
+        excerpt: evidence.summary,
+        visualSnapshotId: evidence.snapshotId,
+        visualObservationSetId: evidence.observationSetId,
+        visualMode: null,
+        visualRetention: {
+          retention: evidence.retention,
+          redactionLevel: evidence.redactionLevel,
+          reason: "Source-debug visual evidence explains a phase outcome or blocker.",
+        },
+        visualObservations: observationSet,
+      }),
+    ];
+  });
+
+  return {
+    evidenceRefs,
+    visualEvidence,
+  };
+}
 
 function buildSourceDebugCompactionPolicy(
   modelContextWindowTokens: number | null,
@@ -302,7 +389,10 @@ export async function runSourceDebugWorkflow(
       message: `Starting or attaching the browser profile for ${normalizedTarget.label}.`,
       currentUrl: normalizedTarget.startingUrl,
     });
-    await ctx.openRunBrowserSession(adapterKind);
+    await ctx.openRunBrowserSession(adapterKind, {
+      targetUrl: normalizedTarget.startingUrl,
+      targetId: normalizedTarget.id,
+    });
     browserSessionOpened = true;
     browserSetupMs = Date.now() - browserSetupStartedAtMs;
     emitProgress({
@@ -464,6 +554,15 @@ export async function runSourceDebugWorkflow(
         const outcome = classifySourceDebugAttemptOutcome(debugResult, phase);
         const completion = resolveSourceDebugCompletion(debugResult);
         const attemptId = `source_debug_attempt_${phase}_${Date.now()}`;
+        const debugFindings = debugResult.agentMetadata?.debugFindings ?? null;
+        const visualArtifacts = buildSourceDebugVisualArtifacts({
+          attemptId,
+          debugFindings,
+          phase,
+          phaseVisualFindings: completion.phaseEvidence?.visualFindings ?? [],
+          runId: run.id,
+          targetId: normalizedTarget.id,
+        });
         emitProgress({
           phase,
           waitReason: "persisting_results",
@@ -502,6 +601,7 @@ export async function runSourceDebugWorkflow(
               excerpt: job.summary ?? job.description ?? null,
             }),
           ),
+          ...visualArtifacts.evidenceRefs,
         ];
 
         await ctx.repository.upsertSourceDebugEvidenceRefs(evidenceRefs);
@@ -509,7 +609,6 @@ export async function runSourceDebugWorkflow(
         const applyReadyCount = debugResult.jobs.filter(
           (job) => job.applyPath !== "unknown" || job.easyApplyEligible,
         ).length;
-        const debugFindings = debugResult.agentMetadata?.debugFindings ?? null;
         const hostname = new URL(normalizedTarget.startingUrl).hostname;
         const canonicalUrlBehavior =
           phase === "job_detail_validation" || phase === "replay_verification"
@@ -532,6 +631,10 @@ export async function runSourceDebugWorkflow(
             debugFindings?.navigationTips ?? [],
           ),
           ...prefixedLines("Apply note: ", debugFindings?.applyTips ?? []),
+          ...prefixedLines(
+            "Visual evidence: ",
+            visualArtifacts.visualEvidence.map((evidence) => evidence.summary),
+          ),
           ...canonicalUrlBehavior,
           ...applyPathBehavior,
           ...filterSourceDebugWarnings(debugFindings?.warnings ?? []),
@@ -619,6 +722,7 @@ export async function runSourceDebugWorkflow(
           avoidStrategyFingerprints: [strategyFingerprint],
           evidenceRefIds: evidenceRefs.map((evidenceRef) => evidenceRef.id),
           phaseEvidence: completion.phaseEvidence,
+          visualEvidence: visualArtifacts.visualEvidence,
           compactionState: (() => {
             const parsedCompactionState = debugResult.agentMetadata
               ?.compactionState
@@ -640,31 +744,43 @@ export async function runSourceDebugWorkflow(
           })(),
           timing: phaseTiming,
         });
+        const visualResultSummary = artifact.visualEvidence[0]?.summary;
+        const attemptResultSummary =
+          !debugFindings?.summary &&
+          visualResultSummary &&
+          artifact.resultSummary.includes("produced no reusable evidence")
+            ? `Visual evidence noted: ${visualResultSummary}`
+            : artifact.resultSummary;
+        const finalizedAttempt = SourceDebugWorkerAttemptSchema.parse({
+          ...artifact,
+          resultSummary: attemptResultSummary,
+        });
 
-        finalReviewContextsByAttemptId.set(artifact.id, {
+        finalReviewContextsByAttemptId.set(finalizedAttempt.id, {
           phase,
           phaseGoal: phasePacket.phaseGoal,
           successCriteria: [...phasePacket.successCriteria],
           stopConditions: [...phasePacket.stopConditions],
           knownFactsAtStart: [...phasePacket.knownFacts],
-          startedAt: artifact.startedAt,
-          completedAt: artifact.completedAt,
-          outcome: artifact.outcome,
-          completionMode: artifact.completionMode,
-          completionReason: artifact.completionReason,
-          resultSummary: artifact.resultSummary,
-          blockerSummary: artifact.blockerSummary,
-          confirmedFacts: [...artifact.confirmedFacts],
-          attemptedActions: [...artifact.attemptedActions],
-          phaseEvidence: artifact.phaseEvidence,
-          compactionState: artifact.compactionState,
+          startedAt: finalizedAttempt.startedAt,
+          completedAt: finalizedAttempt.completedAt,
+          outcome: finalizedAttempt.outcome,
+          completionMode: finalizedAttempt.completionMode,
+          completionReason: finalizedAttempt.completionReason,
+          resultSummary: finalizedAttempt.resultSummary,
+          blockerSummary: finalizedAttempt.blockerSummary,
+          confirmedFacts: [...finalizedAttempt.confirmedFacts],
+          attemptedActions: [...finalizedAttempt.attemptedActions],
+          phaseEvidence: finalizedAttempt.phaseEvidence,
+          visualEvidence: finalizedAttempt.visualEvidence,
+          compactionState: finalizedAttempt.compactionState,
           reviewTranscript: [
             ...(debugResult.agentMetadata?.reviewTranscript ?? []),
           ],
         });
 
         const shouldStopEarly = shouldFinishSourceDebugEarly({
-          attempts: [...attempts, artifact],
+          attempts: [...attempts, finalizedAttempt],
           currentPhase: phase,
         });
 
@@ -673,7 +789,7 @@ export async function runSourceDebugWorkflow(
         }
 
         return {
-          artifact,
+          artifact: finalizedAttempt,
           stop:
             outcome === "blocked_auth" ||
             outcome === "blocked_manual_step" ||

@@ -3,7 +3,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { CandidateProfileSchema } from '@unemployed/contracts'
+import { CandidateProfileSchema, ResumeImportFieldCandidateSummarySchema, ResumeImportRunSchema } from '@unemployed/contracts'
 import { ProfileResumePanel } from './profile-resume-panel'
 
 describe('ProfileResumePanel', () => {
@@ -185,7 +185,7 @@ describe('ProfileResumePanel', () => {
           isAnalyzeProfilePending={false}
           isImportResumePending={false}
           latestResumeImportReviewCandidates={[]}
-          latestResumeImportRun={{
+          latestResumeImportRun={ResumeImportRunSchema.parse({
             id: 'resume_import_run_1',
             sourceResumeId: 'resume_3',
             sourceResumeFileName: 'alex-vanguard.txt',
@@ -206,7 +206,7 @@ describe('ProfileResumePanel', () => {
               rejected: 0,
               abstained: 0,
             },
-          }}
+          })}
           onAnalyzeProfileFromResume={vi.fn()}
           onImportResume={vi.fn()}
           profile={profile}
@@ -262,7 +262,7 @@ describe('ProfileResumePanel', () => {
           isAnalyzeProfilePending={false}
           isImportResumePending={false}
           latestResumeImportReviewCandidates={[
-            {
+            ResumeImportFieldCandidateSummarySchema.parse({
               id: 'candidate_headline',
               target: { section: 'identity', key: 'headline', recordId: null },
               label: 'Headline',
@@ -273,7 +273,7 @@ describe('ProfileResumePanel', () => {
               resolution: 'needs_review',
               resolutionReason: null,
               notes: [],
-            },
+            }),
           ]}
           latestResumeImportRun={null}
           onAnalyzeProfileFromResume={vi.fn()}

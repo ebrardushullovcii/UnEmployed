@@ -38,7 +38,7 @@ export function DiscoverySessionSummary(props: {
   return (
     <>
       {sectionDetail ? (
-        <p className="max-w-full wrap-break-word text-(length:--text-field) leading-7 text-foreground-soft">
+        <p className="max-w-full break-words text-(length:--text-field) leading-7 text-foreground-soft">
           {sectionDetail}
         </p>
       ) : null}

@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
   ResumeDocumentBundleSchema,
   ResumeImportFieldCandidateSchema,
+  ResumeImportVisionArtifactSchema,
   ResumeImportRunSchema,
 } from "./index";
 
@@ -237,5 +238,102 @@ describe("contracts resume import schemas", () => {
     expect(benchmarkCase.canary).toBe(true);
     expect(report.cases[0]?.passed).toBe(true);
     expect(report.parserManifestVersions).toEqual(["parser-manifest-v1"]);
+  });
+
+  test("parses resume vision artifacts and conflict choices", () => {
+    const artifact = ResumeImportVisionArtifactSchema.parse({
+      id: "vision_artifact_1",
+      runId: "resume_import_run_1",
+      sourceResumeId: "resume_1",
+      sourceFileKind: "pdf",
+      createdAt: "2026-04-10T10:00:01.000Z",
+      retained: "temporary",
+      pages: [
+        {
+          id: "vision_page_1",
+          sourceResumeId: "resume_1",
+          sourceFileKind: "pdf",
+          pageNumber: 1,
+          renderKind: "pdf_page_image",
+          mimeType: "image/png",
+          width: 1200,
+          height: 1600,
+          byteLength: 128,
+          sha256: "abc123",
+          dataUrl: "data:image/png;base64,AAAA",
+          storagePath: null,
+          retained: "temporary",
+          generatedAt: "2026-04-10T10:00:01.000Z",
+          warnings: ["low_resolution_preview"],
+        },
+      ],
+      warnings: [],
+    });
+    const candidate = ResumeImportFieldCandidateSchema.parse({
+      id: "candidate_conflict_1",
+      runId: "resume_import_run_1",
+      target: { section: "identity", key: "headline", recordId: null },
+      label: "Headline",
+      sourceKind: "vision_omni",
+      value: "Staff Platform Engineer",
+      normalizedValue: "Staff Platform Engineer",
+      valuePreview: "Staff Platform Engineer",
+      evidenceText: "Staff Platform Engineer",
+      sourceBlockIds: [],
+      confidence: 0.78,
+      notes: [],
+      alternatives: ["Senior Software Engineer"],
+      conflictChoices: [
+        {
+          id: "choice_text",
+          label: "Headline",
+          sourceLabel: "Document text",
+          value: "Senior Software Engineer",
+          valuePreview: "Senior Software Engineer",
+          evidenceText: "Senior Software Engineer",
+          confidence: 0.82,
+          recommended: true,
+          sourceCandidateIds: ["candidate_text"],
+        },
+        {
+          id: "choice_vision",
+          label: "Headline",
+          sourceLabel: "Visual scan",
+          value: "Staff Platform Engineer",
+          valuePreview: "Staff Platform Engineer",
+          evidenceText: "Staff Platform Engineer",
+          confidence: 0.78,
+          recommended: false,
+          sourceCandidateIds: ["candidate_conflict_1"],
+          visualEvidence: [
+            {
+              sourceFileKind: "pdf",
+              pageNumber: 1,
+              regionHint: "top headline",
+              confidence: 0.78,
+            },
+          ],
+        },
+      ],
+      visualEvidence: [
+        {
+          sourceFileKind: "pdf",
+          pageNumber: 1,
+          regionHint: "top headline",
+          confidence: 0.78,
+        },
+      ],
+      resolution: "needs_review",
+      resolutionReason: "text_vs_visual_conflict_requires_review",
+      createdAt: "2026-04-10T10:00:02.000Z",
+      resolvedAt: null,
+    });
+
+    expect(artifact.pages[0]?.renderKind).toBe("pdf_page_image");
+    expect(candidate.conflictChoices?.map((choice) => choice.sourceLabel)).toEqual([
+      "Document text",
+      "Visual scan",
+    ]);
+    expect(candidate.visualEvidence?.[0]?.branch).toBe("vision");
   });
 });

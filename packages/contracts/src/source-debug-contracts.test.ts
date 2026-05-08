@@ -8,6 +8,7 @@ import {
   SourceDebugRunRecordSchema,
   SourceInstructionArtifactSchema,
   SourceInstructionVerificationSchema,
+  BrowserVisualObservationSetSchema,
 } from "./index";
 import {
   createSubmittedAttempt,
@@ -273,6 +274,155 @@ describe("contracts source-debug schemas", () => {
     expect(artifact.intelligence.reliability.verifiedAt).toBe(
       "2026-03-20T10:02:00.000Z",
     );
+  });
+
+  test("parses retained source-debug visual evidence and rejects unsafe visual instructions", () => {
+    const observationSet = BrowserVisualObservationSetSchema.parse({
+      id: "visual_observation_1",
+      snapshotId: "visual_snapshot_1",
+      observedAt: "2026-03-20T10:01:00.000Z",
+      url: "https://jobs.example.com/search",
+      purpose: "source_debug",
+      providerKind: "deterministic",
+      providerLabel: "Deterministic browser visual analysis",
+      summary: "Visible job cards appear below a search form.",
+      observations: [
+        {
+          id: "visual_observation_item_1",
+          kind: "visible_control",
+          label: "Keyword search form",
+          description: "A keyword search form is visible near the top of the jobs page.",
+          confidence: 0.74,
+        },
+      ],
+      visibleControls: ["Keyword search form near the page header"],
+      jobCardClues: ["Several job-card shaped rows are visible below the filter area"],
+    });
+    const evidence = SourceDebugEvidenceRefSchema.parse({
+      id: "source_debug_visual_evidence_1",
+      runId: "source_debug_run_1",
+      attemptId: "source_debug_attempt_1",
+      targetId: "target_1",
+      phase: "search_filter_probe",
+      kind: "screenshot",
+      label: "Visual search evidence",
+      capturedAt: "2026-03-20T10:01:00.000Z",
+      url: "https://jobs.example.com/search",
+      storagePath: "/tmp/source-debug/visual-search.png",
+      excerpt: "Visible job cards appear below a search form.",
+      visualSnapshotId: "visual_snapshot_1",
+      visualObservationSetId: observationSet.id,
+      visualMode: "viewport",
+      visualRetention: {
+        retention: "retained",
+        redactionLevel: "standard",
+        reason: "Explains the source-debug search/filter phase outcome.",
+      },
+      visualObservations: observationSet,
+    });
+
+    if (evidence.kind !== "screenshot") {
+      throw new Error("Expected screenshot evidence.");
+    }
+
+    expect(evidence.visualObservations?.visibleControls[0]).toContain(
+      "Keyword search",
+    );
+
+    expect(() =>
+      BrowserVisualObservationSetSchema.parse({
+        id: "visual_observation_descriptive",
+        snapshotId: "visual_snapshot_descriptive",
+        observedAt: "2026-03-20T10:01:00.000Z",
+        purpose: "source_debug",
+        providerKind: "deterministic",
+        providerLabel: "Deterministic browser visual analysis",
+        summary: "The [Apply Now] button is visible near a select dropdown.",
+        observations: [
+          {
+            id: "visual_observation_item_descriptive",
+            kind: "visible_control",
+            label: "Input type is email",
+            description:
+              "A fill-in field appears below the title in a choose-your-skill section.",
+            confidence: 0.74,
+          },
+        ],
+        visibleControls: ["Shows a [Required] badge beside the email field"],
+      }),
+    ).not.toThrow();
+
+    expect(() =>
+      BrowserVisualObservationSetSchema.parse({
+        id: "visual_observation_unsafe",
+        snapshotId: "visual_snapshot_unsafe",
+        observedAt: "2026-03-20T10:01:00.000Z",
+        purpose: "source_debug",
+        providerKind: "deterministic",
+        providerLabel: "Deterministic browser visual analysis",
+        summary: "Click the button #apply-now to continue.",
+      }),
+    ).toThrow(/cannot include selectors|cannot direct browser actions/i);
+
+    expect(() =>
+      BrowserVisualObservationSetSchema.parse({
+        id: "visual_observation_attribute_selector",
+        snapshotId: "visual_snapshot_attribute_selector",
+        observedAt: "2026-03-20T10:01:00.000Z",
+        purpose: "source_debug",
+        providerKind: "deterministic",
+        providerLabel: "Deterministic browser visual analysis",
+        summary: "The selector input[name='email'] appears in the form.",
+      }),
+    ).toThrow(/cannot include selectors/i);
+
+    expect(() =>
+      BrowserVisualObservationSetSchema.parse({
+        id: "visual_observation_click_apply",
+        snapshotId: "visual_snapshot_click_apply",
+        observedAt: "2026-03-20T10:01:00.000Z",
+        purpose: "source_debug",
+        providerKind: "deterministic",
+        providerLabel: "Deterministic browser visual analysis",
+        summary: "Click Apply to continue.",
+      }),
+    ).toThrow(/cannot direct browser actions/i);
+
+    expect(() =>
+      BrowserVisualObservationSetSchema.parse({
+        id: "visual_observation_open_easy_apply",
+        snapshotId: "visual_snapshot_open_easy_apply",
+        observedAt: "2026-03-20T10:01:00.000Z",
+        purpose: "source_debug",
+        providerKind: "deterministic",
+        providerLabel: "Deterministic browser visual analysis",
+        summary: "Open Easy Apply from the listing.",
+      }),
+    ).toThrow(/cannot direct browser actions/i);
+
+    expect(() =>
+      BrowserVisualObservationSetSchema.parse({
+        id: "visual_observation_save_job",
+        snapshotId: "visual_snapshot_save_job",
+        observedAt: "2026-03-20T10:01:00.000Z",
+        purpose: "source_debug",
+        providerKind: "deterministic",
+        providerLabel: "Deterministic browser visual analysis",
+        summary: "Save this job before continuing.",
+      }),
+    ).toThrow(/cannot direct saved-job behavior/i);
+
+    expect(() =>
+      BrowserVisualObservationSetSchema.parse({
+        id: "visual_observation_site_rule",
+        snapshotId: "visual_snapshot_site_rule",
+        observedAt: "2026-03-20T10:01:00.000Z",
+        purpose: "source_debug",
+        providerKind: "deterministic",
+        providerLabel: "Deterministic browser visual analysis",
+        summary: "LinkedIn-specific apply flow should use the board's special route.",
+      }),
+    ).toThrow(/site-specific workflow rules/i);
   });
 
   test("parses test-only performance snapshots", () => {

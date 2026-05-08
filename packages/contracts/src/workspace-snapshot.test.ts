@@ -1,12 +1,14 @@
 import { describe, expect, test } from "vitest";
 import {
   JobFinderApplyConsentActionInputSchema,
+  JobFinderApplyCopilotActionInputSchema,
   JobFinderApplyQueueActionInputSchema,
   ApplyRunSchema,
   JobFinderApplyRunActionInputSchema,
   JobFinderApplyRunDetailsQuerySchema,
   JobFinderAgentDiscoveryActionInputSchema,
   JobFinderOpenBrowserSessionInputSchema,
+  ApplyJobResultSchema,
   ApplicationAttemptSchema,
   JobFinderWorkspaceSnapshotSchema,
 } from "./index";
@@ -16,6 +18,80 @@ describe("contracts workspace snapshot schema", () => {
   test("parses a job finder workspace snapshot", () => {
     const attempt = ApplicationAttemptSchema.parse(createSubmittedAttempt());
     const applyRun = ApplyRunSchema.parse(createApplyRunFixture());
+    const visualEvidence = {
+      snapshotId: "visual_snapshot_apply_1",
+      observationSetId: "visual_observation_apply_1",
+      summary: "Visible submission control stayed disabled before review.",
+      capturedAt: "2026-03-20T10:03:00.000Z",
+      storagePath: null,
+      retention: "temporary" as const,
+      redactionLevel: "sensitive" as const,
+      confidence: 0.73,
+      reconciliationStatus: "not_compared" as const,
+    };
+    const applyJobResult = ApplyJobResultSchema.parse({
+      id: "apply_result_1",
+      runId: applyRun.id,
+      jobId: "job_1",
+      queuePosition: 0,
+      state: "awaiting_review",
+      summary: "Prepared for review.",
+      detail: "Visual checkpoint was captured before final submit.",
+      startedAt: "2026-03-20T10:02:00.000Z",
+      updatedAt: "2026-03-20T10:03:00.000Z",
+      completedAt: null,
+      blockerReason: null,
+      blockerSummary: null,
+      visualObservationSets: [
+        {
+          id: visualEvidence.observationSetId,
+          snapshotId: visualEvidence.snapshotId,
+          observedAt: visualEvidence.capturedAt,
+          url: "https://jobs.example.com/roles/target_job_1/apply",
+          purpose: "apply_checkpoint",
+          providerKind: "deterministic",
+          providerLabel: "Deterministic browser visual analysis",
+          summary: visualEvidence.summary,
+          blockers: [],
+          visibleControls: [],
+          jobCardClues: [],
+          applyPathClues: [],
+          fieldControls: ["Resume upload control is visible."],
+          validationErrors: [],
+          buttonStates: ["Submission control appears disabled."],
+          questionContexts: [],
+          recoveryNotes: [],
+          uncertainty: [],
+          observations: [],
+          reconciliations: [],
+          rejectedOutputReasons: [],
+        },
+      ],
+      visualCheckpoints: [
+        {
+          id: "apply_visual_checkpoint_1",
+          label: "Apply page visual checkpoint",
+          purpose: "apply_checkpoint",
+          snapshotId: visualEvidence.snapshotId,
+          observationSetId: visualEvidence.observationSetId,
+          summary: visualEvidence.summary,
+          capturedAt: visualEvidence.capturedAt,
+          retained: false,
+          storagePath: null,
+          blockers: [],
+          fieldControls: ["Resume upload control is visible."],
+          validationErrors: [],
+           buttonStates: ["Submission control appears disabled."],
+          questionContextIds: [],
+          reconciliations: [],
+        },
+      ],
+      latestQuestionCount: 0,
+      latestAnswerCount: 0,
+      pendingConsentRequestCount: 0,
+      artifactCount: 0,
+      latestCheckpointId: null,
+    });
 
     const workspace = JobFinderWorkspaceSnapshotSchema.parse({
       module: "job-finder",
@@ -353,7 +429,7 @@ describe("contracts workspace snapshot schema", () => {
         },
       ],
       applyRuns: [applyRun],
-      applyJobResults: [],
+      applyJobResults: [applyJobResult],
       applicationRecords: [
         {
           id: "application_1",
@@ -457,6 +533,27 @@ describe("contracts workspace snapshot schema", () => {
       }),
     ).toEqual({
       runId: "apply_run_1",
+    });
+  });
+
+  test("parses apply copilot visual opt-in payloads", () => {
+    expect(
+      JobFinderApplyCopilotActionInputSchema.parse({
+        jobId: "job_1",
+      }),
+    ).toEqual({
+      jobId: "job_1",
+      visualCheckpointsEnabled: false,
+    });
+
+    expect(
+      JobFinderApplyCopilotActionInputSchema.parse({
+        jobId: "job_1",
+        visualCheckpointsEnabled: true,
+      }),
+    ).toEqual({
+      jobId: "job_1",
+      visualCheckpointsEnabled: true,
     });
   });
 

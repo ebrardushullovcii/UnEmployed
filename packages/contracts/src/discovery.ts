@@ -47,6 +47,11 @@ import {
 import {
   ResumeExportFormatSchema,
 } from "./resume";
+import {
+  BrowserVisualEvidenceSummarySchema,
+  BrowserVisualObservationSetSchema,
+  ApplyVisualCheckpointSchema,
+} from "./visual";
 
 export const JobDiscoveryTargetSchema = z.object({
   id: NonEmptyStringSchema,
@@ -602,6 +607,7 @@ export const ApplicationAttemptCheckpointSchema = z.object({
   label: NonEmptyStringSchema,
   detail: NonEmptyStringSchema,
   state: ApplicationAttemptStateSchema,
+  visualEvidence: z.array(BrowserVisualEvidenceSummarySchema).default([]),
 });
 export type ApplicationAttemptCheckpoint = z.infer<
   typeof ApplicationAttemptCheckpointSchema
@@ -622,9 +628,13 @@ export const ApplicationAttemptSchema = z.object({
   blocker: ApplicationAttemptBlockerSchema.nullable().default(null),
   consentDecisions: z.array(ApplicationAttemptConsentDecisionSchema).default([]),
   replay: ApplicationAttemptReplaySchema.default({}),
+  visualEvidence: z.array(BrowserVisualEvidenceSummarySchema).default([]),
+  visualObservationSets: z.array(BrowserVisualObservationSetSchema).default([]),
+  visualCheckpoints: z.array(ApplyVisualCheckpointSchema).default([]),
   nextActionLabel: NonEmptyStringSchema.nullable(),
 });
 export type ApplicationAttempt = z.infer<typeof ApplicationAttemptSchema>;
+export type ApplicationAttemptInput = z.input<typeof ApplicationAttemptSchema>;
 
 export const ApplyExecutionResultSchema = z.object({
   state: ApplicationAttemptStateSchema,
@@ -637,6 +647,9 @@ export const ApplyExecutionResultSchema = z.object({
   blocker: ApplicationAttemptBlockerSchema.nullable().default(null),
   consentDecisions: z.array(ApplicationAttemptConsentDecisionSchema).default([]),
   replay: ApplicationAttemptReplaySchema.default({}),
+  visualEvidence: z.array(BrowserVisualEvidenceSummarySchema).default([]),
+  visualObservationSets: z.array(BrowserVisualObservationSetSchema).default([]),
+  visualCheckpoints: z.array(ApplyVisualCheckpointSchema).default([]),
   nextActionLabel: NonEmptyStringSchema.nullable(),
 });
 export type ApplyExecutionResult = z.infer<typeof ApplyExecutionResultSchema>;
@@ -648,6 +661,10 @@ export const AgentDebugFindingsSchema = z.object({
   navigationTips: z.array(NonEmptyStringSchema).default([]),
   applyTips: z.array(NonEmptyStringSchema).default([]),
   warnings: z.array(NonEmptyStringSchema).default([]),
+  visualFindings: z.array(BrowserVisualEvidenceSummarySchema).default([]),
+  visualObservationSets: z
+    .array(BrowserVisualObservationSetSchema)
+    .default([]),
 });
 export type AgentDebugFindings = z.infer<typeof AgentDebugFindingsSchema>;
 
@@ -678,6 +695,7 @@ export const DiscoveryRunResultSchema = z.object({
   agentMetadata: DiscoveryAgentMetadataSchema.nullable().default(null),
 });
 export type DiscoveryRunResult = z.infer<typeof DiscoveryRunResultSchema>;
+export type DiscoveryRunResultInput = z.input<typeof DiscoveryRunResultSchema>;
 
 export const DiscoveryAdapterSessionStateSchema = z.object({
   adapterKind: JobSourceSchema,

@@ -1,6 +1,7 @@
 import type {
   ApplyRunDetails,
   JobFinderApplyConsentActionInput,
+  JobFinderApplyCopilotActionInput,
   JobFinderApplyQueueActionInput,
   CandidateProfile,
   DesktopPlatformPing,
@@ -9,10 +10,15 @@ import type {
   DiscoveryActivityEvent,
   JobFinderOpenBrowserSessionInput,
   ProfileCopilotContext,
+  ProfileSetupReviewActionOptions,
   ResumeQualityBenchmarkReport,
   ResumeQualityBenchmarkRequest,
   ResumeImportBenchmarkReport,
+  ResumeImportBenchmarkCase,
   ResumeImportBenchmarkRequest,
+  ResumeImportFieldCandidate,
+  ResumeImportRun,
+  ResumeDocumentBundle,
   JobFinderPerformanceSnapshot,
   JobFinderResumePreview,
   JobFinderResumeWorkspace,
@@ -74,6 +80,7 @@ declare global {
         applyProfileSetupReviewAction: (
           reviewItemId: string,
           action: "confirm" | "dismiss" | "clear_value",
+          options?: ProfileSetupReviewActionOptions,
         ) => Promise<JobFinderWorkspaceSnapshot>;
         sendProfileCopilotMessage: (
           content: string,
@@ -167,6 +174,10 @@ declare global {
         generateResume: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
         startApplyCopilotRun: (
           jobId: string,
+          options?: Pick<
+            JobFinderApplyCopilotActionInput,
+            "visualCheckpointsEnabled"
+          >,
         ) => Promise<JobFinderWorkspaceSnapshot>;
         startAutoApplyRun: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
         startAutoApplyQueueRun: (
@@ -195,11 +206,19 @@ declare global {
           runResumeImportBenchmark: (
             input?: Partial<ResumeImportBenchmarkRequest>,
           ) => Promise<ResumeImportBenchmarkReport>;
+          getResumeImportBenchmarkCases: () => Promise<
+            readonly ResumeImportBenchmarkCase[]
+          >;
+          getResumeImportState: () => Promise<{
+            resumeImportRuns: readonly ResumeImportRun[];
+            resumeImportDocumentBundles: readonly ResumeDocumentBundle[];
+            resumeImportFieldCandidates: readonly ResumeImportFieldCandidate[];
+          }>;
           runResumeQualityBenchmark: (
             input?: Partial<ResumeQualityBenchmarkRequest>,
           ) => Promise<ResumeQualityBenchmarkReport>;
           importResumeFromPath: (
-            sourcePath: string,
+            sourcePath: string | { sourcePath: string; useVision?: boolean },
           ) => Promise<JobFinderWorkspaceSnapshot>;
         };
       };

@@ -7,6 +7,7 @@ import {
   DiscoveryActivityEventSchema,
   DesktopTestOkResponseSchema,
   JobFinderAgentDiscoveryActionInputSchema,
+  JobFinderApplyCopilotActionInputSchema,
   JobFinderApplyConsentActionInputSchema,
   JobFinderApplyQueueActionInputSchema,
   JobFinderApplyRunActionInputSchema,
@@ -44,6 +45,10 @@ import {
   JobSearchPreferencesSchema,
   JobFinderUndoProfileRevisionInputSchema,
   ResumeImportBenchmarkReportSchema,
+  ResumeImportBenchmarkCaseSchema,
+  ResumeDocumentBundleSchema,
+  ResumeImportFieldCandidateSchema,
+  ResumeImportRunSchema,
   ResumeQualityBenchmarkReportSchema,
 } from "@unemployed/contracts";
 import {
@@ -57,6 +62,7 @@ import {
   resetJobFinderWorkspace,
   runDesktopResumeQualityBenchmark,
   runDesktopResumeImportBenchmark,
+  defaultBenchmarkCases,
   setJobFinderWorkspaceServiceTestEnv,
 } from "../services/job-finder";
 
@@ -190,13 +196,14 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
   ipcMain.handle(
     "job-finder:apply-profile-setup-review-action",
     async (_event, payload: unknown) => {
-      const { reviewItemId, action } =
+      const { reviewItemId, action, options } =
         JobFinderProfileSetupReviewActionInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
       const snapshot =
         await jobFinderWorkspaceService.applyProfileSetupReviewAction(
           reviewItemId,
           action,
+          options,
         );
 
       return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
@@ -423,10 +430,52 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
         ...(parsed.useConfiguredAi !== undefined
           ? { useConfiguredAi: parsed.useConfiguredAi }
           : {}),
+        ...(parsed.useVision !== undefined
+          ? { useVision: parsed.useVision }
+          : {}),
       };
 
       const report = await runDesktopResumeImportBenchmark(options);
       return ResumeImportBenchmarkReportSchema.parse(report);
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:test-get-resume-import-benchmark-cases",
+    () => {
+      if (!isDesktopTestApiEnabled()) {
+        throw new Error(
+          "Desktop test API is disabled. Set UNEMPLOYED_ENABLE_TEST_API=1 to enable scripted UI flows.",
+        );
+      }
+
+      return ResumeImportBenchmarkCaseSchema.array().parse(defaultBenchmarkCases);
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:test-get-resume-import-state",
+    async () => {
+      if (!isDesktopTestApiEnabled()) {
+        throw new Error(
+          "Desktop test API is disabled. Set UNEMPLOYED_ENABLE_TEST_API=1 to enable scripted UI flows.",
+        );
+      }
+
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const state = await jobFinderWorkspaceService.getResumeImportState();
+
+      return {
+        resumeImportRuns: ResumeImportRunSchema.array().parse(
+          state.resumeImportRuns,
+        ),
+        resumeImportDocumentBundles: ResumeDocumentBundleSchema.array().parse(
+          state.resumeImportDocumentBundles,
+        ),
+        resumeImportFieldCandidates: ResumeImportFieldCandidateSchema.array().parse(
+          state.resumeImportFieldCandidates,
+        ),
+      };
     },
   );
 
@@ -470,8 +519,11 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
         );
       }
 
-      const { sourcePath } = parseResumeImportPathPayload(payload);
-      return importResumeFromSourcePath(sourcePath);
+      const { sourcePath, useVision } = parseResumeImportPathPayload(payload);
+      return importResumeFromSourcePath(
+        sourcePath,
+        useVision !== undefined ? { useVision } : {},
+      );
     },
   );
 
@@ -917,10 +969,13 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
   ipcMain.handle(
     "job-finder:start-apply-copilot-run",
     async (_event, payload: unknown) => {
-      const { jobId } = JobFinderJobActionInputSchema.parse(payload);
+      const { jobId, visualCheckpointsEnabled } =
+        JobFinderApplyCopilotActionInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
       const snapshot =
-        await jobFinderWorkspaceService.startApplyCopilotRun(jobId);
+        await jobFinderWorkspaceService.startApplyCopilotRun(jobId, {
+          visualCheckpointsEnabled,
+        });
 
       return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
     },

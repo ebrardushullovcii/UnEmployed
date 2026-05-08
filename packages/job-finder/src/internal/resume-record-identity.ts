@@ -27,6 +27,18 @@ function normalizeRecordDate(value: unknown): string {
     return `${isoMonthMatch[1]}-${isoMonthMatch[2]}`;
   }
 
+  const slashFullDateMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slashFullDateMatch) {
+    const first = Number.parseInt(slashFullDateMatch[1] ?? "", 10);
+    const second = Number.parseInt(slashFullDateMatch[2] ?? "", 10);
+    const year = slashFullDateMatch[3] ?? "";
+    const month = first >= 1 && first <= 12 ? first : second;
+
+    if (Number.isInteger(month) && month >= 1 && month <= 12 && year) {
+      return `${year}-${String(month).padStart(2, "0")}`;
+    }
+  }
+
   const slashMonthMatch = trimmed.match(/^(\d{1,2})\/(\d{4})$/);
   if (slashMonthMatch) {
     const month = Number.parseInt(slashMonthMatch[1] ?? "", 10);
@@ -93,8 +105,27 @@ function fieldsMatch(left: string, right: string): boolean {
   return left.length > 0 && right.length > 0 && left === right;
 }
 
-function fieldsCompatible(left: string, right: string): boolean {
-  return !left || !right || left === right;
+function fieldsCompatible(
+  left: string,
+  right: string,
+  kind?: "text" | "date" | "substring",
+): boolean {
+  // Dates (start/end): strict normalized equality only
+  if (kind === "date") {
+    return !left || !right || left === right;
+  }
+
+  // Degree / fieldOfStudy: substring matching is appropriate for long structured phrases
+  if (kind === "substring") {
+    return !left || !right || left === right || left.includes(right) || right.includes(left);
+  }
+
+  // Company / title ("text"): equality or meaningful token overlap — prevents false positives
+  // from short numbers or common substrings that substring matching would allow
+  if (!left || !right) return true;
+  if (left === right) return true;
+  const leftTokens = new Set(left.split(/\s+/).filter((t) => t.length >= 3));
+  return right.split(/\s+/).some((t) => t.length >= 3 && leftTokens.has(t));
 }
 
 function countTruthyFields(values: readonly unknown[]): number {
@@ -139,10 +170,10 @@ export function areEquivalentExperienceRecords(
   const strongStart = fieldsMatch(leftStart, rightStart);
   const strongEnd = fieldsMatch(leftEnd, rightEnd);
   const strongLocation = fieldsMatch(leftLocation, rightLocation);
-  const companyCompatible = fieldsCompatible(leftCompany, rightCompany);
-  const titleCompatible = fieldsCompatible(leftTitle, rightTitle);
-  const startCompatible = fieldsCompatible(leftStart, rightStart);
-  const endCompatible = fieldsCompatible(leftEnd, rightEnd);
+  const companyCompatible = fieldsCompatible(leftCompany, rightCompany, "text");
+  const titleCompatible = fieldsCompatible(leftTitle, rightTitle, "text");
+  const startCompatible = fieldsCompatible(leftStart, rightStart, "date");
+  const endCompatible = fieldsCompatible(leftEnd, rightEnd, "date");
 
   return (
     (strongTitle && strongStart && companyCompatible && (strongCompany || strongLocation)) ||
@@ -172,12 +203,16 @@ export function areEquivalentEducationRecords(
 
   const strongSchool = fieldsMatch(leftSchool, rightSchool);
   const strongDegree = fieldsMatch(leftDegree, rightDegree);
+  const strongField = fieldsMatch(leftField, rightField);
   const strongStart = fieldsMatch(leftStart, rightStart);
   const strongEnd = fieldsMatch(leftEnd, rightEnd);
+  const degreeCompatible = fieldsCompatible(leftDegree, rightDegree, "substring");
+  const fieldCompatible = fieldsCompatible(leftField, rightField, "substring");
 
   return (
-    (strongSchool && strongDegree && (strongStart || strongEnd) && fieldsCompatible(leftField, rightField)) ||
-    (strongSchool && strongStart && fieldsCompatible(leftDegree, rightDegree) && fieldsCompatible(leftField, rightField))
+    (strongSchool && strongDegree && (strongStart || strongEnd || fieldCompatible)) ||
+    (strongSchool && strongStart && degreeCompatible && fieldCompatible) ||
+    (strongSchool && degreeCompatible && fieldCompatible && (strongDegree || strongField))
   );
 }
 

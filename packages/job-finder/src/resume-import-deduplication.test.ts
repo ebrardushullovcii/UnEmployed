@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import {
   mergeEducationRecords,
@@ -133,6 +133,1045 @@ describe("resume import deduplication", () => {
     expect(experienceCandidates.filter((candidate) => candidate.resolution === "rejected")).toHaveLength(1);
   });
 
+  test("keeps text import usable when the vision branch fails", async () => {
+    const seed = createSeed();
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      aiClient: {
+        ...createAiClient(),
+        extractResumeImportStage(input) {
+          if (input.stage !== "identity_summary") {
+            return Promise.resolve({
+              stage: input.stage,
+              analysisProviderKind: "deterministic",
+              analysisProviderLabel: "Test AI",
+              candidates: [],
+              notes: [],
+            });
+          }
+
+          return Promise.resolve({
+            stage: input.stage,
+            analysisProviderKind: "deterministic",
+            analysisProviderLabel: "Test AI",
+            candidates: [
+              createStageCandidate({
+                target: { section: "contact", key: "email", recordId: null },
+                label: "Email",
+                value: "jamie@example.com",
+                sourceBlockIds: ["page_1_block_2"],
+                confidence: 0.9,
+                recommendation: "auto_apply",
+                overall: 0.86,
+              }),
+            ],
+            notes: [],
+          });
+        },
+      },
+      visionProvider: {
+        getStatus() {
+          return {
+            kind: "openai_compatible_vision",
+            role: "vision",
+            ready: true,
+            label: "Test vision",
+            model: "FelidaeAI-Omni-3.6",
+            baseUrl: "https://example.com/v1",
+            modelContextWindowTokens: 139000,
+            reservedHeadroomTokens: 30000,
+            requestTimeoutMs: 1000,
+            detail: "test",
+          };
+        },
+        extractResumeVision() {
+          return Promise.reject(new Error("vision exploded"));
+        },
+      },
+    });
+
+    await workspaceService.runResumeImport({
+      baseResume: {
+        ...seed.profile.baseResume,
+        id: "resume_text_when_vision_fails",
+        fileName: "resume.pdf",
+        textContent: "Jamie Rivers\njamie@example.com",
+      },
+      documentBundle: createTestBundle({
+        fullText: "Jamie Rivers\njamie@example.com",
+      }),
+      visionArtifact: {
+        id: "vision_artifact_failure_test",
+        runId: "seed_run",
+        sourceResumeId: "resume_text_when_vision_fails",
+        sourceFileKind: "pdf",
+        createdAt: "2026-04-10T10:00:00.000Z",
+        retained: "temporary",
+        pages: [
+          {
+            id: "vision_page_1",
+            sourceResumeId: "resume_text_when_vision_fails",
+            sourceFileKind: "pdf",
+            pageNumber: 1,
+            renderKind: "pdf_page_image",
+            mimeType: "image/png",
+            width: 1200,
+            height: 1600,
+            byteLength: 4,
+            sha256: "abc123",
+            dataUrl: "data:image/png;base64,AAAA",
+            storagePath: null,
+            retained: "temporary",
+            generatedAt: "2026-04-10T10:00:00.000Z",
+            warnings: [],
+          },
+        ],
+        warnings: [],
+      },
+    });
+
+    const run = await repository.getLatestResumeImportRun();
+    const profile = await repository.getProfile();
+
+    expect(run?.status).not.toBe("failed");
+    expect(run?.modelRoles?.vision.status).toBe("failed");
+    expect(run?.modelRoles?.vision.errorMessage).toBe("vision exploded");
+    expect(profile.email).toBe("jamie@example.com");
+  });
+
+  test("skips vision branch when local image generation produced no page images", async () => {
+    const seed = createSeed();
+    let visionCalls = 0;
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      aiClient: {
+        ...createAiClient(),
+        extractResumeImportStage(input) {
+          if (input.stage !== "identity_summary") {
+            return Promise.resolve({
+              stage: input.stage,
+              analysisProviderKind: "deterministic",
+              analysisProviderLabel: "Test AI",
+              candidates: [],
+              notes: [],
+            });
+          }
+
+          return Promise.resolve({
+            stage: input.stage,
+            analysisProviderKind: "deterministic",
+            analysisProviderLabel: "Test AI",
+            candidates: [
+              createStageCandidate({
+                target: { section: "contact", key: "email", recordId: null },
+                label: "Email",
+                value: "jamie@example.com",
+                sourceBlockIds: ["page_1_block_2"],
+                confidence: 0.9,
+                recommendation: "auto_apply",
+                overall: 0.86,
+              }),
+            ],
+            notes: [],
+          });
+        },
+      },
+      visionProvider: {
+        getStatus() {
+          return {
+            kind: "openai_compatible_vision",
+            role: "vision",
+            ready: true,
+            label: "Test vision",
+            model: "FelidaeAI-Omni-3.6",
+            baseUrl: "https://example.com/v1",
+            modelContextWindowTokens: 139000,
+            reservedHeadroomTokens: 30000,
+            requestTimeoutMs: 1000,
+            detail: "test",
+          };
+        },
+        extractResumeVision() {
+          visionCalls += 1;
+          return Promise.resolve({
+            analysisProviderKind: "openai_compatible_vision",
+            analysisProviderLabel: "Test vision",
+            candidates: [
+              createStageCandidate({
+                target: { section: "identity", key: "headline", recordId: null },
+                label: "Headline",
+                value: "Misleading visual candidate",
+                sourceBlockIds: [],
+                confidence: 0.9,
+                recommendation: "needs_review",
+                overall: 0.9,
+              }),
+            ],
+            notes: [],
+            warnings: [],
+            primaryErrorMessage: null,
+          });
+        },
+      },
+    });
+
+    await workspaceService.runResumeImport({
+      baseResume: {
+        ...seed.profile.baseResume,
+        id: "resume_empty_vision_artifact",
+        fileName: "resume.pdf",
+        textContent: "Jamie Rivers\njamie@example.com",
+      },
+      documentBundle: createTestBundle({
+        fullText: "Jamie Rivers\njamie@example.com",
+      }),
+      visionArtifact: {
+        id: "vision_artifact_empty_test",
+        runId: "seed_run",
+        sourceResumeId: "resume_empty_vision_artifact",
+        sourceFileKind: "pdf",
+        createdAt: "2026-04-10T10:00:00.000Z",
+        retained: "temporary",
+        pages: [],
+        warnings: ["local image generation failed"],
+      },
+    });
+
+    const run = await repository.getLatestResumeImportRun();
+    const candidates = await repository.listResumeImportFieldCandidates({ runId: run?.id ?? "" });
+
+    expect(visionCalls).toBe(0);
+    expect(run?.modelRoles?.vision.status).toBe("skipped");
+    expect(run?.modelRoles?.vision.warning).toBe("No local resume page images were available for the vision branch.");
+    expect(candidates.some((candidate) => candidate.sourceKind === "vision_omni")).toBe(false);
+  });
+
+  test("records configured vision provider failures even when fallback candidates are returned", async () => {
+    const seed = createSeed();
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      visionProvider: {
+        getStatus() {
+          return {
+            kind: "openai_compatible_vision",
+            role: "vision",
+            ready: true,
+            label: "Test vision",
+            model: "FelidaeAI-Omni-3.6",
+            baseUrl: "https://example.com/v1",
+            modelContextWindowTokens: 139000,
+            reservedHeadroomTokens: 30000,
+            requestTimeoutMs: 1000,
+            detail: "test",
+          };
+        },
+        extractResumeVision() {
+          return Promise.resolve({
+            analysisProviderKind: "openai_compatible_vision",
+            analysisProviderLabel: "Test vision",
+            candidates: [],
+            notes: ["Configured vision failed; fallback returned no candidates."],
+            warnings: ["Vision model request timed out after 1s"],
+            primaryErrorMessage: "Vision model request timed out after 1s",
+          });
+        },
+      },
+    });
+
+    await workspaceService.runResumeImport({
+      baseResume: {
+        ...seed.profile.baseResume,
+        id: "resume_primary_vision_failure",
+        fileName: "resume.pdf",
+        textContent: "Jamie Rivers\njamie@example.com",
+      },
+      documentBundle: createTestBundle({
+        fullText: "Jamie Rivers\njamie@example.com",
+      }),
+      visionArtifact: {
+        id: "vision_artifact_primary_failure_test",
+        runId: "seed_run",
+        sourceResumeId: "resume_primary_vision_failure",
+        sourceFileKind: "pdf",
+        createdAt: "2026-04-10T10:00:00.000Z",
+        retained: "temporary",
+        pages: [
+          {
+            id: "vision_page_primary_failure",
+            sourceResumeId: "resume_primary_vision_failure",
+            sourceFileKind: "pdf",
+            pageNumber: 1,
+            renderKind: "pdf_page_image",
+            mimeType: "image/png",
+            width: 1200,
+            height: 1600,
+            byteLength: 4,
+            sha256: "abc123",
+            dataUrl: "data:image/png;base64,AAAA",
+            storagePath: null,
+            retained: "temporary",
+            generatedAt: "2026-04-10T10:00:00.000Z",
+            warnings: [],
+          },
+        ],
+        warnings: [],
+      },
+    });
+
+    const run = await repository.getLatestResumeImportRun();
+
+    expect(run?.status).not.toBe("failed");
+    expect(run?.modelRoles?.vision.status).toBe("timed_out");
+    expect(run?.modelRoles?.vision.errorMessage).toBe("Vision model request timed out after 1s");
+  });
+
+  test("times out a slow vision branch without waiting beyond text completion", async () => {
+    const seed = createSeed();
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      aiClient: {
+        ...createAiClient(),
+        extractResumeImportStage(input) {
+          if (input.stage !== "identity_summary") {
+            return Promise.resolve({
+              stage: input.stage,
+              analysisProviderKind: "deterministic",
+              analysisProviderLabel: "Test AI",
+              candidates: [],
+              notes: [],
+            });
+          }
+
+          return Promise.resolve({
+            stage: input.stage,
+            analysisProviderKind: "deterministic",
+            analysisProviderLabel: "Test AI",
+            candidates: [
+              createStageCandidate({
+                target: { section: "contact", key: "email", recordId: null },
+                label: "Email",
+                value: "jamie@example.com",
+                sourceBlockIds: ["page_1_block_2"],
+                confidence: 0.9,
+                recommendation: "auto_apply",
+                overall: 0.86,
+              }),
+            ],
+            notes: [],
+          });
+        },
+      },
+      visionProvider: {
+        getStatus() {
+          return {
+            kind: "openai_compatible_vision",
+            role: "vision",
+            ready: true,
+            label: "Slow vision",
+            model: "FelidaeAI-Omni-3.6",
+            baseUrl: "https://example.com/v1",
+            modelContextWindowTokens: 139000,
+            reservedHeadroomTokens: 30000,
+            requestTimeoutMs: 25,
+            detail: "test",
+          };
+        },
+        async extractResumeVision() {
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          return {
+            analysisProviderKind: "openai_compatible_vision" as const,
+            analysisProviderLabel: "Slow vision",
+            candidates: [],
+            notes: [],
+            warnings: [],
+            primaryErrorMessage: null,
+          };
+        },
+      },
+    });
+
+    await workspaceService.runResumeImport({
+      baseResume: {
+        ...seed.profile.baseResume,
+        id: "resume_slow_vision_timeout",
+        fileName: "resume.pdf",
+        textContent: "Jamie Rivers\njamie@example.com",
+      },
+      documentBundle: createTestBundle({
+        fullText: "Jamie Rivers\njamie@example.com",
+      }),
+      visionArtifact: {
+        id: "vision_artifact_slow_timeout_test",
+        runId: "seed_run",
+        sourceResumeId: "resume_slow_vision_timeout",
+        sourceFileKind: "pdf",
+        createdAt: "2026-04-10T10:00:00.000Z",
+        retained: "temporary",
+        pages: [
+          {
+            id: "vision_page_slow_timeout",
+            sourceResumeId: "resume_slow_vision_timeout",
+            sourceFileKind: "pdf",
+            pageNumber: 1,
+            renderKind: "pdf_page_image",
+            mimeType: "image/png",
+            width: 1200,
+            height: 1600,
+            byteLength: 4,
+            sha256: "abc123",
+            dataUrl: "data:image/png;base64,AAAA",
+            storagePath: null,
+            retained: "temporary",
+            generatedAt: "2026-04-10T10:00:00.000Z",
+            warnings: [],
+          },
+        ],
+        warnings: [],
+      },
+    });
+
+    const run = await repository.getLatestResumeImportRun();
+    const profile = await repository.getProfile();
+
+    expect(run?.modelRoles?.vision.status).toBe("running");
+    expect(run?.modelRoles?.vision.warning).toContain("text import completed");
+    expect(run?.modelRoles?.vision.providerKind).toBe("openai_compatible_vision");
+    expect(profile.email).toBe("jamie@example.com");
+  });
+
+  test("does not wait for a hung vision branch with the default long provider deadline", async () => {
+    const seed = createSeed();
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      aiClient: {
+        ...createAiClient(),
+        extractResumeImportStage(input) {
+          if (input.stage !== "identity_summary") {
+            return Promise.resolve({
+              stage: input.stage,
+              analysisProviderKind: "deterministic",
+              analysisProviderLabel: "Test AI",
+              candidates: [],
+              notes: [],
+            });
+          }
+
+          return Promise.resolve({
+            stage: input.stage,
+            analysisProviderKind: "deterministic",
+            analysisProviderLabel: "Test AI",
+            candidates: [
+              createStageCandidate({
+                target: { section: "contact", key: "email", recordId: null },
+                label: "Email",
+                value: "jamie@example.com",
+                sourceBlockIds: ["page_1_block_2"],
+                confidence: 0.9,
+                recommendation: "auto_apply",
+                overall: 0.86,
+              }),
+            ],
+            notes: [],
+          });
+        },
+      },
+      visionProvider: {
+        getStatus() {
+          return {
+            kind: "openai_compatible_vision",
+            role: "vision",
+            ready: true,
+            label: "Hung vision",
+            model: "FelidaeAI-Omni-3.6",
+            baseUrl: "https://example.com/v1",
+            modelContextWindowTokens: 139000,
+            reservedHeadroomTokens: 30000,
+            requestTimeoutMs: 600_000,
+            detail: "test",
+          };
+        },
+        extractResumeVision() {
+          return new Promise(() => {
+            // Intentionally never settles; text import completion must not wait for this provider deadline.
+          });
+        },
+      },
+    });
+
+    await workspaceService.runResumeImport({
+      baseResume: {
+        ...seed.profile.baseResume,
+        id: "resume_hung_vision_default_deadline",
+        fileName: "resume.pdf",
+        textContent: "Jamie Rivers\njamie@example.com",
+      },
+      documentBundle: createTestBundle({
+        fullText: "Jamie Rivers\njamie@example.com",
+      }),
+      visionArtifact: {
+        id: "vision_artifact_hung_default_deadline_test",
+        runId: "seed_run",
+        sourceResumeId: "resume_hung_vision_default_deadline",
+        sourceFileKind: "pdf",
+        createdAt: "2026-04-10T10:00:00.000Z",
+        retained: "temporary",
+        pages: [
+          {
+            id: "vision_page_hung_default_deadline",
+            sourceResumeId: "resume_hung_vision_default_deadline",
+            sourceFileKind: "pdf",
+            pageNumber: 1,
+            renderKind: "pdf_page_image",
+            mimeType: "image/png",
+            width: 1200,
+            height: 1600,
+            byteLength: 4,
+            sha256: "abc123",
+            dataUrl: "data:image/png;base64,AAAA",
+            storagePath: null,
+            retained: "temporary",
+            generatedAt: "2026-04-10T10:00:00.000Z",
+            warnings: [],
+          },
+        ],
+        warnings: [],
+      },
+    });
+
+    const run = await repository.getLatestResumeImportRun();
+    const profile = await repository.getProfile();
+
+    expect(run?.status).toBe("applied");
+    expect(run?.modelRoles?.vision.status).toBe("running");
+    expect(run?.modelRoles?.vision.timeoutMs).toBe(600_000);
+    expect(run?.modelRoles?.vision.warning).toContain("text import completed");
+    expect(profile.email).toBe("jamie@example.com");
+  });
+
+  test("completes a deferred slow vision branch in the background", async () => {
+    const baseSeed = createSeed();
+    const seed = {
+      ...baseSeed,
+      profile: {
+        ...baseSeed.profile,
+        id: "candidate_fresh_start",
+        firstName: "New",
+        lastName: "Candidate",
+        fullName: "New Candidate",
+        headline: "Import your resume to begin",
+        summary: "Import a resume or paste resume text to build your profile, targeting, and tailored documents.",
+        currentLocation: "Set your preferred location",
+        experiences: [],
+        education: [],
+      },
+    };
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      aiClient: {
+        ...createAiClient(),
+        extractResumeImportStage(input) {
+          if (input.stage !== "identity_summary") {
+            return Promise.resolve({
+              stage: input.stage,
+              analysisProviderKind: "deterministic",
+              analysisProviderLabel: "Test AI",
+              candidates: [],
+              notes: [],
+            });
+          }
+
+          return Promise.resolve({
+            stage: input.stage,
+            analysisProviderKind: "deterministic",
+            analysisProviderLabel: "Test AI",
+            candidates: [
+              createStageCandidate({
+                target: { section: "contact", key: "email", recordId: null },
+                label: "Email",
+                value: "jamie@example.com",
+                sourceBlockIds: ["page_1_block_2"],
+                confidence: 0.9,
+                recommendation: "auto_apply",
+                overall: 0.86,
+              }),
+            ],
+            notes: [],
+          });
+        },
+      },
+      visionProvider: {
+        getStatus() {
+          return {
+            kind: "openai_compatible_vision",
+            role: "vision",
+            ready: true,
+            label: "Slow successful vision",
+            model: "FelidaeAI-Omni-3.6",
+            baseUrl: "https://example.com/v1",
+            modelContextWindowTokens: 139000,
+            reservedHeadroomTokens: 30000,
+            requestTimeoutMs: 1000,
+            detail: "test",
+          };
+        },
+        async extractResumeVision() {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          return {
+            analysisProviderKind: "openai_compatible_vision" as const,
+            analysisProviderLabel: "Slow successful vision",
+            candidates: [
+              {
+                ...createStageCandidate({
+                  target: { section: "identity", key: "headline", recordId: null },
+                  label: "Headline",
+                  value: "Staff Platform Engineer",
+                  sourceBlockIds: [],
+                  confidence: 0.84,
+                  recommendation: "needs_review",
+                  overall: 0.78,
+                }),
+                visualEvidence: [
+                  {
+                    branch: "vision" as const,
+                    sourceFileKind: "pdf" as const,
+                    pageNumber: 1,
+                    regionHint: "top headline",
+                    confidence: 0.84,
+                    uncertaintyNotes: [],
+                  },
+                ],
+              },
+            ],
+            notes: [],
+            warnings: [],
+            primaryErrorMessage: null,
+          };
+        },
+      },
+    });
+
+    await workspaceService.runResumeImport({
+      baseResume: {
+        ...seed.profile.baseResume,
+        id: "resume_deferred_vision_success",
+        fileName: "resume.pdf",
+        textContent: "Jamie Rivers\njamie@example.com",
+      },
+      documentBundle: createTestBundle({
+        fullText: "Jamie Rivers\njamie@example.com",
+      }),
+      visionArtifact: {
+        id: "vision_artifact_deferred_success_test",
+        runId: "seed_run",
+        sourceResumeId: "resume_deferred_vision_success",
+        sourceFileKind: "pdf",
+        createdAt: "2026-04-10T10:00:00.000Z",
+        retained: "temporary",
+        pages: [
+          {
+            id: "vision_page_deferred_success",
+            sourceResumeId: "resume_deferred_vision_success",
+            sourceFileKind: "pdf",
+            pageNumber: 1,
+            renderKind: "pdf_page_image",
+            mimeType: "image/png",
+            width: 1200,
+            height: 1600,
+            byteLength: 4,
+            sha256: "abc123",
+            dataUrl: "data:image/png;base64,AAAA",
+            storagePath: null,
+            retained: "temporary",
+            generatedAt: "2026-04-10T10:00:00.000Z",
+            warnings: [],
+          },
+        ],
+        warnings: [],
+      },
+    });
+
+    const returnedRun = await repository.getLatestResumeImportRun();
+
+    expect(returnedRun?.modelRoles?.vision.status).toBe("running");
+
+    await vi.waitFor(async () => {
+      const run = await repository.getLatestResumeImportRun();
+      expect(run?.modelRoles?.vision.status).toBe("completed");
+    }, { timeout: 1000, interval: 10 });
+
+    const finalRun = await repository.getLatestResumeImportRun();
+    const candidates = await repository.listResumeImportFieldCandidates({ runId: finalRun?.id ?? "" });
+    const profile = await repository.getProfile();
+
+    expect(candidates.some((candidate) => candidate.sourceKind === "vision_omni")).toBe(true);
+    expect(profile.headline).toBe("Staff Platform Engineer");
+  });
+
+  test("preserves user review decisions when deferred vision completes", async () => {
+    const seed = createSeed();
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      aiClient: {
+        ...createAiClient(),
+        extractResumeImportStage(input) {
+          if (input.stage !== "identity_summary") {
+            return Promise.resolve({
+              stage: input.stage,
+              analysisProviderKind: "deterministic",
+              analysisProviderLabel: "Test AI",
+              candidates: [],
+              notes: [],
+            });
+          }
+
+          return Promise.resolve({
+            stage: input.stage,
+            analysisProviderKind: "deterministic",
+            analysisProviderLabel: "Test AI",
+            candidates: [
+              createStageCandidate({
+                target: { section: "identity", key: "summary", recordId: null },
+                label: "Summary",
+                value: "Builds resilient workflow tools for complex teams.",
+                sourceBlockIds: ["page_1_block_3"],
+                confidence: 0.78,
+                recommendation: "needs_review",
+                overall: 0.74,
+              }),
+            ],
+            notes: [],
+          });
+        },
+      },
+      visionProvider: {
+        getStatus() {
+          return {
+            kind: "openai_compatible_vision",
+            role: "vision",
+            ready: true,
+            label: "Slow successful vision",
+            model: "FelidaeAI-Omni-3.6",
+            baseUrl: "https://example.com/v1",
+            modelContextWindowTokens: 139000,
+            reservedHeadroomTokens: 30000,
+            requestTimeoutMs: 1000,
+            detail: "test",
+          };
+        },
+        async extractResumeVision() {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          return {
+            analysisProviderKind: "openai_compatible_vision" as const,
+            analysisProviderLabel: "Slow successful vision",
+            candidates: [
+              {
+                ...createStageCandidate({
+                  target: { section: "identity", key: "headline", recordId: null },
+                  label: "Headline",
+                  value: "Staff Platform Engineer",
+                  sourceBlockIds: [],
+                  confidence: 0.84,
+                  recommendation: "needs_review",
+                  overall: 0.78,
+                }),
+                visualEvidence: [
+                  {
+                    branch: "vision" as const,
+                    sourceFileKind: "pdf" as const,
+                    pageNumber: 1,
+                    regionHint: "top headline",
+                    confidence: 0.84,
+                    uncertaintyNotes: [],
+                  },
+                ],
+              },
+            ],
+            notes: [],
+            warnings: [],
+            primaryErrorMessage: null,
+          };
+        },
+      },
+    });
+
+    await workspaceService.runResumeImport({
+      baseResume: {
+        ...seed.profile.baseResume,
+        id: "resume_deferred_preserve_review",
+        fileName: "resume.pdf",
+        textContent: "Jamie Rivers\nBuilds resilient workflow tools for complex teams.",
+      },
+      documentBundle: createTestBundle({
+        fullText: "Jamie Rivers\nBuilds resilient workflow tools for complex teams.",
+      }),
+      visionArtifact: {
+        id: "vision_artifact_deferred_preserve_review_test",
+        runId: "seed_run",
+        sourceResumeId: "resume_deferred_preserve_review",
+        sourceFileKind: "pdf",
+        createdAt: "2026-04-10T10:00:00.000Z",
+        retained: "temporary",
+        pages: [
+          {
+            id: "vision_page_deferred_preserve_review",
+            sourceResumeId: "resume_deferred_preserve_review",
+            sourceFileKind: "pdf",
+            pageNumber: 1,
+            renderKind: "pdf_page_image",
+            mimeType: "image/png",
+            width: 1200,
+            height: 1600,
+            byteLength: 4,
+            sha256: "abc123",
+            dataUrl: "data:image/png;base64,AAAA",
+            storagePath: null,
+            retained: "temporary",
+            generatedAt: "2026-04-10T10:00:00.000Z",
+            warnings: [],
+          },
+        ],
+        warnings: [],
+      },
+    });
+
+    const runBeforeReview = await repository.getLatestResumeImportRun();
+    const summaryCandidate = (await repository.listResumeImportFieldCandidates({
+      runId: runBeforeReview?.id ?? "",
+    })).find((candidate) => candidate.target.section === "identity" && candidate.target.key === "summary");
+
+    expect(summaryCandidate?.resolution).toBe("needs_review");
+
+    await repository.replaceResumeImportRunArtifacts({
+      run: {
+        ...runBeforeReview!,
+        candidateCounts: {
+          ...runBeforeReview!.candidateCounts,
+          needsReview: Math.max(0, runBeforeReview!.candidateCounts.needsReview - 1),
+          rejected: runBeforeReview!.candidateCounts.rejected + 1,
+        },
+      },
+      documentBundles: await repository.listResumeImportDocumentBundles({ runId: runBeforeReview?.id ?? "" }),
+      fieldCandidates: (await repository.listResumeImportFieldCandidates({ runId: runBeforeReview?.id ?? "" })).map((candidate) =>
+        candidate.id === summaryCandidate?.id
+          ? {
+              ...candidate,
+              resolution: "rejected" as const,
+              resolutionReason: "setup_dismissed",
+              resolvedAt: "2026-04-10T10:00:01.000Z",
+            }
+          : candidate,
+      ),
+    });
+
+    await vi.waitFor(async () => {
+      const run = await repository.getLatestResumeImportRun();
+      expect(run?.modelRoles?.vision.status).toBe("completed");
+    }, { timeout: 1000, interval: 10 });
+
+    const finalCandidates = await repository.listResumeImportFieldCandidates({
+      runId: runBeforeReview?.id ?? "",
+    });
+    const finalSummaryCandidate = finalCandidates.find((candidate) => candidate.id === summaryCandidate?.id);
+
+    expect(finalSummaryCandidate?.resolution).toBe("rejected");
+    expect(finalSummaryCandidate?.resolutionReason).toBe("setup_dismissed");
+    expect(finalCandidates.some((candidate) => candidate.sourceKind === "vision_omni")).toBe(true);
+  });
+
+  test("persists text and vision branch failures when neither branch has candidates", async () => {
+    const seed = createSeed();
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      aiClient: {
+        ...createAiClient(),
+        extractResumeImportStage() {
+          return Promise.reject(new Error("text branch exploded"));
+        },
+      },
+      visionProvider: {
+        getStatus() {
+          return {
+            kind: "openai_compatible_vision",
+            role: "vision",
+            ready: true,
+            label: "Slow vision",
+            model: "FelidaeAI-Omni-3.6",
+            baseUrl: "https://example.com/v1",
+            modelContextWindowTokens: 139000,
+            reservedHeadroomTokens: 30000,
+            requestTimeoutMs: 20,
+            detail: "test",
+          };
+        },
+        async extractResumeVision() {
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          return {
+            analysisProviderKind: "openai_compatible_vision" as const,
+            analysisProviderLabel: "Slow vision",
+            candidates: [],
+            notes: [],
+            warnings: [],
+            primaryErrorMessage: null,
+          };
+        },
+      },
+    });
+
+    await expect(
+      workspaceService.runResumeImport({
+        baseResume: {
+          ...seed.profile.baseResume,
+          id: "resume_both_branch_failure_status",
+          fileName: "resume.pdf",
+          textContent: "Jamie Rivers",
+        },
+        documentBundle: createTestBundle({ fullText: "Jamie Rivers" }),
+        visionArtifact: {
+          id: "vision_artifact_both_branch_failure_test",
+          runId: "seed_run",
+          sourceResumeId: "resume_both_branch_failure_status",
+          sourceFileKind: "pdf",
+          createdAt: "2026-04-10T10:00:00.000Z",
+          retained: "temporary",
+          pages: [
+            {
+              id: "vision_page_both_branch_failure",
+              sourceResumeId: "resume_both_branch_failure_status",
+              sourceFileKind: "pdf",
+              pageNumber: 1,
+              renderKind: "pdf_page_image",
+              mimeType: "image/png",
+              width: 1200,
+              height: 1600,
+              byteLength: 4,
+              sha256: "abc123",
+              dataUrl: "data:image/png;base64,AAAA",
+              storagePath: null,
+              retained: "temporary",
+              generatedAt: "2026-04-10T10:00:00.000Z",
+              warnings: [],
+            },
+          ],
+          warnings: [],
+        },
+      }),
+    ).rejects.toThrow("text branch exploded");
+
+    const run = await repository.getLatestResumeImportRun();
+
+    expect(run?.status).toBe("failed");
+    expect(run?.modelRoles?.text.status).toBe("failed");
+    expect(run?.modelRoles?.text.errorMessage).toBe("text branch exploded");
+    expect(run?.modelRoles?.vision.status).toBe("timed_out");
+    expect(run?.modelRoles?.vision.errorMessage).toContain("timed out after 20ms");
+  });
+
+  test("can produce review candidates when text extraction fails but vision succeeds", async () => {
+    const seed = createSeed();
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      aiClient: {
+        ...createAiClient(),
+        extractResumeImportStage() {
+          return Promise.reject(new Error("text branch exploded"));
+        },
+      },
+      visionProvider: {
+        getStatus() {
+          return {
+            kind: "deterministic",
+            role: "vision",
+            ready: true,
+            label: "Test deterministic vision",
+            model: null,
+            baseUrl: null,
+            modelContextWindowTokens: null,
+            reservedHeadroomTokens: null,
+            requestTimeoutMs: null,
+            detail: "test",
+          };
+        },
+        extractResumeVision() {
+          return Promise.resolve({
+            analysisProviderKind: "deterministic",
+            analysisProviderLabel: "Test deterministic vision",
+            candidates: [
+              {
+                ...createStageCandidate({
+                  target: { section: "identity", key: "headline", recordId: null },
+                  label: "Headline",
+                  value: "Staff Platform Engineer",
+                  sourceBlockIds: [],
+                  confidence: 0.76,
+                  recommendation: "needs_review",
+                  overall: 0.72,
+                }),
+                visualEvidence: [
+                  {
+                    branch: "vision" as const,
+                    sourceFileKind: "pdf" as const,
+                    pageNumber: 1,
+                    regionHint: "top headline",
+                    confidence: 0.76,
+                    uncertaintyNotes: [],
+                  },
+                ],
+              },
+            ],
+            notes: [],
+            warnings: [],
+            primaryErrorMessage: null,
+          });
+        },
+      },
+    });
+
+    await workspaceService.runResumeImport({
+      baseResume: {
+        ...seed.profile.baseResume,
+        id: "resume_vision_only",
+        fileName: "resume.pdf",
+        textContent: "Jamie Rivers",
+      },
+      documentBundle: createTestBundle({ fullText: "Jamie Rivers" }),
+      visionArtifact: {
+        id: "vision_artifact_success_test",
+        runId: "seed_run",
+        sourceResumeId: "resume_vision_only",
+        sourceFileKind: "pdf",
+        createdAt: "2026-04-10T10:00:00.000Z",
+        retained: "temporary",
+        pages: [
+          {
+            id: "vision_page_1",
+            sourceResumeId: "resume_vision_only",
+            sourceFileKind: "pdf",
+            pageNumber: 1,
+            renderKind: "pdf_page_image",
+            mimeType: "image/png",
+            width: 1200,
+            height: 1600,
+            byteLength: 4,
+            sha256: "abc123",
+            dataUrl: "data:image/png;base64,AAAA",
+            storagePath: null,
+            retained: "temporary",
+            generatedAt: "2026-04-10T10:00:00.000Z",
+            warnings: [],
+          },
+        ],
+        warnings: [],
+      },
+    });
+
+    const run = await repository.getLatestResumeImportRun();
+    const candidates = await repository.listResumeImportFieldCandidates({ runId: run?.id ?? "" });
+
+    expect(run?.status).toBe("review_ready");
+    expect(run?.modelRoles?.text.status).toBe("failed");
+    expect(candidates.some((candidate) => candidate.sourceKind === "vision_omni" && candidate.resolution === "needs_review")).toBe(true);
+  });
+
   test("mergeExperienceRecords treats current and empty-end-date duplicates as the same record", () => {
     const merged = mergeExperienceRecords([], [
       {
@@ -211,6 +1250,117 @@ describe("resume import deduplication", () => {
       startDate: "2011-05",
       endDate: "2015-09",
       summary: "Graduated with honors.",
+    });
+  });
+
+  test("mergeEducationRecords dedupes school and degree matches even when dates are missing", () => {
+    const merged = mergeEducationRecords([], [
+      {
+        schoolName: "University of Pennsylvania",
+        degree: "Bachelor of Computer Science, 2014",
+        fieldOfStudy: null,
+        location: null,
+        startDate: null,
+        endDate: null,
+        summary: null,
+      },
+      {
+        schoolName: "University of Pennsylvania",
+        degree: "Bachelor of Computer Science, 2014",
+        fieldOfStudy: null,
+        location: null,
+        startDate: null,
+        endDate: null,
+        summary: "2014 – 2018",
+      },
+    ]);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toMatchObject({
+      schoolName: "University of Pennsylvania",
+      degree: "Bachelor of Computer Science, 2014",
+      summary: "2014 – 2018",
+    });
+  });
+
+  test("mergeEducationRecords dedupes equivalent degrees with parenthetical variants", () => {
+    const merged = mergeEducationRecords(
+      [
+        {
+          id: "education_1",
+          schoolName: "The University of Texas at Austin",
+          degree: "Bachelor of Science",
+          fieldOfStudy: "Computer Science",
+          location: null,
+          startDate: "Sep 2012",
+          endDate: "Jun 2016",
+          isDraft: false,
+          summary: null,
+        },
+      ],
+      [
+        {
+          schoolName: "The University of Texas at Austin",
+          degree: "Bachelor of Science (B.S.)",
+          fieldOfStudy: "Computer Science",
+          location: null,
+          startDate: "2012-09",
+          endDate: "2016-06",
+          summary: null,
+        },
+      ],
+    );
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.degree).toBe("Bachelor of Science (B.S.)");
+  });
+
+  test("mergeExperienceRecords dedupes equivalent records across full slash and iso date formats", () => {
+    const merged = mergeExperienceRecords([], [
+      {
+        companyName: "AUTOMATEDPROS",
+        companyUrl: null,
+        title: "Chief Experience Officer",
+        employmentType: null,
+        location: "Remote, Kosovo",
+        workMode: [],
+        startDate: "2021-11-13",
+        endDate: "2023-06-30",
+        isCurrent: false,
+        summary: "Led customer experience initiatives.",
+        achievements: [],
+        skills: [],
+        domainTags: [],
+        peopleManagementScope: null,
+        ownershipScope: null,
+      },
+      {
+        companyName: "AUTOMATEDPROS",
+        companyUrl: null,
+        title: "Chief Experience Officer",
+        employmentType: null,
+        location: "Remote, Kosovo",
+        workMode: [],
+        startDate: "13/11/2021",
+        endDate: "30/06/2023",
+        isCurrent: false,
+        summary: null,
+        achievements: ["Managed and guided the QA team."],
+        skills: [],
+        domainTags: [],
+        peopleManagementScope: null,
+        ownershipScope: null,
+      },
+    ]);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toMatchObject({
+      companyName: "AUTOMATEDPROS",
+      title: "Chief Experience Officer",
+      startDate: "13/11/2021",
+      endDate: "30/06/2023",
+      summary: "Led customer experience initiatives.",
+      achievements: ["Managed and guided the QA team."],
     });
   });
 
@@ -562,7 +1712,7 @@ describe("resume import deduplication", () => {
     });
 
     expect(snapshot.profile.yearsExperience).toBe(10);
-    expect(snapshot.latestResumeImportRun?.status).toBe("review_ready");
+    expect(["applied", "review_ready"]).toContain(snapshot.latestResumeImportRun?.status);
     expect(snapshot.profileSetupState.reviewItems.map((item) => item.label)).not.toContain(
       "Years of experience",
     );

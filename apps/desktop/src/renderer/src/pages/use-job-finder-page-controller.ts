@@ -25,6 +25,12 @@ import {
   useResettableSelection,
 } from './use-job-finder-page-controller-helpers'
 
+export type ApplyCopilotVisualCheckpointRequest = {
+  jobId: string
+  onResolve: (visualCheckpointsEnabled: boolean) => void
+  onCancel?: () => void
+}
+
 export function useJobFinderPageController() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -48,6 +54,10 @@ export function useJobFinderPageController() {
   const [profileCopilotPendingContextKey, setProfileCopilotPendingContextKey] =
     useState<string | null>(null)
   const [profileCopilotBusy, setProfileCopilotBusy] = useState(false)
+  const [
+    applyCopilotVisualCheckpointRequest,
+    setApplyCopilotVisualCheckpointRequest,
+  ] = useState<ApplyCopilotVisualCheckpointRequest | null>(null)
   const profileCopilotRequestTokenRef = useRef(0)
   const [resumeWorkspaceDirty, setResumeWorkspaceDirty] = useState(false)
   const sourceDebugRunIdRef = useRef(0)
@@ -293,6 +303,19 @@ export function useJobFinderPageController() {
     },
     [confirmLeaveDirtyResumeWorkspace, navigate],
   )
+  const cancelApplyCopilotVisualCheckpointRequest = useCallback(() => {
+    const currentRequest = applyCopilotVisualCheckpointRequest
+    setApplyCopilotVisualCheckpointRequest(null)
+    currentRequest?.onCancel?.()
+  }, [applyCopilotVisualCheckpointRequest])
+  const resolveApplyCopilotVisualCheckpointRequest = useCallback(
+    (visualCheckpointsEnabled: boolean) => {
+      const currentRequest = applyCopilotVisualCheckpointRequest
+      setApplyCopilotVisualCheckpointRequest(null)
+      currentRequest?.onResolve(visualCheckpointsEnabled)
+    },
+    [applyCopilotVisualCheckpointRequest],
+  )
 
   const selectedDiscoveryJob = useMemo(
     () =>
@@ -363,6 +386,9 @@ export function useJobFinderPageController() {
       profileCopilotPendingContextKey,
       profileCopilotRequestTokenRef,
       profileSetupState,
+      requestApplyCopilotVisualCheckpoints: (request) => {
+        setApplyCopilotVisualCheckpointRequest(request)
+      },
       refreshResumeWorkspace,
       resumeAssistantRequestTokenRef,
       selectedApplicationAttempt,
@@ -423,9 +449,12 @@ export function useJobFinderPageController() {
   if (!readyWorkspaceState || !workspace || !actions) {
     return {
       appearanceTheme: null,
+      applyCopilotVisualCheckpointRequest: null,
+      cancelApplyCopilotVisualCheckpointRequest,
       context: null,
       navigateFromShell,
       platform,
+      resolveApplyCopilotVisualCheckpointRequest,
       workspace,
       workspaceState,
     }
@@ -433,9 +462,12 @@ export function useJobFinderPageController() {
 
   return {
     appearanceTheme: workspace.settings.appearanceTheme,
+    applyCopilotVisualCheckpointRequest,
+    cancelApplyCopilotVisualCheckpointRequest,
     context: context!,
     navigateFromShell,
     platform,
+    resolveApplyCopilotVisualCheckpointRequest,
     workspace,
     workspaceState,
   }

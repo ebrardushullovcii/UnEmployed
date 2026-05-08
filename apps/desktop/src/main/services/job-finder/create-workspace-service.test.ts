@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { OpenBrowserSessionOptions } from "@unemployed/browser-runtime";
-import { createDesktopBrowserRuntime, createDesktopJobFinderAiClient } from "./create-workspace-service";
+import { createDesktopBrowserRuntime, createDesktopJobFinderAiClient, createDesktopResumeVisionProvider } from "./create-workspace-service";
 import {
   getDesktopTestDelayMs,
   getResumePreviewTestMode,
@@ -45,6 +45,32 @@ describe("createDesktopJobFinderAiClient", () => {
 
     expect(client.chatWithTools).toBeUndefined();
     expect(client.getStatus().kind).toBe("deterministic");
+  });
+});
+
+describe("createDesktopResumeVisionProvider", () => {
+  test("keeps deterministic vision when the desktop test API is enabled", () => {
+    const provider = createDesktopResumeVisionProvider({
+      UNEMPLOYED_ENABLE_TEST_API: "1",
+      UNEMPLOYED_AI_API_KEY: "test-api-key",
+    });
+
+    expect(provider.getStatus().kind).toBe("deterministic");
+  });
+
+  test("allows live configured vision when the test API explicitly requests it", () => {
+    const provider = createDesktopResumeVisionProvider({
+      UNEMPLOYED_ENABLE_TEST_API: "1",
+      UNEMPLOYED_TEST_API_USE_LIVE_AI: "1",
+      UNEMPLOYED_AI_API_KEY: "test-api-key",
+      UNEMPLOYED_AI_BASE_URL: "https://example.invalid/v1",
+    });
+
+    const status = provider.getStatus();
+
+    expect(status.kind).toBe("openai_compatible_vision");
+    expect(status.model).toBe("FelidaeAI-Omni-3.6");
+    expect(status.baseUrl).toBe("https://example.invalid/v1");
   });
 });
 
@@ -183,6 +209,33 @@ describe("parseResumeImportPathPayload", () => {
   test("trims source paths at the test API boundary", () => {
     expect(
       parseResumeImportPathPayload({ sourcePath: "  C:/tmp/resume.pdf  " }),
+    ).toEqual({ sourcePath: "C:/tmp/resume.pdf" });
+  });
+
+  test("preserves explicit useVision comparison overrides", () => {
+    expect(
+      parseResumeImportPathPayload({
+        sourcePath: "C:/tmp/resume.pdf",
+        useVision: false,
+      }),
+    ).toEqual({ sourcePath: "C:/tmp/resume.pdf", useVision: false });
+  });
+
+  test("preserves explicit useVision enabled overrides", () => {
+    expect(
+      parseResumeImportPathPayload({
+        sourcePath: "C:/tmp/resume.pdf",
+        useVision: true,
+      }),
+    ).toEqual({ sourcePath: "C:/tmp/resume.pdf", useVision: true });
+  });
+
+  test("ignores non-boolean useVision values", () => {
+    expect(
+      parseResumeImportPathPayload({
+        sourcePath: "C:/tmp/resume.pdf",
+        useVision: "0",
+      }),
     ).toEqual({ sourcePath: "C:/tmp/resume.pdf" });
   });
 });

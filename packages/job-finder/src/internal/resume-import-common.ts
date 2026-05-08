@@ -36,7 +36,7 @@ export function areEquivalentRecordCandidates(
 export function toStringArray(value: unknown): string[] {
   if (typeof value === "string") {
     const trimmed = value.trim();
-    return trimmed ? [trimmed] : [];
+    return trimmed ? splitListString(trimmed) : [];
   }
 
   if (!Array.isArray(value)) {
@@ -44,6 +44,19 @@ export function toStringArray(value: unknown): string[] {
   }
 
   return value
-    .flatMap((entry) => (typeof entry === "string" ? [entry.trim()] : []))
+    .flatMap((entry) => (typeof entry === "string" ? splitListString(entry.trim()) : []))
     .filter(Boolean);
+}
+
+function splitListString(value: string): string[] {
+  if (!value.includes(",")) {
+    return value ? [value] : [];
+  }
+
+  const parts = value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  return parts.length > 0 ? parts : [];
 }

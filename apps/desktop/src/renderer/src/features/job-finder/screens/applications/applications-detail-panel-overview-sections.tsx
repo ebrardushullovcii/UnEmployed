@@ -161,6 +161,12 @@ export function ApplicationsDetailPanelOverviewSections(props: {
           <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">
             {selectedRecord.replaySummary.lastUrl ?? "No replay URL saved"}
           </p>
+          {selectedRecord.replaySummary.evidenceCount > 0 ? (
+            <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">
+              {selectedRecord.replaySummary.evidenceCount} retained evidence item
+              {selectedRecord.replaySummary.evidenceCount === 1 ? "" : "s"}
+            </p>
+          ) : null}
         </div>
         {visibleApplyResult ? (
           <div
@@ -176,6 +182,12 @@ export function ApplicationsDetailPanelOverviewSections(props: {
               {visibleApplyResult.latestAnswerCount} grounded answers •{" "}
               {visibleApplyResult.artifactCount} retained artifacts
             </p>
+            {visibleApplyResult.visualCheckpoints.length ? (
+              <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">
+                {visibleApplyResult.visualCheckpoints.length} visual checkpoint
+                {visibleApplyResult.visualCheckpoints.length === 1 ? "" : "s"} saved for review
+              </p>
+            ) : null}
             {visibleApplyResult.blockerSummary ? (
               <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">
                 {visibleApplyResult.blockerSummary}

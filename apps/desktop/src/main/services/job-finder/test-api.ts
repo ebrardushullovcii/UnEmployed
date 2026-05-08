@@ -12,6 +12,7 @@ export { isDisabled, isEnabled, normalizeFlagValue };
 
 export interface ResumeImportPathPayload {
   sourcePath: string;
+  useVision?: boolean;
 }
 
 export type ResumePreviewTestMode = "ok" | "fail_once";
@@ -95,8 +96,13 @@ export function parseResumeImportPathPayload(
     );
   }
 
+  const maybeUseVision = (payload as { useVision?: unknown }).useVision;
+
   return {
     sourcePath: payload.sourcePath.trim(),
+    ...(typeof maybeUseVision === "boolean"
+      ? { useVision: maybeUseVision }
+      : {}),
   };
 }
 

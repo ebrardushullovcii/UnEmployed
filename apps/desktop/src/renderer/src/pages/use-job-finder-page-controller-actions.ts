@@ -9,6 +9,7 @@ import type {
   ProfileCopilotMessage,
   JobSearchPreferences,
   ProfileCopilotContext,
+  ProfileSetupReviewActionOptions,
   ProfileSetupState,
   ProfileSetupStep,
   ResumeAssistantMessage,
@@ -44,6 +45,11 @@ type BaseActionArgs = {
   navigate: (path: string, options?: { replace?: boolean; state?: unknown }) => void
   profileSetupState: ProfileSetupState | null
   profileCopilotRequestTokenRef: MutableRefObject<number>
+  requestApplyCopilotVisualCheckpoints: (request: {
+    jobId: string
+    onResolve: (visualCheckpointsEnabled: boolean) => void
+    onCancel?: () => void
+  }) => void
   refreshResumeWorkspace: (
     jobId: string,
     options?: {
@@ -278,6 +284,7 @@ export function createPrimaryPageActions(
     navigate,
     profileSetupState,
     profileCopilotRequestTokenRef,
+    requestApplyCopilotVisualCheckpoints,
     refreshResumeWorkspace,
     resumeAssistantRequestTokenRef,
     runAction,
@@ -374,12 +381,15 @@ export function createPrimaryPageActions(
     onApplyProfileSetupReviewAction: (
       reviewItemId: string,
       action: 'confirm' | 'dismiss' | 'clear_value',
+      options?: ProfileSetupReviewActionOptions,
     ) =>
       void runAction(
-        () => actions.applyProfileSetupReviewAction(reviewItemId, action),
+        () => actions.applyProfileSetupReviewAction(reviewItemId, action, options),
         () => undefined,
         action === 'confirm'
-          ? 'Imported suggestion confirmed.'
+          ? options?.selectedConflictChoiceId
+            ? 'Imported comparison choice confirmed.'
+            : 'Imported suggestion confirmed.'
           : action === 'dismiss'
             ? 'Review item dismissed for now.'
             : 'Current value cleared and the review item was resolved.',
@@ -453,11 +463,18 @@ export function createPrimaryPageActions(
       )
     },
     onStartApplyCopilot: (jobId: string) => {
-      startAutoFlow(
-        () => actions.startApplyCopilotRun(jobId),
-        'Apply copilot prepared the application and paused before final submit. Review it in Applications.',
-        jobFinderPendingActions.apply(),
-      )
+      requestApplyCopilotVisualCheckpoints({
+        jobId,
+        onResolve: (visualCheckpointsEnabled) => {
+          startAutoFlow(
+            () => actions.startApplyCopilotRun(jobId, { visualCheckpointsEnabled }),
+            visualCheckpointsEnabled
+              ? 'Apply copilot prepared the application with visual checkpoints and paused before final submit. Review it in Applications.'
+              : 'Apply copilot prepared the application and paused before final submit. Review it in Applications.',
+            jobFinderPendingActions.apply(),
+          )
+        },
+      })
     },
     onCheckBrowserSession: () =>
       void runAction(

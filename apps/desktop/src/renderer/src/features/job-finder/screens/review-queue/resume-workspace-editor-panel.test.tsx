@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
 
 import { act } from 'react'
-import type { ResumeDraft } from '@unemployed/contracts'
+import {
+  getResumeEntryFieldTargetId,
+  type ResumeDraft,
+} from '@unemployed/contracts'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { ResumeWorkspaceEditorPanel } from './resume-workspace-editor-panel'
@@ -118,6 +121,110 @@ describe('ResumeWorkspaceEditorPanel', () => {
     }
   })
 
+  it('exposes structured date controls as preview-edit targets', () => {
+    const entrySection = {
+      id: 'section_experience',
+      kind: 'experience' as const,
+      label: 'Experience',
+      text: null,
+      bullets: [],
+      entries: [
+        {
+          id: 'experience_date_target',
+          entryType: 'experience' as const,
+          title: 'Systems designer',
+          subtitle: 'Signal Systems',
+          location: null,
+          dateRange: '2020-01 – Present',
+          startDate: '2020-01',
+          endDate: null,
+          isCurrent: true,
+          summary: null,
+          bullets: [],
+          origin: 'imported' as const,
+          locked: false,
+          included: true,
+          sortOrder: 0,
+          profileRecordId: 'experience_date_target',
+          sourceRefs: [],
+          updatedAt: '2026-04-26T12:00:00.000Z',
+        },
+      ],
+      origin: 'imported' as const,
+      locked: false,
+      included: true,
+      sortOrder: 0,
+      entryOrderMode: 'chronology' as const,
+      profileRecordId: null,
+      sourceRefs: [],
+      updatedAt: '2026-04-26T12:00:00.000Z',
+    }
+    const dateDraft: ResumeDraft = {
+      ...draft,
+      sections: [entrySection],
+    }
+
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    act(() => {
+      root?.render(
+        <ResumeWorkspaceEditorPanel
+          actionMessage={null}
+          draft={dateDraft}
+          hasUnsavedChanges={false}
+          isWorkspacePending={false}
+          jobId="job_1"
+          onApplyPatch={vi.fn()}
+          onDraftChange={vi.fn()}
+          onRegenerateSection={vi.fn()}
+          onSectionChange={vi.fn()}
+          onSelectEntry={vi.fn()}
+          onSelectSection={vi.fn()}
+          runWithSavedDraft={(next) => {
+            void next()
+          }}
+          selectedEntryId="experience_date_target"
+          selectedSectionId="section_experience"
+          selectedTargetId={getResumeEntryFieldTargetId(
+            'section_experience',
+            'experience_date_target',
+            'startDate',
+          )}
+          workHistoryReviewSuggestions={[]}
+        />,
+      )
+    })
+
+    expect(
+      container.querySelector(
+        `[data-resume-editor-target="${getResumeEntryFieldTargetId(
+          'section_experience',
+          'experience_date_target',
+          'startDate',
+        )}"]`,
+      ),
+    ).toBeTruthy()
+    expect(
+      container.querySelector(
+        `[data-resume-editor-target="${getResumeEntryFieldTargetId(
+          'section_experience',
+          'experience_date_target',
+          'endDate',
+        )}"]`,
+      ),
+    ).toBeTruthy()
+    expect(
+      container.querySelector(
+        `[data-resume-editor-target="${getResumeEntryFieldTargetId(
+          'section_experience',
+          'experience_date_target',
+          'isCurrent',
+        )}"]`,
+      ),
+    ).toBeTruthy()
+  })
+
   it('disables structured editing controls while workspace work is pending', () => {
     renderPanel(true)
 
@@ -150,6 +257,9 @@ describe('ResumeWorkspaceEditorPanel', () => {
               subtitle: 'Signal Systems',
               location: null,
               dateRange: '2023 – Present',
+              startDate: '2023',
+              endDate: null,
+              isCurrent: true,
               summary: 'Locked content.',
               bullets: [],
               origin: 'user_edited',
@@ -167,6 +277,9 @@ describe('ResumeWorkspaceEditorPanel', () => {
               subtitle: 'Northwind Labs',
               location: null,
               dateRange: '2021 – 2022',
+              startDate: '2021',
+              endDate: '2022',
+              isCurrent: false,
               summary: 'Editable content.',
               bullets: [],
               origin: 'user_edited',

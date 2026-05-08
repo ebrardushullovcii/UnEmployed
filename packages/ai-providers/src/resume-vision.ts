@@ -1,0 +1,590 @@
+import type {
+  ResumeDocumentBundle,
+  ResumeImportFieldCandidateDraft,
+  ResumeImportJsonValue,
+  ResumeImportVisionPageImage,
+} from "@unemployed/contracts";
+import {
+  AgentProviderStatusSchema,
+  NonEmptyStringSchema,
+  ResumeImportFieldCandidateDraftSchema,
+  ResumeImportTargetSectionSchema,
+} from "@unemployed/contracts";
+import { z } from "zod";
+import {
+  buildValuePreview,
+  type ExtractResumeVisionInput,
+  ResumeVisionExtractionResultSchema,
+  type ResumeVisionProvider,
+} from "./resume-import";
+import { buildCandidateConfidenceBreakdown } from "./resume-import-helpers";
+import {
+  buildChatCompletionsUrl,
+  parseModelJsonResponse,
+} from "./openai-compatible-transport";
+
+const DEFAULT_VISION_MODEL = "FelidaeAI-Omni-3.6";
+const DEFAULT_VISION_BASE_URL = "https://ai.automatedpros.link/v1";
+const DEFAULT_VISION_TIMEOUT_MS = 600_000;
+const DEFAULT_VISION_CONTEXT_WINDOW_TOKENS = 139_000;
+const DEFAULT_VISION_RESERVED_HEADROOM_TOKENS = 30_000;
+const MAX_PAGES_PER_BATCH = 8;
+
+export const OpenAiCompatibleResumeVisionProviderOptionsSchema = z.object({
+  apiKey: NonEmptyStringSchema,
+  baseUrl: z.string().trim().url(),
+  model: NonEmptyStringSchema,
+  label: NonEmptyStringSchema.optional(),
+  contextWindowTokens: z.number().int().min(1_000).optional(),
+  reservedHeadroomTokens: z.number().int().min(1_000).optional(),
+  requestTimeoutMs: z.number().int().min(1_000).optional(),
+  maxPagesPerBatch: z.number().int().min(1).max(16).optional(),
+});
+export type OpenAiCompatibleResumeVisionProviderOptions = z.infer<
+  typeof OpenAiCompatibleResumeVisionProviderOptionsSchema
+>;
+
+type StringMap = Record<string, string | undefined>;
+
+function normalizeTimeoutLikeError(error: unknown, timeoutMs: number): unknown {
+  const message = error instanceof Error ? error.message.trim() : "";
+  const isAbortLikeMessage =
+    message === "This operation was aborted" ||
+    message === "The operation was aborted" ||
+    message === "signal is aborted without reason";
+
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return new DOMException(
+      `Vision model request timed out after ${Math.floor(timeoutMs / 1000)}s`,
+      "AbortError",
+    );
+  }
+
+  if (error instanceof Error && error.name === "AbortError") {
+    const abortError = new Error(
+      `Vision model request timed out after ${Math.floor(timeoutMs / 1000)}s`,
+    );
+    abortError.name = "AbortError";
+    return abortError;
+  }
+
+  if (isAbortLikeMessage) {
+    const abortError = new Error(
+      `Vision model request timed out after ${Math.floor(timeoutMs / 1000)}s`,
+    );
+    abortError.name = "AbortError";
+    return abortError;
+  }
+
+  return error;
+}
+
+function parseConfiguredNumber(value: string | undefined): number | undefined {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function toStringArray(value: unknown): string[] {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? [trimmed] : [];
+  }
+
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((entry) => {
+    if (typeof entry !== "string") {
+      return [];
+    }
+
+    const trimmed = entry.trim();
+    return trimmed ? [trimmed] : [];
+  });
+}
+
+function normalizeConfidence(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.max(0, Math.min(1, value));
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number.parseFloat(value.trim());
+    if (Number.isFinite(parsed)) {
+      return Math.max(0, Math.min(1, parsed));
+    }
+  }
+
+  return undefined;
+}
+
+function normalizeTarget(value: unknown): ResumeImportFieldCandidateDraft["target"] | undefined {
+  if (typeof value === "string") {
+    const [rawSection, ...rest] = value.trim().split(".");
+    const section = rawSection?.trim() ?? "";
+    const key = rest.join(".").trim();
+    const sectionResult = ResumeImportTargetSectionSchema.safeParse(section);
+
+    if (!sectionResult.success || !key) {
+      return undefined;
+    }
+
+    return { section: sectionResult.data, key, recordId: null };
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const section = typeof record.section === "string" ? record.section.trim() : "";
+  const key = typeof record.key === "string" ? record.key.trim() : "";
+  const recordId = typeof record.recordId === "string" && record.recordId.trim()
+    ? record.recordId.trim()
+    : null;
+
+  const sectionResult = ResumeImportTargetSectionSchema.safeParse(section);
+
+  if (!sectionResult.success || !key) {
+    return undefined;
+  }
+
+  return { section: sectionResult.data, key, recordId };
+}
+
+function normalizeAlternatives(value: unknown): ResumeImportJsonValue[] {
+  if (Array.isArray(value)) {
+    return value as ResumeImportJsonValue[];
+  }
+
+  return value === null || value === undefined ? [] : [value as ResumeImportJsonValue];
+}
+
+function normalizeVisualEvidence(
+  page: ResumeImportVisionPageImage,
+  value: unknown,
+): ResumeImportFieldCandidateDraft["visualEvidence"] {
+  if (!Array.isArray(value)) {
+    return [{
+      branch: "vision",
+      sourceFileKind: page.sourceFileKind,
+      pageNumber: page.pageNumber,
+      regionHint: null,
+      confidence: null,
+      uncertaintyNotes: [],
+    }];
+  }
+
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      return [];
+    }
+
+    const record = entry as Record<string, unknown>;
+    return [{
+      branch: "vision" as const,
+      sourceFileKind: page.sourceFileKind,
+      pageNumber: typeof record.pageNumber === "number" ? record.pageNumber : page.pageNumber,
+      regionHint: typeof record.regionHint === "string" && record.regionHint.trim()
+        ? record.regionHint.trim()
+        : null,
+      confidence: normalizeConfidence(record.confidence) ?? null,
+      uncertaintyNotes: toStringArray(record.uncertaintyNotes),
+    }];
+  });
+}
+
+function normalizeVisionCandidate(
+  value: unknown,
+  page: ResumeImportVisionPageImage,
+  bundle: ResumeDocumentBundle,
+): ResumeImportFieldCandidateDraft | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const target = normalizeTarget(record.target);
+  if (!target) {
+    return null;
+  }
+
+  const label = typeof record.label === "string" && record.label.trim()
+    ? record.label.trim()
+    : `${target.section}.${target.key}`;
+  const candidate = ResumeImportFieldCandidateDraftSchema.parse({
+    target,
+    label,
+    value: (record.value ?? null) as ResumeImportJsonValue,
+    normalizedValue: (record.normalizedValue ?? null) as ResumeImportJsonValue,
+    valuePreview: typeof record.valuePreview === "string" ? record.valuePreview : null,
+    evidenceText: typeof record.evidenceText === "string" ? record.evidenceText : null,
+    sourceBlockIds: toStringArray(record.sourceBlockIds),
+    confidence: normalizeConfidence(record.confidence) ?? 0.54,
+    confidenceBreakdown: null,
+    notes: toStringArray(record.notes),
+    alternatives: normalizeAlternatives(record.alternatives),
+    visualEvidence: normalizeVisualEvidence(page, record.visualEvidence),
+  });
+
+  return ResumeImportFieldCandidateDraftSchema.parse({
+    ...candidate,
+    valuePreview: candidate.valuePreview ?? buildValuePreview(candidate.value),
+    confidenceBreakdown: buildCandidateConfidenceBreakdown({
+      candidate: {
+        target: candidate.target,
+        confidence: candidate.confidence,
+        sourceBlockIds: candidate.sourceBlockIds,
+      },
+      bundle,
+      normalizationRisk: 0.2,
+      conflictRisk: 0.18,
+    }),
+  });
+}
+
+function pageBatches<T>(values: readonly T[], size: number): T[][] {
+  const batches: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    batches.push(values.slice(index, index + size));
+  }
+  return batches;
+}
+
+function inferFullNameFromText(text: string): string | null {
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const topLines = lines.slice(0, 10);
+  const resumeHeadings = /^(?:about(?: me)?|profile|summary|professional summary|skills|technical skills|work experience|experience|education|certifications?|projects|languages)$/i;
+  const roleOrContactTerms = /\b(?:engineer|developer|designer|manager|director|analyst|consultant|specialist|officer|architect|lead|senior|staff|principal|intern|email|phone|linkedin|github|portfolio|address|remote)\b/i;
+
+  return topLines.find((line) => {
+    if (line.length > 56 || /[@\d]|https?:\/\//i.test(line) || resumeHeadings.test(line)) {
+      return false;
+    }
+
+    if (roleOrContactTerms.test(line)) {
+      return false;
+    }
+
+    const parts = line.split(/\s+/).filter(Boolean);
+    return parts.length >= 2 && parts.length <= 4 && parts.every((part) => /^[A-Z][A-Za-z.'-]*$/.test(part));
+  }) ?? null;
+}
+
+function inferEmailFromText(text: string): string | null {
+  return text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] ?? null;
+}
+
+function createDeterministicVisionCandidates(
+  input: ExtractResumeVisionInput,
+): ResumeImportFieldCandidateDraft[] {
+  const text = input.documentBundle.fullText ?? "";
+  const firstPage = input.visionArtifact.pages[0] ?? null;
+  const visualEvidence = firstPage
+    ? [{
+        branch: "vision" as const,
+        sourceFileKind: firstPage.sourceFileKind,
+        pageNumber: firstPage.pageNumber,
+        regionHint: "top of rendered resume preview",
+        confidence: 0.72,
+        uncertaintyNotes: ["deterministic_visual_preview_text_fallback"],
+      }]
+    : [];
+  const drafts: ResumeImportFieldCandidateDraft[] = [];
+  const fullName = inferFullNameFromText(text);
+  const email = inferEmailFromText(text);
+
+  if (fullName) {
+    drafts.push(ResumeImportFieldCandidateDraftSchema.parse({
+      target: { section: "identity", key: "fullName", recordId: null },
+      label: "Full name",
+      value: fullName,
+      normalizedValue: fullName,
+      valuePreview: fullName,
+      evidenceText: fullName,
+      sourceBlockIds: input.documentBundle.blocks.slice(0, 2).map((block) => block.id),
+      confidence: 0.72,
+      notes: ["deterministic_vision_preview"],
+      alternatives: [],
+      visualEvidence,
+      confidenceBreakdown: buildCandidateConfidenceBreakdown({
+        candidate: {
+          target: { section: "identity", key: "fullName", recordId: null },
+          confidence: 0.72,
+          sourceBlockIds: input.documentBundle.blocks.slice(0, 2).map((block) => block.id),
+        },
+        bundle: input.documentBundle,
+        normalizationRisk: 0.2,
+        conflictRisk: 0.18,
+      }),
+    }));
+  }
+
+  if (email) {
+    drafts.push(ResumeImportFieldCandidateDraftSchema.parse({
+      target: { section: "contact", key: "email", recordId: null },
+      label: "Email",
+      value: email,
+      normalizedValue: email,
+      valuePreview: email,
+      evidenceText: email,
+      sourceBlockIds: input.documentBundle.blocks.filter((block) => block.text.includes(email)).map((block) => block.id),
+      confidence: 0.74,
+      notes: ["deterministic_vision_preview"],
+      alternatives: [],
+      visualEvidence,
+      confidenceBreakdown: buildCandidateConfidenceBreakdown({
+        candidate: {
+          target: { section: "contact", key: "email", recordId: null },
+          confidence: 0.74,
+          sourceBlockIds: input.documentBundle.blocks.filter((block) => block.text.includes(email)).map((block) => block.id),
+        },
+        bundle: input.documentBundle,
+        normalizationRisk: 0.18,
+        conflictRisk: 0.14,
+      }),
+    }));
+  }
+
+  return drafts;
+}
+
+export function createDeterministicResumeVisionProvider(
+  detail = "Built-in deterministic vision fallback inspects locally rendered resume previews without calling a model.",
+): ResumeVisionProvider {
+  const status = AgentProviderStatusSchema.parse({
+    kind: "deterministic",
+    role: "vision",
+    ready: true,
+    label: "Deterministic resume vision fallback",
+    model: null,
+    baseUrl: null,
+    modelContextWindowTokens: null,
+    reservedHeadroomTokens: null,
+    requestTimeoutMs: null,
+    detail,
+  });
+
+  return {
+    getStatus() {
+      return status;
+    },
+    extractResumeVision(input) {
+      return Promise.resolve(ResumeVisionExtractionResultSchema.parse({
+        analysisProviderKind: "deterministic",
+        analysisProviderLabel: status.label,
+        candidates: createDeterministicVisionCandidates(input),
+        notes: input.visionArtifact.pages.length > 0
+          ? ["Vision branch used deterministic rendered-preview fallback."]
+          : ["Vision branch had no page images available."],
+        warnings: input.visionArtifact.warnings,
+      }));
+    },
+  };
+}
+
+export function createOpenAiCompatibleResumeVisionProvider(
+  options: OpenAiCompatibleResumeVisionProviderOptions,
+): ResumeVisionProvider {
+  const configuredOptions = OpenAiCompatibleResumeVisionProviderOptionsSchema.safeParse(options);
+  const validatedOptions = configuredOptions.success ? configuredOptions.data : null;
+  const timeoutMs = validatedOptions?.requestTimeoutMs ?? DEFAULT_VISION_TIMEOUT_MS;
+  const contextWindowTokens = validatedOptions?.contextWindowTokens ?? DEFAULT_VISION_CONTEXT_WINDOW_TOKENS;
+  const reservedHeadroomTokens = validatedOptions?.reservedHeadroomTokens ?? DEFAULT_VISION_RESERVED_HEADROOM_TOKENS;
+  const status = AgentProviderStatusSchema.parse({
+    kind: "openai_compatible_vision",
+    role: "vision",
+    ready: configuredOptions.success,
+    label: validatedOptions?.label ?? "Resume visual scan",
+    model: validatedOptions?.model ?? null,
+    baseUrl: validatedOptions?.baseUrl ?? null,
+    modelContextWindowTokens: configuredOptions.success ? contextWindowTokens : null,
+    reservedHeadroomTokens: configuredOptions.success ? reservedHeadroomTokens : null,
+    requestTimeoutMs: configuredOptions.success ? timeoutMs : null,
+    detail: configuredOptions.success
+      ? "The configured vision provider reads locally generated resume page images. App code validates the result before reconciliation."
+      : "The configured vision provider settings are invalid; resume import will use text extraction and deterministic visual fallback only.",
+  });
+
+  async function fetchVisionJson(
+    pages: readonly ResumeImportVisionPageImage[],
+    input: ExtractResumeVisionInput,
+  ): Promise<unknown> {
+    if (!validatedOptions) {
+      throw new Error("The configured resume vision provider settings are invalid.");
+    }
+
+    const controller = new AbortController();
+    const localTimeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(buildChatCompletionsUrl(validatedOptions.baseUrl), {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          Authorization: `Bearer ${validatedOptions.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: validatedOptions.model,
+          temperature: 0.1,
+          response_format: { type: "json_object" },
+          messages: [
+            {
+              role: "system",
+              content: [
+                "You extract structured resume import candidates from resume page images.",
+                "Return JSON only with a candidates array and notes array.",
+                "Use the visual layout for columns, scanned content, section grouping, and parser recovery.",
+                "Do not invent values. Keep exact names, dates, emails, URLs, company names, and titles literal when visible.",
+                "Each candidate must include target, label, value, evidenceText, confidence, notes, alternatives, and visualEvidence.",
+              ].join(" "),
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    sourceFileKind: input.visionArtifact.sourceFileKind,
+                    pageNumbers: pages.map((page) => page.pageNumber),
+                    existingProfile: input.existingProfile,
+                    existingSearchPreferences: input.existingSearchPreferences,
+                    parserQuality: input.documentBundle.quality ?? null,
+                    parserWarnings: input.documentBundle.warnings,
+                    targetContract: {
+                      identity: ["fullName", "headline", "summary", "yearsExperience"],
+                      contact: ["email", "phone", "linkedinUrl", "portfolioUrl", "githubUrl", "personalWebsiteUrl"],
+                      location: ["currentLocation"],
+                      experience: {
+                        key: "record",
+                        valueShape: "{ companyName, companyUrl, title, employmentType, location, workMode, startDate, endDate, isCurrent, summary, achievements, skills, domainTags, peopleManagementScope, ownershipScope }",
+                      },
+                      education: {
+                        key: "record",
+                        valueShape: "{ schoolName, degree, fieldOfStudy, location, startDate, endDate, summary }",
+                      },
+                      skill: ["skills", "skillGroups.coreSkills", "skillGroups.tools", "skillGroups.languagesAndFrameworks", "skillGroups.softSkills", "skillGroups.highlightedSkills"],
+                      recordSections: ["certification", "link", "project", "language"],
+                      invalidTargets: ["background", "education.institution", "education.startDate", "education.graduationDate", "education.education"],
+                    },
+                  }),
+                },
+                ...pages.filter((page) => page.dataUrl).map((page) => ({
+                  type: "image_url",
+                  image_url: {
+                    url: page.dataUrl,
+                    detail: "high",
+                  },
+                })),
+              ],
+            },
+          ],
+        }),
+      });
+
+      return parseModelJsonResponse(response);
+    } catch (error) {
+      throw normalizeTimeoutLikeError(error, timeoutMs);
+    } finally {
+      clearTimeout(localTimeoutId);
+    }
+  }
+
+  return {
+    getStatus() {
+      return status;
+    },
+    async extractResumeVision(input) {
+      const fallback = createDeterministicResumeVisionProvider(
+        "Deterministic fallback ran alongside the configured resume vision provider.",
+      );
+      const fallbackResult = await fallback.extractResumeVision(input);
+
+      if (!validatedOptions || input.visionArtifact.pages.length === 0) {
+        return fallbackResult;
+      }
+
+      const candidates: ResumeImportFieldCandidateDraft[] = [];
+      const notes: string[] = [];
+      const warnings: string[] = [...input.visionArtifact.warnings];
+      const maxPagesPerBatch = validatedOptions.maxPagesPerBatch ?? MAX_PAGES_PER_BATCH;
+
+      // Filter pages with valid dataUrl before batching
+      const visiblePages = input.visionArtifact.pages.filter(
+        (page) => page.dataUrl !== null,
+      );
+
+      if (visiblePages.length === 0) {
+        return fallbackResult;
+      }
+
+      try {
+        for (const batch of pageBatches(visiblePages, maxPagesPerBatch)) {
+          const payload = await fetchVisionJson(batch, input);
+          const record = payload && typeof payload === "object" && !Array.isArray(payload)
+            ? payload as Record<string, unknown>
+            : {};
+          const batchCandidates = Array.isArray(record.candidates)
+            ? record.candidates.flatMap((candidate) => {
+                const fallbackPage = batch[0];
+                if (!fallbackPage) {
+                  return [];
+                }
+
+                const visualEvidence = candidate && typeof candidate === "object" && !Array.isArray(candidate)
+                  ? normalizeVisualEvidence(fallbackPage, (candidate as Record<string, unknown>).visualEvidence) ?? []
+                  : [];
+                const pageNumber = visualEvidence[0]?.pageNumber ?? null;
+                const page = batch.find((entry) => entry.pageNumber === pageNumber) ?? fallbackPage;
+                return page ? [normalizeVisionCandidate(candidate, page, input.documentBundle)].filter((entry): entry is ResumeImportFieldCandidateDraft => entry !== null) : [];
+              })
+            : [];
+          candidates.push(...batchCandidates);
+          notes.push(...toStringArray(record.notes));
+          warnings.push(...toStringArray(record.warnings));
+        }
+
+        return ResumeVisionExtractionResultSchema.parse({
+          analysisProviderKind: "openai_compatible_vision",
+          analysisProviderLabel: status.label,
+          candidates: [...candidates, ...fallbackResult.candidates],
+          notes,
+          warnings,
+          primaryErrorMessage: null,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Resume vision provider failed.";
+        return ResumeVisionExtractionResultSchema.parse({
+          analysisProviderKind: "openai_compatible_vision",
+          analysisProviderLabel: status.label,
+          candidates: fallbackResult.candidates,
+          warnings: [...fallbackResult.warnings, message],
+          notes: [...fallbackResult.notes, "Configured resume vision provider failed; deterministic visual fallback was used."],
+          primaryErrorMessage: message,
+        });
+      }
+    },
+  };
+}
+
+export function createResumeVisionProviderFromEnvironment(
+  env: StringMap = process.env,
+): ResumeVisionProvider {
+  const apiKey = env.UNEMPLOYED_RESUME_VISION_API_KEY ?? env.UNEMPLOYED_AI_VISION_API_KEY ?? env.UNEMPLOYED_AI_API_KEY;
+  if (!apiKey) {
+    return createDeterministicResumeVisionProvider();
+  }
+
+  return createOpenAiCompatibleResumeVisionProvider({
+    apiKey,
+    baseUrl: env.UNEMPLOYED_RESUME_VISION_BASE_URL ?? env.UNEMPLOYED_AI_VISION_BASE_URL ?? env.UNEMPLOYED_AI_BASE_URL ?? DEFAULT_VISION_BASE_URL,
+    model: env.UNEMPLOYED_RESUME_VISION_MODEL ?? env.UNEMPLOYED_AI_VISION_MODEL ?? DEFAULT_VISION_MODEL,
+    label: "Resume visual scan",
+    requestTimeoutMs: parseConfiguredNumber(env.UNEMPLOYED_RESUME_VISION_TIMEOUT_MS) ?? DEFAULT_VISION_TIMEOUT_MS,
+    contextWindowTokens: parseConfiguredNumber(env.UNEMPLOYED_RESUME_VISION_CONTEXT_WINDOW_TOKENS) ?? DEFAULT_VISION_CONTEXT_WINDOW_TOKENS,
+    reservedHeadroomTokens: parseConfiguredNumber(env.UNEMPLOYED_RESUME_VISION_HEADROOM_TOKENS) ?? DEFAULT_VISION_RESERVED_HEADROOM_TOKENS,
+    maxPagesPerBatch: parseConfiguredNumber(env.UNEMPLOYED_RESUME_VISION_MAX_PAGES_PER_BATCH) ?? MAX_PAGES_PER_BATCH,
+  });
+}

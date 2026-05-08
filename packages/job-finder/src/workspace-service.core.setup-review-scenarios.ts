@@ -126,6 +126,355 @@ describe("createJobFinderWorkspaceService", () => {
     );
   });
 
+  test("applies the selected import conflict choice instead of only the recommended value", async () => {
+    const seed = createSeed();
+    const latestRunId = "resume_import_run_conflict_choice";
+    const reviewCandidateId = "candidate_headline_conflict_choice";
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...seed,
+        profile: {
+          ...seed.profile,
+          headline: "Import your resume to begin",
+          baseResume: {
+            ...seed.profile.baseResume,
+            id: "resume_conflict_choice",
+          },
+        },
+        profileSetupState: {
+          status: "in_progress",
+          currentStep: "essentials",
+          completedAt: null,
+          reviewItems: [
+            {
+              id: "review_headline_conflict_choice",
+              step: "essentials",
+              target: {
+                domain: "identity",
+                key: "headline",
+                recordId: null,
+              },
+              label: "Headline",
+              reason: "Choose which imported headline to use.",
+              severity: "recommended",
+              status: "pending",
+              proposedValue: "Senior Software Engineer",
+              sourceSnippet: "Senior Software Engineer",
+              sourceCandidateId: reviewCandidateId,
+              sourceRunId: latestRunId,
+              createdAt: "2026-04-12T09:00:00.000Z",
+              resolvedAt: null,
+            },
+          ],
+          lastResumedAt: null,
+        },
+        resumeImportRuns: [
+          {
+            id: latestRunId,
+            sourceResumeId: "resume_conflict_choice",
+            sourceResumeFileName: seed.profile.baseResume.fileName,
+            trigger: "import",
+            status: "review_ready",
+            startedAt: "2026-04-12T08:50:00.000Z",
+            completedAt: "2026-04-12T08:55:00.000Z",
+            primaryParserKind: "plain_text",
+            parserKinds: ["plain_text"],
+            analysisProviderKind: "deterministic",
+            analysisProviderLabel: "Test AI",
+            visionProviderKind: "deterministic",
+            visionProviderLabel: "Test vision",
+            warnings: [],
+            errorMessage: null,
+            candidateCounts: {
+              total: 1,
+              autoApplied: 0,
+              needsReview: 1,
+              rejected: 0,
+              abstained: 0,
+            },
+          },
+        ],
+        resumeImportFieldCandidates: [
+          {
+            id: reviewCandidateId,
+            runId: latestRunId,
+            target: {
+              section: "identity",
+              key: "headline",
+              recordId: null,
+            },
+            label: "Headline",
+            sourceKind: "model_identity_summary",
+            value: "Senior Software Engineer",
+            normalizedValue: null,
+            valuePreview: "Senior Software Engineer",
+            evidenceText: "Senior Software Engineer",
+            sourceBlockIds: ["page_1_block_2"],
+            confidence: 0.86,
+            confidenceBreakdown: {
+              overall: 0.86,
+              parserQuality: 0.9,
+              evidenceQuality: 0.84,
+              agreementScore: 0.5,
+              normalizationRisk: 0.08,
+              conflictRisk: 0.45,
+              fieldSensitivity: "medium",
+              recommendation: "needs_review",
+            },
+            notes: [],
+            alternatives: ["Staff Platform Engineer"],
+            conflictChoices: [
+              {
+                id: "choice_document_text",
+                label: "Headline",
+                sourceLabel: "Document text",
+                value: "Senior Software Engineer",
+                valuePreview: "Senior Software Engineer",
+                evidenceText: "Senior Software Engineer",
+                confidence: 0.86,
+                recommended: true,
+                notes: [],
+                sourceCandidateIds: [reviewCandidateId],
+                visualEvidence: [],
+              },
+              {
+                id: "choice_visual_scan",
+                label: "Headline",
+                sourceLabel: "Visual scan",
+                value: "Staff Platform Engineer",
+                valuePreview: "Staff Platform Engineer",
+                evidenceText: "Staff Platform Engineer",
+                confidence: 0.8,
+                recommended: false,
+                notes: [],
+                sourceCandidateIds: ["candidate_visual_headline"],
+                visualEvidence: [
+                  {
+                    branch: "vision",
+                    sourceFileKind: "pdf",
+                    pageNumber: 1,
+                    regionHint: "top headline",
+                    confidence: 0.8,
+                    uncertaintyNotes: [],
+                  },
+                ],
+              },
+            ],
+            visualEvidence: [],
+            resolution: "needs_review",
+            resolutionReason: "text_vs_visual_conflict_requires_review",
+            createdAt: "2026-04-12T08:52:00.000Z",
+            resolvedAt: null,
+          },
+        ],
+      },
+    });
+
+    await workspaceService.applyProfileSetupReviewAction(
+      "review_headline_conflict_choice",
+      "confirm",
+      { selectedConflictChoiceId: "choice_visual_scan" },
+    );
+
+    const [profile, latestRun] = await Promise.all([
+      repository.getProfile(),
+      repository.getLatestResumeImportRun(),
+    ]);
+    const latestCandidates = await repository.listResumeImportFieldCandidates({
+      runId: latestRun?.id ?? "",
+    });
+
+    expect(profile.headline).toBe("Staff Platform Engineer");
+    expect(latestCandidates[0]).toEqual(
+      expect.objectContaining({
+        value: "Staff Platform Engineer",
+        valuePreview: "Staff Platform Engineer",
+        resolution: "auto_applied",
+        resolutionReason: "review_confirmed",
+      }),
+    );
+    expect(latestCandidates[0]?.conflictChoices?.find((choice) => choice.id === "choice_visual_scan")?.recommended).toBe(true);
+    expect(latestCandidates[0]?.visualEvidence?.[0]?.regionHint).toBe("top headline");
+  });
+
+  test("confirming a recommended document-text conflict can complete an otherwise auto-applied import", async () => {
+    const seed = createSeed();
+    const latestRunId = "resume_import_run_full_name_conflict";
+    const reviewCandidateId = "candidate_full_name_conflict";
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...seed,
+        profile: {
+          ...seed.profile,
+          id: "candidate_fresh_start",
+          firstName: "New",
+          lastName: "Candidate",
+          middleName: null,
+          fullName: "New Candidate",
+          headline: "Senior Software Engineer",
+          baseResume: {
+            ...seed.profile.baseResume,
+            id: "resume_full_name_conflict",
+          },
+        },
+        profileSetupState: {
+          status: "in_progress",
+          currentStep: "essentials",
+          completedAt: null,
+          reviewItems: [
+            {
+              id: "review_full_name_conflict",
+              step: "essentials",
+              target: {
+                domain: "identity",
+                key: "fullName",
+                recordId: null,
+              },
+              label: "Full name",
+              reason: "Choose which imported full name to use.",
+              severity: "recommended",
+              status: "pending",
+              proposedValue: "Aaron Murphy",
+              sourceSnippet: "Aaron Murphy",
+              sourceCandidateId: reviewCandidateId,
+              sourceRunId: latestRunId,
+              createdAt: "2026-04-12T09:00:00.000Z",
+              resolvedAt: null,
+            },
+          ],
+          lastResumedAt: null,
+        },
+        resumeImportRuns: [
+          {
+            id: latestRunId,
+            sourceResumeId: "resume_full_name_conflict",
+            sourceResumeFileName: seed.profile.baseResume.fileName,
+            trigger: "import",
+            status: "review_ready",
+            startedAt: "2026-04-12T08:50:00.000Z",
+            completedAt: "2026-04-12T08:55:00.000Z",
+            primaryParserKind: "local_pdf_layout",
+            parserKinds: ["local_pdf_layout"],
+            analysisProviderKind: "deterministic",
+            analysisProviderLabel: "Test AI",
+            visionProviderKind: "openai_compatible_vision",
+            visionProviderLabel: "Resume visual scan",
+            warnings: [],
+            errorMessage: null,
+            candidateCounts: {
+              total: 1,
+              autoApplied: 0,
+              needsReview: 1,
+              rejected: 0,
+              abstained: 0,
+            },
+          },
+        ],
+        resumeImportFieldCandidates: [
+          {
+            id: reviewCandidateId,
+            runId: latestRunId,
+            target: {
+              section: "identity",
+              key: "fullName",
+              recordId: null,
+            },
+            label: "Full name",
+            sourceKind: "parser_literal",
+            value: "Aaron Murphy",
+            normalizedValue: null,
+            valuePreview: "Aaron Murphy",
+            evidenceText: "Aaron Murphy",
+            sourceBlockIds: ["block_name"],
+            confidence: 0.99,
+            confidenceBreakdown: {
+              overall: 0.97,
+              parserQuality: 0.95,
+              evidenceQuality: 0.96,
+              agreementScore: 0.5,
+              normalizationRisk: 0.03,
+              conflictRisk: 0.45,
+              fieldSensitivity: "medium",
+              recommendation: "auto_apply",
+            },
+            notes: ["Different values were found in document text and visual scan. Review the alternatives before accepting."],
+            alternatives: ["Senior Software Engineer"],
+            conflictChoices: [
+              {
+                id: "choice_document_text",
+                label: "Full name",
+                sourceLabel: "Document text",
+                value: "Aaron Murphy",
+                valuePreview: "Aaron Murphy",
+                evidenceText: "Aaron Murphy",
+                confidence: 0.97,
+                recommended: true,
+                notes: [],
+                sourceCandidateIds: [reviewCandidateId],
+                visualEvidence: [],
+              },
+              {
+                id: "choice_visual_scan",
+                label: "Full name",
+                sourceLabel: "Visual scan",
+                value: "Senior Software Engineer",
+                valuePreview: "Senior Software Engineer",
+                evidenceText: "Senior Software Engineer",
+                confidence: 0.72,
+                recommended: false,
+                notes: [],
+                sourceCandidateIds: ["candidate_visual_full_name"],
+                visualEvidence: [
+                  {
+                    branch: "vision",
+                    sourceFileKind: "pdf",
+                    pageNumber: 1,
+                    regionHint: "top headline",
+                    confidence: 0.72,
+                    uncertaintyNotes: [],
+                  },
+                ],
+              },
+            ],
+            visualEvidence: [],
+            resolution: "needs_review",
+            resolutionReason: "text_vs_visual_conflict_requires_review",
+            createdAt: "2026-04-12T08:52:00.000Z",
+            resolvedAt: null,
+          },
+        ],
+      },
+    });
+
+    await workspaceService.applyProfileSetupReviewAction(
+      "review_full_name_conflict",
+      "confirm",
+      { selectedConflictChoiceId: "choice_document_text" },
+    );
+
+    const [profile, latestRun, latestCandidates] = await Promise.all([
+      repository.getProfile(),
+      repository.getLatestResumeImportRun(),
+      repository.listResumeImportFieldCandidates({ runId: latestRunId }),
+    ]);
+
+    expect(profile.fullName).toBe("Aaron Murphy");
+    expect(profile.firstName).toBe("Aaron");
+    expect(profile.lastName).toBe("Murphy");
+    expect(latestRun?.status).toBe("applied");
+    expect(latestRun?.candidateCounts).toMatchObject({
+      autoApplied: 1,
+      needsReview: 0,
+    });
+    expect(latestCandidates[0]).toEqual(
+      expect.objectContaining({
+        value: "Aaron Murphy",
+        resolution: "auto_applied",
+        resolutionReason: "review_confirmed",
+      }),
+    );
+  });
+
   test("does not reopen resolved review items when saveProfileSetupState receives a stale payload", async () => {
     const seed = createSeed();
     const latestRunId = "resume_import_run_stale_setup_state";

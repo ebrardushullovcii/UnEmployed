@@ -9,9 +9,10 @@ import type {
   BrowserSessionRuntime,
 } from "@unemployed/browser-runtime";
 import {
+  AgentDebugFindingsSchema,
   JobPostingSchema,
   ResumeTemplateDefinitionSchema,
-  type ResumeTemplateId,
+  SourceDebugPhaseEvidenceSchema,
 } from "@unemployed/contracts";
 import type {
   AgentDebugFindings,
@@ -30,7 +31,37 @@ import type {
 import { SourceIntelligenceArtifactSchema } from "@unemployed/contracts";
 
 import type { JobFinderDocumentManager } from "./internal/workspace-service-contracts";
-import { toPhaseId, type SourceDebugPhaseMap } from "./workspace-service.test-fixtures";
+import type { SourceDebugPhaseMap } from "./workspace-service.test-fixtures";
+
+export type AgentDebugFindingsInput = Omit<
+  AgentDebugFindings,
+  "visualFindings" | "visualObservationSets"
+> &
+  Partial<
+    Pick<AgentDebugFindings, "visualFindings" | "visualObservationSets">
+  >;
+
+export type SourceDebugPhaseEvidenceInput = Omit<
+  SourceDebugPhaseEvidence,
+  "visualFindings"
+> &
+  Partial<Pick<SourceDebugPhaseEvidence, "visualFindings">>;
+
+export function createAgentDebugFindings(
+  input: AgentDebugFindingsInput,
+): AgentDebugFindings {
+  return AgentDebugFindingsSchema.parse({
+    ...input,
+    visualFindings: input.visualFindings ?? [],
+    visualObservationSets: input.visualObservationSets ?? [],
+  });
+}
+
+export function createSourceDebugPhaseEvidence(
+  input: SourceDebugPhaseEvidenceInput,
+): SourceDebugPhaseEvidence {
+  return SourceDebugPhaseEvidenceSchema.parse(input);
+}
 
 function normalizeTestJobPosting(job: Record<string, unknown>): JobPosting {
   return JobPostingSchema.parse({
@@ -181,11 +212,11 @@ export function createAgentBrowserRuntime(
     sessionDetail?: string;
     compactionState?: SharedAgentCompactionSnapshot | null;
     compactionUsedFallbackTrigger?: boolean;
-    debugFindingsByPhase?: SourceDebugPhaseMap<AgentDebugFindings | null>;
+    debugFindingsByPhase?: SourceDebugPhaseMap<AgentDebugFindingsInput | null>;
     reviewTranscriptByPhase?: SourceDebugPhaseMap<string[]>;
     phaseCompletionModeByPhase?: SourceDebugPhaseMap<SourceDebugPhaseCompletionMode | null>;
     phaseCompletionReasonByPhase?: SourceDebugPhaseMap<string | null>;
-    phaseEvidenceByPhase?: SourceDebugPhaseMap<SourceDebugPhaseEvidence | null>;
+    phaseEvidenceByPhase?: SourceDebugPhaseMap<SourceDebugPhaseEvidenceInput | null>;
   },
 ): BrowserSessionRuntime {
   const baseRuntime = createCatalogBrowserSessionRuntime({
@@ -208,9 +239,13 @@ export function createAgentBrowserRuntime(
       source,
       options: AgentDiscoveryOptions,
     ): Promise<DiscoveryRunResult> {
-      const phaseId = toPhaseId(options.taskPacket?.strategyLabel);
+      const phaseId = options.taskPacket?.phase ?? null;
       const debugFindings = phaseId
-        ? (runtimeOptions?.debugFindingsByPhase?.[phaseId] ?? null)
+        ? runtimeOptions?.debugFindingsByPhase?.[phaseId]
+          ? createAgentDebugFindings(
+              runtimeOptions.debugFindingsByPhase[phaseId],
+            )
+          : null
         : null;
       const phaseCompletionMode = phaseId
         ? (runtimeOptions?.phaseCompletionModeByPhase?.[phaseId] ??
@@ -220,7 +255,11 @@ export function createAgentBrowserRuntime(
         ? (runtimeOptions?.phaseCompletionReasonByPhase?.[phaseId] ?? null)
         : null;
       const phaseEvidence = phaseId
-        ? (runtimeOptions?.phaseEvidenceByPhase?.[phaseId] ?? null)
+        ? runtimeOptions?.phaseEvidenceByPhase?.[phaseId]
+          ? createSourceDebugPhaseEvidence(
+              runtimeOptions.phaseEvidenceByPhase[phaseId],
+            )
+          : null
         : null;
       const reviewTranscript = phaseId
         ? (runtimeOptions?.reviewTranscriptByPhase?.[phaseId] ?? [])
@@ -691,30 +730,9 @@ export function createDocumentManager() {
         },
       ]);
     },
-    renderResumePreview(input: {
-      templateId: ResumeTemplateId
-      renderDocument: {
-        fullName: string
-        headline: string | null
-        location: string | null
-        contactItems: Array<{ field: string; text: string }>
-        sections: Array<{
-          id: string
-          text: string | null
-          bullets: Array<{ id: string; text: string }>
-          entries: Array<{
-            id: string
-            title: string | null
-            subtitle: string | null
-            location: string | null
-            dateRange: string | null
-            heading: string | null
-            summary: string | null
-            bullets: Array<{ id: string; text: string }>
-          }>
-        }>
-      }
-    }) {
+    renderResumePreview(
+      input: Parameters<JobFinderDocumentManager["renderResumePreview"]>[0],
+    ) {
       const previewBody = input.renderDocument.sections
         .map((section) => {
           const lines = [

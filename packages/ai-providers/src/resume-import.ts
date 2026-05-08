@@ -3,11 +3,13 @@ import type {
   JobSearchPreferences,
   ResumeDocumentBlock,
   ResumeDocumentBundle,
+  ResumeImportFieldCandidate,
   ResumeImportTargetSection,
 } from "@unemployed/contracts";
 import {
   NonEmptyStringSchema,
   ResumeImportFieldCandidateDraftSchema,
+  type ResumeImportVisionArtifact,
   type AgentProviderStatus,
 } from "@unemployed/contracts";
 import { z } from "zod";
@@ -292,4 +294,46 @@ export function createEmptyStageExtractionResult(
     candidates: [],
     notes: [],
   });
+}
+
+export const ResumeVisionExtractionResultSchema = z.object({
+  analysisProviderKind: z.enum(["deterministic", "openai_compatible_vision"]),
+  analysisProviderLabel: NonEmptyStringSchema,
+  candidates: z.array(ResumeImportFieldCandidateDraftSchema).default([]),
+  notes: z.array(NonEmptyStringSchema).default([]),
+  warnings: z.array(NonEmptyStringSchema).default([]),
+  primaryErrorMessage: NonEmptyStringSchema.nullable().default(null),
+});
+export type ResumeVisionExtractionResult = z.infer<
+  typeof ResumeVisionExtractionResultSchema
+>;
+
+export interface ExtractResumeVisionInput {
+  existingProfile: CandidateProfile;
+  existingSearchPreferences: JobSearchPreferences;
+  documentBundle: ResumeDocumentBundle;
+  visionArtifact: ResumeImportVisionArtifact;
+}
+
+export interface ResumeVisionProvider {
+  getStatus(): AgentProviderStatus;
+  extractResumeVision(
+    input: ExtractResumeVisionInput,
+  ): Promise<ResumeVisionExtractionResult>;
+}
+
+export const ResumeImportAdjudicationResultSchema = z.object({
+  candidates: z.array(ResumeImportFieldCandidateDraftSchema).default([]),
+  notes: z.array(NonEmptyStringSchema).default([]),
+  warnings: z.array(NonEmptyStringSchema).default([]),
+});
+export type ResumeImportAdjudicationResult = z.infer<
+  typeof ResumeImportAdjudicationResultSchema
+>;
+
+export interface AdjudicateResumeImportCandidatesInput {
+  existingProfile: CandidateProfile;
+  existingSearchPreferences: JobSearchPreferences;
+  documentBundle: ResumeDocumentBundle;
+  candidates: readonly ResumeImportFieldCandidate[];
 }

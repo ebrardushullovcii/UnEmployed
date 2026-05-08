@@ -1,5 +1,9 @@
 import type {
   AgentDebugFindings,
+  BrowserVisualAnalysisContext,
+  BrowserVisualObservationSet,
+  BrowserVisualSnapshotRef,
+  BrowserVisualSnapshotRequest,
   JobPosting,
   CandidateProfile,
   AgentDiscoveryProgress,
@@ -8,6 +12,7 @@ import type {
   SharedAgentCompactionSnapshot,
   SharedAgentCompactionTriggerKind,
   SourceDebugCompactionState,
+  SourceDebugPhase,
   SourceDebugPhaseCompletionMode,
   SourceDebugPhaseEvidence,
   Tool,
@@ -39,6 +44,7 @@ export interface AgentPromptContext {
   toolUsageNotes?: string[];
   experimental?: boolean;
   taskPacket?: {
+    phase: SourceDebugPhase;
     phaseGoal: string;
     knownFacts: string[];
     priorPhaseSummary?: string | null;
@@ -119,7 +125,23 @@ export interface AgentConfig {
   compaction?: Partial<SharedAgentCompactionPolicy>;
   compactionCapability?: AgentCompactionCapability;
   resolveLivePage?: () => Promise<Page>;
+  visualAnalysis?: AgentVisualAnalysisCapability;
 }
+
+export type AgentVisualAnalysisCapability =
+  | { enabled: false }
+  | {
+      enabled: true;
+      captureSnapshot: (
+        request: BrowserVisualSnapshotRequest,
+        page?: Page,
+      ) => Promise<BrowserVisualSnapshotRef>;
+      analyzeSnapshot: (input: {
+        snapshot: BrowserVisualSnapshotRef;
+        context: BrowserVisualAnalysisContext;
+      }) => Promise<BrowserVisualObservationSet>;
+      persistScreenshots?: boolean;
+    };
 
 export interface AgentState {
   conversation: AgentMessage[];
@@ -132,6 +154,8 @@ export interface AgentState {
   stepCount: number;
   currentUrl: string;
   lastStableUrl: string;
+  visualObservationSets: BrowserVisualObservationSet[];
+  visualSnapshots: BrowserVisualSnapshotRef[];
   isRunning: boolean;
   phaseEvidence: SourceDebugPhaseEvidence;
   compactionState: SourceDebugCompactionState | null;

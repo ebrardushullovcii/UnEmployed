@@ -1,6 +1,6 @@
 import { AlertCircle, CheckCircle2, Circle, Compass, FileSearch, Sparkles, Target, UserRound } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import type { ProfileSetupState, ProfileSetupStep } from '@unemployed/contracts'
+import type { ProfileSetupReviewActionOptions, ProfileSetupState, ProfileSetupStep, ResumeImportFieldCandidateSummary } from '@unemployed/contracts'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@renderer/components/ui/card'
@@ -26,6 +26,21 @@ const stepIconById = {
   answers: Compass,
   ready_check: CheckCircle2,
 } satisfies Record<ProfileSetupStep, typeof UserRound>
+
+function formatConfidence(confidence: number): string {
+  return `${Math.round(confidence * 100)}% confidence`
+}
+
+function getCandidateConflictLabel(candidate: ResumeImportFieldCandidateSummary | null): string | null {
+  if (!candidate || (candidate.conflictChoices?.length ?? 0) < 2) {
+    return null
+  }
+
+  const sourceLabels = Array.from(new Set((candidate.conflictChoices ?? []).map((choice) => choice.sourceLabel)))
+  return sourceLabels.length > 0
+    ? `Different values found in ${sourceLabels.join(' and ')}.`
+    : 'Different imported values need review.'
+}
 
 export function ProfileSetupSummaryCards(props: {
   actionMessage: string | null
@@ -160,14 +175,19 @@ export function ProfileSetupReviewQueueCard(props: {
   actionsDisabledReason?: string | null
   isReviewItemPending: (reviewItemId: string) => boolean
   items: readonly ProfileSetupReviewItemDisplay[]
-  onApplyReviewAction: (reviewItemId: string, action: 'confirm' | 'dismiss' | 'clear_value') => void
+  latestResumeImportReviewCandidates: readonly ResumeImportFieldCandidateSummary[]
+  onApplyReviewAction: (reviewItemId: string, action: 'confirm' | 'dismiss' | 'clear_value', options?: ProfileSetupReviewActionOptions) => void
   onEditReviewItem: (item: ProfileSetupReviewItemDisplay) => void
 }) {
   const [pendingReviewAction, setPendingReviewAction] = useState<{
     action: 'confirm' | 'dismiss' | 'clear_value'
+    selectedConflictChoiceId?: string
     reviewItemId: string
   } | null>(null)
   const pendingCount = props.items.filter((item) => item.status === 'pending').length
+  const resumeImportCandidateById = new Map(
+    props.latestResumeImportReviewCandidates.map((candidate) => [candidate.id, candidate]),
+  )
   const isPendingReviewActionStillPending = pendingReviewAction
     ? props.isReviewItemPending(pendingReviewAction.reviewItemId)
     : false
@@ -183,17 +203,24 @@ export function ProfileSetupReviewQueueCard(props: {
   const isReviewActionPending = (
     reviewItemId: string,
     action?: 'confirm' | 'dismiss' | 'clear_value',
+    selectedConflictChoiceId?: string,
   ) =>
     props.isReviewItemPending(reviewItemId) &&
     pendingReviewAction?.reviewItemId === reviewItemId &&
-    (!action || pendingReviewAction.action === action)
+    (!action || pendingReviewAction.action === action) &&
+    (!selectedConflictChoiceId || pendingReviewAction.selectedConflictChoiceId === selectedConflictChoiceId)
 
   const applyReviewAction = (
     reviewItemId: string,
     action: 'confirm' | 'dismiss' | 'clear_value',
+    options?: ProfileSetupReviewActionOptions,
   ) => {
-    setPendingReviewAction({ action, reviewItemId })
-    props.onApplyReviewAction(reviewItemId, action)
+    setPendingReviewAction(
+      options?.selectedConflictChoiceId
+        ? { action, reviewItemId, selectedConflictChoiceId: options.selectedConflictChoiceId }
+        : { action, reviewItemId },
+    )
+    props.onApplyReviewAction(reviewItemId, action, options)
   }
 
   return (
@@ -215,6 +242,10 @@ export function ProfileSetupReviewQueueCard(props: {
             {props.items.length > 0 ? (
               props.items.map((item) => {
                 const isRowReviewActionPending = isReviewActionPending(item.id)
+                const linkedCandidate = item.sourceCandidateId
+                  ? resumeImportCandidateById.get(item.sourceCandidateId) ?? null
+                  : null
+                const conflictLabel = getCandidateConflictLabel(linkedCandidate)
 
                 return (
                   <div key={item.id} className="rounded-(--radius-field) border border-border/30 bg-background/50 p-4">
@@ -249,6 +280,42 @@ export function ProfileSetupReviewQueueCard(props: {
                       <p className="mt-2 text-sm text-foreground">{item.proposedValue}</p>
                     </div>
                   ) : null}
+                  {(linkedCandidate?.conflictChoices?.length ?? 0) >= 2 ? (
+                    <div className="mt-3 rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) p-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-(length:--text-tiny) uppercase tracking-[0.2em] text-(--warning-text)">Import comparison</p>
+                        {conflictLabel ? <Badge variant="status">Needs choice</Badge> : null}
+                      </div>
+                      {conflictLabel ? <p className="mt-2 text-sm leading-6 text-foreground-soft">{conflictLabel}</p> : null}
+                      <div className="mt-3 grid gap-2">
+                        {(linkedCandidate?.conflictChoices ?? []).map((choice) => (
+                          <div className="rounded-(--radius-field) border border-border/30 bg-background/70 p-3" key={choice.id}>
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Badge variant={choice.recommended ? 'default' : 'outline'}>{choice.recommended ? 'Recommended' : 'Alternative'}</Badge>
+                                <span className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">{choice.sourceLabel}</span>
+                                <span className="text-xs text-muted-foreground">{formatConfidence(choice.confidence)}</span>
+                              </div>
+                              {item.status === 'pending' ? (
+                                <Button
+                                  disabled={Boolean(props.actionsDisabledReason) || props.isReviewItemPending(item.id) || !canConfirmReviewItem(item)}
+                                  pending={isReviewActionPending(item.id, 'confirm', choice.id)}
+                                  onClick={() => applyReviewAction(item.id, 'confirm', { selectedConflictChoiceId: choice.id })}
+                                  size="sm"
+                                  type="button"
+                                  variant={choice.recommended ? 'primary' : 'secondary'}
+                                >
+                                  Use {choice.sourceLabel}
+                                </Button>
+                              ) : null}
+                            </div>
+                            <p className="mt-2 text-sm text-foreground">{choice.valuePreview ?? 'Review this imported value.'}</p>
+                            {choice.evidenceText ? <p className="mt-1 text-xs leading-5 text-foreground-soft">{choice.evidenceText}</p> : null}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                   {item.sourceSnippet ? (
                     <div className="mt-3 flex gap-2 rounded-(--radius-field) bg-secondary/30 p-3 text-sm text-foreground-soft">
                       <AlertCircle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
@@ -259,12 +326,20 @@ export function ProfileSetupReviewQueueCard(props: {
                     <div className="mt-3 flex flex-wrap gap-2">
                       <Button aria-label={`Edit ${item.label}`} disabled={Boolean(props.actionsDisabledReason)} onClick={() => props.onEditReviewItem(item)} size="sm" type="button" variant="secondary">Edit this</Button>
                       {canConfirmReviewItem(item) ? (
-                        <Button disabled={Boolean(props.actionsDisabledReason) || isRowReviewActionPending} pending={isRowReviewActionPending} onClick={() => applyReviewAction(item.id, 'confirm')} size="sm" type="button">Confirm</Button>
+                        <Button 
+                          disabled={Boolean(props.actionsDisabledReason) || props.isReviewItemPending(item.id) || (linkedCandidate?.conflictChoices?.length ?? 0) >= 2} 
+                          pending={isRowReviewActionPending} 
+                          onClick={() => applyReviewAction(item.id, 'confirm')} 
+                          size="sm" 
+                          type="button"
+                        >
+                          Confirm
+                        </Button>
                       ) : null}
                       {canClearReviewItem(item) ? (
-                        <Button disabled={Boolean(props.actionsDisabledReason) || isRowReviewActionPending} pending={isRowReviewActionPending} onClick={() => applyReviewAction(item.id, 'clear_value')} size="sm" type="button" variant="secondary">Clear current value</Button>
+                        <Button disabled={Boolean(props.actionsDisabledReason) || props.isReviewItemPending(item.id)} pending={isRowReviewActionPending} onClick={() => applyReviewAction(item.id, 'clear_value')} size="sm" type="button" variant="secondary">Clear current value</Button>
                       ) : null}
-                      <Button disabled={Boolean(props.actionsDisabledReason) || isRowReviewActionPending} pending={isRowReviewActionPending} onClick={() => applyReviewAction(item.id, 'dismiss')} size="sm" type="button" variant="ghost">Dismiss for now</Button>
+                      <Button disabled={Boolean(props.actionsDisabledReason) || props.isReviewItemPending(item.id)} pending={isRowReviewActionPending} onClick={() => applyReviewAction(item.id, 'dismiss')} size="sm" type="button" variant="ghost">Dismiss for now</Button>
                     </div>
                   ) : null}
                   {item.status === 'pending' && props.actionsDisabledReason ? (

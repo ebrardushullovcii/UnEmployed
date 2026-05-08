@@ -160,6 +160,9 @@ export function createEntry(input: {
   subtitle?: string | null;
   location?: string | null;
   dateRange?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  isCurrent?: boolean;
   summary?: string | null;
   bullets?: readonly string[];
   updatedAt: string;
@@ -175,6 +178,9 @@ export function createEntry(input: {
     subtitle: normalizeNullableText(input.subtitle),
     location: normalizeNullableText(input.location),
     dateRange: normalizeNullableText(input.dateRange),
+    startDate: normalizeNullableText(input.startDate),
+    endDate: normalizeNullableText(input.endDate),
+    isCurrent: input.isCurrent === true,
     summary: normalizeNullableText(input.summary),
     bullets: dedupeLongResumeLines(input.bullets ?? []).map((bullet, index) =>
       createBullet(

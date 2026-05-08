@@ -86,6 +86,65 @@ export function buildAgentResult(
     | "compactionUsedFallbackTrigger"
   >,
 ): AgentResult {
+  const visualFindings = state.visualObservationSets.flatMap((observationSet) => {
+    const snapshot = state.visualSnapshots.find(
+      (entry) => entry.id === observationSet.snapshotId,
+    );
+    const summary =
+      observationSet.summary ??
+      observationSet.blockers[0] ??
+      observationSet.visibleControls[0] ??
+      observationSet.jobCardClues[0] ??
+      observationSet.applyPathClues[0] ??
+      observationSet.recoveryNotes[0] ??
+      null;
+
+    return summary
+      ? [
+          {
+            snapshotId: observationSet.snapshotId,
+            observationSetId: observationSet.id,
+            summary,
+            capturedAt: snapshot?.capturedAt ?? observationSet.observedAt,
+            storagePath: snapshot?.storagePath ?? null,
+            retention: snapshot?.retention.retention ?? ("temporary" as const),
+            redactionLevel:
+              snapshot?.retention.redactionLevel ?? ("standard" as const),
+            confidence:
+              observationSet.observations[0]?.confidence ??
+              observationSet.reconciliations[0]?.confidence ??
+              0.6,
+            reconciliationStatus:
+              observationSet.reconciliations[0]?.status ?? null,
+          },
+        ]
+      : [];
+  });
+  const mergedDebugFindings = partial.debugFindings
+    ? {
+        ...partial.debugFindings,
+        visualFindings: [
+          ...(partial.debugFindings.visualFindings ?? []),
+          ...visualFindings,
+        ],
+        visualObservationSets: [
+          ...(partial.debugFindings.visualObservationSets ?? []),
+          ...state.visualObservationSets,
+        ],
+      }
+    : visualFindings.length > 0 || state.visualObservationSets.length > 0
+      ? {
+          summary: visualFindings[0]?.summary ?? null,
+          reliableControls: [],
+          trickyFilters: [],
+          navigationTips: [],
+          applyTips: [],
+          warnings: [],
+          visualFindings,
+          visualObservationSets: state.visualObservationSets,
+        }
+      : null;
+
   return {
     jobs: state.collectedJobs,
     steps: state.stepCount,
@@ -95,6 +154,7 @@ export function buildAgentResult(
     compactionUsedFallbackTrigger:
       state.compactionStatus.usedMessageCountFallback,
     ...partial,
+    debugFindings: mergedDebugFindings,
   };
 }
 

@@ -523,7 +523,10 @@ async function collectTargetJobs(input: {
         invalidSkipped: input.activeRun.summary.invalidSkipped,
       }),
     );
-    await ctx.openRunBrowserSession(adapterKind);
+    await ctx.openRunBrowserSession(adapterKind, {
+      targetUrl: target.startingUrl,
+      targetId: target.id,
+    });
     input.openedSessionSources.add(adapterKind);
   }
 

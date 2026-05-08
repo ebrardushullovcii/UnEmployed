@@ -1,5 +1,8 @@
 import {
   type AgentProviderStatus,
+  BrowserVisualObservationSetSchema,
+  type BrowserVisualAnalysisInput,
+  type BrowserVisualObservationSet,
   NonEmptyStringSchema,
   type ProfileCopilotContext,
   type ProfileCopilotRelevantReviewItem,
@@ -22,7 +25,9 @@ import {
 } from "@unemployed/contracts";
 import { z } from "zod";
 import type {
+  AdjudicateResumeImportCandidatesInput,
   ExtractResumeImportStageInput,
+  ResumeImportAdjudicationResult,
   ResumeImportStageExtractionResult,
 } from "./resume-import";
 
@@ -296,6 +301,13 @@ export interface ExtractJobsFromPageInput {
   signal?: AbortSignal;
 }
 
+export const BrowserVisualAnalysisResultSchema = BrowserVisualObservationSetSchema;
+export type BrowserVisualAnalysisResult = z.infer<
+  typeof BrowserVisualAnalysisResultSchema
+>;
+
+export type { BrowserVisualAnalysisInput, BrowserVisualObservationSet };
+
 export interface ExtractResumeImportStageTransportInput
   extends ExtractResumeImportStageInput {
   documentBundle: ResumeDocumentBundle;
@@ -315,6 +327,9 @@ export interface JobFinderAiClient {
   extractResumeImportStage(
     input: ExtractResumeImportStageTransportInput,
   ): Promise<ResumeImportStageExtractionResult>;
+  adjudicateResumeImportCandidates?(
+    input: AdjudicateResumeImportCandidatesInput,
+  ): Promise<ResumeImportAdjudicationResult>;
   createResumeDraft(input: CreateResumeDraftInput): Promise<TailoredResumeDraft>;
   reviseResumeDraft(input: ReviseResumeDraftInput): Promise<ResumeAssistantReply>;
   reviseCandidateProfile(
@@ -323,6 +338,9 @@ export interface JobFinderAiClient {
   tailorResume(input: TailorResumeInput): Promise<TailoredResumeDraft>;
   assessJobFit(input: AssessJobFitInput): Promise<JobFitAssessment | null>;
   extractJobsFromPage(input: ExtractJobsFromPageInput): Promise<JobPosting[]>;
+  analyzeBrowserVisualSnapshot?(
+    input: BrowserVisualAnalysisInput,
+  ): Promise<BrowserVisualObservationSet>;
   chatWithTools?: AgentCapableJobFinderAiClient["chatWithTools"];
 }
 

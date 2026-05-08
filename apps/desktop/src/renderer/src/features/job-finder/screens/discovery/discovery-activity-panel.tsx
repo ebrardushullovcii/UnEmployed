@@ -54,7 +54,7 @@ function ActivityEventCard(props: { event: DiscoveryActivityEvent; targetLabel: 
   return (
     <article className="surface-card-tint grid gap-2 rounded-(--radius-panel) border border-(--surface-panel-border) px-4 py-3">
       <div className="flex flex-wrap items-center justify-between gap-2 text-[0.78rem] text-foreground-muted">
-        <span className="min-w-0 wrap-break-word">{targetLabel ?? formatStageLabel(event.stage)}</span>
+        <span className="min-w-0 break-words">{targetLabel ?? formatStageLabel(event.stage)}</span>
         <span className="shrink-0">{formatTimestamp(event.timestamp)}</span>
       </div>
       <p className="text-[0.95rem] leading-6 text-(--text-headline)">{event.message}</p>

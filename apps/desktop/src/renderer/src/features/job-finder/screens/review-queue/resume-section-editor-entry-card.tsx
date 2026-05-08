@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { Lock, LockOpen, MoveDown, MoveUp } from 'lucide-react'
 import type {
   ResumeDraftEntry,
@@ -6,6 +7,7 @@ import type {
 } from '@unemployed/contracts'
 import { getResumeEntryFieldTargetId } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
+import { Checkbox } from '@renderer/components/ui/checkbox'
 import { Field, FieldLabel } from '@renderer/components/ui/field'
 import { Input } from '@renderer/components/ui/input'
 import { Textarea } from '@renderer/components/ui/textarea'
@@ -50,6 +52,7 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
   const rowLocked = disabled || section.locked
   const moveUpDisabled = rowLocked || entryIndex <= 0
   const moveDownDisabled = rowLocked || entryIndex >= section.entries.length - 1
+  const previousEndDateByEntryIdRef = useRef(new Map<string, string | null>())
   const reviewHeading = section.kind === 'experience'
     ? 'Work-history review'
     : `${section.label} review`
@@ -57,6 +60,15 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
   const handleEntryFocusCapture = () => {
     onSelectEntry(section.id, entry.id)
   }
+
+  useEffect(() => {
+    const entryIds = new Set(section.entries.map((sectionEntry) => sectionEntry.id))
+    for (const entryId of previousEndDateByEntryIdRef.current.keys()) {
+      if (!entryIds.has(entryId)) {
+        previousEndDateByEntryIdRef.current.delete(entryId)
+      }
+    }
+  }, [section.entries])
 
   return (
     <article
@@ -239,24 +251,76 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
           />
         </Field>
         <Field>
-          <FieldLabel htmlFor={`${controlIdPrefix}_entry_dates_${entry.id}`}>Date range</FieldLabel>
+          <FieldLabel htmlFor={`${controlIdPrefix}_entry_start_date_${entry.id}`}>Start date</FieldLabel>
           <Input
-            data-resume-editor-target={getResumeEntryFieldTargetId(section.id, entry.id, 'dateRange')}
-            id={`${controlIdPrefix}_entry_dates_${entry.id}`}
+            data-resume-editor-target={getResumeEntryFieldTargetId(section.id, entry.id, 'startDate')}
+            id={`${controlIdPrefix}_entry_start_date_${entry.id}`}
             disabled={fieldDisabled}
-            value={entry.dateRange ?? ''}
+            value={entry.startDate ?? ''}
             onChange={(event) =>
               onChange(
                 updateEntryField(
                   section,
                   entry.id,
-                  'dateRange',
+                  'startDate',
                   normalizeNullableText(event.currentTarget.value),
                 ),
               )
             }
           />
         </Field>
+        <Field>
+          <FieldLabel htmlFor={`${controlIdPrefix}_entry_end_date_${entry.id}`}>End date</FieldLabel>
+          <Input
+            data-resume-editor-target={getResumeEntryFieldTargetId(section.id, entry.id, 'endDate')}
+            id={`${controlIdPrefix}_entry_end_date_${entry.id}`}
+            disabled={fieldDisabled || entry.isCurrent}
+            value={entry.endDate ?? ''}
+            onChange={(event) =>
+              {
+                previousEndDateByEntryIdRef.current.delete(entry.id)
+                onChange(
+                  updateEntryField(
+                    section,
+                    entry.id,
+                    'endDate',
+                    normalizeNullableText(event.currentTarget.value),
+                  ),
+                )
+              }
+            }
+          />
+        </Field>
+        <label className="flex items-center gap-2 text-(length:--text-small) font-semibold uppercase tracking-(--tracking-caps) text-foreground-soft md:col-span-2">
+          <Checkbox
+            checked={entry.isCurrent}
+            data-resume-editor-target={getResumeEntryFieldTargetId(section.id, entry.id, 'isCurrent')}
+            disabled={fieldDisabled}
+            id={`${controlIdPrefix}_entry_current_${entry.id}`}
+            onCheckedChange={(checked) => {
+              const isCurrent = checked === true
+              if (isCurrent) {
+                previousEndDateByEntryIdRef.current.set(entry.id, entry.endDate)
+              }
+              const restoredEndDate = isCurrent
+                ? null
+                : previousEndDateByEntryIdRef.current.get(entry.id) ?? entry.endDate
+              if (!isCurrent) {
+                previousEndDateByEntryIdRef.current.delete(entry.id)
+              }
+
+              onChange(
+                updateEntryField(
+                  updateEntryField(section, entry.id, 'isCurrent', isCurrent),
+                  entry.id,
+                  'endDate',
+                  restoredEndDate,
+                ),
+              )
+            }}
+          />
+          Current role / present
+        </label>
       </div>
 
       <Field>

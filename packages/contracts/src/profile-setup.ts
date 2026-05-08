@@ -105,6 +105,13 @@ export type ProfileSetupReviewAction = z.infer<
   typeof ProfileSetupReviewActionSchema
 >;
 
+export const ProfileSetupReviewActionOptionsSchema = z.object({
+  selectedConflictChoiceId: NonEmptyStringSchema.optional(),
+}).default({});
+export type ProfileSetupReviewActionOptions = z.infer<
+  typeof ProfileSetupReviewActionOptionsSchema
+>;
+
 export const ProfileSetupStateSchema = z.object({
   status: ProfileSetupStatusSchema.default("not_started"),
   currentStep: ProfileSetupStepSchema.default("import"),

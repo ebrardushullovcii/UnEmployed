@@ -19,6 +19,7 @@ Use this for cross-package contract rules and workflow semantics. Put field-leve
 - application records, apply runs, blocker state, consent state, and replay checkpoints
 - source-debug runs, evidence refs, and learned instruction artifacts
 - compaction policy and lightweight compaction snapshots for long-running agent work
+- browser visual snapshot requests/refs, observation sets, reconciliations, evidence summaries, source-debug visual findings, and apply visual checkpoints
 
 ## Current Shared Semantics
 
@@ -27,9 +28,12 @@ Use this for cross-package contract rules and workflow semantics. Put field-leve
 - resume approval is separate from apply approval
 - apply automation must refuse missing or stale approved resumes; the staleness rules are the approval-state and stale-state checks for resume-affecting profile, settings, and saved-job changes in `packages/job-finder/src/internal/resume-workspace-staleness.ts`
 - persist structured artifacts and summaries, not raw hidden worker transcripts
+- browser visual output is evidence-only and schema validation rejects selectors, browser-action directives, saved-job directives, generated answers, final-submit guidance, and site-specific workflow rules
+- application-page visual capture requires explicit apply-run/action opt-in (`visualCheckpointsEnabled` defaults false); browser-runtime must not infer screenshot capture from an ambient visual-capable AI client
 
 ## Validation Expectations
 
 - normalize browser extraction through schemas before saving jobs
 - validate provider output before workflow code uses it
 - keep import, source-debug, and apply artifacts replayable and auditable
+- store screenshots only through typed evidence refs or checkpoint metadata with explicit retention/redaction decisions; normal discovery and normal apply screenshots are temporary by default

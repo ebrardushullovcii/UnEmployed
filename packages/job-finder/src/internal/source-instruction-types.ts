@@ -1,6 +1,7 @@
 import { SourceIntelligenceArtifactSchema } from "@unemployed/contracts";
 import type {
   SourceIntelligenceArtifact,
+  BrowserVisualEvidenceSummary,
   SourceDebugCompactionState,
   SourceDebugPhase,
   SourceDebugPhaseCompletionMode,
@@ -41,6 +42,7 @@ export interface SourceInstructionFinalReviewPhaseContext {
   confirmedFacts: string[];
   attemptedActions: string[];
   phaseEvidence: SourceDebugPhaseEvidence | null;
+  visualEvidence: BrowserVisualEvidenceSummary[];
   compactionState: SourceDebugCompactionState | null;
   reviewTranscript: string[];
 }

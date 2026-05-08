@@ -5,11 +5,14 @@ import { extractOpenAiCompatibleResumeImportStage } from "./openai-compatible-re
 
 const status: AgentProviderStatus = {
   kind: "openai_compatible",
+  role: "chat",
   ready: true,
   label: "AI resume agent",
   model: "test-model",
   baseUrl: "https://example.com/v1",
   modelContextWindowTokens: null,
+  reservedHeadroomTokens: null,
+  requestTimeoutMs: null,
   detail: null,
 };
 
@@ -83,6 +86,16 @@ describe("extractOpenAiCompatibleResumeImportStage", () => {
               confidence: "0.98",
               notes: "literal top line",
               alternatives: null,
+              visualEvidence: [
+                {
+                  branch: "vision",
+                  sourceFileKind: "pdf",
+                  pageNumber: 1,
+                  regionHint: "name heading",
+                  confidence: 0.8,
+                  uncertaintyNotes: [],
+                },
+              ],
             },
           ],
           notes: [],
@@ -99,6 +112,16 @@ describe("extractOpenAiCompatibleResumeImportStage", () => {
       confidence: 0.98,
       notes: ["literal top line"],
       alternatives: [],
+      visualEvidence: [
+        {
+          branch: "vision",
+          sourceFileKind: "pdf",
+          pageNumber: 1,
+          regionHint: "name heading",
+          confidence: 0.8,
+          uncertaintyNotes: [],
+        },
+      ],
     });
 
     expect(result.candidates[0]?.confidenceBreakdown?.overall).toBeGreaterThan(0.8);

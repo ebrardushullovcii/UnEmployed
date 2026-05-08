@@ -118,6 +118,9 @@ function buildWorkspace(): JobFinderResumeWorkspace {
                 title: "Previous Systems Designer",
                 subtitle: "Northwind Labs",
                 dateRange: "2019 – 2021",
+                startDate: "2019",
+                endDate: "2021",
+                isCurrent: false,
                 sortOrder: 1,
                 profileRecordId: "experience_demo_previous",
               },
@@ -129,6 +132,9 @@ function buildWorkspace(): JobFinderResumeWorkspace {
                 subtitle: "Bright Market",
                 location: "Remote",
                 dateRange: "2019 – 2020",
+                startDate: "2019",
+                endDate: "2020",
+                isCurrent: false,
                 summary: "Coordinated customer operations reporting.",
                 bullets: [],
                 origin: "ai_generated",
@@ -212,6 +218,7 @@ function renderScreen(options?: {
     revisionReason?: string | null,
   ) => void;
   onPreviewDraft?: (draft: ResumeDraft) => Promise<JobFinderResumePreview>;
+  onRegenerateDraft?: (jobId: string) => void;
   onSaveDraftAndThen?: (
     draft: ResumeDraft,
     next: () => void | Promise<void>,
@@ -238,7 +245,7 @@ function renderScreen(options?: {
       onExportPdf={vi.fn()}
       onPreviewDraft={onPreviewDraft}
       onRefresh={vi.fn()}
-      onRegenerateDraft={vi.fn()}
+      onRegenerateDraft={options?.onRegenerateDraft ?? vi.fn()}
       onRegenerateSection={vi.fn()}
       onSaveDraft={vi.fn()}
       onSaveDraftAndThen={options?.onSaveDraftAndThen ?? vi.fn()}
@@ -285,8 +292,10 @@ describe("ResumeWorkspaceScreen", () => {
     HTMLElement.prototype.scrollIntoView = vi.fn();
   });
 
-  afterEach(() => {
-    vi.runOnlyPendingTimers();
+  afterEach(async () => {
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
     vi.useRealTimers();
     cleanup();
     if (originalScrollIntoViewDescriptor) {
@@ -568,6 +577,44 @@ describe("ResumeWorkspaceScreen", () => {
     );
   });
 
+  it("saves unsaved edits before regenerating the full draft", async () => {
+    const onPreviewDraft = vi.fn((previewDraft: ResumeDraft) =>
+      Promise.resolve(buildPreview(previewDraft.updatedAt, "ready-preview")),
+    );
+    const onRegenerateDraft = vi.fn();
+    const onSaveDraftAndThen = vi.fn();
+
+    renderScreen({
+      onPreviewDraft,
+      onRegenerateDraft,
+      onSaveDraftAndThen,
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    const summaryInput = screen.getAllByLabelText("Section text")[0] as HTMLTextAreaElement;
+    fireEvent.change(summaryInput, {
+      target: { value: "Unsaved stale summary that should not be persisted before rebuild." },
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+
+    fireEvent.click(screen.getAllByRole("button", { name: /refresh draft/i })[0]!);
+
+    expect(onSaveDraftAndThen).toHaveBeenCalledTimes(1);
+    expect(onRegenerateDraft).not.toHaveBeenCalled();
+    const followUp = onSaveDraftAndThen.mock.calls[0]?.[1] as
+      | (() => void | Promise<void>)
+      | undefined;
+    expect(followUp).toBeTypeOf("function");
+    await followUp?.();
+    expect(onRegenerateDraft).toHaveBeenCalledWith("job_ready");
+  });
+
   it("shows work-history review guidance in the editor", async () => {
     renderScreen({
       onPreviewDraft: () =>
@@ -627,11 +674,14 @@ describe("ResumeWorkspaceScreen", () => {
     expect(moveUpButtons[0]).toHaveProperty("disabled", true);
     expect(moveDownButtons.at(-1)).toHaveProperty("disabled", true);
 
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "Move Senior systems designer up",
-      }),
-    );
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Move Senior systems designer up",
+        }),
+      );
+      await Promise.resolve();
+    });
 
     expect(onApplyPatch).toHaveBeenCalledTimes(1);
     expect(appliedPatches[0]?.patch).toMatchObject({
@@ -669,11 +719,17 @@ describe("ResumeWorkspaceScreen", () => {
                   {
                     ...experienceSection.entries[1]!,
                     dateRange: "2021 – 2022",
+                    startDate: "2021",
+                    endDate: "2022",
+                    isCurrent: false,
                     sortOrder: 0,
                   },
                   {
                     ...experienceSection.entries[0]!,
                     dateRange: "2024 – Present",
+                    startDate: "2024",
+                    endDate: null,
+                    isCurrent: true,
                     sortOrder: 1,
                   },
                 ],
@@ -728,9 +784,12 @@ describe("ResumeWorkspaceScreen", () => {
 
     expect(screen.getAllByText("Manual order").length).toBeGreaterThan(0);
 
-    fireEvent.click(
-      screen.getByRole("button", { name: /Reset to chronology/i }),
-    );
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: /Reset to chronology/i }),
+      );
+      await Promise.resolve();
+    });
 
     expect(onApplyPatch).toHaveBeenCalledTimes(1);
     expect(appliedPatches[0]?.patch).toMatchObject({

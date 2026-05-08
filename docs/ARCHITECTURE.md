@@ -36,6 +36,7 @@
 - resume import: desktop ingress -> parser routing -> import artifacts -> accepted canonical writes
 - discovery/apply: `job-finder` orchestrates, `browser-agent` executes bounded policy, `browser-runtime` owns sessions
 - source-debug: `job-finder` orchestrates phases and artifacts, `browser-agent` returns structured attempts, `db` persists runs and evidence
+- browser visual evidence: `browser-runtime` owns generic screenshot capture and local retention cleanup only; `browser-agent` owns source-generic visual trigger policy and structured interpretation; `job-finder` persists only schema-validated evidence/checkpoint summaries and explicitly opts apply runs into visual checkpoints when safe
 
 ## Resume Safety & Approval
 

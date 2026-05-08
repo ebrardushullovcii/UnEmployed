@@ -41,6 +41,10 @@ type BuildJobFinderPageContextArgs = {
   profileCopilotBusy: boolean
   profileCopilotPendingContextKey: string | null
   profileCopilotRequestTokenRef: MutableRefObject<number>
+  requestApplyCopilotVisualCheckpoints: (request: {
+    jobId: string
+    onResolve: (visualCheckpointsEnabled: boolean) => void
+  }) => void
   profileSetupState: ProfileSetupState | null
   refreshResumeWorkspace: (
     jobId: string,
@@ -100,6 +104,7 @@ export function buildJobFinderPageContext(
     profileCopilotBusy,
     profileCopilotPendingContextKey,
     profileCopilotRequestTokenRef,
+    requestApplyCopilotVisualCheckpoints,
     profileSetupState,
     refreshResumeWorkspace,
     resumeAssistantRequestTokenRef,
@@ -145,6 +150,7 @@ export function buildJobFinderPageContext(
     navigate,
     profileSetupState,
     profileCopilotRequestTokenRef,
+    requestApplyCopilotVisualCheckpoints,
     refreshResumeWorkspace,
     resumeAssistantRequestTokenRef,
     runAction,

@@ -5,6 +5,7 @@ import {
   ApplyRunStateSchema,
   ApplySubmitApprovalStatusSchema,
   ApplicationStatusSchema,
+  BrowserRunWaitReasonSchema,
   CandidateProfileSchema,
   DesktopWindowControlsStateSchema,
   JobSearchPreferencesSchema,
@@ -29,6 +30,9 @@ describe("contracts base schemas", () => {
     expect(ApplySubmitApprovalStatusSchema.parse("approved")).toBe("approved");
     expect(SourceAccessPromptStateSchema.parse("prompt_login_required")).toBe(
       "prompt_login_required",
+    );
+    expect(BrowserRunWaitReasonSchema.parse("analyzing_visual_snapshot")).toBe(
+      "analyzing_visual_snapshot",
     );
   });
 

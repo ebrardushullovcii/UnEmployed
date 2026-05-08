@@ -1,5 +1,6 @@
 import type {
   ApplyRunDetails,
+  BrowserVisualEvidenceSummary,
   JobFinderWorkspaceSnapshot,
 } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui";
@@ -31,6 +32,14 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
     visibleApplyResult,
   } = props;
   const applyDetailsStatusBadge = getApplyDetailsStatusBadge(applyRunDetailsStatus);
+  const resultVisualCheckpointCount =
+    selectedApplyRunDetails?.result?.visualCheckpoints.length ?? 0;
+  const retainedVisualEvidenceCount = selectedApplyRunDetails
+    ? selectedApplyRunDetails.checkpoints.reduce(
+        (count, checkpoint) => count + checkpoint.visualEvidence.length,
+        0,
+      )
+    : 0;
 
   if (!visibleApplyResult) {
     return null;
@@ -65,7 +74,44 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
             />
             <MetricCard label="Artifacts" value={selectedApplyRunDetails.artifactRefs.length} />
             <MetricCard label="Checkpoints" value={selectedApplyRunDetails.checkpoints.length} />
+            <MetricCard label="Visual checkpoints" value={resultVisualCheckpointCount} />
+            <MetricCard label="Visual evidence" value={retainedVisualEvidenceCount} />
           </div>
+          {selectedApplyRunDetails.result?.visualCheckpoints.length ? (
+            <div className="grid gap-2">
+              <p className="label-mono-xs">Visual apply checkpoints</p>
+              {selectedApplyRunDetails.result.visualCheckpoints.map((checkpoint) => (
+                <div
+                  key={checkpoint.id}
+                  className="rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3 text-(length:--text-small) leading-6 text-foreground-soft"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <strong className="text-foreground">{checkpoint.label}</strong>
+                    <StatusBadge tone={checkpoint.retained ? "positive" : "neutral"}>
+                      {checkpoint.retained ? "Retained" : "Temporary"}
+                    </StatusBadge>
+                  </div>
+                  <p className="mt-2">{checkpoint.summary}</p>
+                  {checkpoint.blockers.length ? (
+                    <p className="mt-2">Blockers: {checkpoint.blockers.join("; ")}</p>
+                  ) : null}
+                  {checkpoint.fieldControls.length ? (
+                    <p className="mt-2">
+                      Controls: {checkpoint.fieldControls.join("; ")}
+                    </p>
+                  ) : null}
+                  {checkpoint.validationErrors.length ? (
+                    <p className="mt-2">
+                      Validation: {checkpoint.validationErrors.join("; ")}
+                    </p>
+                  ) : null}
+                  {checkpoint.storagePath ? (
+                    <p className="mt-2 break-all">Saved: {checkpoint.storagePath}</p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
           {selectedApplyRunDetails.questionRecords.length ? (
             <div className="grid gap-2">
               <p className="label-mono-xs">Detected questions</p>
@@ -106,6 +152,9 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
                     <p className="mt-2 break-all text-(length:--text-small) leading-6 text-foreground-soft">
                       Page: {question.pageUrl}
                     </p>
+                  ) : null}
+                  {question.visualContext ? (
+                    <VisualEvidenceSummary evidence={question.visualContext} />
                   ) : null}
                 </div>
               ))}
@@ -158,6 +207,9 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
                     <p className="break-all">Saved: {artifact.storagePath}</p>
                   ) : null}
                   {artifact.url ? <p className="break-all">URL: {artifact.url}</p> : null}
+                  {artifact.visualEvidence ? (
+                    <VisualEvidenceSummary evidence={artifact.visualEvidence} />
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -188,6 +240,28 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
                   {checkpoint.detail ? <p className="mt-2">{checkpoint.detail}</p> : null}
                   <p className="mt-2">{formatTimestamp(checkpoint.createdAt)}</p>
                   {checkpoint.url ? <p className="mt-2 break-all">{checkpoint.url}</p> : null}
+                  {checkpoint.visualEvidence.length ? (
+                    <div className="mt-2 grid gap-1">
+                      {checkpoint.visualEvidence.map((evidence) => (
+                        <VisualEvidenceSummary
+                          key={`${evidence.snapshotId}:${evidence.observationSetId}`}
+                          evidence={evidence}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+                  {checkpoint.visualReconciliations.length ? (
+                    <div className="mt-2 grid gap-1">
+                      {checkpoint.visualReconciliations.map((reconciliation) => (
+                        <p key={reconciliation.id}>
+                          Visual reconciliation: {formatStatusLabel(reconciliation.status)}
+                          {reconciliation.visualSummary
+                            ? ` • ${reconciliation.visualSummary}`
+                            : ""}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -238,6 +312,17 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
         </>
       ) : null}
     </section>
+  );
+}
+
+function VisualEvidenceSummary(props: { evidence: BrowserVisualEvidenceSummary }) {
+  const { evidence } = props;
+
+  return (
+    <p className="mt-2 break-words text-(length:--text-small) leading-6 text-foreground-soft">
+      Visual evidence: {evidence.summary} • {formatStatusLabel(evidence.retention)}
+      {evidence.storagePath ? ` • ${evidence.storagePath}` : ""}
+    </p>
   );
 }
 

@@ -101,6 +101,7 @@ describe('getSearchResultsExtractionReviewBudget', () => {
         promptContext: {
           siteLabel: 'KosovaJob',
           taskPacket: {
+            phase: 'search_filter_probe',
             phaseGoal: 'Probe search controls.',
             knownFacts: [],
             avoidStrategyFingerprints: [],

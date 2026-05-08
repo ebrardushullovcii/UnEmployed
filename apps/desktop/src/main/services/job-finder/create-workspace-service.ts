@@ -1,6 +1,11 @@
 import {
+  type BrowserVisualAnalysisInput,
+  type BrowserVisualObservationSet,
   createDeterministicJobFinderAiClient,
+  createBrowserVisualAnalysisProviderFromEnvironment,
   createJobFinderAiClientFromEnvironment,
+  createDeterministicResumeVisionProvider,
+  createResumeVisionProviderFromEnvironment,
 } from '@unemployed/ai-providers'
 import { createBrowserAgentRuntime, createCatalogBrowserSessionRuntime } from '@unemployed/browser-runtime'
 import type { BrowserSessionRuntime, OpenBrowserSessionOptions } from '@unemployed/browser-runtime'
@@ -87,6 +92,13 @@ function buildCatalogSessionSeed(
   }
 }
 
+async function analyzeBrowserVisualSnapshotWithProvider(
+  input: BrowserVisualAnalysisInput,
+  provider: ReturnType<typeof createBrowserVisualAnalysisProviderFromEnvironment>,
+): Promise<BrowserVisualObservationSet> {
+  return provider.analyzeBrowserVisualSnapshot(input)
+}
+
 export function createDesktopJobFinderAiClient(env: NodeJS.ProcessEnv = process.env) {
   const desktopTestApiEnabled = isDesktopTestApiEnabled(env)
   const forceLiveAiDuringTestApi = isEnabled(env.UNEMPLOYED_TEST_API_USE_LIVE_AI)
@@ -97,7 +109,32 @@ export function createDesktopJobFinderAiClient(env: NodeJS.ProcessEnv = process.
     )
   }
 
-  return createJobFinderAiClientFromEnvironment(env)
+  const aiClient = createJobFinderAiClientFromEnvironment(env)
+
+  if (aiClient.analyzeBrowserVisualSnapshot) {
+    return aiClient
+  }
+
+  const browserVisualProvider = createBrowserVisualAnalysisProviderFromEnvironment(env)
+
+  return {
+    ...aiClient,
+    analyzeBrowserVisualSnapshot: (input: BrowserVisualAnalysisInput) =>
+      analyzeBrowserVisualSnapshotWithProvider(input, browserVisualProvider),
+  }
+}
+
+export function createDesktopResumeVisionProvider(env: NodeJS.ProcessEnv = process.env) {
+  const desktopTestApiEnabled = isDesktopTestApiEnabled(env)
+  const forceLiveAiDuringTestApi = isEnabled(env.UNEMPLOYED_TEST_API_USE_LIVE_AI)
+
+  if (desktopTestApiEnabled && !forceLiveAiDuringTestApi) {
+    return createDeterministicResumeVisionProvider(
+      'Desktop test API forces deterministic resume vision runtime so scripted UI flows stay stable even when local vision credentials exist.',
+    )
+  }
+
+  return createResumeVisionProviderFromEnvironment(env)
 }
 
 export function createDesktopBrowserRuntime(input: {
@@ -165,6 +202,7 @@ export async function createJobFinderWorkspaceServiceAsync(
     seed: createEmptyJobFinderRepositoryState()
   })
   const aiClient = createDesktopJobFinderAiClient(env)
+  const visionProvider = createDesktopResumeVisionProvider(env)
   const browserRuntime = createDesktopBrowserRuntime({
     env,
     aiClient,
@@ -183,6 +221,7 @@ export async function createJobFinderWorkspaceServiceAsync(
 
   return createJobFinderWorkspaceService({
     aiClient,
+    visionProvider,
     documentManager,
     exportFileVerifier,
     repository: jobFinderRepository,

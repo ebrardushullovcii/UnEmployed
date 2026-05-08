@@ -410,6 +410,7 @@ describe('createCatalogSessionAgent', () => {
           'https://jobs.example.com/roles/target_job_1/apply',
           'https://jobs.example.com/roles/target_job_1/apply/review',
         ],
+        retainedVisualEvidence: [],
         blockerSummary: 'Additional questions are ready for review before final submit.',
       },
     })
