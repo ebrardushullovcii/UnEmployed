@@ -162,18 +162,18 @@ export function ResumeWorkspaceSidebar({
               </p>
             ) : null}
             {roleSnapshot.map((snapshot) => (
-              <p key={snapshot} className="wrap-break-word">
+              <p key={snapshot} className="break-words">
                 {snapshot}
               </p>
             ))}
             {targetingSummary ? (
-              <p className="wrap-break-word">
+              <p className="break-words">
                 <strong className="text-foreground">Targeting:</strong>{" "}
                 {targetingSummary}
               </p>
             ) : null}
             {screeningSummary ? (
-              <p className="wrap-break-word">
+              <p className="break-words">
                 <strong className="text-foreground">Screening:</strong>{" "}
                 {screeningSummary}
               </p>

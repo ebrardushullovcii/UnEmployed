@@ -705,7 +705,7 @@ def build_vision_images_response(request: Dict[str, Any]) -> Dict[str, Any]:
     file_kind = request.get("fileKind") or detect_file_kind(file_path)
     source_resume_id = request.get("sourceResumeId") if isinstance(request.get("sourceResumeId"), str) else "resume_source_pending"
     run_id = request.get("runId") if isinstance(request.get("runId"), str) else "resume_vision_run_pending"
-    artifact_id = request.get("artifactId") if isinstance(request.get("artifactId"), str) else f"resume_vision_artifact_{hashlib.sha256(file_path.encode("utf-8")).hexdigest()[:16]}"
+    artifact_id = request.get("artifactId") if isinstance(request.get("artifactId"), str) else f"resume_vision_artifact_{hashlib.sha256(file_path.encode('utf-8')).hexdigest()[:16]}"
     retained = detect_retention_mode(request)
 
     if file_kind in {"plain_text", "markdown"}:

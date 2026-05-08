@@ -369,7 +369,7 @@ export function createWorkspaceProfileSetupReviewMethods(input: {
       nextCandidates !== currentSetupContext.latestResumeImportAllCandidates
     ) {
       await ctx.repository.replaceResumeImportRunArtifacts({
-        run: resolvedRun() ?? currentSetupContext.latestResumeImportRun,
+        run: resolvedRun()!,
         documentBundles: currentSetupContext.latestResumeImportBundles,
         fieldCandidates: nextCandidates,
       });

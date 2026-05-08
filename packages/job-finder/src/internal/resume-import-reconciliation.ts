@@ -933,6 +933,10 @@ function sourceLabelForCandidate(candidate: ResumeImportFieldCandidate): string 
       return "Import comparison";
     case "reconciler":
       return "Import reconciliation";
+    default: {
+      const _exhaustive: never = candidate.sourceKind;
+      throw new Error(`Unhandled sourceKind: ${String(_exhaustive)}`);
+    }
   }
 }
 
@@ -967,8 +971,13 @@ function hasTextVisionMaterialConflict(
     return false;
   }
 
+  const relevantCandidates = candidates.filter(
+    (candidate) =>
+      candidate.sourceKind === "vision_omni" ||
+      sourceLabelForCandidate(candidate) === "Document text",
+  );
   const normalizedValues = new Set(
-    candidates.map((candidate) =>
+    relevantCandidates.map((candidate) =>
       normalizeText(candidate.valuePreview ?? buildValuePreview(candidate.value) ?? JSON.stringify(candidate.value)),
     ),
   );

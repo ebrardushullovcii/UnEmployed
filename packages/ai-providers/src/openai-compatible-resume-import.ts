@@ -19,6 +19,9 @@ import {
 import { buildCandidateConfidenceBreakdown } from "./resume-import-helpers";
 import type { OpenAiCompatibleJsonOperation } from "./openai-compatible-request-compaction";
 
+const ADJUDICATION_BLOCK_LIMIT = 80;
+const ADJUDICATION_CANDIDATE_LIMIT = 24;
+
 function toStringArray(value: unknown): string[] {
   if (typeof value === "string") {
     const trimmed = value.trim();
@@ -191,8 +194,8 @@ function buildStageInstructions(stage: ExtractResumeImportStageInput["stage"]): 
       return [
         "Return only background candidates for skills, education, certifications, links, projects, and languages.",
         "Valid target sections: skill, education, certification, link, project, language.",
-        "Use target {section:'skill', key:'skills', recordId:null} for a complete skills array, and optional skillGroups.coreSkills, skillGroups.tools, skillGroups.languagesAndFrameworks, skillGroups.softSkills, or skillGroups.highlightedSkills for grouped skill arrays.",
-        "Use target {section:'education', key:'record', recordId:'education_1'} for each education object with schoolName, degree, fieldOfStudy, location, startDate, endDate, and summary fields.",
+        "Use target {\"section\":\"skill\",\"key\":\"skills\",\"recordId\":null} for a complete skills array, and optional skillGroups.coreSkills, skillGroups.tools, skillGroups.languagesAndFrameworks, skillGroups.softSkills, or skillGroups.highlightedSkills for grouped skill arrays.",
+        "Use target {\"section\":\"education\",\"key\":\"record\",\"recordId\":\"education_1\"} for each education object with schoolName, degree, fieldOfStudy, location, startDate, endDate, and summary fields.",
         "Do not emit education.institution, education.startDate, education.graduationDate, or education.education scalar targets; fold those values into an education record object.",
         "Use key 'record' for certification, link, project, and language object records.",
       ].join(" ");
@@ -322,7 +325,7 @@ export async function adjudicateOpenAiCompatibleResumeImportCandidates(input: {
         sourceFileKind: input.adjudicationInput.documentBundle.sourceFileKind,
         quality: input.adjudicationInput.documentBundle.quality ?? null,
         warnings: input.adjudicationInput.documentBundle.warnings,
-        blocks: input.adjudicationInput.documentBundle.blocks.slice(0, 80).map((block) => ({
+        blocks: input.adjudicationInput.documentBundle.blocks.slice(0, ADJUDICATION_BLOCK_LIMIT).map((block) => ({
           id: block.id,
           pageNumber: block.pageNumber,
           sectionHint: block.sectionHint,
@@ -330,20 +333,20 @@ export async function adjudicateOpenAiCompatibleResumeImportCandidates(input: {
           text: block.text,
         })),
       },
-      candidates: input.adjudicationInput.candidates.slice(0, 24),
+      candidates: input.adjudicationInput.candidates.slice(0, ADJUDICATION_CANDIDATE_LIMIT),
     },
     { timeoutMs: input.timeoutMs },
   );
 
   const truncationWarnings: string[] = [];
-  if (input.adjudicationInput.documentBundle.blocks.length > 80) {
+  if (input.adjudicationInput.documentBundle.blocks.length > ADJUDICATION_BLOCK_LIMIT) {
     truncationWarnings.push(
-      `Adjudication input truncated: ${input.adjudicationInput.documentBundle.blocks.length} blocks (>80 limit)`,
+      `Adjudication input truncated: ${input.adjudicationInput.documentBundle.blocks.length} blocks (>${ADJUDICATION_BLOCK_LIMIT} limit)`,
     );
   }
-  if (input.adjudicationInput.candidates.length > 24) {
+  if (input.adjudicationInput.candidates.length > ADJUDICATION_CANDIDATE_LIMIT) {
     truncationWarnings.push(
-      `Adjudication input truncated: ${input.adjudicationInput.candidates.length} candidates (>24 limit)`,
+      `Adjudication input truncated: ${input.adjudicationInput.candidates.length} candidates (>${ADJUDICATION_CANDIDATE_LIMIT} limit)`,
     );
   }
 

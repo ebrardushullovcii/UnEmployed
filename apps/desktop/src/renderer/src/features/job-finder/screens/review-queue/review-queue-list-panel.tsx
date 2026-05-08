@@ -101,7 +101,7 @@ export function ReviewQueueListPanel({
                   type="button"
                 >
                   <div className="min-w-0 w-full">
-                    <strong className="block wrap-break-word font-display text-[1rem] font-semibold tracking-(--tracking-normal) text-foreground">
+                    <strong className="block break-words font-display text-[1rem] font-semibold tracking-(--tracking-normal) text-foreground">
                       {item.title}
                     </strong>
                   </div>

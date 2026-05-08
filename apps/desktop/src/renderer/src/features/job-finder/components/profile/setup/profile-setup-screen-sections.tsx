@@ -280,7 +280,7 @@ export function ProfileSetupReviewQueueCard(props: {
                       <p className="mt-2 text-sm text-foreground">{item.proposedValue}</p>
                     </div>
                   ) : null}
-                  {(linkedCandidate?.conflictChoices?.length ?? 0) > 0 ? (
+                  {(linkedCandidate?.conflictChoices?.length ?? 0) >= 2 ? (
                     <div className="mt-3 rounded-(--radius-field) border border-amber-500/30 bg-amber-500/10 p-3">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-(length:--text-tiny) uppercase tracking-[0.2em] text-amber-200/90">Import comparison</p>
@@ -327,7 +327,7 @@ export function ProfileSetupReviewQueueCard(props: {
                       <Button aria-label={`Edit ${item.label}`} disabled={Boolean(props.actionsDisabledReason)} onClick={() => props.onEditReviewItem(item)} size="sm" type="button" variant="secondary">Edit this</Button>
                       {canConfirmReviewItem(item) ? (
                         <Button 
-                          disabled={Boolean(props.actionsDisabledReason) || props.isReviewItemPending(item.id) || (linkedCandidate?.conflictChoices?.length ?? 0) > 0} 
+                          disabled={Boolean(props.actionsDisabledReason) || props.isReviewItemPending(item.id) || (linkedCandidate?.conflictChoices?.length ?? 0) >= 2} 
                           pending={isRowReviewActionPending} 
                           onClick={() => applyReviewAction(item.id, 'confirm')} 
                           size="sm" 

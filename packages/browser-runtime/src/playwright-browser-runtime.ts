@@ -557,7 +557,7 @@ async function resolveAutomationPageForContext(
       )
     : null;
   const blankPage = openPages.find((page) => !isHttpUrlLike(page.url())) ?? null;
-  const page = blankPage ?? exactTargetPage ?? (await context.newPage());
+  const page = exactTargetPage ?? blankPage ?? (await context.newPage());
 
   if (options.bringToFront !== false) {
     await page.bringToFront().catch(() => undefined);

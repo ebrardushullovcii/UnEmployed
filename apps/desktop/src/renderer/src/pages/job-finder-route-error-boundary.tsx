@@ -168,7 +168,7 @@ export function JobFinderRouteErrorBoundary({
                 <summary className="cursor-pointer list-none text-sm font-medium text-foreground transition-colors group-open:text-foreground-soft">
                   Technical details
                 </summary>
-                <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap wrap-break-word border-t border-border/35 pt-3 text-xs leading-6 text-foreground-soft">
+                <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-words border-t border-border/35 pt-3 text-xs leading-6 text-foreground-soft">
                   {technicalDetails}
                 </pre>
               </details>

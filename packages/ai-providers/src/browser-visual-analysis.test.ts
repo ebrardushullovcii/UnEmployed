@@ -92,7 +92,7 @@ function createSourceDebugInput(): BrowserVisualAnalysisInput {
       },
       apply: null,
     },
-  } as Partial<BrowserVisualAnalysisInput>);
+  });
 }
 
 describe("browser visual analysis providers", () => {

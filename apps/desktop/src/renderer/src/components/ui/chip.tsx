@@ -5,7 +5,7 @@ function Chip({ className, ...props }: React.ComponentProps<'span'>) {
   return (
     <span
       className={cn(
-        'inline-flex max-w-full items-center border border-border bg-surface-strong px-2 py-1 font-mono text-[10px] uppercase tracking-(--tracking-normal) text-foreground-soft transition-[background-color,border-color] duration-150 whitespace-normal wrap-break-word',
+        'inline-flex max-w-full items-center border border-border bg-surface-strong px-2 py-1 font-mono text-[10px] uppercase tracking-(--tracking-normal) text-foreground-soft transition-[background-color,border-color] duration-150 whitespace-normal break-words',
         className
       )}
       {...props}

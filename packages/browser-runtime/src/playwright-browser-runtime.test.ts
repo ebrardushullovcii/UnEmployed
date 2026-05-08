@@ -1179,7 +1179,7 @@ describe("playwright browser runtime", () => {
     }
   });
 
-  test("runAgentDiscovery keeps a ready visible blank tab aligned even when the target is open in the background", async () => {
+  test("runAgentDiscovery reuses an already-open matching page instead of navigating a blank tab", async () => {
     const userDataDir = await mkdtemp(
       join(tmpdir(), "unemployed-browser-runtime-agent-ready-blank-"),
     );
@@ -1283,12 +1283,15 @@ describe("playwright browser runtime", () => {
         siteLabel: "Example Jobs",
       });
 
-      expect(blankPage.goto).toHaveBeenCalledWith("https://example.com/jobs", {
-        waitUntil: "domcontentloaded",
-      });
-      expect(blankPage.bringToFront).toHaveBeenCalled();
-      expect(backgroundTargetPage.goto).not.toHaveBeenCalled();
+      // The agent navigates the selected page to the starting URL at startup
+      expect(backgroundTargetPage.goto).toHaveBeenCalledWith(
+        "https://example.com/jobs",
+        { waitUntil: "domcontentloaded" },
+      );
+      // The blank tab is left completely untouched
+      expect(blankPage.goto).not.toHaveBeenCalled();
       expect(backgroundTargetPage.bringToFront).not.toHaveBeenCalled();
+      expect(blankPage.bringToFront).not.toHaveBeenCalled();
     } finally {
       await rm(userDataDir, { recursive: true, force: true });
     }
