@@ -331,6 +331,29 @@ describe("contracts source-debug schemas", () => {
 
     expect(() =>
       BrowserVisualObservationSetSchema.parse({
+        id: "visual_observation_descriptive",
+        snapshotId: "visual_snapshot_descriptive",
+        observedAt: "2026-03-20T10:01:00.000Z",
+        purpose: "source_debug",
+        providerKind: "deterministic",
+        providerLabel: "Deterministic browser visual analysis",
+        summary: "The [Apply Now] button is visible near a select dropdown.",
+        observations: [
+          {
+            id: "visual_observation_item_descriptive",
+            kind: "visible_control",
+            label: "Input type is email",
+            description:
+              "A fill-in field appears below the title in a choose-your-skill section.",
+            confidence: 0.74,
+          },
+        ],
+        visibleControls: ["Shows a [Required] badge beside the email field"],
+      }),
+    ).not.toThrow();
+
+    expect(() =>
+      BrowserVisualObservationSetSchema.parse({
         id: "visual_observation_unsafe",
         snapshotId: "visual_snapshot_unsafe",
         observedAt: "2026-03-20T10:01:00.000Z",
@@ -340,6 +363,18 @@ describe("contracts source-debug schemas", () => {
         summary: "Click the button #apply-now to continue.",
       }),
     ).toThrow(/cannot include selectors|cannot direct browser actions/i);
+
+    expect(() =>
+      BrowserVisualObservationSetSchema.parse({
+        id: "visual_observation_attribute_selector",
+        snapshotId: "visual_snapshot_attribute_selector",
+        observedAt: "2026-03-20T10:01:00.000Z",
+        purpose: "source_debug",
+        providerKind: "deterministic",
+        providerLabel: "Deterministic browser visual analysis",
+        summary: "The selector input[name='email'] appears in the form.",
+      }),
+    ).toThrow(/cannot include selectors/i);
 
     expect(() =>
       BrowserVisualObservationSetSchema.parse({

@@ -172,17 +172,17 @@ export type BrowserVisualObservationSeverity = z.infer<
 >;
 
 const CSS_SELECTOR_PATTERN =
-  /(?:^|\s)(?:#[A-Za-z][\w-]+|\.[a-z][\w-]{2,}|\[[^\]]+\]|(?:button|input|textarea|select|a|div|span|form)[#.][A-Za-z])/;
+  /(?:^|\s)(?:#[A-Za-z][\w-]+|\.[a-z][\w-]{2,}|\[[^\]\s]+(?:[*^$|~]?=)[^\]]+\]|(?:button|input|textarea|select|a|div|span|form)(?:[.#][A-Za-z]|\[[^\]\s]+(?:[*^$|~]?=)[^\]]+\]))/;
 const DIRECT_ACTION_PATTERN =
-  /\b(?:click|press|tap|type|fill|choose|navigate|go\s+to)\b/i;
+  /(?:^|[.!?]\s+)(?:click|press|tap|type|fill|choose|navigate|go\s+to)\b/i;
 const SELECT_ACTION_PATTERN =
-  /\bselect\s+(?:the\s+|an?\s+|this\s+|that\s+)?(?:option|answer|field|input|dropdown|checkbox|radio|value|item)\b/i;
+  /(?:^|[.!?]\s+)select\s+(?:the\s+|an?\s+|this\s+|that\s+)?(?:option|answer|field|input|dropdown|checkbox|radio|value|item)\b/i;
 const OPEN_ACTION_PATTERN =
-  /\bopen\s+(?:the\s+|an?\s+|this\s+|that\s+)?(?:easy\s+apply|apply|application|form|link|page|job|listing)\b/i;
+  /(?:^|[.!?]\s+)open\s+(?:the\s+|an?\s+|this\s+|that\s+)?(?:easy\s+apply|apply|application|form|link|page|job|listing)\b/i;
 const SUBMIT_ACTION_PATTERN =
-  /\bsubmit\s+(?:the\s+)?(?:application|form|answer|response)\b|\bfinal[-\s]?submit\b/i;
+  /(?:^|[.!?]\s+)submit\s+(?:the\s+)?(?:application|form|answer|response)\b|\bfinal[-\s]?submit\b/i;
 const SAVE_JOB_PATTERN =
-  /\bsave\s+(?:this\s+|the\s+|a\s+)?job\b|\bsave-job\b|\bsaved-job\b/i;
+  /(?:^|[.!?]\s+)save\s+(?:this\s+|the\s+|a\s+)?job\b|\bsave-job\b|\bsaved-job\b/i;
 const GENERATED_ANSWER_PATTERN =
   /\b(?:answer|respond)\s+(?:with|as)\b|\buse\s+this\s+answer\b|\bgenerated\s+answer\b/i;
 const SITE_SPECIFIC_WORKFLOW_RULE_PATTERN =
