@@ -79,9 +79,9 @@ function buildResumeContactItems(identity: ResumeDraftIdentity | null | undefine
     { field: "email", text: identity.email },
     { field: "phone", text: identity.phone },
     { field: "portfolioUrl", text: identity.portfolioUrl },
-    { field: "linkedinUrl", text: identity.linkedinUrl },
-    { field: "githubUrl", text: identity.githubUrl },
     { field: "personalWebsiteUrl", text: identity.personalWebsiteUrl },
+    { field: "githubUrl", text: identity.githubUrl },
+    { field: "linkedinUrl", text: identity.linkedinUrl },
     ...(identity.additionalLinks ?? []).map((text) => ({
       field: "additionalLinks" as const,
       text,
@@ -1013,7 +1013,7 @@ export function buildResumeDraftFromTailoredDraft(input: {
       profile: input.profile,
       sharedRefs,
     }),
-    targetPageCount: 2,
+    targetPageCount: 1,
     generationMethod,
     approvedAt: null,
     approvedExportId: null,
@@ -1068,7 +1068,7 @@ export function seedResumeDraft(input: {
         templateId: input.templateId,
         identity: buildResumeDraftIdentity(input.profile),
         sections: seededSections,
-        targetPageCount: 2,
+        targetPageCount: 1,
         generationMethod:
           tailoredAsset.generationMethod === "ai_assisted" ? "ai" : "deterministic",
         approvedAt: null,
@@ -1274,7 +1274,7 @@ export function seedResumeDraft(input: {
       section.bullets.length > 0 ||
       section.entries.length > 0,
     ),
-    targetPageCount: 2,
+    targetPageCount: 1,
     generationMethod: "manual",
     approvedAt: null,
     approvedExportId: null,

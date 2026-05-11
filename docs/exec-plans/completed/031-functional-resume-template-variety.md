@@ -26,7 +26,7 @@ This plan depends on `docs/exec-plans/completed/030-resume-coverage-and-copy-qua
   - dense senior timeline
   - skills-first technical
   - projects/proof-first
-  - credentials-first
+  - formal proof first
   - polished modern default
 - Add new template IDs only when they add a distinct layout purpose beyond the rebuilt six; do not add color-only variants.
 - Candidate additions if they remain materially distinct after renderer exploration:
@@ -77,6 +77,6 @@ This plan depends on `docs/exec-plans/completed/030-resume-coverage-and-copy-qua
 ## Completion Notes
 
 - The shipped apply-safe catalog now keeps the original six stable ids and adds `timeline_longform` and `career_pivot`.
-- Shipped families and variants are `Chronology Classic` / `Recruiter Standard`, `Senior Brief` / `Dense Timeline`, `Modern Editorial` / `Polished Default`, `Engineering Spec` / `Skills First`, `Proof Portfolio` / `Projects First`, `Credential Ledger` / `Credentials First`, `Longform Timeline` / `Career Depth`, and `Career Pivot Bridge` / `Hybrid Bridge`.
+- Shipped families and variants are `Chronology Classic` / `Recruiter Standard`, `Senior Brief` / `Dense Timeline`, `Modern Editorial` / `Polished Default`, `Engineering Spec` / `Skills First`, `Proof Portfolio` / `Projects First`, `Formal Proof` / `Certs & Education`, `Longform Timeline` / `Career Depth`, and `Career Pivot Bridge` / `Hybrid Bridge`.
 - Renderer, contract, benchmark, and workspace references were updated to expect the eight-template catalog where they reflect shipped behavior.
 - Follow-up polish simplified the picker from a two-step family flow to direct one-click template selection and neutralized template coloring while preserving layout variety.

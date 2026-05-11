@@ -69,7 +69,7 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 
 - status: `done`
 - linked plan: `docs/exec-plans/completed/031-functional-resume-template-variety.md`
-- the resume template catalog now ships eight apply-safe template ids with distinct functional layouts, neutral default coloring, and one-click selection: `Chronology Classic`, `Senior Brief`, `Modern Editorial`, `Engineering Spec`, `Proof Portfolio`, `Credential Ledger`, `Longform Timeline`, and `Career Pivot Bridge`
+- the resume template catalog now ships eight apply-safe template ids with distinct functional layouts, neutral default coloring, and one-click selection: `Chronology Classic`, `Senior Brief`, `Modern Editorial`, `Engineering Spec`, `Proof Portfolio`, `Formal Proof`, `Longform Timeline`, and `Career Pivot Bridge`
 - reopen only for a concrete catalog wiring regression, a benchmark-backed ATS or approval-safety issue, or a new evidence-backed functional layout gap
 
 ### `032 Resume Studio Experience Ordering And Manual Control`

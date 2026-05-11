@@ -62,7 +62,7 @@ describe("createJobFinderWorkspaceService", () => {
       expect.arrayContaining([
         "Generated PDF resume artifact generated-classic_ats.pdf.",
         "Saved HTML debug render generated-classic_ats.html.",
-        "Generated PDF page count: 2.",
+        "Generated PDF page count: 1.",
       ]),
     );
   });
@@ -2288,7 +2288,7 @@ describe("createJobFinderWorkspaceService", () => {
         }),
         expect.objectContaining({
           id: "credentials_focus",
-          label: "Credential Ledger",
+          label: "Formal Proof",
         }),
         expect.objectContaining({
           id: "timeline_longform",

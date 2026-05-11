@@ -441,6 +441,29 @@ describe('resume workspace quality helpers', () => {
     )
   })
 
+  test('validateResumeDraft uses the draft page target in overflow messaging', () => {
+    const { profile, job } = getSeedContext()
+    const validation = validateResumeDraft({
+      draft: {
+        ...createBaseDraft(),
+        targetPageCount: 1,
+      },
+      job,
+      profile,
+      pageCount: 2,
+    })
+
+    expect(validation.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          category: 'page_overflow',
+          severity: 'warning',
+          message: 'The exported resume exceeded the 1-page target.',
+        }),
+      ]),
+    )
+  })
+
   test('validateResumeDraft does not mutate user-included entry included flags even under page overflow', () => {
     const { profile, job } = getSeedContext()
     const userIncludedWeakFit = {

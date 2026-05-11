@@ -304,7 +304,10 @@ export function createOpenAiCompatibleJobFinderAiClient(
           "Do not put locations, employers, titles, or other metadata in dateRange; dateRange must only be a real date span like 'Jan 2020 – Present'.",
           "Keep useful imported role summaries and achievements; rewrite for relevance only when the original meaning, metrics, and technologies remain grounded.",
           "Compact older or weak-fit roles when needed, but never turn an unrelated role into a software role unless the profile record explicitly contains technical evidence.",
-          "Keep the output ATS-friendly and concise.",
+          "Aim for a one-page, high-signal draft unless the candidate has unusually strong senior depth; prefer fewer sharper bullets over exhaustive job history.",
+          "Prioritize intentional proof: personal website, GitHub, shipped projects, AI/agent experience, and role-relevant writing or portfolio links when they are present in the profile.",
+          "Do not add photos, generic course lists, social links without clear professional value, or cover-letter-style AI filler phrases.",
+          "Keep the output ATS-friendly, concise, and specific to the target company and role.",
         ].join(" "),
         input,
       );
@@ -382,7 +385,10 @@ export function createOpenAiCompatibleJobFinderAiClient(
           "Do not put locations, employers, titles, or other metadata in dateRange; dateRange must only be a real date span like 'Jan 2020 – Present'.",
           "Keep useful imported role summaries and achievements; rewrite for relevance only when the original meaning, metrics, and technologies remain grounded.",
           "Compact older or weak-fit roles when needed, but do not recast unrelated roles as technical roles without explicit stored evidence.",
-          "Write concise ATS-friendly content.",
+          "Aim for a one-page, high-signal draft unless the candidate has unusually strong senior depth; prefer fewer sharper bullets over exhaustive job history.",
+          "Prioritize intentional proof: personal website, GitHub, shipped projects, AI/agent experience, and role-relevant writing or portfolio links when they are present in the profile.",
+          "Do not add photos, generic course lists, social links without clear professional value, or cover-letter-style AI filler phrases.",
+          "Write concise ATS-friendly content that is specific to the target company and role.",
         ].join(" "),
         input,
       );

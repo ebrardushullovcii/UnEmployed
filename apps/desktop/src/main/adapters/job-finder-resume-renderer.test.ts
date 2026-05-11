@@ -186,7 +186,7 @@ describe('job finder resume renderer', () => {
       expect.objectContaining({ id: 'modern_split', label: 'Modern Editorial', familyLabel: 'Modern Editorial', density: 'balanced' }),
       expect.objectContaining({ id: 'technical_matrix', label: 'Engineering Spec', familyLabel: 'Engineering Spec', density: 'compact' }),
       expect.objectContaining({ id: 'project_showcase', label: 'Proof Portfolio', familyLabel: 'Proof Portfolio', density: 'comfortable' }),
-      expect.objectContaining({ id: 'credentials_focus', label: 'Credential Ledger', familyLabel: 'Credential Ledger', density: 'balanced' }),
+      expect.objectContaining({ id: 'credentials_focus', label: 'Formal Proof', familyLabel: 'Formal Proof', density: 'balanced' }),
       expect.objectContaining({ id: 'timeline_longform', label: 'Longform Timeline', familyLabel: 'Longform Timeline', density: 'compact' }),
       expect.objectContaining({ id: 'career_pivot', label: 'Career Pivot Bridge', familyLabel: 'Career Pivot Bridge', density: 'balanced' }),
     ])
@@ -198,6 +198,8 @@ describe('job finder resume renderer', () => {
     expect(html).toContain('@page')
     expect(html).toContain('size: Letter;')
     expect(html).toContain('grid-template-columns: 1fr;')
+    expect(html).toMatch(/h4 \{(?=[^}]*display: grid;)(?=[^}]*grid-template-columns:)[^}]*}/)
+    expect(html).toMatch(/\.entry-meta \{(?=[^}]*color: var\(--muted\);)(?=[^}]*font-size: 0\.84rem;)(?=[^}]*font-weight: 500;)[^}]*}/)
     expect(html).toContain('data-ats-safe="true"')
     expect(html).toContain('header-classic')
     expect(html).toContain('section-cluster-classic-intro')
@@ -335,10 +337,11 @@ describe('job finder resume renderer', () => {
     )
   })
 
-  test('renders credentials variant with credential spotlight ahead of summary and experience', () => {
+  test('renders formal proof variant with certification and education spotlight ahead of summary and experience', () => {
     const html = renderTemplate('credentials_focus', credentialHeavyRenderDocument)
 
     expect(html).toContain('header-executive-credentials')
+    expect(html).toContain('Formal Proof')
     expect(html).toContain('section-credential-spotlight')
     expect(html).toContain('section-credential-spotlight-surface')
 
@@ -379,7 +382,7 @@ describe('job finder resume renderer', () => {
     )
   })
 
-  test('counts bullet-only credential content in longform career snapshot', () => {
+  test('keeps credential content out of the longform career snapshot counts', () => {
     const bulletOnlyCredentialsDocument: ResumeRenderDocument = {
       ...credentialHeavyRenderDocument,
       sections: credentialHeavyRenderDocument.sections.map((section) =>
@@ -393,7 +396,8 @@ describe('job finder resume renderer', () => {
     const html = renderTemplate('timeline_longform', bulletOnlyCredentialsDocument)
 
     expect(html).toContain('<h3>Career Snapshot</h3>')
-    expect(html).toContain('<strong>2</strong><span>Credentials</span>')
+    expect(html).not.toContain('Proof item')
+    expect(html).not.toContain('Proof items')
   })
 
   test('keeps work-history review guidance out of rendered resume HTML', () => {

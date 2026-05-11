@@ -123,6 +123,7 @@ describe("buildResumeRenderDocument", () => {
     expect(experience?.startDate).toMatch(/^\d{4}-\d{2}$/);
     expect(experience?.endDate).toBeNull();
     expect(experience?.isCurrent).toBe(true);
+    expect(draft.targetPageCount).toBe(1);
   });
 
   test("seedResumeDraft normalizes imported profile experience to newest-first chronology", () => {
@@ -627,9 +628,9 @@ describe("buildResumeRenderDocument", () => {
       { field: "email", text: "apply@example.com" },
       { field: "phone", text: "+44 7700 900123" },
       { field: "portfolioUrl", text: "https://alex.example.com" },
-      { field: "linkedinUrl", text: "https://www.linkedin.com/in/alex-vanguard" },
-      { field: "githubUrl", text: "https://github.com/alex-vanguard" },
       { field: "personalWebsiteUrl", text: "https://alex.dev" },
+      { field: "githubUrl", text: "https://github.com/alex-vanguard" },
+      { field: "linkedinUrl", text: "https://www.linkedin.com/in/alex-vanguard" },
       { field: "additionalLinks", text: "https://alex.example.com/case-study" },
     ]);
     expect(project).toEqual({
