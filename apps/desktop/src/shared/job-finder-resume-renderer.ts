@@ -394,7 +394,7 @@ function renderStructuredSection(input: {
                   targetId: getResumeEntryFieldTargetId(input.sectionId, entry.id, 'summary'),
                 }),
               })}>${escapeHtml(entry.summary)}</p>` : ''}
-              ${entry.bullets.length > 0 ? `<ul>${entry.bullets.map((bullet) => `<li${renderPreviewAttributes({
+              ${entry.bullets.length > 0 ? `<ul class="resume-bullet-list">${entry.bullets.map((bullet) => `<li${renderPreviewAttributes({
                 ...withPreviewSelection({
                   mode: input.mode ?? 'export',
                   sectionId: input.sectionId ?? null,
@@ -409,7 +409,7 @@ function renderStructuredSection(input: {
           `,
         )
         .join('')}
-      ${bullets.length > 0 ? `<ul>${bullets.map((bullet) => `<li${renderPreviewAttributes({
+      ${bullets.length > 0 ? `<ul class="resume-bullet-list">${bullets.map((bullet) => `<li${renderPreviewAttributes({
         ...withPreviewSelection({
           mode: input.mode ?? 'export',
           sectionId: input.sectionId ?? null,
@@ -1304,6 +1304,9 @@ export function renderResumeTemplateHtml(input: {
     p, li { font-size: 0.89rem; line-height: 1.35; }
     ul { padding-left: 1.08rem; display: grid; gap: 0.12rem; }
     li { padding-left: 0.03rem; }
+    .resume-bullet-list { list-style: none; padding-left: 0.62rem; }
+    .resume-bullet-list li { display: grid; grid-template-columns: 0.42rem 1fr; column-gap: 0.18rem; padding-left: 0; }
+    .resume-bullet-list li::before { content: '•'; color: var(--ink); }
     .header { display: grid; gap: 0.16rem; padding-bottom: 0.42rem; border-bottom: 1px solid var(--line); }
     .header-classic { justify-items: center; text-align: center; }
     .header-swiss-accent { justify-items: start; text-align: left; border-bottom: 2px solid var(--accent); gap: 0.22rem; }
