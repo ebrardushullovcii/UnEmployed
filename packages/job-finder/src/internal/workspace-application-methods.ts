@@ -1232,11 +1232,11 @@ export function createWorkspaceApplicationMethods(
           ...(renderedArtifact.warnings ?? []),
           ...(renderedArtifact.pageCount !== null &&
           renderedArtifact.pageCount !== undefined &&
-          renderedArtifact.pageCount > 2
+          renderedArtifact.pageCount > sanitizedResumeDraft.targetPageCount
             ? [
                 renderedArtifact.pageCount >= 3
                   ? "Resume export reached 3 or more pages and needs review before apply."
-                  : "Resume export exceeded the 2-page target and should be reviewed.",
+                  : `Resume export exceeded the ${sanitizedResumeDraft.targetPageCount}-page target and should be reviewed.`,
               ]
             : []),
         ]),

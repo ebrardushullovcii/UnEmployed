@@ -84,20 +84,20 @@ const resumeTemplates = [
   },
   {
     id: 'credentials_focus',
-    label: 'Credential Ledger',
+    label: 'Formal Proof',
     familyId: 'credential_ledger',
-    familyLabel: 'Credential Ledger',
+    familyLabel: 'Formal Proof',
     familyDescription:
       'Trust-first layouts that pull certifications, education, and formal proof forward without using tables or columns.',
-    variantLabel: 'Credentials First',
+    variantLabel: 'Certs & Education',
     description:
-      'Credentials-first structure that opens with formal trust signals, then summary, skills, chronology, and project proof.',
+      'Formal-proof structure that opens with certifications and education, then summary, skills, chronology, and project proof.',
     fitSummary:
       'Stronger when credentials, certifications, or formal education materially change recruiter trust or screening outcomes.',
     avoidSummary:
       'Less effective if credentials are thin and your strongest evidence is shipped work or technical systems depth.',
     bestFor: ['Regulated industries', 'Certification-heavy roles', 'Academic backgrounds'],
-    visualTags: ['Credentials first', 'Centered header', 'Balanced'],
+    visualTags: ['Formal proof first', 'Centered header', 'Balanced'],
     density: 'balanced',
     deliveryLane: 'apply_safe',
     atsConfidence: 'high',

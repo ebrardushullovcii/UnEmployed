@@ -734,7 +734,7 @@ export function validateResumeDraft(input: {
       message:
         input.pageCount >= 3
           ? "The exported resume reached 3 or more pages and needs manual review."
-          : "The exported resume exceeded the 2-page target.",
+          : `The exported resume exceeded the ${input.draft.targetPageCount}-page target.`,
     });
   }
 

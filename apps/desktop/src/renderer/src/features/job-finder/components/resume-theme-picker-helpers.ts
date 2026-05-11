@@ -189,7 +189,7 @@ export function buildResumeThemePickerRecommendations(input: {
         ) {
           score = 4;
           reason =
-            "Credential signal matters here, so moving certifications and education higher can improve trust quickly.";
+            "Formal proof matters here, so moving certifications and education higher can improve trust quickly.";
         }
         break;
       case "compact_exec":

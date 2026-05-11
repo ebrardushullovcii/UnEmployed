@@ -752,7 +752,7 @@ function renderExecutiveHeader(
   const contactValues = buildHeaderIdentityValues(renderDocument)
 
   return `<header class="header header-executive${variant === 'credentials' ? ' header-executive-credentials' : ''}">
-      <p class="eyebrow">${variant === 'credentials' ? 'Credential Ledger' : 'Senior Brief'}</p>
+      <p class="eyebrow">${variant === 'credentials' ? 'Formal Proof' : 'Senior Brief'}</p>
       <div class="identity-block identity-block-tight">
         ${renderIdentityFieldTag({ mode, field: 'fullName', tagName: 'h1', className: 'name', text: renderDocument.fullName })}
         ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: 'headline', tagName: 'p', className: 'headline headline-executive', text: renderDocument.headline }) : ''}
@@ -825,31 +825,26 @@ function countSectionBullets(section: RenderSection | null): number {
   return section?.bullets.length ?? 0
 }
 
-function countSectionItems(section: RenderSection | null): number {
-  return countSectionEntries(section) + countSectionBullets(section)
-}
-
 function renderCareerSnapshotSection(context: TemplateRenderContext): string {
+  const formatSnapshotLabel = (singular: string, plural: string, value: number) =>
+    value === 1 ? singular : plural
   const snapshotValues = [
     {
-      label: 'Roles',
       value: countSectionEntries(context.catalog.experienceSection),
+      singularLabel: 'Role',
+      pluralLabel: 'Roles',
     },
     {
-      label: 'Projects',
       value: countSectionEntries(context.catalog.projectSection),
+      singularLabel: 'Project',
+      pluralLabel: 'Projects',
     },
     {
-      label: 'Skill signals',
       value:
         countSectionBullets(context.catalog.coreSkillsSection) +
         countSectionBullets(context.catalog.additionalSkillsSection),
-    },
-    {
-      label: 'Credentials',
-      value:
-        countSectionItems(context.catalog.certificationSection) +
-        countSectionItems(context.catalog.educationSection),
+      singularLabel: 'Skill signal',
+      pluralLabel: 'Skill signals',
     },
   ].filter((item) => item.value > 0)
 
@@ -861,7 +856,7 @@ function renderCareerSnapshotSection(context: TemplateRenderContext): string {
     <section class="section-block career-snapshot">
       <h3>Career Snapshot</h3>
       <ul class="snapshot-list">
-        ${snapshotValues.map((item) => `<li><strong>${escapeHtml(String(item.value))}</strong><span>${escapeHtml(item.label)}</span></li>`).join('')}
+        ${snapshotValues.map((item) => `<li><strong>${escapeHtml(String(item.value))}</strong><span>${escapeHtml(formatSnapshotLabel(item.singularLabel, item.pluralLabel, item.value))}</span></li>`).join('')}
       </ul>
     </section>
   `
@@ -1305,9 +1300,10 @@ export function renderResumeTemplateHtml(input: {
     .identity-block { display: grid; gap: 0.12rem; }
     .identity-block-tight { gap: 0.08rem; }
     h3 { font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.02em; color: var(--ink); border-bottom: 1px solid var(--line); padding-bottom: 0.08rem; margin-bottom: 0.28rem; }
-    h4 { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.12rem 0.8rem; font-size: 0.92rem; line-height: 1.32; font-weight: 700; }
+    h4 { display: grid; grid-template-columns: minmax(0, 1fr) max-content; align-items: baseline; gap: 0.12rem 0.8rem; font-size: 0.92rem; line-height: 1.32; font-weight: 700; }
     p, li { font-size: 0.89rem; line-height: 1.35; }
-    ul { padding-left: 1rem; display: grid; gap: 0.12rem; }
+    ul { padding-left: 1.08rem; display: grid; gap: 0.12rem; }
+    li { padding-left: 0.03rem; }
     .header { display: grid; gap: 0.16rem; padding-bottom: 0.42rem; border-bottom: 1px solid var(--line); }
     .header-classic { justify-items: center; text-align: center; }
     .header-swiss-accent { justify-items: start; text-align: left; border-bottom: 2px solid var(--accent); gap: 0.22rem; }
@@ -1366,6 +1362,7 @@ export function renderResumeTemplateHtml(input: {
     .section-portfolio-highlight { background: color-mix(in srgb, var(--surface) 84%, var(--resume-paper)); }
     .section-portfolio-narrative { border-style: dashed; }
     .section-spec-shell { background: color-mix(in srgb, var(--surface) 82%, var(--resume-paper)); }
+    .section-technical-matrix.section-spec-shell { border: 1px solid var(--line); border-radius: 0.14in; padding: 0.14in 0.16in; }
     .section-longform-summary { border-left: 0.08in solid color-mix(in srgb, var(--accent) 28%, var(--resume-paper)); }
     .section-longform-skills .inline-lines { gap: 0.06rem; }
     .section-longform-skills .inline-lines p { font-size: 0.79rem; line-height: 1.24; }
@@ -1381,7 +1378,7 @@ export function renderResumeTemplateHtml(input: {
     .snapshot-list span { color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
     .entry-block { display: grid; gap: 0.18rem; margin-top: 0.24rem; break-inside: avoid; page-break-inside: avoid; }
     .entry-primary { min-width: 0; }
-    .entry-meta { color: var(--muted); font-size: 0.84rem; font-weight: 500; }
+    .entry-meta { color: var(--muted); font-size: 0.84rem; font-weight: 500; justify-self: end; white-space: nowrap; }
     .inline-lines { display: grid; gap: 0.1rem; }
     .inline-lines p { line-height: 1.32; }
     .inline-lines strong { color: var(--ink); font-weight: 700; }
