@@ -72,6 +72,102 @@ _Avoid_: board-specific screenshot rule, visual shortcut
 A bounded screenshot and structured visual observation captured during safe apply to explain form state, blockers, validation, upload controls, or recovery needs.
 _Avoid_: continuous apply recording, visual auto-submit
 
+**Screen-share-private overlay**:
+An Interview Helper window that uses supported platform capture protection to keep app-owned live assistance surfaces out of ordinary screen sharing when authorized.
+_Avoid_: stealth overlay, proctoring bypass, capture evasion
+
+**Authorized capture-protection extension**:
+A product goal for future OS, meeting-platform, enterprise, or company-approved mechanisms that fully exclude Interview Helper live overlays from authorized capture surfaces with consent from the relevant parties.
+_Avoid_: unauthorized hiding, security bypass, proctoring evasion
+
+**Interview live session**:
+A user-started Interview Helper session where listening, transcript context, captures, overlays, and model suggestions are active under explicit user control.
+_Avoid_: background listening, ambient interview mode
+
+**Session audio**:
+The microphone and meeting/system audio captured during an Interview live session for transcription and suggestion context.
+_Avoid_: user audio only, hidden recording
+
+**Live-session setup gate**:
+The pre-session consent step where the user enables interview capture capabilities before Interview Helper can listen, capture, send, or retain live-session context.
+_Avoid_: blanket consent, hidden permission
+
+**Interview cue trigger**:
+The event that turns live transcript or screenshot context into a model request for an Interview Helper suggestion.
+_Avoid_: send everything, passive model stream
+
+**Cue visual batch**:
+The temporary set of screenshots collected for the next Interview cue trigger.
+_Avoid_: last screenshot only, permanent screen archive
+
+**Live answer overlay**:
+The semi-transparent Interview Helper surface that shows model-generated suggestions during an Interview live session.
+_Avoid_: main panel, transcript window
+
+**Live transcript overlay**:
+The semi-transparent Interview Helper surface that shows session transcript and queued visual context during an Interview live session.
+_Avoid_: answer window, raw recorder
+
+**Interview cue card**:
+A concise model suggestion optimized for quick live reading during an Interview live session.
+_Avoid_: full chat answer, essay response
+
+**Interview target context**:
+The confirmed job, application, resume, profile, notes, and prep material used to ground Interview Helper suggestions.
+_Avoid_: all app history, ungrounded session
+
+**Live-session history**:
+The retained structured record of an Interview live session after it ends.
+_Avoid_: raw recording archive, full capture dump
+
+**Live-session hotkey action**:
+A user-configurable global shortcut action scoped to an active Interview live session.
+_Avoid_: hardcoded shortcut, background command
+
+**Interview model role**:
+A narrow AI provider role used by Interview Helper for live transcription, cue-card generation, or screenshot interpretation.
+_Avoid_: shared generic model setting, one multimodal bucket
+
+**Live transcript segment**:
+A partial or final transcript unit with an audio-source label from an Interview live session.
+_Avoid_: raw text blob, unlabeled transcript
+
+**Coding interview cue**:
+An Interview cue card that helps the user reason about a visible coding prompt or code context without automating another app.
+_Avoid_: editor automation, external code control
+
+**Overlay interaction mode**:
+The temporary state where Interview Helper overlays accept normal user interaction for moving, resizing, copying, pinning, or expanding live-session content.
+_Avoid_: always-focusable overlay, focus-stealing assistant
+
+**Overlay layout preference**:
+The saved display placement, size, opacity, interaction, and capture-protection preference for Interview Helper overlays.
+_Avoid_: session transcript state, cue history
+
+**Live-session diagnostic**:
+A local structured troubleshooting event for Interview Helper capability status, latency, errors, hotkeys, or capture-protection support.
+_Avoid_: raw audio log, screenshot dump, provider payload archive
+
+**Interview setup workspace**:
+The Interview Helper workspace where the user confirms target context, capture capabilities, providers, hotkeys, and overlay preview before starting a live session.
+_Avoid_: tray-only start, implicit session start
+
+**Interview prep artifact**:
+A pre-session note, likely question, job theme, or resume story bullet used to ground Interview Helper during a live session.
+_Avoid_: mock interview suite, live transcript
+
+**Post-session review**:
+The Interview Helper review surface for retained live-session transcript, cue cards, pinned screenshots, diagnostics summary, and follow-up notes.
+_Avoid_: automatic profile update, raw session dump
+
+**Rolling cue context**:
+The bounded model context for an Interview cue trigger, combining recent transcript, active screenshots, target context, relevant prep artifacts, and a compact session summary.
+_Avoid_: full transcript resend, contextless latest line
+
+**Live-session rehearsal checklist**:
+The pre-flight setup check that verifies capture, model, hotkey, overlay, and screenshot readiness before an Interview live session.
+_Avoid_: hidden readiness, launch-and-hope setup
+
 ## Relationships
 
 - A **Resume coverage policy** uses **Career-family fit** to decide whether a work-history record is omitted, compact, or detailed.
@@ -120,6 +216,63 @@ _Avoid_: continuous apply recording, visual auto-submit
 - **Apply visual checkpoint** screenshots are temporary by default and should be persisted only as selected evidence for paused/failed recovery, user review, or explicit debug/benchmark retention.
 - **Apply visual checkpoint** observations supplement DOM-derived field snapshots but must not silently override them.
 - Pro may normalize **Apply visual checkpoint** observations into recovery summaries or question context, but apply workflow code owns browser actions and gates.
+- A **Screen-share-private overlay** is best-effort and platform-dependent; capture policy belongs behind OS integration adapters rather than Interview Helper session logic.
+- A **Screen-share-private overlay** must not be treated as a proctoring, anti-cheat, meeting-security, or unauthorized capture-control bypass.
+- **Screen-share-private overlay** architecture should remain open to **Authorized capture-protection extensions** so future approved integrations can provide stronger capture exclusion without rewriting Interview Helper session logic.
+- **Authorized capture-protection extensions** must be explicit adapter capabilities, not hidden assumptions embedded in overlay UI, transcript state, model prompting, or session orchestration.
+- **Authorized capture-protection extensions** are a product goal for Interview Helper, not incidental polish; the architecture should avoid decisions that would make future approved full capture exclusion difficult.
+- **Authorized capture-protection extensions** require the relevant user, app, company, platform, or meeting-system approvals before implementation or activation.
+- An **Interview live session** starts only from an explicit user action and owns the active boundaries for audio capture, screenshots, hotkeys, transcript context, and suggestions.
+- Interview Helper hotkeys should operate inside an **Interview live session** rather than enabling unbounded background capture.
+- **Session audio** includes both the candidate microphone and meeting/system audio from the first Interview Helper implementation.
+- **Session audio** capture is active only inside an **Interview live session**.
+- A **Live-session setup gate** should separately disclose microphone capture, meeting/system audio capture, screenshots, model transmission, and local retention before the first **Interview live session**.
+- An **Interview live session** should show visible capture status while **Session audio** or screenshot capture is active.
+- An **Interview cue trigger** can be automatic question detection or an explicit user hotkey.
+- Continuous **Session audio** transcription alone is not an **Interview cue trigger** unless question detection or a user hotkey selects that context for the model.
+- A **Cue visual batch** may contain multiple screenshots and should be sent together with the next **Interview cue trigger**.
+- Adding a screenshot to a **Cue visual batch** does not replace earlier screenshots in that batch.
+- A **Cue visual batch** is temporary unless the user explicitly chooses to retain or pin it.
+- The first Interview Helper live experience has two overlay surfaces: a **Live answer overlay** and a **Live transcript overlay**.
+- A **Live answer overlay** and **Live transcript overlay** consume the same **Interview live session** state but can be shown, hidden, or positioned independently.
+- A **Live answer overlay** should present **Interview cue card** responses by default, with optional expansion when the user has time.
+- An **Interview cue card** should favor a direct answer outline, a small number of supporting points, and natural spoken phrasing over long-form prose.
+- An **Interview live session** should use a confirmed **Interview target context** before generating grounded **Interview cue card** responses.
+- **Interview target context** should be selected or confirmed by the user rather than implicitly pulling every available app record into a live session.
+- **Live-session history** should include transcript text, cue cards, timestamps, and user-pinned screenshots by default.
+- Raw **Session audio** and unpinned **Cue visual batch** screenshots should not become **Live-session history** by default.
+- **Live-session hotkey actions** should be defined by session behavior first, with platform-specific accelerator defaults assigned behind OS integration.
+- Core **Live-session hotkey actions** should include listening toggle, force cue, screenshot capture, answer overlay toggle, transcript overlay toggle, and panic-hide.
+- Interview Helper live-session capture, hotkeys, overlays, and capture protection should be designed for Windows, macOS, and Linux rather than treating non-Windows behavior as out of scope.
+- Interview Helper should use separate **Interview model roles** for speech-to-text, cue-card chat, and screenshot vision.
+- **Interview model roles** may fall back to shared AI provider settings, but their product contracts should stay narrow and live-session-specific.
+- **Session audio** should become **Live transcript segments** that distinguish partial text from final text when the provider exposes that state.
+- Automatic **Interview cue triggers** should prefer final or recently stable **Live transcript segments** over unstable partial text.
+- Automatic **Interview cue triggers** should start from conservative detection of interviewer questions, task prompts, and behavioral prompts in meeting/system-audio **Live transcript segments**.
+- Candidate microphone **Live transcript segments** should not create automatic **Interview cue triggers** by default; the user can force a cue with a hotkey.
+- When one prompt contains multiple questions, Interview Helper should generate one **Interview cue card** that enumerates the questions rather than flooding the overlay.
+- A **Coding interview cue** can summarize a visible problem, identify constraints, suggest clarifying questions, outline an approach, and flag edge cases.
+- A **Coding interview cue** should not operate another editor, browser, meeting tool, or coding platform on the user's behalf.
+- An **Interview cue card** should show the live inputs it used, such as transcript window, **Interview target context**, and **Cue visual batch** count.
+- An **Interview cue card** should prefer clarifying-question guidance over invented specifics when grounding is weak.
+- **Live answer overlay** and **Live transcript overlay** surfaces should be click-through by default except for their top bars.
+- **Overlay interaction mode** should be controlled by a **Live-session hotkey action** and should allow moving, resizing, copying, pinning screenshots, and expanding cue cards.
+- Panic-hide should remain available even when **Overlay interaction mode** is off.
+- **Overlay layout preferences** should be retained separately from **Live-session history**.
+- **Overlay layout preferences** should support reset without deleting transcripts, cue cards, or retained session history.
+- **Interview live session** failures should degrade visibly by capability rather than silently omitting missing audio, screenshot, model, or capture-protection context.
+- An **Interview cue card** should not claim to use **Session audio**, **Interview target context**, or **Cue visual batch** inputs that were unavailable or failed.
+- **Live-session diagnostics** should not include raw **Session audio** or unpinned **Cue visual batch** screenshots by default.
+- **Live-session diagnostics** should redact transcript snippets unless the user explicitly exports a support bundle.
+- An **Interview setup workspace** is the primary start path for an **Interview live session**.
+- Job Finder application records may deep-link into the **Interview setup workspace** with a suggested **Interview target context**.
+- **Interview prep artifacts** belong in the **Interview setup workspace** and can become part of **Interview target context**.
+- The initial Interview Helper expansion should include lightweight **Interview prep artifacts** rather than a full mock-interview and scoring suite.
+- A **Post-session review** should allow deleting a session, exporting notes, and turning useful cue-card content into **Interview prep artifacts**.
+- A **Post-session review** should not automatically write live-session content into the candidate profile, resume, or application records.
+- **Rolling cue context** should be used once an **Interview live session** becomes too long to send all retained transcript text efficiently.
+- **Rolling cue context** should include the active **Cue visual batch** and relevant **Interview target context** without resending unrelated app history.
+- A **Live-session rehearsal checklist** should verify microphone audio, meeting/system audio, **Interview model roles**, hotkey registration, overlay visibility, screen-share-private capture protection, and screenshot capture before the session starts.
 
 ## Example Dialogue
 
