@@ -3,6 +3,7 @@ import {
   desktopCapturer,
   nativeImage,
   screen,
+  type Display,
   type Rectangle,
 } from 'electron'
 import path from 'node:path'
@@ -16,6 +17,11 @@ import type {
 import { getInterviewHelperService } from '../services/interview-helper'
 
 type InterviewOverlayKind = 'answer' | 'transcript'
+type InterviewDisplayChangeReason =
+  | 'display_added'
+  | 'display_removed'
+  | 'display_metrics_changed'
+  | 'manual_revalidation'
 
 interface InterviewOverlayWindowEntry {
   readonly kind: InterviewOverlayKind
@@ -29,6 +35,9 @@ let overlayEntries: InterviewOverlayWindowEntry[] = []
 let applyingSnapshot = false
 let overlayLayoutPersistenceChain = Promise.resolve<InterviewWorkspaceSnapshot | null>(null)
 const overlayLayoutTimers = new WeakMap<BrowserWindow, NodeJS.Timeout>()
+let displayRevalidationTimer: NodeJS.Timeout | null = null
+let displayRevalidationChain = Promise.resolve<InterviewWorkspaceSnapshot | null>(null)
+let displayRevalidationListenersRegistered = false
 
 function toSurfaceKind(kind: InterviewOverlayKind): InterviewProtectedSurfaceKind {
   return kind === 'answer' ? 'live_answer_overlay' : 'live_transcript_overlay'
@@ -203,6 +212,7 @@ function applyOverlaySnapshot(
 
 export function initializeInterviewOverlayWindows(currentDir: string) {
   currentDirForOverlays = currentDir
+  registerDisplayChangeRevalidation()
 }
 
 export function syncInterviewOverlayWindows(snapshot: InterviewWorkspaceSnapshot) {
@@ -241,6 +251,117 @@ export function resyncInterviewOverlayWindows() {
   if (lastSnapshot) {
     syncInterviewOverlayWindows(lastSnapshot)
   }
+}
+
+function hasActiveOverlaySession() {
+  const session = lastSnapshot?.activeSession
+  return Boolean(
+    session &&
+      session.status !== 'ended' &&
+      session.status !== 'interrupted' &&
+      overlayEntries.some((entry) => !entry.window.isDestroyed()),
+  )
+}
+
+function summarizeUnknownError(error: unknown) {
+  return error instanceof Error && error.message.trim().length > 0
+    ? error.message.trim()
+    : 'Unknown display revalidation failure'
+}
+
+function describeDisplayChange(
+  reason: InterviewDisplayChangeReason,
+  display: Display | null,
+  changedMetrics: readonly string[] = [],
+) {
+  const displayLabel = display ? `display ${display.id}` : 'display topology'
+  const metrics = changedMetrics.length > 0 ? ` (${changedMetrics.join(', ')})` : ''
+  return `${displayLabel} changed${metrics}; overlay protection evidence is being revalidated.`
+}
+
+export async function revalidateInterviewOverlayProtectionAfterDisplayChange(input: {
+  reason: InterviewDisplayChangeReason
+  detail?: string | null
+}) {
+  if (!hasActiveOverlaySession()) {
+    return lastSnapshot
+  }
+
+  const service = await getInterviewHelperService()
+  const marked = await service.recordDisplayChange(
+    input.detail === undefined
+      ? { reason: input.reason }
+      : {
+          reason: input.reason,
+          detail: input.detail,
+        },
+  )
+  syncInterviewOverlayWindows(marked)
+
+  try {
+    const protectedSurfaces = await verifyInterviewOverlayCaptureProtection()
+    const verified = await service.recordProtectedSurfaceVerification({
+      protectedSurfaces,
+    })
+    syncInterviewOverlayWindows(verified)
+    return verified
+  } catch (error) {
+    const failed = await service.recordDisplayChange({
+      reason: input.reason,
+      detail: `${input.detail ?? 'Display topology changed.'} Revalidation failed: ${summarizeUnknownError(error)}`,
+    })
+    syncInterviewOverlayWindows(failed)
+    return failed
+  }
+}
+
+function scheduleDisplayChangeRevalidation(input: {
+  reason: InterviewDisplayChangeReason
+  detail: string
+}) {
+  if (displayRevalidationTimer) {
+    clearTimeout(displayRevalidationTimer)
+  }
+
+  displayRevalidationTimer = setTimeout(() => {
+    displayRevalidationChain = displayRevalidationChain
+      .then(() =>
+        revalidateInterviewOverlayProtectionAfterDisplayChange({
+          reason: input.reason,
+          detail: input.detail,
+        }),
+      )
+      .catch((error: unknown) => {
+        console.warn('[InterviewHelper] Failed to revalidate overlay protection after display change.', error)
+        return lastSnapshot
+      })
+  }, 500)
+}
+
+function registerDisplayChangeRevalidation() {
+  if (displayRevalidationListenersRegistered) {
+    return
+  }
+
+  displayRevalidationListenersRegistered = true
+  screen.on('display-added', (_event, display) => {
+    scheduleDisplayChangeRevalidation({
+      reason: 'display_added',
+      detail: describeDisplayChange('display_added', display),
+    })
+  })
+  screen.on('display-removed', (_event, display) => {
+    scheduleDisplayChangeRevalidation({
+      reason: 'display_removed',
+      detail: describeDisplayChange('display_removed', display),
+    })
+  })
+  screen.on('display-metrics-changed', (_event, display, changedMetrics) => {
+    scheduleDisplayChangeRevalidation({
+      reason: 'display_metrics_changed',
+      detail: describeDisplayChange('display_metrics_changed', display, changedMetrics),
+    })
+  })
 }
 
 function getPixel(bitmap: Buffer, width: number, x: number, y: number) {

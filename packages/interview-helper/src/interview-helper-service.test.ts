@@ -459,6 +459,49 @@ describe("interview helper service", () => {
     );
   });
 
+  test("marks overlay protection stale when display topology changes", async () => {
+    const service = createService();
+
+    await acceptSetup(service);
+    await service.runRehearsal();
+    await service.startSession();
+    await service.recordProtectedSurfaceVerification({
+      protectedSurfaces: [
+        {
+          id: "live_answer_overlay_interview-answer-overlay",
+          kind: "live_answer_overlay",
+          requestedPolicy: "screen_share_private",
+          protectionState: "verified_protected",
+          verificationMethod:
+            "electron-desktopCapturer-screen-thumbnail-vs-overlay-window-pixels",
+          displayLabel: "Screen 1",
+          detail: "Verified before display change.",
+          lastVerifiedAt: "2026-05-13T05:00:00.000Z",
+        },
+      ],
+    });
+
+    const updated = await service.recordDisplayChange({
+      reason: "display_metrics_changed",
+      detail: "Primary display bounds changed.",
+    });
+    const surface = updated.activeSession?.protectedSurfaces.find(
+      (entry) => entry.kind === "live_answer_overlay",
+    );
+
+    expect(surface).toMatchObject({
+      protectionState: "requested_unverified",
+      verificationMethod: "display-change-revalidation-required",
+      detail: "Primary display bounds changed.",
+      lastVerifiedAt: null,
+    });
+    expect(updated.activeSession?.diagnostics.at(-1)).toMatchObject({
+      kind: "display",
+      severity: "warning",
+      label: "Display change requires overlay revalidation",
+    });
+  });
+
   test("persists overlay layout preferences independently of session history", async () => {
     const service = createService();
 

@@ -35,6 +35,7 @@ import {
   InterviewOverlayPreferenceSchema,
   InterviewOverlaySnapshotSchema,
   InterviewPrepArtifactSchema,
+  InterviewProtectedSurfaceSchema,
   InterviewProtectedSurfaceVerificationInputSchema,
   InterviewRehearsalChecklistSchema,
   InterviewSetupStateSchema,
@@ -169,6 +170,14 @@ export interface InterviewHelperService {
   recordProtectedSurfaceVerification(
     input: InterviewProtectedSurfaceVerificationInput,
   ): Promise<InterviewWorkspaceSnapshot>;
+  recordDisplayChange(input: {
+    reason:
+      | "display_added"
+      | "display_removed"
+      | "display_metrics_changed"
+      | "manual_revalidation";
+    detail?: string | null;
+  }): Promise<InterviewWorkspaceSnapshot>;
   transcribeAudioChunk(
     input: InterviewAudioTranscriptionInput,
   ): Promise<InterviewWorkspaceSnapshot>;
@@ -1497,6 +1506,45 @@ export function createInterviewHelperService(
                 : "warning",
             label: "Overlay capture protection verified",
             detail: `${verifiedCount}/${input.protectedSurfaces.length} protected overlay surfaces passed ordinary Electron screen-capture verification.`,
+            occurredAt: currentNow,
+          }),
+        ],
+      });
+      const nextSnapshot = await rebuildWorkspace({ activeSession: nextSession });
+      return saveSnapshot(nextSnapshot);
+    },
+    async recordDisplayChange(input) {
+      const current = await loadSnapshot();
+      const activeSession = current.activeSession;
+      const currentNow = now();
+
+      if (!activeSession) {
+        return current;
+      }
+
+      const detail =
+        input.detail ??
+        "Display topology changed; ordinary Electron capture-protection verification must be refreshed.";
+      const staleSurfaces = activeSession.protectedSurfaces.map((surface) =>
+        InterviewProtectedSurfaceSchema.parse({
+          ...surface,
+          protectionState: "requested_unverified",
+          verificationMethod: "display-change-revalidation-required",
+          detail,
+          lastVerifiedAt: null,
+        }),
+      );
+      const nextSession = InterviewLiveSessionSchema.parse({
+        ...activeSession,
+        protectedSurfaces: staleSurfaces,
+        diagnostics: [
+          ...activeSession.diagnostics,
+          createDiagnostic({
+            sessionId: activeSession.id,
+            kind: "display",
+            severity: "warning",
+            label: "Display change requires overlay revalidation",
+            detail: `${input.reason}: ${detail}`,
             occurredAt: currentNow,
           }),
         ],

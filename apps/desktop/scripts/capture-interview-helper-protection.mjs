@@ -52,6 +52,19 @@ async function waitForOverlayWindows(app) {
   throw new Error('Timed out waiting for two Interview Helper overlay windows.')
 }
 
+async function waitForWorkspaceState(window, predicate, description) {
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < 10000) {
+    const workspace = await window.evaluate(() => window.unemployed.interviewHelper.getWorkspace())
+    if (predicate(workspace)) {
+      return workspace
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150))
+  }
+
+  throw new Error(`Timed out waiting for ${description}.`)
+}
+
 async function acceptAndStartSession(window) {
   await window.getByRole('button', { name: /Accept setup/i }).click()
   await window.getByRole('button', { name: /Run rehearsal/i }).click()
@@ -284,6 +297,33 @@ async function runCaptureProtection() {
     ])
 
     await writeBase64Png('desktop-capture.png', analysis.source.pngBase64)
+    await app.evaluate(({ screen }) => {
+      const display = screen.getPrimaryDisplay()
+      screen.emit('display-metrics-changed', {}, display, ['bounds'])
+    })
+    const displayRevalidationWorkspace = await waitForWorkspaceState(
+      window,
+      (workspace) =>
+        Boolean(
+          workspace.activeSession?.diagnostics.some(
+            (diagnostic) =>
+              diagnostic.kind === 'display' &&
+              diagnostic.label === 'Display change requires overlay revalidation',
+          ),
+        ) &&
+        Boolean(
+          workspace.activeSession?.diagnostics.some(
+            (diagnostic) =>
+              diagnostic.kind === 'capture_protection' &&
+              diagnostic.label === 'Overlay capture protection verified',
+          ),
+        ),
+      'display-change overlay protection revalidation',
+    )
+    const displayChangeRevalidationOk =
+      displayRevalidationWorkspace.activeSession?.protectedSurfaces.every(
+        (surface) => surface.protectionState !== 'requested_unverified',
+      ) ?? false
     const resetWorkspace = await window.evaluate(() =>
       window.unemployed.interviewHelper.resetOverlayPreferences(),
     )
@@ -301,6 +341,7 @@ async function runCaptureProtection() {
       placedOverlays,
       persistedOverlayLayouts,
       overlayLayoutPersistenceOk,
+      displayChangeRevalidationOk,
       resetOverlayLayoutOk,
       ...analysis,
       source: {
