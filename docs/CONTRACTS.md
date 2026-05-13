@@ -20,6 +20,7 @@ Use this for cross-package contract rules and workflow semantics. Put field-leve
 - source-debug runs, evidence refs, and learned instruction artifacts
 - compaction policy and lightweight compaction snapshots for long-running agent work
 - browser visual snapshot requests/refs, observation sets, reconciliations, evidence summaries, source-debug visual findings, and apply visual checkpoints
+- Interview Helper setup state, target-context snapshots, rehearsal checklists, protected overlay surfaces, transcript segments, cue visual batches, cue cards, diagnostics, overlay snapshots, live sessions, export payloads, and semantic session actions
 
 ## Current Shared Semantics
 
@@ -30,6 +31,9 @@ Use this for cross-package contract rules and workflow semantics. Put field-leve
 - persist structured artifacts and summaries, not raw hidden worker transcripts
 - browser visual output is evidence-only and schema validation rejects selectors, browser-action directives, saved-job directives, generated answers, final-submit guidance, and site-specific workflow rules
 - application-page visual capture requires explicit apply-run/action opt-in (`visualCheckpointsEnabled` defaults false); browser-runtime must not infer screenshot capture from an ambient visual-capable AI client
+- Interview Helper cue generation consumes bounded source-labeled transcript windows, target-context snapshots, selected prep artifacts, compact summary state, and active visual observations. It must not resend raw full transcripts or persist raw audio, raw provider payloads, raw prompts, or unpinned screenshots by default.
+- Interview Helper protected overlay state uses explicit states such as `verified_protected`, `requested_unverified`, `best_effort`, `unsupported`, `failed`, and `unknown`; product code must not collapse these into a boolean or label requested protection as verified protection.
+- Interview Helper renderer/preload calls use narrow semantic actions (`toggle_listening`, `force_cue`, `capture_screenshot`, `capture_screenshot_and_force_cue`, overlay toggles, `panic_hide`, `end_session`) instead of exposing Electron or Node primitives.
 
 ## Validation Expectations
 

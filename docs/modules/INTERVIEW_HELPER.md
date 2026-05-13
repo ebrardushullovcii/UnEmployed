@@ -2,22 +2,38 @@
 
 ## Purpose
 
-Currently provides overlay UI types and helpers for interview session visualization.
-
-Will own interview prep, live session state, transcript context, capture state, and suggestion generation once the full session module is implemented.
+Owns the Interview Helper live-session workflow: setup, rehearsal, target-context snapshotting, transcript-first cue context, visual cue augmentation, overlay view models, session retention, post-session review, prep artifact conversion, export, and hard-delete behavior.
 
 ## Current State
 
-- overlay UI types/helpers exist; full session state is planned, not active focus
-- active runtime integration is limited to overlay-facing helpers and `packages/os-integration`
+- `packages/contracts` defines Interview Helper setup, rehearsal, capability, protected surface, transcript, cue-card, visual batch, overlay, session, export, and IPC payload schemas.
+- `packages/interview-helper` hosts the deterministic session state machine and retention policy behind adapter interfaces for audio capture, screenshots, protected overlays, cue cards, vision, transcription, and summaries.
+- `apps/desktop` hosts the service in Electron main, exposes typed preload methods, creates the top-level Interview Helper route, opens two separate Electron overlay windows for live answer cues and live transcripts during active sessions, and registers tray/global-hotkey controls that call semantic session actions.
+- `packages/os-integration` currently reports static capability states for protected overlays, desktop audio, screenshots, and capture policy. Overlay protection is requested through Electron content protection, but automated capture-exclusion verification is still reported as `requested_unverified`.
+- `packages/ai-providers` currently supplies deterministic Interview Helper providers for replayable development and test evidence.
+- `packages/db` persists the structured Interview Helper workspace snapshot as local JSON, including setup state, sessions, overlay preferences, prep artifacts, diagnostics summaries, and retained cue/transcript history.
+
+Latest replayable desktop evidence:
+
+- `pnpm validate:desktop`
+- `pnpm --filter @unemployed/desktop ui:interview-helper`
+- artifacts: `apps/desktop/test-artifacts/ui/interview-helper/interview-helper-report.json`
 
 ## Design Principles
 
 - future session flows should reuse shared profile and application history
 - document retrieval and AI dependencies should stay behind explicit adapters
+- future authorized full capture exclusion must stay behind protected overlay surface adapters and explicit verification results, not hidden assumptions in session logic
+- the main app must not be the live sensitive surface; live cue and transcript content belong in the two overlay windows while a session is active
 
 ## Boundaries
 
 - `packages/interview-helper` owns prep/session state
 - `packages/os-integration` owns overlay windows, hotkeys, and OS capture details
 - `packages/knowledge-base` and `packages/ai-providers` are optional future integrations, not hard current dependencies
+
+## Current Platform Limitations
+
+- Real microphone, meeting/system audio capture, local/platform STT, and cloud fallback are adapter slots with deterministic development behavior in the current desktop build.
+- Protected overlay capture exclusion is requested but not verified by an automated OS capture harness yet; user-facing state must stay `Best effort` or `Requested`, not `Protected`.
+- Windows validation has run through Electron on this machine. macOS and Linux platform validation still require target hosts because their audio, display-server, and capture-protection behavior cannot be proven from Windows.

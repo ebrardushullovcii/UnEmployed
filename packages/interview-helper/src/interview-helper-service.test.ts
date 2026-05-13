@@ -53,10 +53,39 @@ function createService() {
   });
 }
 
+async function acceptSetup(service: ReturnType<typeof createService>) {
+  await service.saveSetup({
+    consent: {
+      microphoneCapture: true,
+      meetingAudioCapture: true,
+      screenshotCapture: true,
+      modelTransmission: true,
+      localRetention: true,
+      overlayProtectionNotice: true,
+      acceptedAt: "2026-05-13T05:00:00.000Z",
+    },
+  });
+}
+
 describe("interview helper service", () => {
+  test("blocks session start until setup consent is explicit", async () => {
+    const service = createService();
+
+    await service.runRehearsal();
+    const blocked = await service.startSession();
+
+    expect(blocked.activeSession).toBeNull();
+    expect(
+      blocked.setup.rehearsal?.checks.some((check) =>
+        check.label.includes("Accept setup disclosures"),
+      ),
+    ).toBe(true);
+  });
+
   test("runs rehearsal and starts a transcript-first live session", async () => {
     const service = createService();
 
+    await acceptSetup(service);
     const rehearsed = await service.runRehearsal();
     expect(rehearsed.setup.rehearsal?.status).toBe("degraded");
     expect(rehearsed.setup.rehearsal?.protectedSurfaces).toHaveLength(2);
@@ -71,6 +100,7 @@ describe("interview helper service", () => {
   test("queues contaminated screenshot context and discloses it in a forced cue", async () => {
     const service = createService();
 
+    await acceptSetup(service);
     await service.runRehearsal();
     await service.startSession();
     const withCue = await service.performAction({
@@ -86,6 +116,7 @@ describe("interview helper service", () => {
   test("panic-hide hides overlays without ending the session", async () => {
     const service = createService();
 
+    await acceptSetup(service);
     await service.runRehearsal();
     await service.startSession();
     const hidden = await service.performAction({ action: "panic_hide" });

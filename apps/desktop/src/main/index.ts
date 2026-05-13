@@ -3,6 +3,14 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadDesktopEnvironment } from './setup/env'
 import { registerDesktopRoutes } from './setup/register-routes'
+import {
+  closeInterviewOverlayWindows,
+  initializeInterviewOverlayWindows,
+} from './setup/interview-overlay-windows'
+import {
+  disposeInterviewSessionControls,
+  initializeInterviewSessionControls,
+} from './setup/interview-session-controls'
 import { createMainWindow } from './setup/window-shell'
 import {
   getJobFinderWorkspaceService,
@@ -23,7 +31,12 @@ void app.whenReady().then(() => {
   Menu.setApplicationMenu(null)
   void getJobFinderWorkspaceService()
   void getInterviewHelperService()
-  createMainWindow(currentDir)
+  initializeInterviewOverlayWindows(currentDir)
+  initializeInterviewSessionControls()
+  const mainWindow = createMainWindow(currentDir)
+  mainWindow.on('closed', () => {
+    closeInterviewOverlayWindows()
+  })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -69,7 +82,12 @@ app.on('before-quit', (event) => {
 })
 
 app.on('window-all-closed', () => {
+  closeInterviewOverlayWindows()
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+app.on('will-quit', () => {
+  disposeInterviewSessionControls()
 })

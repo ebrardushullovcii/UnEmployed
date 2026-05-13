@@ -141,6 +141,15 @@ export function InterviewHelperPage() {
   const degraded = checks.filter((check) => !check.required && check.status !== 'available')
   const targetLabel = getTargetLabel(workspace)
   const canExport = Boolean(currentSession)
+  const consentAccepted = Boolean(
+    workspace.setup.consent.microphoneCapture &&
+      workspace.setup.consent.meetingAudioCapture &&
+      workspace.setup.consent.screenshotCapture &&
+      workspace.setup.consent.modelTransmission &&
+      workspace.setup.consent.localRetention &&
+      workspace.setup.consent.overlayProtectionNotice &&
+      workspace.setup.consent.acceptedAt
+  )
 
   async function exportLatest(format: 'markdown' | 'json') {
     if (!currentSession) return
@@ -248,12 +257,36 @@ export function InterviewHelperPage() {
                       ['Screenshots', workspace.setup.consent.screenshotCapture],
                       ['Model transmission', workspace.setup.consent.modelTransmission],
                       ['Local retention', workspace.setup.consent.localRetention],
+                      ['Overlay protection limits', workspace.setup.consent.overlayProtectionNotice],
                     ].map(([label, accepted]) => (
                       <div className="flex items-center justify-between border-b border-border-subtle py-2 last:border-0" key={String(label)}>
                         <span className="text-[0.82rem]">{label}</span>
                         <StatusPill label={accepted ? 'Enabled' : 'Pending'} tone={accepted ? 'success' : 'warning'} />
                       </div>
                     ))}
+                    <Button
+                      onClick={() => {
+                        void updateWorkspace('accept_setup', () =>
+                          window.unemployed.interviewHelper.saveSetup({
+                            consent: {
+                              microphoneCapture: true,
+                              meetingAudioCapture: true,
+                              screenshotCapture: true,
+                              modelTransmission: true,
+                              localRetention: true,
+                              overlayProtectionNotice: true,
+                              acceptedAt: new Date().toISOString(),
+                            },
+                          })
+                        )
+                      }}
+                      pending={pendingAction === 'accept_setup'}
+                      size="compact"
+                      variant={consentAccepted ? 'secondary' : 'primary'}
+                    >
+                      <CheckCircle2 className="size-4" />
+                      {consentAccepted ? 'Setup accepted' : 'Accept setup'}
+                    </Button>
                   </div>
                 </Panel>
 

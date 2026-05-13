@@ -72,6 +72,7 @@ Common package aliases:
 - `pnpm --filter @unemployed/desktop ui:applications-copilot-review`
 - `pnpm --filter @unemployed/desktop ui:applications-recovery`
 - `pnpm --filter @unemployed/desktop ui:applications-queue-recovery`
+- `pnpm --filter @unemployed/desktop ui:interview-helper`
 - `pnpm --filter @unemployed/desktop ui:apply-queue-controls`
 
 ## Running Desktop Benchmarks

@@ -313,32 +313,17 @@ function createWorkspace(input: {
   })
 }
 
-function ensureAcceptedConsent(setup: InterviewSetupState, now: string): InterviewSetupState {
+function hasAcceptedSetupConsent(setup: InterviewSetupState): boolean {
   const consent = setup.consent
-  const allAccepted =
+  return Boolean(
     consent.microphoneCapture &&
-    consent.meetingAudioCapture &&
-    consent.screenshotCapture &&
-    consent.modelTransmission &&
-    consent.localRetention &&
-    consent.overlayProtectionNotice
-
-  if (allAccepted) {
-    return setup
-  }
-
-  return InterviewSetupStateSchema.parse({
-    ...setup,
-    consent: {
-      microphoneCapture: true,
-      meetingAudioCapture: true,
-      screenshotCapture: true,
-      modelTransmission: true,
-      localRetention: true,
-      overlayProtectionNotice: true,
-      acceptedAt: now,
-    },
-  })
+      consent.meetingAudioCapture &&
+      consent.screenshotCapture &&
+      consent.modelTransmission &&
+      consent.localRetention &&
+      consent.overlayProtectionNotice &&
+      consent.acceptedAt,
+  )
 }
 
 function hasWorkingTranscriptPath(rehearsal: InterviewRehearsalChecklist | null): boolean {
@@ -350,6 +335,10 @@ function hasWorkingTranscriptPath(rehearsal: InterviewRehearsalChecklist | null)
 
 function buildStartBlockers(setup: InterviewSetupState, cueReady: boolean): string[] {
   const blockers: string[] = []
+
+  if (!hasAcceptedSetupConsent(setup)) {
+    blockers.push('Accept setup disclosures.')
+  }
 
   if (!setup.targetContext) {
     blockers.push('Confirm interview target context.')
@@ -708,14 +697,11 @@ export function createInterviewHelperService(
         ],
         updatedAt: currentNow,
       })
-      const nextSetup = ensureAcceptedConsent(
-        InterviewSetupStateSchema.parse({
-          ...current.setup,
-          rehearsal,
-          targetContext: current.setup.targetContext ?? createDefaultTargetContext(currentNow),
-        }),
-        currentNow,
-      )
+      const nextSetup = InterviewSetupStateSchema.parse({
+        ...current.setup,
+        rehearsal,
+        targetContext: current.setup.targetContext ?? createDefaultTargetContext(currentNow),
+      })
       const nextSnapshot = await rebuildWorkspace({ setup: nextSetup })
       return saveSnapshot(nextSnapshot)
     },
