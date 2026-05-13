@@ -126,6 +126,41 @@ describe("interview helper service", () => {
     expect(hidden.transcriptOverlay.visible).toBe(false);
   });
 
+  test("adds transcript annotations without overwriting original segments", async () => {
+    const service = createService();
+
+    await acceptSetup(service);
+    await service.runRehearsal();
+    await service.startSession();
+    const ended = await service.performAction({ action: "end_session" });
+    const session = ended.recentSessions[0];
+    const segment = session?.transcriptSegments[0];
+    if (!session || !segment) {
+      throw new Error("Expected an ended session with transcript segments.");
+    }
+
+    const annotated = await service.addTranscriptAnnotation({
+      sessionId: session.id,
+      transcriptSegmentId: segment.id,
+      kind: "correction",
+      body: "The interviewer asked about Electron IPC isolation.",
+    });
+
+    const annotatedSession = annotated.recentSessions[0];
+    expect(annotatedSession?.transcriptSegments[0]?.text).toBe(segment.text);
+    expect(annotatedSession?.transcriptAnnotations).toHaveLength(1);
+    expect(annotatedSession?.transcriptAnnotations[0]?.originalText).toBe(
+      segment.text,
+    );
+
+    const exportResult = await service.exportSession({
+      sessionId: session.id,
+      format: "markdown",
+    });
+    expect(exportResult.content).toContain("## Transcript Annotations");
+    expect(exportResult.content).toContain("Electron IPC isolation");
+  });
+
   test("marks persisted active sessions interrupted instead of resuming capture", async () => {
     const repository = createMemoryRepository();
     const firstService = createService(repository);

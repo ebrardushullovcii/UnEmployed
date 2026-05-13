@@ -15,6 +15,8 @@ import type {
   InterviewSessionActionInput,
   InterviewSetupState,
   InterviewTargetContext,
+  InterviewTranscriptAnnotation,
+  InterviewTranscriptAnnotationInput,
   InterviewTranscriptionEngine,
   InterviewTranscriptSegment,
   InterviewVisualObservation,
@@ -30,6 +32,7 @@ import {
   InterviewRehearsalChecklistSchema,
   InterviewSetupStateSchema,
   InterviewTargetContextSchema,
+  InterviewTranscriptAnnotationSchema,
   InterviewWorkspaceSnapshotSchema,
 } from '@unemployed/contracts'
 import type {
@@ -127,6 +130,9 @@ export interface InterviewHelperService {
     sessionId: string
     cueCardId: string
   }): Promise<InterviewWorkspaceSnapshot>
+  addTranscriptAnnotation(
+    input: InterviewTranscriptAnnotationInput,
+  ): Promise<InterviewWorkspaceSnapshot>
   exportSession(input: {
     sessionId: string
     format: 'markdown' | 'json'
@@ -426,6 +432,16 @@ function buildMarkdownExport(session: InterviewLiveSession): string {
     ...session.transcriptSegments.map(
       (segment) => `- ${segment.startedAt} [${segment.source}] ${segment.text}`,
     ),
+    ...(session.transcriptAnnotations.length > 0
+      ? [
+          '',
+          '## Transcript Annotations',
+          '',
+          ...session.transcriptAnnotations.map((annotation) =>
+            `- ${annotation.createdAt} [${annotation.kind}] ${annotation.body}`,
+          ),
+        ]
+      : []),
     '',
     '## Cue Cards',
     '',
@@ -997,6 +1013,56 @@ export function createInterviewHelperService(
         prepArtifacts: [artifact, ...current.setup.prepArtifacts],
       })
       const nextSnapshot = await rebuildWorkspace({ setup: nextSetup })
+      return saveSnapshot(nextSnapshot)
+    },
+    async addTranscriptAnnotation(input) {
+      const current = await loadSnapshot()
+      const session =
+        current.activeSession?.id === input.sessionId
+          ? current.activeSession
+          : current.recentSessions.find((entry) => entry.id === input.sessionId)
+
+      if (!session) {
+        return current
+      }
+
+      const referencedSegment = input.transcriptSegmentId
+        ? session.transcriptSegments.find((segment) => segment.id === input.transcriptSegmentId)
+        : null
+      const currentNow = now()
+      const annotation: InterviewTranscriptAnnotation = InterviewTranscriptAnnotationSchema.parse({
+        id: createId('transcript_annotation'),
+        sessionId: session.id,
+        transcriptSegmentId: referencedSegment?.id ?? null,
+        kind: input.kind,
+        originalText: referencedSegment?.text ?? null,
+        body: input.body,
+        createdAt: currentNow,
+      })
+      const nextSession = InterviewLiveSessionSchema.parse({
+        ...session,
+        transcriptAnnotations: [...session.transcriptAnnotations, annotation],
+        diagnostics: [
+          ...session.diagnostics,
+          createDiagnostic({
+            sessionId: session.id,
+            kind: 'lifecycle',
+            severity: 'info',
+            label: 'Transcript annotation saved',
+            detail:
+              annotation.transcriptSegmentId === null
+                ? 'A session-level transcript note was saved without changing transcript text.'
+                : 'A transcript correction/note was saved without overwriting the original segment.',
+            occurredAt: currentNow,
+          }),
+        ],
+      })
+      const nextSnapshot = await rebuildWorkspace({
+        activeSession: current.activeSession?.id === session.id ? nextSession : current.activeSession,
+        recentSessions: current.recentSessions.map((entry) =>
+          entry.id === session.id ? nextSession : entry,
+        ),
+      })
       return saveSnapshot(nextSnapshot)
     },
     async exportSession(input) {

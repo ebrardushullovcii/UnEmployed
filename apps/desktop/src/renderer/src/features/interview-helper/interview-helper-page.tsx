@@ -25,6 +25,7 @@ import { Link } from 'react-router-dom'
 import { Button } from '@renderer/components/ui/button'
 import { cn } from '@renderer/lib/cn'
 import { AnswerCueOverlay, TranscriptOverlay } from './interview-overlays'
+import { TranscriptAnnotationPanel } from './interview-review-annotations'
 
 type LoadState =
   | { status: 'loading' }
@@ -413,6 +414,18 @@ export function InterviewHelperPage() {
                           {reviewSession?.cueCards.length ?? 0} cue cards retained
                         </p>
                       </div>
+                      {reviewSession ? (
+                        <TranscriptAnnotationPanel
+                          onWorkspaceChange={(nextWorkspace) => {
+                            setState((current) => ({
+                              status: 'ready',
+                              workspace: nextWorkspace,
+                              exportResult: current.status === 'ready' ? current.exportResult : null
+                            }))
+                          }}
+                          session={reviewSession}
+                        />
+                      ) : null}
                     </div>
                     <div className="grid content-start gap-2">
                       <Button disabled={!latestCue || !reviewSession} onClick={() => {

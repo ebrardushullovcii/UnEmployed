@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  InterviewTranscriptAnnotationInputSchema,
   InterviewWorkspaceSnapshotSchema,
   SaveInterviewSetupInputSchema,
 } from "./interview-helper";
@@ -118,5 +119,17 @@ describe("interview helper contracts", () => {
 
     expect(input.autoCaptureOnCue).toBe(true);
     expect(input.consent).toBeUndefined();
+  });
+
+  test("parses transcript annotations as explicit post-session review data", () => {
+    const input = InterviewTranscriptAnnotationInputSchema.parse({
+      sessionId: "interview_session_1",
+      transcriptSegmentId: "segment_1",
+      kind: "correction",
+      body: "The interviewer asked about IPC isolation, not API isolation.",
+    });
+
+    expect(input.kind).toBe("correction");
+    expect(input.transcriptSegmentId).toBe("segment_1");
   });
 });

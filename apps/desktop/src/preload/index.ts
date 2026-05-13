@@ -10,6 +10,7 @@ import type {
   InterviewExportResult,
   InterviewHotkeyAction,
   InterviewPrepArtifactFromCueInput,
+  InterviewTranscriptAnnotationInput,
   InterviewWorkspaceSnapshot,
   SaveInterviewSetupInput,
   JobFinderApplyConsentActionInput,
@@ -157,6 +158,11 @@ const desktopApi = {
     saveCueAsPrepArtifact: (input: InterviewPrepArtifactFromCueInput) =>
       ipcRenderer.invoke(
         "interview-helper:save-cue-as-prep-artifact",
+        input,
+      ) as Promise<InterviewWorkspaceSnapshot>,
+    addTranscriptAnnotation: (input: InterviewTranscriptAnnotationInput) =>
+      ipcRenderer.invoke(
+        "interview-helper:add-transcript-annotation",
         input,
       ) as Promise<InterviewWorkspaceSnapshot>,
     exportSession: (sessionId: string, format: InterviewExportFormat = "markdown") =>

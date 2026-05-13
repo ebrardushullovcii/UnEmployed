@@ -182,21 +182,36 @@ async function runCapture() {
       throw new Error('Expected an ended Interview Helper session in recentSessions.')
     }
 
+    await window.getByPlaceholder(/Add a correction or review note/i).fill(
+      'Correction: the interviewer asked about Electron IPC isolation.',
+    )
+    await window.getByRole('button', { name: /Save annotation/i }).click()
+    const annotatedWorkspace = await waitForWorkspace(
+      window,
+      (workspace) =>
+        (workspace.recentSessions[0]?.transcriptAnnotations.length ?? 0) > 0,
+      'saved transcript annotation',
+    )
+    const annotatedSession = annotatedWorkspace.recentSessions[0]
+    if (!annotatedSession) {
+      throw new Error('Expected an annotated Interview Helper session in recentSessions.')
+    }
+
     const exportResult = await window.evaluate(
       ({ sessionId, format }) => window.unemployed.interviewHelper.exportSession(sessionId, format),
-      { sessionId: endedSession.id, format: 'markdown' },
+      { sessionId: annotatedSession.id, format: 'markdown' },
     )
     const artifactWorkspace = await window.evaluate(
       ({ sessionId, cueCardId }) =>
         window.unemployed.interviewHelper.saveCueAsPrepArtifact({ sessionId, cueCardId }),
       {
-        sessionId: endedSession.id,
-        cueCardId: endedSession.cueCards.at(-1)?.id,
+        sessionId: annotatedSession.id,
+        cueCardId: annotatedSession.cueCards.at(-1)?.id,
       },
     )
     await window.evaluate(
       (sessionId) => window.unemployed.interviewHelper.deleteSession(sessionId),
-      endedSession.id,
+      annotatedSession.id,
     )
     const deletedWorkspace = await getWorkspace(window)
 
@@ -244,15 +259,21 @@ async function runCapture() {
       panicHideHidTranscriptOverlay: panicWorkspace.transcriptOverlay.visible === false,
       endedSessionStatus: endedSession.status,
       endedSessionRetained: endedWorkspace.recentSessions.some((session) => session.id === endedSession.id),
+      transcriptAnnotationCount: annotatedSession.transcriptAnnotations.length,
+      transcriptAnnotationPreservesOriginal:
+        annotatedSession.transcriptAnnotations[0]?.originalText ===
+        annotatedSession.transcriptSegments[0]?.text,
       exportFileName: exportResult.fileName,
       exportContainsTranscript: exportResult.content.includes('## Transcript'),
+      exportContainsTranscriptAnnotations:
+        exportResult.content.includes('## Transcript Annotations'),
       exportContainsCueCards: exportResult.content.includes('## Cue Cards'),
       prepArtifactCreated: artifactWorkspace.setup.prepArtifacts.some(
-        (artifact) => artifact.sourceSessionId === endedSession.id,
+        (artifact) => artifact.sourceSessionId === annotatedSession.id,
       ),
       deletedSessionRemoved:
         !deletedWorkspace.activeSession &&
-        !deletedWorkspace.recentSessions.some((session) => session.id === endedSession.id),
+        !deletedWorkspace.recentSessions.some((session) => session.id === annotatedSession.id),
     }
 
     await writeJson('interview-helper-report.json', report)

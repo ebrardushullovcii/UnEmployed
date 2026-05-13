@@ -12,7 +12,7 @@ Owns the Interview Helper live-session workflow: setup, rehearsal, target-contex
 - `apps/desktop` captures optional visual cue context through Electron `desktopCapturer`, writes only a temporary primary-display PNG, deletes it immediately, and stores metadata plus overlay-contamination disclosure instead of retaining raw screenshots by default.
 - `packages/os-integration` currently reports static capability states for protected overlays, desktop audio, screenshots, and capture policy. Overlay protection is requested through Electron content protection, but automated capture-exclusion verification is still reported as `requested_unverified`.
 - `packages/ai-providers` currently supplies deterministic Interview Helper providers for replayable development and test evidence.
-- `packages/db` persists the structured Interview Helper workspace snapshot as local JSON, including setup state, sessions, overlay preferences, prep artifacts, diagnostics summaries, and retained cue/transcript history.
+- `packages/db` persists the structured Interview Helper workspace snapshot as local JSON, including setup state, sessions, overlay preferences, prep artifacts, diagnostics summaries, retained cue/transcript history, and additive transcript annotations.
 
 Latest replayable desktop evidence:
 

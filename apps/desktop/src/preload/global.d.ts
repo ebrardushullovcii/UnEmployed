@@ -12,6 +12,7 @@ import type {
   InterviewExportResult,
   InterviewHotkeyAction,
   InterviewPrepArtifactFromCueInput,
+  InterviewTranscriptAnnotationInput,
   InterviewWorkspaceSnapshot,
   SaveInterviewSetupInput,
   JobFinderOpenBrowserSessionInput,
@@ -70,6 +71,9 @@ declare global {
         ) => Promise<InterviewWorkspaceSnapshot>;
         saveCueAsPrepArtifact: (
           input: InterviewPrepArtifactFromCueInput,
+        ) => Promise<InterviewWorkspaceSnapshot>;
+        addTranscriptAnnotation: (
+          input: InterviewTranscriptAnnotationInput,
         ) => Promise<InterviewWorkspaceSnapshot>;
         exportSession: (
           sessionId: string,

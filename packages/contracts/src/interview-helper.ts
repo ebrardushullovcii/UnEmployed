@@ -288,6 +288,19 @@ export type InterviewTranscriptSegment = z.infer<
   typeof InterviewTranscriptSegmentSchema
 >;
 
+export const InterviewTranscriptAnnotationSchema = z.object({
+  id: NonEmptyStringSchema,
+  sessionId: NonEmptyStringSchema,
+  transcriptSegmentId: NonEmptyStringSchema.nullable().default(null),
+  kind: z.enum(["correction", "note"]),
+  originalText: NonEmptyStringSchema.nullable().default(null),
+  body: NonEmptyStringSchema,
+  createdAt: IsoDateTimeSchema,
+});
+export type InterviewTranscriptAnnotation = z.infer<
+  typeof InterviewTranscriptAnnotationSchema
+>;
+
 export const InterviewCueInputDisclosureSchema = z.object({
   transcriptWindow: NonEmptyStringSchema,
   triggerSource: InterviewTranscriptSourceSchema.nullable().default(null),
@@ -352,6 +365,9 @@ export const InterviewLiveSessionSchema = z.object({
   automaticCueSensitivity: InterviewCueSensitivitySchema.default("conservative"),
   cueSummary: NonEmptyStringSchema.default("No summary yet."),
   transcriptSegments: z.array(InterviewTranscriptSegmentSchema).default([]),
+  transcriptAnnotations: z
+    .array(InterviewTranscriptAnnotationSchema)
+    .default([]),
   cueCards: z.array(InterviewCueCardSchema).default([]),
   visualBatches: z.array(InterviewCueVisualBatchSchema).default([]),
   diagnostics: z.array(InterviewDiagnosticEventSchema).default([]),
@@ -430,6 +446,16 @@ export const InterviewPrepArtifactFromCueInputSchema = z.object({
 });
 export type InterviewPrepArtifactFromCueInput = z.infer<
   typeof InterviewPrepArtifactFromCueInputSchema
+>;
+
+export const InterviewTranscriptAnnotationInputSchema = z.object({
+  sessionId: NonEmptyStringSchema,
+  transcriptSegmentId: NonEmptyStringSchema.nullable().default(null),
+  kind: z.enum(["correction", "note"]),
+  body: NonEmptyStringSchema,
+});
+export type InterviewTranscriptAnnotationInput = z.infer<
+  typeof InterviewTranscriptAnnotationInputSchema
 >;
 
 export const InterviewExportFormatSchema = z.enum(["markdown", "json"]);
