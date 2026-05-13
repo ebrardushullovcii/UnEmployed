@@ -831,6 +831,16 @@ export const ApplicationRecordSchema = z.object({
 });
 export type ApplicationRecord = z.infer<typeof ApplicationRecordSchema>;
 
+export const JobFinderInterviewFollowUpInputSchema = z.object({
+  applicationRecordId: NonEmptyStringSchema,
+  sessionId: NonEmptyStringSchema,
+  action: z.enum(["mark_interviewed", "add_follow_up_note"]),
+  note: NonEmptyStringSchema.optional(),
+});
+export type JobFinderInterviewFollowUpInput = z.infer<
+  typeof JobFinderInterviewFollowUpInputSchema
+>;
+
 export const SourceDebugPersistenceSchemas = {
   SourceDebugEvidenceRefSchema,
   SourceDebugRunRecordSchema,

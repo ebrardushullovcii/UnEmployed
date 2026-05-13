@@ -5,6 +5,7 @@ import {
   InterviewAudioTranscriptionInputSchema,
   InterviewCaptionFileReadInputSchema,
   InterviewExportSessionInputSchema,
+  JobFinderInterviewFollowUpInputSchema,
   InterviewPrepArtifactFromCueInputSchema,
   InterviewSessionActionInputSchema,
   InterviewSessionIdInputSchema,
@@ -12,6 +13,7 @@ import {
   InterviewTranscriptSegmentInputSchema,
   SaveInterviewSetupInputSchema,
 } from "@unemployed/contracts";
+import { getJobFinderWorkspaceService } from "../services/job-finder";
 import { getInterviewHelperService } from "../services/interview-helper";
 import {
   syncInterviewOverlayWindows,
@@ -201,6 +203,17 @@ export function registerInterviewHelperRouteHandlers(ipcMain: IpcMain) {
       const input = InterviewExportSessionInputSchema.parse(payload);
       const service = await getInterviewHelperService();
       return service.exportSession(input);
+    },
+  );
+
+  ipcMain.handle(
+    "interview-helper:record-job-finder-follow-up",
+    async (_event, payload: unknown) => {
+      const input = JobFinderInterviewFollowUpInputSchema.parse(payload);
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      return jobFinderWorkspaceService.recordInterviewHelperApplicationAction(
+        input,
+      );
     },
   );
 }

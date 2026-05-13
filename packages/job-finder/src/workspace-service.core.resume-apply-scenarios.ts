@@ -176,6 +176,73 @@ describe("createJobFinderWorkspaceService", () => {
     });
   });
 
+  test("records explicit Interview Helper follow-up actions on application records", async () => {
+    const { repository, workspaceService } = createWorkspaceServiceHarness();
+
+    const initialSnapshot =
+      await workspaceService.startApplyCopilotRun("job_ready");
+    const applicationRecord = initialSnapshot.applicationRecords.find(
+      (record) => record.jobId === "job_ready",
+    );
+
+    expect(applicationRecord).toBeTruthy();
+
+    const interviewedSnapshot =
+      await workspaceService.recordInterviewHelperApplicationAction({
+        applicationRecordId: applicationRecord!.id,
+        sessionId: "interview_session_1",
+        action: "mark_interviewed",
+        note: "Send a follow-up about the platform reliability example.",
+      });
+    const interviewedRecord = interviewedSnapshot.applicationRecords.find(
+      (record) => record.id === applicationRecord!.id,
+    );
+    const savedJobs = await repository.listSavedJobs();
+    const interviewedJob = savedJobs.find(
+      (job) => job.id === "job_ready",
+    );
+
+    expect(interviewedRecord).toMatchObject({
+      status: "interview",
+      lastActionLabel: "Interview completed",
+      nextActionLabel: "Add a follow-up note or track the interview outcome.",
+    });
+    const interviewedEvent = interviewedRecord?.events.find(
+      (event) => event.title === "Interview marked complete",
+    );
+    expect(interviewedEvent).toMatchObject({
+      title: "Interview marked complete",
+      emphasis: "positive",
+    });
+    expect(interviewedEvent?.detail).toContain(
+      "platform reliability example",
+    );
+    expect(interviewedJob?.status).toBe("interview");
+
+    const notedSnapshot =
+      await workspaceService.recordInterviewHelperApplicationAction({
+        applicationRecordId: applicationRecord!.id,
+        sessionId: "interview_session_1",
+        action: "add_follow_up_note",
+        note: "Recruiter asked for availability next week.",
+      });
+    const notedRecord = notedSnapshot.applicationRecords.find(
+      (record) => record.id === applicationRecord!.id,
+    );
+
+    expect(notedRecord?.status).toBe("interview");
+    expect(
+      notedRecord?.events.find(
+        (event) => event.title === "Interview follow-up note added",
+      ),
+    ).toMatchObject({
+      title: "Interview follow-up note added",
+      detail:
+        "Interview Helper session interview_session_1: Recruiter asked for availability next week.",
+      emphasis: "neutral",
+    });
+  });
+
   test("captures apply visual checkpoints only when explicitly opted in", async () => {
     const baseRuntime = createBrowserRuntime();
     let visualCallbacksPassed = false;

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type {
   InterviewExportResult,
   InterviewHotkeyAction,
+  JobFinderInterviewFollowUpInput,
   InterviewOverlaySnapshot,
   SaveInterviewSetupInput,
   InterviewTranscriptSource,
@@ -21,6 +22,7 @@ import {
   Play,
   Radio,
   RotateCcw,
+  Send,
   Settings2,
   Shield,
   Sparkles,
@@ -108,6 +110,9 @@ export function InterviewHelperPage() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [followUpDraft, setFollowUpDraft] = useState("");
+  const [jobFinderWriteBackStatus, setJobFinderWriteBackStatus] =
+    useState<string | null>(null);
   const [transcriptSource, setTranscriptSource] =
     useState<InterviewTranscriptSource>("meeting_native_transcript");
   const [transcriptDraft, setTranscriptDraft] = useState("");
@@ -332,6 +337,47 @@ export function InterviewHelperPage() {
           format,
         );
       setState({ status: "ready", workspace, exportResult });
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  async function recordJobFinderFollowUp(
+    action: JobFinderInterviewFollowUpInput["action"],
+  ) {
+    if (
+      !reviewSession ||
+      reviewSession.targetContext.kind !== "job_application"
+    ) {
+      return;
+    }
+
+    const note = followUpDraft.trim();
+    const input: JobFinderInterviewFollowUpInput = {
+      applicationRecordId: reviewSession.targetContext.id,
+      sessionId: reviewSession.id,
+      action,
+      ...(note.length > 0 ? { note } : {}),
+    };
+
+    setPendingAction(action);
+    setJobFinderWriteBackStatus(null);
+    try {
+      await window.unemployed.interviewHelper.recordJobFinderFollowUp(input);
+      setJobFinderWriteBackStatus(
+        action === "mark_interviewed"
+          ? "Job Finder application marked interviewed."
+          : "Job Finder follow-up note added.",
+      );
+      if (action === "add_follow_up_note") {
+        setFollowUpDraft("");
+      }
+    } catch (error) {
+      setJobFinderWriteBackStatus(
+        error instanceof Error
+          ? error.message
+          : "Job Finder follow-up update failed.",
+      );
     } finally {
       setPendingAction(null);
     }
@@ -899,6 +945,51 @@ export function InterviewHelperPage() {
                         <FileDown className="size-4" />
                         Export notes
                       </Button>
+                      {reviewSession?.targetContext.kind ===
+                      "job_application" ? (
+                        <div className="grid gap-2 border-t border-border-subtle pt-2">
+                          <Button
+                            disabled={!reviewSession}
+                            onClick={() => {
+                              void recordJobFinderFollowUp("mark_interviewed");
+                            }}
+                            pending={pendingAction === "mark_interviewed"}
+                            size="compact"
+                            variant="secondary"
+                          >
+                            <CheckCircle2 className="size-4" />
+                            Mark interviewed
+                          </Button>
+                          <textarea
+                            className="min-h-20 resize-none rounded-(--radius-small) border border-border-subtle bg-black/20 p-2 text-[0.8rem] text-foreground outline-none transition focus:border-primary"
+                            onChange={(event) => {
+                              setFollowUpDraft(event.target.value);
+                            }}
+                            placeholder="Follow-up note"
+                            value={followUpDraft}
+                          />
+                          <Button
+                            disabled={
+                              !reviewSession ||
+                              followUpDraft.trim().length === 0
+                            }
+                            onClick={() => {
+                              void recordJobFinderFollowUp("add_follow_up_note");
+                            }}
+                            pending={pendingAction === "add_follow_up_note"}
+                            size="compact"
+                            variant="secondary"
+                          >
+                            <Send className="size-4" />
+                            Add follow-up
+                          </Button>
+                          {jobFinderWriteBackStatus ? (
+                            <p className="text-[0.72rem] leading-5 text-muted-foreground">
+                              {jobFinderWriteBackStatus}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
                       <Button
                         disabled={!reviewSession}
                         onClick={() => {

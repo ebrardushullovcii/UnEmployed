@@ -20,7 +20,7 @@ Use this for cross-package contract rules and workflow semantics. Put field-leve
 - source-debug runs, evidence refs, and learned instruction artifacts
 - compaction policy and lightweight compaction snapshots for long-running agent work
 - browser visual snapshot requests/refs, observation sets, reconciliations, evidence summaries, source-debug visual findings, and apply visual checkpoints
-- Interview Helper setup state, selected transcription language, cue sensitivity, automatic screenshot-on-cue preference, target-context snapshots, rehearsal checklists, protected overlay surfaces, transcript segment ingestion, transcript annotations, cue visual batches, cue cards, diagnostics, overlay snapshots, live sessions, export payloads, and semantic session actions
+- Interview Helper setup state, selected transcription language, cue sensitivity, automatic screenshot-on-cue preference, target-context snapshots, rehearsal checklists, protected overlay surfaces, transcript segment ingestion, transcript annotations, cue visual batches, cue cards, diagnostics, overlay snapshots, live sessions, export payloads, Job Finder follow-up actions, and semantic session actions
 
 ## Current Shared Semantics
 
@@ -43,6 +43,7 @@ Use this for cross-package contract rules and workflow semantics. Put field-leve
 - Interview Helper protected overlay state uses explicit states such as `verified_protected`, `requested_unverified`, `best_effort`, `unsupported`, `failed`, and `unknown`; product code must not collapse these into a boolean or label requested protection as verified protection. Runtime verification evidence is submitted through a typed protected-surface verification payload and records the method, display label, detail, timestamp, and explicit state.
 - Interview Helper overlay layout preferences store each protected surface's bounds, display id, opacity, visibility, interaction mode, and requested protection policy separately from session history. Resetting overlay layout restores default overlay preferences only and must not delete or rewrite retained session history.
 - Interview Helper renderer/preload calls use narrow semantic actions (`toggle_listening`, `force_cue`, `capture_screenshot`, `capture_screenshot_and_force_cue`, overlay toggles, `panic_hide`, `end_session`) instead of exposing Electron or Node primitives.
+- Interview Helper may write back to Job Finder only through explicit post-session actions validated by `JobFinderInterviewFollowUpInputSchema`. Marking an interview complete can move the linked application and saved job to `interview`; adding a follow-up note appends an application event. Live transcript or cue content must not automatically mutate profile, resume, saved-job, or application records.
 
 ## Validation Expectations
 

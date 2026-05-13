@@ -10,6 +10,7 @@ import type {
   DiscoveryActivityEvent,
   InterviewExportFormat,
   InterviewExportResult,
+  JobFinderInterviewFollowUpInput,
   InterviewHotkeyAction,
   InterviewAudioTranscriptionInput,
   InterviewCaptionFileReadInput,
@@ -99,6 +100,9 @@ declare global {
           sessionId: string,
           format?: InterviewExportFormat,
         ) => Promise<InterviewExportResult>;
+        recordJobFinderFollowUp: (
+          input: JobFinderInterviewFollowUpInput,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
       };
       jobFinder: {
         getWorkspace: () => Promise<JobFinderWorkspaceSnapshot>;

@@ -9,6 +9,7 @@ import {
   ApplicationAttemptQuestionSchema,
   ApplicationAttemptSchema,
   ApplicationRecordSchema,
+  JobFinderInterviewFollowUpInputSchema,
   ResumeAssistantMessageSchema,
   ResumeValidationResultSchema,
   isResumeTemplateApplyEligible,
@@ -152,6 +153,7 @@ export function createWorkspaceApplicationMethods(
   | "resolveApplyConsentRequest"
   | "revokeApplyRunApproval"
   | "approveApply"
+  | "recordInterviewHelperApplicationAction"
 > {
   function hasLockedResumeContent(draft: ResumeDraft): boolean {
     return draft.sections.some(
@@ -969,6 +971,82 @@ export function createWorkspaceApplicationMethods(
   }
 
   return {
+    async recordInterviewHelperApplicationAction(rawInput) {
+      const input = JobFinderInterviewFollowUpInputSchema.parse(rawInput);
+      const applicationRecords = await ctx.repository.listApplicationRecords();
+      const existingRecord = applicationRecords.find(
+        (record) => record.id === input.applicationRecordId,
+      );
+
+      if (!existingRecord) {
+        throw new Error(
+          `Unknown Job Finder application record '${input.applicationRecordId}'.`,
+        );
+      }
+
+      const now = new Date().toISOString();
+      const note = input.note?.trim();
+      const terminalStatuses = new Set([
+        "offer",
+        "rejected",
+        "withdrawn",
+        "archived",
+      ]);
+      const shouldMarkInterview =
+        input.action === "mark_interviewed" &&
+        !terminalStatuses.has(existingRecord.status);
+      const nextStatus = shouldMarkInterview
+        ? "interview"
+        : existingRecord.status;
+      const lastActionLabel =
+        input.action === "mark_interviewed"
+          ? "Interview completed"
+          : "Interview follow-up note added";
+      const eventTitle =
+        input.action === "mark_interviewed"
+          ? "Interview marked complete"
+          : "Interview follow-up note added";
+      const eventDetail =
+        note && note.length > 0
+          ? `Interview Helper session ${input.sessionId}: ${note}`
+          : `Interview Helper session ${input.sessionId} was reviewed and linked to this application record.`;
+
+      if (shouldMarkInterview) {
+        const savedJobs = await ctx.repository.listSavedJobs();
+        if (savedJobs.some((job) => job.id === existingRecord.jobId)) {
+          await ctx.updateJob(existingRecord.jobId, (job) =>
+            SavedJobSchema.parse({
+              ...job,
+              status: "interview",
+            }),
+          );
+        }
+      }
+
+      const nextRecord = ApplicationRecordSchema.parse({
+        ...existingRecord,
+        status: nextStatus,
+        lastActionLabel,
+        nextActionLabel:
+          input.action === "mark_interviewed"
+            ? "Add a follow-up note or track the interview outcome."
+            : existingRecord.nextActionLabel,
+        lastUpdatedAt: now,
+        events: mergeEvents(existingRecord.events, [
+          {
+            id: createUniqueId("event"),
+            at: now,
+            title: eventTitle,
+            detail: eventDetail,
+            emphasis:
+              input.action === "mark_interviewed" ? "positive" : "neutral",
+          },
+        ]),
+      });
+
+      await ctx.repository.upsertApplicationRecord(nextRecord);
+      return ctx.getWorkspaceSnapshot();
+    },
     async queueJobForReview(jobId) {
       const discoveryState = await ctx.repository.getDiscoveryState();
       const pendingIndex = discoveryState.pendingDiscoveryJobs.findIndex(

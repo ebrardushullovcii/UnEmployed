@@ -8,6 +8,7 @@ import type {
   DiscoveryActivityEvent,
   InterviewExportFormat,
   InterviewExportResult,
+  JobFinderInterviewFollowUpInput,
   InterviewHotkeyAction,
   InterviewAudioTranscriptionInput,
   InterviewCaptionFileReadInput,
@@ -215,6 +216,11 @@ const desktopApi = {
         sessionId,
         format,
       }) as Promise<InterviewExportResult>,
+    recordJobFinderFollowUp: (input: JobFinderInterviewFollowUpInput) =>
+      ipcRenderer.invoke(
+        "interview-helper:record-job-finder-follow-up",
+        input,
+      ) as Promise<JobFinderWorkspaceSnapshot>,
   },
   jobFinder: {
     getWorkspace: () =>

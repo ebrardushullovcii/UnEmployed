@@ -10,6 +10,7 @@ import type {
   JobFinderOpenBrowserSessionInput,
   JobFinderResumePreview,
   ResumeDocumentBundle,
+  JobFinderInterviewFollowUpInput,
   ResumeImportFieldCandidate,
   ResumeImportRun,
   ResumeImportVisionArtifact,
@@ -178,6 +179,9 @@ export interface JobFinderWorkspaceService {
   ): Promise<JobFinderWorkspaceSnapshot>;
   revokeApplyRunApproval(runId: string): Promise<JobFinderWorkspaceSnapshot>;
   approveApply(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
+  recordInterviewHelperApplicationAction(
+    input: JobFinderInterviewFollowUpInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
 }
 
 type DiscoveryTargetPipelineSharedOptions = {

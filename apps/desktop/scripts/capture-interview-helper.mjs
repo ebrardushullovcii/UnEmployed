@@ -105,21 +105,34 @@ async function runCapture() {
     await window.waitForLoadState('domcontentloaded')
     await waitForInterviewWorkspace(window)
     await window.setViewportSize({ width, height })
+    const jobFinderApplicationRecord = await window.evaluate(async () => {
+      if (!window.unemployed.jobFinder.test) {
+        throw new Error('Expected Job Finder test API for Interview Helper harness.')
+      }
+
+      await window.unemployed.jobFinder.test.loadApplyQueueDemo()
+      const snapshot = await window.unemployed.jobFinder.startApplyCopilotRun('job_ready')
+      const record = snapshot.applicationRecords.find((entry) => entry.jobId === 'job_ready')
+      if (!record) {
+        throw new Error('Expected a Job Finder application record for job_ready.')
+      }
+      return record
+    })
 
     const linkedJobContext = {
-      id: 'job_harness_frontend_engineer',
-      label: 'Frontend Engineer at Example Corp',
-      role: 'Frontend Engineer',
-      company: 'Example Corp',
-      sourceUrl: 'https://example.com/jobs/frontend-engineer',
+      id: 'job_ready',
+      label: `${jobFinderApplicationRecord.title} at ${jobFinderApplicationRecord.company}`,
+      role: jobFinderApplicationRecord.title,
+      company: jobFinderApplicationRecord.company,
+      sourceUrl: 'https://www.linkedin.com/jobs/view/linkedin_signal_ready',
       notes: 'React, Electron, and desktop accessibility interview context.',
     }
     const applicationContext = {
-      id: 'application_harness_frontend_engineer',
-      label: 'Frontend Engineer at Example Corp',
-      role: 'Frontend Engineer',
-      company: 'Example Corp',
-      sourceUrl: 'https://example.com/applications/frontend-engineer',
+      id: jobFinderApplicationRecord.id,
+      label: `${jobFinderApplicationRecord.title} at ${jobFinderApplicationRecord.company}`,
+      role: jobFinderApplicationRecord.title,
+      company: jobFinderApplicationRecord.company,
+      sourceUrl: 'https://www.linkedin.com/jobs/view/linkedin_signal_ready/apply',
       notes: 'Application interview scheduled. Prepare React, Electron, and accessibility examples.',
     }
     const applicationParams = new URLSearchParams({
@@ -138,7 +151,7 @@ async function runCapture() {
       window,
       (workspace) =>
         workspace.setup.targetContext?.kind === 'job_application' &&
-        workspace.setup.targetContext.id === 'application_harness_frontend_engineer',
+        workspace.setup.targetContext.id === jobFinderApplicationRecord.id,
       'application record context handoff into Interview Helper setup',
     )
     const linkedJobParams = new URLSearchParams({
@@ -157,8 +170,18 @@ async function runCapture() {
       window,
       (workspace) =>
         workspace.setup.targetContext?.kind === 'saved_job' &&
-        workspace.setup.targetContext.id === 'job_harness_frontend_engineer',
+        workspace.setup.targetContext.id === 'job_ready',
       'saved job context handoff into Interview Helper setup',
+    )
+    await window.evaluate((query) => {
+      window.location.hash = `/interview-helper?${query}`
+    }, applicationParams.toString())
+    await waitForWorkspace(
+      window,
+      (workspace) =>
+        workspace.setup.targetContext?.kind === 'job_application' &&
+        workspace.setup.targetContext.id === jobFinderApplicationRecord.id,
+      'application record context restored for Interview Helper session',
     )
 
     await capture(window, '01-setup.png')
@@ -356,6 +379,20 @@ async function runCapture() {
         cueCardId: annotatedSession.cueCards.at(-1)?.id,
       },
     )
+    await window.getByRole('button', { name: /Mark interviewed/i }).click()
+    await window.getByPlaceholder(/Follow-up note/i).fill(
+      'Send availability and a short thank-you note after the interview.',
+    )
+    await window.getByRole('button', { name: /Add follow-up/i }).click()
+    await window.getByText('Job Finder follow-up note added.', { exact: true }).waitFor({
+      timeout: 10000,
+    })
+    const jobFinderWriteBackWorkspace = await window.evaluate(() =>
+      window.unemployed.jobFinder.getWorkspace(),
+    )
+    const writeBackApplicationRecord = jobFinderWriteBackWorkspace.applicationRecords.find(
+      (record) => record.id === jobFinderApplicationRecord.id,
+    )
     await window.evaluate(
       (sessionId) => window.unemployed.interviewHelper.deleteSession(sessionId),
       annotatedSession.id,
@@ -476,6 +513,14 @@ async function runCapture() {
       transcriptAnnotationPreservesOriginal:
         annotatedSession.transcriptAnnotations[0]?.originalText ===
         annotatedSession.transcriptSegments[0]?.text,
+      jobFinderMarkedInterviewed:
+        writeBackApplicationRecord?.status === 'interview',
+      jobFinderFollowUpNoteAdded:
+        writeBackApplicationRecord?.events.some(
+          (event) =>
+            event.title === 'Interview follow-up note added' &&
+            event.detail.includes('thank-you note'),
+        ) ?? false,
       exportFileName: exportResult.fileName,
       exportContainsTranscript: exportResult.content.includes('## Transcript'),
       exportContainsTranscriptAnnotations:
