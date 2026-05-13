@@ -7,9 +7,9 @@ import {
 import { createFileInterviewHelperRepository } from '@unemployed/db'
 import { createInterviewHelperService } from '@unemployed/interview-helper'
 import {
-  createStaticDesktopAudioCaptureAdapter,
   createStaticProtectedOverlaySurfaceAdapter,
 } from '@unemployed/os-integration'
+import { createElectronDesktopAudioCaptureAdapter } from './electron-audio-capture-adapter'
 import { createElectronDesktopScreenshotCaptureAdapter } from './electron-screenshot-adapter'
 import {
   getInterviewHelperTemporaryScreenshotDirectory,
@@ -26,7 +26,9 @@ export function getInterviewHelperService() {
       repository: createFileInterviewHelperRepository({
         filePath: getInterviewHelperWorkspaceFilePath(),
       }),
-      audioCaptureAdapter: createStaticDesktopAudioCaptureAdapter(process.platform),
+      audioCaptureAdapter: createElectronDesktopAudioCaptureAdapter({
+        platform: process.platform,
+      }),
       screenshotCaptureAdapter: createElectronDesktopScreenshotCaptureAdapter({
         directory: getInterviewHelperTemporaryScreenshotDirectory(),
       }),

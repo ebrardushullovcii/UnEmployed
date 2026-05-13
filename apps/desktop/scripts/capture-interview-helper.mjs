@@ -231,6 +231,21 @@ async function runCapture() {
       rehearsalStatus: rehearsedWorkspace.setup.rehearsal?.status,
       setupConsentAccepted: Boolean(rehearsedWorkspace.setup.consent.acceptedAt),
       rehearsalCheckCount: rehearsedWorkspace.setup.rehearsal?.checks.length ?? 0,
+      audioCapabilityChecks: rehearsedWorkspace.setup.rehearsal?.checks
+        .filter((check) => check.id === 'microphone_audio' || check.id === 'meeting_audio')
+        .map((check) => ({
+          id: check.id,
+          status: check.status,
+          detail: check.detail,
+        })) ?? [],
+      microphonePermissionUsesElectron:
+        rehearsedWorkspace.setup.rehearsal?.checks
+          .find((check) => check.id === 'microphone_audio')
+          ?.detail?.includes('Electron systemPreferences') ?? false,
+      meetingAudioUsesElectronSourceEnumeration:
+        rehearsedWorkspace.setup.rehearsal?.checks
+          .find((check) => check.id === 'meeting_audio')
+          ?.detail?.includes('Electron desktopCapturer') ?? false,
       protectedSurfaceCount: rehearsedWorkspace.setup.rehearsal?.protectedSurfaces.length ?? 0,
       protectedSurfaceStates: rehearsedWorkspace.setup.rehearsal?.protectedSurfaces.map(
         (surface) => ({
