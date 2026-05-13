@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   createInterviewHelperService,
+  type InterviewCueCardProvider,
   type InterviewHelperRepository,
 } from "./index";
 import {
@@ -38,6 +39,7 @@ function createMemoryRepository(): InterviewHelperRepository {
 function createService(
   repository: InterviewHelperRepository = createMemoryRepository(),
   options: {
+    cueCardProvider?: InterviewCueCardProvider;
     transcriptionProvider?: InterviewTranscriptionProvider;
   } = {},
 ) {
@@ -51,7 +53,8 @@ function createService(
       platform: "win32",
       now: () => "2026-05-13T05:00:00.000Z",
     }),
-    cueCardProvider: createDeterministicInterviewCueCardProvider(),
+    cueCardProvider:
+      options.cueCardProvider ?? createDeterministicInterviewCueCardProvider(),
     screenshotVisionProvider:
       createDeterministicInterviewScreenshotVisionProvider(),
     transcriptionProvider:
@@ -371,6 +374,52 @@ describe("interview helper service", () => {
     expect(JSON.stringify(updated)).not.toContain("dGVzdCBhdWRpbw==");
     expect(updated.activeSession?.cueCards.at(-1)?.question).toContain(
       "capture-safe overlay",
+    );
+  });
+
+  test("shows a quiet fallback cue card when provider output fails validation", async () => {
+    const invalidCueProvider: InterviewCueCardProvider = {
+      getStatus() {
+        return {
+          ready: true,
+          label: "Invalid cue provider",
+          detail: null,
+        };
+      },
+      generateCueCard() {
+        return Promise.resolve({
+          id: "",
+        } as unknown as Awaited<
+          ReturnType<InterviewCueCardProvider["generateCueCard"]>
+        >);
+      },
+    };
+    const service = createService(createMemoryRepository(), {
+      cueCardProvider: invalidCueProvider,
+    });
+
+    await acceptSetup(service);
+    await service.runRehearsal();
+    const updated = await service.startSession();
+
+    const cue = updated.activeSession?.cueCards.at(-1);
+    expect(cue?.title).toBe("Cue unavailable");
+    expect(cue?.answerOutline).toContain(
+      "Ask for a moment to think, then answer from your own experience.",
+    );
+    expect(updated.activeSession?.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "provider",
+          severity: "warning",
+          label: "Cue provider failed",
+        }),
+        expect.objectContaining({
+          kind: "cue",
+          severity: "warning",
+          label: "Cue fallback card shown",
+        }),
+      ]),
     );
   });
 

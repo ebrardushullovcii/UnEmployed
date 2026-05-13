@@ -104,6 +104,53 @@ describe("Interview Helper AI providers", () => {
     }
   });
 
+  test("retries cue-card generation once before falling back", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new Error("temporary cue outage"))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    title: "Recovered cue",
+                    answerOutline: ["Recover by retrying once."],
+                    supportingPoints: ["Keep the live session moving."],
+                    clarifyingQuestion: null,
+                    avoidSaying: null,
+                    expandedContent: null,
+                  }),
+                },
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      );
+
+    globalThis.fetch = fetchMock;
+
+    try {
+      const provider = createOpenAiCompatibleInterviewCueCardProvider({
+        apiKey: "test-key",
+        baseUrl: "https://example.com/v1",
+        model: "test-model",
+      });
+      const cue = await provider.generateCueCard(createCueRequest());
+
+      expect(cue.title).toBe("Recovered cue");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("sends bounded cue context instead of a raw transcript blob", async () => {
     const capture = mockCapturingJsonFetch({
       choices: [
@@ -168,7 +215,7 @@ describe("Interview Helper AI providers", () => {
 
       expect(cue.title).toBe("Answer cue for Frontend Engineer at Acme");
       expect(errorSpy).toHaveBeenCalledWith(
-        "[AI Provider] Interview Helper cue generation failed; falling back to deterministic provider. upstream cue failure",
+        "[AI Provider] Interview Helper cue generation failed after one retry; falling back to deterministic provider. upstream cue failure",
       );
     } finally {
       restoreFetch();

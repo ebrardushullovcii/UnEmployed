@@ -305,25 +305,31 @@ export function createOpenAiCompatibleInterviewCueCardProvider(
       };
     },
     async generateCueCard(input) {
-      try {
-        const payload = await fetchCueCard(input);
-        const modelCue = InterviewModelCueCardOutputSchema.parse(payload);
+      let lastError: unknown = null;
 
-        return InterviewCueCardSchema.parse({
-          id: `cue_${input.createdAt.replace(/\W/g, "_")}`,
-          sessionId: input.sessionId,
-          question: pickQuestion(input),
-          triggerKind: input.triggerKind,
-          disclosure: input.disclosure,
-          createdAt: input.createdAt,
-          ...modelCue,
-        });
-      } catch (error) {
-        console.error(
-          `[AI Provider] Interview Helper cue generation failed; falling back to deterministic provider. ${summarizeError(error)}`,
-        );
-        return deterministicFallback.generateCueCard(input);
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        try {
+          const payload = await fetchCueCard(input);
+          const modelCue = InterviewModelCueCardOutputSchema.parse(payload);
+
+          return InterviewCueCardSchema.parse({
+            id: `cue_${input.createdAt.replace(/\W/g, "_")}`,
+            sessionId: input.sessionId,
+            question: pickQuestion(input),
+            triggerKind: input.triggerKind,
+            disclosure: input.disclosure,
+            createdAt: input.createdAt,
+            ...modelCue,
+          });
+        } catch (error) {
+          lastError = error;
+        }
       }
+
+      console.error(
+        `[AI Provider] Interview Helper cue generation failed after one retry; falling back to deterministic provider. ${summarizeError(lastError)}`,
+      );
+      return deterministicFallback.generateCueCard(input);
     },
   };
 }

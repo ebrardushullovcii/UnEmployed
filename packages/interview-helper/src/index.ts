@@ -472,6 +472,44 @@ function getLatestQuestion(
   );
 }
 
+function summarizeServiceError(error: unknown): string {
+  const message = error instanceof Error ? error.message.trim() : "";
+  if (message.length === 0) {
+    return "Unknown provider failure";
+  }
+
+  return message.length > 240 ? `${message.slice(0, 237)}...` : message;
+}
+
+function createCueProviderFailureCard(input: {
+  sessionId: string;
+  triggerKind: InterviewCueCard["triggerKind"];
+  question: string;
+  disclosure: InterviewCueInputDisclosure;
+  createdAt: string;
+}): InterviewCueCard {
+  return InterviewCueCardSchema.parse({
+    id: `cue_provider_failure_${input.createdAt.replace(/\W/g, "_")}`,
+    sessionId: input.sessionId,
+    title: "Cue unavailable",
+    question: input.question,
+    answerOutline: [
+      "Ask for a moment to think, then answer from your own experience.",
+      "Restate the question briefly and cover the most relevant tradeoff.",
+    ],
+    supportingPoints: [
+      "The cue provider failed or returned invalid output, so no generated guidance was used.",
+    ],
+    clarifyingQuestion: "Could you clarify the main constraint you want me to optimize for?",
+    avoidSaying: "Do not claim generated details or metrics that were not in your real experience.",
+    expandedContent:
+      "Interview Helper could not produce a validated cue card for this turn. Continue with a concise, honest answer grounded in the interview context.",
+    triggerKind: input.triggerKind,
+    disclosure: input.disclosure,
+    createdAt: input.createdAt,
+  });
+}
+
 function shouldGenerateAutomaticCue(input: {
   session: InterviewLiveSession;
   segment: InterviewTranscriptSegment;
@@ -698,7 +736,7 @@ export function createInterviewHelperService(
       triggerSource: session.transcriptSegments.at(-1)?.source ?? null,
       visualBatch,
     });
-    const cue = await options.cueCardProvider.generateCueCard({
+    const cueInput = {
       sessionId: session.id,
       triggerKind,
       question: getLatestQuestion(session.transcriptSegments),
@@ -708,8 +746,27 @@ export function createInterviewHelperService(
       visualObservations: visualBatch?.observations ?? [],
       disclosure,
       createdAt: currentNow,
-    });
-    const normalizedCue = InterviewCueCardSchema.parse(cue);
+    };
+    const providerDiagnostics: InterviewDiagnosticEvent[] = [];
+    let normalizedCue: InterviewCueCard;
+
+    try {
+      const cue = await options.cueCardProvider.generateCueCard(cueInput);
+      normalizedCue = InterviewCueCardSchema.parse(cue);
+    } catch (error) {
+      normalizedCue = createCueProviderFailureCard(cueInput);
+      providerDiagnostics.push(
+        createDiagnostic({
+          sessionId: session.id,
+          kind: "provider",
+          severity: "warning",
+          label: "Cue provider failed",
+          detail: `A quiet fallback cue card was shown because cue generation failed validation or timed out: ${summarizeServiceError(error)}`,
+          occurredAt: currentNow,
+        }),
+      );
+    }
+
     const cueSummary = await options.summaryProvider.summarize({
       previousSummary: session.cueSummary,
       transcriptSegments: session.transcriptSegments,
@@ -742,12 +799,19 @@ export function createInterviewHelperService(
       visualBatches: clearedBatches,
       diagnostics: [
         ...session.diagnostics,
+        ...providerDiagnostics,
         createDiagnostic({
           sessionId: session.id,
           kind: "cue",
-          severity: "info",
-          label: "Cue card generated",
-          detail: `${triggerKind} used ${disclosure.transcriptWindow}.`,
+          severity: providerDiagnostics.length > 0 ? "warning" : "info",
+          label:
+            providerDiagnostics.length > 0
+              ? "Cue fallback card shown"
+              : "Cue card generated",
+          detail:
+            providerDiagnostics.length > 0
+              ? `${triggerKind} used ${disclosure.transcriptWindow}; generated provider output was unavailable.`
+              : `${triggerKind} used ${disclosure.transcriptWindow}.`,
           occurredAt: currentNow,
         }),
       ],
