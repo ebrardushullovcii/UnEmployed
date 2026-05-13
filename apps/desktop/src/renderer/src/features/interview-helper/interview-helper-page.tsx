@@ -14,6 +14,7 @@ import {
   CheckCircle2,
   Clock,
   FileDown,
+  ListChecks,
   Mic,
   PanelTop,
   Pause,
@@ -32,6 +33,7 @@ import { AnswerCueOverlay, TranscriptOverlay } from "./interview-overlays";
 import { TranscriptAnnotationPanel } from "./interview-review-annotations";
 import { InterviewBrowserSpeechBridge } from "./interview-browser-speech-bridge";
 import { InterviewCaptionFileWatcher } from "./interview-caption-file-watcher";
+import { InterviewDiagnosticsPanel } from "./interview-diagnostics-panel";
 import { InterviewMediaStreamProbes } from "./interview-media-stream-probes";
 import { InterviewNativeCaptionWatcher } from "./interview-native-caption-watcher";
 import { InterviewSessionPreferences } from "./interview-session-preferences";
@@ -105,6 +107,7 @@ export function InterviewHelperPage() {
   const [searchParams] = useSearchParams();
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [transcriptSource, setTranscriptSource] =
     useState<InterviewTranscriptSource>("meeting_native_transcript");
   const [transcriptDraft, setTranscriptDraft] = useState("");
@@ -644,6 +647,16 @@ export function InterviewHelperPage() {
                           ? "Close config"
                           : "Reconfigure"}
                       </Button>
+                      <Button
+                        onClick={() => {
+                          setDiagnosticsOpen((current) => !current);
+                        }}
+                        size="compact"
+                        variant="secondary"
+                      >
+                        <ListChecks className="size-4" />
+                        Open diagnostics
+                      </Button>
                     </div>
                     {activeSession?.status === "reconfiguring" ? (
                       <div className="rounded-(--radius-small) border border-(--info-border) bg-(--info-surface) p-3 text-[0.78rem] leading-5 text-(--info-text)">
@@ -1003,6 +1016,17 @@ export function InterviewHelperPage() {
                   </div>
                 </div>
               </Panel>
+              {diagnosticsOpen ? (
+                <Panel title="Diagnostics">
+                  <InterviewDiagnosticsPanel
+                    diagnostics={
+                      activeSession?.diagnostics ??
+                      reviewSession?.diagnostics ??
+                      []
+                    }
+                  />
+                </Panel>
+              ) : null}
             </aside>
           </div>
         </div>

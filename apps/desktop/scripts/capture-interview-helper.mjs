@@ -244,6 +244,9 @@ async function runCapture() {
         workspace.activeSession.listening === true,
       'Interview Helper resumed after reconfiguration',
     )
+    await window.getByRole('button', { name: /Open diagnostics/i }).click()
+    await window.getByText('Diagnostics', { exact: true }).waitFor({ timeout: 10000 })
+    const diagnosticsPanelVisible = (await window.getByText('Interview live session started').count()) > 0
     const liveCueQuestion = activeWorkspace.activeSession?.cueCards.at(-1)?.question ?? ''
     const liveTranscriptTexts =
       activeWorkspace.activeSession?.transcriptSegments.map((segment) => segment.text) ?? []
@@ -440,6 +443,7 @@ async function runCapture() {
       reconfigurationClosedPaused:
         reconfigurationClosedWorkspace.activeSession?.status === 'paused' &&
         reconfigurationClosedWorkspace.activeSession.listening === false,
+      diagnosticsPanelVisible,
       nativeTranscriptIngestionAddedSegment:
         nativeTranscriptWorkspace.activeSession?.transcriptSegments.some(
           (segment) =>
