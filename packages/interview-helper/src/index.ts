@@ -630,12 +630,26 @@ export function createInterviewHelperService(
       transcriptSegments: session.transcriptSegments,
       cueCards: [...session.cueCards, normalizedCue],
     })
+    const cueContextSegmentIds = new Set(
+      session.transcriptSegments.slice(-8).map((segment) => segment.id),
+    )
+    const transcriptSegments = session.transcriptSegments.map((segment) =>
+      cueContextSegmentIds.has(segment.id)
+        ? {
+            ...segment,
+            usedInCueIds: segment.usedInCueIds.includes(normalizedCue.id)
+              ? segment.usedInCueIds
+              : [...segment.usedInCueIds, normalizedCue.id],
+          }
+        : segment,
+    )
     const clearedBatches = session.visualBatches.map((batch) =>
       batch.id === visualBatch?.id ? { ...batch, clearedAt: currentNow } : batch,
     )
 
     return InterviewLiveSessionSchema.parse({
       ...session,
+      transcriptSegments,
       cueCards: [...session.cueCards, normalizedCue],
       cueSummary,
       visualBatches: clearedBatches,

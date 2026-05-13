@@ -279,6 +279,7 @@ Cue-card requests must include normalized bounded context, not raw transcript bl
 - active visual observations
 - screenshot batch count and contamination state
 - degraded capability states
+- generated cue ids written back to the bounded transcript segments they consumed through `usedInCueIds`
 
 ### Cue Card Output
 

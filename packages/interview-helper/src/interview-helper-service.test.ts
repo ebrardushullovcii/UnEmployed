@@ -94,6 +94,11 @@ describe("interview helper service", () => {
     expect(active.activeSession?.status).toBe("active");
     expect(active.activeSession?.transcriptSegments).toHaveLength(2);
     expect(active.activeSession?.cueCards).toHaveLength(1);
+    expect(
+      active.activeSession?.transcriptSegments.every(
+        (segment) => segment.usedInCueIds.length === 1,
+      ),
+    ).toBe(true);
     expect(active.answerOverlay.currentCue?.answerOutline[0]).toContain("direct");
   });
 
@@ -185,6 +190,9 @@ describe("interview helper service", () => {
     expect(updated.activeSession?.cueCards.at(-1)?.question).toContain(
       "overlay IPC",
     );
+    expect(
+      updated.activeSession?.transcriptSegments.at(-1)?.usedInCueIds.at(-1),
+    ).toBe(updated.activeSession?.cueCards.at(-1)?.id);
     expect(updated.transcriptOverlay.transcriptSegments.at(-1)?.text).toContain(
       "overlay IPC",
     );
