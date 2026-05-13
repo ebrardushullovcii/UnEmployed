@@ -12,6 +12,7 @@ import type {
   InterviewExportResult,
   InterviewHotkeyAction,
   InterviewAudioTranscriptionInput,
+  InterviewClipboardTextResult,
   InterviewPrepArtifactFromCueInput,
   InterviewTranscriptAnnotationInput,
   InterviewTranscriptSegmentInput,
@@ -83,6 +84,7 @@ declare global {
         transcribeAudioChunk: (
           input: InterviewAudioTranscriptionInput,
         ) => Promise<InterviewWorkspaceSnapshot>;
+        readClipboardText: () => Promise<InterviewClipboardTextResult>;
         exportSession: (
           sessionId: string,
           format?: InterviewExportFormat,

@@ -512,6 +512,13 @@ export type InterviewAudioTranscriptionInput = z.input<
   typeof InterviewAudioTranscriptionInputSchema
 >;
 
+export const InterviewClipboardTextResultSchema = z.object({
+  text: z.string().default(""),
+});
+export type InterviewClipboardTextResult = z.infer<
+  typeof InterviewClipboardTextResultSchema
+>;
+
 export const InterviewExportFormatSchema = z.enum(["markdown", "json"]);
 export type InterviewExportFormat = z.infer<typeof InterviewExportFormatSchema>;
 

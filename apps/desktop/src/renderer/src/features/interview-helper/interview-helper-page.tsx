@@ -29,6 +29,7 @@ import { AnswerCueOverlay, TranscriptOverlay } from "./interview-overlays";
 import { TranscriptAnnotationPanel } from "./interview-review-annotations";
 import { InterviewBrowserSpeechBridge } from "./interview-browser-speech-bridge";
 import { InterviewMediaStreamProbes } from "./interview-media-stream-probes";
+import { InterviewNativeCaptionWatcher } from "./interview-native-caption-watcher";
 
 type LoadState =
   | { status: "loading" }
@@ -591,6 +592,18 @@ export function InterviewHelperPage() {
                                 current.status === "ready"
                                   ? current.exportResult
                                   : null,
+                            }));
+                          }}
+                          sessionId={activeSession.id}
+                        />
+                        <InterviewNativeCaptionWatcher
+                          listening={activeSession.listening}
+                          onWorkspaceChange={(nextWorkspace) => {
+                            setState((current) => ({
+                              status: "ready",
+                              workspace: nextWorkspace,
+                              exportResult:
+                                current.status === "ready" ? current.exportResult : null,
                             }));
                           }}
                           sessionId={activeSession.id}

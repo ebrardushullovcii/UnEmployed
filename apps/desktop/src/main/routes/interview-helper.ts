@@ -1,4 +1,4 @@
-import type { IpcMain } from "electron";
+import { clipboard, type IpcMain } from "electron";
 import {
   InterviewAudioTranscriptionInputSchema,
   InterviewExportSessionInputSchema,
@@ -102,6 +102,10 @@ export function registerInterviewHelperRouteHandlers(ipcMain: IpcMain) {
       return withSyncedOverlays(() => service.transcribeAudioChunk(input));
     },
   );
+
+  ipcMain.handle("interview-helper:read-clipboard-text", () => ({
+    text: clipboard.readText(),
+  }));
 
   ipcMain.handle(
     "interview-helper:export-session",

@@ -10,6 +10,7 @@ import type {
   InterviewExportResult,
   InterviewHotkeyAction,
   InterviewAudioTranscriptionInput,
+  InterviewClipboardTextResult,
   InterviewPrepArtifactFromCueInput,
   InterviewTranscriptAnnotationInput,
   InterviewTranscriptSegmentInput,
@@ -175,6 +176,10 @@ const desktopApi = {
         "interview-helper:transcribe-audio-chunk",
         input,
       ) as Promise<InterviewWorkspaceSnapshot>,
+    readClipboardText: () =>
+      ipcRenderer.invoke(
+        "interview-helper:read-clipboard-text",
+      ) as Promise<InterviewClipboardTextResult>,
     exportSession: (
       sessionId: string,
       format: InterviewExportFormat = "markdown",
