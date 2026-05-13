@@ -139,9 +139,7 @@ export const InterviewSetupConsentSchema = z.object({
   overlayProtectionNotice: z.boolean().default(false),
   acceptedAt: IsoDateTimeSchema.nullable().default(null),
 });
-export type InterviewSetupConsent = z.infer<
-  typeof InterviewSetupConsentSchema
->;
+export type InterviewSetupConsent = z.infer<typeof InterviewSetupConsentSchema>;
 
 export const InterviewTargetContextSchema = z.object({
   kind: InterviewTargetContextKindSchema,
@@ -167,9 +165,7 @@ export const InterviewPrepArtifactSchema = z.object({
   createdAt: IsoDateTimeSchema,
   updatedAt: IsoDateTimeSchema,
 });
-export type InterviewPrepArtifact = z.infer<
-  typeof InterviewPrepArtifactSchema
->;
+export type InterviewPrepArtifact = z.infer<typeof InterviewPrepArtifactSchema>;
 
 export const InterviewTranscriptionEngineSchema = z.object({
   kind: InterviewTranscriptionEngineKindSchema,
@@ -386,7 +382,8 @@ export const InterviewLiveSessionSchema = z.object({
   startedAt: IsoDateTimeSchema,
   endedAt: IsoDateTimeSchema.nullable().default(null),
   listening: z.boolean().default(true),
-  automaticCueSensitivity: InterviewCueSensitivitySchema.default("conservative"),
+  automaticCueSensitivity:
+    InterviewCueSensitivitySchema.default("conservative"),
   cueSummary: NonEmptyStringSchema.default("No summary yet."),
   transcriptSegments: z.array(InterviewTranscriptSegmentSchema).default([]),
   transcriptAnnotations: z
@@ -498,6 +495,23 @@ export type InterviewTranscriptSegmentInput = z.input<
   typeof InterviewTranscriptSegmentInputSchema
 >;
 
+export const InterviewAudioTranscriptionInputSchema = z.object({
+  sessionId: NonEmptyStringSchema,
+  source: z.enum(["microphone", "meeting_audio"]),
+  mimeType: NonEmptyStringSchema,
+  audioBase64: z
+    .string()
+    .trim()
+    .min(1)
+    .max(12 * 1024 * 1024),
+  startedAt: IsoDateTimeSchema.optional(),
+  endedAt: IsoDateTimeSchema.optional(),
+  language: NonEmptyStringSchema.default("en-US"),
+});
+export type InterviewAudioTranscriptionInput = z.input<
+  typeof InterviewAudioTranscriptionInputSchema
+>;
+
 export const InterviewExportFormatSchema = z.enum(["markdown", "json"]);
 export type InterviewExportFormat = z.infer<typeof InterviewExportFormatSchema>;
 
@@ -514,6 +528,4 @@ export const InterviewExportResultSchema = z.object({
   mimeType: NonEmptyStringSchema,
   content: NonEmptyStringSchema,
 });
-export type InterviewExportResult = z.infer<
-  typeof InterviewExportResultSchema
->;
+export type InterviewExportResult = z.infer<typeof InterviewExportResultSchema>;

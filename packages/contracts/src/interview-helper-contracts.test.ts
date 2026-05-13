@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  InterviewAudioTranscriptionInputSchema,
   InterviewTranscriptAnnotationInputSchema,
   InterviewTranscriptSegmentInputSchema,
   InterviewWorkspaceSnapshotSchema,
@@ -108,9 +109,9 @@ describe("interview helper contracts", () => {
       },
     });
 
-    expect(workspace.setup.rehearsal?.protectedSurfaces[0]?.protectionState).toBe(
-      "requested_unverified",
-    );
+    expect(
+      workspace.setup.rehearsal?.protectedSurfaces[0]?.protectionState,
+    ).toBe("requested_unverified");
   });
 
   test("defaults setup inputs without widening unknown shape", () => {
@@ -145,5 +146,17 @@ describe("interview helper contracts", () => {
     expect(input.state).toBe("final");
     expect(input.language).toBe("en-US");
     expect(input.confidence).toBeNull();
+  });
+
+  test("parses transient audio transcription input without broad source access", () => {
+    const input = InterviewAudioTranscriptionInputSchema.parse({
+      sessionId: "interview_session_1",
+      source: "meeting_audio",
+      mimeType: "audio/webm",
+      audioBase64: "dGVzdCBhdWRpbw==",
+    });
+
+    expect(input.source).toBe("meeting_audio");
+    expect(input.language).toBe("en-US");
   });
 });

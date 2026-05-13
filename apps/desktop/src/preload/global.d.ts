@@ -11,6 +11,7 @@ import type {
   InterviewExportFormat,
   InterviewExportResult,
   InterviewHotkeyAction,
+  InterviewAudioTranscriptionInput,
   InterviewPrepArtifactFromCueInput,
   InterviewTranscriptAnnotationInput,
   InterviewTranscriptSegmentInput,
@@ -78,6 +79,9 @@ declare global {
         ) => Promise<InterviewWorkspaceSnapshot>;
         addTranscriptSegment: (
           input: InterviewTranscriptSegmentInput,
+        ) => Promise<InterviewWorkspaceSnapshot>;
+        transcribeAudioChunk: (
+          input: InterviewAudioTranscriptionInput,
         ) => Promise<InterviewWorkspaceSnapshot>;
         exportSession: (
           sessionId: string,
@@ -177,9 +181,15 @@ declare global {
         dismissDiscoveryJob: (
           jobId: string,
         ) => Promise<JobFinderWorkspaceSnapshot>;
-        getResumeWorkspace: (jobId: string) => Promise<JobFinderResumeWorkspace>;
-        previewResumeDraft: (draft: ResumeDraft) => Promise<JobFinderResumePreview>;
-        saveResumeDraft: (draft: ResumeDraft) => Promise<JobFinderWorkspaceSnapshot>;
+        getResumeWorkspace: (
+          jobId: string,
+        ) => Promise<JobFinderResumeWorkspace>;
+        previewResumeDraft: (
+          draft: ResumeDraft,
+        ) => Promise<JobFinderResumePreview>;
+        saveResumeDraft: (
+          draft: ResumeDraft,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
         regenerateResumeDraft: (
           jobId: string,
         ) => Promise<JobFinderWorkspaceSnapshot>;
@@ -214,24 +224,30 @@ declare global {
             "visualCheckpointsEnabled"
           >,
         ) => Promise<JobFinderWorkspaceSnapshot>;
-        startAutoApplyRun: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
+        startAutoApplyRun: (
+          jobId: string,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
         startAutoApplyQueueRun: (
-          jobIds: JobFinderApplyQueueActionInput['jobIds'],
+          jobIds: JobFinderApplyQueueActionInput["jobIds"],
         ) => Promise<JobFinderWorkspaceSnapshot>;
         approveApplyRun: (runId: string) => Promise<JobFinderWorkspaceSnapshot>;
         cancelApplyRun: (runId: string) => Promise<JobFinderWorkspaceSnapshot>;
         resolveApplyConsentRequest: (
           requestId: string,
-          action: JobFinderApplyConsentActionInput['action'],
+          action: JobFinderApplyConsentActionInput["action"],
         ) => Promise<JobFinderWorkspaceSnapshot>;
         revokeApplyRunApproval: (
           runId: string,
         ) => Promise<JobFinderWorkspaceSnapshot>;
         approveApply: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
         test?: {
-          getSystemThemeOverride: () => 'dark' | 'light' | null;
-          setSystemThemeOverride: (theme: 'dark' | 'light' | null) => Promise<{ ok: true }>;
-          setResumePreviewMode: (mode: 'ok' | 'fail_once') => Promise<{ ok: true }>;
+          getSystemThemeOverride: () => "dark" | "light" | null;
+          setSystemThemeOverride: (
+            theme: "dark" | "light" | null,
+          ) => Promise<{ ok: true }>;
+          setResumePreviewMode: (
+            mode: "ok" | "fail_once",
+          ) => Promise<{ ok: true }>;
           loadResumeWorkspaceDemo: () => Promise<JobFinderWorkspaceSnapshot>;
           loadApplyQueueDemo: () => Promise<JobFinderWorkspaceSnapshot>;
           resetWorkspaceState: (

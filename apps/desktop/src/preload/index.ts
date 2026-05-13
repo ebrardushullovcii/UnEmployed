@@ -9,6 +9,7 @@ import type {
   InterviewExportFormat,
   InterviewExportResult,
   InterviewHotkeyAction,
+  InterviewAudioTranscriptionInput,
   InterviewPrepArtifactFromCueInput,
   InterviewTranscriptAnnotationInput,
   InterviewTranscriptSegmentInput,
@@ -147,15 +148,13 @@ const desktopApi = {
         "interview-helper:start-session",
       ) as Promise<InterviewWorkspaceSnapshot>,
     performAction: (action: InterviewHotkeyAction) =>
-      ipcRenderer.invoke(
-        "interview-helper:perform-action",
-        { action },
-      ) as Promise<InterviewWorkspaceSnapshot>,
+      ipcRenderer.invoke("interview-helper:perform-action", {
+        action,
+      }) as Promise<InterviewWorkspaceSnapshot>,
     deleteSession: (sessionId: string) =>
-      ipcRenderer.invoke(
-        "interview-helper:delete-session",
-        { sessionId },
-      ) as Promise<InterviewWorkspaceSnapshot>,
+      ipcRenderer.invoke("interview-helper:delete-session", {
+        sessionId,
+      }) as Promise<InterviewWorkspaceSnapshot>,
     saveCueAsPrepArtifact: (input: InterviewPrepArtifactFromCueInput) =>
       ipcRenderer.invoke(
         "interview-helper:save-cue-as-prep-artifact",
@@ -171,11 +170,19 @@ const desktopApi = {
         "interview-helper:add-transcript-segment",
         input,
       ) as Promise<InterviewWorkspaceSnapshot>,
-    exportSession: (sessionId: string, format: InterviewExportFormat = "markdown") =>
+    transcribeAudioChunk: (input: InterviewAudioTranscriptionInput) =>
       ipcRenderer.invoke(
-        "interview-helper:export-session",
-        { sessionId, format },
-      ) as Promise<InterviewExportResult>,
+        "interview-helper:transcribe-audio-chunk",
+        input,
+      ) as Promise<InterviewWorkspaceSnapshot>,
+    exportSession: (
+      sessionId: string,
+      format: InterviewExportFormat = "markdown",
+    ) =>
+      ipcRenderer.invoke("interview-helper:export-session", {
+        sessionId,
+        format,
+      }) as Promise<InterviewExportResult>,
   },
   jobFinder: {
     getWorkspace: () =>
@@ -338,12 +345,12 @@ const desktopApi = {
         }
       };
 
-      return (ipcRenderer
+      return ipcRenderer
         .invoke("job-finder:run-source-debug", {
           targetId,
           requestId,
         })
-        .finally(cleanup) as Promise<JobFinderWorkspaceSnapshot>);
+        .finally(cleanup) as Promise<JobFinderWorkspaceSnapshot>;
     },
     cancelSourceDebug: (runId: string) =>
       ipcRenderer.invoke("job-finder:cancel-source-debug", {
@@ -443,7 +450,10 @@ const desktopApi = {
       ipcRenderer.invoke("job-finder:clear-resume-approval", {
         jobId,
       }) as Promise<JobFinderWorkspaceSnapshot>,
-    applyResumePatch: (patch: ResumeDraftPatch, revisionReason?: string | null) =>
+    applyResumePatch: (
+      patch: ResumeDraftPatch,
+      revisionReason?: string | null,
+    ) =>
       ipcRenderer.invoke("job-finder:apply-resume-patch", {
         patch,
         revisionReason: revisionReason ?? null,
@@ -479,7 +489,7 @@ const desktopApi = {
         jobId,
       }) as Promise<JobFinderWorkspaceSnapshot>,
     startAutoApplyQueueRun: (
-      jobIds: JobFinderApplyQueueActionInput['jobIds'],
+      jobIds: JobFinderApplyQueueActionInput["jobIds"],
     ) =>
       ipcRenderer.invoke("job-finder:start-auto-apply-queue-run", {
         jobIds,
@@ -494,7 +504,7 @@ const desktopApi = {
       }) as Promise<JobFinderWorkspaceSnapshot>,
     resolveApplyConsentRequest: (
       requestId: string,
-      action: JobFinderApplyConsentActionInput['action'],
+      action: JobFinderApplyConsentActionInput["action"],
     ) =>
       ipcRenderer.invoke("job-finder:resolve-apply-consent-request", {
         requestId,
@@ -509,7 +519,7 @@ const desktopApi = {
         jobId,
       }) as Promise<JobFinderWorkspaceSnapshot>,
     ...(testApiEnabled
-        ? {
+      ? {
           test: {
             getSystemThemeOverride: () => currentSystemThemeOverride,
             setSystemThemeOverride: (theme: "dark" | "light" | null) =>
@@ -569,7 +579,9 @@ const desktopApi = {
               sourcePath: string | { sourcePath: string; useVision?: boolean },
             ) =>
               ipcRenderer.invoke("job-finder:test-import-resume-from-path", {
-                ...(typeof sourcePath === "string" ? { sourcePath } : sourcePath),
+                ...(typeof sourcePath === "string"
+                  ? { sourcePath }
+                  : sourcePath),
               }) as Promise<JobFinderWorkspaceSnapshot>,
           },
         }

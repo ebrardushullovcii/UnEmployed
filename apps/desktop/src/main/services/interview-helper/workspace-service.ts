@@ -1,14 +1,7 @@
-import {
-  createDeterministicInterviewCueCardProvider,
-  createDeterministicInterviewScreenshotVisionProvider,
-  createDeterministicInterviewSummaryProvider,
-  createDeterministicInterviewTranscriptionProvider,
-} from '@unemployed/ai-providers'
+import { createInterviewHelperProvidersFromEnvironment } from '@unemployed/ai-providers'
 import { createFileInterviewHelperRepository } from '@unemployed/db'
 import { createInterviewHelperService } from '@unemployed/interview-helper'
-import {
-  createStaticProtectedOverlaySurfaceAdapter,
-} from '@unemployed/os-integration'
+import { createStaticProtectedOverlaySurfaceAdapter } from '@unemployed/os-integration'
 import { createElectronDesktopAudioCaptureAdapter } from './electron-audio-capture-adapter'
 import { createElectronDesktopScreenshotCaptureAdapter } from './electron-screenshot-adapter'
 import {
@@ -22,26 +15,28 @@ let interviewHelperServicePromise:
 
 export function getInterviewHelperService() {
   interviewHelperServicePromise ??= Promise.resolve(
-    createInterviewHelperService({
-      repository: createFileInterviewHelperRepository({
-        filePath: getInterviewHelperWorkspaceFilePath(),
-      }),
-      audioCaptureAdapter: createElectronDesktopAudioCaptureAdapter({
-        platform: process.platform,
-      }),
-      screenshotCaptureAdapter: createElectronDesktopScreenshotCaptureAdapter({
-        directory: getInterviewHelperTemporaryScreenshotDirectory(),
-      }),
-      protectedSurfaceAdapter: createStaticProtectedOverlaySurfaceAdapter({
-        platform: process.platform,
-      }),
-      cueCardProvider: createDeterministicInterviewCueCardProvider(
-        'Desktop uses deterministic cue cards until live Interview providers are configured.',
-      ),
-      screenshotVisionProvider: createDeterministicInterviewScreenshotVisionProvider(),
-      transcriptionProvider: createDeterministicInterviewTranscriptionProvider(),
-      summaryProvider: createDeterministicInterviewSummaryProvider(),
-    }),
+    (() => {
+      const interviewProviders = createInterviewHelperProvidersFromEnvironment()
+
+      return createInterviewHelperService({
+        repository: createFileInterviewHelperRepository({
+          filePath: getInterviewHelperWorkspaceFilePath(),
+        }),
+        audioCaptureAdapter: createElectronDesktopAudioCaptureAdapter({
+          platform: process.platform,
+        }),
+        screenshotCaptureAdapter: createElectronDesktopScreenshotCaptureAdapter({
+          directory: getInterviewHelperTemporaryScreenshotDirectory(),
+        }),
+        protectedSurfaceAdapter: createStaticProtectedOverlaySurfaceAdapter({
+          platform: process.platform,
+        }),
+        cueCardProvider: interviewProviders.cueCardProvider,
+        screenshotVisionProvider: interviewProviders.screenshotVisionProvider,
+        transcriptionProvider: interviewProviders.transcriptionProvider,
+        summaryProvider: interviewProviders.summaryProvider,
+      })
+    })(),
   )
 
   return interviewHelperServicePromise

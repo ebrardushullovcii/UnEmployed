@@ -1,12 +1,20 @@
 import type {
+  InterviewAudioTranscriptionInput,
   InterviewCueCard,
   InterviewCueInputDisclosure,
   InterviewCueTriggerKind,
+  InterviewTranscriptionEngineKind,
   InterviewTranscriptionEngine,
   InterviewTranscriptSegment,
   InterviewVisualObservation,
 } from "@unemployed/contracts";
 import { InterviewCueCardSchema } from "@unemployed/contracts";
+import { z } from "zod";
+import {
+  buildAudioTranscriptionsUrl,
+  buildChatCompletionsUrl,
+  parseModelJsonResponse,
+} from "./openai-compatible-transport";
 
 export interface InterviewCueCardRequest {
   readonly sessionId: string;
@@ -56,11 +64,59 @@ export interface InterviewTranscriptionProvider {
     microphone: InterviewTranscriptionEngine;
     meetingAudio: InterviewTranscriptionEngine;
   };
+  transcribeAudioChunk?(
+    input: InterviewAudioTranscriptionInput,
+  ): Promise<InterviewAudioTranscriptionResult | null>;
   createSampleSegments(input: {
     sessionId: string;
     createdAt: string;
   }): readonly InterviewTranscriptSegment[];
 }
+
+export interface InterviewAudioTranscriptionResult {
+  readonly text: string;
+  readonly confidence: number | null;
+  readonly language: string;
+  readonly engineKind: InterviewTranscriptionEngineKind;
+}
+
+const InterviewModelCueCardOutputSchema = z.object({
+  title: z.string().trim().min(1),
+  answerOutline: z.array(z.string().trim().min(1)).min(1).max(5),
+  supportingPoints: z.array(z.string().trim().min(1)).max(6).default([]),
+  clarifyingQuestion: z.string().trim().min(1).nullable().default(null),
+  avoidSaying: z.string().trim().min(1).nullable().default(null),
+  expandedContent: z.string().trim().min(1).nullable().default(null),
+});
+
+const OpenAiCompatibleInterviewProviderOptionsSchema = z.object({
+  apiKey: z.string().trim().min(1),
+  baseUrl: z.string().trim().url(),
+  model: z.string().trim().min(1),
+  label: z.string().trim().min(1).optional(),
+  requestTimeoutMs: z.number().int().min(1_000).optional(),
+});
+
+const AudioTranscriptionResponseSchema = z.object({
+  text: z.string().trim().min(1),
+  language: z.string().trim().min(1).optional(),
+  confidence: z.number().min(0).max(1).nullable().optional(),
+});
+
+export type OpenAiCompatibleInterviewProviderOptions = z.infer<
+  typeof OpenAiCompatibleInterviewProviderOptionsSchema
+>;
+
+export interface InterviewHelperProviderBundle {
+  readonly cueCardProvider: InterviewCueCardProvider;
+  readonly screenshotVisionProvider: InterviewScreenshotVisionProvider;
+  readonly transcriptionProvider: InterviewTranscriptionProvider;
+  readonly summaryProvider: InterviewSummaryProvider;
+}
+
+const DEFAULT_INTERVIEW_MODEL_TIMEOUT_MS = 30_000;
+const DEFAULT_INTERVIEW_MODEL = "FelidaeAI-Pro-2.7";
+const DEFAULT_INTERVIEW_BASE_URL = "https://ai.automatedpros.link/v1";
 
 function pickQuestion(input: InterviewCueCardRequest): string {
   const latestMeetingQuestion = [...input.transcriptSegments]
@@ -74,9 +130,315 @@ function pickQuestion(input: InterviewCueCardRequest): string {
   return latestMeetingQuestion?.text ?? input.question;
 }
 
+function parseConfiguredTimeoutMs(
+  value: string | undefined,
+): number | undefined {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed >= 1_000 ? parsed : undefined;
+}
+
+function normalizeAbortLikeError(error: unknown, timeoutMs: number): unknown {
+  const message = error instanceof Error ? error.message.trim() : "";
+  const isAbortLikeMessage =
+    message === "This operation was aborted" ||
+    message === "The operation was aborted" ||
+    message === "signal is aborted without reason";
+
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return new DOMException(
+      `Interview model request timed out after ${Math.floor(timeoutMs / 1000)}s`,
+      "AbortError",
+    );
+  }
+
+  if (error instanceof Error && error.name === "AbortError") {
+    const abortError = new Error(
+      `Interview model request timed out after ${Math.floor(timeoutMs / 1000)}s`,
+    );
+    abortError.name = "AbortError";
+    return abortError;
+  }
+
+  if (isAbortLikeMessage) {
+    const abortError = new Error(
+      `Interview model request timed out after ${Math.floor(timeoutMs / 1000)}s`,
+    );
+    abortError.name = "AbortError";
+    return abortError;
+  }
+
+  return error;
+}
+
+function summarizeError(error: unknown): string {
+  return error instanceof Error && error.message.trim().length > 0
+    ? error.message.trim()
+    : "Unknown provider failure";
+}
+
+function buildCueCardPrompt(): string {
+  return [
+    "You generate concise live interview cue cards.",
+    "Return JSON only with title, answerOutline, supportingPoints, clarifyingQuestion, avoidSaying, and expandedContent.",
+    "Keep the cue speakable while someone is in an interview.",
+    "Ground every claim in the provided target context, prep artifacts, transcript window, and visual observations.",
+    "Never invent candidate employers, achievements, metrics, credentials, tools, links, or external actions.",
+    "For coding interviews, explain reasoning, edge cases, tradeoffs, and clarifying questions, but never instruct the app to operate an editor, browser, meeting tool, or coding platform.",
+    "If visual context is marked overlay-contaminated, ignore Interview Helper UI and mention uncertainty only when it matters.",
+    "Prefer 2-4 answer outline bullets and 2-4 supporting points.",
+  ].join(" ");
+}
+
+function buildCueCardPayload(input: InterviewCueCardRequest) {
+  return {
+    trigger: {
+      kind: input.triggerKind,
+      question: pickQuestion(input),
+      createdAt: input.createdAt,
+    },
+    targetContext: {
+      label: input.targetLabel,
+      kind: input.targetContextKind,
+    },
+    disclosure: input.disclosure,
+    transcriptWindow: input.transcriptSegments.map((segment) => ({
+      source: segment.source,
+      state: segment.state,
+      text: segment.text,
+      language: segment.language,
+      confidence: segment.confidence,
+      engineKind: segment.engineKind,
+    })),
+    visualObservations: input.visualObservations.map((observation) => ({
+      summary: observation.summary,
+      confidence: observation.confidence,
+      source: observation.source,
+    })),
+  };
+}
+
+export function createOpenAiCompatibleInterviewCueCardProvider(
+  options: OpenAiCompatibleInterviewProviderOptions,
+): InterviewCueCardProvider {
+  const configured =
+    OpenAiCompatibleInterviewProviderOptionsSchema.safeParse(options);
+  const validatedOptions = configured.success ? configured.data : null;
+  const label =
+    validatedOptions?.label ?? options.label ?? "AI interview cue provider";
+  const deterministicFallback = createDeterministicInterviewCueCardProvider(
+    "Model-backed Interview Helper cues are configured, with deterministic fallback on provider failure.",
+  );
+
+  async function fetchCueCard(
+    input: InterviewCueCardRequest,
+  ): Promise<unknown> {
+    if (!validatedOptions) {
+      throw new Error(
+        "The configured Interview Helper model provider settings are invalid.",
+      );
+    }
+
+    const timeoutMs =
+      validatedOptions.requestTimeoutMs ?? DEFAULT_INTERVIEW_MODEL_TIMEOUT_MS;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(
+        buildChatCompletionsUrl(validatedOptions.baseUrl),
+        {
+          method: "POST",
+          signal: controller.signal,
+          headers: {
+            Authorization: `Bearer ${validatedOptions.apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: validatedOptions.model,
+            temperature: 0.2,
+            response_format: { type: "json_object" },
+            messages: [
+              { role: "system", content: buildCueCardPrompt() },
+              {
+                role: "user",
+                content: JSON.stringify(buildCueCardPayload(input)),
+              },
+            ],
+          }),
+        },
+      );
+
+      return parseModelJsonResponse(response);
+    } catch (error) {
+      throw normalizeAbortLikeError(error, timeoutMs);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  return {
+    getStatus() {
+      return {
+        ready: configured.success,
+        label,
+        detail: validatedOptions
+          ? `Configured OpenAI-compatible Interview Helper cue provider using ${validatedOptions.model}.`
+          : "Interview Helper model provider settings are invalid. Deterministic fallback can still validate the flow.",
+      };
+    },
+    async generateCueCard(input) {
+      try {
+        const payload = await fetchCueCard(input);
+        const modelCue = InterviewModelCueCardOutputSchema.parse(payload);
+
+        return InterviewCueCardSchema.parse({
+          id: `cue_${input.createdAt.replace(/\W/g, "_")}`,
+          sessionId: input.sessionId,
+          question: pickQuestion(input),
+          triggerKind: input.triggerKind,
+          disclosure: input.disclosure,
+          createdAt: input.createdAt,
+          ...modelCue,
+        });
+      } catch (error) {
+        console.error(
+          `[AI Provider] Interview Helper cue generation failed; falling back to deterministic provider. ${summarizeError(error)}`,
+        );
+        return deterministicFallback.generateCueCard(input);
+      }
+    },
+  };
+}
+
+function audioBase64ToBlob(input: InterviewAudioTranscriptionInput): Blob {
+  const buffer = Buffer.from(input.audioBase64, "base64");
+  return new Blob([buffer], {
+    type: input.mimeType,
+  });
+}
+
+async function parseAudioTranscriptionResponse(
+  response: Response,
+): Promise<unknown> {
+  const rawBody = await response.text();
+  const payload =
+    rawBody.length > 0
+      ? (() => {
+          try {
+            return JSON.parse(rawBody) as unknown;
+          } catch {
+            return null;
+          }
+        })()
+      : null;
+
+  if (!response.ok) {
+    const message =
+      payload &&
+      typeof payload === "object" &&
+      "error" in payload &&
+      payload.error &&
+      typeof payload.error === "object" &&
+      "message" in payload.error &&
+      typeof payload.error.message === "string"
+        ? payload.error.message
+        : `Audio transcription request failed with status ${response.status}`;
+    throw new Error(message);
+  }
+
+  if (!payload) {
+    throw new Error("Audio transcription returned a non-JSON response");
+  }
+
+  return payload;
+}
+
+export function createOpenAiCompatibleInterviewTranscriptionProvider(
+  options: OpenAiCompatibleInterviewProviderOptions,
+): InterviewTranscriptionProvider {
+  const configured =
+    OpenAiCompatibleInterviewProviderOptionsSchema.safeParse(options);
+  const validatedOptions = configured.success ? configured.data : null;
+
+  function createCloudEngine(label: string): InterviewTranscriptionEngine {
+    return {
+      kind: "cloud_ai",
+      label,
+      ready: configured.success,
+      privacy: "cloud",
+      cost: "metered",
+      latency: "medium",
+      detail: validatedOptions
+        ? `Configured OpenAI-compatible audio transcription using ${validatedOptions.model}. Audio chunks are sent transiently and are not retained by Interview Helper.`
+        : "Interview Helper audio transcription settings are invalid.",
+    };
+  }
+
+  async function transcribeAudioChunk(
+    input: InterviewAudioTranscriptionInput,
+  ): Promise<InterviewAudioTranscriptionResult | null> {
+    if (!validatedOptions) {
+      return null;
+    }
+
+    const timeoutMs =
+      validatedOptions.requestTimeoutMs ?? DEFAULT_INTERVIEW_MODEL_TIMEOUT_MS;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const language = input.language ?? "en-US";
+    const formData = new FormData();
+    formData.set("model", validatedOptions.model);
+    formData.set(
+      "file",
+      audioBase64ToBlob(input),
+      `interview-${input.source}-${Date.now()}.webm`,
+    );
+    formData.set("language", language);
+
+    try {
+      const response = await fetch(
+        buildAudioTranscriptionsUrl(validatedOptions.baseUrl),
+        {
+          method: "POST",
+          signal: controller.signal,
+          headers: {
+            Authorization: `Bearer ${validatedOptions.apiKey}`,
+          },
+          body: formData,
+        },
+      );
+      const payload = await parseAudioTranscriptionResponse(response);
+      const parsed = AudioTranscriptionResponseSchema.parse(payload);
+
+      return {
+        text: parsed.text,
+        confidence: parsed.confidence ?? null,
+        language: parsed.language ?? language,
+        engineKind: "cloud_ai",
+      };
+    } catch (error) {
+      throw normalizeAbortLikeError(error, timeoutMs);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  return {
+    getEngines() {
+      return {
+        microphone: createCloudEngine("Cloud microphone transcription"),
+        meetingAudio: createCloudEngine("Cloud meeting/system transcription"),
+      };
+    },
+    transcribeAudioChunk,
+    createSampleSegments() {
+      return [];
+    },
+  };
+}
+
 export function createDeterministicInterviewCueCardProvider(
-  reason =
-    "Deterministic Interview Helper cue provider keeps local validation stable.",
+  reason = "Deterministic Interview Helper cue provider keeps local validation stable.",
 ): InterviewCueCardProvider {
   return {
     getStatus() {
@@ -89,37 +451,91 @@ export function createDeterministicInterviewCueCardProvider(
     generateCueCard(input) {
       const question = pickQuestion(input);
       const visualContext = input.visualObservations[0]?.summary ?? null;
-      return Promise.resolve(InterviewCueCardSchema.parse({
-        id: `cue_${input.createdAt.replace(/\W/g, "_")}`,
-        sessionId: input.sessionId,
-        title:
-          input.targetContextKind === "general_interview"
-            ? "Answer cue"
-            : `Answer cue for ${input.targetLabel}`,
-        question,
-        answerOutline: [
-          "Start with the direct trade-off or recommendation.",
-          "Anchor the answer in a concrete example from your background.",
-          "Close with how you would measure success or reduce risk.",
-        ],
-        supportingPoints: [
-          "Clarify constraints before jumping into implementation details.",
-          "Name the highest-impact option first, then mention alternatives.",
-          visualContext
-            ? `Use the visible context carefully: ${visualContext}`
-            : "Keep the response transcript-grounded because no visual context is active.",
-        ],
-        clarifyingQuestion:
-          "Would you like me to optimize for speed of delivery, reliability, or long-term maintainability?",
-        avoidSaying:
-          "Avoid claiming specific metrics or project outcomes that are not in your confirmed context.",
-        expandedContent:
-          "Frame the answer as a concise decision process: clarify constraints, choose the approach, explain why alternatives were not chosen, then describe validation.",
-        triggerKind: input.triggerKind,
-        disclosure: input.disclosure,
-        createdAt: input.createdAt,
-      }));
+      return Promise.resolve(
+        InterviewCueCardSchema.parse({
+          id: `cue_${input.createdAt.replace(/\W/g, "_")}`,
+          sessionId: input.sessionId,
+          title:
+            input.targetContextKind === "general_interview"
+              ? "Answer cue"
+              : `Answer cue for ${input.targetLabel}`,
+          question,
+          answerOutline: [
+            "Start with the direct trade-off or recommendation.",
+            "Anchor the answer in a concrete example from your background.",
+            "Close with how you would measure success or reduce risk.",
+          ],
+          supportingPoints: [
+            "Clarify constraints before jumping into implementation details.",
+            "Name the highest-impact option first, then mention alternatives.",
+            visualContext
+              ? `Use the visible context carefully: ${visualContext}`
+              : "Keep the response transcript-grounded because no visual context is active.",
+          ],
+          clarifyingQuestion:
+            "Would you like me to optimize for speed of delivery, reliability, or long-term maintainability?",
+          avoidSaying:
+            "Avoid claiming specific metrics or project outcomes that are not in your confirmed context.",
+          expandedContent:
+            "Frame the answer as a concise decision process: clarify constraints, choose the approach, explain why alternatives were not chosen, then describe validation.",
+          triggerKind: input.triggerKind,
+          disclosure: input.disclosure,
+          createdAt: input.createdAt,
+        }),
+      );
     },
+  };
+}
+
+export function createInterviewHelperProvidersFromEnvironment(
+  env: Partial<Record<string, string | undefined>> = process.env,
+): InterviewHelperProviderBundle {
+  const apiKey =
+    env.UNEMPLOYED_INTERVIEW_AI_API_KEY ?? env.UNEMPLOYED_AI_API_KEY;
+  const requestTimeoutMs = parseConfiguredTimeoutMs(
+    env.UNEMPLOYED_INTERVIEW_AI_TIMEOUT_MS ?? env.UNEMPLOYED_AI_TIMEOUT_MS,
+  );
+  const screenshotVisionProvider =
+    createDeterministicInterviewScreenshotVisionProvider();
+  const deterministicTranscriptionProvider =
+    createDeterministicInterviewTranscriptionProvider();
+  const summaryProvider = createDeterministicInterviewSummaryProvider();
+
+  if (!apiKey) {
+    return {
+      cueCardProvider: createDeterministicInterviewCueCardProvider(),
+      screenshotVisionProvider,
+      transcriptionProvider: deterministicTranscriptionProvider,
+      summaryProvider,
+    };
+  }
+
+  const providerOptions = {
+    apiKey,
+    baseUrl:
+      env.UNEMPLOYED_INTERVIEW_AI_BASE_URL ??
+      env.UNEMPLOYED_AI_BASE_URL ??
+      DEFAULT_INTERVIEW_BASE_URL,
+    model:
+      env.UNEMPLOYED_INTERVIEW_AI_MODEL ??
+      env.UNEMPLOYED_AI_MODEL ??
+      DEFAULT_INTERVIEW_MODEL,
+    requestTimeoutMs,
+  };
+
+  return {
+    cueCardProvider: createOpenAiCompatibleInterviewCueCardProvider({
+      ...providerOptions,
+      label: "AI interview cue provider",
+    }),
+    screenshotVisionProvider,
+    transcriptionProvider: createOpenAiCompatibleInterviewTranscriptionProvider(
+      {
+        ...providerOptions,
+        label: "AI interview transcription provider",
+      },
+    ),
+    summaryProvider,
   };
 }
 
@@ -131,9 +547,13 @@ export function createDeterministicInterviewSummaryProvider(): InterviewSummaryP
         .find((segment) => segment.source === "meeting_audio")?.text;
       const cueCount = input.cueCards.length;
       const summaryParts = [
-        input.previousSummary === "No summary yet." ? null : input.previousSummary,
+        input.previousSummary === "No summary yet."
+          ? null
+          : input.previousSummary,
         latestQuestion ? `Latest interviewer topic: ${latestQuestion}` : null,
-        cueCount > 0 ? `${cueCount} cue card${cueCount === 1 ? "" : "s"} generated.` : null,
+        cueCount > 0
+          ? `${cueCount} cue card${cueCount === 1 ? "" : "s"} generated.`
+          : null,
       ].filter((part): part is string => Boolean(part));
 
       return Promise.resolve(summaryParts.join(" ") || "No summary yet.");

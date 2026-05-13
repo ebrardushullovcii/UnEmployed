@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from "react";
 import type {
   InterviewExportResult,
   InterviewHotkeyAction,
   InterviewOverlaySnapshot,
   InterviewTranscriptSource,
   InterviewWorkspaceSnapshot,
-} from '@unemployed/contracts'
+} from "@unemployed/contracts";
 import {
   AlertTriangle,
   Archive,
@@ -20,44 +20,60 @@ import {
   Radio,
   Shield,
   Sparkles,
-  Trash2
-} from 'lucide-react'
-import { Link, useSearchParams } from 'react-router-dom'
-import { Button } from '@renderer/components/ui/button'
-import { cn } from '@renderer/lib/cn'
-import { AnswerCueOverlay, TranscriptOverlay } from './interview-overlays'
-import { TranscriptAnnotationPanel } from './interview-review-annotations'
-import { InterviewBrowserSpeechBridge } from './interview-browser-speech-bridge'
-import { InterviewMediaStreamProbes } from './interview-media-stream-probes'
+  Trash2,
+} from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
+import { Button } from "@renderer/components/ui/button";
+import { cn } from "@renderer/lib/cn";
+import { AnswerCueOverlay, TranscriptOverlay } from "./interview-overlays";
+import { TranscriptAnnotationPanel } from "./interview-review-annotations";
+import { InterviewBrowserSpeechBridge } from "./interview-browser-speech-bridge";
+import { InterviewMediaStreamProbes } from "./interview-media-stream-probes";
 
 type LoadState =
-  | { status: 'loading' }
-  | { status: 'ready'; workspace: InterviewWorkspaceSnapshot; exportResult: InterviewExportResult | null }
-  | { status: 'error'; message: string }
+  | { status: "loading" }
+  | {
+      status: "ready";
+      workspace: InterviewWorkspaceSnapshot;
+      exportResult: InterviewExportResult | null;
+    }
+  | { status: "error"; message: string };
 
-function StatusPill(props: { label: string; tone?: 'success' | 'warning' | 'critical' | 'info' }) {
-  const tone = props.tone ?? 'info'
+function StatusPill(props: {
+  label: string;
+  tone?: "success" | "warning" | "critical" | "info";
+}) {
+  const tone = props.tone ?? "info";
   return (
     <span
       className={cn(
-        'inline-flex items-center rounded-sm border px-2 py-1 text-[10px] font-bold uppercase tracking-(--tracking-badge)',
-        tone === 'success' && 'border-(--success-border) bg-(--success-surface) text-(--success-text)',
-        tone === 'warning' && 'border-(--warning-border) bg-(--warning-surface) text-(--warning-text)',
-        tone === 'critical' && 'border-critical/35 bg-critical/10 text-critical',
-        tone === 'info' && 'border-(--info-border) bg-(--info-surface) text-(--info-text)'
+        "inline-flex items-center rounded-sm border px-2 py-1 text-[10px] font-bold uppercase tracking-(--tracking-badge)",
+        tone === "success" &&
+          "border-(--success-border) bg-(--success-surface) text-(--success-text)",
+        tone === "warning" &&
+          "border-(--warning-border) bg-(--warning-surface) text-(--warning-text)",
+        tone === "critical" &&
+          "border-critical/35 bg-critical/10 text-critical",
+        tone === "info" &&
+          "border-(--info-border) bg-(--info-surface) text-(--info-text)",
       )}
     >
       {props.label}
     </span>
-  )
+  );
 }
 
-function Panel(props: { children: React.ReactNode; className?: string; title: string; index?: number }) {
+function Panel(props: {
+  children: React.ReactNode;
+  className?: string;
+  title: string;
+  index?: number;
+}) {
   return (
     <section
       className={cn(
-        'surface-card-tint relative overflow-hidden rounded-(--radius-panel) border p-4 shadow-[0_18px_70px_rgba(0,0,0,0.22)]',
-        props.className
+        "surface-card-tint relative overflow-hidden rounded-(--radius-panel) border p-4 shadow-[0_18px_70px_rgba(0,0,0,0.22)]",
+        props.className,
       )}
     >
       <header className="mb-4 flex items-center gap-2">
@@ -72,91 +88,99 @@ function Panel(props: { children: React.ReactNode; className?: string; title: st
       </header>
       {props.children}
     </section>
-  )
+  );
 }
 
 function getTargetLabel(workspace: InterviewWorkspaceSnapshot) {
-  return workspace.setup.targetContext?.label ?? 'General interview'
+  return workspace.setup.targetContext?.label ?? "General interview";
 }
 
 export function InterviewHelperPage() {
-  const [searchParams] = useSearchParams()
-  const [state, setState] = useState<LoadState>({ status: 'loading' })
-  const [pendingAction, setPendingAction] = useState<string | null>(null)
+  const [searchParams] = useSearchParams();
+  const [state, setState] = useState<LoadState>({ status: "loading" });
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [transcriptSource, setTranscriptSource] =
-    useState<InterviewTranscriptSource>('meeting_native_transcript')
-  const [transcriptDraft, setTranscriptDraft] = useState('')
-  const appliedTargetContextKeyRef = useRef<string | null>(null)
+    useState<InterviewTranscriptSource>("meeting_native_transcript");
+  const [transcriptDraft, setTranscriptDraft] = useState("");
+  const appliedTargetContextKeyRef = useRef<string | null>(null);
 
   async function loadWorkspace() {
     try {
-      const workspace = await window.unemployed.interviewHelper.getWorkspace()
-      setState({ status: 'ready', workspace, exportResult: null })
+      const workspace = await window.unemployed.interviewHelper.getWorkspace();
+      setState({ status: "ready", workspace, exportResult: null });
     } catch (error) {
       setState({
-        status: 'error',
-        message: error instanceof Error ? error.message : 'Interview Helper failed to load.'
-      })
+        status: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Interview Helper failed to load.",
+      });
     }
   }
 
   useEffect(() => {
-    void loadWorkspace()
-  }, [])
+    void loadWorkspace();
+  }, []);
 
-  async function updateWorkspace(actionId: string, action: () => Promise<InterviewWorkspaceSnapshot>) {
-    setPendingAction(actionId)
+  async function updateWorkspace(
+    actionId: string,
+    action: () => Promise<InterviewWorkspaceSnapshot>,
+  ) {
+    setPendingAction(actionId);
     try {
-      const workspace = await action()
+      const workspace = await action();
       setState((current) => ({
-        status: 'ready',
+        status: "ready",
         workspace,
-        exportResult: current.status === 'ready' ? current.exportResult : null
-      }))
+        exportResult: current.status === "ready" ? current.exportResult : null,
+      }));
     } finally {
-      setPendingAction(null)
+      setPendingAction(null);
     }
   }
 
   async function perform(action: InterviewHotkeyAction) {
-    await updateWorkspace(action, () => window.unemployed.interviewHelper.performAction(action))
+    await updateWorkspace(action, () =>
+      window.unemployed.interviewHelper.performAction(action),
+    );
   }
 
   useEffect(() => {
-    const source = searchParams.get('source')
-    const id = searchParams.get('id')
-    const label = searchParams.get('label')
-    const targetContextKey = searchParams.toString()
+    const source = searchParams.get("source");
+    const id = searchParams.get("id");
+    const label = searchParams.get("label");
+    const targetContextKey = searchParams.toString();
 
     const targetContextKind =
-      source === 'saved_job'
-        ? 'saved_job'
-        : source === 'job_application'
-          ? 'job_application'
-          : null
+      source === "saved_job"
+        ? "saved_job"
+        : source === "job_application"
+          ? "job_application"
+          : null;
 
     if (
-      state.status !== 'ready' ||
+      state.status !== "ready" ||
       state.workspace.activeSession ||
       !targetContextKind ||
       !id ||
       !label ||
       appliedTargetContextKeyRef.current === targetContextKey
     ) {
-      return
+      return;
     }
 
-    appliedTargetContextKeyRef.current = targetContextKey
+    appliedTargetContextKeyRef.current = targetContextKey;
     void window.unemployed.interviewHelper
       .saveSetup({
         targetContext: {
           kind: targetContextKind,
           id,
           label,
-          role: searchParams.get('role'),
-          company: searchParams.get('company'),
-          sourceUrl: searchParams.get('sourceUrl'),
-          notes: searchParams.get('notes'),
+          role: searchParams.get("role"),
+          company: searchParams.get("company"),
+          sourceUrl: searchParams.get("sourceUrl"),
+          notes: searchParams.get("notes"),
           savedJob: null,
           profileSnapshot: null,
           confirmedAt: new Date().toISOString(),
@@ -164,92 +188,105 @@ export function InterviewHelperPage() {
       })
       .then((workspace) => {
         setState((current) => ({
-          status: 'ready',
+          status: "ready",
           workspace,
-          exportResult: current.status === 'ready' ? current.exportResult : null
-        }))
-      })
-  }, [searchParams, state])
+          exportResult:
+            current.status === "ready" ? current.exportResult : null,
+        }));
+      });
+  }, [searchParams, state]);
 
   async function submitTranscriptSegment() {
     const currentActiveSession =
-      state.status === 'ready' ? state.workspace.activeSession : null
+      state.status === "ready" ? state.workspace.activeSession : null;
 
     if (!currentActiveSession || transcriptDraft.trim().length === 0) {
-      return
+      return;
     }
 
-    const text = transcriptDraft.trim()
-    setTranscriptDraft('')
-    await updateWorkspace('add_transcript_segment', () =>
+    const text = transcriptDraft.trim();
+    setTranscriptDraft("");
+    await updateWorkspace("add_transcript_segment", () =>
       window.unemployed.interviewHelper.addTranscriptSegment({
         sessionId: currentActiveSession.id,
         source: transcriptSource,
         text,
         engineKind:
-          transcriptSource === 'meeting_native_transcript'
-            ? 'platform_local'
-            : 'browser_speech',
-      })
-    )
+          transcriptSource === "meeting_native_transcript"
+            ? "platform_local"
+            : "browser_speech",
+      }),
+    );
   }
 
-  if (state.status === 'loading') {
+  if (state.status === "loading") {
     return (
       <main className="grid h-screen place-items-center bg-canvas">
         <p className="text-muted-foreground">Loading Interview Helper...</p>
       </main>
-    )
+    );
   }
 
-  if (state.status === 'error') {
+  if (state.status === "error") {
     return (
       <main className="grid h-screen place-items-center bg-canvas">
         <div className="rounded-(--radius-panel) border border-critical/30 bg-critical/10 p-6">
           <p>{state.message}</p>
         </div>
       </main>
-    )
+    );
   }
 
-  const { workspace } = state
-  const activeSession = workspace.activeSession
-  const isLiveSession = Boolean(activeSession && activeSession.status !== 'ended')
-  const rehearsal = workspace.setup.rehearsal
-  const reviewSession = activeSession ? null : (workspace.recentSessions[0] ?? null)
-  const transcriptSegments = reviewSession?.transcriptSegments ?? []
-  const latestCue = reviewSession?.cueCards.at(-1) ?? null
-  const checks = rehearsal?.checks ?? []
-  const hardBlocks = checks.filter((check) => check.required && check.status !== 'available')
-  const degraded = checks.filter((check) => !check.required && check.status !== 'available')
-  const targetLabel = getTargetLabel(workspace)
-  const canExport = Boolean(reviewSession)
-  const liveOverlaySummaries: Array<{ label: string; overlay: InterviewOverlaySnapshot }> = [
-    { label: 'Answer cues', overlay: workspace.answerOverlay },
-    { label: 'Live transcript', overlay: workspace.transcriptOverlay },
-  ]
+  const { workspace } = state;
+  const activeSession = workspace.activeSession;
+  const isLiveSession = Boolean(
+    activeSession && activeSession.status !== "ended",
+  );
+  const rehearsal = workspace.setup.rehearsal;
+  const reviewSession = activeSession
+    ? null
+    : (workspace.recentSessions[0] ?? null);
+  const transcriptSegments = reviewSession?.transcriptSegments ?? [];
+  const latestCue = reviewSession?.cueCards.at(-1) ?? null;
+  const checks = rehearsal?.checks ?? [];
+  const hardBlocks = checks.filter(
+    (check) => check.required && check.status !== "available",
+  );
+  const degraded = checks.filter(
+    (check) => !check.required && check.status !== "available",
+  );
+  const targetLabel = getTargetLabel(workspace);
+  const canExport = Boolean(reviewSession);
+  const liveOverlaySummaries: Array<{
+    label: string;
+    overlay: InterviewOverlaySnapshot;
+  }> = [
+    { label: "Answer cues", overlay: workspace.answerOverlay },
+    { label: "Live transcript", overlay: workspace.transcriptOverlay },
+  ];
   const consentAccepted = Boolean(
     workspace.setup.consent.microphoneCapture &&
-      workspace.setup.consent.meetingAudioCapture &&
-      workspace.setup.consent.screenshotCapture &&
-      workspace.setup.consent.modelTransmission &&
-      workspace.setup.consent.localRetention &&
-      workspace.setup.consent.overlayProtectionNotice &&
-      workspace.setup.consent.acceptedAt
-  )
+    workspace.setup.consent.meetingAudioCapture &&
+    workspace.setup.consent.screenshotCapture &&
+    workspace.setup.consent.modelTransmission &&
+    workspace.setup.consent.localRetention &&
+    workspace.setup.consent.overlayProtectionNotice &&
+    workspace.setup.consent.acceptedAt,
+  );
 
-  async function exportLatest(format: 'markdown' | 'json') {
-    if (!reviewSession) return
+  async function exportLatest(format: "markdown" | "json") {
+    if (!reviewSession) return;
 
-    setPendingAction(`export_${format}`)
+    setPendingAction(`export_${format}`);
     try {
-      const exportResult = await window.unemployed.interviewHelper.exportSession(
-        reviewSession.id,
-        format
-      )
-      setState({ status: 'ready', workspace, exportResult })
+      const exportResult =
+        await window.unemployed.interviewHelper.exportSession(
+          reviewSession.id,
+          format,
+        );
+      setState({ status: "ready", workspace, exportResult });
     } finally {
-      setPendingAction(null)
+      setPendingAction(null);
     }
   }
 
@@ -257,7 +294,10 @@ export function InterviewHelperPage() {
     <div className="h-screen overflow-hidden bg-canvas text-foreground">
       <header className="flex h-20 items-center justify-between border-b border-border/15 bg-(--shell-header-bg) px-6">
         <div className="grid gap-1">
-          <Link className="font-display text-[2rem] font-black leading-none tracking-[-0.07em]" to="/job-finder/profile">
+          <Link
+            className="font-display text-[2rem] font-black leading-none tracking-[-0.07em]"
+            to="/job-finder/profile"
+          >
             UNEMPLOYED
           </Link>
           <span className="text-[0.68rem] uppercase tracking-(--tracking-caps) text-muted-foreground">
@@ -265,12 +305,25 @@ export function InterviewHelperPage() {
           </span>
         </div>
         <nav className="flex items-center gap-3">
-          <Link className="text-[0.78rem] text-muted-foreground hover:text-foreground" to="/job-finder/profile">
+          <Link
+            className="text-[0.78rem] text-muted-foreground hover:text-foreground"
+            to="/job-finder/profile"
+          >
             Job Finder
           </Link>
           <StatusPill
-            label={activeSession ? activeSession.status : rehearsal?.status ?? 'setup'}
-            tone={activeSession ? 'success' : rehearsal?.status === 'blocked' ? 'critical' : 'warning'}
+            label={
+              activeSession
+                ? activeSession.status
+                : (rehearsal?.status ?? "setup")
+            }
+            tone={
+              activeSession
+                ? "success"
+                : rehearsal?.status === "blocked"
+                  ? "critical"
+                  : "warning"
+            }
           />
         </nav>
       </header>
@@ -283,7 +336,9 @@ export function InterviewHelperPage() {
             </p>
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div className="grid gap-2">
-                <h1 className="text-[clamp(2.25rem,4vw,4rem)]">Live interview workspace</h1>
+                <h1 className="text-[clamp(2.25rem,4vw,4rem)]">
+                  Live interview workspace
+                </h1>
                 <p className="max-w-3xl text-[0.92rem] leading-6 text-muted-foreground">
                   {targetLabel}
                 </p>
@@ -291,9 +346,11 @@ export function InterviewHelperPage() {
               <div className="flex flex-wrap gap-2">
                 <Button
                   onClick={() => {
-                    void updateWorkspace('rehearsal', () => window.unemployed.interviewHelper.runRehearsal())
+                    void updateWorkspace("rehearsal", () =>
+                      window.unemployed.interviewHelper.runRehearsal(),
+                    );
                   }}
-                  pending={pendingAction === 'rehearsal'}
+                  pending={pendingAction === "rehearsal"}
                   size="compact"
                   variant="secondary"
                 >
@@ -302,9 +359,11 @@ export function InterviewHelperPage() {
                 </Button>
                 <Button
                   onClick={() => {
-                    void updateWorkspace('start', () => window.unemployed.interviewHelper.startSession())
+                    void updateWorkspace("start", () =>
+                      window.unemployed.interviewHelper.startSession(),
+                    );
                   }}
-                  pending={pendingAction === 'start'}
+                  pending={pendingAction === "start"}
                   size="compact"
                 >
                   <Play className="size-4" />
@@ -320,17 +379,29 @@ export function InterviewHelperPage() {
                 <Panel index={1} title="Context">
                   <div className="grid gap-3">
                     <div className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
-                      <span className="text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">Type</span>
-                      <p className="mt-1 text-[0.9rem]">{workspace.setup.targetContext?.kind.replaceAll('_', ' ')}</p>
+                      <span className="text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">
+                        Type
+                      </span>
+                      <p className="mt-1 text-[0.9rem]">
+                        {workspace.setup.targetContext?.kind.replaceAll(
+                          "_",
+                          " ",
+                        )}
+                      </p>
                     </div>
                     <div className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
-                      <span className="text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">Target</span>
+                      <span className="text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">
+                        Target
+                      </span>
                       <p className="mt-1 text-[0.9rem]">{targetLabel}</p>
                     </div>
                     <div className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
-                      <span className="text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">Notes</span>
+                      <span className="text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">
+                        Notes
+                      </span>
                       <p className="mt-1 text-[0.82rem] leading-5 text-muted-foreground">
-                        {workspace.setup.targetContext?.notes ?? 'No notes selected.'}
+                        {workspace.setup.targetContext?.notes ??
+                          "No notes selected."}
                       </p>
                     </div>
                   </div>
@@ -339,21 +410,42 @@ export function InterviewHelperPage() {
                 <Panel index={2} title="Consent and readiness">
                   <div className="grid gap-2">
                     {[
-                      ['Microphone', workspace.setup.consent.microphoneCapture],
-                      ['Meeting audio', workspace.setup.consent.meetingAudioCapture],
-                      ['Screenshots', workspace.setup.consent.screenshotCapture],
-                      ['Model transmission', workspace.setup.consent.modelTransmission],
-                      ['Local retention', workspace.setup.consent.localRetention],
-                      ['Overlay protection limits', workspace.setup.consent.overlayProtectionNotice],
+                      ["Microphone", workspace.setup.consent.microphoneCapture],
+                      [
+                        "Meeting audio",
+                        workspace.setup.consent.meetingAudioCapture,
+                      ],
+                      [
+                        "Screenshots",
+                        workspace.setup.consent.screenshotCapture,
+                      ],
+                      [
+                        "Model transmission",
+                        workspace.setup.consent.modelTransmission,
+                      ],
+                      [
+                        "Local retention",
+                        workspace.setup.consent.localRetention,
+                      ],
+                      [
+                        "Overlay protection limits",
+                        workspace.setup.consent.overlayProtectionNotice,
+                      ],
                     ].map(([label, accepted]) => (
-                      <div className="flex items-center justify-between border-b border-border-subtle py-2 last:border-0" key={String(label)}>
+                      <div
+                        className="flex items-center justify-between border-b border-border-subtle py-2 last:border-0"
+                        key={String(label)}
+                      >
                         <span className="text-[0.82rem]">{label}</span>
-                        <StatusPill label={accepted ? 'Enabled' : 'Pending'} tone={accepted ? 'success' : 'warning'} />
+                        <StatusPill
+                          label={accepted ? "Enabled" : "Pending"}
+                          tone={accepted ? "success" : "warning"}
+                        />
                       </div>
                     ))}
                     <Button
                       onClick={() => {
-                        void updateWorkspace('accept_setup', () =>
+                        void updateWorkspace("accept_setup", () =>
                           window.unemployed.interviewHelper.saveSetup({
                             consent: {
                               microphoneCapture: true,
@@ -364,15 +456,15 @@ export function InterviewHelperPage() {
                               overlayProtectionNotice: true,
                               acceptedAt: new Date().toISOString(),
                             },
-                          })
-                        )
+                          }),
+                        );
                       }}
-                      pending={pendingAction === 'accept_setup'}
+                      pending={pendingAction === "accept_setup"}
                       size="compact"
-                      variant={consentAccepted ? 'secondary' : 'primary'}
+                      variant={consentAccepted ? "secondary" : "primary"}
                     >
                       <CheckCircle2 className="size-4" />
-                      {consentAccepted ? 'Setup accepted' : 'Accept setup'}
+                      {consentAccepted ? "Setup accepted" : "Accept setup"}
                     </Button>
                   </div>
                 </Panel>
@@ -384,7 +476,7 @@ export function InterviewHelperPage() {
                       <div>
                         <p className="text-[0.86rem]">Microphone</p>
                         <p className="text-[0.76rem] text-muted-foreground">
-                          {rehearsal?.microphoneEngine.label ?? 'Not checked'}
+                          {rehearsal?.microphoneEngine.label ?? "Not checked"}
                         </p>
                       </div>
                     </div>
@@ -393,7 +485,7 @@ export function InterviewHelperPage() {
                       <div>
                         <p className="text-[0.86rem]">Meeting/system audio</p>
                         <p className="text-[0.76rem] text-muted-foreground">
-                          {rehearsal?.meetingAudioEngine.label ?? 'Not checked'}
+                          {rehearsal?.meetingAudioEngine.label ?? "Not checked"}
                         </p>
                       </div>
                     </div>
@@ -410,33 +502,81 @@ export function InterviewHelperPage() {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="font-mono text-[1.55rem]">
-                          {activeSession ? new Date(activeSession.startedAt).toLocaleTimeString() : '00:00:00'}
+                          {activeSession
+                            ? new Date(
+                                activeSession.startedAt,
+                              ).toLocaleTimeString()
+                            : "00:00:00"}
                         </p>
                         <p className="text-[0.78rem] text-muted-foreground">
-                          {activeSession ? activeSession.status : 'Session inactive'}
+                          {activeSession
+                            ? activeSession.status
+                            : "Session inactive"}
                         </p>
                       </div>
-                      <StatusPill label={activeSession?.listening ? 'Listening' : 'Not recording'} tone={activeSession?.listening ? 'success' : 'warning'} />
+                      <StatusPill
+                        label={
+                          activeSession?.listening
+                            ? "Listening"
+                            : "Not recording"
+                        }
+                        tone={activeSession?.listening ? "success" : "warning"}
+                      />
                     </div>
                     <div className="grid grid-cols-2 gap-2">
-                      <Button onClick={() => { void perform('toggle_listening') }} pending={pendingAction === 'toggle_listening'} size="compact" variant="secondary">
+                      <Button
+                        onClick={() => {
+                          void perform("toggle_listening");
+                        }}
+                        pending={pendingAction === "toggle_listening"}
+                        size="compact"
+                        variant="secondary"
+                      >
                         <Pause className="size-4" />
                         Pause
                       </Button>
-                      <Button onClick={() => { void perform('force_cue') }} pending={pendingAction === 'force_cue'} size="compact" variant="secondary">
+                      <Button
+                        onClick={() => {
+                          void perform("force_cue");
+                        }}
+                        pending={pendingAction === "force_cue"}
+                        size="compact"
+                        variant="secondary"
+                      >
                         <Sparkles className="size-4" />
                         Force cue
                       </Button>
-                      <Button onClick={() => { void perform('capture_screenshot') }} pending={pendingAction === 'capture_screenshot'} size="compact" variant="secondary">
+                      <Button
+                        onClick={() => {
+                          void perform("capture_screenshot");
+                        }}
+                        pending={pendingAction === "capture_screenshot"}
+                        size="compact"
+                        variant="secondary"
+                      >
                         <Camera className="size-4" />
                         Screenshot
                       </Button>
-                      <Button onClick={() => { void perform('panic_hide') }} pending={pendingAction === 'panic_hide'} size="compact" variant="destructive">
+                      <Button
+                        onClick={() => {
+                          void perform("panic_hide");
+                        }}
+                        pending={pendingAction === "panic_hide"}
+                        size="compact"
+                        variant="destructive"
+                      >
                         <PanelTop className="size-4" />
                         Panic hide
                       </Button>
                     </div>
-                    <Button onClick={() => { void perform('end_session') }} pending={pendingAction === 'end_session'} size="compact" variant="outline">
+                    <Button
+                      onClick={() => {
+                        void perform("end_session");
+                      }}
+                      pending={pendingAction === "end_session"}
+                      size="compact"
+                      variant="outline"
+                    >
                       End session
                     </Button>
                     {activeSession ? (
@@ -445,30 +585,52 @@ export function InterviewHelperPage() {
                           listening={activeSession.listening}
                           onWorkspaceChange={(nextWorkspace) => {
                             setState((current) => ({
-                              status: 'ready',
+                              status: "ready",
                               workspace: nextWorkspace,
-                              exportResult: current.status === 'ready' ? current.exportResult : null
-                            }))
+                              exportResult:
+                                current.status === "ready"
+                                  ? current.exportResult
+                                  : null,
+                            }));
                           }}
                           sessionId={activeSession.id}
                         />
-                        <InterviewMediaStreamProbes />
+                        <InterviewMediaStreamProbes
+                          listening={activeSession.listening}
+                          onWorkspaceChange={(nextWorkspace) => {
+                            setState((current) => ({
+                              status: "ready",
+                              workspace: nextWorkspace,
+                              exportResult:
+                                current.status === "ready"
+                                  ? current.exportResult
+                                  : null,
+                            }));
+                          }}
+                          sessionId={activeSession.id}
+                        />
                         <div className="grid gap-2 sm:grid-cols-[0.62fr_1fr]">
                           <select
                             className="h-9 rounded-(--radius-small) border border-border-subtle bg-black/30 px-2 text-[0.78rem] text-foreground"
                             onChange={(event) => {
-                              setTranscriptSource(event.target.value as InterviewTranscriptSource)
+                              setTranscriptSource(
+                                event.target.value as InterviewTranscriptSource,
+                              );
                             }}
                             value={transcriptSource}
                           >
-                            <option value="meeting_native_transcript">Native captions</option>
+                            <option value="meeting_native_transcript">
+                              Native captions
+                            </option>
                             <option value="meeting_audio">Meeting audio</option>
                             <option value="microphone">Microphone</option>
                           </select>
                           <Button
                             disabled={transcriptDraft.trim().length === 0}
-                            onClick={() => { void submitTranscriptSegment() }}
-                            pending={pendingAction === 'add_transcript_segment'}
+                            onClick={() => {
+                              void submitTranscriptSegment();
+                            }}
+                            pending={pendingAction === "add_transcript_segment"}
                             size="compact"
                             variant="secondary"
                           >
@@ -479,7 +641,7 @@ export function InterviewHelperPage() {
                         <textarea
                           className="min-h-20 resize-y rounded-(--radius-small) border border-border-subtle bg-black/30 p-3 text-[0.82rem] leading-5 text-foreground outline-none focus:border-(--info-border)"
                           onChange={(event) => {
-                            setTranscriptDraft(event.target.value)
+                            setTranscriptDraft(event.target.value);
                           }}
                           placeholder="Paste a native caption or transcript line."
                           value={transcriptDraft}
@@ -493,20 +655,27 @@ export function InterviewHelperPage() {
                   <div className="grid gap-2">
                     {[...hardBlocks, ...degraded].length > 0 ? (
                       [...hardBlocks, ...degraded].map((check) => (
-                        <div className="rounded-(--radius-small) border border-(--warning-border) bg-(--warning-surface) p-3" key={check.id}>
+                        <div
+                          className="rounded-(--radius-small) border border-(--warning-border) bg-(--warning-surface) p-3"
+                          key={check.id}
+                        >
                           <div className="flex items-center gap-2">
                             <AlertTriangle className="size-4 text-(--warning-text)" />
                             <p className="text-[0.86rem]">{check.label}</p>
                           </div>
                           {check.detail ? (
-                            <p className="mt-2 text-[0.76rem] leading-5 text-muted-foreground">{check.detail}</p>
+                            <p className="mt-2 text-[0.76rem] leading-5 text-muted-foreground">
+                              {check.detail}
+                            </p>
                           ) : null}
                         </div>
                       ))
                     ) : (
                       <div className="rounded-(--radius-small) border border-(--success-border) bg-(--success-surface) p-3 text-(--success-text)">
                         <CheckCircle2 className="mb-2 size-4" />
-                        <p className="text-[0.86rem]">All required checks are ready.</p>
+                        <p className="text-[0.86rem]">
+                          All required checks are ready.
+                        </p>
                       </div>
                     )}
                   </div>
@@ -516,62 +685,112 @@ export function InterviewHelperPage() {
               <Panel index={6} title="Post-session review">
                 {isLiveSession ? (
                   <div className="rounded-(--radius-small) border border-(--info-border) bg-(--info-surface) p-4">
-                    <p className="text-[0.88rem] text-(--info-text)">Review opens after the live session ends.</p>
+                    <p className="text-[0.88rem] text-(--info-text)">
+                      Review opens after the live session ends.
+                    </p>
                     <p className="mt-2 text-[0.78rem] leading-5 text-muted-foreground">
-                      The main window keeps live cue-card and transcript text out of this surface while capture is active.
+                      The main window keeps live cue-card and transcript text
+                      out of this surface while capture is active.
                     </p>
                   </div>
                 ) : (
                   <div className="grid gap-4 lg:grid-cols-[1fr_0.8fr_0.7fr]">
                     <div className="grid gap-2">
-                      <h3 className="text-[0.78rem] uppercase tracking-(--tracking-badge) text-muted-foreground">Transcript</h3>
+                      <h3 className="text-[0.78rem] uppercase tracking-(--tracking-badge) text-muted-foreground">
+                        Transcript
+                      </h3>
                       <div className="max-h-64 overflow-y-auto rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
                         {transcriptSegments.map((segment) => (
-                          <p className="mb-2 text-[0.82rem] leading-5 text-foreground-soft" key={segment.id}>
-                            <span className="text-(--warning-text)">{segment.source.replaceAll('_', ' ')}</span> {segment.text}
+                          <p
+                            className="mb-2 text-[0.82rem] leading-5 text-foreground-soft"
+                            key={segment.id}
+                          >
+                            <span className="text-(--warning-text)">
+                              {segment.source.replaceAll("_", " ")}
+                            </span>{" "}
+                            {segment.text}
                           </p>
                         ))}
                       </div>
                     </div>
                     <div className="grid gap-2">
-                      <h3 className="text-[0.78rem] uppercase tracking-(--tracking-badge) text-muted-foreground">Latest cue</h3>
+                      <h3 className="text-[0.78rem] uppercase tracking-(--tracking-badge) text-muted-foreground">
+                        Latest cue
+                      </h3>
                       <div className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
-                        <p className="text-[0.86rem]">{latestCue?.question ?? 'No cue generated.'}</p>
+                        <p className="text-[0.86rem]">
+                          {latestCue?.question ?? "No cue generated."}
+                        </p>
                         <p className="mt-2 text-[0.76rem] text-muted-foreground">
-                          {reviewSession?.cueCards.length ?? 0} cue cards retained
+                          {reviewSession?.cueCards.length ?? 0} cue cards
+                          retained
                         </p>
                       </div>
                       {reviewSession ? (
                         <TranscriptAnnotationPanel
                           onWorkspaceChange={(nextWorkspace) => {
                             setState((current) => ({
-                              status: 'ready',
+                              status: "ready",
                               workspace: nextWorkspace,
-                              exportResult: current.status === 'ready' ? current.exportResult : null
-                            }))
+                              exportResult:
+                                current.status === "ready"
+                                  ? current.exportResult
+                                  : null,
+                            }));
                           }}
                           session={reviewSession}
                         />
                       ) : null}
                     </div>
                     <div className="grid content-start gap-2">
-                      <Button disabled={!latestCue || !reviewSession} onClick={() => {
-                        if (latestCue && reviewSession) {
-                          void updateWorkspace('prep', () => window.unemployed.interviewHelper.saveCueAsPrepArtifact({ sessionId: reviewSession.id, cueCardId: latestCue.id }))
-                        }
-                      }} pending={pendingAction === 'prep'} size="compact" variant="secondary">
+                      <Button
+                        disabled={!latestCue || !reviewSession}
+                        onClick={() => {
+                          if (latestCue && reviewSession) {
+                            void updateWorkspace("prep", () =>
+                              window.unemployed.interviewHelper.saveCueAsPrepArtifact(
+                                {
+                                  sessionId: reviewSession.id,
+                                  cueCardId: latestCue.id,
+                                },
+                              ),
+                            );
+                          }
+                        }}
+                        pending={pendingAction === "prep"}
+                        size="compact"
+                        variant="secondary"
+                      >
                         <Archive className="size-4" />
                         Save prep
                       </Button>
-                      <Button disabled={!canExport} onClick={() => { void exportLatest('markdown') }} pending={pendingAction === 'export_markdown'} size="compact" variant="secondary">
+                      <Button
+                        disabled={!canExport}
+                        onClick={() => {
+                          void exportLatest("markdown");
+                        }}
+                        pending={pendingAction === "export_markdown"}
+                        size="compact"
+                        variant="secondary"
+                      >
                         <FileDown className="size-4" />
                         Export notes
                       </Button>
-                      <Button disabled={!reviewSession} onClick={() => {
-                        if (reviewSession) {
-                          void updateWorkspace('delete', () => window.unemployed.interviewHelper.deleteSession(reviewSession.id))
-                        }
-                      }} pending={pendingAction === 'delete'} size="compact" variant="destructive">
+                      <Button
+                        disabled={!reviewSession}
+                        onClick={() => {
+                          if (reviewSession) {
+                            void updateWorkspace("delete", () =>
+                              window.unemployed.interviewHelper.deleteSession(
+                                reviewSession.id,
+                              ),
+                            );
+                          }
+                        }}
+                        pending={pendingAction === "delete"}
+                        size="compact"
+                        variant="destructive"
+                      >
                         <Trash2 className="size-4" />
                         Delete session
                       </Button>
@@ -580,7 +799,9 @@ export function InterviewHelperPage() {
                 )}
                 {state.exportResult ? (
                   <div className="mt-4 rounded-(--radius-small) border border-(--info-border) bg-(--info-surface) p-3">
-                    <p className="text-[0.78rem] text-(--info-text)">{state.exportResult.fileName}</p>
+                    <p className="text-[0.78rem] text-(--info-text)">
+                      {state.exportResult.fileName}
+                    </p>
                     <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-[0.72rem] text-muted-foreground">
                       {state.exportResult.content}
                     </pre>
@@ -594,13 +815,21 @@ export function InterviewHelperPage() {
                 <Panel title="Overlay surfaces">
                   <div className="grid gap-3">
                     {liveOverlaySummaries.map(({ label, overlay }) => (
-                      <div className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3" key={label}>
+                      <div
+                        className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3"
+                        key={label}
+                      >
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-[0.82rem]">{label}</span>
-                          <StatusPill label={overlay.visible ? 'Overlay window' : 'Hidden'} tone={overlay.visible ? 'success' : 'warning'} />
+                          <StatusPill
+                            label={
+                              overlay.visible ? "Overlay window" : "Hidden"
+                            }
+                            tone={overlay.visible ? "success" : "warning"}
+                          />
                         </div>
                         <p className="mt-2 text-[0.74rem] leading-5 text-muted-foreground">
-                          {overlay.protectionState.replaceAll('_', ' ')}
+                          {overlay.protectionState.replaceAll("_", " ")}
                         </p>
                       </div>
                     ))}
@@ -609,18 +838,24 @@ export function InterviewHelperPage() {
               ) : (
                 <>
                   <AnswerCueOverlay framed snapshot={workspace.answerOverlay} />
-                  <TranscriptOverlay framed snapshot={workspace.transcriptOverlay} />
+                  <TranscriptOverlay
+                    framed
+                    snapshot={workspace.transcriptOverlay}
+                  />
                 </>
               )}
               <Panel title="Hotkeys and tray">
                 <div className="grid gap-2">
                   {[
-                    ['Alt + H', 'Panic hide'],
-                    ['Alt + Q', 'Force cue'],
-                    ['Alt + S', 'Screenshot'],
-                    ['Alt + T', 'Transcript overlay'],
+                    ["Alt + H", "Panic hide"],
+                    ["Alt + Q", "Force cue"],
+                    ["Alt + S", "Screenshot"],
+                    ["Alt + T", "Transcript overlay"],
                   ].map(([keys, label]) => (
-                    <div className="flex items-center justify-between border-b border-border-subtle py-2 last:border-0" key={keys}>
+                    <div
+                      className="flex items-center justify-between border-b border-border-subtle py-2 last:border-0"
+                      key={keys}
+                    >
                       <span className="text-[0.82rem]">{label}</span>
                       <kbd className="rounded-sm border border-border-subtle bg-black/30 px-2 py-1 font-mono text-[0.7rem] text-muted-foreground">
                         {keys}
@@ -633,8 +868,9 @@ export function InterviewHelperPage() {
                 <div className="grid gap-3 text-[0.82rem] text-muted-foreground">
                   <p>
                     {isLiveSession
-                      ? 'Live summary text is kept out of the main window while capture is active.'
-                      : reviewSession?.cueSummary ?? 'No session summary yet.'}
+                      ? "Live summary text is kept out of the main window while capture is active."
+                      : (reviewSession?.cueSummary ??
+                        "No session summary yet.")}
                   </p>
                   <div className="flex items-center gap-2">
                     <Clock className="size-4" />
@@ -651,25 +887,33 @@ export function InterviewHelperPage() {
         </div>
       </main>
     </div>
-  )
+  );
 }
 
 export function InterviewAnswerOverlayRoute() {
-  const [workspace, setWorkspace] = useState<InterviewWorkspaceSnapshot | null>(null)
+  const [workspace, setWorkspace] = useState<InterviewWorkspaceSnapshot | null>(
+    null,
+  );
 
   useEffect(() => {
-    void window.unemployed.interviewHelper.getWorkspace().then(setWorkspace)
-  }, [])
+    void window.unemployed.interviewHelper.getWorkspace().then(setWorkspace);
+  }, []);
 
-  return workspace ? <AnswerCueOverlay snapshot={workspace.answerOverlay} /> : null
+  return workspace ? (
+    <AnswerCueOverlay snapshot={workspace.answerOverlay} />
+  ) : null;
 }
 
 export function InterviewTranscriptOverlayRoute() {
-  const [workspace, setWorkspace] = useState<InterviewWorkspaceSnapshot | null>(null)
+  const [workspace, setWorkspace] = useState<InterviewWorkspaceSnapshot | null>(
+    null,
+  );
 
   useEffect(() => {
-    void window.unemployed.interviewHelper.getWorkspace().then(setWorkspace)
-  }, [])
+    void window.unemployed.interviewHelper.getWorkspace().then(setWorkspace);
+  }, []);
 
-  return workspace ? <TranscriptOverlay snapshot={workspace.transcriptOverlay} /> : null
+  return workspace ? (
+    <TranscriptOverlay snapshot={workspace.transcriptOverlay} />
+  ) : null;
 }

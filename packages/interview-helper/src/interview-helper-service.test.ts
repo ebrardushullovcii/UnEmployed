@@ -14,6 +14,7 @@ import {
   createDeterministicInterviewScreenshotVisionProvider,
   createDeterministicInterviewSummaryProvider,
   createDeterministicInterviewTranscriptionProvider,
+  type InterviewTranscriptionProvider,
 } from "@unemployed/ai-providers";
 import type { InterviewWorkspaceSnapshot } from "@unemployed/contracts";
 
@@ -34,7 +35,12 @@ function createMemoryRepository(): InterviewHelperRepository {
   };
 }
 
-function createService(repository: InterviewHelperRepository = createMemoryRepository()) {
+function createService(
+  repository: InterviewHelperRepository = createMemoryRepository(),
+  options: {
+    transcriptionProvider?: InterviewTranscriptionProvider;
+  } = {},
+) {
   return createInterviewHelperService({
     repository,
     audioCaptureAdapter: createStaticDesktopAudioCaptureAdapter("win32"),
@@ -46,8 +52,11 @@ function createService(repository: InterviewHelperRepository = createMemoryRepos
       now: () => "2026-05-13T05:00:00.000Z",
     }),
     cueCardProvider: createDeterministicInterviewCueCardProvider(),
-    screenshotVisionProvider: createDeterministicInterviewScreenshotVisionProvider(),
-    transcriptionProvider: createDeterministicInterviewTranscriptionProvider(),
+    screenshotVisionProvider:
+      createDeterministicInterviewScreenshotVisionProvider(),
+    transcriptionProvider:
+      options.transcriptionProvider ??
+      createDeterministicInterviewTranscriptionProvider(),
     summaryProvider: createDeterministicInterviewSummaryProvider(),
     now: () => "2026-05-13T05:00:00.000Z",
   });
@@ -99,7 +108,9 @@ describe("interview helper service", () => {
         (segment) => segment.usedInCueIds.length === 1,
       ),
     ).toBe(true);
-    expect(active.answerOverlay.currentCue?.answerOutline[0]).toContain("direct");
+    expect(active.answerOverlay.currentCue?.answerOutline[0]).toContain(
+      "direct",
+    );
   });
 
   test("queues contaminated screenshot context and discloses it in a forced cue", async () => {
@@ -115,7 +126,9 @@ describe("interview helper service", () => {
     const latestCue = withCue.activeSession?.cueCards.at(-1);
     expect(latestCue?.disclosure.screenshotCount).toBe(1);
     expect(latestCue?.disclosure.overlayContaminated).toBe(true);
-    expect(withCue.activeSession?.visualBatches.at(-1)?.clearedAt).not.toBeNull();
+    expect(
+      withCue.activeSession?.visualBatches.at(-1)?.clearedAt,
+    ).not.toBeNull();
   });
 
   test("panic-hide hides overlays without ending the session", async () => {
@@ -237,6 +250,51 @@ describe("interview helper service", () => {
       ),
     ).toHaveLength(1);
     expect(final.activeSession?.transcriptSegments.at(-1)?.state).toBe("final");
+  });
+
+  test("transcribes transient meeting audio chunks without retaining raw audio", async () => {
+    const transcriptionProvider =
+      createDeterministicInterviewTranscriptionProvider();
+    const service = createService(createMemoryRepository(), {
+      transcriptionProvider: {
+        ...transcriptionProvider,
+        transcribeAudioChunk: () =>
+          Promise.resolve({
+            text: "How would you design a capture-safe overlay system?",
+            confidence: 0.91,
+            language: "en-US",
+            engineKind: "cloud_ai",
+          }),
+      },
+    });
+
+    await acceptSetup(service);
+    await service.runRehearsal();
+    const active = await service.startSession();
+    const activeSession = active.activeSession;
+    if (!activeSession) {
+      throw new Error("Expected an active session.");
+    }
+
+    const updated = await service.transcribeAudioChunk({
+      sessionId: activeSession.id,
+      source: "meeting_audio",
+      mimeType: "audio/webm",
+      audioBase64: "dGVzdCBhdWRpbw==",
+      startedAt: "2026-05-13T05:00:00.000Z",
+      endedAt: "2026-05-13T05:00:05.000Z",
+    });
+
+    const transcript = updated.activeSession?.transcriptSegments.at(-1);
+    expect(transcript).toMatchObject({
+      source: "meeting_audio",
+      text: "How would you design a capture-safe overlay system?",
+      engineKind: "cloud_ai",
+    });
+    expect(JSON.stringify(updated)).not.toContain("dGVzdCBhdWRpbw==");
+    expect(updated.activeSession?.cueCards.at(-1)?.question).toContain(
+      "capture-safe overlay",
+    );
   });
 
   test("persists overlay layout preferences independently of session history", async () => {

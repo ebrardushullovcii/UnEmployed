@@ -20,9 +20,9 @@ type ChatCompletionsPayload = {
 function isTextContentPart(value: unknown): value is { text: string } {
   return Boolean(
     value &&
-      typeof value === "object" &&
-      "text" in value &&
-      typeof value.text === "string",
+    typeof value === "object" &&
+    "text" in value &&
+    typeof value.text === "string",
   );
 }
 
@@ -51,7 +51,9 @@ function extractContentString(rawContent: unknown): string {
 }
 
 function extractJsonString(rawContent: string): string {
-  const fencedMatches = [...rawContent.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)]
+  const fencedMatches = [
+    ...rawContent.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi),
+  ]
     .map((match) => match[1]?.trim())
     .filter((value): value is string => Boolean(value));
 
@@ -78,26 +80,29 @@ function extractJsonString(rawContent: string): string {
   return rawContent.trim();
 }
 
-export async function parseModelJsonResponse(response: Response): Promise<unknown> {
+export async function parseModelJsonResponse(
+  response: Response,
+): Promise<unknown> {
   const rawBody = await response.text();
-  const payload = rawBody.length > 0
-    ? (() => {
-        try {
-          return JSON.parse(rawBody) as {
-            choices?: Array<{
-              message?: {
-                content?: unknown;
+  const payload =
+    rawBody.length > 0
+      ? (() => {
+          try {
+            return JSON.parse(rawBody) as {
+              choices?: Array<{
+                message?: {
+                  content?: unknown;
+                };
+              }>;
+              error?: {
+                message?: string;
               };
-            }>;
-            error?: {
-              message?: string;
             };
-          };
-        } catch {
-          return null;
-        }
-      })()
-    : null;
+          } catch {
+            return null;
+          }
+        })()
+      : null;
 
   if (!response.ok) {
     throw new Error(
@@ -124,7 +129,9 @@ export async function parseModelJsonResponse(response: Response): Promise<unknow
   }
 }
 
-export async function parseResponsePayload(response: Response): Promise<ChatCompletionsPayload> {
+export async function parseResponsePayload(
+  response: Response,
+): Promise<ChatCompletionsPayload> {
   const rawBody = await response.text();
 
   let payload: ChatCompletionsPayload | null = null;
@@ -154,4 +161,9 @@ export async function parseResponsePayload(response: Response): Promise<ChatComp
 export function buildChatCompletionsUrl(baseUrl: string): string {
   const normalizedBaseUrl = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
   return new URL("chat/completions", normalizedBaseUrl).toString();
+}
+
+export function buildAudioTranscriptionsUrl(baseUrl: string): string {
+  const normalizedBaseUrl = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+  return new URL("audio/transcriptions", normalizedBaseUrl).toString();
 }
