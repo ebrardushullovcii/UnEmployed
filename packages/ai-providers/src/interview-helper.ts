@@ -1,3 +1,8 @@
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
 import type {
   InterviewAudioTranscriptionInput,
   InterviewCueCard,
@@ -15,6 +20,8 @@ import {
   buildChatCompletionsUrl,
   parseModelJsonResponse,
 } from "./openai-compatible-transport";
+
+const execFileAsync = promisify(execFile);
 
 export interface InterviewCueCardRequest {
   readonly sessionId: string;
@@ -97,6 +104,13 @@ const OpenAiCompatibleInterviewProviderOptionsSchema = z.object({
   requestTimeoutMs: z.number().int().min(1_000).optional(),
 });
 
+const LocalCommandInterviewTranscriptionProviderOptionsSchema = z.object({
+  command: z.string().trim().min(1),
+  label: z.string().trim().min(1).optional(),
+  requestTimeoutMs: z.number().int().min(1_000).optional(),
+  workingDirectory: z.string().trim().min(1).optional(),
+});
+
 const AudioTranscriptionResponseSchema = z.object({
   text: z.string().trim().min(1),
   language: z.string().trim().min(1).optional(),
@@ -105,6 +119,9 @@ const AudioTranscriptionResponseSchema = z.object({
 
 export type OpenAiCompatibleInterviewProviderOptions = z.infer<
   typeof OpenAiCompatibleInterviewProviderOptionsSchema
+>;
+export type LocalCommandInterviewTranscriptionProviderOptions = z.infer<
+  typeof LocalCommandInterviewTranscriptionProviderOptionsSchema
 >;
 
 export interface InterviewHelperProviderBundle {
@@ -317,6 +334,91 @@ function audioBase64ToBlob(input: InterviewAudioTranscriptionInput): Blob {
   });
 }
 
+function getAudioFileExtension(mimeType: string) {
+  if (mimeType.includes("webm")) return ".webm";
+  if (mimeType.includes("ogg")) return ".ogg";
+  if (mimeType.includes("mpeg") || mimeType.includes("mp3")) return ".mp3";
+  if (mimeType.includes("wav")) return ".wav";
+  if (mimeType.includes("mp4")) return ".m4a";
+  return ".audio";
+}
+
+function splitCommandLine(command: string): readonly string[] {
+  const tokens: string[] = [];
+  let current = "";
+  let quote: '"' | "'" | null = null;
+
+  for (const char of command) {
+    if ((char === '"' || char === "'") && (!quote || quote === char)) {
+      quote = quote ? null : char;
+      continue;
+    }
+
+    if (!quote && /\s/.test(char)) {
+      if (current.length > 0) {
+        tokens.push(current);
+        current = "";
+      }
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (quote) {
+    throw new Error("Local transcription command has an unterminated quote.");
+  }
+
+  if (current.length > 0) {
+    tokens.push(current);
+  }
+
+  return tokens;
+}
+
+function replaceLocalCommandPlaceholders(
+  value: string,
+  input: {
+    audioFilePath: string;
+    outputFilePath: string;
+    language: string;
+    source: InterviewAudioTranscriptionInput["source"];
+  },
+) {
+  return value
+    .replaceAll("{audio}", input.audioFilePath)
+    .replaceAll("{output}", input.outputFilePath)
+    .replaceAll("{language}", input.language)
+    .replaceAll("{source}", input.source);
+}
+
+function parseLocalTranscriptionOutput(
+  output: string,
+  language: string,
+): Omit<InterviewAudioTranscriptionResult, "engineKind"> | null {
+  const trimmed = output.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  if (trimmed.startsWith("{")) {
+    const parsed = AudioTranscriptionResponseSchema.parse(
+      JSON.parse(trimmed) as unknown,
+    );
+    return {
+      text: parsed.text,
+      confidence: parsed.confidence ?? null,
+      language: parsed.language ?? language,
+    };
+  }
+
+  return {
+    text: trimmed,
+    confidence: null,
+    language,
+  };
+}
+
 async function parseAudioTranscriptionResponse(
   response: Response,
 ): Promise<unknown> {
@@ -437,6 +539,168 @@ export function createOpenAiCompatibleInterviewTranscriptionProvider(
   };
 }
 
+export function createLocalCommandInterviewTranscriptionProvider(
+  options: LocalCommandInterviewTranscriptionProviderOptions,
+): InterviewTranscriptionProvider {
+  const configured =
+    LocalCommandInterviewTranscriptionProviderOptionsSchema.safeParse(options);
+  const validatedOptions = configured.success ? configured.data : null;
+  const label =
+    validatedOptions?.label ??
+    options.label ??
+    "Local command transcription";
+  const commandTokens =
+    validatedOptions?.command ? splitCommandLine(validatedOptions.command) : [];
+  const executable = commandTokens[0] ?? null;
+  const commandArgs = commandTokens.slice(1);
+
+  function createLocalEngine(
+    engineLabel: string,
+  ): InterviewTranscriptionEngine {
+    return {
+      kind: "local_model",
+      label: engineLabel,
+      ready: Boolean(validatedOptions && executable),
+      privacy: "local",
+      cost: "free",
+      latency: "medium",
+      detail: validatedOptions
+        ? "Configured local transcription command. Audio chunks are written to a temporary file for the local engine and deleted after the command exits."
+        : "Local transcription command settings are invalid.",
+    };
+  }
+
+  async function transcribeAudioChunk(
+    input: InterviewAudioTranscriptionInput,
+  ): Promise<InterviewAudioTranscriptionResult | null> {
+    if (!validatedOptions || !executable) {
+      return null;
+    }
+
+    const timeoutMs =
+      validatedOptions.requestTimeoutMs ?? DEFAULT_INTERVIEW_MODEL_TIMEOUT_MS;
+    const language = input.language ?? "en-US";
+    const tempDirectory = await mkdtemp(
+      path.join(os.tmpdir(), "unemployed-interview-local-stt-"),
+    );
+    const audioFilePath = path.join(
+      tempDirectory,
+      `chunk${getAudioFileExtension(input.mimeType)}`,
+    );
+    const outputFilePath = path.join(tempDirectory, "transcript.txt");
+
+    try {
+      await writeFile(audioFilePath, Buffer.from(input.audioBase64, "base64"));
+      const args = commandArgs.map((arg) =>
+        replaceLocalCommandPlaceholders(arg, {
+          audioFilePath,
+          outputFilePath,
+          language,
+          source: input.source,
+        }),
+      );
+      const { stdout } = await execFileAsync(executable, args, {
+        cwd: validatedOptions.workingDirectory,
+        timeout: timeoutMs,
+        windowsHide: true,
+        maxBuffer: 1024 * 1024,
+      });
+      const fallbackOutput = await readFile(outputFilePath, "utf8").catch(
+        () => "",
+      );
+      const parsed = parseLocalTranscriptionOutput(
+        stdout.trim().length > 0 ? stdout : fallbackOutput,
+        language,
+      );
+
+      return parsed
+        ? {
+            ...parsed,
+            engineKind: "local_model",
+          }
+        : null;
+    } finally {
+      await rm(tempDirectory, { recursive: true, force: true });
+    }
+  }
+
+  return {
+    getEngines() {
+      return {
+        microphone: createLocalEngine(`${label} microphone transcription`),
+        meetingAudio: createLocalEngine(
+          `${label} meeting/system transcription`,
+        ),
+      };
+    },
+    transcribeAudioChunk,
+    createSampleSegments() {
+      return [];
+    },
+  };
+}
+
+export function createFallbackInterviewTranscriptionProvider(
+  primary: InterviewTranscriptionProvider,
+  fallback: InterviewTranscriptionProvider,
+): InterviewTranscriptionProvider {
+  function selectEngine(
+    primaryEngine: InterviewTranscriptionEngine,
+    fallbackEngine: InterviewTranscriptionEngine,
+  ): InterviewTranscriptionEngine {
+    if (primaryEngine.ready) {
+      return {
+        ...primaryEngine,
+        detail: fallbackEngine.ready
+          ? `${primaryEngine.detail ?? "Primary transcription engine is ready."} Fallback available: ${fallbackEngine.label}.`
+          : primaryEngine.detail,
+      };
+    }
+
+    return fallbackEngine;
+  }
+
+  return {
+    getEngines() {
+      const primaryEngines = primary.getEngines();
+      const fallbackEngines = fallback.getEngines();
+      return {
+        microphone: selectEngine(
+          primaryEngines.microphone,
+          fallbackEngines.microphone,
+        ),
+        meetingAudio: selectEngine(
+          primaryEngines.meetingAudio,
+          fallbackEngines.meetingAudio,
+        ),
+      };
+    },
+    async transcribeAudioChunk(input) {
+      try {
+        const primaryResult = await primary.transcribeAudioChunk?.(input);
+        if (primaryResult) {
+          return primaryResult;
+        }
+      } catch (error) {
+        if (!fallback.transcribeAudioChunk) {
+          throw error;
+        }
+        console.error(
+          `[AI Provider] Primary Interview Helper transcription failed; trying fallback provider. ${summarizeError(error)}`,
+        );
+      }
+
+      return fallback.transcribeAudioChunk?.(input) ?? null;
+    },
+    createSampleSegments(input) {
+      const primarySegments = primary.createSampleSegments(input);
+      return primarySegments.length > 0
+        ? primarySegments
+        : fallback.createSampleSegments(input);
+    },
+  };
+}
+
 export function createDeterministicInterviewCueCardProvider(
   reason = "Deterministic Interview Helper cue provider keeps local validation stable.",
 ): InterviewCueCardProvider {
@@ -500,12 +764,24 @@ export function createInterviewHelperProvidersFromEnvironment(
   const deterministicTranscriptionProvider =
     createDeterministicInterviewTranscriptionProvider();
   const summaryProvider = createDeterministicInterviewSummaryProvider();
+  const localTranscriptionProvider =
+    env.UNEMPLOYED_INTERVIEW_LOCAL_STT_COMMAND
+      ? createLocalCommandInterviewTranscriptionProvider({
+          command: env.UNEMPLOYED_INTERVIEW_LOCAL_STT_COMMAND,
+          label: env.UNEMPLOYED_INTERVIEW_LOCAL_STT_LABEL,
+          requestTimeoutMs: parseConfiguredTimeoutMs(
+            env.UNEMPLOYED_INTERVIEW_LOCAL_STT_TIMEOUT_MS,
+          ),
+          workingDirectory: env.UNEMPLOYED_INTERVIEW_LOCAL_STT_CWD,
+        })
+      : null;
 
   if (!apiKey) {
     return {
       cueCardProvider: createDeterministicInterviewCueCardProvider(),
       screenshotVisionProvider,
-      transcriptionProvider: deterministicTranscriptionProvider,
+      transcriptionProvider:
+        localTranscriptionProvider ?? deterministicTranscriptionProvider,
       summaryProvider,
     };
   }
@@ -523,18 +799,24 @@ export function createInterviewHelperProvidersFromEnvironment(
     requestTimeoutMs,
   };
 
+  const cloudTranscriptionProvider =
+    createOpenAiCompatibleInterviewTranscriptionProvider({
+      ...providerOptions,
+      label: "AI interview transcription provider",
+    });
+
   return {
     cueCardProvider: createOpenAiCompatibleInterviewCueCardProvider({
       ...providerOptions,
       label: "AI interview cue provider",
     }),
     screenshotVisionProvider,
-    transcriptionProvider: createOpenAiCompatibleInterviewTranscriptionProvider(
-      {
-        ...providerOptions,
-        label: "AI interview transcription provider",
-      },
-    ),
+    transcriptionProvider: localTranscriptionProvider
+      ? createFallbackInterviewTranscriptionProvider(
+          localTranscriptionProvider,
+          cloudTranscriptionProvider,
+        )
+      : cloudTranscriptionProvider,
     summaryProvider,
   };
 }

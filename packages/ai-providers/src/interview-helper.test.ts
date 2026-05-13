@@ -1,6 +1,11 @@
+import { existsSync } from "node:fs";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import {
   createInterviewHelperProvidersFromEnvironment,
+  createLocalCommandInterviewTranscriptionProvider,
   createOpenAiCompatibleInterviewCueCardProvider,
   createOpenAiCompatibleInterviewTranscriptionProvider,
   type InterviewCueCardRequest,
@@ -230,5 +235,72 @@ describe("Interview Helper AI providers", () => {
     } finally {
       capture.restore();
     }
+  });
+
+  test("uses a configured local command transcription provider without retaining audio", async () => {
+    const tempDirectory = await mkdtemp(
+      path.join(os.tmpdir(), "interview-local-stt-provider-"),
+    );
+
+    try {
+      const scriptPath = path.join(tempDirectory, "transcribe.mjs");
+      const markerPath = path.join(tempDirectory, "audio-path.txt");
+      await writeFile(
+        scriptPath,
+        [
+          "import { existsSync, writeFileSync } from 'node:fs';",
+          "const [, , audioPath, outputPath, language, markerPath] = process.argv;",
+          "writeFileSync(markerPath, audioPath);",
+          "writeFileSync(outputPath, JSON.stringify({",
+          "  text: existsSync(audioPath) ? 'Local command transcript' : '',",
+          "  language,",
+          "  confidence: 0.77",
+          "}));",
+        ].join("\n"),
+        "utf8",
+      );
+
+      const provider = createLocalCommandInterviewTranscriptionProvider({
+        command: `"${process.execPath}" "${scriptPath}" {audio} {output} {language} "${markerPath}"`,
+        label: "Whisper local",
+      });
+      const result = await provider.transcribeAudioChunk?.({
+        sessionId: "session_1",
+        source: "microphone",
+        mimeType: "audio/webm",
+        audioBase64: "dGVzdCBhdWRpbw==",
+        language: "en-US",
+      });
+      const audioPath = await readFile(markerPath, "utf8");
+
+      expect(provider.getEngines().microphone).toMatchObject({
+        kind: "local_model",
+        ready: true,
+        privacy: "local",
+        cost: "free",
+      });
+      expect(result).toEqual({
+        text: "Local command transcript",
+        language: "en-US",
+        confidence: 0.77,
+        engineKind: "local_model",
+      });
+      expect(existsSync(audioPath)).toBe(false);
+    } finally {
+      await rm(tempDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("prefers configured local transcription before cloud fallback", () => {
+    const providers = createInterviewHelperProvidersFromEnvironment(
+      createEnvironment({
+        UNEMPLOYED_INTERVIEW_LOCAL_STT_COMMAND: `${process.execPath} --version`,
+      }),
+    );
+
+    expect(providers.transcriptionProvider.getEngines().meetingAudio).toMatchObject({
+      kind: "local_model",
+      ready: true,
+    });
   });
 });
