@@ -22,11 +22,13 @@ import type {
   InterviewVisualObservation,
   InterviewWorkspaceSnapshot,
   SaveInterviewSetupInput,
+  UpdateInterviewOverlayPreferenceInput,
 } from '@unemployed/contracts'
 import {
   InterviewCueCardSchema,
   InterviewExportResultSchema,
   InterviewLiveSessionSchema,
+  InterviewOverlayPreferenceSchema,
   InterviewOverlaySnapshotSchema,
   InterviewPrepArtifactSchema,
   InterviewRehearsalChecklistSchema,
@@ -122,6 +124,9 @@ export interface InterviewTranscriptionProvider {
 export interface InterviewHelperService {
   getWorkspace(): Promise<InterviewWorkspaceSnapshot>
   saveSetup(input: SaveInterviewSetupInput): Promise<InterviewWorkspaceSnapshot>
+  updateOverlayPreference(
+    input: UpdateInterviewOverlayPreferenceInput,
+  ): Promise<InterviewWorkspaceSnapshot>
   runRehearsal(): Promise<InterviewWorkspaceSnapshot>
   startSession(): Promise<InterviewWorkspaceSnapshot>
   performAction(input: InterviewSessionActionInput): Promise<InterviewWorkspaceSnapshot>
@@ -649,6 +654,32 @@ export function createInterviewHelperService(
             })
           : nextSetup
       const nextSnapshot = await rebuildWorkspace({ setup: withConsentTimestamp })
+      return saveSnapshot(nextSnapshot)
+    },
+    async updateOverlayPreference(input) {
+      const current = await loadSnapshot()
+      const fallbackPreference = defaultOverlayPreferences.find(
+        (preference) => preference.surfaceKind === input.surfaceKind,
+      )
+      const matchingPreference = current.overlayPreferences.find(
+        (preference) => preference.surfaceKind === input.surfaceKind,
+      )
+      const nextPreference = InterviewOverlayPreferenceSchema.parse({
+        ...(fallbackPreference ?? {}),
+        ...(matchingPreference ?? {}),
+        ...input,
+      })
+      const replaced = current.overlayPreferences.some(
+        (preference) => preference.surfaceKind === input.surfaceKind,
+      )
+      const nextOverlayPreferences = replaced
+        ? current.overlayPreferences.map((preference) =>
+            preference.surfaceKind === input.surfaceKind ? nextPreference : preference,
+          )
+        : [...current.overlayPreferences, nextPreference]
+      const nextSnapshot = await rebuildWorkspace({
+        overlayPreferences: nextOverlayPreferences,
+      })
       return saveSnapshot(nextSnapshot)
     },
     async runRehearsal() {

@@ -243,6 +243,25 @@ async function runCaptureProtection() {
     const overlayWindows = await waitForOverlayWindows(app)
     const placedOverlays = await setOverlayWindowBounds(app)
     await new Promise((resolve) => setTimeout(resolve, 750))
+    const layoutWorkspace = await window.evaluate(() => window.unemployed.interviewHelper.getWorkspace())
+    const persistedOverlayLayouts = layoutWorkspace.overlayPreferences.map((preference) => ({
+      surfaceKind: preference.surfaceKind,
+      bounds: preference.bounds,
+      displayId: preference.displayId,
+    }))
+    const overlayLayoutPersistenceOk =
+      persistedOverlayLayouts.some(
+        (preference) =>
+          preference.surfaceKind === 'live_answer_overlay' &&
+          JSON.stringify(preference.bounds) === JSON.stringify(overlayBounds.answer) &&
+          typeof preference.displayId === 'string',
+      ) &&
+      persistedOverlayLayouts.some(
+        (preference) =>
+          preference.surfaceKind === 'live_transcript_overlay' &&
+          JSON.stringify(preference.bounds) === JSON.stringify(overlayBounds.transcript) &&
+          typeof preference.displayId === 'string',
+      )
 
     const answerOverlayWindow = getOverlayWindow(overlayWindows, 'answer')
     const transcriptOverlayWindow = getOverlayWindow(overlayWindows, 'transcript')
@@ -274,6 +293,8 @@ async function runCaptureProtection() {
       mainWindowMirrorsLiveCue,
       mainWindowMirrorsLiveTranscript,
       placedOverlays,
+      persistedOverlayLayouts,
+      overlayLayoutPersistenceOk,
       ...analysis,
       source: {
         id: analysis.source.id,

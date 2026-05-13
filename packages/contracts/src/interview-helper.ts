@@ -234,6 +234,30 @@ export type InterviewOverlayPreference = z.infer<
   typeof InterviewOverlayPreferenceSchema
 >;
 
+export const UpdateInterviewOverlayPreferenceInputSchema = z.object({
+  surfaceKind: InterviewProtectedSurfaceKindSchema,
+  mode: InterviewOverlayModeSchema.optional(),
+  visible: z.boolean().optional(),
+  interactionMode: z.boolean().optional(),
+  opacity: z.number().min(0.35).max(1).optional(),
+  bounds: z
+    .object({
+      x: z.number().int(),
+      y: z.number().int(),
+      width: z.number().int().positive(),
+      height: z.number().int().positive(),
+    })
+    .nullable()
+    .optional(),
+  displayId: NonEmptyStringSchema.nullable().optional(),
+  requestedProtectionPolicy: z
+    .enum(["screen_share_private", "none"])
+    .optional(),
+});
+export type UpdateInterviewOverlayPreferenceInput = z.infer<
+  typeof UpdateInterviewOverlayPreferenceInputSchema
+>;
+
 export const InterviewRehearsalChecklistSchema = z.object({
   status: z.enum(["not_run", "running", "passed", "degraded", "blocked"]),
   language: NonEmptyStringSchema.default("en-US"),

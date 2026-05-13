@@ -161,6 +161,29 @@ describe("interview helper service", () => {
     expect(exportResult.content).toContain("Electron IPC isolation");
   });
 
+  test("persists overlay layout preferences independently of session history", async () => {
+    const service = createService();
+
+    await acceptSetup(service);
+    await service.runRehearsal();
+    await service.startSession();
+    const updated = await service.updateOverlayPreference({
+      surfaceKind: "live_answer_overlay",
+      bounds: { x: 80, y: 96, width: 460, height: 280 },
+      displayId: "display_1",
+    });
+
+    expect(updated.overlayPreferences).toContainEqual(
+      expect.objectContaining({
+        surfaceKind: "live_answer_overlay",
+        bounds: { x: 80, y: 96, width: 460, height: 280 },
+        displayId: "display_1",
+      }),
+    );
+    expect(updated.activeSession?.status).toBe("active");
+    expect(updated.recentSessions).toHaveLength(0);
+  });
+
   test("marks persisted active sessions interrupted instead of resuming capture", async () => {
     const repository = createMemoryRepository();
     const firstService = createService(repository);

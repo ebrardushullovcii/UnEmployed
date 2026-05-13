@@ -1,6 +1,12 @@
-import { BrowserWindow } from 'electron'
+import { BrowserWindow, screen, type Rectangle } from 'electron'
 import path from 'node:path'
-import type { InterviewOverlaySnapshot, InterviewWorkspaceSnapshot } from '@unemployed/contracts'
+import type {
+  InterviewOverlayPreference,
+  InterviewOverlaySnapshot,
+  InterviewProtectedSurfaceKind,
+  InterviewWorkspaceSnapshot,
+} from '@unemployed/contracts'
+import { getInterviewHelperService } from '../services/interview-helper'
 
 type InterviewOverlayKind = 'answer' | 'transcript'
 
@@ -13,6 +19,72 @@ interface InterviewOverlayWindowEntry {
 let currentDirForOverlays: string | null = null
 let lastSnapshot: InterviewWorkspaceSnapshot | null = null
 let overlayEntries: InterviewOverlayWindowEntry[] = []
+let applyingSnapshot = false
+let overlayLayoutPersistenceChain = Promise.resolve<InterviewWorkspaceSnapshot | null>(null)
+const overlayLayoutTimers = new WeakMap<BrowserWindow, NodeJS.Timeout>()
+
+function toSurfaceKind(kind: InterviewOverlayKind): InterviewProtectedSurfaceKind {
+  return kind === 'answer' ? 'live_answer_overlay' : 'live_transcript_overlay'
+}
+
+function sameBounds(
+  first: Rectangle,
+  second: NonNullable<InterviewOverlayPreference['bounds']>,
+) {
+  return (
+    first.x === second.x &&
+    first.y === second.y &&
+    first.width === second.width &&
+    first.height === second.height
+  )
+}
+
+function persistOverlayLayout(entry: InterviewOverlayWindowEntry) {
+  if (applyingSnapshot || entry.window.isDestroyed()) {
+    return
+  }
+
+  const existingTimer = overlayLayoutTimers.get(entry.window)
+  if (existingTimer) {
+    clearTimeout(existingTimer)
+  }
+
+  const timer = setTimeout(() => {
+    void (async () => {
+      if (entry.window.isDestroyed()) {
+        return
+      }
+
+      const bounds = entry.window.getBounds()
+      const display = screen.getDisplayMatching(bounds)
+      overlayLayoutPersistenceChain = overlayLayoutPersistenceChain
+        .then(async () => {
+          const service = await getInterviewHelperService()
+          return service.updateOverlayPreference({
+            surfaceKind: toSurfaceKind(entry.kind),
+            bounds,
+            displayId: String(display.id),
+          })
+        })
+        .catch((error: unknown) => {
+          console.warn('[InterviewHelper] Failed to persist overlay layout.', error)
+          return lastSnapshot
+        })
+      lastSnapshot = await overlayLayoutPersistenceChain
+    })()
+  }, 250)
+
+  overlayLayoutTimers.set(entry.window, timer)
+}
+
+function bindOverlayLayoutPersistence(entry: InterviewOverlayWindowEntry) {
+  entry.window.on('move', () => {
+    persistOverlayLayout(entry)
+  })
+  entry.window.on('resize', () => {
+    persistOverlayLayout(entry)
+  })
+}
 
 function createOverlayWindow(kind: InterviewOverlayKind, route: string): InterviewOverlayWindowEntry {
   if (!currentDirForOverlays) {
@@ -57,7 +129,9 @@ function createOverlayWindow(kind: InterviewOverlayKind, route: string): Intervi
     })
   }
 
-  return { kind, route, window }
+  const entry = { kind, route, window }
+  bindOverlayLayoutPersistence(entry)
+  return entry
 }
 
 function ensureOverlayEntries() {
@@ -79,11 +153,21 @@ function ensureOverlayEntries() {
 function applyOverlaySnapshot(
   entry: InterviewOverlayWindowEntry,
   overlay: InterviewOverlaySnapshot,
+  preference: InterviewOverlayPreference | undefined,
   shouldShow: boolean,
 ) {
   const window = entry.window
   if (window.isDestroyed()) {
     return
+  }
+
+  if (preference?.bounds && !sameBounds(window.getBounds(), preference.bounds)) {
+    applyingSnapshot = true
+    try {
+      window.setBounds(preference.bounds)
+    } finally {
+      applyingSnapshot = false
+    }
   }
 
   window.setOpacity(overlay.opacity)
@@ -122,13 +206,20 @@ export function syncInterviewOverlayWindows(snapshot: InterviewWorkspaceSnapshot
   const entries = ensureOverlayEntries()
   for (const entry of entries) {
     const overlay = entry.kind === 'answer' ? snapshot.answerOverlay : snapshot.transcriptOverlay
-    applyOverlaySnapshot(entry, overlay, overlay.visible)
+    const preference = snapshot.overlayPreferences.find(
+      (item) => item.surfaceKind === toSurfaceKind(entry.kind),
+    )
+    applyOverlaySnapshot(entry, overlay, preference, overlay.visible)
   }
 }
 
 export function closeInterviewOverlayWindows() {
   for (const entry of overlayEntries) {
     if (!entry.window.isDestroyed()) {
+      const timer = overlayLayoutTimers.get(entry.window)
+      if (timer) {
+        clearTimeout(timer)
+      }
       entry.window.close()
     }
   }

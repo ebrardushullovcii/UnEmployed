@@ -34,6 +34,7 @@ Use this for cross-package contract rules and workflow semantics. Put field-leve
 - Interview Helper cue generation consumes bounded source-labeled transcript windows, target-context snapshots, selected prep artifacts, compact summary state, and active visual observations. It must not resend raw full transcripts or persist raw audio, raw provider payloads, raw prompts, or unpinned screenshots by default.
 - Interview Helper transcript annotations are additive review records. Corrections and notes retain the referenced original transcript text and must not overwrite the source transcript segment.
 - Interview Helper protected overlay state uses explicit states such as `verified_protected`, `requested_unverified`, `best_effort`, `unsupported`, `failed`, and `unknown`; product code must not collapse these into a boolean or label requested protection as verified protection.
+- Interview Helper overlay layout preferences store each protected surface's bounds, display id, opacity, visibility, interaction mode, and requested protection policy separately from session history.
 - Interview Helper renderer/preload calls use narrow semantic actions (`toggle_listening`, `force_cue`, `capture_screenshot`, `capture_screenshot_and_force_cue`, overlay toggles, `panic_hide`, `end_session`) instead of exposing Electron or Node primitives.
 
 ## Validation Expectations
