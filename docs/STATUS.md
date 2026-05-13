@@ -5,11 +5,12 @@ Read this for active feature work, handoff updates, broad repo changes, or uncle
 ## Current Truth
 
 - Completed foundations: `007`, `009`, `010`, `011`, `012`, `013`, `014`, `015`, `016`, `017`, `018`, `019`, `020`, `021`, `022`, `023`, `024`, `025`, `026`, `027`, `028`, `029`, `030`, `031`, `032`, `033`, `034`, `035`
-- Active work: none
+- Active work: `036 Interview Helper Live Session Full Product`
 - Baseline landed: desktop app, typed Electron boundaries, SQLite persistence, guided setup, profile copilot, discovery, resume workspace, safe non-submitting apply
 
 ## What Matters Now
 
+- `036` is active: Interview Helper live-session work is now a full-product integration target, not a foundation-only slice. The goal is a user-started, transcript-first, cross-platform live interview workspace with explicit setup consent, rehearsal checks, microphone plus meeting/system audio transcription, conservative cue triggers, optional screenshot context, two separate protected overlay surfaces, session hotkeys/tray controls, structured retention, post-session review, and replayable Windows/macOS/Linux validation. Future authorized full capture exclusion is the highest-priority architectural constraint, so protected overlay surfaces must be first-class `os-integration` capabilities with verification results instead of booleans or session-logic assumptions. Work from `docs/exec-plans/active/036-interview-helper-live-session-full-product.md`.
 - `034` and `035` are completed: browser/source-debug now has generic bounded visual snapshot tooling, schema-safe visual observation contracts, retained screenshot metadata cleanup, and source-generic visual phase evidence; safe apply now has explicit orchestrator-owned visual checkpoint opt-in, schema-validated visual observations/checkpoints/reconciliations in application records and Applications UI, and no ambient runtime screenshot capture on application pages. Latest evidence is green for `pnpm verify:affected`, focused contracts/runtime/job-finder tests, desktop build, and Applications recovery UI harness; see `docs/exec-plans/completed/034-browser-source-debug-visual-evidence.md` and `docs/exec-plans/completed/035-apply-visual-assistance.md`
 - `033` is completed: resume import now creates local temporary page images for PDF, DOCX, TXT, and MD, runs text and vision branches with separate provider roles and a graceful 10-minute default vision deadline, reconciles visual candidates/evidence into the existing setup review flow, and gives users actionable `Document text` / `Visual scan` choices for material conflicts; vision defaults to `FelidaeAI-Omni-3.6` and can reuse the shared AI provider key/base URL when vision-specific config is absent; latest real configured-Omni comparison across all six repo fixtures completed without vision failures/timeouts (`apps/desktop/test-artifacts/ui/resume-import-vision-comparison-full-fix-omni-600/resume-import-vision-comparison-report.json`) with literal recall `1.000`, education F1 `1.000`, experience F1 `0.906` vs normal `0.915`, auto-apply precision `1.000`, and lower unresolved rate `0.216` vs normal `0.285`; latest focused evidence is green for `pnpm validate:package ai-providers`, `pnpm validate:job-finder`, `pnpm validate:desktop`, and desktop build; see `docs/exec-plans/completed/033-parallel-vision-resume-import.md`
 - `030` is completed: resume generation now uses a derived coverage policy instead of the old first-3 work-history cap, preserves grounded fallback history through AI normalization, surfaces weak-fit/gap/compact work-history review suggestions as app-only Resume Studio guidance, and extends replayable resume-quality evidence with real imported fixtures; see `docs/exec-plans/completed/030-resume-coverage-and-copy-quality.md`
@@ -56,10 +57,11 @@ Read this for active feature work, handoff updates, broad repo changes, or uncle
 
 ## Next Step
 
-- Work from `docs/TRACKS.md` for the next ready follow-up
+- Work from `docs/exec-plans/active/036-interview-helper-live-session-full-product.md` for Interview Helper implementation.
 
 ## Key References
 
+- `docs/exec-plans/active/036-interview-helper-live-session-full-product.md`
 - `docs/TRACKS.md`
 - `docs/exec-plans/completed/035-apply-visual-assistance.md`
 - `docs/exec-plans/completed/034-browser-source-debug-visual-evidence.md`

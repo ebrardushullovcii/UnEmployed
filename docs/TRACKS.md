@@ -18,7 +18,13 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 
 ## Active
 
-- no active plan right now
+### `036 Interview Helper Live Session Full Product`
+
+- status: `in_progress`
+- linked plan: `docs/exec-plans/active/036-interview-helper-live-session-full-product.md`
+- goal: ship the first complete Interview Helper live-session product as a transcript-first, user-started, cross-platform workflow with setup consent, rehearsal checks, mic plus meeting/system audio transcription, conservative cue triggers, optional screenshot context, two separate protected overlay surfaces, hotkeys/tray controls, structured retention, post-session review, and Windows/macOS/Linux validation
+- highest-priority constraint: preserve the path to future authorized full capture exclusion by modeling protected overlays as adapter-owned `os-integration` capabilities with verification results, never as hidden Interview Helper session behavior or a simple boolean
+- current baseline: `packages/interview-helper` only has simple overlay view-model helpers and `packages/os-integration` only has skeletal window/capture/hotkey contracts; no implementation evidence has landed yet
 
 ## Recently Completed
 
