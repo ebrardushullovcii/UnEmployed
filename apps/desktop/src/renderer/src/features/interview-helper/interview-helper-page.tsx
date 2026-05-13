@@ -20,6 +20,7 @@ import {
   Play,
   Radio,
   RotateCcw,
+  Settings2,
   Shield,
   Sparkles,
   Trash2,
@@ -166,6 +167,22 @@ export function InterviewHelperPage() {
   async function resetOverlayLayout() {
     await updateWorkspace("reset_overlay_layout", () =>
       window.unemployed.interviewHelper.resetOverlayPreferences(),
+    );
+  }
+
+  async function toggleReconfiguration() {
+    if (
+      state.status === "ready" &&
+      state.workspace.activeSession?.status === "reconfiguring"
+    ) {
+      await updateWorkspace("finish_reconfiguration", () =>
+        window.unemployed.interviewHelper.finishReconfiguration(),
+      );
+      return;
+    }
+
+    await updateWorkspace("begin_reconfiguration", () =>
+      window.unemployed.interviewHelper.beginReconfiguration(),
     );
   }
 
@@ -565,7 +582,7 @@ export function InterviewHelperPage() {
                         variant="secondary"
                       >
                         <Pause className="size-4" />
-                        Pause
+                        {activeSession?.listening ? "Pause" : "Resume"}
                       </Button>
                       <Button
                         onClick={() => {
@@ -611,7 +628,29 @@ export function InterviewHelperPage() {
                         <Shield className="size-4" />
                         Verify protection
                       </Button>
+                      <Button
+                        onClick={() => {
+                          void toggleReconfiguration();
+                        }}
+                        pending={
+                          pendingAction === "begin_reconfiguration" ||
+                          pendingAction === "finish_reconfiguration"
+                        }
+                        size="compact"
+                        variant="secondary"
+                      >
+                        <Settings2 className="size-4" />
+                        {activeSession?.status === "reconfiguring"
+                          ? "Close config"
+                          : "Reconfigure"}
+                      </Button>
                     </div>
+                    {activeSession?.status === "reconfiguring" ? (
+                      <div className="rounded-(--radius-small) border border-(--info-border) bg-(--info-surface) p-3 text-[0.78rem] leading-5 text-(--info-text)">
+                        Listening is paused while setup preferences and
+                        rehearsal checks are adjusted.
+                      </div>
+                    ) : null}
                     <Button
                       onClick={() => {
                         void perform("end_session");

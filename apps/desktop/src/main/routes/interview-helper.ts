@@ -79,6 +79,16 @@ export function registerInterviewHelperRouteHandlers(ipcMain: IpcMain) {
     return withSyncedOverlays(() => service.startSession());
   });
 
+  ipcMain.handle("interview-helper:begin-reconfiguration", async () => {
+    const service = await getInterviewHelperService();
+    return withSyncedOverlays(() => service.beginSessionReconfiguration());
+  });
+
+  ipcMain.handle("interview-helper:finish-reconfiguration", async () => {
+    const service = await getInterviewHelperService();
+    return withSyncedOverlays(() => service.finishSessionReconfiguration());
+  });
+
   ipcMain.handle(
     "interview-helper:perform-action",
     async (_event, payload: unknown) => {

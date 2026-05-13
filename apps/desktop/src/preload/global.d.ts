@@ -68,6 +68,8 @@ declare global {
         ) => Promise<InterviewWorkspaceSnapshot>;
         runRehearsal: () => Promise<InterviewWorkspaceSnapshot>;
         startSession: () => Promise<InterviewWorkspaceSnapshot>;
+        beginReconfiguration: () => Promise<InterviewWorkspaceSnapshot>;
+        finishReconfiguration: () => Promise<InterviewWorkspaceSnapshot>;
         performAction: (
           action: InterviewHotkeyAction,
         ) => Promise<InterviewWorkspaceSnapshot>;

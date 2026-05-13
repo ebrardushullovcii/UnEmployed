@@ -150,6 +150,14 @@ const desktopApi = {
       ipcRenderer.invoke(
         "interview-helper:start-session",
       ) as Promise<InterviewWorkspaceSnapshot>,
+    beginReconfiguration: () =>
+      ipcRenderer.invoke(
+        "interview-helper:begin-reconfiguration",
+      ) as Promise<InterviewWorkspaceSnapshot>,
+    finishReconfiguration: () =>
+      ipcRenderer.invoke(
+        "interview-helper:finish-reconfiguration",
+      ) as Promise<InterviewWorkspaceSnapshot>,
     performAction: (action: InterviewHotkeyAction) =>
       ipcRenderer.invoke("interview-helper:perform-action", {
         action,

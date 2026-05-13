@@ -150,6 +150,8 @@ export interface InterviewHelperService {
   resetOverlayPreferences(): Promise<InterviewWorkspaceSnapshot>;
   runRehearsal(): Promise<InterviewWorkspaceSnapshot>;
   startSession(): Promise<InterviewWorkspaceSnapshot>;
+  beginSessionReconfiguration(): Promise<InterviewWorkspaceSnapshot>;
+  finishSessionReconfiguration(): Promise<InterviewWorkspaceSnapshot>;
   performAction(
     input: InterviewSessionActionInput,
   ): Promise<InterviewWorkspaceSnapshot>;
@@ -1161,6 +1163,73 @@ export function createInterviewHelperService(
       const nextSnapshot = await rebuildWorkspace({
         setup,
         activeSession: withCue,
+      });
+      return saveSnapshot(nextSnapshot);
+    },
+    async beginSessionReconfiguration() {
+      const current = await loadSnapshot();
+      const activeSession = current.activeSession;
+
+      if (!activeSession || activeSession.status === "reconfiguring") {
+        return current;
+      }
+
+      const currentNow = now();
+      const nextSession = InterviewLiveSessionSchema.parse({
+        ...activeSession,
+        status: "reconfiguring",
+        listening: false,
+        diagnostics: [
+          ...activeSession.diagnostics,
+          createDiagnostic({
+            sessionId: activeSession.id,
+            kind: "lifecycle",
+            severity: "info",
+            label: "Session entered reconfiguration",
+            detail:
+              "Listening and automatic cue triggers are paused while setup preferences and provider readiness are checked.",
+            occurredAt: currentNow,
+          }),
+        ],
+      });
+      const nextSnapshot = await rebuildWorkspace({
+        activeSession: nextSession,
+      });
+      return saveSnapshot(nextSnapshot);
+    },
+    async finishSessionReconfiguration() {
+      const current = await loadSnapshot();
+      const activeSession = current.activeSession;
+
+      if (!activeSession || activeSession.status !== "reconfiguring") {
+        return current;
+      }
+
+      const currentNow = now();
+      const nextSession = InterviewLiveSessionSchema.parse({
+        ...activeSession,
+        status: "paused",
+        listening: false,
+        automaticCueSensitivity: current.setup.cueSensitivity,
+        protectedSurfaces:
+          current.setup.rehearsal?.protectedSurfaces.length
+            ? current.setup.rehearsal.protectedSurfaces
+            : activeSession.protectedSurfaces,
+        diagnostics: [
+          ...activeSession.diagnostics,
+          createDiagnostic({
+            sessionId: activeSession.id,
+            kind: "lifecycle",
+            severity: "info",
+            label: "Session reconfiguration closed",
+            detail:
+              "Updated setup preferences are applied. Resume listening deliberately when ready.",
+            occurredAt: currentNow,
+          }),
+        ],
+      });
+      const nextSnapshot = await rebuildWorkspace({
+        activeSession: nextSession,
       });
       return saveSnapshot(nextSnapshot);
     },

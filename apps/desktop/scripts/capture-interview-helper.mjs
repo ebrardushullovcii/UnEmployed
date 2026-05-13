@@ -220,6 +220,30 @@ async function runCapture() {
       (await window.getByRole('button', { name: /System STT/i }).count()) > 0
     const resetOverlayLayoutVisible =
       (await window.getByRole('button', { name: /Reset overlay layout/i }).count()) > 0
+    await window.getByRole('button', { name: /Reconfigure/i }).click()
+    const reconfiguringWorkspace = await waitForWorkspace(
+      window,
+      (workspace) =>
+        workspace.activeSession?.status === 'reconfiguring' &&
+        workspace.activeSession.listening === false,
+      'Interview Helper paused reconfiguration flow',
+    )
+    await window.getByRole('button', { name: /Close config/i }).click()
+    const reconfigurationClosedWorkspace = await waitForWorkspace(
+      window,
+      (workspace) =>
+        workspace.activeSession?.status === 'paused' &&
+        workspace.activeSession.listening === false,
+      'Interview Helper closed reconfiguration flow',
+    )
+    await window.getByRole('button', { name: /Resume/i }).click()
+    await waitForWorkspace(
+      window,
+      (workspace) =>
+        workspace.activeSession?.status === 'active' &&
+        workspace.activeSession.listening === true,
+      'Interview Helper resumed after reconfiguration',
+    )
     const liveCueQuestion = activeWorkspace.activeSession?.cueCards.at(-1)?.question ?? ''
     const liveTranscriptTexts =
       activeWorkspace.activeSession?.transcriptSegments.map((segment) => segment.text) ?? []
@@ -410,6 +434,12 @@ async function runCapture() {
       mediaStreamProbesVisible,
       transientAudioSttControlsVisible,
       resetOverlayLayoutVisible,
+      reconfigurationPausedListening:
+        reconfiguringWorkspace.activeSession?.status === 'reconfiguring' &&
+        reconfiguringWorkspace.activeSession.listening === false,
+      reconfigurationClosedPaused:
+        reconfigurationClosedWorkspace.activeSession?.status === 'paused' &&
+        reconfigurationClosedWorkspace.activeSession.listening === false,
       nativeTranscriptIngestionAddedSegment:
         nativeTranscriptWorkspace.activeSession?.transcriptSegments.some(
           (segment) =>

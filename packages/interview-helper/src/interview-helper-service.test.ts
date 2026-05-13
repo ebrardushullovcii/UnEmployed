@@ -164,6 +164,30 @@ describe("interview helper service", () => {
     expect(hidden.transcriptOverlay.visible).toBe(false);
   });
 
+  test("reconfigures a live session through an explicitly paused flow", async () => {
+    const service = createService();
+
+    await acceptSetup(service);
+    await service.runRehearsal();
+    const active = await service.startSession();
+    expect(active.activeSession?.status).toBe("active");
+
+    const reconfiguring = await service.beginSessionReconfiguration();
+    expect(reconfiguring.activeSession?.status).toBe("reconfiguring");
+    expect(reconfiguring.activeSession?.listening).toBe(false);
+
+    await service.saveSetup({ cueSensitivity: "manual_only" });
+    await service.runRehearsal();
+    const closed = await service.finishSessionReconfiguration();
+
+    expect(closed.activeSession?.status).toBe("paused");
+    expect(closed.activeSession?.listening).toBe(false);
+    expect(closed.activeSession?.automaticCueSensitivity).toBe("manual_only");
+    expect(closed.activeSession?.diagnostics.at(-1)?.label).toBe(
+      "Session reconfiguration closed",
+    );
+  });
+
   test("adds transcript annotations without overwriting original segments", async () => {
     const service = createService();
 
