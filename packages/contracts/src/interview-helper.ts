@@ -495,6 +495,13 @@ export type InterviewTranscriptSegmentInput = z.input<
   typeof InterviewTranscriptSegmentInputSchema
 >;
 
+export const InterviewProtectedSurfaceVerificationInputSchema = z.object({
+  protectedSurfaces: z.array(InterviewProtectedSurfaceSchema).min(1),
+});
+export type InterviewProtectedSurfaceVerificationInput = z.infer<
+  typeof InterviewProtectedSurfaceVerificationInputSchema
+>;
+
 export const InterviewAudioTranscriptionInputSchema = z.object({
   sessionId: NonEmptyStringSchema,
   source: z.enum(["microphone", "meeting_audio"]),

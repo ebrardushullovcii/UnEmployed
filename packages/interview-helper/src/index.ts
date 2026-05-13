@@ -11,6 +11,7 @@ import type {
   InterviewOverlayPreference,
   InterviewOverlaySnapshot,
   InterviewProtectedSurface,
+  InterviewProtectedSurfaceVerificationInput,
   InterviewProtectedSurfaceKind,
   InterviewRehearsalChecklist,
   InterviewSessionActionInput,
@@ -34,6 +35,7 @@ import {
   InterviewOverlayPreferenceSchema,
   InterviewOverlaySnapshotSchema,
   InterviewPrepArtifactSchema,
+  InterviewProtectedSurfaceVerificationInputSchema,
   InterviewRehearsalChecklistSchema,
   InterviewSetupStateSchema,
   InterviewTargetContextSchema,
@@ -159,6 +161,9 @@ export interface InterviewHelperService {
   ): Promise<InterviewWorkspaceSnapshot>;
   addTranscriptSegment(
     input: InterviewTranscriptSegmentInput,
+  ): Promise<InterviewWorkspaceSnapshot>;
+  recordProtectedSurfaceVerification(
+    input: InterviewProtectedSurfaceVerificationInput,
   ): Promise<InterviewWorkspaceSnapshot>;
   transcribeAudioChunk(
     input: InterviewAudioTranscriptionInput,
@@ -1287,6 +1292,53 @@ export function createInterviewHelperService(
     },
     async addTranscriptSegment(rawInput) {
       return ingestTranscriptSegment(rawInput);
+    },
+    async recordProtectedSurfaceVerification(rawInput) {
+      const input =
+        InterviewProtectedSurfaceVerificationInputSchema.parse(rawInput);
+      const current = await loadSnapshot();
+      const activeSession = current.activeSession;
+      const currentNow = now();
+
+      if (!activeSession) {
+        return current;
+      }
+
+      const surfacesByKind = new Map(
+        input.protectedSurfaces.map((surface) => [surface.kind, surface]),
+      );
+      const existingSurfaces = activeSession.protectedSurfaces.map(
+        (surface) => surfacesByKind.get(surface.kind) ?? surface,
+      );
+      const addedSurfaces = input.protectedSurfaces.filter(
+        (surface) =>
+          !existingSurfaces.some(
+            (existingSurface) => existingSurface.kind === surface.kind,
+          ),
+      );
+      const verifiedCount = input.protectedSurfaces.filter(
+        (surface) => surface.protectionState === "verified_protected",
+      ).length;
+      const nextSession = InterviewLiveSessionSchema.parse({
+        ...activeSession,
+        protectedSurfaces: [...existingSurfaces, ...addedSurfaces],
+        diagnostics: [
+          ...activeSession.diagnostics,
+          createDiagnostic({
+            sessionId: activeSession.id,
+            kind: "capture_protection",
+            severity:
+              verifiedCount === input.protectedSurfaces.length
+                ? "info"
+                : "warning",
+            label: "Overlay capture protection verified",
+            detail: `${verifiedCount}/${input.protectedSurfaces.length} protected overlay surfaces passed ordinary Electron screen-capture verification.`,
+            occurredAt: currentNow,
+          }),
+        ],
+      });
+      const nextSnapshot = await rebuildWorkspace({ activeSession: nextSession });
+      return saveSnapshot(nextSnapshot);
     },
     async transcribeAudioChunk(input) {
       const audioInput = InterviewAudioTranscriptionInputSchema.parse(input);

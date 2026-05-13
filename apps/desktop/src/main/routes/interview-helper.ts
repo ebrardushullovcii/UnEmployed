@@ -10,7 +10,10 @@ import {
   SaveInterviewSetupInputSchema,
 } from "@unemployed/contracts";
 import { getInterviewHelperService } from "../services/interview-helper";
-import { syncInterviewOverlayWindows } from "../setup/interview-overlay-windows";
+import {
+  syncInterviewOverlayWindows,
+  verifyInterviewOverlayCaptureProtection,
+} from "../setup/interview-overlay-windows";
 
 async function withSyncedOverlays<
   T extends Awaited<
@@ -102,6 +105,14 @@ export function registerInterviewHelperRouteHandlers(ipcMain: IpcMain) {
       return withSyncedOverlays(() => service.transcribeAudioChunk(input));
     },
   );
+
+  ipcMain.handle("interview-helper:verify-overlay-protection", async () => {
+    const protectedSurfaces = await verifyInterviewOverlayCaptureProtection();
+    const service = await getInterviewHelperService();
+    return withSyncedOverlays(() =>
+      service.recordProtectedSurfaceVerification({ protectedSurfaces }),
+    );
+  });
 
   ipcMain.handle("interview-helper:read-clipboard-text", () => ({
     text: clipboard.readText(),

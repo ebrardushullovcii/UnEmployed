@@ -176,6 +176,10 @@ const desktopApi = {
         "interview-helper:transcribe-audio-chunk",
         input,
       ) as Promise<InterviewWorkspaceSnapshot>,
+    verifyOverlayProtection: () =>
+      ipcRenderer.invoke(
+        "interview-helper:verify-overlay-protection",
+      ) as Promise<InterviewWorkspaceSnapshot>,
     readClipboardText: () =>
       ipcRenderer.invoke(
         "interview-helper:read-clipboard-text",

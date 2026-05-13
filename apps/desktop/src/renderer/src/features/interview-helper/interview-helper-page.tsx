@@ -147,6 +147,12 @@ export function InterviewHelperPage() {
     );
   }
 
+  async function verifyOverlayProtection() {
+    await updateWorkspace("verify_overlay_protection", () =>
+      window.unemployed.interviewHelper.verifyOverlayProtection(),
+    );
+  }
+
   useEffect(() => {
     const source = searchParams.get("source");
     const id = searchParams.get("id");
@@ -568,6 +574,17 @@ export function InterviewHelperPage() {
                       >
                         <PanelTop className="size-4" />
                         Panic hide
+                      </Button>
+                      <Button
+                        onClick={() => {
+                          void verifyOverlayProtection();
+                        }}
+                        pending={pendingAction === "verify_overlay_protection"}
+                        size="compact"
+                        variant="secondary"
+                      >
+                        <Shield className="size-4" />
+                        Verify protection
                       </Button>
                     </div>
                     <Button

@@ -1,8 +1,15 @@
-import { BrowserWindow, screen, type Rectangle } from 'electron'
+import {
+  BrowserWindow,
+  desktopCapturer,
+  nativeImage,
+  screen,
+  type Rectangle,
+} from 'electron'
 import path from 'node:path'
 import type {
   InterviewOverlayPreference,
   InterviewOverlaySnapshot,
+  InterviewProtectedSurface,
   InterviewProtectedSurfaceKind,
   InterviewWorkspaceSnapshot,
 } from '@unemployed/contracts'
@@ -25,6 +32,10 @@ const overlayLayoutTimers = new WeakMap<BrowserWindow, NodeJS.Timeout>()
 
 function toSurfaceKind(kind: InterviewOverlayKind): InterviewProtectedSurfaceKind {
   return kind === 'answer' ? 'live_answer_overlay' : 'live_transcript_overlay'
+}
+
+function toWindowKind(kind: InterviewOverlayKind) {
+  return kind === 'answer' ? 'interview-answer-overlay' : 'interview-transcript-overlay'
 }
 
 function sameBounds(
@@ -230,4 +241,112 @@ export function resyncInterviewOverlayWindows() {
   if (lastSnapshot) {
     syncInterviewOverlayWindows(lastSnapshot)
   }
+}
+
+function getPixel(bitmap: Buffer, width: number, x: number, y: number) {
+  const index = (y * width + x) * 4
+  return [
+    bitmap[index] ?? 0,
+    bitmap[index + 1] ?? 0,
+    bitmap[index + 2] ?? 0,
+    bitmap[index + 3] ?? 255,
+  ] as const
+}
+
+function brightness(pixel: readonly number[]) {
+  return (pixel[0]! + pixel[1]! + pixel[2]!) / 3
+}
+
+export async function verifyInterviewOverlayCaptureProtection(): Promise<
+  InterviewProtectedSurface[]
+> {
+  const entries = overlayEntries.filter((entry) => !entry.window.isDestroyed())
+  if (entries.length === 0) {
+    throw new Error('Interview overlay windows are not active.')
+  }
+
+  const display = screen.getPrimaryDisplay()
+  const sources = await desktopCapturer.getSources({
+    types: ['screen'],
+    thumbnailSize: display.size,
+  })
+  const source = sources[0]
+  if (!source) {
+    throw new Error('No screen sources were returned by desktopCapturer.')
+  }
+
+  const capturedAt = new Date().toISOString()
+  const screenImage = source.thumbnail
+  const screenBitmap = screenImage.getBitmap()
+  const screenSize = screenImage.getSize()
+  const scaleX = screenSize.width / display.bounds.width
+  const scaleY = screenSize.height / display.bounds.height
+
+  const surfaces: InterviewProtectedSurface[] = []
+  for (const entry of entries) {
+    const bounds = entry.window.getBounds()
+    const overlayImage = await entry.window.webContents.capturePage()
+    const resizedOverlay = nativeImage
+      .createFromBuffer(overlayImage.toPNG())
+      .resize({
+        width: Math.round(bounds.width * scaleX),
+        height: Math.round(bounds.height * scaleY),
+      })
+    const overlayBitmap = resizedOverlay.getBitmap()
+    const overlaySize = resizedOverlay.getSize()
+    const cropOriginX = Math.max(0, Math.round(bounds.x * scaleX))
+    const cropOriginY = Math.max(0, Math.round(bounds.y * scaleY))
+    let comparedPixels = 0
+    let similarPixels = 0
+    let overlaySignalPixels = 0
+    let screenSignalPixels = 0
+    const step = 2
+
+    for (let y = 0; y < overlaySize.height; y += step) {
+      const screenY = cropOriginY + y
+      if (screenY < 0 || screenY >= screenSize.height) continue
+      for (let x = 0; x < overlaySize.width; x += step) {
+        const screenX = cropOriginX + x
+        if (screenX < 0 || screenX >= screenSize.width) continue
+        const overlayPixel = getPixel(overlayBitmap, overlaySize.width, x, y)
+        const screenPixel = getPixel(screenBitmap, screenSize.width, screenX, screenY)
+        const overlayIsSignal = brightness(overlayPixel) > 52
+        if (!overlayIsSignal) continue
+
+        overlaySignalPixels += 1
+        if (brightness(screenPixel) > 52) {
+          screenSignalPixels += 1
+        }
+        comparedPixels += 1
+
+        const delta =
+          Math.abs(overlayPixel[0] - screenPixel[0]) +
+          Math.abs(overlayPixel[1] - screenPixel[1]) +
+          Math.abs(overlayPixel[2] - screenPixel[2])
+
+        if (delta <= 72) {
+          similarPixels += 1
+        }
+      }
+    }
+
+    const similarRatio = comparedPixels > 0 ? similarPixels / comparedPixels : 1
+    const signalRatio = overlaySignalPixels > 0 ? screenSignalPixels / overlaySignalPixels : 1
+    const overlayVisibleInScreenCapture = similarRatio >= 0.08 && signalRatio >= 0.12
+    const surfaceKind = toSurfaceKind(entry.kind)
+    surfaces.push({
+      id: `${surfaceKind}_${toWindowKind(entry.kind)}`,
+      kind: surfaceKind,
+      requestedPolicy: 'screen_share_private',
+      protectionState: overlayVisibleInScreenCapture ? 'failed' : 'verified_protected',
+      verificationMethod: 'electron-desktopCapturer-screen-thumbnail-vs-overlay-window-pixels',
+      displayLabel: source.name || `Display ${display.id}`,
+      detail: overlayVisibleInScreenCapture
+        ? `Overlay pixels were detected in ordinary Electron screen capture (${similarRatio.toFixed(3)} similar, ${signalRatio.toFixed(3)} signal). Meeting-app-specific exclusion is not verified.`
+        : `Overlay pixels were not detected in ordinary Electron screen capture (${similarRatio.toFixed(3)} similar, ${signalRatio.toFixed(3)} signal). Meeting-app-specific exclusion is not verified.`,
+      lastVerifiedAt: capturedAt,
+    })
+  }
+
+  return surfaces
 }

@@ -222,6 +222,18 @@ async function runCapture() {
     await capture(answerOverlayWindow, '03-answer-overlay-window.png')
     await capture(transcriptOverlayWindow, '03-transcript-overlay-window.png')
 
+    await window.getByRole('button', { name: /Verify protection/i }).click()
+    const runtimeProtectionWorkspace = await waitForWorkspace(
+      window,
+      (workspace) =>
+        Boolean(
+          workspace.activeSession?.protectedSurfaces.some(
+            (surface) => surface.protectionState !== 'requested_unverified',
+          ),
+        ),
+      'runtime overlay protection verification',
+    )
+
     const nativeTranscriptText =
       'How would you keep Electron overlay IPC isolated from the main app?'
     const nativeTranscriptWorkspace = await window.evaluate(
@@ -346,6 +358,17 @@ async function runCapture() {
           verificationMethod: surface.verificationMethod,
         }),
       ) ?? [],
+      runtimeOverlayProtectionStates:
+        runtimeProtectionWorkspace.activeSession?.protectedSurfaces.map((surface) => ({
+          kind: surface.kind,
+          protectionState: surface.protectionState,
+          verificationMethod: surface.verificationMethod,
+          detail: surface.detail,
+        })) ?? [],
+      runtimeOverlayProtectionVerified:
+        runtimeProtectionWorkspace.activeSession?.protectedSurfaces.some(
+          (surface) => surface.protectionState === 'verified_protected',
+        ) ?? false,
       activeSessionStarted: activeWorkspace.activeSession?.status === 'active',
       mainWindowMirrorsLiveCue,
       mainWindowMirrorsLiveTranscript,

@@ -297,6 +297,42 @@ describe("interview helper service", () => {
     );
   });
 
+  test("records runtime overlay protection verification evidence", async () => {
+    const service = createService();
+
+    await acceptSetup(service);
+    await service.runRehearsal();
+    await service.startSession();
+    const updated = await service.recordProtectedSurfaceVerification({
+      protectedSurfaces: [
+        {
+          id: "live_answer_overlay_interview-answer-overlay",
+          kind: "live_answer_overlay",
+          requestedPolicy: "screen_share_private",
+          protectionState: "verified_protected",
+          verificationMethod:
+            "electron-desktopCapturer-screen-thumbnail-vs-overlay-window-pixels",
+          displayLabel: "Screen 1",
+          detail:
+            "Overlay pixels were not detected in ordinary Electron screen capture. Meeting-app-specific exclusion is not verified.",
+          lastVerifiedAt: "2026-05-13T05:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(
+      updated.activeSession?.protectedSurfaces.find(
+        (surface) => surface.kind === "live_answer_overlay",
+      )?.protectionState,
+    ).toBe("verified_protected");
+    expect(
+      updated.activeSession?.diagnostics.at(-1)?.kind,
+    ).toBe("capture_protection");
+    expect(updated.activeSession?.diagnostics.at(-1)?.detail).toContain(
+      "ordinary Electron screen-capture verification",
+    );
+  });
+
   test("persists overlay layout preferences independently of session history", async () => {
     const service = createService();
 

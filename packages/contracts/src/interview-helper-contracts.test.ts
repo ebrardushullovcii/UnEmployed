@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   InterviewAudioTranscriptionInputSchema,
+  InterviewProtectedSurfaceVerificationInputSchema,
   InterviewTranscriptAnnotationInputSchema,
   InterviewTranscriptSegmentInputSchema,
   InterviewWorkspaceSnapshotSchema,
@@ -158,5 +159,27 @@ describe("interview helper contracts", () => {
 
     expect(input.source).toBe("meeting_audio");
     expect(input.language).toBe("en-US");
+  });
+
+  test("parses protected surface verification evidence", () => {
+    const input = InterviewProtectedSurfaceVerificationInputSchema.parse({
+      protectedSurfaces: [
+        {
+          id: "surface_1",
+          kind: "live_answer_overlay",
+          requestedPolicy: "screen_share_private",
+          protectionState: "verified_protected",
+          verificationMethod:
+            "electron-desktopCapturer-screen-thumbnail-vs-overlay-window-pixels",
+          displayLabel: "Screen 1",
+          detail: "Overlay pixels were not detected in ordinary Electron screen capture.",
+          lastVerifiedAt: now,
+        },
+      ],
+    });
+
+    expect(input.protectedSurfaces[0]?.protectionState).toBe(
+      "verified_protected",
+    );
   });
 });

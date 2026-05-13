@@ -84,6 +84,7 @@ declare global {
         transcribeAudioChunk: (
           input: InterviewAudioTranscriptionInput,
         ) => Promise<InterviewWorkspaceSnapshot>;
+        verifyOverlayProtection: () => Promise<InterviewWorkspaceSnapshot>;
         readClipboardText: () => Promise<InterviewClipboardTextResult>;
         exportSession: (
           sessionId: string,
