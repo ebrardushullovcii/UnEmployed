@@ -5,6 +5,8 @@ import type {
   ApplyRunDetails,
   JobFinderWorkspaceSnapshot,
 } from "@unemployed/contracts";
+import { Mic } from "lucide-react";
+import { Button } from "@renderer/components/ui";
 import { StatusBadge } from "../../components/status-badge";
 import { ApplicationsDetailPanelActivitySections } from "./applications-detail-panel-activity-sections";
 import { ApplicationsDetailPanelEmptyState } from "./applications-detail-panel-empty-state";
@@ -13,6 +15,29 @@ import { ApplicationsDetailPanelOverviewSections } from "./applications-detail-p
 import { ApplicationsDetailPanelRecoverySections } from "./applications-detail-panel-recovery-sections";
 import { type ApplicationsViewFilter } from "./applications-filters";
 import { getApplicationStagePresentation } from "./applications-status";
+
+function buildInterviewHelperApplicationHref(input: {
+  record: ApplicationRecord;
+  relatedJob: JobFinderWorkspaceSnapshot["discoveryJobs"][number] | null;
+}) {
+  const { record, relatedJob } = input;
+  const notes = [
+    record.nextActionLabel ? `Next step: ${record.nextActionLabel}` : null,
+    record.lastActionLabel ? `Latest application activity: ${record.lastActionLabel}` : null,
+    relatedJob?.summary ? `Job summary: ${relatedJob.summary}` : null,
+  ].filter((entry): entry is string => Boolean(entry));
+  const params = new URLSearchParams({
+    source: "job_application",
+    id: record.id,
+    label: `${record.title} at ${record.company}`,
+    role: record.title,
+    company: record.company,
+    sourceUrl: relatedJob?.canonicalUrl ?? "",
+    notes: notes.join("\n\n") || `Application record for ${record.title} at ${record.company}.`,
+  });
+
+  return `/interview-helper?${params.toString()}`;
+}
 
 interface ApplicationsDetailPanelProps {
   activeFilter: ApplicationsViewFilter;
@@ -139,6 +164,9 @@ export function ApplicationsDetailPanel({
   const selectedStage = selectedRecord
     ? getApplicationStagePresentation(selectedRecord)
     : null;
+  const selectedRecordJob = selectedRecord
+    ? discoveryJobs.find((job) => job.id === selectedRecord.jobId) ?? null
+    : null;
 
   return (
     <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col gap-6 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) px-8 py-5 xl:h-full xl:min-h-0">
@@ -161,6 +189,22 @@ export function ApplicationsDetailPanel({
       </div>
       {selectedRecord ? (
         <div className="grid min-h-0 min-w-0 flex-1 content-start gap-6 overflow-y-auto pr-1">
+          <Button
+            asChild
+            className="h-10 justify-start px-3.5 text-sm font-medium normal-case tracking-normal"
+            size="compact"
+            variant="secondary"
+          >
+            <a
+              href={`#${buildInterviewHelperApplicationHref({
+                record: selectedRecord,
+                relatedJob: selectedRecordJob,
+              })}`}
+            >
+              <Mic aria-hidden="true" className="size-4" focusable="false" />
+              Prepare interview
+            </a>
+          </Button>
           <ApplicationsDetailPanelOverviewSections
             selectedAttempt={selectedAttempt}
             selectedRecord={selectedRecord}

@@ -128,10 +128,17 @@ export function InterviewHelperPage() {
     const label = searchParams.get('label')
     const targetContextKey = searchParams.toString()
 
+    const targetContextKind =
+      source === 'saved_job'
+        ? 'saved_job'
+        : source === 'job_application'
+          ? 'job_application'
+          : null
+
     if (
       state.status !== 'ready' ||
       state.workspace.activeSession ||
-      source !== 'saved_job' ||
+      !targetContextKind ||
       !id ||
       !label ||
       appliedTargetContextKeyRef.current === targetContextKey
@@ -143,7 +150,7 @@ export function InterviewHelperPage() {
     void window.unemployed.interviewHelper
       .saveSetup({
         targetContext: {
-          kind: 'saved_job',
+          kind: targetContextKind,
           id,
           label,
           role: searchParams.get('role'),

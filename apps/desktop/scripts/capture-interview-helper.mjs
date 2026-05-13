@@ -114,6 +114,33 @@ async function runCapture() {
       sourceUrl: 'https://example.com/jobs/frontend-engineer',
       notes: 'React, Electron, and desktop accessibility interview context.',
     }
+    const applicationContext = {
+      id: 'application_harness_frontend_engineer',
+      label: 'Frontend Engineer at Example Corp',
+      role: 'Frontend Engineer',
+      company: 'Example Corp',
+      sourceUrl: 'https://example.com/applications/frontend-engineer',
+      notes: 'Application interview scheduled. Prepare React, Electron, and accessibility examples.',
+    }
+    const applicationParams = new URLSearchParams({
+      source: 'job_application',
+      id: applicationContext.id,
+      label: applicationContext.label,
+      role: applicationContext.role,
+      company: applicationContext.company,
+      sourceUrl: applicationContext.sourceUrl,
+      notes: applicationContext.notes,
+    })
+    await window.evaluate((query) => {
+      window.location.hash = `/interview-helper?${query}`
+    }, applicationParams.toString())
+    const applicationWorkspace = await waitForWorkspace(
+      window,
+      (workspace) =>
+        workspace.setup.targetContext?.kind === 'job_application' &&
+        workspace.setup.targetContext.id === 'application_harness_frontend_engineer',
+      'application record context handoff into Interview Helper setup',
+    )
     const linkedJobParams = new URLSearchParams({
       source: 'saved_job',
       id: linkedJobContext.id,
@@ -278,6 +305,10 @@ async function runCapture() {
         '06-post-session-review.png',
       ],
       rehearsalStatus: rehearsedWorkspace.setup.rehearsal?.status,
+      jobFinderApplicationContextApplied:
+        applicationWorkspace.setup.targetContext?.label === applicationContext.label &&
+        applicationWorkspace.setup.targetContext?.role === applicationContext.role &&
+        applicationWorkspace.setup.targetContext?.company === applicationContext.company,
       jobFinderSavedJobContextApplied:
         linkedJobWorkspace.setup.targetContext?.label === linkedJobContext.label &&
         linkedJobWorkspace.setup.targetContext?.role === linkedJobContext.role &&
