@@ -11,6 +11,7 @@ import type {
   InterviewHotkeyAction,
   InterviewPrepArtifactFromCueInput,
   InterviewTranscriptAnnotationInput,
+  InterviewTranscriptSegmentInput,
   InterviewWorkspaceSnapshot,
   SaveInterviewSetupInput,
   JobFinderApplyConsentActionInput,
@@ -163,6 +164,11 @@ const desktopApi = {
     addTranscriptAnnotation: (input: InterviewTranscriptAnnotationInput) =>
       ipcRenderer.invoke(
         "interview-helper:add-transcript-annotation",
+        input,
+      ) as Promise<InterviewWorkspaceSnapshot>,
+    addTranscriptSegment: (input: InterviewTranscriptSegmentInput) =>
+      ipcRenderer.invoke(
+        "interview-helper:add-transcript-segment",
         input,
       ) as Promise<InterviewWorkspaceSnapshot>,
     exportSession: (sessionId: string, format: InterviewExportFormat = "markdown") =>

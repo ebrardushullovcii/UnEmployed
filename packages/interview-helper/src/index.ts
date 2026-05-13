@@ -17,6 +17,7 @@ import type {
   InterviewTargetContext,
   InterviewTranscriptAnnotation,
   InterviewTranscriptAnnotationInput,
+  InterviewTranscriptSegmentInput,
   InterviewTranscriptionEngine,
   InterviewTranscriptSegment,
   InterviewVisualObservation,
@@ -35,6 +36,8 @@ import {
   InterviewSetupStateSchema,
   InterviewTargetContextSchema,
   InterviewTranscriptAnnotationSchema,
+  InterviewTranscriptSegmentInputSchema,
+  InterviewTranscriptSegmentSchema,
   InterviewWorkspaceSnapshotSchema,
 } from '@unemployed/contracts'
 import type {
@@ -137,6 +140,9 @@ export interface InterviewHelperService {
   }): Promise<InterviewWorkspaceSnapshot>
   addTranscriptAnnotation(
     input: InterviewTranscriptAnnotationInput,
+  ): Promise<InterviewWorkspaceSnapshot>
+  addTranscriptSegment(
+    input: InterviewTranscriptSegmentInput,
   ): Promise<InterviewWorkspaceSnapshot>
   exportSession(input: {
     sessionId: string
@@ -393,9 +399,26 @@ function createDiagnostic(input: {
 function getLatestQuestion(segments: readonly InterviewTranscriptSegment[]): string {
   return [...segments]
     .reverse()
-    .find((segment) => segment.source === 'meeting_audio')?.text ??
+    .find((segment) => segment.source === 'meeting_audio' || segment.source === 'meeting_native_transcript')?.text ??
     segments.at(-1)?.text ??
     'What should I focus on in this answer?'
+}
+
+function shouldGenerateAutomaticCue(input: {
+  session: InterviewLiveSession
+  segment: InterviewTranscriptSegment
+}): boolean {
+  if (
+    input.session.status !== 'active' ||
+    !input.session.listening ||
+    input.session.automaticCueSensitivity === 'manual_only' ||
+    input.segment.source === 'microphone' ||
+    input.segment.state === 'partial'
+  ) {
+    return false
+  }
+
+  return input.session.automaticCueSensitivity === 'balanced' || input.segment.text.includes('?')
 }
 
 function buildCueDisclosure(input: {
@@ -1044,6 +1067,67 @@ export function createInterviewHelperService(
         prepArtifacts: [artifact, ...current.setup.prepArtifacts],
       })
       const nextSnapshot = await rebuildWorkspace({ setup: nextSetup })
+      return saveSnapshot(nextSnapshot)
+    },
+    async addTranscriptSegment(rawInput) {
+      const input = InterviewTranscriptSegmentInputSchema.parse(rawInput)
+      const current = await loadSnapshot()
+      const activeSession = current.activeSession
+
+      if (!activeSession || activeSession.id !== input.sessionId) {
+        return current
+      }
+
+      const currentNow = now()
+      const existingSegment = input.transcriptSegmentId
+        ? activeSession.transcriptSegments.find((segment) => segment.id === input.transcriptSegmentId)
+        : null
+      const segment = InterviewTranscriptSegmentSchema.parse({
+        id: existingSegment?.id ?? input.transcriptSegmentId ?? createId('transcript_segment'),
+        sessionId: activeSession.id,
+        source: input.source,
+        state: input.state,
+        text: input.text,
+        startedAt: input.startedAt ?? existingSegment?.startedAt ?? currentNow,
+        endedAt:
+          input.endedAt === undefined
+            ? input.state === 'final'
+              ? currentNow
+              : existingSegment?.endedAt ?? null
+            : input.endedAt,
+        language: input.language,
+        confidence: input.confidence,
+        engineKind: input.engineKind,
+        usedInCueIds: existingSegment?.usedInCueIds ?? [],
+      })
+      const transcriptSegments = existingSegment
+        ? activeSession.transcriptSegments.map((entry) =>
+            entry.id === existingSegment.id ? segment : entry,
+          )
+        : [...activeSession.transcriptSegments, segment]
+      let nextSession = InterviewLiveSessionSchema.parse({
+        ...activeSession,
+        transcriptSegments,
+        diagnostics: [
+          ...activeSession.diagnostics,
+          createDiagnostic({
+            sessionId: activeSession.id,
+            kind: 'provider',
+            severity: 'info',
+            label: 'Transcript segment ingested',
+            detail: `${segment.source.replaceAll('_', ' ')} transcript segment saved through the typed live ingestion path.`,
+            occurredAt: currentNow,
+          }),
+        ],
+      })
+
+      if (shouldGenerateAutomaticCue({ session: nextSession, segment })) {
+        nextSession = await generateCue(nextSession, 'automatic_question')
+      }
+
+      const nextSnapshot = await rebuildWorkspace({
+        activeSession: nextSession,
+      })
       return saveSnapshot(nextSnapshot)
     },
     async addTranscriptAnnotation(input) {

@@ -5,6 +5,7 @@ import {
   InterviewSessionActionInputSchema,
   InterviewSessionIdInputSchema,
   InterviewTranscriptAnnotationInputSchema,
+  InterviewTranscriptSegmentInputSchema,
   SaveInterviewSetupInputSchema,
 } from '@unemployed/contracts'
 import { getInterviewHelperService } from '../services/interview-helper'
@@ -62,6 +63,12 @@ export function registerInterviewHelperRouteHandlers(ipcMain: IpcMain) {
     const input = InterviewTranscriptAnnotationInputSchema.parse(payload)
     const service = await getInterviewHelperService()
     return withSyncedOverlays(() => service.addTranscriptAnnotation(input))
+  })
+
+  ipcMain.handle('interview-helper:add-transcript-segment', async (_event, payload: unknown) => {
+    const input = InterviewTranscriptSegmentInputSchema.parse(payload)
+    const service = await getInterviewHelperService()
+    return withSyncedOverlays(() => service.addTranscriptSegment(input))
   })
 
   ipcMain.handle('interview-helper:export-session', async (_event, payload: unknown) => {

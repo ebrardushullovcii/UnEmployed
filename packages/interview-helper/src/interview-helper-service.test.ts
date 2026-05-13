@@ -161,6 +161,76 @@ describe("interview helper service", () => {
     expect(exportResult.content).toContain("Electron IPC isolation");
   });
 
+  test("ingests native live transcript segments and generates a cue", async () => {
+    const service = createService();
+
+    await acceptSetup(service);
+    await service.runRehearsal();
+    const active = await service.startSession();
+    const activeSession = active.activeSession;
+    if (!activeSession) {
+      throw new Error("Expected an active session.");
+    }
+
+    const updated = await service.addTranscriptSegment({
+      sessionId: activeSession.id,
+      source: "meeting_native_transcript",
+      text: "How would you keep Electron overlay IPC isolated from the main app?",
+      engineKind: "platform_local",
+    });
+
+    expect(updated.activeSession?.transcriptSegments.at(-1)?.source).toBe(
+      "meeting_native_transcript",
+    );
+    expect(updated.activeSession?.cueCards.at(-1)?.question).toContain(
+      "overlay IPC",
+    );
+    expect(updated.transcriptOverlay.transcriptSegments.at(-1)?.text).toContain(
+      "overlay IPC",
+    );
+  });
+
+  test("updates partial transcript segments without duplicating them", async () => {
+    const service = createService();
+
+    await acceptSetup(service);
+    await service.runRehearsal();
+    const active = await service.startSession();
+    const activeSession = active.activeSession;
+    if (!activeSession) {
+      throw new Error("Expected an active session.");
+    }
+
+    const partial = await service.addTranscriptSegment({
+      sessionId: activeSession.id,
+      transcriptSegmentId: "native_segment_1",
+      source: "meeting_native_transcript",
+      state: "partial",
+      text: "How would you keep",
+      engineKind: "platform_local",
+    });
+    const final = await service.addTranscriptSegment({
+      sessionId: activeSession.id,
+      transcriptSegmentId: "native_segment_1",
+      source: "meeting_native_transcript",
+      state: "final",
+      text: "How would you keep transcript ingestion typed?",
+      engineKind: "platform_local",
+    });
+
+    expect(
+      partial.activeSession?.transcriptSegments.filter(
+        (segment) => segment.id === "native_segment_1",
+      ),
+    ).toHaveLength(1);
+    expect(
+      final.activeSession?.transcriptSegments.filter(
+        (segment) => segment.id === "native_segment_1",
+      ),
+    ).toHaveLength(1);
+    expect(final.activeSession?.transcriptSegments.at(-1)?.state).toBe("final");
+  });
+
   test("persists overlay layout preferences independently of session history", async () => {
     const service = createService();
 

@@ -482,6 +482,22 @@ export type InterviewTranscriptAnnotationInput = z.infer<
   typeof InterviewTranscriptAnnotationInputSchema
 >;
 
+export const InterviewTranscriptSegmentInputSchema = z.object({
+  sessionId: NonEmptyStringSchema,
+  transcriptSegmentId: NonEmptyStringSchema.nullable().default(null),
+  source: InterviewTranscriptSourceSchema,
+  state: InterviewTranscriptSegmentStateSchema.default("final"),
+  text: NonEmptyStringSchema,
+  startedAt: IsoDateTimeSchema.optional(),
+  endedAt: IsoDateTimeSchema.nullable().optional(),
+  language: NonEmptyStringSchema.default("en-US"),
+  confidence: z.number().min(0).max(1).nullable().default(null),
+  engineKind: InterviewTranscriptionEngineKindSchema,
+});
+export type InterviewTranscriptSegmentInput = z.input<
+  typeof InterviewTranscriptSegmentInputSchema
+>;
+
 export const InterviewExportFormatSchema = z.enum(["markdown", "json"]);
 export type InterviewExportFormat = z.infer<typeof InterviewExportFormatSchema>;
 

@@ -65,7 +65,11 @@ export interface InterviewTranscriptionProvider {
 function pickQuestion(input: InterviewCueCardRequest): string {
   const latestMeetingQuestion = [...input.transcriptSegments]
     .reverse()
-    .find((segment) => segment.source === "meeting_audio");
+    .find(
+      (segment) =>
+        segment.source === "meeting_audio" ||
+        segment.source === "meeting_native_transcript",
+    );
 
   return latestMeetingQuestion?.text ?? input.question;
 }

@@ -155,6 +155,23 @@ async function runCapture() {
     await capture(answerOverlayWindow, '03-answer-overlay-window.png')
     await capture(transcriptOverlayWindow, '03-transcript-overlay-window.png')
 
+    const nativeTranscriptText =
+      'How would you keep Electron overlay IPC isolated from the main app?'
+    const nativeTranscriptWorkspace = await window.evaluate(
+      ({ sessionId, text }) =>
+        window.unemployed.interviewHelper.addTranscriptSegment({
+          sessionId,
+          source: 'meeting_native_transcript',
+          text,
+          engineKind: 'platform_local',
+        }),
+      {
+        sessionId: activeWorkspace.activeSession?.id,
+        text: nativeTranscriptText,
+      },
+    )
+    const mainWindowTextAfterNativeTranscript = await window.evaluate(() => document.body.innerText)
+
     const visualWorkspace = await performInterviewAction(window, 'capture_screenshot_and_force_cue')
     const screenshotDiagnosticDetail = latestDiagnosticDetail(visualWorkspace, 'screenshot')
     await window.reload()
@@ -261,6 +278,17 @@ async function runCapture() {
       overlayWindowRoutesAfterStart: overlayWindows.map((appWindow) => appWindow.url()),
       transcriptSegmentCount: activeWorkspace.activeSession?.transcriptSegments.length ?? 0,
       initialCueCardCount: activeWorkspace.activeSession?.cueCards.length ?? 0,
+      nativeTranscriptIngestionAddedSegment:
+        nativeTranscriptWorkspace.activeSession?.transcriptSegments.some(
+          (segment) =>
+            segment.source === 'meeting_native_transcript' &&
+            segment.text === nativeTranscriptText &&
+            segment.engineKind === 'platform_local',
+        ) ?? false,
+      nativeTranscriptIngestionGeneratedCue:
+        nativeTranscriptWorkspace.activeSession?.cueCards.at(-1)?.question === nativeTranscriptText,
+      nativeTranscriptHiddenFromMainWindow:
+        !mainWindowTextAfterNativeTranscript.includes(nativeTranscriptText),
       visualCueCardCount: visualWorkspace.activeSession?.cueCards.length ?? 0,
       visualBatchCount: visualWorkspace.activeSession?.visualBatches.length ?? 0,
       screenshotDiagnosticDetail,

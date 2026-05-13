@@ -3,6 +3,7 @@ import type {
   InterviewExportResult,
   InterviewHotkeyAction,
   InterviewOverlaySnapshot,
+  InterviewTranscriptSource,
   InterviewWorkspaceSnapshot,
 } from '@unemployed/contracts'
 import {
@@ -79,6 +80,9 @@ function getTargetLabel(workspace: InterviewWorkspaceSnapshot) {
 export function InterviewHelperPage() {
   const [state, setState] = useState<LoadState>({ status: 'loading' })
   const [pendingAction, setPendingAction] = useState<string | null>(null)
+  const [transcriptSource, setTranscriptSource] =
+    useState<InterviewTranscriptSource>('meeting_native_transcript')
+  const [transcriptDraft, setTranscriptDraft] = useState('')
 
   async function loadWorkspace() {
     try {
@@ -112,6 +116,29 @@ export function InterviewHelperPage() {
 
   async function perform(action: InterviewHotkeyAction) {
     await updateWorkspace(action, () => window.unemployed.interviewHelper.performAction(action))
+  }
+
+  async function submitTranscriptSegment() {
+    const currentActiveSession =
+      state.status === 'ready' ? state.workspace.activeSession : null
+
+    if (!currentActiveSession || transcriptDraft.trim().length === 0) {
+      return
+    }
+
+    const text = transcriptDraft.trim()
+    setTranscriptDraft('')
+    await updateWorkspace('add_transcript_segment', () =>
+      window.unemployed.interviewHelper.addTranscriptSegment({
+        sessionId: currentActiveSession.id,
+        source: transcriptSource,
+        text,
+        engineKind:
+          transcriptSource === 'meeting_native_transcript'
+            ? 'platform_local'
+            : 'browser_speech',
+      })
+    )
   }
 
   if (state.status === 'loading') {
@@ -359,6 +386,41 @@ export function InterviewHelperPage() {
                     <Button onClick={() => { void perform('end_session') }} pending={pendingAction === 'end_session'} size="compact" variant="outline">
                       End session
                     </Button>
+                    {activeSession ? (
+                      <div className="grid gap-2 border-t border-border-subtle pt-3">
+                        <div className="grid gap-2 sm:grid-cols-[0.62fr_1fr]">
+                          <select
+                            className="h-9 rounded-(--radius-small) border border-border-subtle bg-black/30 px-2 text-[0.78rem] text-foreground"
+                            onChange={(event) => {
+                              setTranscriptSource(event.target.value as InterviewTranscriptSource)
+                            }}
+                            value={transcriptSource}
+                          >
+                            <option value="meeting_native_transcript">Native captions</option>
+                            <option value="meeting_audio">Meeting audio</option>
+                            <option value="microphone">Microphone</option>
+                          </select>
+                          <Button
+                            disabled={transcriptDraft.trim().length === 0}
+                            onClick={() => { void submitTranscriptSegment() }}
+                            pending={pendingAction === 'add_transcript_segment'}
+                            size="compact"
+                            variant="secondary"
+                          >
+                            <Radio className="size-4" />
+                            Add transcript
+                          </Button>
+                        </div>
+                        <textarea
+                          className="min-h-20 resize-y rounded-(--radius-small) border border-border-subtle bg-black/30 p-3 text-[0.82rem] leading-5 text-foreground outline-none focus:border-(--info-border)"
+                          onChange={(event) => {
+                            setTranscriptDraft(event.target.value)
+                          }}
+                          placeholder="Paste a native caption or transcript line."
+                          value={transcriptDraft}
+                        />
+                      </div>
+                    ) : null}
                   </div>
                 </Panel>
 

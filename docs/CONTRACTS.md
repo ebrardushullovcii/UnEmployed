@@ -20,7 +20,7 @@ Use this for cross-package contract rules and workflow semantics. Put field-leve
 - source-debug runs, evidence refs, and learned instruction artifacts
 - compaction policy and lightweight compaction snapshots for long-running agent work
 - browser visual snapshot requests/refs, observation sets, reconciliations, evidence summaries, source-debug visual findings, and apply visual checkpoints
-- Interview Helper setup state, target-context snapshots, rehearsal checklists, protected overlay surfaces, transcript segments, transcript annotations, cue visual batches, cue cards, diagnostics, overlay snapshots, live sessions, export payloads, and semantic session actions
+- Interview Helper setup state, target-context snapshots, rehearsal checklists, protected overlay surfaces, transcript segment ingestion, transcript annotations, cue visual batches, cue cards, diagnostics, overlay snapshots, live sessions, export payloads, and semantic session actions
 
 ## Current Shared Semantics
 
@@ -32,6 +32,7 @@ Use this for cross-package contract rules and workflow semantics. Put field-leve
 - browser visual output is evidence-only and schema validation rejects selectors, browser-action directives, saved-job directives, generated answers, final-submit guidance, and site-specific workflow rules
 - application-page visual capture requires explicit apply-run/action opt-in (`visualCheckpointsEnabled` defaults false); browser-runtime must not infer screenshot capture from an ambient visual-capable AI client
 - Interview Helper cue generation consumes bounded source-labeled transcript windows, target-context snapshots, selected prep artifacts, compact summary state, and active visual observations. It must not resend raw full transcripts or persist raw audio, raw provider payloads, raw prompts, or unpinned screenshots by default.
+- Interview Helper live transcript ingestion uses a typed source-labeled payload for `microphone`, `meeting_audio`, and `meeting_native_transcript`; partial updates may replace an existing segment id and final/stable non-microphone segments may trigger cue generation according to session sensitivity.
 - Interview Helper transcript annotations are additive review records. Corrections and notes retain the referenced original transcript text and must not overwrite the source transcript segment.
 - Interview Helper protected overlay state uses explicit states such as `verified_protected`, `requested_unverified`, `best_effort`, `unsupported`, `failed`, and `unknown`; product code must not collapse these into a boolean or label requested protection as verified protection.
 - Interview Helper overlay layout preferences store each protected surface's bounds, display id, opacity, visibility, interaction mode, and requested protection policy separately from session history.

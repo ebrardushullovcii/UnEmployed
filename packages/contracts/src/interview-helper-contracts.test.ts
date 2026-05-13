@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   InterviewTranscriptAnnotationInputSchema,
+  InterviewTranscriptSegmentInputSchema,
   InterviewWorkspaceSnapshotSchema,
   SaveInterviewSetupInputSchema,
 } from "./interview-helper";
@@ -131,5 +132,18 @@ describe("interview helper contracts", () => {
 
     expect(input.kind).toBe("correction");
     expect(input.transcriptSegmentId).toBe("segment_1");
+  });
+
+  test("parses native transcript ingestion as a non-ai transcript source", () => {
+    const input = InterviewTranscriptSegmentInputSchema.parse({
+      sessionId: "interview_session_1",
+      source: "meeting_native_transcript",
+      text: "Can you compare browser speech recognition with a local model?",
+      engineKind: "platform_local",
+    });
+
+    expect(input.state).toBe("final");
+    expect(input.language).toBe("en-US");
+    expect(input.confidence).toBeNull();
   });
 });
