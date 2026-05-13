@@ -8,10 +8,13 @@ import { createFileInterviewHelperRepository } from '@unemployed/db'
 import { createInterviewHelperService } from '@unemployed/interview-helper'
 import {
   createStaticDesktopAudioCaptureAdapter,
-  createStaticDesktopScreenshotCaptureAdapter,
   createStaticProtectedOverlaySurfaceAdapter,
 } from '@unemployed/os-integration'
-import { getInterviewHelperWorkspaceFilePath } from './paths'
+import { createElectronDesktopScreenshotCaptureAdapter } from './electron-screenshot-adapter'
+import {
+  getInterviewHelperTemporaryScreenshotDirectory,
+  getInterviewHelperWorkspaceFilePath,
+} from './paths'
 
 let interviewHelperServicePromise:
   | Promise<ReturnType<typeof createInterviewHelperService>>
@@ -24,7 +27,9 @@ export function getInterviewHelperService() {
         filePath: getInterviewHelperWorkspaceFilePath(),
       }),
       audioCaptureAdapter: createStaticDesktopAudioCaptureAdapter(process.platform),
-      screenshotCaptureAdapter: createStaticDesktopScreenshotCaptureAdapter(),
+      screenshotCaptureAdapter: createElectronDesktopScreenshotCaptureAdapter({
+        directory: getInterviewHelperTemporaryScreenshotDirectory(),
+      }),
       protectedSurfaceAdapter: createStaticProtectedOverlaySurfaceAdapter({
         platform: process.platform,
       }),

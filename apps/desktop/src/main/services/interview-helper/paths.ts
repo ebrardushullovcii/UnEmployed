@@ -8,3 +8,7 @@ function getUserDataDirectory() {
 export function getInterviewHelperWorkspaceFilePath() {
   return path.join(getUserDataDirectory(), 'interview-helper-workspace.json')
 }
+
+export function getInterviewHelperTemporaryScreenshotDirectory() {
+  return path.join(getUserDataDirectory(), 'interview-helper-screenshots', 'temporary')
+}

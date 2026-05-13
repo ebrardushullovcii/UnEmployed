@@ -41,6 +41,14 @@ async function performInterviewAction(window, action) {
   )
 }
 
+function latestDiagnosticDetail(workspace, kind) {
+  return (
+    workspace.activeSession?.diagnostics
+      .filter((diagnostic) => diagnostic.kind === kind)
+      .at(-1)?.detail ?? ''
+  )
+}
+
 async function waitForWorkspace(window, predicate, description) {
   const startedAt = Date.now()
   while (Date.now() - startedAt < 10000) {
@@ -148,6 +156,7 @@ async function runCapture() {
     await capture(transcriptOverlayWindow, '03-transcript-overlay-window.png')
 
     const visualWorkspace = await performInterviewAction(window, 'capture_screenshot_and_force_cue')
+    const screenshotDiagnosticDetail = latestDiagnosticDetail(visualWorkspace, 'screenshot')
     await window.reload()
     await window.waitForLoadState('domcontentloaded')
     await waitForInterviewWorkspace(window)
@@ -224,6 +233,10 @@ async function runCapture() {
       initialCueCardCount: activeWorkspace.activeSession?.cueCards.length ?? 0,
       visualCueCardCount: visualWorkspace.activeSession?.cueCards.length ?? 0,
       visualBatchCount: visualWorkspace.activeSession?.visualBatches.length ?? 0,
+      screenshotDiagnosticDetail,
+      screenshotDiagnosticUsesElectronCapture:
+        screenshotDiagnosticDetail.includes('Electron desktopCapturer') &&
+        screenshotDiagnosticDetail.includes('discarded'),
       overlayContaminationDisclosed:
         visualWorkspace.activeSession?.cueCards.at(-1)?.disclosure.overlayContaminated ?? false,
       panicHideStatus: panicWorkspace.activeSession?.status,
