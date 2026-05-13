@@ -1,4 +1,5 @@
-import { Pencil } from 'lucide-react'
+import { Mic, Pencil } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import type { BrowserSessionState, ReviewQueueItem, SavedJob, TailoredAsset } from '@unemployed/contracts'
 import { Button, ProgressBar } from '@renderer/components/ui'
 import { EmptyState } from '../../components/empty-state'
@@ -12,6 +13,23 @@ import {
   getChecklistTone,
   summarizeSelectedQueueTitles,
 } from './review-queue-mission-panel-helpers'
+
+function buildInterviewHelperHref(job: SavedJob): string {
+  const params = new URLSearchParams({
+    source: 'saved_job',
+    id: job.id,
+    label: `${job.title} at ${job.company}`,
+    role: job.title,
+    company: job.company,
+    sourceUrl: job.canonicalUrl,
+  })
+
+  if (job.summary) {
+    params.set('notes', job.summary)
+  }
+
+  return `/interview-helper?${params.toString()}`
+}
 
 interface ReviewQueueMissionPanelProps {
   actionMessage: string | null
@@ -261,6 +279,18 @@ export function ReviewQueueMissionPanel({
               >
                 <Pencil aria-hidden="true" className="size-4" focusable="false" />
                 Open resume workspace
+              </Button>
+              <Button
+                asChild
+                className="h-auto w-full justify-start px-0 text-left text-sm font-medium normal-case tracking-normal text-foreground-soft hover:text-foreground"
+                size="sm"
+                type="button"
+                variant="ghost"
+              >
+                <Link to={buildInterviewHelperHref(selectedJob)}>
+                  <Mic aria-hidden="true" className="size-4" focusable="false" />
+                  Prepare interview
+                </Link>
               </Button>
             </div>
           </>

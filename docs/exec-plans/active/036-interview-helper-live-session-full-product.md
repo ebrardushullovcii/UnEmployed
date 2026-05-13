@@ -24,7 +24,7 @@ The plan was grilled and accepted with these product decisions:
 - The main app must not mirror sensitive live cue-card, transcript, or screenshot content while a session is active.
 - Interview Helper state is deterministic service state hosted by Electron main; renderer and overlay windows are consumers over typed preload APIs/events.
 - The setup workspace is the primary start path. Tray-only or ambient start is out of scope.
-- Interview Helper is its own top-level module route. Job Finder can deep-link into setup with suggested context.
+- Interview Helper is its own top-level module route. Job Finder can deep-link into setup with suggested saved-job context.
 - General interviews are a real target-context type and must not pretend to be job-grounded.
 - Target context is snapshotted at session start for reproducibility and to avoid broad app-history leakage.
 - Transcripts are the primary cue signal. Screenshot vision is optional augmentation.
@@ -454,7 +454,7 @@ These are parallel work areas for one full release target, not shortcut phases.
 
 ### Job Finder Integration
 
-- add deep links from saved jobs/application records into Interview setup with suggested target context
+- add deep links from saved jobs into Interview setup with suggested target context; application-record handoff remains explicit follow-up work
 - keep any writes back to Job Finder explicit user actions
 - do not allow live-session content to automatically mutate profile, resume, saved-job, or application records
 
@@ -553,6 +553,6 @@ These are implementation research tasks inside the full release, not reasons to 
 
 ## Latest Evidence
 
-- Landed deterministic full-flow baseline: Interview Helper contracts, explicit setup-consent gate, service state machine, file-backed workspace persistence, restart-to-`interrupted` recovery, Electron-backed microphone permission and desktop capture source readiness checks, source-labeled live transcript ingestion for microphone/meeting audio/meeting-native captions, user-started browser speech bridge, static protected-surface `os-integration` capability adapters, deterministic AI/transcription providers, desktop main IPC/preload hosting, top-level route, separate answer/transcript overlay BrowserWindows, persisted overlay layout/display metadata, no main-window live cue/transcript mirroring, tray/global-hotkey semantic controls, and additive post-session transcript annotations.
+- Landed deterministic full-flow baseline: Interview Helper contracts, explicit setup-consent gate, service state machine, file-backed workspace persistence, restart-to-`interrupted` recovery, Job Finder saved-job setup handoff, Electron-backed microphone permission and desktop capture source readiness checks, source-labeled live transcript ingestion for microphone/meeting audio/meeting-native captions, user-started browser speech bridge, static protected-surface `os-integration` capability adapters, deterministic AI/transcription providers, desktop main IPC/preload hosting, top-level route, separate answer/transcript overlay BrowserWindows, persisted overlay layout/display metadata, no main-window live cue/transcript mirroring, tray/global-hotkey semantic controls, and additive post-session transcript annotations.
 - Latest green evidence: `pnpm validate:desktop`; `pnpm --filter @unemployed/desktop ui:interview-helper`; `pnpm --filter @unemployed/desktop ui:interview-helper-protection`.
 - Harness artifacts: `apps/desktop/test-artifacts/ui/interview-helper/interview-helper-report.json` and `apps/desktop/test-artifacts/ui/interview-helper-protection/interview-helper-protection-report.json`; the desktop workflow now records Electron microphone permission status, enumerates Electron desktop capture sources for meeting/system readiness, verifies typed meeting-native transcript ingestion can add a platform-local segment and generate a cue without mirroring that transcript in the main window, captures optional visual context with Electron `desktopCapturer`, immediately deletes the temporary PNG, records only metadata plus overlay-contamination disclosure, persists moved overlay bounds with display ids, and Windows Electron `desktopCapturer` protection evidence did not detect protected overlay-window pixels. Runtime user-facing state remains best-effort/requested until per-session/platform verification exists.

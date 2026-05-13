@@ -106,6 +106,34 @@ async function runCapture() {
     await waitForInterviewWorkspace(window)
     await window.setViewportSize({ width, height })
 
+    const linkedJobContext = {
+      id: 'job_harness_frontend_engineer',
+      label: 'Frontend Engineer at Example Corp',
+      role: 'Frontend Engineer',
+      company: 'Example Corp',
+      sourceUrl: 'https://example.com/jobs/frontend-engineer',
+      notes: 'React, Electron, and desktop accessibility interview context.',
+    }
+    const linkedJobParams = new URLSearchParams({
+      source: 'saved_job',
+      id: linkedJobContext.id,
+      label: linkedJobContext.label,
+      role: linkedJobContext.role,
+      company: linkedJobContext.company,
+      sourceUrl: linkedJobContext.sourceUrl,
+      notes: linkedJobContext.notes,
+    })
+    await window.evaluate((query) => {
+      window.location.hash = `/interview-helper?${query}`
+    }, linkedJobParams.toString())
+    const linkedJobWorkspace = await waitForWorkspace(
+      window,
+      (workspace) =>
+        workspace.setup.targetContext?.kind === 'saved_job' &&
+        workspace.setup.targetContext.id === 'job_harness_frontend_engineer',
+      'saved job context handoff into Interview Helper setup',
+    )
+
     await capture(window, '01-setup.png')
 
     await window.getByRole('button', { name: /Accept setup/i }).click()
@@ -248,6 +276,10 @@ async function runCapture() {
         '06-post-session-review.png',
       ],
       rehearsalStatus: rehearsedWorkspace.setup.rehearsal?.status,
+      jobFinderSavedJobContextApplied:
+        linkedJobWorkspace.setup.targetContext?.label === linkedJobContext.label &&
+        linkedJobWorkspace.setup.targetContext?.role === linkedJobContext.role &&
+        linkedJobWorkspace.setup.targetContext?.company === linkedJobContext.company,
       setupConsentAccepted: Boolean(rehearsedWorkspace.setup.consent.acceptedAt),
       rehearsalCheckCount: rehearsedWorkspace.setup.rehearsal?.checks.length ?? 0,
       audioCapabilityChecks: rehearsedWorkspace.setup.rehearsal?.checks

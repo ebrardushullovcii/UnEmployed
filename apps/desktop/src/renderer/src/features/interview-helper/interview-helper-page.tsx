@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type {
   InterviewExportResult,
   InterviewHotkeyAction,
@@ -22,7 +22,7 @@ import {
   Sparkles,
   Trash2
 } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Button } from '@renderer/components/ui/button'
 import { cn } from '@renderer/lib/cn'
 import { AnswerCueOverlay, TranscriptOverlay } from './interview-overlays'
@@ -79,11 +79,13 @@ function getTargetLabel(workspace: InterviewWorkspaceSnapshot) {
 }
 
 export function InterviewHelperPage() {
+  const [searchParams] = useSearchParams()
   const [state, setState] = useState<LoadState>({ status: 'loading' })
   const [pendingAction, setPendingAction] = useState<string | null>(null)
   const [transcriptSource, setTranscriptSource] =
     useState<InterviewTranscriptSource>('meeting_native_transcript')
   const [transcriptDraft, setTranscriptDraft] = useState('')
+  const appliedTargetContextKeyRef = useRef<string | null>(null)
 
   async function loadWorkspace() {
     try {
@@ -118,6 +120,48 @@ export function InterviewHelperPage() {
   async function perform(action: InterviewHotkeyAction) {
     await updateWorkspace(action, () => window.unemployed.interviewHelper.performAction(action))
   }
+
+  useEffect(() => {
+    const source = searchParams.get('source')
+    const id = searchParams.get('id')
+    const label = searchParams.get('label')
+    const targetContextKey = searchParams.toString()
+
+    if (
+      state.status !== 'ready' ||
+      state.workspace.activeSession ||
+      source !== 'saved_job' ||
+      !id ||
+      !label ||
+      appliedTargetContextKeyRef.current === targetContextKey
+    ) {
+      return
+    }
+
+    appliedTargetContextKeyRef.current = targetContextKey
+    void window.unemployed.interviewHelper
+      .saveSetup({
+        targetContext: {
+          kind: 'saved_job',
+          id,
+          label,
+          role: searchParams.get('role'),
+          company: searchParams.get('company'),
+          sourceUrl: searchParams.get('sourceUrl'),
+          notes: searchParams.get('notes'),
+          savedJob: null,
+          profileSnapshot: null,
+          confirmedAt: new Date().toISOString(),
+        },
+      })
+      .then((workspace) => {
+        setState((current) => ({
+          status: 'ready',
+          workspace,
+          exportResult: current.status === 'ready' ? current.exportResult : null
+        }))
+      })
+  }, [searchParams, state])
 
   async function submitTranscriptSegment() {
     const currentActiveSession =
