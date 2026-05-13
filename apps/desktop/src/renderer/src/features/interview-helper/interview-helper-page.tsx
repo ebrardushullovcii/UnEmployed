@@ -19,6 +19,7 @@ import {
   Pause,
   Play,
   Radio,
+  RotateCcw,
   Shield,
   Sparkles,
   Trash2,
@@ -159,6 +160,12 @@ export function InterviewHelperPage() {
   async function verifyOverlayProtection() {
     await updateWorkspace("verify_overlay_protection", () =>
       window.unemployed.interviewHelper.verifyOverlayProtection(),
+    );
+  }
+
+  async function resetOverlayLayout() {
+    await updateWorkspace("reset_overlay_layout", () =>
+      window.unemployed.interviewHelper.resetOverlayPreferences(),
     );
   }
 
@@ -926,6 +933,17 @@ export function InterviewHelperPage() {
                       </kbd>
                     </div>
                   ))}
+                  <Button
+                    onClick={() => {
+                      void resetOverlayLayout();
+                    }}
+                    pending={pendingAction === "reset_overlay_layout"}
+                    size="compact"
+                    variant="secondary"
+                  >
+                    <RotateCcw className="size-4" />
+                    Reset overlay layout
+                  </Button>
                 </div>
               </Panel>
               <Panel title="Session summary">

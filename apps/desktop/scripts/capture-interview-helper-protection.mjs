@@ -284,6 +284,12 @@ async function runCaptureProtection() {
     ])
 
     await writeBase64Png('desktop-capture.png', analysis.source.pngBase64)
+    const resetWorkspace = await window.evaluate(() =>
+      window.unemployed.interviewHelper.resetOverlayPreferences(),
+    )
+    const resetOverlayLayoutOk = resetWorkspace.overlayPreferences.every(
+      (preference) => preference.bounds === null && preference.displayId === null,
+    )
     const report = {
       generatedAt: new Date().toISOString(),
       method: 'electron-desktopCapturer-screen-thumbnail-vs-overlay-window-pixels',
@@ -295,6 +301,7 @@ async function runCaptureProtection() {
       placedOverlays,
       persistedOverlayLayouts,
       overlayLayoutPersistenceOk,
+      resetOverlayLayoutOk,
       ...analysis,
       source: {
         id: analysis.source.id,

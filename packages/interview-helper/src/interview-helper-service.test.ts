@@ -409,6 +409,33 @@ describe("interview helper service", () => {
     expect(updated.recentSessions).toHaveLength(0);
   });
 
+  test("resets overlay layout preferences without deleting session history", async () => {
+    const service = createService();
+
+    await acceptSetup(service);
+    await service.runRehearsal();
+    await service.startSession();
+    const moved = await service.updateOverlayPreference({
+      surfaceKind: "live_transcript_overlay",
+      bounds: { x: 120, y: 140, width: 520, height: 320 },
+      displayId: "display_2",
+    });
+    const ended = await service.performAction({ action: "end_session" });
+    const reset = await service.resetOverlayPreferences();
+
+    expect(
+      moved.overlayPreferences.find(
+        (preference) => preference.surfaceKind === "live_transcript_overlay",
+      )?.bounds,
+    ).toEqual({ x: 120, y: 140, width: 520, height: 320 });
+    expect(reset.recentSessions).toHaveLength(ended.recentSessions.length);
+    expect(
+      reset.overlayPreferences.find(
+        (preference) => preference.surfaceKind === "live_transcript_overlay",
+      )?.bounds,
+    ).toBeNull();
+  });
+
   test("marks persisted active sessions interrupted instead of resuming capture", async () => {
     const repository = createMemoryRepository();
     const firstService = createService(repository);

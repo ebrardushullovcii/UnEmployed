@@ -182,6 +182,10 @@ const desktopApi = {
       ipcRenderer.invoke(
         "interview-helper:verify-overlay-protection",
       ) as Promise<InterviewWorkspaceSnapshot>,
+    resetOverlayPreferences: () =>
+      ipcRenderer.invoke(
+        "interview-helper:reset-overlay-preferences",
+      ) as Promise<InterviewWorkspaceSnapshot>,
     readClipboardText: () =>
       ipcRenderer.invoke(
         "interview-helper:read-clipboard-text",

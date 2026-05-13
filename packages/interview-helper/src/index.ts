@@ -147,6 +147,7 @@ export interface InterviewHelperService {
   updateOverlayPreference(
     input: UpdateInterviewOverlayPreferenceInput,
   ): Promise<InterviewWorkspaceSnapshot>;
+  resetOverlayPreferences(): Promise<InterviewWorkspaceSnapshot>;
   runRehearsal(): Promise<InterviewWorkspaceSnapshot>;
   startSession(): Promise<InterviewWorkspaceSnapshot>;
   performAction(
@@ -932,6 +933,12 @@ export function createInterviewHelperService(
         : [...current.overlayPreferences, nextPreference];
       const nextSnapshot = await rebuildWorkspace({
         overlayPreferences: nextOverlayPreferences,
+      });
+      return saveSnapshot(nextSnapshot);
+    },
+    async resetOverlayPreferences() {
+      const nextSnapshot = await rebuildWorkspace({
+        overlayPreferences: defaultOverlayPreferences,
       });
       return saveSnapshot(nextSnapshot);
     },

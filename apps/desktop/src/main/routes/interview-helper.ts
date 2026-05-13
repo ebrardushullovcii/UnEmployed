@@ -141,6 +141,11 @@ export function registerInterviewHelperRouteHandlers(ipcMain: IpcMain) {
     );
   });
 
+  ipcMain.handle("interview-helper:reset-overlay-preferences", async () => {
+    const service = await getInterviewHelperService();
+    return withSyncedOverlays(() => service.resetOverlayPreferences());
+  });
+
   ipcMain.handle("interview-helper:read-clipboard-text", () => ({
     text: clipboard.readText(),
   }));

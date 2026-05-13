@@ -87,6 +87,7 @@ declare global {
           input: InterviewAudioTranscriptionInput,
         ) => Promise<InterviewWorkspaceSnapshot>;
         verifyOverlayProtection: () => Promise<InterviewWorkspaceSnapshot>;
+        resetOverlayPreferences: () => Promise<InterviewWorkspaceSnapshot>;
         readClipboardText: () => Promise<InterviewClipboardTextResult>;
         selectCaptionFile: () => Promise<InterviewCaptionFileTextResult>;
         readCaptionFile: (

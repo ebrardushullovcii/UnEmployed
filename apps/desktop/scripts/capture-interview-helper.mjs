@@ -218,6 +218,8 @@ async function runCapture() {
     const transientAudioSttControlsVisible =
       (await window.getByRole('button', { name: /Mic STT/i }).count()) > 0 &&
       (await window.getByRole('button', { name: /System STT/i }).count()) > 0
+    const resetOverlayLayoutVisible =
+      (await window.getByRole('button', { name: /Reset overlay layout/i }).count()) > 0
     const liveCueQuestion = activeWorkspace.activeSession?.cueCards.at(-1)?.question ?? ''
     const liveTranscriptTexts =
       activeWorkspace.activeSession?.transcriptSegments.map((segment) => segment.text) ?? []
@@ -407,6 +409,7 @@ async function runCapture() {
       captionFileWatcherVisible,
       mediaStreamProbesVisible,
       transientAudioSttControlsVisible,
+      resetOverlayLayoutVisible,
       nativeTranscriptIngestionAddedSegment:
         nativeTranscriptWorkspace.activeSession?.transcriptSegments.some(
           (segment) =>
