@@ -135,7 +135,11 @@ export interface DesktopScreenshotCaptureResult {
 
 export interface DesktopScreenshotCaptureAdapter {
   captureInterviewRegion(input: {
-    reason: 'queued_visual_batch' | 'capture_and_force_cue' | 'rehearsal'
+    reason:
+      | 'queued_visual_batch'
+      | 'capture_and_force_cue'
+      | 'automatic_cue'
+      | 'rehearsal'
   }): Promise<DesktopScreenshotCaptureResult>
 }
 

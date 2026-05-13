@@ -51,6 +51,8 @@ export function createElectronDesktopScreenshotCaptureAdapter(input: {
           detail:
             request.reason === 'rehearsal'
               ? `Electron desktopCapturer produced a ${png.byteLength} byte temporary primary-display capture and discarded it.`
+              : request.reason === 'automatic_cue'
+                ? `Electron desktopCapturer captured the primary display for an automatic cue and discarded the temporary ${png.byteLength} byte PNG. Overlay contamination remains possible and is disclosed to the cue provider.`
               : `Electron desktopCapturer captured the primary display for cue context and discarded the temporary ${png.byteLength} byte PNG. Overlay contamination remains possible and is disclosed to the cue provider.`,
           capturedAt,
         }

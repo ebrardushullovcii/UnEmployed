@@ -3,6 +3,7 @@ import type {
   InterviewExportResult,
   InterviewHotkeyAction,
   InterviewOverlaySnapshot,
+  SaveInterviewSetupInput,
   InterviewTranscriptSource,
   InterviewWorkspaceSnapshot,
 } from "@unemployed/contracts";
@@ -31,6 +32,7 @@ import { InterviewBrowserSpeechBridge } from "./interview-browser-speech-bridge"
 import { InterviewCaptionFileWatcher } from "./interview-caption-file-watcher";
 import { InterviewMediaStreamProbes } from "./interview-media-stream-probes";
 import { InterviewNativeCaptionWatcher } from "./interview-native-caption-watcher";
+import { InterviewSessionPreferences } from "./interview-session-preferences";
 
 type LoadState =
   | { status: "loading" }
@@ -148,6 +150,12 @@ export function InterviewHelperPage() {
     );
   }
 
+  function saveSetupPreference(input: SaveInterviewSetupInput) {
+    void updateWorkspace("setup_preferences", () =>
+      window.unemployed.interviewHelper.saveSetup(input),
+    );
+  }
+
   async function verifyOverlayProtection() {
     await updateWorkspace("verify_overlay_protection", () =>
       window.unemployed.interviewHelper.verifyOverlayProtection(),
@@ -223,6 +231,10 @@ export function InterviewHelperPage() {
           transcriptSource === "meeting_native_transcript"
             ? "platform_local"
             : "browser_speech",
+        language:
+          state.status === "ready"
+            ? state.workspace.setup.transcriptionLanguage
+            : "en-US",
       }),
     );
   }
@@ -500,6 +512,11 @@ export function InterviewHelperPage() {
                     <div className="h-2 overflow-hidden rounded-full bg-black/40">
                       <div className="h-full w-[72%] rounded-full bg-[linear-gradient(90deg,var(--success-text),var(--info-text))]" />
                     </div>
+                    <InterviewSessionPreferences
+                      onSave={saveSetupPreference}
+                      pending={pendingAction === "setup_preferences"}
+                      workspace={workspace}
+                    />
                   </div>
                 </Panel>
               </div>
@@ -601,6 +618,7 @@ export function InterviewHelperPage() {
                     {activeSession ? (
                       <div className="grid gap-2 border-t border-border-subtle pt-3">
                         <InterviewBrowserSpeechBridge
+                          language={workspace.setup.transcriptionLanguage}
                           listening={activeSession.listening}
                           onWorkspaceChange={(nextWorkspace) => {
                             setState((current) => ({
@@ -615,6 +633,7 @@ export function InterviewHelperPage() {
                           sessionId={activeSession.id}
                         />
                         <InterviewNativeCaptionWatcher
+                          language={workspace.setup.transcriptionLanguage}
                           listening={activeSession.listening}
                           onWorkspaceChange={(nextWorkspace) => {
                             setState((current) => ({
@@ -627,6 +646,7 @@ export function InterviewHelperPage() {
                           sessionId={activeSession.id}
                         />
                         <InterviewCaptionFileWatcher
+                          language={workspace.setup.transcriptionLanguage}
                           listening={activeSession.listening}
                           onWorkspaceChange={(nextWorkspace) => {
                             setState((current) => ({
@@ -639,6 +659,7 @@ export function InterviewHelperPage() {
                           sessionId={activeSession.id}
                         />
                         <InterviewMediaStreamProbes
+                          language={workspace.setup.transcriptionLanguage}
                           listening={activeSession.listening}
                           onWorkspaceChange={(nextWorkspace) => {
                             setState((current) => ({

@@ -49,6 +49,7 @@ function selectSupportedAudioMimeType() {
 
 export function InterviewMediaStreamProbes(props: {
   sessionId: string;
+  language: string;
   listening: boolean;
   onWorkspaceChange: (workspace: InterviewWorkspaceSnapshot) => void;
 }) {
@@ -238,7 +239,7 @@ export function InterviewMediaStreamProbes(props: {
               audioBase64: toBase64(buffer),
               startedAt,
               endedAt: new Date().toISOString(),
-              language: "en-US",
+              language: props.language,
             })
             .then(props.onWorkspaceChange)
             .catch((error: unknown) => {

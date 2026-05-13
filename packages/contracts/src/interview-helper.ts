@@ -401,6 +401,7 @@ export const InterviewSetupStateSchema = z.object({
   targetContext: InterviewTargetContextSchema.nullable().default(null),
   prepArtifacts: z.array(InterviewPrepArtifactSchema).default([]),
   rehearsal: InterviewRehearsalChecklistSchema.nullable().default(null),
+  transcriptionLanguage: NonEmptyStringSchema.default("en-US"),
   cueSensitivity: InterviewCueSensitivitySchema.default("conservative"),
   autoCaptureOnCue: z.boolean().default(false),
 });
@@ -440,6 +441,7 @@ export type InterviewWorkspaceSnapshot = z.infer<
 export const SaveInterviewSetupInputSchema = z.object({
   consent: InterviewSetupConsentSchema.optional(),
   targetContext: InterviewTargetContextSchema.nullable().optional(),
+  transcriptionLanguage: NonEmptyStringSchema.optional(),
   cueSensitivity: InterviewCueSensitivitySchema.optional(),
   autoCaptureOnCue: z.boolean().optional(),
 });

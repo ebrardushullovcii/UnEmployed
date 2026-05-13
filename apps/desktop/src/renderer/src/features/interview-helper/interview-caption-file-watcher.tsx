@@ -23,6 +23,7 @@ function normalizeCaptionFileText(input: string) {
 
 export function InterviewCaptionFileWatcher(props: {
   sessionId: string;
+  language: string;
   listening: boolean;
   onWorkspaceChange: (workspace: InterviewWorkspaceSnapshot) => void;
 }) {
@@ -32,11 +33,16 @@ export function InterviewCaptionFileWatcher(props: {
   const [statusLabel, setStatusLabel] = useState("Caption file watcher idle");
   const lastNormalizedTextRef = useRef("");
   const sessionIdRef = useRef(props.sessionId);
+  const languageRef = useRef(props.language);
   const listeningRef = useRef(props.listening);
 
   useEffect(() => {
     sessionIdRef.current = props.sessionId;
   }, [props.sessionId]);
+
+  useEffect(() => {
+    languageRef.current = props.language;
+  }, [props.language]);
 
   useEffect(() => {
     listeningRef.current = props.listening;
@@ -100,6 +106,7 @@ export function InterviewCaptionFileWatcher(props: {
               source: "meeting_native_transcript",
               state: "final",
               text: appendedText,
+              language: languageRef.current,
               engineKind: "platform_local",
             })
             .then(props.onWorkspaceChange);

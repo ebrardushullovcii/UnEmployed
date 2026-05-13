@@ -5,6 +5,7 @@ import { Button } from "@renderer/components/ui/button";
 
 export function InterviewNativeCaptionWatcher(props: {
   sessionId: string;
+  language: string;
   listening: boolean;
   onWorkspaceChange: (workspace: InterviewWorkspaceSnapshot) => void;
 }) {
@@ -12,11 +13,16 @@ export function InterviewNativeCaptionWatcher(props: {
   const [statusLabel, setStatusLabel] = useState("Native caption watcher idle");
   const lastTextRef = useRef("");
   const sessionIdRef = useRef(props.sessionId);
+  const languageRef = useRef(props.language);
   const listeningRef = useRef(props.listening);
 
   useEffect(() => {
     sessionIdRef.current = props.sessionId;
   }, [props.sessionId]);
+
+  useEffect(() => {
+    languageRef.current = props.language;
+  }, [props.language]);
 
   useEffect(() => {
     listeningRef.current = props.listening;
@@ -49,6 +55,7 @@ export function InterviewNativeCaptionWatcher(props: {
               source: "meeting_native_transcript",
               state: "final",
               text,
+              language: languageRef.current,
               engineKind: "platform_local",
             })
             .then(props.onWorkspaceChange);

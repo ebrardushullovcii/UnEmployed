@@ -77,6 +77,7 @@ export interface InterviewTranscriptionProvider {
   createSampleSegments(input: {
     sessionId: string;
     createdAt: string;
+    language: string;
   }): readonly InterviewTranscriptSegment[];
 }
 
@@ -901,7 +902,7 @@ export function createDeterministicInterviewTranscriptionProvider(): InterviewTr
           text: "Can you walk me through how you would optimize a React application that has slow initial load time?",
           startedAt: input.createdAt,
           endedAt: input.createdAt,
-          language: "en-US",
+          language: input.language,
           confidence: 0.96,
           engineKind: "deterministic",
           usedInCueIds: [],
@@ -914,7 +915,7 @@ export function createDeterministicInterviewTranscriptionProvider(): InterviewTr
           text: "I would start by measuring bundle size and identifying the largest render-blocking work.",
           startedAt: input.createdAt,
           endedAt: input.createdAt,
-          language: "en-US",
+          language: input.language,
           confidence: 0.94,
           engineKind: "deterministic",
           usedInCueIds: [],

@@ -56,6 +56,7 @@ function getBrowserSpeechRecognitionConstructor() {
 
 export function InterviewBrowserSpeechBridge(props: {
   sessionId: string
+  language: string
   listening: boolean
   onWorkspaceChange: (workspace: InterviewWorkspaceSnapshot) => void
 }) {
@@ -63,12 +64,17 @@ export function InterviewBrowserSpeechBridge(props: {
   const [statusLabel, setStatusLabel] = useState('Browser speech idle')
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null)
   const sessionIdRef = useRef(props.sessionId)
+  const languageRef = useRef(props.language)
   const listeningRef = useRef(props.listening)
   const enabledRef = useRef(enabled)
 
   useEffect(() => {
     sessionIdRef.current = props.sessionId
   }, [props.sessionId])
+
+  useEffect(() => {
+    languageRef.current = props.language
+  }, [props.language])
 
   useEffect(() => {
     listeningRef.current = props.listening
@@ -109,7 +115,7 @@ export function InterviewBrowserSpeechBridge(props: {
     const recognition = new SpeechRecognitionConstructor()
     recognition.continuous = true
     recognition.interimResults = true
-    recognition.lang = 'en-US'
+    recognition.lang = languageRef.current
     recognition.onresult = (event) => {
       for (let index = event.resultIndex; index < event.results.length; index += 1) {
         const result = event.results.item(index)
@@ -126,6 +132,7 @@ export function InterviewBrowserSpeechBridge(props: {
             source: 'microphone',
             state: result.isFinal ? 'final' : 'stable_partial',
             text,
+            language: languageRef.current,
             confidence: Number.isFinite(alternative.confidence) ? alternative.confidence : null,
             engineKind: 'browser_speech',
           })

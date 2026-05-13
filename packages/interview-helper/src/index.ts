@@ -135,6 +135,7 @@ export interface InterviewTranscriptionProvider {
   createSampleSegments(input: {
     sessionId: string;
     createdAt: string;
+    language: string;
   }): readonly InterviewTranscriptSegment[];
 }
 
@@ -345,6 +346,7 @@ function createWorkspace(input: {
     targetContext: createDefaultTargetContext(input.now),
     prepArtifacts: [],
     rehearsal: createDefaultRehearsal(input.now),
+    transcriptionLanguage: "en-US",
     cueSensitivity: "conservative",
     autoCaptureOnCue: false,
     ...(input.setup ?? {}),
@@ -749,6 +751,52 @@ export function createInterviewHelperService(
     });
   }
 
+  async function captureVisualBatchForCue(input: {
+    session: InterviewLiveSession;
+    reason: "queued_visual_batch" | "capture_and_force_cue" | "automatic_cue";
+  }): Promise<InterviewLiveSession> {
+    const currentNow = now();
+    const capture =
+      await options.screenshotCaptureAdapter.captureInterviewRegion({
+        reason: input.reason,
+      });
+    const observations =
+      await options.screenshotVisionProvider.describeScreenshotBatch({
+        batchId: capture.id,
+        screenshotCount: capture.screenshotCount,
+        overlayContaminated: capture.overlayContaminated,
+        createdAt: capture.capturedAt,
+      });
+    const batch: InterviewCueVisualBatch = {
+      id: capture.id,
+      screenshotCount: capture.screenshotCount,
+      overlayContaminated: capture.overlayContaminated,
+      observations: [...observations],
+      pinnedScreenshotIds: [],
+      createdAt: capture.capturedAt,
+      clearedAt: null,
+    };
+
+    return InterviewLiveSessionSchema.parse({
+      ...input.session,
+      visualBatches: [...input.session.visualBatches, batch],
+      diagnostics: [
+        ...input.session.diagnostics,
+        createDiagnostic({
+          sessionId: input.session.id,
+          kind: "screenshot",
+          severity: capture.overlayContaminated ? "warning" : "info",
+          label:
+            input.reason === "automatic_cue"
+              ? "Screenshot captured for automatic cue"
+              : "Screenshot queued for cue context",
+          detail: capture.detail,
+          occurredAt: currentNow,
+        }),
+      ],
+    });
+  }
+
   async function ingestTranscriptSegment(
     rawInput: InterviewTranscriptSegmentInput,
   ): Promise<InterviewWorkspaceSnapshot> {
@@ -809,6 +857,12 @@ export function createInterviewHelperService(
     });
 
     if (shouldGenerateAutomaticCue({ session: nextSession, segment })) {
+      if (current.setup.autoCaptureOnCue) {
+        nextSession = await captureVisualBatchForCue({
+          session: nextSession,
+          reason: "automatic_cue",
+        });
+      }
       nextSession = await generateCue(nextSession, "automatic_question");
     }
 
@@ -830,6 +884,9 @@ export function createInterviewHelperService(
         ...(input.consent ? { consent: input.consent } : {}),
         ...(input.targetContext !== undefined
           ? { targetContext: input.targetContext }
+          : {}),
+        ...(input.transcriptionLanguage
+          ? { transcriptionLanguage: input.transcriptionLanguage }
           : {}),
         ...(input.cueSensitivity
           ? { cueSensitivity: input.cueSensitivity }
@@ -961,7 +1018,7 @@ export function createInterviewHelperService(
       );
       const rehearsal = InterviewRehearsalChecklistSchema.parse({
         status: blocked ? "blocked" : degraded ? "degraded" : "passed",
-        language: "en-US",
+        language: current.setup.transcriptionLanguage,
         microphoneEngine: engines.microphone,
         meetingAudioEngine: engines.meetingAudio,
         checks,
@@ -1045,6 +1102,7 @@ export function createInterviewHelperService(
         {
           sessionId,
           createdAt: currentNow,
+          language: setup.transcriptionLanguage,
         },
       );
       const protectedSurfaces = setup.rehearsal?.protectedSurfaces ?? [];
@@ -1111,46 +1169,6 @@ export function createInterviewHelperService(
       let nextSession = activeSession;
       let nextOverlayPreferences = current.overlayPreferences;
 
-      async function captureVisualBatch(
-        reason: "queued_visual_batch" | "capture_and_force_cue",
-      ) {
-        const capture =
-          await options.screenshotCaptureAdapter.captureInterviewRegion({
-            reason,
-          });
-        const observations =
-          await options.screenshotVisionProvider.describeScreenshotBatch({
-            batchId: capture.id,
-            screenshotCount: capture.screenshotCount,
-            overlayContaminated: capture.overlayContaminated,
-            createdAt: capture.capturedAt,
-          });
-        const batch: InterviewCueVisualBatch = {
-          id: capture.id,
-          screenshotCount: capture.screenshotCount,
-          overlayContaminated: capture.overlayContaminated,
-          observations: [...observations],
-          pinnedScreenshotIds: [],
-          createdAt: capture.capturedAt,
-          clearedAt: null,
-        };
-        nextSession = InterviewLiveSessionSchema.parse({
-          ...nextSession,
-          visualBatches: [...nextSession.visualBatches, batch],
-          diagnostics: [
-            ...nextSession.diagnostics,
-            createDiagnostic({
-              sessionId: nextSession.id,
-              kind: "screenshot",
-              severity: capture.overlayContaminated ? "warning" : "info",
-              label: "Screenshot queued for cue context",
-              detail: capture.detail,
-              occurredAt: currentNow,
-            }),
-          ],
-        });
-      }
-
       switch (input.action satisfies InterviewHotkeyAction) {
         case "toggle_listening":
           nextSession = InterviewLiveSessionSchema.parse({
@@ -1163,10 +1181,16 @@ export function createInterviewHelperService(
           nextSession = await generateCue(nextSession, "force_cue");
           break;
         case "capture_screenshot":
-          await captureVisualBatch("queued_visual_batch");
+          nextSession = await captureVisualBatchForCue({
+            session: nextSession,
+            reason: "queued_visual_batch",
+          });
           break;
         case "capture_screenshot_and_force_cue":
-          await captureVisualBatch("capture_and_force_cue");
+          nextSession = await captureVisualBatchForCue({
+            session: nextSession,
+            reason: "capture_and_force_cue",
+          });
           nextSession = await generateCue(nextSession, "capture_and_force_cue");
           break;
         case "toggle_answer_overlay":

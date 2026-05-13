@@ -120,9 +120,11 @@ describe("interview helper contracts", () => {
   test("defaults setup inputs without widening unknown shape", () => {
     const input = SaveInterviewSetupInputSchema.parse({
       autoCaptureOnCue: true,
+      transcriptionLanguage: "en-GB",
     });
 
     expect(input.autoCaptureOnCue).toBe(true);
+    expect(input.transcriptionLanguage).toBe("en-GB");
     expect(input.consent).toBeUndefined();
   });
 

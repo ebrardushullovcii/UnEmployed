@@ -113,6 +113,26 @@ describe("interview helper service", () => {
     );
   });
 
+  test("persists setup preferences into rehearsal and session behavior", async () => {
+    const service = createService();
+
+    await acceptSetup(service);
+    const saved = await service.saveSetup({
+      transcriptionLanguage: "en-GB",
+      cueSensitivity: "manual_only",
+      autoCaptureOnCue: true,
+    });
+    const rehearsed = await service.runRehearsal();
+    const active = await service.startSession();
+
+    expect(saved.setup.transcriptionLanguage).toBe("en-GB");
+    expect(saved.setup.cueSensitivity).toBe("manual_only");
+    expect(saved.setup.autoCaptureOnCue).toBe(true);
+    expect(rehearsed.setup.rehearsal?.language).toBe("en-GB");
+    expect(active.activeSession?.automaticCueSensitivity).toBe("manual_only");
+    expect(active.activeSession?.transcriptSegments[0]?.language).toBe("en-GB");
+  });
+
   test("queues contaminated screenshot context and discloses it in a forced cue", async () => {
     const service = createService();
 
@@ -209,6 +229,39 @@ describe("interview helper service", () => {
     expect(updated.transcriptOverlay.transcriptSegments.at(-1)?.text).toContain(
       "overlay IPC",
     );
+  });
+
+  test("captures a temporary visual batch for automatic cues when enabled", async () => {
+    const service = createService();
+
+    await acceptSetup(service);
+    await service.saveSetup({ autoCaptureOnCue: true });
+    await service.runRehearsal();
+    const active = await service.startSession();
+    const activeSession = active.activeSession;
+    if (!activeSession) {
+      throw new Error("Expected an active session.");
+    }
+
+    const updated = await service.addTranscriptSegment({
+      sessionId: activeSession.id,
+      source: "meeting_native_transcript",
+      text: "How would you use screenshot context without leaking overlay content?",
+      engineKind: "platform_local",
+    });
+
+    expect(updated.activeSession?.visualBatches.at(-1)?.clearedAt).not.toBeNull();
+    expect(updated.activeSession?.cueCards.at(-1)?.disclosure).toMatchObject({
+      screenshotCount: 1,
+      overlayContaminated: true,
+    });
+    expect(
+      updated.activeSession?.diagnostics.some(
+        (diagnostic) =>
+          diagnostic.kind === "screenshot" &&
+          diagnostic.label === "Screenshot captured for automatic cue",
+      ),
+    ).toBe(true);
   });
 
   test("updates partial transcript segments without duplicating them", async () => {

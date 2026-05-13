@@ -163,6 +163,25 @@ async function runCapture() {
 
     await capture(window, '01-setup.png')
 
+    await window.getByLabel(/Transcript language/i).selectOption('en-GB')
+    await waitForWorkspace(
+      window,
+      (workspace) => workspace.setup.transcriptionLanguage === 'en-GB',
+      'saved Interview Helper transcription language',
+    )
+    await window.getByLabel(/Cue sensitivity/i).selectOption('balanced')
+    await waitForWorkspace(
+      window,
+      (workspace) => workspace.setup.cueSensitivity === 'balanced',
+      'saved Interview Helper cue sensitivity',
+    )
+    await window.getByLabel(/Auto screenshot on cue/i).check()
+    await waitForWorkspace(
+      window,
+      (workspace) => workspace.setup.autoCaptureOnCue === true,
+      'saved Interview Helper automatic screenshot preference',
+    )
+
     await window.getByRole('button', { name: /Accept setup/i }).click()
     await waitForWorkspace(
       window,
@@ -337,6 +356,10 @@ async function runCapture() {
         linkedJobWorkspace.setup.targetContext?.role === linkedJobContext.role &&
         linkedJobWorkspace.setup.targetContext?.company === linkedJobContext.company,
       setupConsentAccepted: Boolean(rehearsedWorkspace.setup.consent.acceptedAt),
+      setupTranscriptionLanguage: rehearsedWorkspace.setup.transcriptionLanguage,
+      rehearsalTranscriptionLanguage: rehearsedWorkspace.setup.rehearsal?.language,
+      setupCueSensitivity: rehearsedWorkspace.setup.cueSensitivity,
+      setupAutoCaptureOnCue: rehearsedWorkspace.setup.autoCaptureOnCue,
       rehearsalCheckCount: rehearsedWorkspace.setup.rehearsal?.checks.length ?? 0,
       audioCapabilityChecks: rehearsedWorkspace.setup.rehearsal?.checks
         .filter((check) => check.id === 'microphone_audio' || check.id === 'meeting_audio')
@@ -393,6 +416,10 @@ async function runCapture() {
         ) ?? false,
       nativeTranscriptIngestionGeneratedCue:
         nativeTranscriptWorkspace.activeSession?.cueCards.at(-1)?.question === nativeTranscriptText,
+      automaticCueCapturedVisualBatch:
+        (nativeTranscriptWorkspace.activeSession?.visualBatches.length ?? 0) > 0,
+      automaticCueDisclosedScreenshot:
+        nativeTranscriptWorkspace.activeSession?.cueCards.at(-1)?.disclosure.screenshotCount === 1,
       nativeTranscriptHiddenFromMainWindow:
         !mainWindowTextAfterNativeTranscript.includes(nativeTranscriptText),
       visualCueCardCount: visualWorkspace.activeSession?.cueCards.length ?? 0,
