@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type {
   InterviewExportResult,
   InterviewHotkeyAction,
+  InterviewOverlaySnapshot,
   InterviewWorkspaceSnapshot,
 } from '@unemployed/contracts'
 import {
@@ -132,15 +133,20 @@ export function InterviewHelperPage() {
 
   const { workspace } = state
   const activeSession = workspace.activeSession
+  const isLiveSession = Boolean(activeSession && activeSession.status !== 'ended')
   const rehearsal = workspace.setup.rehearsal
-  const currentSession = activeSession ?? workspace.recentSessions[0] ?? null
-  const transcriptSegments = currentSession?.transcriptSegments ?? []
-  const latestCue = currentSession?.cueCards.at(-1) ?? null
+  const reviewSession = activeSession ? null : (workspace.recentSessions[0] ?? null)
+  const transcriptSegments = reviewSession?.transcriptSegments ?? []
+  const latestCue = reviewSession?.cueCards.at(-1) ?? null
   const checks = rehearsal?.checks ?? []
   const hardBlocks = checks.filter((check) => check.required && check.status !== 'available')
   const degraded = checks.filter((check) => !check.required && check.status !== 'available')
   const targetLabel = getTargetLabel(workspace)
-  const canExport = Boolean(currentSession)
+  const canExport = Boolean(reviewSession)
+  const liveOverlaySummaries: Array<{ label: string; overlay: InterviewOverlaySnapshot }> = [
+    { label: 'Answer cues', overlay: workspace.answerOverlay },
+    { label: 'Live transcript', overlay: workspace.transcriptOverlay },
+  ]
   const consentAccepted = Boolean(
     workspace.setup.consent.microphoneCapture &&
       workspace.setup.consent.meetingAudioCapture &&
@@ -152,12 +158,12 @@ export function InterviewHelperPage() {
   )
 
   async function exportLatest(format: 'markdown' | 'json') {
-    if (!currentSession) return
+    if (!reviewSession) return
 
     setPendingAction(`export_${format}`)
     try {
       const exportResult = await window.unemployed.interviewHelper.exportSession(
-        currentSession.id,
+        reviewSession.id,
         format
       )
       setState({ status: 'ready', workspace, exportResult })
@@ -380,49 +386,58 @@ export function InterviewHelperPage() {
               </div>
 
               <Panel index={6} title="Post-session review">
-                <div className="grid gap-4 lg:grid-cols-[1fr_0.8fr_0.7fr]">
-                  <div className="grid gap-2">
-                    <h3 className="text-[0.78rem] uppercase tracking-(--tracking-badge) text-muted-foreground">Transcript</h3>
-                    <div className="max-h-64 overflow-y-auto rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
-                      {transcriptSegments.map((segment) => (
-                        <p className="mb-2 text-[0.82rem] leading-5 text-foreground-soft" key={segment.id}>
-                          <span className="text-(--warning-text)">{segment.source.replaceAll('_', ' ')}</span> {segment.text}
+                {isLiveSession ? (
+                  <div className="rounded-(--radius-small) border border-(--info-border) bg-(--info-surface) p-4">
+                    <p className="text-[0.88rem] text-(--info-text)">Review opens after the live session ends.</p>
+                    <p className="mt-2 text-[0.78rem] leading-5 text-muted-foreground">
+                      The main window keeps live cue-card and transcript text out of this surface while capture is active.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid gap-4 lg:grid-cols-[1fr_0.8fr_0.7fr]">
+                    <div className="grid gap-2">
+                      <h3 className="text-[0.78rem] uppercase tracking-(--tracking-badge) text-muted-foreground">Transcript</h3>
+                      <div className="max-h-64 overflow-y-auto rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
+                        {transcriptSegments.map((segment) => (
+                          <p className="mb-2 text-[0.82rem] leading-5 text-foreground-soft" key={segment.id}>
+                            <span className="text-(--warning-text)">{segment.source.replaceAll('_', ' ')}</span> {segment.text}
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="grid gap-2">
+                      <h3 className="text-[0.78rem] uppercase tracking-(--tracking-badge) text-muted-foreground">Latest cue</h3>
+                      <div className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
+                        <p className="text-[0.86rem]">{latestCue?.question ?? 'No cue generated.'}</p>
+                        <p className="mt-2 text-[0.76rem] text-muted-foreground">
+                          {reviewSession?.cueCards.length ?? 0} cue cards retained
                         </p>
-                      ))}
+                      </div>
+                    </div>
+                    <div className="grid content-start gap-2">
+                      <Button disabled={!latestCue || !reviewSession} onClick={() => {
+                        if (latestCue && reviewSession) {
+                          void updateWorkspace('prep', () => window.unemployed.interviewHelper.saveCueAsPrepArtifact({ sessionId: reviewSession.id, cueCardId: latestCue.id }))
+                        }
+                      }} pending={pendingAction === 'prep'} size="compact" variant="secondary">
+                        <Archive className="size-4" />
+                        Save prep
+                      </Button>
+                      <Button disabled={!canExport} onClick={() => { void exportLatest('markdown') }} pending={pendingAction === 'export_markdown'} size="compact" variant="secondary">
+                        <FileDown className="size-4" />
+                        Export notes
+                      </Button>
+                      <Button disabled={!reviewSession} onClick={() => {
+                        if (reviewSession) {
+                          void updateWorkspace('delete', () => window.unemployed.interviewHelper.deleteSession(reviewSession.id))
+                        }
+                      }} pending={pendingAction === 'delete'} size="compact" variant="destructive">
+                        <Trash2 className="size-4" />
+                        Delete session
+                      </Button>
                     </div>
                   </div>
-                  <div className="grid gap-2">
-                    <h3 className="text-[0.78rem] uppercase tracking-(--tracking-badge) text-muted-foreground">Latest cue</h3>
-                    <div className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
-                      <p className="text-[0.86rem]">{latestCue?.question ?? 'No cue generated.'}</p>
-                      <p className="mt-2 text-[0.76rem] text-muted-foreground">
-                        {currentSession?.cueCards.length ?? 0} cue cards retained
-                      </p>
-                    </div>
-                  </div>
-                  <div className="grid content-start gap-2">
-                    <Button disabled={!latestCue || !currentSession} onClick={() => {
-                      if (latestCue && currentSession) {
-                        void updateWorkspace('prep', () => window.unemployed.interviewHelper.saveCueAsPrepArtifact({ sessionId: currentSession.id, cueCardId: latestCue.id }))
-                      }
-                    }} pending={pendingAction === 'prep'} size="compact" variant="secondary">
-                      <Archive className="size-4" />
-                      Save prep
-                    </Button>
-                    <Button disabled={!canExport} onClick={() => { void exportLatest('markdown') }} pending={pendingAction === 'export_markdown'} size="compact" variant="secondary">
-                      <FileDown className="size-4" />
-                      Export notes
-                    </Button>
-                    <Button disabled={!currentSession} onClick={() => {
-                      if (currentSession) {
-                        void updateWorkspace('delete', () => window.unemployed.interviewHelper.deleteSession(currentSession.id))
-                      }
-                    }} pending={pendingAction === 'delete'} size="compact" variant="destructive">
-                      <Trash2 className="size-4" />
-                      Delete session
-                    </Button>
-                  </div>
-                </div>
+                )}
                 {state.exportResult ? (
                   <div className="mt-4 rounded-(--radius-small) border border-(--info-border) bg-(--info-surface) p-3">
                     <p className="text-[0.78rem] text-(--info-text)">{state.exportResult.fileName}</p>
@@ -435,8 +450,28 @@ export function InterviewHelperPage() {
             </div>
 
             <aside className="grid content-start gap-4">
-              <AnswerCueOverlay framed snapshot={workspace.answerOverlay} />
-              <TranscriptOverlay framed snapshot={workspace.transcriptOverlay} />
+              {isLiveSession ? (
+                <Panel title="Overlay surfaces">
+                  <div className="grid gap-3">
+                    {liveOverlaySummaries.map(({ label, overlay }) => (
+                      <div className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3" key={label}>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[0.82rem]">{label}</span>
+                          <StatusPill label={overlay.visible ? 'Overlay window' : 'Hidden'} tone={overlay.visible ? 'success' : 'warning'} />
+                        </div>
+                        <p className="mt-2 text-[0.74rem] leading-5 text-muted-foreground">
+                          {overlay.protectionState.replaceAll('_', ' ')}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </Panel>
+              ) : (
+                <>
+                  <AnswerCueOverlay framed snapshot={workspace.answerOverlay} />
+                  <TranscriptOverlay framed snapshot={workspace.transcriptOverlay} />
+                </>
+              )}
               <Panel title="Hotkeys and tray">
                 <div className="grid gap-2">
                   {[
@@ -456,10 +491,18 @@ export function InterviewHelperPage() {
               </Panel>
               <Panel title="Session summary">
                 <div className="grid gap-3 text-[0.82rem] text-muted-foreground">
-                  <p>{currentSession?.cueSummary ?? 'No session summary yet.'}</p>
+                  <p>
+                    {isLiveSession
+                      ? 'Live summary text is kept out of the main window while capture is active.'
+                      : reviewSession?.cueSummary ?? 'No session summary yet.'}
+                  </p>
                   <div className="flex items-center gap-2">
                     <Clock className="size-4" />
-                    <span>{workspace.recentSessions.length} retained sessions</span>
+                    <span>
+                      {isLiveSession
+                        ? `${activeSession?.transcriptSegments.length ?? 0} live transcript segments`
+                        : `${workspace.recentSessions.length} retained sessions`}
+                    </span>
                   </div>
                 </div>
               </Panel>

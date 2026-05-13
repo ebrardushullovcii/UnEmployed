@@ -25,6 +25,7 @@
     "ui:applications-consent-states": "pnpm build && node ./scripts/capture-applications-consent-states.mjs",
     "ui:applications-queue-recovery": "pnpm build && node ./scripts/capture-applications-queue-recovery.mjs",
     "ui:interview-helper": "pnpm build && node ./scripts/capture-interview-helper.mjs",
+    "ui:interview-helper-protection": "pnpm build && node ./scripts/capture-interview-helper-protection.mjs",
     "ui:apply-queue-controls": "pnpm build && node ./scripts/capture-apply-queue-controls.mjs",
     "ui:resume-workspace": "pnpm build && node ./scripts/capture-resume-workspace.mjs",
     "ui:resume-workspace-dirty": "pnpm build && node ./scripts/capture-resume-workspace-dirty.mjs"

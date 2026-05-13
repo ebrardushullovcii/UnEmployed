@@ -551,6 +551,6 @@ These are implementation research tasks inside the full release, not reasons to 
 
 ## Latest Evidence
 
-- Landed deterministic full-flow baseline: Interview Helper contracts, explicit setup-consent gate, service state machine, file-backed workspace persistence, restart-to-`interrupted` recovery, static `os-integration` capability adapters, deterministic AI/transcription providers, desktop main IPC/preload hosting, top-level route, separate answer/transcript overlay BrowserWindows, and tray/global-hotkey semantic controls.
-- Latest green evidence: `pnpm validate:desktop`; `pnpm --filter @unemployed/desktop ui:interview-helper`.
-- Harness artifacts: `apps/desktop/test-artifacts/ui/interview-helper/interview-helper-report.json` plus setup, rehearsed, active, answer-overlay-window, transcript-overlay-window, visual-cue, panic-hidden, and post-session-review screenshots.
+- Landed deterministic full-flow baseline: Interview Helper contracts, explicit setup-consent gate, service state machine, file-backed workspace persistence, restart-to-`interrupted` recovery, static `os-integration` capability adapters, deterministic AI/transcription providers, desktop main IPC/preload hosting, top-level route, separate answer/transcript overlay BrowserWindows, no main-window live cue/transcript mirroring, and tray/global-hotkey semantic controls.
+- Latest green evidence: `pnpm validate:desktop`; `pnpm --filter @unemployed/desktop ui:interview-helper`; `pnpm --filter @unemployed/desktop ui:interview-helper-protection`.
+- Harness artifacts: `apps/desktop/test-artifacts/ui/interview-helper/interview-helper-report.json` and `apps/desktop/test-artifacts/ui/interview-helper-protection/interview-helper-protection-report.json`; Windows Electron `desktopCapturer` did not detect protected overlay-window pixels, but runtime user-facing state remains best-effort/requested until per-session/platform verification exists.

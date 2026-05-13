@@ -17,7 +17,9 @@ Latest replayable desktop evidence:
 
 - `pnpm validate:desktop`
 - `pnpm --filter @unemployed/desktop ui:interview-helper`
+- `pnpm --filter @unemployed/desktop ui:interview-helper-protection`
 - artifacts: `apps/desktop/test-artifacts/ui/interview-helper/interview-helper-report.json`
+- protection artifacts: `apps/desktop/test-artifacts/ui/interview-helper-protection/interview-helper-protection-report.json`
 
 ## Design Principles
 
@@ -35,5 +37,6 @@ Latest replayable desktop evidence:
 ## Current Platform Limitations
 
 - Real microphone, meeting/system audio capture, local/platform STT, and cloud fallback are adapter slots with deterministic development behavior in the current desktop build.
-- Protected overlay capture exclusion is requested but not verified by an automated OS capture harness yet; user-facing state must stay `Best effort` or `Requested`, not `Protected`.
+- On Windows, the automated Electron `desktopCapturer` protection harness did not detect separate overlay-window pixels in ordinary screen capture, and the main window no longer mirrors live cue/transcript text while capture is active.
+- User-facing runtime protection state must still stay `Best effort` or `Requested` until platform-specific verification is run as part of the user's actual session; a prior harness pass does not prove meeting-app-specific exclusion.
 - Windows validation has run through Electron on this machine. macOS and Linux platform validation still require target hosts because their audio, display-server, and capture-protection behavior cannot be proven from Windows.

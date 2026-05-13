@@ -120,6 +120,15 @@ async function runCapture() {
     await window.getByRole('button', { name: /Start session/i }).click()
     await window.getByText('Listening', { exact: true }).first().waitFor({ timeout: 10000 })
     const activeWorkspace = await getWorkspace(window)
+    const mainWindowTextDuringLive = await window.evaluate(() => document.body.innerText)
+    const liveCueQuestion = activeWorkspace.activeSession?.cueCards.at(-1)?.question ?? ''
+    const liveTranscriptTexts =
+      activeWorkspace.activeSession?.transcriptSegments.map((segment) => segment.text) ?? []
+    const mainWindowMirrorsLiveCue =
+      liveCueQuestion.length > 0 && mainWindowTextDuringLive.includes(liveCueQuestion)
+    const mainWindowMirrorsLiveTranscript = liveTranscriptTexts.some(
+      (segmentText) => segmentText.length > 0 && mainWindowTextDuringLive.includes(segmentText),
+    )
     const overlayWindows = await waitForOverlayWindows(app)
     for (const overlayWindow of overlayWindows) {
       await overlayWindow.waitForLoadState('domcontentloaded')
@@ -207,6 +216,8 @@ async function runCapture() {
         }),
       ) ?? [],
       activeSessionStarted: activeWorkspace.activeSession?.status === 'active',
+      mainWindowMirrorsLiveCue,
+      mainWindowMirrorsLiveTranscript,
       overlayWindowCountAfterStart: overlayWindows.length,
       overlayWindowRoutesAfterStart: overlayWindows.map((appWindow) => appWindow.url()),
       transcriptSegmentCount: activeWorkspace.activeSession?.transcriptSegments.length ?? 0,
