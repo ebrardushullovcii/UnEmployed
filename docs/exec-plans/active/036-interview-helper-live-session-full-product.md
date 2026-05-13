@@ -28,7 +28,7 @@ The plan was grilled and accepted with these product decisions:
 - General interviews are a real target-context type and must not pretend to be job-grounded.
 - Target context is snapshotted at session start for reproducibility and to avoid broad app-history leakage.
 - Transcripts are the primary cue signal. Screenshot vision is optional augmentation.
-- STT is a broader transcription engine capability, not only an AI model role. Local/platform engines should be tried before cloud fallback where they pass rehearsal.
+- STT is a broader transcription engine capability, not only an AI model role. Local/platform/browser engines should be tried before cloud fallback where they pass rehearsal.
 - Microphone and meeting/system audio transcription streams may use different engines, but both normalize to source-labeled `Live transcript segments`.
 - Meeting/system audio is strongly preferred. Mic-only sessions are allowed only as degraded force-cue sessions. No working transcript path blocks start.
 - Native meeting-platform transcripts are a first-class source in the transcript contract. Manual/native-caption intake can use that source now; automatic extraction from meeting apps remains adapter work.
@@ -440,6 +440,7 @@ These are parallel work areas for one full release target, not shortcut phases.
 - host Interview Helper service in Electron main
 - add typed preload APIs/events for setup, rehearsal, session lifecycle, hotkey/tray actions, overlay snapshots, and post-session review
 - add typed preload APIs/events for live transcript segment ingestion from microphone, meeting/system audio, and meeting-native caption sources
+- expose browser speech recognition as a user-started microphone bridge when Chromium provides it; unavailable browsers must degrade without blocking the session
 - create separate overlay BrowserWindows and routes for answer/transcript surfaces
 - ensure main window does not mirror active sensitive live content
 
@@ -552,6 +553,6 @@ These are implementation research tasks inside the full release, not reasons to 
 
 ## Latest Evidence
 
-- Landed deterministic full-flow baseline: Interview Helper contracts, explicit setup-consent gate, service state machine, file-backed workspace persistence, restart-to-`interrupted` recovery, Electron-backed microphone permission and desktop capture source readiness checks, source-labeled live transcript ingestion for microphone/meeting audio/meeting-native captions, static protected-surface `os-integration` capability adapters, deterministic AI/transcription providers, desktop main IPC/preload hosting, top-level route, separate answer/transcript overlay BrowserWindows, persisted overlay layout/display metadata, no main-window live cue/transcript mirroring, tray/global-hotkey semantic controls, and additive post-session transcript annotations.
+- Landed deterministic full-flow baseline: Interview Helper contracts, explicit setup-consent gate, service state machine, file-backed workspace persistence, restart-to-`interrupted` recovery, Electron-backed microphone permission and desktop capture source readiness checks, source-labeled live transcript ingestion for microphone/meeting audio/meeting-native captions, user-started browser speech bridge, static protected-surface `os-integration` capability adapters, deterministic AI/transcription providers, desktop main IPC/preload hosting, top-level route, separate answer/transcript overlay BrowserWindows, persisted overlay layout/display metadata, no main-window live cue/transcript mirroring, tray/global-hotkey semantic controls, and additive post-session transcript annotations.
 - Latest green evidence: `pnpm validate:desktop`; `pnpm --filter @unemployed/desktop ui:interview-helper`; `pnpm --filter @unemployed/desktop ui:interview-helper-protection`.
 - Harness artifacts: `apps/desktop/test-artifacts/ui/interview-helper/interview-helper-report.json` and `apps/desktop/test-artifacts/ui/interview-helper-protection/interview-helper-protection-report.json`; the desktop workflow now records Electron microphone permission status, enumerates Electron desktop capture sources for meeting/system readiness, verifies typed meeting-native transcript ingestion can add a platform-local segment and generate a cue without mirroring that transcript in the main window, captures optional visual context with Electron `desktopCapturer`, immediately deletes the temporary PNG, records only metadata plus overlay-contamination disclosure, persists moved overlay bounds with display ids, and Windows Electron `desktopCapturer` protection evidence did not detect protected overlay-window pixels. Runtime user-facing state remains best-effort/requested until per-session/platform verification exists.

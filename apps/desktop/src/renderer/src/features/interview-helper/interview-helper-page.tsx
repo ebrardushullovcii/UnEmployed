@@ -27,6 +27,7 @@ import { Button } from '@renderer/components/ui/button'
 import { cn } from '@renderer/lib/cn'
 import { AnswerCueOverlay, TranscriptOverlay } from './interview-overlays'
 import { TranscriptAnnotationPanel } from './interview-review-annotations'
+import { InterviewBrowserSpeechBridge } from './interview-browser-speech-bridge'
 
 type LoadState =
   | { status: 'loading' }
@@ -388,6 +389,17 @@ export function InterviewHelperPage() {
                     </Button>
                     {activeSession ? (
                       <div className="grid gap-2 border-t border-border-subtle pt-3">
+                        <InterviewBrowserSpeechBridge
+                          listening={activeSession.listening}
+                          onWorkspaceChange={(nextWorkspace) => {
+                            setState((current) => ({
+                              status: 'ready',
+                              workspace: nextWorkspace,
+                              exportResult: current.status === 'ready' ? current.exportResult : null
+                            }))
+                          }}
+                          sessionId={activeSession.id}
+                        />
                         <div className="grid gap-2 sm:grid-cols-[0.62fr_1fr]">
                           <select
                             className="h-9 rounded-(--radius-small) border border-border-subtle bg-black/30 px-2 text-[0.78rem] text-foreground"
