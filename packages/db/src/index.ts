@@ -4,3 +4,7 @@ export type {
 } from "./repository-types";
 export { createInMemoryJobFinderRepository } from "./in-memory-repository";
 export { createFileJobFinderRepository } from "./file-repository";
+export {
+  createFileInterviewHelperRepository,
+  type InterviewHelperRepository,
+} from "./interview-helper-repository";

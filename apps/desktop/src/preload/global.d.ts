@@ -8,6 +8,12 @@ import type {
   EditableSourceInstructionArtifact,
   DesktopWindowControlsState,
   DiscoveryActivityEvent,
+  InterviewExportFormat,
+  InterviewExportResult,
+  InterviewHotkeyAction,
+  InterviewPrepArtifactFromCueInput,
+  InterviewWorkspaceSnapshot,
+  SaveInterviewSetupInput,
   JobFinderOpenBrowserSessionInput,
   ProfileCopilotContext,
   ProfileSetupReviewActionOptions,
@@ -48,6 +54,27 @@ declare global {
         ) => () => void;
         minimize: () => Promise<DesktopWindowControlsState>;
         toggleMaximize: () => Promise<DesktopWindowControlsState>;
+      };
+      interviewHelper: {
+        getWorkspace: () => Promise<InterviewWorkspaceSnapshot>;
+        saveSetup: (
+          input: SaveInterviewSetupInput,
+        ) => Promise<InterviewWorkspaceSnapshot>;
+        runRehearsal: () => Promise<InterviewWorkspaceSnapshot>;
+        startSession: () => Promise<InterviewWorkspaceSnapshot>;
+        performAction: (
+          action: InterviewHotkeyAction,
+        ) => Promise<InterviewWorkspaceSnapshot>;
+        deleteSession: (
+          sessionId: string,
+        ) => Promise<InterviewWorkspaceSnapshot>;
+        saveCueAsPrepArtifact: (
+          input: InterviewPrepArtifactFromCueInput,
+        ) => Promise<InterviewWorkspaceSnapshot>;
+        exportSession: (
+          sessionId: string,
+          format?: InterviewExportFormat,
+        ) => Promise<InterviewExportResult>;
       };
       jobFinder: {
         getWorkspace: () => Promise<JobFinderWorkspaceSnapshot>;

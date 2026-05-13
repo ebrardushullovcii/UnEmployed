@@ -1,5 +1,10 @@
 import { Navigate, createHashRouter } from 'react-router-dom'
 import {
+  InterviewAnswerOverlayRoute,
+  InterviewHelperPage,
+  InterviewTranscriptOverlayRoute,
+} from '../features/interview-helper/interview-helper-page'
+import {
   JobFinderApplicationsRoute,
   JobFinderDiscoveryRoute,
   JobFinderPage,
@@ -14,7 +19,19 @@ import {
 export const appRouter = createHashRouter([
   {
     path: '/',
-    element: <Navigate replace to="/job-finder/profile" />
+    element: <Navigate replace to="/interview-helper" />
+  },
+  {
+    path: '/interview-helper',
+    element: <InterviewHelperPage />
+  },
+  {
+    path: '/interview-helper/overlay/answer',
+    element: <InterviewAnswerOverlayRoute />
+  },
+  {
+    path: '/interview-helper/overlay/transcript',
+    element: <InterviewTranscriptOverlayRoute />
   },
   {
     path: '/job-finder',
@@ -64,6 +81,6 @@ export const appRouter = createHashRouter([
   },
   {
     path: '*',
-    element: <Navigate replace to="/job-finder/profile" />
+    element: <Navigate replace to="/interview-helper" />
   }
 ])

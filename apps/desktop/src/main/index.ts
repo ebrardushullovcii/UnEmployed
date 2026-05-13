@@ -8,6 +8,10 @@ import {
   getJobFinderWorkspaceService,
   shutdownJobFinderWorkspaceService,
 } from './services/job-finder'
+import {
+  getInterviewHelperService,
+  shutdownInterviewHelperService,
+} from './services/interview-helper'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const jobFinderShutdownTimeoutMs = 15_000
@@ -18,6 +22,7 @@ registerDesktopRoutes(ipcMain)
 void app.whenReady().then(() => {
   Menu.setApplicationMenu(null)
   void getJobFinderWorkspaceService()
+  void getInterviewHelperService()
   createMainWindow(currentDir)
 
   app.on('activate', () => {
@@ -45,7 +50,13 @@ app.on('before-quit', (event) => {
       resolve()
     }, jobFinderShutdownTimeoutMs)
   })
-  void Promise.race([shutdownJobFinderWorkspaceService(), shutdownTimeout])
+  void Promise.race([
+    Promise.all([
+      shutdownJobFinderWorkspaceService(),
+      shutdownInterviewHelperService(),
+    ]).then(() => undefined),
+    shutdownTimeout,
+  ])
     .catch((error) => {
       console.warn('[Desktop] Failed to shut down Job Finder workspace service before quit.', error)
     })

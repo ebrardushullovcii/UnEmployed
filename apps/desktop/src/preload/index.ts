@@ -6,6 +6,12 @@ import type {
   EditableSourceInstructionArtifact,
   DesktopWindowControlsState,
   DiscoveryActivityEvent,
+  InterviewExportFormat,
+  InterviewExportResult,
+  InterviewHotkeyAction,
+  InterviewPrepArtifactFromCueInput,
+  InterviewWorkspaceSnapshot,
+  SaveInterviewSetupInput,
   JobFinderApplyConsentActionInput,
   JobFinderApplyCopilotActionInput,
   JobFinderApplyQueueActionInput,
@@ -119,6 +125,45 @@ const desktopApi = {
       ipcRenderer.invoke(
         "window:toggle-maximize",
       ) as Promise<DesktopWindowControlsState>,
+  },
+  interviewHelper: {
+    getWorkspace: () =>
+      ipcRenderer.invoke(
+        "interview-helper:get-workspace",
+      ) as Promise<InterviewWorkspaceSnapshot>,
+    saveSetup: (input: SaveInterviewSetupInput) =>
+      ipcRenderer.invoke(
+        "interview-helper:save-setup",
+        input,
+      ) as Promise<InterviewWorkspaceSnapshot>,
+    runRehearsal: () =>
+      ipcRenderer.invoke(
+        "interview-helper:run-rehearsal",
+      ) as Promise<InterviewWorkspaceSnapshot>,
+    startSession: () =>
+      ipcRenderer.invoke(
+        "interview-helper:start-session",
+      ) as Promise<InterviewWorkspaceSnapshot>,
+    performAction: (action: InterviewHotkeyAction) =>
+      ipcRenderer.invoke(
+        "interview-helper:perform-action",
+        { action },
+      ) as Promise<InterviewWorkspaceSnapshot>,
+    deleteSession: (sessionId: string) =>
+      ipcRenderer.invoke(
+        "interview-helper:delete-session",
+        { sessionId },
+      ) as Promise<InterviewWorkspaceSnapshot>,
+    saveCueAsPrepArtifact: (input: InterviewPrepArtifactFromCueInput) =>
+      ipcRenderer.invoke(
+        "interview-helper:save-cue-as-prep-artifact",
+        input,
+      ) as Promise<InterviewWorkspaceSnapshot>,
+    exportSession: (sessionId: string, format: InterviewExportFormat = "markdown") =>
+      ipcRenderer.invoke(
+        "interview-helper:export-session",
+        { sessionId, format },
+      ) as Promise<InterviewExportResult>,
   },
   jobFinder: {
     getWorkspace: () =>

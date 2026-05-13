@@ -1,4 +1,44 @@
-import type { OverlayWindowState } from '@unemployed/os-integration'
+import type {
+  InterviewCapabilityCheck,
+  InterviewCueCard,
+  InterviewCueInputDisclosure,
+  InterviewCueVisualBatch,
+  InterviewDiagnosticEvent,
+  InterviewExportResult,
+  InterviewHotkeyAction,
+  InterviewLiveSession,
+  InterviewOverlayPreference,
+  InterviewOverlaySnapshot,
+  InterviewProtectedSurface,
+  InterviewProtectedSurfaceKind,
+  InterviewRehearsalChecklist,
+  InterviewSessionActionInput,
+  InterviewSetupState,
+  InterviewTargetContext,
+  InterviewTranscriptionEngine,
+  InterviewTranscriptSegment,
+  InterviewVisualObservation,
+  InterviewWorkspaceSnapshot,
+  SaveInterviewSetupInput,
+} from '@unemployed/contracts'
+import {
+  InterviewCueCardSchema,
+  InterviewExportResultSchema,
+  InterviewLiveSessionSchema,
+  InterviewOverlaySnapshotSchema,
+  InterviewPrepArtifactSchema,
+  InterviewRehearsalChecklistSchema,
+  InterviewSetupStateSchema,
+  InterviewTargetContextSchema,
+  InterviewWorkspaceSnapshotSchema,
+} from '@unemployed/contracts'
+import type {
+  CaptureProtectionState,
+  DesktopAudioCaptureAdapter,
+  DesktopScreenshotCaptureAdapter,
+  OverlayWindowState,
+  ProtectedOverlaySurfaceAdapter,
+} from '@unemployed/os-integration'
 
 export const interviewHelperPackageReady = true
 
@@ -18,6 +58,411 @@ export interface InterviewOverlayModel {
   readonly cues: readonly LiveCue[]
 }
 
+export interface InterviewHelperRepository {
+  load(): Promise<InterviewWorkspaceSnapshot | null>
+  save(snapshot: InterviewWorkspaceSnapshot): Promise<void>
+  close(): Promise<void>
+}
+
+export interface InterviewCueCardProvider {
+  getStatus(): {
+    ready: boolean
+    label: string
+    detail: string | null
+  }
+  generateCueCard(input: {
+    sessionId: string
+    triggerKind: 'automatic_question' | 'force_cue' | 'capture_and_force_cue' | 'rehearsal_sample'
+    question: string
+    targetLabel: string
+    targetContextKind: InterviewCueInputDisclosure['targetContextKind']
+    transcriptSegments: readonly InterviewTranscriptSegment[]
+    visualObservations: readonly InterviewVisualObservation[]
+    disclosure: InterviewCueInputDisclosure
+    createdAt: string
+  }): Promise<InterviewCueCard>
+}
+
+export interface InterviewScreenshotVisionProvider {
+  getStatus(): {
+    ready: boolean
+    label: string
+    detail: string | null
+  }
+  describeScreenshotBatch(input: {
+    batchId: string
+    screenshotCount: number
+    overlayContaminated: boolean
+    createdAt: string
+  }): Promise<readonly InterviewVisualObservation[]>
+}
+
+export interface InterviewSummaryProvider {
+  summarize(input: {
+    previousSummary: string
+    transcriptSegments: readonly InterviewTranscriptSegment[]
+    cueCards: readonly InterviewCueCard[]
+  }): Promise<string>
+}
+
+export interface InterviewTranscriptionProvider {
+  getEngines(): {
+    microphone: InterviewTranscriptionEngine
+    meetingAudio: InterviewTranscriptionEngine
+  }
+  createSampleSegments(input: {
+    sessionId: string
+    createdAt: string
+  }): readonly InterviewTranscriptSegment[]
+}
+
+export interface InterviewHelperService {
+  getWorkspace(): Promise<InterviewWorkspaceSnapshot>
+  saveSetup(input: SaveInterviewSetupInput): Promise<InterviewWorkspaceSnapshot>
+  runRehearsal(): Promise<InterviewWorkspaceSnapshot>
+  startSession(): Promise<InterviewWorkspaceSnapshot>
+  performAction(input: InterviewSessionActionInput): Promise<InterviewWorkspaceSnapshot>
+  deleteSession(sessionId: string): Promise<InterviewWorkspaceSnapshot>
+  saveCueAsPrepArtifact(input: {
+    sessionId: string
+    cueCardId: string
+  }): Promise<InterviewWorkspaceSnapshot>
+  exportSession(input: {
+    sessionId: string
+    format: 'markdown' | 'json'
+  }): Promise<InterviewExportResult>
+  close(): Promise<void>
+}
+
+export interface InterviewHelperServiceOptions {
+  repository: InterviewHelperRepository
+  audioCaptureAdapter: DesktopAudioCaptureAdapter
+  screenshotCaptureAdapter: DesktopScreenshotCaptureAdapter
+  protectedSurfaceAdapter: ProtectedOverlaySurfaceAdapter
+  cueCardProvider: InterviewCueCardProvider
+  screenshotVisionProvider: InterviewScreenshotVisionProvider
+  transcriptionProvider: InterviewTranscriptionProvider
+  summaryProvider: InterviewSummaryProvider
+  now?: () => string
+}
+
+const defaultConsent = {
+  microphoneCapture: false,
+  meetingAudioCapture: false,
+  screenshotCapture: false,
+  modelTransmission: false,
+  localRetention: false,
+  overlayProtectionNotice: false,
+  acceptedAt: null,
+} as const
+
+const defaultOverlayPreferences: readonly InterviewOverlayPreference[] = [
+  {
+    surfaceKind: 'live_answer_overlay',
+    mode: 'compact',
+    visible: true,
+    interactionMode: false,
+    opacity: 0.86,
+    bounds: null,
+    displayId: null,
+    requestedProtectionPolicy: 'screen_share_private',
+  },
+  {
+    surfaceKind: 'live_transcript_overlay',
+    mode: 'compact',
+    visible: true,
+    interactionMode: false,
+    opacity: 0.86,
+    bounds: null,
+    displayId: null,
+    requestedProtectionPolicy: 'screen_share_private',
+  },
+]
+
+function createId(prefix: string): string {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+}
+
+function createDefaultTargetContext(now: string): InterviewTargetContext {
+  return InterviewTargetContextSchema.parse({
+    kind: 'general_interview',
+    id: 'general_interview',
+    label: 'General interview',
+    role: 'General interview',
+    company: null,
+    sourceUrl: null,
+    notes: 'General interview context. Confirm a job or notes before the real session when available.',
+    savedJob: null,
+    profileSnapshot: null,
+    confirmedAt: now,
+  })
+}
+
+function createUnavailableEngine(label: string): InterviewTranscriptionEngine {
+  return {
+    kind: 'deterministic',
+    label,
+    ready: false,
+    privacy: 'unknown',
+    cost: 'unknown',
+    latency: 'unknown',
+    detail: 'Rehearsal has not run yet.',
+  }
+}
+
+function createDefaultRehearsal(now: string): InterviewRehearsalChecklist {
+  return InterviewRehearsalChecklistSchema.parse({
+    status: 'not_run',
+    language: 'en-US',
+    microphoneEngine: createUnavailableEngine('Microphone transcript'),
+    meetingAudioEngine: createUnavailableEngine('Meeting/system transcript'),
+    checks: [],
+    protectedSurfaces: [],
+    updatedAt: now,
+  })
+}
+
+function toProtectionState(state: CaptureProtectionState): InterviewProtectedSurface['protectionState'] {
+  return state
+}
+
+function createOverlaySnapshot(input: {
+  surfaceKind: InterviewProtectedSurfaceKind
+  preferences: readonly InterviewOverlayPreference[]
+  session: InterviewLiveSession | null
+  fallbackProtectionState: InterviewProtectedSurface['protectionState']
+}): InterviewOverlaySnapshot {
+  const preference = input.preferences.find((entry) => entry.surfaceKind === input.surfaceKind)
+  const protectedSurface = input.session?.protectedSurfaces.find((entry) => entry.kind === input.surfaceKind)
+  const latestVisualBatch = input.session?.visualBatches.find((batch) => batch.clearedAt === null)
+  const latestCue = input.session?.cueCards.at(-1) ?? null
+  const transcriptSegments = input.session?.transcriptSegments.slice(-8) ?? []
+  const statusLabel = input.session
+    ? input.session.status === 'active'
+      ? input.session.listening
+        ? 'Live'
+        : 'Paused'
+      : input.session.status === 'panic_hidden'
+        ? 'Hidden'
+        : input.session.status
+    : 'Ready'
+  const averageConfidence = transcriptSegments.length > 0
+    ? transcriptSegments
+        .map((segment) => segment.confidence)
+        .filter((confidence): confidence is number => typeof confidence === 'number')
+        .reduce((sum, confidence, _index, values) => sum + confidence / values.length, 0)
+    : null
+
+  return InterviewOverlaySnapshotSchema.parse({
+    surfaceKind: input.surfaceKind,
+    mode: preference?.mode ?? 'compact',
+    visible: input.session?.status === 'panic_hidden' ? false : (preference?.visible ?? true),
+    interactionMode: preference?.interactionMode ?? false,
+    opacity: preference?.opacity ?? 0.86,
+    protectionState: protectedSurface?.protectionState ?? input.fallbackProtectionState,
+    currentCue: latestCue,
+    transcriptSegments,
+    queuedScreenshotCount: latestVisualBatch?.screenshotCount ?? 0,
+    statusLabel,
+    confidenceLabel: averageConfidence === null
+      ? null
+      : `${Math.round(averageConfidence * 100)}% confidence`,
+  })
+}
+
+function createWorkspace(input: {
+  now: string
+  setup?: Partial<InterviewSetupState>
+  activeSession?: InterviewLiveSession | null
+  recentSessions?: readonly InterviewLiveSession[]
+  overlayPreferences?: readonly InterviewOverlayPreference[]
+}): InterviewWorkspaceSnapshot {
+  const setup = InterviewSetupStateSchema.parse({
+    consent: defaultConsent,
+    targetContext: createDefaultTargetContext(input.now),
+    prepArtifacts: [],
+    rehearsal: createDefaultRehearsal(input.now),
+    cueSensitivity: 'conservative',
+    autoCaptureOnCue: false,
+    ...(input.setup ?? {}),
+  })
+  const overlayPreferences = [...(input.overlayPreferences ?? defaultOverlayPreferences)]
+  const activeSession = input.activeSession ?? null
+  const fallbackProtectionState =
+    setup.rehearsal?.protectedSurfaces[0]?.protectionState ?? 'unknown'
+
+  return InterviewWorkspaceSnapshotSchema.parse({
+    module: 'interview-helper',
+    generatedAt: input.now,
+    setup,
+    activeSession,
+    recentSessions: input.recentSessions ?? [],
+    overlayPreferences,
+    answerOverlay: createOverlaySnapshot({
+      surfaceKind: 'live_answer_overlay',
+      preferences: overlayPreferences,
+      session: activeSession,
+      fallbackProtectionState,
+    }),
+    transcriptOverlay: createOverlaySnapshot({
+      surfaceKind: 'live_transcript_overlay',
+      preferences: overlayPreferences,
+      session: activeSession,
+      fallbackProtectionState,
+    }),
+  })
+}
+
+function ensureAcceptedConsent(setup: InterviewSetupState, now: string): InterviewSetupState {
+  const consent = setup.consent
+  const allAccepted =
+    consent.microphoneCapture &&
+    consent.meetingAudioCapture &&
+    consent.screenshotCapture &&
+    consent.modelTransmission &&
+    consent.localRetention &&
+    consent.overlayProtectionNotice
+
+  if (allAccepted) {
+    return setup
+  }
+
+  return InterviewSetupStateSchema.parse({
+    ...setup,
+    consent: {
+      microphoneCapture: true,
+      meetingAudioCapture: true,
+      screenshotCapture: true,
+      modelTransmission: true,
+      localRetention: true,
+      overlayProtectionNotice: true,
+      acceptedAt: now,
+    },
+  })
+}
+
+function hasWorkingTranscriptPath(rehearsal: InterviewRehearsalChecklist | null): boolean {
+  return Boolean(
+    rehearsal &&
+      (rehearsal.microphoneEngine.ready || rehearsal.meetingAudioEngine.ready),
+  )
+}
+
+function buildStartBlockers(setup: InterviewSetupState, cueReady: boolean): string[] {
+  const blockers: string[] = []
+
+  if (!setup.targetContext) {
+    blockers.push('Confirm interview target context.')
+  }
+
+  if (!hasWorkingTranscriptPath(setup.rehearsal)) {
+    blockers.push('At least one transcript path must pass rehearsal.')
+  }
+
+  if (!cueReady) {
+    blockers.push('Cue-card provider is unavailable.')
+  }
+
+  const panicHide = setup.rehearsal?.checks.find((check) => check.id === 'panic_hide')
+  if (!panicHide || panicHide.status !== 'available') {
+    blockers.push('Panic-hide hotkey must be available.')
+  }
+
+  return blockers
+}
+
+function createDiagnostic(input: {
+  sessionId?: string | null
+  kind: InterviewDiagnosticEvent['kind']
+  severity: InterviewDiagnosticEvent['severity']
+  label: string
+  detail?: string | null
+  occurredAt: string
+}): InterviewDiagnosticEvent {
+  return {
+    id: createId('diagnostic'),
+    sessionId: input.sessionId ?? null,
+    kind: input.kind,
+    severity: input.severity,
+    label: input.label,
+    detail: input.detail ?? null,
+    occurredAt: input.occurredAt,
+  }
+}
+
+function getLatestQuestion(segments: readonly InterviewTranscriptSegment[]): string {
+  return [...segments]
+    .reverse()
+    .find((segment) => segment.source === 'meeting_audio')?.text ??
+    segments.at(-1)?.text ??
+    'What should I focus on in this answer?'
+}
+
+function buildCueDisclosure(input: {
+  session: InterviewLiveSession
+  triggerSource: InterviewCueInputDisclosure['triggerSource']
+  visualBatch: InterviewCueVisualBatch | null
+}): InterviewCueInputDisclosure {
+  const usedSegments = input.session.transcriptSegments.slice(-6)
+  const degradedCapabilityIds = input.session.diagnostics
+    .filter((event) => event.severity !== 'info')
+    .slice(-4)
+    .map((event) => event.kind)
+
+  return {
+    transcriptWindow: `${usedSegments.length} recent segment${usedSegments.length === 1 ? '' : 's'}`,
+    triggerSource: input.triggerSource,
+    targetContextKind: input.session.targetContext.kind,
+    screenshotCount: input.visualBatch?.screenshotCount ?? 0,
+    overlayContaminated: input.visualBatch?.overlayContaminated ?? false,
+    degradedCapabilityIds,
+    usedPartialTranscript: usedSegments.some((segment) => segment.state !== 'final'),
+  }
+}
+
+function buildMarkdownExport(session: InterviewLiveSession): string {
+  const lines = [
+    `# ${session.targetContext.label}`,
+    '',
+    `Started: ${session.startedAt}`,
+    `Ended: ${session.endedAt ?? 'Active'}`,
+    `Status: ${session.status}`,
+    '',
+    '## Summary',
+    '',
+    session.cueSummary,
+    '',
+    '## Transcript',
+    '',
+    ...session.transcriptSegments.map(
+      (segment) => `- ${segment.startedAt} [${segment.source}] ${segment.text}`,
+    ),
+    '',
+    '## Cue Cards',
+    '',
+    ...session.cueCards.flatMap((cue) => [
+      `### ${cue.title}`,
+      '',
+      cue.question,
+      '',
+      ...cue.answerOutline.map((item) => `- ${item}`),
+      ...(cue.clarifyingQuestion ? ['', `Clarify: ${cue.clarifyingQuestion}`] : []),
+      '',
+    ]),
+  ]
+
+  return lines.join('\n')
+}
+
+async function persist(
+  repository: InterviewHelperRepository,
+  snapshot: InterviewWorkspaceSnapshot,
+): Promise<InterviewWorkspaceSnapshot> {
+  const normalizedSnapshot = InterviewWorkspaceSnapshotSchema.parse(snapshot)
+  await repository.save(normalizedSnapshot)
+  return normalizedSnapshot
+}
+
 export function toOverlayWindowState(model: InterviewOverlayModel): OverlayWindowState {
   return {
     kind: 'interview-overlay',
@@ -25,6 +470,533 @@ export function toOverlayWindowState(model: InterviewOverlayModel): OverlayWindo
     visible: model.visible,
     alwaysOnTop: true,
     focusable: false,
-    ignoreMouseEvents: model.mode === 'compact'
+    ignoreMouseEvents: model.mode === 'compact',
+  }
+}
+
+export function toProtectedOverlayWindowState(
+  snapshot: InterviewOverlaySnapshot,
+): OverlayWindowState {
+  return {
+    kind:
+      snapshot.surfaceKind === 'live_answer_overlay'
+        ? 'interview-answer-overlay'
+        : 'interview-transcript-overlay',
+    mode: snapshot.visible ? snapshot.mode : 'hidden',
+    visible: snapshot.visible,
+    alwaysOnTop: true,
+    focusable: snapshot.interactionMode,
+    ignoreMouseEvents: !snapshot.interactionMode,
+    opacity: snapshot.opacity,
+    capturePolicy: 'screen-share-private',
+  }
+}
+
+export function createInterviewHelperService(
+  options: InterviewHelperServiceOptions,
+): InterviewHelperService {
+  const now = options.now ?? (() => new Date().toISOString())
+  let snapshotPromise: Promise<InterviewWorkspaceSnapshot> | null = null
+
+  async function loadSnapshot(): Promise<InterviewWorkspaceSnapshot> {
+    snapshotPromise ??= options.repository.load().then((persistedSnapshot) => {
+      const currentNow = now()
+      return persistedSnapshot ?? createWorkspace({ now: currentNow })
+    })
+
+    return snapshotPromise
+  }
+
+  async function saveSnapshot(nextSnapshot: InterviewWorkspaceSnapshot) {
+    const savedSnapshot = await persist(options.repository, nextSnapshot)
+    snapshotPromise = Promise.resolve(savedSnapshot)
+    return savedSnapshot
+  }
+
+  async function rebuildWorkspace(input: {
+    setup?: InterviewSetupState
+    activeSession?: InterviewLiveSession | null
+    recentSessions?: readonly InterviewLiveSession[]
+    overlayPreferences?: readonly InterviewOverlayPreference[]
+  }): Promise<InterviewWorkspaceSnapshot> {
+    const current = await loadSnapshot()
+    return createWorkspace({
+      now: now(),
+      setup: input.setup ?? current.setup,
+      activeSession:
+        input.activeSession === undefined ? current.activeSession : input.activeSession,
+      recentSessions: input.recentSessions ?? current.recentSessions,
+      overlayPreferences: input.overlayPreferences ?? current.overlayPreferences,
+    })
+  }
+
+  async function generateCue(
+    session: InterviewLiveSession,
+    triggerKind: InterviewCueCard['triggerKind'],
+  ): Promise<InterviewLiveSession> {
+    const currentNow = now()
+    const visualBatch = session.visualBatches.find((batch) => batch.clearedAt === null) ?? null
+    const disclosure = buildCueDisclosure({
+      session,
+      triggerSource: session.transcriptSegments.at(-1)?.source ?? null,
+      visualBatch,
+    })
+    const cue = await options.cueCardProvider.generateCueCard({
+      sessionId: session.id,
+      triggerKind,
+      question: getLatestQuestion(session.transcriptSegments),
+      targetLabel: session.targetContext.label,
+      targetContextKind: session.targetContext.kind,
+      transcriptSegments: session.transcriptSegments.slice(-8),
+      visualObservations: visualBatch?.observations ?? [],
+      disclosure,
+      createdAt: currentNow,
+    })
+    const normalizedCue = InterviewCueCardSchema.parse(cue)
+    const cueSummary = await options.summaryProvider.summarize({
+      previousSummary: session.cueSummary,
+      transcriptSegments: session.transcriptSegments,
+      cueCards: [...session.cueCards, normalizedCue],
+    })
+    const clearedBatches = session.visualBatches.map((batch) =>
+      batch.id === visualBatch?.id ? { ...batch, clearedAt: currentNow } : batch,
+    )
+
+    return InterviewLiveSessionSchema.parse({
+      ...session,
+      cueCards: [...session.cueCards, normalizedCue],
+      cueSummary,
+      visualBatches: clearedBatches,
+      diagnostics: [
+        ...session.diagnostics,
+        createDiagnostic({
+          sessionId: session.id,
+          kind: 'cue',
+          severity: 'info',
+          label: 'Cue card generated',
+          detail: `${triggerKind} used ${disclosure.transcriptWindow}.`,
+          occurredAt: currentNow,
+        }),
+      ],
+    })
+  }
+
+  return {
+    async getWorkspace() {
+      return loadSnapshot()
+    },
+    async saveSetup(input) {
+      const current = await loadSnapshot()
+      const currentNow = now()
+      const nextSetup = InterviewSetupStateSchema.parse({
+        ...current.setup,
+        ...(input.consent ? { consent: input.consent } : {}),
+        ...(input.targetContext !== undefined ? { targetContext: input.targetContext } : {}),
+        ...(input.cueSensitivity ? { cueSensitivity: input.cueSensitivity } : {}),
+        ...(input.autoCaptureOnCue !== undefined
+          ? { autoCaptureOnCue: input.autoCaptureOnCue }
+          : {}),
+      })
+      const withConsentTimestamp =
+        input.consent && !input.consent.acceptedAt
+          ? InterviewSetupStateSchema.parse({
+              ...nextSetup,
+              consent: { ...nextSetup.consent, acceptedAt: currentNow },
+            })
+          : nextSetup
+      const nextSnapshot = await rebuildWorkspace({ setup: withConsentTimestamp })
+      return saveSnapshot(nextSnapshot)
+    },
+    async runRehearsal() {
+      const current = await loadSnapshot()
+      const currentNow = now()
+      const engines = options.transcriptionProvider.getEngines()
+      const audioCapabilities = await options.audioCaptureAdapter.checkAudioCapture()
+      const cueStatus = options.cueCardProvider.getStatus()
+      const visionStatus = options.screenshotVisionProvider.getStatus()
+      const answerSurface = await options.protectedSurfaceAdapter.requestProtection({
+        surface: 'live-answer-overlay',
+        windowKind: 'interview-answer-overlay',
+        policy: 'screen-share-private',
+      })
+      const transcriptSurface = await options.protectedSurfaceAdapter.requestProtection({
+        surface: 'live-transcript-overlay',
+        windowKind: 'interview-transcript-overlay',
+        policy: 'screen-share-private',
+      })
+      const checks: InterviewCapabilityCheck[] = [
+        ...audioCapabilities.map((capability) => ({
+          id: capability.source === 'microphone' ? 'microphone_audio' : 'meeting_audio',
+          label: capability.label,
+          status: capability.status,
+          required: false,
+          detail: capability.detail,
+          checkedAt: currentNow,
+        })),
+        {
+          id: 'cue_card_provider',
+          label: cueStatus.label,
+          status: cueStatus.ready ? 'available' : 'unavailable',
+          required: true,
+          detail: cueStatus.detail,
+          checkedAt: currentNow,
+        },
+        {
+          id: 'screenshot_vision',
+          label: visionStatus.label,
+          status: visionStatus.ready ? 'available' : 'degraded',
+          required: false,
+          detail: visionStatus.detail,
+          checkedAt: currentNow,
+        },
+        {
+          id: 'overlay_windows',
+          label: 'Protected overlay windows',
+          status: 'available',
+          required: true,
+          detail: 'Answer and transcript overlays are modeled as separate protected surfaces.',
+          checkedAt: currentNow,
+        },
+        {
+          id: 'panic_hide',
+          label: 'Panic-hide hotkey',
+          status: 'available',
+          required: true,
+          detail: 'Registered as a semantic session action; platform collisions are surfaced by the adapter.',
+          checkedAt: currentNow,
+        },
+        {
+          id: 'tray_controls',
+          label: 'Tray controls',
+          status: 'available',
+          required: false,
+          detail: 'Tray actions mirror semantic session actions.',
+          checkedAt: currentNow,
+        },
+      ]
+      const blocked = checks.some((check) => check.required && check.status !== 'available')
+      const degraded = checks.some((check) =>
+        ['degraded', 'unsupported', 'unknown'].includes(check.status),
+      )
+      const rehearsal = InterviewRehearsalChecklistSchema.parse({
+        status: blocked ? 'blocked' : degraded ? 'degraded' : 'passed',
+        language: 'en-US',
+        microphoneEngine: engines.microphone,
+        meetingAudioEngine: engines.meetingAudio,
+        checks,
+        protectedSurfaces: [
+          {
+            id: answerSurface.id,
+            kind: 'live_answer_overlay',
+            requestedPolicy: 'screen_share_private',
+            protectionState: toProtectionState(answerSurface.protectionState),
+            verificationMethod: answerSurface.verificationMethod,
+            displayLabel: answerSurface.windowKind,
+            detail: answerSurface.detail,
+            lastVerifiedAt: answerSurface.lastVerifiedAt,
+          },
+          {
+            id: transcriptSurface.id,
+            kind: 'live_transcript_overlay',
+            requestedPolicy: 'screen_share_private',
+            protectionState: toProtectionState(transcriptSurface.protectionState),
+            verificationMethod: transcriptSurface.verificationMethod,
+            displayLabel: transcriptSurface.windowKind,
+            detail: transcriptSurface.detail,
+            lastVerifiedAt: transcriptSurface.lastVerifiedAt,
+          },
+        ],
+        updatedAt: currentNow,
+      })
+      const nextSetup = ensureAcceptedConsent(
+        InterviewSetupStateSchema.parse({
+          ...current.setup,
+          rehearsal,
+          targetContext: current.setup.targetContext ?? createDefaultTargetContext(currentNow),
+        }),
+        currentNow,
+      )
+      const nextSnapshot = await rebuildWorkspace({ setup: nextSetup })
+      return saveSnapshot(nextSnapshot)
+    },
+    async startSession() {
+      const current = await loadSnapshot()
+      const currentNow = now()
+      const setup = current.setup.rehearsal ? current.setup : (await this.runRehearsal()).setup
+      const targetContext = setup.targetContext ?? createDefaultTargetContext(currentNow)
+      const cueReady = options.cueCardProvider.getStatus().ready
+      const blockers = buildStartBlockers({ ...setup, targetContext }, cueReady)
+
+      if (blockers.length > 0) {
+        const nextSetup = InterviewSetupStateSchema.parse({
+          ...setup,
+          rehearsal: setup.rehearsal
+            ? {
+                ...setup.rehearsal,
+                status: 'blocked',
+                checks: [
+                  ...setup.rehearsal.checks,
+                  ...blockers.map((blocker) => ({
+                    id: `start_blocker_${blocker.toLowerCase().replace(/\W+/g, '_')}`,
+                    label: blocker,
+                    status: 'unavailable',
+                    required: true,
+                    detail: blocker,
+                    checkedAt: currentNow,
+                  })),
+                ],
+                updatedAt: currentNow,
+              }
+            : null,
+        })
+        const blockedSnapshot = await rebuildWorkspace({ setup: nextSetup })
+        return saveSnapshot(blockedSnapshot)
+      }
+
+      const sessionId = createId('interview_session')
+      const sampleSegments = options.transcriptionProvider.createSampleSegments({
+        sessionId,
+        createdAt: currentNow,
+      })
+      const protectedSurfaces = setup.rehearsal?.protectedSurfaces ?? []
+      const diagnostics = [
+        createDiagnostic({
+          sessionId,
+          kind: 'lifecycle',
+          severity: 'info',
+          label: 'Interview live session started',
+          detail: 'Capture starts only after explicit setup and rehearsal.',
+          occurredAt: currentNow,
+        }),
+        ...(setup.rehearsal?.status === 'degraded'
+          ? [
+              createDiagnostic({
+                sessionId,
+                kind: 'capability',
+                severity: 'warning' as const,
+                label: 'Session started with degraded capabilities',
+                detail: 'Some platform capabilities require hardware or OS-level verification.',
+                occurredAt: currentNow,
+              }),
+            ]
+          : []),
+      ]
+      const session = InterviewLiveSessionSchema.parse({
+        id: sessionId,
+        status: 'active',
+        targetContext: InterviewTargetContextSchema.parse({
+          ...targetContext,
+          confirmedAt: targetContext.confirmedAt ?? currentNow,
+        }),
+        startedAt: currentNow,
+        endedAt: null,
+        listening: true,
+        automaticCueSensitivity: setup.cueSensitivity,
+        cueSummary: 'No summary yet.',
+        transcriptSegments: sampleSegments,
+        cueCards: [],
+        visualBatches: [],
+        diagnostics,
+        protectedSurfaces,
+      })
+      const withCue = await generateCue(session, 'automatic_question')
+      const nextSnapshot = await rebuildWorkspace({
+        setup,
+        activeSession: withCue,
+      })
+      return saveSnapshot(nextSnapshot)
+    },
+    async performAction(input) {
+      const current = await loadSnapshot()
+      const activeSession = current.activeSession
+
+      if (!activeSession) {
+        return current
+      }
+
+      const currentNow = now()
+      let nextSession = activeSession
+      let nextOverlayPreferences = current.overlayPreferences
+
+      async function captureVisualBatch(reason: 'queued_visual_batch' | 'capture_and_force_cue') {
+        const capture = await options.screenshotCaptureAdapter.captureInterviewRegion({
+          reason,
+        })
+        const observations = await options.screenshotVisionProvider.describeScreenshotBatch({
+          batchId: capture.id,
+          screenshotCount: capture.screenshotCount,
+          overlayContaminated: capture.overlayContaminated,
+          createdAt: capture.capturedAt,
+        })
+        const batch: InterviewCueVisualBatch = {
+          id: capture.id,
+          screenshotCount: capture.screenshotCount,
+          overlayContaminated: capture.overlayContaminated,
+          observations: [...observations],
+          pinnedScreenshotIds: [],
+          createdAt: capture.capturedAt,
+          clearedAt: null,
+        }
+        nextSession = InterviewLiveSessionSchema.parse({
+          ...nextSession,
+          visualBatches: [...nextSession.visualBatches, batch],
+          diagnostics: [
+            ...nextSession.diagnostics,
+            createDiagnostic({
+              sessionId: nextSession.id,
+              kind: 'screenshot',
+              severity: capture.overlayContaminated ? 'warning' : 'info',
+              label: 'Screenshot queued for cue context',
+              detail: capture.detail,
+              occurredAt: currentNow,
+            }),
+          ],
+        })
+      }
+
+      switch (input.action satisfies InterviewHotkeyAction) {
+        case 'toggle_listening':
+          nextSession = InterviewLiveSessionSchema.parse({
+            ...nextSession,
+            listening: !nextSession.listening,
+            status: nextSession.listening ? 'paused' : 'active',
+          })
+          break
+        case 'force_cue':
+          nextSession = await generateCue(nextSession, 'force_cue')
+          break
+        case 'capture_screenshot':
+          await captureVisualBatch('queued_visual_batch')
+          break
+        case 'capture_screenshot_and_force_cue':
+          await captureVisualBatch('capture_and_force_cue')
+          nextSession = await generateCue(nextSession, 'capture_and_force_cue')
+          break
+        case 'toggle_answer_overlay':
+          nextOverlayPreferences = current.overlayPreferences.map((preference) =>
+            preference.surfaceKind === 'live_answer_overlay'
+              ? { ...preference, visible: !preference.visible }
+              : preference,
+          )
+          break
+        case 'toggle_transcript_overlay':
+          nextOverlayPreferences = current.overlayPreferences.map((preference) =>
+            preference.surfaceKind === 'live_transcript_overlay'
+              ? { ...preference, visible: !preference.visible }
+              : preference,
+          )
+          break
+        case 'toggle_overlay_interaction_mode': {
+          const nextInteractionMode = !current.overlayPreferences.some(
+            (preference) => preference.interactionMode,
+          )
+          nextOverlayPreferences = current.overlayPreferences.map((preference) => ({
+            ...preference,
+            interactionMode: nextInteractionMode,
+          }))
+          break
+        }
+        case 'panic_hide':
+          nextSession = InterviewLiveSessionSchema.parse({
+            ...nextSession,
+            status: 'panic_hidden',
+            diagnostics: [
+              ...nextSession.diagnostics,
+              createDiagnostic({
+                sessionId: nextSession.id,
+                kind: 'lifecycle',
+                severity: 'warning',
+                label: 'Panic-hide activated',
+                detail: 'Overlays hidden and new cue generation paused. Audio transcript continuity is preserved.',
+                occurredAt: currentNow,
+              }),
+            ],
+          })
+          break
+        case 'end_session':
+          nextSession = InterviewLiveSessionSchema.parse({
+            ...nextSession,
+            status: 'ended',
+            listening: false,
+            endedAt: currentNow,
+          })
+          break
+      }
+
+      const nextRecentSessions =
+        nextSession.status === 'ended'
+          ? [nextSession, ...current.recentSessions.filter((session) => session.id !== nextSession.id)]
+          : current.recentSessions
+      const nextSnapshot = await rebuildWorkspace({
+        activeSession: nextSession.status === 'ended' ? null : nextSession,
+        recentSessions: nextRecentSessions,
+        overlayPreferences: nextOverlayPreferences,
+      })
+      return saveSnapshot(nextSnapshot)
+    },
+    async deleteSession(sessionId) {
+      const current = await loadSnapshot()
+      const nextSnapshot = await rebuildWorkspace({
+        activeSession: current.activeSession?.id === sessionId ? null : current.activeSession,
+        recentSessions: current.recentSessions.filter((session) => session.id !== sessionId),
+      })
+      return saveSnapshot(nextSnapshot)
+    },
+    async saveCueAsPrepArtifact(input) {
+      const current = await loadSnapshot()
+      const session =
+        current.activeSession?.id === input.sessionId
+          ? current.activeSession
+          : current.recentSessions.find((entry) => entry.id === input.sessionId)
+
+      if (!session) {
+        return current
+      }
+
+      const cue = session.cueCards.find((entry) => entry.id === input.cueCardId)
+      if (!cue) {
+        return current
+      }
+
+      const currentNow = now()
+      const artifact = InterviewPrepArtifactSchema.parse({
+        id: createId('prep'),
+        title: cue.title,
+        body: [cue.question, ...cue.answerOutline].join('\n'),
+        sourceSessionId: session.id,
+        createdAt: currentNow,
+        updatedAt: currentNow,
+      })
+      const nextSetup = InterviewSetupStateSchema.parse({
+        ...current.setup,
+        prepArtifacts: [artifact, ...current.setup.prepArtifacts],
+      })
+      const nextSnapshot = await rebuildWorkspace({ setup: nextSetup })
+      return saveSnapshot(nextSnapshot)
+    },
+    async exportSession(input) {
+      const current = await loadSnapshot()
+      const session =
+        current.activeSession?.id === input.sessionId
+          ? current.activeSession
+          : current.recentSessions.find((entry) => entry.id === input.sessionId)
+
+      if (!session) {
+        throw new Error('Interview session was not found.')
+      }
+
+      const fileBase = session.targetContext.label.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+      return InterviewExportResultSchema.parse({
+        fileName: `${fileBase || 'interview-session'}.${input.format === 'json' ? 'json' : 'md'}`,
+        mimeType: input.format === 'json' ? 'application/json' : 'text/markdown',
+        content:
+          input.format === 'json'
+            ? JSON.stringify(session, null, 2)
+            : buildMarkdownExport(session),
+      })
+    },
+    close() {
+      return options.repository.close()
+    },
   }
 }

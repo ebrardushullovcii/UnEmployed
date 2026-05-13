@@ -11,3 +11,4 @@ export * from "./visual";
 export * from "./source-debug";
 export * from "./discovery";
 export * from "./workspace";
+export * from "./interview-helper";

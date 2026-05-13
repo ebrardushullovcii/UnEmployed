@@ -80,12 +80,18 @@ importers:
       '@unemployed/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@unemployed/interview-helper':
+        specifier: workspace:*
+        version: link:../../packages/interview-helper
       '@unemployed/job-finder':
         specifier: workspace:*
         version: link:../../packages/job-finder
       '@unemployed/knowledge-base':
         specifier: workspace:*
         version: link:../../packages/knowledge-base
+      '@unemployed/os-integration':
+        specifier: workspace:*
+        version: link:../../packages/os-integration
       chromium-bidi:
         specifier: ^15.0.0
         version: 15.0.0(devtools-protocol@0.0.1604597)
@@ -213,9 +219,16 @@ importers:
 
   packages/interview-helper:
     dependencies:
+      '@unemployed/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@unemployed/os-integration':
         specifier: workspace:*
         version: link:../os-integration
+    devDependencies:
+      '@unemployed/ai-providers':
+        specifier: workspace:*
+        version: link:../ai-providers
 
   packages/job-finder:
     dependencies:

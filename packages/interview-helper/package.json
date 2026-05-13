@@ -3,8 +3,15 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "dependencies": {
+    "@unemployed/contracts": "workspace:*",
     "@unemployed/os-integration": "workspace:*"
+  },
+  "devDependencies": {
+    "@unemployed/ai-providers": "workspace:*"
   },
   "scripts": {
     "build": "tsc --noEmit",

@@ -172,8 +172,14 @@ export function JobFinderShell({ children, onNavigate, platform, workspace }: Jo
                   {index > 0 ? <span aria-hidden="true" className="h-4 w-px bg-border/50" /> : null}
                   <span
                     aria-current={moduleName === 'job-finder' ? 'page' : undefined}
+                    onClick={() => {
+                      if (moduleName === 'interview-helper') {
+                        void navigate('/interview-helper')
+                      }
+                    }}
                     className={cn(
                       'h-auto rounded-none border-0 bg-transparent px-0 py-0 text-[14px] font-semibold tracking-(--tracking-badge) shadow-none sm:text-[15px]',
+                      moduleName === 'interview-helper' ? 'cursor-pointer hover:text-foreground' : '',
                       moduleName === 'job-finder'
                         ? 'text-(--text-headline)'
                         : 'text-muted-foreground'
