@@ -34,9 +34,9 @@ function createMemoryRepository(): InterviewHelperRepository {
   };
 }
 
-function createService() {
+function createService(repository: InterviewHelperRepository = createMemoryRepository()) {
   return createInterviewHelperService({
-    repository: createMemoryRepository(),
+    repository,
     audioCaptureAdapter: createStaticDesktopAudioCaptureAdapter("win32"),
     screenshotCaptureAdapter: createStaticDesktopScreenshotCaptureAdapter({
       now: () => "2026-05-13T05:00:00.000Z",
@@ -124,5 +124,25 @@ describe("interview helper service", () => {
     expect(hidden.activeSession?.status).toBe("panic_hidden");
     expect(hidden.answerOverlay.visible).toBe(false);
     expect(hidden.transcriptOverlay.visible).toBe(false);
+  });
+
+  test("marks persisted active sessions interrupted instead of resuming capture", async () => {
+    const repository = createMemoryRepository();
+    const firstService = createService(repository);
+
+    await acceptSetup(firstService);
+    await firstService.runRehearsal();
+    const active = await firstService.startSession();
+    expect(active.activeSession?.status).toBe("active");
+
+    const restartedService = createService(repository);
+    const recovered = await restartedService.getWorkspace();
+
+    expect(recovered.activeSession).toBeNull();
+    expect(recovered.recentSessions[0]?.status).toBe("interrupted");
+    expect(recovered.recentSessions[0]?.listening).toBe(false);
+    expect(recovered.recentSessions[0]?.diagnostics.at(-1)?.label).toContain(
+      "interrupted",
+    );
   });
 });

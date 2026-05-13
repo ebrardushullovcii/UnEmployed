@@ -488,9 +488,48 @@ export function createInterviewHelperService(
   let snapshotPromise: Promise<InterviewWorkspaceSnapshot> | null = null
 
   async function loadSnapshot(): Promise<InterviewWorkspaceSnapshot> {
-    snapshotPromise ??= options.repository.load().then((persistedSnapshot) => {
+    snapshotPromise ??= options.repository.load().then(async (persistedSnapshot) => {
       const currentNow = now()
-      return persistedSnapshot ?? createWorkspace({ now: currentNow })
+      if (!persistedSnapshot) {
+        return createWorkspace({ now: currentNow })
+      }
+
+      if (!persistedSnapshot.activeSession) {
+        return persistedSnapshot
+      }
+
+      const interruptedSession = InterviewLiveSessionSchema.parse({
+        ...persistedSnapshot.activeSession,
+        status: 'interrupted',
+        listening: false,
+        endedAt: persistedSnapshot.activeSession.endedAt ?? currentNow,
+        diagnostics: [
+          ...persistedSnapshot.activeSession.diagnostics,
+          createDiagnostic({
+            sessionId: persistedSnapshot.activeSession.id,
+            kind: 'lifecycle',
+            severity: 'warning',
+            label: 'Session interrupted during app restart',
+            detail: 'Capture did not resume automatically. Start a new session after review.',
+            occurredAt: currentNow,
+          }),
+        ],
+      })
+      return persist(
+        options.repository,
+        createWorkspace({
+          now: currentNow,
+          setup: persistedSnapshot.setup,
+          activeSession: null,
+          recentSessions: [
+            interruptedSession,
+            ...persistedSnapshot.recentSessions.filter(
+              (session) => session.id !== interruptedSession.id,
+            ),
+          ],
+          overlayPreferences: persistedSnapshot.overlayPreferences,
+        }),
+      )
     })
 
     return snapshotPromise

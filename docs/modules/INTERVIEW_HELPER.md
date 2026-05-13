@@ -7,7 +7,7 @@ Owns the Interview Helper live-session workflow: setup, rehearsal, target-contex
 ## Current State
 
 - `packages/contracts` defines Interview Helper setup, rehearsal, capability, protected surface, transcript, cue-card, visual batch, overlay, session, export, and IPC payload schemas.
-- `packages/interview-helper` hosts the deterministic session state machine and retention policy behind adapter interfaces for audio capture, screenshots, protected overlays, cue cards, vision, transcription, and summaries.
+- `packages/interview-helper` hosts the deterministic session state machine and retention policy behind adapter interfaces for audio capture, screenshots, protected overlays, cue cards, vision, transcription, and summaries. Persisted active sessions are marked `interrupted` on service restart and never resume capture automatically.
 - `apps/desktop` hosts the service in Electron main, exposes typed preload methods, creates the top-level Interview Helper route, opens two separate Electron overlay windows for live answer cues and live transcripts during active sessions, and registers tray/global-hotkey controls that call semantic session actions.
 - `packages/os-integration` currently reports static capability states for protected overlays, desktop audio, screenshots, and capture policy. Overlay protection is requested through Electron content protection, but automated capture-exclusion verification is still reported as `requested_unverified`.
 - `packages/ai-providers` currently supplies deterministic Interview Helper providers for replayable development and test evidence.
