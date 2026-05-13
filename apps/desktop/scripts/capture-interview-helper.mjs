@@ -69,6 +69,109 @@ async function capture(window, fileName) {
   })
 }
 
+function assertReportInvariant(condition, description) {
+  if (!condition) {
+    throw new Error(`Interview Helper harness invariant failed: ${description}.`)
+  }
+}
+
+function assertInterviewHelperReport(report) {
+  const requiredTrueFields = [
+    'jobFinderApplicationContextApplied',
+    'jobFinderSavedJobContextApplied',
+    'setupConsentAccepted',
+    'perSessionConfirmationVisible',
+    'rehearsalHasLanguageCheck',
+    'rehearsalHasEngineFallbackCheck',
+    'rehearsalHasScreenshotCaptureCheck',
+    'rehearsalHasScreenshotVisionCheck',
+    'rehearsalHasOverlayProtectionCheck',
+    'rehearsalHasRetentionDefaultsCheck',
+    'microphonePermissionUsesElectron',
+    'meetingAudioUsesElectronSourceEnumeration',
+    'runtimeOverlayProtectionVerified',
+    'activeSessionStarted',
+    'browserSpeechBridgeVisible',
+    'nativeCaptionWatcherVisible',
+    'captionFileWatcherVisible',
+    'mediaStreamProbesVisible',
+    'transientAudioSttControlsVisible',
+    'resetOverlayLayoutVisible',
+    'reconfigurationPausedListening',
+    'reconfigurationClosedPaused',
+    'diagnosticsPanelVisible',
+    'nativeTranscriptIngestionAddedSegment',
+    'nativeTranscriptIngestionGeneratedCue',
+    'automaticCueCapturedVisualBatch',
+    'automaticCueDisclosedScreenshot',
+    'nativeTranscriptHiddenFromMainWindow',
+    'screenshotDiagnosticUsesElectronCapture',
+    'overlayContaminationDisclosed',
+    'panicHideHidAnswerOverlay',
+    'panicHideHidTranscriptOverlay',
+    'endedSessionRetained',
+    'transcriptAnnotationPreservesOriginal',
+    'jobFinderMarkedInterviewed',
+    'jobFinderFollowUpNoteAdded',
+    'exportContainsTranscript',
+    'exportContainsTranscriptAnnotations',
+    'exportContainsCueCards',
+    'prepArtifactCreated',
+    'deletedSessionRemoved',
+  ]
+
+  for (const field of requiredTrueFields) {
+    assertReportInvariant(report[field] === true, `${field} should be true`)
+  }
+
+  assertReportInvariant(
+    report.setupTranscriptionLanguage === 'en-GB' &&
+      report.rehearsalTranscriptionLanguage === 'en-GB',
+    'selected transcription language should persist into rehearsal',
+  )
+  assertReportInvariant(
+    report.setupCueSensitivity === 'balanced',
+    'cue sensitivity should persist',
+  )
+  assertReportInvariant(
+    report.setupAutoCaptureOnCue === true,
+    'automatic screenshot-on-cue preference should persist',
+  )
+  assertReportInvariant(
+    report.rehearsalCheckCount >= 12,
+    'full rehearsal checklist should be present',
+  )
+  assertReportInvariant(
+    report.protectedSurfaceCount === 2,
+    'two protected overlay surfaces should be modeled',
+  )
+  assertReportInvariant(
+    report.overlayWindowCountAfterStart === 2,
+    'two overlay windows should open after session start',
+  )
+  assertReportInvariant(
+    report.mainWindowMirrorsLiveCue === false &&
+      report.mainWindowMirrorsLiveTranscript === false,
+    'main window should not mirror live sensitive content',
+  )
+  assertReportInvariant(
+    report.visualCueCardCount >= 2 && report.visualBatchCount >= 2,
+    'visual cue and batch evidence should be present',
+  )
+  assertReportInvariant(
+    report.panicHideStatus === 'panic_hidden',
+    'panic-hide should move the session to panic_hidden',
+  )
+  assertReportInvariant(
+    report.endedSessionStatus === 'ended',
+    'session should end cleanly before post-session review',
+  )
+  assertReportInvariant(
+    report.transcriptAnnotationCount >= 1,
+    'transcript annotation should be retained',
+  )
+}
+
 async function waitForOverlayWindows(app) {
   const startedAt = Date.now()
   while (Date.now() - startedAt < 10000) {
@@ -567,6 +670,7 @@ async function runCapture() {
         !deletedWorkspace.recentSessions.some((session) => session.id === annotatedSession.id),
     }
 
+    assertInterviewHelperReport(report)
     await writeJson('interview-helper-report.json', report)
   } finally {
     await app.close()

@@ -29,6 +29,40 @@ async function writeBase64Png(fileName, base64) {
   await writeFile(path.join(outputDir, fileName), Buffer.from(base64, 'base64'))
 }
 
+function assertReportInvariant(condition, description) {
+  if (!condition) {
+    throw new Error(`Interview Helper protection invariant failed: ${description}.`)
+  }
+}
+
+function assertProtectionReport(report) {
+  assertReportInvariant(
+    report.verdict === 'overlay_pixels_not_detected',
+    'overlay pixels should not appear in ordinary Electron screen capture',
+  )
+  assertReportInvariant(
+    report.mainWindowMirrorsLiveCue === false &&
+      report.mainWindowMirrorsLiveTranscript === false,
+    'main window should not mirror live sensitive content',
+  )
+  assertReportInvariant(
+    report.overlayLayoutPersistenceOk === true,
+    'overlay layout should persist moved bounds and display ids',
+  )
+  assertReportInvariant(
+    report.displayChangeRevalidationOk === true,
+    'display changes should revalidate overlay protection evidence',
+  )
+  assertReportInvariant(
+    report.resetOverlayLayoutOk === true,
+    'overlay layout reset should clear custom bounds and display ids',
+  )
+  assertReportInvariant(
+    report.overlays.every((overlay) => overlay.overlayVisibleInScreenCapture === false),
+    'each overlay reference should be absent from the captured screen source',
+  )
+}
+
 async function waitForInterviewWorkspace(window) {
   await window.waitForFunction(
     () => document.querySelector('h1')?.textContent?.includes('Live interview workspace'),
@@ -68,6 +102,7 @@ async function waitForWorkspaceState(window, predicate, description) {
 async function acceptAndStartSession(window) {
   await window.getByRole('button', { name: /Accept setup/i }).click()
   await window.getByRole('button', { name: /Run rehearsal/i }).click()
+  await window.getByLabel(/Confirm this session/i).check()
   await window.getByRole('button', { name: /Start session/i }).click()
   await window.getByText('Listening', { exact: true }).first().waitFor({ timeout: 10000 })
 }
@@ -357,6 +392,7 @@ async function runCaptureProtection() {
         'interview-helper-protection-report.json',
       ],
     }
+    assertProtectionReport(report)
     await writeJson('interview-helper-protection-report.json', report)
   } finally {
     await app.close()
