@@ -62,7 +62,9 @@ export function InterviewNativeCaptionWatcher(props: {
         })
         .catch((error: unknown) => {
           setStatusLabel(
-            error instanceof Error ? error.message : "Native caption watcher failed",
+            error instanceof Error
+              ? error.message
+              : "Native caption watcher failed",
           );
         });
     }, 2000);
@@ -77,12 +79,13 @@ export function InterviewNativeCaptionWatcher(props: {
 
   return (
     <div className="grid gap-2 rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
-      <div className="flex items-center justify-between gap-3">
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] xl:grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_auto]">
         <div>
           <p className="text-[0.82rem]">Native captions</p>
           <p className="text-[0.72rem] text-muted-foreground">{statusLabel}</p>
         </div>
         <Button
+          className="justify-self-stretch"
           disabled={!props.listening}
           onClick={() => {
             setEnabled((current) => !current);
@@ -90,7 +93,11 @@ export function InterviewNativeCaptionWatcher(props: {
           size="compact"
           variant={enabled ? "outline" : "secondary"}
         >
-          {enabled ? <CaptionsOff className="size-4" /> : <Captions className="size-4" />}
+          {enabled ? (
+            <CaptionsOff className="size-4" />
+          ) : (
+            <Captions className="size-4" />
+          )}
           {enabled ? "Stop captions" : "Watch captions"}
         </Button>
       </div>

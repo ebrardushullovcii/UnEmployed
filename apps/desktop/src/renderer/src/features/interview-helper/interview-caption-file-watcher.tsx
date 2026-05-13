@@ -11,7 +11,9 @@ function normalizeCaptionFileText(input: string) {
       if (line.length === 0) return false;
       if (line === "WEBVTT") return false;
       if (/^\d+$/.test(line)) return false;
-      if (/^\d\d:\d\d:\d\d[,.]\d{3}\s+-->\s+\d\d:\d\d:\d\d[,.]\d{3}/.test(line)) {
+      if (
+        /^\d\d:\d\d:\d\d[,.]\d{3}\s+-->\s+\d\d:\d\d:\d\d[,.]\d{3}/.test(line)
+      ) {
         return false;
       }
       if (/^NOTE\b/.test(line)) return false;
@@ -113,7 +115,9 @@ export function InterviewCaptionFileWatcher(props: {
         })
         .catch((error: unknown) => {
           setStatusLabel(
-            error instanceof Error ? error.message : "Caption file watcher failed",
+            error instanceof Error
+              ? error.message
+              : "Caption file watcher failed",
           );
         });
     }, 2000);
@@ -126,15 +130,16 @@ export function InterviewCaptionFileWatcher(props: {
 
   return (
     <div className="grid gap-2 rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
-      <div className="flex items-center justify-between gap-3">
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] xl:grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_auto]">
         <div>
           <p className="text-[0.82rem]">Caption file</p>
           <p className="text-[0.72rem] text-muted-foreground">
             {displayName ? `${displayName}: ${statusLabel}` : statusLabel}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="grid gap-2 sm:grid-flow-col xl:grid-flow-row 2xl:grid-flow-col">
           <Button
+            className="justify-self-stretch"
             disabled={!props.listening}
             onClick={() => {
               void selectCaptionFile();
@@ -147,6 +152,7 @@ export function InterviewCaptionFileWatcher(props: {
           </Button>
           {enabled ? (
             <Button
+              className="justify-self-stretch"
               onClick={() => {
                 setEnabled(false);
                 setStatusLabel("Caption file watcher stopped");

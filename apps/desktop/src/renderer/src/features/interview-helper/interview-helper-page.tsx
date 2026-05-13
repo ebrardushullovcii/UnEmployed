@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 import type {
+  DesktopWindowControlsState,
   InterviewExportResult,
   InterviewHotkeyAction,
   JobFinderInterviewFollowUpInput,
@@ -8,6 +9,7 @@ import type {
   InterviewTranscriptSource,
   InterviewWorkspaceSnapshot,
 } from "@unemployed/contracts";
+import { suiteModules } from "@unemployed/contracts";
 import {
   AlertTriangle,
   Archive,
@@ -16,6 +18,7 @@ import {
   Clock,
   FileDown,
   ListChecks,
+  Minus,
   Mic,
   PanelTop,
   Pause,
@@ -26,9 +29,11 @@ import {
   Settings2,
   Shield,
   Sparkles,
+  Square,
   Trash2,
+  X,
 } from "lucide-react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@renderer/components/ui/button";
 import { cn } from "@renderer/lib/cn";
 import { AnswerCueOverlay, TranscriptOverlay } from "./interview-overlays";
@@ -76,15 +81,17 @@ function StatusPill(props: {
 function Panel(props: {
   children: React.ReactNode;
   className?: string;
+  id?: string;
   title: string;
   index?: number;
 }) {
   return (
     <section
       className={cn(
-        "surface-card-tint relative overflow-hidden rounded-(--radius-panel) border p-4 shadow-[0_18px_70px_rgba(0,0,0,0.22)]",
+        "surface-card-tint relative scroll-mt-32 overflow-hidden rounded-(--radius-panel) border p-4 shadow-[0_18px_70px_rgba(0,0,0,0.22)]",
         props.className,
       )}
+      id={props.id}
     >
       <header className="mb-4 flex items-center gap-2">
         {props.index ? (
@@ -105,19 +112,40 @@ function getTargetLabel(workspace: InterviewWorkspaceSnapshot) {
   return workspace.setup.targetContext?.label ?? "General interview";
 }
 
+function formatModuleLabel(moduleName: string) {
+  return moduleName
+    .split("-")
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}
+
 export function InterviewHelperPage() {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [followUpDraft, setFollowUpDraft] = useState("");
-  const [jobFinderWriteBackStatus, setJobFinderWriteBackStatus] =
-    useState<string | null>(null);
+  const [jobFinderWriteBackStatus, setJobFinderWriteBackStatus] = useState<
+    string | null
+  >(null);
   const [sessionStartConfirmed, setSessionStartConfirmed] = useState(false);
   const [transcriptSource, setTranscriptSource] =
     useState<InterviewTranscriptSource>("meeting_native_transcript");
   const [transcriptDraft, setTranscriptDraft] = useState("");
+  const [platform, setPlatform] = useState<"darwin" | "linux" | "win32">(
+    "win32",
+  );
+  const [windowControlsState, setWindowControlsState] =
+    useState<DesktopWindowControlsState>({
+      isClosable: true,
+      isMaximized: false,
+      isMinimizable: true,
+    });
   const appliedTargetContextKeyRef = useRef<string | null>(null);
+  const dragRegionStyle = { WebkitAppRegion: "drag" } as CSSProperties;
+  const noDragRegionStyle = { WebkitAppRegion: "no-drag" } as CSSProperties;
+  const isMac = platform === "darwin";
 
   async function loadWorkspace() {
     try {
@@ -137,6 +165,60 @@ export function InterviewHelperPage() {
   useEffect(() => {
     void loadWorkspace();
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const unsubscribe = window.unemployed.window.onControlsStateChange(
+      (controlsState) => {
+        if (!cancelled) {
+          setWindowControlsState(controlsState);
+        }
+      },
+    );
+
+    void Promise.all([
+      window.unemployed.ping(),
+      window.unemployed.window.getControlsState(),
+    ])
+      .then(([platformResponse, controlsState]) => {
+        if (!cancelled) {
+          setPlatform(platformResponse.platform);
+          setWindowControlsState(controlsState);
+        }
+      })
+      .catch(() => {
+        // Keep the default Windows-like controls state when the bridge is unavailable.
+      });
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
+
+  async function runWindowAction(
+    action: () => Promise<DesktopWindowControlsState>,
+  ): Promise<void> {
+    try {
+      const nextControlsState = await action();
+      setWindowControlsState(nextControlsState);
+    } catch {
+      // Keep current controls state if the desktop action fails.
+    }
+  }
+
+  function minimizeWindow() {
+    void runWindowAction(() => window.unemployed.window.minimize());
+  }
+
+  function toggleWindowExpand() {
+    void runWindowAction(() => window.unemployed.window.toggleMaximize());
+  }
+
+  function closeWindow() {
+    void window.unemployed.window.close();
+  }
 
   async function updateWorkspace(
     actionId: string,
@@ -314,7 +396,8 @@ export function InterviewHelperPage() {
       .map((check) => check.label)
       .join(", ") || "Run rehearsal to list enabled capabilities.";
   const degradedCapabilitiesSummary =
-    degraded.map((check) => check.label).join(", ") || "No degraded optional checks.";
+    degraded.map((check) => check.label).join(", ") ||
+    "No degraded optional checks.";
   const targetLabel = getTargetLabel(workspace);
   const canExport = Boolean(reviewSession);
   const liveOverlaySummaries: Array<{
@@ -394,46 +477,137 @@ export function InterviewHelperPage() {
   }
 
   return (
-    <div className="h-screen overflow-hidden bg-canvas text-foreground">
-      <header className="flex h-20 items-center justify-between border-b border-border/15 bg-(--shell-header-bg) px-6">
-        <div className="grid gap-1">
-          <Link
-            className="font-display text-[2rem] font-black leading-none tracking-[-0.07em]"
-            to="/job-finder/profile"
+    <div
+      className={cn(
+        "h-screen overflow-hidden bg-canvas text-foreground",
+        `platform-${platform}`,
+      )}
+    >
+      <header
+        className="fixed inset-x-0 top-0 z-50 border-b border-border/15 bg-(--shell-header-bg) backdrop-blur-sm"
+        style={dragRegionStyle}
+      >
+        <div className="job-finder-shell-grid grid h-16 items-stretch pl-2 pr-0 sm:pl-3">
+          <div
+            className="flex min-w-0 items-center pl-2 sm:pl-3"
+            style={dragRegionStyle}
           >
-            UNEMPLOYED
-          </Link>
-          <span className="text-[0.68rem] uppercase tracking-(--tracking-caps) text-muted-foreground">
-            Interview Helper
-          </span>
+            <div className="flex min-w-0 flex-col">
+              <Link
+                className="font-display text-[2.35rem] font-black leading-none tracking-[-0.08em] text-(var(--headline-primary)) sm:text-[2.7rem]"
+                style={noDragRegionStyle}
+                to="/job-finder/profile"
+              >
+                UNEMPLOYED
+              </Link>
+              <span className="text-[0.72rem] uppercase tracking-(var(--tracking-caps)) text-muted-foreground sm:text-(length:var(--text-tiny))">
+                Interview Helper
+              </span>
+            </div>
+          </div>
+
+          <div
+            className="col-start-2 flex items-center justify-center"
+            style={dragRegionStyle}
+          >
+            <div
+              className="flex items-center gap-6"
+              role="list"
+              style={noDragRegionStyle}
+            >
+              {suiteModules.map((moduleName, index) => (
+                <div
+                  key={moduleName}
+                  className="flex items-center gap-6"
+                  role="listitem"
+                >
+                  {index > 0 ? (
+                    <span
+                      aria-hidden="true"
+                      className="h-4 w-px bg-border/50"
+                    />
+                  ) : null}
+                  <button
+                    aria-current={
+                      moduleName === "interview-helper" ? "page" : undefined
+                    }
+                    className={cn(
+                      "h-auto rounded-none border-0 bg-transparent px-0 py-0 text-[14px] font-semibold tracking-(--tracking-badge) shadow-none sm:text-[15px]",
+                      moduleName === "job-finder"
+                        ? "cursor-pointer text-muted-foreground hover:text-foreground"
+                        : "text-(--text-headline)",
+                    )}
+                    onClick={() => {
+                      if (moduleName === "job-finder") {
+                        void navigate("/job-finder/profile");
+                      }
+                    }}
+                    type="button"
+                  >
+                    {formatModuleLabel(moduleName)}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div
+            className="col-start-3 flex h-full items-start justify-end self-start"
+            style={dragRegionStyle}
+          >
+            {!isMac ? (
+              <div
+                className="flex h-full items-stretch gap-0"
+                role="group"
+                aria-label="Window controls"
+                style={noDragRegionStyle}
+              >
+                <Button
+                  aria-label="Minimize window"
+                  className="h-full w-11 rounded-none border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-(--surface-panel-raised) hover:text-foreground"
+                  disabled={!windowControlsState.isMinimizable}
+                  onClick={minimizeWindow}
+                  size="icon-xs"
+                  type="button"
+                  variant="ghost"
+                >
+                  <Minus className="size-3.5" />
+                </Button>
+                <Button
+                  aria-label={
+                    windowControlsState.isMaximized
+                      ? "Restore window"
+                      : "Maximize window"
+                  }
+                  className="h-full w-11 rounded-none border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-(--surface-panel-raised) hover:text-foreground"
+                  onClick={toggleWindowExpand}
+                  size="icon-xs"
+                  type="button"
+                  variant="ghost"
+                >
+                  <Square className="size-3.5" />
+                </Button>
+                <Button
+                  aria-label="Close window"
+                  className="h-full w-12 rounded-none border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-(--button-close-hover) hover:text-primary-foreground"
+                  disabled={!windowControlsState.isClosable}
+                  onClick={closeWindow}
+                  size="icon-xs"
+                  type="button"
+                  variant="ghost"
+                >
+                  <X className="size-3.5" />
+                </Button>
+              </div>
+            ) : null}
+          </div>
+
         </div>
-        <nav className="flex items-center gap-3">
-          <Link
-            className="text-[0.78rem] text-muted-foreground hover:text-foreground"
-            to="/job-finder/profile"
-          >
-            Job Finder
-          </Link>
-          <StatusPill
-            label={
-              activeSession
-                ? activeSession.status
-                : (rehearsal?.status ?? "setup")
-            }
-            tone={
-              activeSession
-                ? "success"
-                : rehearsal?.status === "blocked"
-                  ? "critical"
-                  : "warning"
-            }
-          />
-        </nav>
       </header>
 
-      <main className="screen-scroll-area h-[calc(100vh-5rem)] overflow-y-auto px-6 py-6">
+      <main className="screen-scroll-area mt-16 h-[calc(100vh-4rem)] scroll-pt-8 overflow-y-auto px-4 pb-8 pt-3 sm:px-6">
         <div className="mx-auto grid max-w-[118rem] gap-4">
-          <section className="grid gap-2">
+          <section className="grid gap-2" id="setup">
             <p className="text-[0.72rem] font-bold uppercase tracking-(--tracking-page-eyebrow) text-muted-foreground">
               Interview Helper
             </p>
@@ -626,33 +800,25 @@ export function InterviewHelperPage() {
               </div>
 
               <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
-                <Panel index={4} title="Live controls">
+                <Panel id="session" index={4} title="Live controls">
                   <div className="grid gap-3">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-mono text-[1.55rem]">
-                          {activeSession
-                            ? new Date(
-                                activeSession.startedAt,
-                              ).toLocaleTimeString()
-                            : "00:00:00"}
-                        </p>
-                        <p className="text-[0.78rem] text-muted-foreground">
-                          {activeSession
-                            ? activeSession.status
-                            : "Session inactive"}
-                        </p>
-                      </div>
+                    <div className="grid justify-items-start gap-2">
+                      <p className="font-mono text-[1.55rem]">
+                        {activeSession
+                          ? new Date(activeSession.startedAt).toLocaleTimeString()
+                          : "00:00:00"}
+                      </p>
                       <StatusPill
                         label={
-                          activeSession?.listening
-                            ? "Listening"
-                            : "Not recording"
+                          activeSession?.listening ? "Live" : "Paused"
                         }
                         tone={activeSession?.listening ? "success" : "warning"}
                       />
+                      <p className="text-[0.78rem] text-muted-foreground">
+                        {activeSession ? activeSession.status : "Session inactive"}
+                      </p>
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
                       <Button
                         onClick={() => {
                           void perform("toggle_listening");
@@ -776,7 +942,9 @@ export function InterviewHelperPage() {
                               status: "ready",
                               workspace: nextWorkspace,
                               exportResult:
-                                current.status === "ready" ? current.exportResult : null,
+                                current.status === "ready"
+                                  ? current.exportResult
+                                  : null,
                             }));
                           }}
                           sessionId={activeSession.id}
@@ -789,7 +957,9 @@ export function InterviewHelperPage() {
                               status: "ready",
                               workspace: nextWorkspace,
                               exportResult:
-                                current.status === "ready" ? current.exportResult : null,
+                                current.status === "ready"
+                                  ? current.exportResult
+                                  : null,
                             }));
                           }}
                           sessionId={activeSession.id}
@@ -882,7 +1052,7 @@ export function InterviewHelperPage() {
                 </Panel>
               </div>
 
-              <Panel index={6} title="Post-session review">
+              <Panel id="review" index={6} title="Post-session review">
                 {isLiveSession ? (
                   <div className="rounded-(--radius-small) border border-(--info-border) bg-(--info-surface) p-4">
                     <p className="text-[0.88rem] text-(--info-text)">
@@ -1005,7 +1175,9 @@ export function InterviewHelperPage() {
                               followUpDraft.trim().length === 0
                             }
                             onClick={() => {
-                              void recordJobFinderFollowUp("add_follow_up_note");
+                              void recordJobFinderFollowUp(
+                                "add_follow_up_note",
+                              );
                             }}
                             pending={pendingAction === "add_follow_up_note"}
                             size="compact"

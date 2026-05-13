@@ -297,7 +297,7 @@ export function InterviewMediaStreamProbes(props: {
           audio.
         </p>
       </div>
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
         <Button
           disabled={microphoneStatus === "checking"}
           onClick={() => {
@@ -328,7 +328,7 @@ export function InterviewMediaStreamProbes(props: {
         <p>{describeStatus(displayStatus, displayDetail)}</p>
       </div>
       <div className="grid gap-2 border-t border-border-subtle pt-2">
-        <div className="grid gap-2 sm:grid-cols-3">
+        <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
           <Button
             disabled={
               !props.listening ||

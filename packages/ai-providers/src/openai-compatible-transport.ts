@@ -71,6 +71,19 @@ function extractJsonString(rawContent: string): string {
   }
 
   const firstBraceIndex = rawContent.indexOf("{");
+  const firstBracketIndex = rawContent.indexOf("[");
+  const startsWithArray =
+    firstBracketIndex >= 0 &&
+    (firstBraceIndex < 0 || firstBracketIndex < firstBraceIndex);
+
+  if (startsWithArray) {
+    const lastBracketIndex = rawContent.lastIndexOf("]");
+
+    if (lastBracketIndex > firstBracketIndex) {
+      return rawContent.slice(firstBracketIndex, lastBracketIndex + 1);
+    }
+  }
+
   const lastBraceIndex = rawContent.lastIndexOf("}");
 
   if (firstBraceIndex >= 0 && lastBraceIndex > firstBraceIndex) {

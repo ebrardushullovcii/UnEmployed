@@ -110,6 +110,10 @@ export interface InterviewScreenshotVisionProvider {
     batchId: string;
     screenshotCount: number;
     overlayContaminated: boolean;
+    images?: ReadonlyArray<{
+      readonly mimeType: string;
+      readonly base64: string;
+    }>;
     createdAt: string;
   }): Promise<readonly InterviewVisualObservation[]>;
 }
@@ -509,8 +513,10 @@ function createCueProviderFailureCard(input: {
     supportingPoints: [
       "The cue provider failed or returned invalid output, so no generated guidance was used.",
     ],
-    clarifyingQuestion: "Could you clarify the main constraint you want me to optimize for?",
-    avoidSaying: "Do not claim generated details or metrics that were not in your real experience.",
+    clarifyingQuestion:
+      "Could you clarify the main constraint you want me to optimize for?",
+    avoidSaying:
+      "Do not claim generated details or metrics that were not in your real experience.",
     expandedContent:
       "Interview Helper could not produce a validated cue card for this turn. Continue with a concise, honest answer grounded in the interview context.",
     triggerKind: input.triggerKind,
@@ -841,6 +847,7 @@ export function createInterviewHelperService(
         batchId: capture.id,
         screenshotCount: capture.screenshotCount,
         overlayContaminated: capture.overlayContaminated,
+        ...(capture.images ? { images: capture.images } : {}),
         createdAt: capture.capturedAt,
       });
     const batch: InterviewCueVisualBatch = {
@@ -1349,10 +1356,9 @@ export function createInterviewHelperService(
         status: "paused",
         listening: false,
         automaticCueSensitivity: current.setup.cueSensitivity,
-        protectedSurfaces:
-          current.setup.rehearsal?.protectedSurfaces.length
-            ? current.setup.rehearsal.protectedSurfaces
-            : activeSession.protectedSurfaces,
+        protectedSurfaces: current.setup.rehearsal?.protectedSurfaces.length
+          ? current.setup.rehearsal.protectedSurfaces
+          : activeSession.protectedSurfaces,
         diagnostics: [
           ...activeSession.diagnostics,
           createDiagnostic({
@@ -1575,7 +1581,9 @@ export function createInterviewHelperService(
           }),
         ],
       });
-      const nextSnapshot = await rebuildWorkspace({ activeSession: nextSession });
+      const nextSnapshot = await rebuildWorkspace({
+        activeSession: nextSession,
+      });
       return saveSnapshot(nextSnapshot);
     },
     async recordDisplayChange(input) {
@@ -1614,7 +1622,9 @@ export function createInterviewHelperService(
           }),
         ],
       });
-      const nextSnapshot = await rebuildWorkspace({ activeSession: nextSession });
+      const nextSnapshot = await rebuildWorkspace({
+        activeSession: nextSession,
+      });
       return saveSnapshot(nextSnapshot);
     },
     async transcribeAudioChunk(input) {

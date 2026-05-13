@@ -62,6 +62,10 @@ export interface InterviewScreenshotVisionProvider {
     batchId: string;
     screenshotCount: number;
     overlayContaminated: boolean;
+    images?: ReadonlyArray<{
+      readonly mimeType: string;
+      readonly base64: string;
+    }>;
     createdAt: string;
   }): Promise<readonly InterviewVisualObservation[]>;
 }
@@ -96,6 +100,42 @@ const InterviewModelCueCardOutputSchema = z.object({
   avoidSaying: z.string().trim().min(1).nullable().default(null),
   expandedContent: z.string().trim().min(1).nullable().default(null),
 });
+
+function normalizeVisualConfidence(value: unknown) {
+  if (typeof value === "number") {
+    if (value >= 0.75) return "high";
+    if (value >= 0.4) return "medium";
+    return "low";
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (
+      normalized === "high" ||
+      normalized === "medium" ||
+      normalized === "low"
+    ) {
+      return normalized;
+    }
+  }
+
+  return "medium";
+}
+
+const InterviewModelVisualObservationSchema = z.object({
+  summary: z.string().trim().min(1),
+  confidence: z.preprocess(
+    normalizeVisualConfidence,
+    z.enum(["low", "medium", "high"]).default("medium"),
+  ),
+});
+
+const InterviewModelVisualObservationListSchema = z.preprocess(
+  (value) => (Array.isArray(value) ? { observations: value } : value),
+  z.object({
+    observations: z.array(InterviewModelVisualObservationSchema).min(1).max(4),
+  }),
+);
 
 const OpenAiCompatibleInterviewProviderOptionsSchema = z.object({
   apiKey: z.string().trim().min(1),
@@ -235,6 +275,30 @@ function buildCueCardPayload(input: InterviewCueCardRequest) {
   };
 }
 
+function buildScreenshotVisionPrompt(): string {
+  return [
+    "Describe screenshots for live interview assistance.",
+    "Return JSON only with observations: an array of 1-4 items, each with summary and confidence.",
+    "Focus on visible meeting content, coding prompts, diagrams, error messages, or text that helps answer the interviewer.",
+    "Do not include selectors, click instructions, app-control directions, hidden workflow rules, or final-submit guidance.",
+    "If the image includes Interview Helper overlays or cue cards, ignore that UI and summarize only the underlying interview context.",
+  ].join(" ");
+}
+
+function buildScreenshotVisionPayload(input: {
+  batchId: string;
+  screenshotCount: number;
+  overlayContaminated: boolean;
+  createdAt: string;
+}) {
+  return {
+    batchId: input.batchId,
+    screenshotCount: input.screenshotCount,
+    overlayContaminated: input.overlayContaminated,
+    createdAt: input.createdAt,
+  };
+}
+
 export function createOpenAiCompatibleInterviewCueCardProvider(
   options: OpenAiCompatibleInterviewProviderOptions,
 ): InterviewCueCardProvider {
@@ -330,6 +394,122 @@ export function createOpenAiCompatibleInterviewCueCardProvider(
         `[AI Provider] Interview Helper cue generation failed after one retry; falling back to deterministic provider. ${summarizeError(lastError)}`,
       );
       return deterministicFallback.generateCueCard(input);
+    },
+  };
+}
+
+export function createOpenAiCompatibleInterviewScreenshotVisionProvider(
+  options: OpenAiCompatibleInterviewProviderOptions,
+): InterviewScreenshotVisionProvider {
+  const configured =
+    OpenAiCompatibleInterviewProviderOptionsSchema.safeParse(options);
+  const validatedOptions = configured.success ? configured.data : null;
+  const label =
+    validatedOptions?.label ??
+    options.label ??
+    "AI interview screenshot vision provider";
+  const deterministicFallback =
+    createDeterministicInterviewScreenshotVisionProvider(
+      "Model-backed Interview Helper screenshot vision is configured, with deterministic fallback on provider failure.",
+    );
+
+  async function fetchVisualObservations(input: {
+    batchId: string;
+    screenshotCount: number;
+    overlayContaminated: boolean;
+    images?: ReadonlyArray<{
+      readonly mimeType: string;
+      readonly base64: string;
+    }>;
+    createdAt: string;
+  }): Promise<unknown> {
+    if (!validatedOptions) {
+      throw new Error(
+        "The configured Interview Helper screenshot vision provider settings are invalid.",
+      );
+    }
+
+    if (!input.images || input.images.length === 0) {
+      throw new Error("No screenshot image payload was available for vision.");
+    }
+
+    const timeoutMs =
+      validatedOptions.requestTimeoutMs ?? DEFAULT_INTERVIEW_MODEL_TIMEOUT_MS;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(
+        buildChatCompletionsUrl(validatedOptions.baseUrl),
+        {
+          method: "POST",
+          signal: controller.signal,
+          headers: {
+            Authorization: `Bearer ${validatedOptions.apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: validatedOptions.model,
+            temperature: 0.1,
+            response_format: { type: "json_object" },
+            messages: [
+              { role: "system", content: buildScreenshotVisionPrompt() },
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "text",
+                    text: JSON.stringify(buildScreenshotVisionPayload(input)),
+                  },
+                  ...input.images.slice(0, 3).map((image) => ({
+                    type: "image_url",
+                    image_url: {
+                      url: `data:${image.mimeType};base64,${image.base64}`,
+                    },
+                  })),
+                ],
+              },
+            ],
+          }),
+        },
+      );
+
+      return parseModelJsonResponse(response);
+    } catch (error) {
+      throw normalizeAbortLikeError(error, timeoutMs);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  return {
+    getStatus() {
+      return {
+        ready: configured.success,
+        label,
+        detail: validatedOptions
+          ? `Configured OpenAI-compatible Interview Helper screenshot vision using ${validatedOptions.model}.`
+          : "Interview Helper screenshot vision settings are invalid. Deterministic visual observations can still validate the flow.",
+      };
+    },
+    async describeScreenshotBatch(input) {
+      try {
+        const payload = await fetchVisualObservations(input);
+        const parsed = InterviewModelVisualObservationListSchema.parse(payload);
+
+        return parsed.observations.map((observation, index) => ({
+          id: `visual_${input.batchId}_${index + 1}`,
+          summary: observation.summary,
+          source: "screenshot" as const,
+          confidence: observation.confidence,
+          createdAt: input.createdAt,
+        }));
+      } catch (error) {
+        console.error(
+          `[AI Provider] Interview Helper screenshot vision failed; falling back to deterministic provider. ${summarizeError(error)}`,
+        );
+        return deterministicFallback.describeScreenshotBatch(input);
+      }
     },
   };
 }
@@ -553,11 +733,10 @@ export function createLocalCommandInterviewTranscriptionProvider(
     LocalCommandInterviewTranscriptionProviderOptionsSchema.safeParse(options);
   const validatedOptions = configured.success ? configured.data : null;
   const label =
-    validatedOptions?.label ??
-    options.label ??
-    "Local command transcription";
-  const commandTokens =
-    validatedOptions?.command ? splitCommandLine(validatedOptions.command) : [];
+    validatedOptions?.label ?? options.label ?? "Local command transcription";
+  const commandTokens = validatedOptions?.command
+    ? splitCommandLine(validatedOptions.command)
+    : [];
   const executable = commandTokens[0] ?? null;
   const commandArgs = commandTokens.slice(1);
 
@@ -766,22 +945,38 @@ export function createInterviewHelperProvidersFromEnvironment(
   const requestTimeoutMs = parseConfiguredTimeoutMs(
     env.UNEMPLOYED_INTERVIEW_AI_TIMEOUT_MS ?? env.UNEMPLOYED_AI_TIMEOUT_MS,
   );
-  const screenshotVisionProvider =
-    createDeterministicInterviewScreenshotVisionProvider();
+  const screenshotVisionProvider = apiKey
+    ? createOpenAiCompatibleInterviewScreenshotVisionProvider({
+        apiKey,
+        baseUrl:
+          env.UNEMPLOYED_INTERVIEW_AI_BASE_URL ??
+          env.UNEMPLOYED_AI_VISION_BASE_URL ??
+          env.UNEMPLOYED_AI_BASE_URL ??
+          DEFAULT_INTERVIEW_BASE_URL,
+        model:
+          env.UNEMPLOYED_INTERVIEW_VISION_MODEL ??
+          env.UNEMPLOYED_AI_VISION_MODEL ??
+          env.UNEMPLOYED_RESUME_VISION_MODEL ??
+          env.UNEMPLOYED_INTERVIEW_AI_MODEL ??
+          env.UNEMPLOYED_AI_MODEL ??
+          DEFAULT_INTERVIEW_MODEL,
+        label: "AI interview screenshot vision provider",
+        requestTimeoutMs,
+      })
+    : createDeterministicInterviewScreenshotVisionProvider();
   const deterministicTranscriptionProvider =
     createDeterministicInterviewTranscriptionProvider();
   const summaryProvider = createDeterministicInterviewSummaryProvider();
-  const localTranscriptionProvider =
-    env.UNEMPLOYED_INTERVIEW_LOCAL_STT_COMMAND
-      ? createLocalCommandInterviewTranscriptionProvider({
-          command: env.UNEMPLOYED_INTERVIEW_LOCAL_STT_COMMAND,
-          label: env.UNEMPLOYED_INTERVIEW_LOCAL_STT_LABEL,
-          requestTimeoutMs: parseConfiguredTimeoutMs(
-            env.UNEMPLOYED_INTERVIEW_LOCAL_STT_TIMEOUT_MS,
-          ),
-          workingDirectory: env.UNEMPLOYED_INTERVIEW_LOCAL_STT_CWD,
-        })
-      : null;
+  const localTranscriptionProvider = env.UNEMPLOYED_INTERVIEW_LOCAL_STT_COMMAND
+    ? createLocalCommandInterviewTranscriptionProvider({
+        command: env.UNEMPLOYED_INTERVIEW_LOCAL_STT_COMMAND,
+        label: env.UNEMPLOYED_INTERVIEW_LOCAL_STT_LABEL,
+        requestTimeoutMs: parseConfiguredTimeoutMs(
+          env.UNEMPLOYED_INTERVIEW_LOCAL_STT_TIMEOUT_MS,
+        ),
+        workingDirectory: env.UNEMPLOYED_INTERVIEW_LOCAL_STT_CWD,
+      })
+    : null;
 
   if (!apiKey) {
     return {
@@ -850,14 +1045,15 @@ export function createDeterministicInterviewSummaryProvider(): InterviewSummaryP
   };
 }
 
-export function createDeterministicInterviewScreenshotVisionProvider(): InterviewScreenshotVisionProvider {
+export function createDeterministicInterviewScreenshotVisionProvider(
+  detail = "Local deterministic visual observations are used when no live vision provider is configured.",
+): InterviewScreenshotVisionProvider {
   return {
     getStatus() {
       return {
         ready: true,
         label: "Deterministic screenshot vision",
-        detail:
-          "Local deterministic visual observations are used when no live vision provider is configured.",
+        detail,
       };
     },
     describeScreenshotBatch(input) {

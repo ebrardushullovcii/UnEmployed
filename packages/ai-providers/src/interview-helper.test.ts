@@ -7,6 +7,7 @@ import {
   createInterviewHelperProvidersFromEnvironment,
   createLocalCommandInterviewTranscriptionProvider,
   createOpenAiCompatibleInterviewCueCardProvider,
+  createOpenAiCompatibleInterviewScreenshotVisionProvider,
   createOpenAiCompatibleInterviewTranscriptionProvider,
   type InterviewCueCardRequest,
 } from "./interview-helper";
@@ -231,6 +232,10 @@ describe("Interview Helper AI providers", () => {
       ready: true,
       label: "AI interview cue provider",
     });
+    expect(providers.screenshotVisionProvider.getStatus()).toMatchObject({
+      ready: true,
+      label: "AI interview screenshot vision provider",
+    });
     expect(
       providers.transcriptionProvider.getEngines().meetingAudio,
     ).toMatchObject({
@@ -248,6 +253,59 @@ describe("Interview Helper AI providers", () => {
       ready: true,
       label: "Deterministic cue-card provider",
     });
+    expect(providers.screenshotVisionProvider.getStatus()).toMatchObject({
+      ready: true,
+      label: "Deterministic screenshot vision",
+    });
+  });
+
+  test("sends transient screenshots to the OpenAI-compatible vision endpoint", async () => {
+    const capture = mockCapturingJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify([
+              {
+                summary:
+                  "A system-design prompt about event ingestion is visible.",
+                confidence: 0.98,
+              },
+            ]),
+          },
+        },
+      ],
+    });
+
+    try {
+      const provider = createOpenAiCompatibleInterviewScreenshotVisionProvider({
+        apiKey: "test-key",
+        baseUrl: "https://example.com/v1",
+        model: "vision-test",
+      });
+      const observations = await provider.describeScreenshotBatch({
+        batchId: "batch_1",
+        screenshotCount: 1,
+        overlayContaminated: true,
+        images: [{ mimeType: "image/png", base64: "aW1hZ2U=" }],
+        createdAt: "2026-05-13T10:00:05.000Z",
+      });
+
+      expect(observations).toEqual([
+        {
+          id: "visual_batch_1_1",
+          summary: "A system-design prompt about event ingestion is visible.",
+          source: "screenshot",
+          confidence: "high",
+          createdAt: "2026-05-13T10:00:05.000Z",
+        },
+      ]);
+      expect(capture.getCapturedBody()).toContain(
+        "data:image/png;base64,aW1hZ2U=",
+      );
+      expect(capture.getCapturedBody()).toContain("vision-test");
+    } finally {
+      capture.restore();
+    }
   });
 
   test("sends transient audio chunks to the OpenAI-compatible transcription endpoint", async () => {
@@ -345,7 +403,9 @@ describe("Interview Helper AI providers", () => {
       }),
     );
 
-    expect(providers.transcriptionProvider.getEngines().meetingAudio).toMatchObject({
+    expect(
+      providers.transcriptionProvider.getEngines().meetingAudio,
+    ).toMatchObject({
       kind: "local_model",
       ready: true,
     });

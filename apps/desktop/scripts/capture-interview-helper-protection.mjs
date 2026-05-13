@@ -104,7 +104,7 @@ async function acceptAndStartSession(window) {
   await window.getByRole('button', { name: /Run rehearsal/i }).click()
   await window.getByLabel(/Confirm this session/i).check()
   await window.getByRole('button', { name: /Start session/i }).click()
-  await window.getByText('Listening', { exact: true }).first().waitFor({ timeout: 10000 })
+  await window.getByText('Live', { exact: true }).first().waitFor({ timeout: 10000 })
 }
 
 async function setOverlayWindowBounds(app) {

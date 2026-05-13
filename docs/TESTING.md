@@ -13,14 +13,14 @@
 
 ## Pick Checks
 
-| Change | Prefer |
-| --- | --- |
-| docs or agent guidance only | `pnpm validate:docs-only` |
-| package-local code | `pnpm validate:package <alias>` first, then broader checks only if risk warrants |
-| contracts or IPC | `pnpm validate:contracts` plus affected package typecheck |
-| discovery/source-debug | `pnpm source-generic:check` plus focused package tests |
-| desktop UI | `pnpm validate:desktop` plus the matching UI harness |
-| broad cross-package behavior | `pnpm verify:affected` or `pnpm verify` |
+| Change                       | Prefer                                                                           |
+| ---------------------------- | -------------------------------------------------------------------------------- |
+| docs or agent guidance only  | `pnpm validate:docs-only`                                                        |
+| package-local code           | `pnpm validate:package <alias>` first, then broader checks only if risk warrants |
+| contracts or IPC             | `pnpm validate:contracts` plus affected package typecheck                        |
+| discovery/source-debug       | `pnpm source-generic:check` plus focused package tests                           |
+| desktop UI                   | `pnpm validate:desktop` plus the matching UI harness                             |
+| broad cross-package behavior | `pnpm verify:affected` or `pnpm verify`                                          |
 
 Common package aliases:
 
@@ -89,7 +89,7 @@ Common package aliases:
 - capture artifacts under `apps/desktop/test-artifacts/ui/`; they are QA output, not source files
 - Interview Helper harnesses must keep proving setup consent, per-session confirmation, setup preferences for transcription language/cue sensitivity/automatic screenshot-on-cue, full rehearsal checklist coverage, paused reconfiguration flow, structured diagnostics visibility, browser speech bridge presence, native-caption clipboard/file watcher presence, media stream probe/transient STT control presence, overlay windows, overlay layout persistence/reset, runtime overlay protection verification, screenshot metadata cleanup, typed native transcript ingestion, no main-window live cue/transcript mirroring, panic-hide, review/export/annotation/delete, explicit Job Finder post-session write-back actions, and ordinary Electron capture-protection evidence.
 - Interview Helper harness reports are gating artifacts: `ui:interview-helper` and `ui:interview-helper-protection` must throw when release-critical report invariants fail, not merely write false fields for manual inspection.
-- Interview Helper provider changes should include `pnpm validate:package ai-providers`; model-backed cue tests must prove schema validation, bounded transcript payloads rather than raw transcript blobs, one retry before deterministic fallback on provider failure, and service-level quiet fallback cards when generated cue output fails validation. Audio transcription tests must prove transient audio chunks are sent through the provider boundary and raw audio is not retained in the Interview Helper workspace; local-command STT tests must also prove temporary audio files are cleaned up.
+- Interview Helper provider changes should include `pnpm validate:package ai-providers`; model-backed cue tests must prove schema validation, bounded transcript payloads rather than raw transcript blobs, one retry before deterministic fallback on provider failure, and service-level quiet fallback cards when generated cue output fails validation. Screenshot vision tests must prove transient screenshot image payloads cross the provider boundary and only normalized observations are retained. Audio transcription tests must prove transient audio chunks are sent through the provider boundary and raw audio is not retained in the Interview Helper workspace; local-command STT tests must also prove temporary audio files are cleaned up.
 - validate browser visual evidence changes with contract guard tests, source-generic checks, focused browser-agent/browser-runtime/job-finder tests, and desktop Applications recovery UI evidence when apply surfaces change
 
 Track-specific validation and product-bar requirements live in the handoff layer: `docs/STATUS.md`, `docs/TRACKS.md`, and the active plan under `docs/exec-plans/active/`.

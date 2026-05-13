@@ -1,608 +1,763 @@
 /* eslint-env node, browser */
 /* global document */
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import os from 'node:os'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { _electron as electron } from 'playwright'
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { _electron as electron } from "playwright";
 
-const currentDir = path.dirname(fileURLToPath(import.meta.url))
-const desktopDir = path.resolve(currentDir, '..')
-const width = Number.parseInt(process.env.UI_CAPTURE_WIDTH ?? '1440', 10)
-const height = Number.parseInt(process.env.UI_CAPTURE_HEIGHT ?? '920', 10)
-const runLabel = process.env.UI_CAPTURE_LABEL ?? 'interview-helper'
-const outputDir = path.join(desktopDir, 'test-artifacts', 'ui', runLabel)
+const currentDir = path.dirname(fileURLToPath(import.meta.url));
+const desktopDir = path.resolve(currentDir, "..");
+const width = Number.parseInt(process.env.UI_CAPTURE_WIDTH ?? "1440", 10);
+const height = Number.parseInt(process.env.UI_CAPTURE_HEIGHT ?? "920", 10);
+const runLabel = process.env.UI_CAPTURE_LABEL ?? "interview-helper";
+const outputDir = path.join(desktopDir, "test-artifacts", "ui", runLabel);
 
 async function writeJson(fileName, value) {
   await writeFile(
     path.join(outputDir, fileName),
     `${JSON.stringify(value, null, 2)}\n`,
-    'utf8',
-  )
+    "utf8",
+  );
 }
 
 async function waitForInterviewWorkspace(window) {
   await window.waitForFunction(
-    () => document.querySelector('h1')?.textContent?.includes('Live interview workspace'),
+    () =>
+      document
+        .querySelector("h1")
+        ?.textContent?.includes("Live interview workspace"),
     undefined,
     { timeout: 15000 },
-  )
+  );
 }
 
 async function getWorkspace(window) {
-  return window.evaluate(() => window.unemployed.interviewHelper.getWorkspace())
+  return window.evaluate(() =>
+    window.unemployed.interviewHelper.getWorkspace(),
+  );
 }
 
 async function performInterviewAction(window, action) {
   return window.evaluate(
     (action) => window.unemployed.interviewHelper.performAction(action),
     action,
-  )
+  );
 }
 
 function latestDiagnosticDetail(workspace, kind) {
   return (
     workspace.activeSession?.diagnostics
       .filter((diagnostic) => diagnostic.kind === kind)
-      .at(-1)?.detail ?? ''
-  )
+      .at(-1)?.detail ?? ""
+  );
 }
 
 async function waitForWorkspace(window, predicate, description) {
-  const startedAt = Date.now()
+  const startedAt = Date.now();
   while (Date.now() - startedAt < 10000) {
-    const workspace = await getWorkspace(window)
+    const workspace = await getWorkspace(window);
     if (predicate(workspace)) {
-      return workspace
+      return workspace;
     }
-    await new Promise((resolve) => setTimeout(resolve, 150))
+    await new Promise((resolve) => setTimeout(resolve, 150));
   }
 
-  throw new Error(`Timed out waiting for ${description}.`)
+  throw new Error(`Timed out waiting for ${description}.`);
 }
 
 async function capture(window, fileName) {
   await window.screenshot({
-    animations: 'disabled',
+    animations: "disabled",
     path: path.join(outputDir, fileName),
-  })
+  });
 }
 
 function assertReportInvariant(condition, description) {
   if (!condition) {
-    throw new Error(`Interview Helper harness invariant failed: ${description}.`)
+    throw new Error(
+      `Interview Helper harness invariant failed: ${description}.`,
+    );
   }
 }
 
 function assertInterviewHelperReport(report) {
   const requiredTrueFields = [
-    'jobFinderApplicationContextApplied',
-    'jobFinderSavedJobContextApplied',
-    'setupConsentAccepted',
-    'perSessionConfirmationVisible',
-    'rehearsalHasLanguageCheck',
-    'rehearsalHasEngineFallbackCheck',
-    'rehearsalHasScreenshotCaptureCheck',
-    'rehearsalHasScreenshotVisionCheck',
-    'rehearsalHasOverlayProtectionCheck',
-    'rehearsalHasRetentionDefaultsCheck',
-    'microphonePermissionUsesElectron',
-    'meetingAudioUsesElectronSourceEnumeration',
-    'runtimeOverlayProtectionVerified',
-    'activeSessionStarted',
-    'browserSpeechBridgeVisible',
-    'nativeCaptionWatcherVisible',
-    'captionFileWatcherVisible',
-    'mediaStreamProbesVisible',
-    'transientAudioSttControlsVisible',
-    'resetOverlayLayoutVisible',
-    'reconfigurationPausedListening',
-    'reconfigurationClosedPaused',
-    'diagnosticsPanelVisible',
-    'nativeTranscriptIngestionAddedSegment',
-    'nativeTranscriptIngestionGeneratedCue',
-    'automaticCueCapturedVisualBatch',
-    'automaticCueDisclosedScreenshot',
-    'nativeTranscriptHiddenFromMainWindow',
-    'screenshotDiagnosticUsesElectronCapture',
-    'overlayContaminationDisclosed',
-    'panicHideHidAnswerOverlay',
-    'panicHideHidTranscriptOverlay',
-    'endedSessionRetained',
-    'transcriptAnnotationPreservesOriginal',
-    'jobFinderMarkedInterviewed',
-    'jobFinderFollowUpNoteAdded',
-    'exportContainsTranscript',
-    'exportContainsTranscriptAnnotations',
-    'exportContainsCueCards',
-    'prepArtifactCreated',
-    'deletedSessionRemoved',
-  ]
+    "jobFinderApplicationContextApplied",
+    "jobFinderSavedJobContextApplied",
+    "setupConsentAccepted",
+    "perSessionConfirmationVisible",
+    "rehearsalHasLanguageCheck",
+    "rehearsalHasEngineFallbackCheck",
+    "rehearsalHasCueProviderCheck",
+    "rehearsalHasScreenshotCaptureCheck",
+    "rehearsalHasScreenshotVisionCheck",
+    "rehearsalHasOverlayProtectionCheck",
+    "rehearsalHasRetentionDefaultsCheck",
+    "microphonePermissionUsesElectron",
+    "meetingAudioUsesElectronSourceEnumeration",
+    "runtimeOverlayProtectionVerified",
+    "activeSessionStarted",
+    "browserSpeechBridgeVisible",
+    "nativeCaptionWatcherVisible",
+    "captionFileWatcherVisible",
+    "mediaStreamProbesVisible",
+    "transientAudioSttControlsVisible",
+    "resetOverlayLayoutVisible",
+    "answerOverlayCompactVisible",
+    "transcriptOverlayCompactVisible",
+    "reconfigurationPausedListening",
+    "reconfigurationClosedPaused",
+    "diagnosticsPanelVisible",
+    "nativeTranscriptIngestionAddedSegment",
+    "nativeTranscriptIngestionGeneratedCue",
+    "automaticCueCapturedVisualBatch",
+    "automaticCueDisclosedScreenshot",
+    "nativeTranscriptHiddenFromMainWindow",
+    "screenshotDiagnosticUsesElectronCapture",
+    "overlayContaminationDisclosed",
+    "panicHideHidAnswerOverlay",
+    "panicHideHidTranscriptOverlay",
+    "endedSessionRetained",
+    "transcriptAnnotationPreservesOriginal",
+    "jobFinderMarkedInterviewed",
+    "jobFinderFollowUpNoteAdded",
+    "exportContainsTranscript",
+    "exportContainsTranscriptAnnotations",
+    "exportContainsCueCards",
+    "prepArtifactCreated",
+    "deletedSessionRemoved",
+  ];
 
   for (const field of requiredTrueFields) {
-    assertReportInvariant(report[field] === true, `${field} should be true`)
+    assertReportInvariant(report[field] === true, `${field} should be true`);
   }
 
   assertReportInvariant(
-    report.setupTranscriptionLanguage === 'en-GB' &&
-      report.rehearsalTranscriptionLanguage === 'en-GB',
-    'selected transcription language should persist into rehearsal',
-  )
+    report.setupTranscriptionLanguage === "en-GB" &&
+      report.rehearsalTranscriptionLanguage === "en-GB",
+    "selected transcription language should persist into rehearsal",
+  );
   assertReportInvariant(
-    report.setupCueSensitivity === 'balanced',
-    'cue sensitivity should persist',
-  )
+    report.setupCueSensitivity === "balanced",
+    "cue sensitivity should persist",
+  );
   assertReportInvariant(
     report.setupAutoCaptureOnCue === true,
-    'automatic screenshot-on-cue preference should persist',
-  )
+    "automatic screenshot-on-cue preference should persist",
+  );
   assertReportInvariant(
     report.rehearsalCheckCount >= 12,
-    'full rehearsal checklist should be present',
-  )
+    "full rehearsal checklist should be present",
+  );
+  assertReportInvariant(
+    report.rehearsalCueProviderDetail?.includes(
+      "Configured OpenAI-compatible",
+    ),
+    "cue provider should use configured OpenAI-compatible shared/interview AI credentials",
+  );
   assertReportInvariant(
     report.protectedSurfaceCount === 2,
-    'two protected overlay surfaces should be modeled',
-  )
+    "two protected overlay surfaces should be modeled",
+  );
   assertReportInvariant(
     report.overlayWindowCountAfterStart === 2,
-    'two overlay windows should open after session start',
-  )
+    "two overlay windows should open after session start",
+  );
   assertReportInvariant(
     report.mainWindowMirrorsLiveCue === false &&
       report.mainWindowMirrorsLiveTranscript === false,
-    'main window should not mirror live sensitive content',
-  )
+    "main window should not mirror live sensitive content",
+  );
   assertReportInvariant(
     report.visualCueCardCount >= 2 && report.visualBatchCount >= 2,
-    'visual cue and batch evidence should be present',
-  )
+    "visual cue and batch evidence should be present",
+  );
+  if (
+    report.rehearsalScreenshotVisionDetail?.includes(
+      "Configured OpenAI-compatible",
+    )
+  ) {
+    assertReportInvariant(
+      report.visualObservationSources.includes("screenshot"),
+      "configured screenshot vision should produce at least one model-backed screenshot observation",
+    );
+  }
   assertReportInvariant(
-    report.panicHideStatus === 'panic_hidden',
-    'panic-hide should move the session to panic_hidden',
-  )
+    report.panicHideStatus === "panic_hidden",
+    "panic-hide should move the session to panic_hidden",
+  );
   assertReportInvariant(
-    report.endedSessionStatus === 'ended',
-    'session should end cleanly before post-session review',
-  )
+    report.endedSessionStatus === "ended",
+    "session should end cleanly before post-session review",
+  );
   assertReportInvariant(
     report.transcriptAnnotationCount >= 1,
-    'transcript annotation should be retained',
-  )
+    "transcript annotation should be retained",
+  );
 }
 
 async function waitForOverlayWindows(app) {
-  const startedAt = Date.now()
+  const startedAt = Date.now();
   while (Date.now() - startedAt < 10000) {
-    const overlayWindows = app.windows().filter((appWindow) =>
-      appWindow.url().includes('/interview-helper/overlay/'),
-    )
+    const overlayWindows = app
+      .windows()
+      .filter((appWindow) =>
+        appWindow.url().includes("/interview-helper/overlay/"),
+      );
     if (overlayWindows.length === 2) {
-      return overlayWindows
+      return overlayWindows;
     }
-    await new Promise((resolve) => setTimeout(resolve, 150))
+    await new Promise((resolve) => setTimeout(resolve, 150));
   }
 
-  throw new Error('Timed out waiting for two Interview Helper overlay windows.')
+  throw new Error(
+    "Timed out waiting for two Interview Helper overlay windows.",
+  );
 }
 
 async function runCapture() {
-  await mkdir(outputDir, { recursive: true })
-  const userDataDirectory = await mkdtemp(path.join(os.tmpdir(), 'unemployed-interview-helper-'))
+  await mkdir(outputDir, { recursive: true });
+  const userDataDirectory = await mkdtemp(
+    path.join(os.tmpdir(), "unemployed-interview-helper-"),
+  );
 
   const app = await electron.launch({
-    args: ['.'],
+    args: ["."],
     cwd: desktopDir,
     env: {
       ...process.env,
-      UNEMPLOYED_ENABLE_TEST_API: '1',
-      UNEMPLOYED_TEST_SYSTEM_THEME: process.env.UNEMPLOYED_TEST_SYSTEM_THEME ?? 'dark',
+      UNEMPLOYED_ENABLE_TEST_API: "1",
+      UNEMPLOYED_TEST_SYSTEM_THEME:
+        process.env.UNEMPLOYED_TEST_SYSTEM_THEME ?? "dark",
       UNEMPLOYED_USER_DATA_DIR: userDataDirectory,
     },
-  })
+  });
 
   try {
-    const window = await app.firstWindow()
+    const window = await app.firstWindow();
 
-    await window.waitForLoadState('domcontentloaded')
-    await waitForInterviewWorkspace(window)
-    await window.setViewportSize({ width, height })
+    await window.waitForLoadState("domcontentloaded");
+    await waitForInterviewWorkspace(window);
+    await window.setViewportSize({ width, height });
     const jobFinderApplicationRecord = await window.evaluate(async () => {
       if (!window.unemployed.jobFinder.test) {
-        throw new Error('Expected Job Finder test API for Interview Helper harness.')
+        throw new Error(
+          "Expected Job Finder test API for Interview Helper harness.",
+        );
       }
 
-      await window.unemployed.jobFinder.test.loadApplyQueueDemo()
-      const snapshot = await window.unemployed.jobFinder.startApplyCopilotRun('job_ready')
-      const record = snapshot.applicationRecords.find((entry) => entry.jobId === 'job_ready')
+      await window.unemployed.jobFinder.test.loadApplyQueueDemo();
+      const snapshot =
+        await window.unemployed.jobFinder.startApplyCopilotRun("job_ready");
+      const record = snapshot.applicationRecords.find(
+        (entry) => entry.jobId === "job_ready",
+      );
       if (!record) {
-        throw new Error('Expected a Job Finder application record for job_ready.')
+        throw new Error(
+          "Expected a Job Finder application record for job_ready.",
+        );
       }
-      return record
-    })
+      return record;
+    });
 
     const linkedJobContext = {
-      id: 'job_ready',
+      id: "job_ready",
       label: `${jobFinderApplicationRecord.title} at ${jobFinderApplicationRecord.company}`,
       role: jobFinderApplicationRecord.title,
       company: jobFinderApplicationRecord.company,
-      sourceUrl: 'https://www.linkedin.com/jobs/view/linkedin_signal_ready',
-      notes: 'React, Electron, and desktop accessibility interview context.',
-    }
+      sourceUrl: "https://www.linkedin.com/jobs/view/linkedin_signal_ready",
+      notes: "React, Electron, and desktop accessibility interview context.",
+    };
     const applicationContext = {
       id: jobFinderApplicationRecord.id,
       label: `${jobFinderApplicationRecord.title} at ${jobFinderApplicationRecord.company}`,
       role: jobFinderApplicationRecord.title,
       company: jobFinderApplicationRecord.company,
-      sourceUrl: 'https://www.linkedin.com/jobs/view/linkedin_signal_ready/apply',
-      notes: 'Application interview scheduled. Prepare React, Electron, and accessibility examples.',
-    }
+      sourceUrl:
+        "https://www.linkedin.com/jobs/view/linkedin_signal_ready/apply",
+      notes:
+        "Application interview scheduled. Prepare React, Electron, and accessibility examples.",
+    };
     const applicationParams = new URLSearchParams({
-      source: 'job_application',
+      source: "job_application",
       id: applicationContext.id,
       label: applicationContext.label,
       role: applicationContext.role,
       company: applicationContext.company,
       sourceUrl: applicationContext.sourceUrl,
       notes: applicationContext.notes,
-    })
+    });
     await window.evaluate((query) => {
-      window.location.hash = `/interview-helper?${query}`
-    }, applicationParams.toString())
+      window.location.hash = `/interview-helper?${query}`;
+    }, applicationParams.toString());
     const applicationWorkspace = await waitForWorkspace(
       window,
       (workspace) =>
-        workspace.setup.targetContext?.kind === 'job_application' &&
+        workspace.setup.targetContext?.kind === "job_application" &&
         workspace.setup.targetContext.id === jobFinderApplicationRecord.id,
-      'application record context handoff into Interview Helper setup',
-    )
+      "application record context handoff into Interview Helper setup",
+    );
     const linkedJobParams = new URLSearchParams({
-      source: 'saved_job',
+      source: "saved_job",
       id: linkedJobContext.id,
       label: linkedJobContext.label,
       role: linkedJobContext.role,
       company: linkedJobContext.company,
       sourceUrl: linkedJobContext.sourceUrl,
       notes: linkedJobContext.notes,
-    })
+    });
     await window.evaluate((query) => {
-      window.location.hash = `/interview-helper?${query}`
-    }, linkedJobParams.toString())
+      window.location.hash = `/interview-helper?${query}`;
+    }, linkedJobParams.toString());
     const linkedJobWorkspace = await waitForWorkspace(
       window,
       (workspace) =>
-        workspace.setup.targetContext?.kind === 'saved_job' &&
-        workspace.setup.targetContext.id === 'job_ready',
-      'saved job context handoff into Interview Helper setup',
-    )
+        workspace.setup.targetContext?.kind === "saved_job" &&
+        workspace.setup.targetContext.id === "job_ready",
+      "saved job context handoff into Interview Helper setup",
+    );
     await window.evaluate((query) => {
-      window.location.hash = `/interview-helper?${query}`
-    }, applicationParams.toString())
+      window.location.hash = `/interview-helper?${query}`;
+    }, applicationParams.toString());
     await waitForWorkspace(
       window,
       (workspace) =>
-        workspace.setup.targetContext?.kind === 'job_application' &&
+        workspace.setup.targetContext?.kind === "job_application" &&
         workspace.setup.targetContext.id === jobFinderApplicationRecord.id,
-      'application record context restored for Interview Helper session',
-    )
+      "application record context restored for Interview Helper session",
+    );
 
-    await capture(window, '01-setup.png')
+    await capture(window, "01-setup.png");
 
-    await window.getByLabel(/Transcript language/i).selectOption('en-GB')
+    await window.getByLabel(/Transcript language/i).selectOption("en-GB");
     await waitForWorkspace(
       window,
-      (workspace) => workspace.setup.transcriptionLanguage === 'en-GB',
-      'saved Interview Helper transcription language',
-    )
-    await window.getByLabel(/Cue sensitivity/i).selectOption('balanced')
+      (workspace) => workspace.setup.transcriptionLanguage === "en-GB",
+      "saved Interview Helper transcription language",
+    );
+    await window.getByLabel(/Cue sensitivity/i).selectOption("balanced");
     await waitForWorkspace(
       window,
-      (workspace) => workspace.setup.cueSensitivity === 'balanced',
-      'saved Interview Helper cue sensitivity',
-    )
-    await window.getByLabel(/Auto screenshot on cue/i).check()
+      (workspace) => workspace.setup.cueSensitivity === "balanced",
+      "saved Interview Helper cue sensitivity",
+    );
+    await window.getByLabel(/Auto screenshot on cue/i).check();
     await waitForWorkspace(
       window,
       (workspace) => workspace.setup.autoCaptureOnCue === true,
-      'saved Interview Helper automatic screenshot preference',
-    )
+      "saved Interview Helper automatic screenshot preference",
+    );
 
-    await window.getByRole('button', { name: /Accept setup/i }).click()
+    await window.getByRole("button", { name: /Accept setup/i }).click();
     await waitForWorkspace(
       window,
       (workspace) => Boolean(workspace.setup.consent.acceptedAt),
-      'accepted Interview Helper setup disclosures',
-    )
+      "accepted Interview Helper setup disclosures",
+    );
 
-    await window.getByRole('button', { name: /Run rehearsal/i }).click()
+    await window.getByRole("button", { name: /Run rehearsal/i }).click();
     const rehearsedWorkspace = await waitForWorkspace(
       window,
       (workspace) =>
-        workspace.setup.rehearsal?.status === 'passed' ||
-        workspace.setup.rehearsal?.status === 'degraded',
-      'Interview Helper rehearsal results',
-    )
-    await window.getByLabel(/Confirm this session/i).check()
-    await capture(window, '02-rehearsed.png')
+        workspace.setup.rehearsal?.status === "passed" ||
+        workspace.setup.rehearsal?.status === "degraded",
+      "Interview Helper rehearsal results",
+    );
+    await window.getByLabel(/Confirm this session/i).check();
+    await capture(window, "02-rehearsed.png");
 
-    await window.getByRole('button', { name: /Start session/i }).click()
-    await window.getByText('Listening', { exact: true }).first().waitFor({ timeout: 10000 })
-    await window.getByText('Browser speech', { exact: true }).waitFor({ timeout: 10000 })
-    await window.getByText('Native captions', { exact: true }).first().waitFor({ timeout: 10000 })
-    await window.getByRole('button', { name: /Watch captions/i }).waitFor({ timeout: 10000 })
-    await window.getByText('Caption file', { exact: true }).waitFor({ timeout: 10000 })
-    await window.getByRole('button', { name: /Watch file/i }).waitFor({ timeout: 10000 })
-    await window.getByText('Media stream probes', { exact: true }).waitFor({ timeout: 10000 })
-    await window.getByRole('button', { name: /Mic STT/i }).waitFor({ timeout: 10000 })
-    await window.getByRole('button', { name: /System STT/i }).waitFor({ timeout: 10000 })
-    const activeWorkspace = await getWorkspace(window)
-    const mainWindowTextDuringLive = await window.evaluate(() => document.body.innerText)
-    const browserSpeechBridgeVisible = mainWindowTextDuringLive.includes('Browser speech')
-    const nativeCaptionWatcherVisible = mainWindowTextDuringLive.includes('Native captions')
-    const captionFileWatcherVisible = mainWindowTextDuringLive.includes('Caption file')
-    const mediaStreamProbesVisible = mainWindowTextDuringLive.includes('Media stream probes')
+    await window.getByRole("button", { name: /Start session/i }).click();
+    await window
+      .getByText("Live", { exact: true })
+      .first()
+      .waitFor({ timeout: 10000 });
+    await window
+      .getByText("Browser speech", { exact: true })
+      .waitFor({ timeout: 10000 });
+    await window
+      .getByText("Native captions", { exact: true })
+      .first()
+      .waitFor({ timeout: 10000 });
+    await window
+      .getByRole("button", { name: /Watch captions/i })
+      .waitFor({ timeout: 10000 });
+    await window
+      .getByText("Caption file", { exact: true })
+      .waitFor({ timeout: 10000 });
+    await window
+      .getByRole("button", { name: /Watch file/i })
+      .waitFor({ timeout: 10000 });
+    await window
+      .getByText("Media stream probes", { exact: true })
+      .waitFor({ timeout: 10000 });
+    await window
+      .getByRole("button", { name: /Mic STT/i })
+      .waitFor({ timeout: 10000 });
+    await window
+      .getByRole("button", { name: /System STT/i })
+      .waitFor({ timeout: 10000 });
+    const activeWorkspace = await getWorkspace(window);
+    const mainWindowTextDuringLive = await window.evaluate(
+      () => document.body.innerText,
+    );
+    const browserSpeechBridgeVisible =
+      mainWindowTextDuringLive.includes("Browser speech");
+    const nativeCaptionWatcherVisible =
+      mainWindowTextDuringLive.includes("Native captions");
+    const captionFileWatcherVisible =
+      mainWindowTextDuringLive.includes("Caption file");
+    const mediaStreamProbesVisible = mainWindowTextDuringLive.includes(
+      "Media stream probes",
+    );
     const transientAudioSttControlsVisible =
-      (await window.getByRole('button', { name: /Mic STT/i }).count()) > 0 &&
-      (await window.getByRole('button', { name: /System STT/i }).count()) > 0
+      (await window.getByRole("button", { name: /Mic STT/i }).count()) > 0 &&
+      (await window.getByRole("button", { name: /System STT/i }).count()) > 0;
     const resetOverlayLayoutVisible =
-      (await window.getByRole('button', { name: /Reset overlay layout/i }).count()) > 0
-    await window.getByRole('button', { name: /Reconfigure/i }).click()
+      (await window
+        .getByRole("button", { name: /Reset overlay layout/i })
+        .count()) > 0;
+    await window.getByRole("button", { name: /Reconfigure/i }).click();
     const reconfiguringWorkspace = await waitForWorkspace(
       window,
       (workspace) =>
-        workspace.activeSession?.status === 'reconfiguring' &&
+        workspace.activeSession?.status === "reconfiguring" &&
         workspace.activeSession.listening === false,
-      'Interview Helper paused reconfiguration flow',
-    )
-    await window.getByRole('button', { name: /Close config/i }).click()
+      "Interview Helper paused reconfiguration flow",
+    );
+    await window.getByRole("button", { name: /Close config/i }).click();
     const reconfigurationClosedWorkspace = await waitForWorkspace(
       window,
       (workspace) =>
-        workspace.activeSession?.status === 'paused' &&
+        workspace.activeSession?.status === "paused" &&
         workspace.activeSession.listening === false,
-      'Interview Helper closed reconfiguration flow',
-    )
-    await window.getByRole('button', { name: /Resume/i }).click()
+      "Interview Helper closed reconfiguration flow",
+    );
+    await window.getByRole("button", { name: /Resume/i }).click();
     await waitForWorkspace(
       window,
       (workspace) =>
-        workspace.activeSession?.status === 'active' &&
+        workspace.activeSession?.status === "active" &&
         workspace.activeSession.listening === true,
-      'Interview Helper resumed after reconfiguration',
-    )
-    await window.getByRole('button', { name: /Open diagnostics/i }).click()
-    await window.getByText('Diagnostics', { exact: true }).waitFor({ timeout: 10000 })
-    const diagnosticsPanelVisible = (await window.getByText('Interview live session started').count()) > 0
-    const liveCueQuestion = activeWorkspace.activeSession?.cueCards.at(-1)?.question ?? ''
+      "Interview Helper resumed after reconfiguration",
+    );
+    await window.getByRole("button", { name: /Open diagnostics/i }).click();
+    await window
+      .getByText("Diagnostics", { exact: true })
+      .waitFor({ timeout: 10000 });
+    const diagnosticsPanelVisible =
+      (await window.getByText("Interview live session started").count()) > 0;
+    const liveCueQuestion =
+      activeWorkspace.activeSession?.cueCards.at(-1)?.question ?? "";
     const liveTranscriptTexts =
-      activeWorkspace.activeSession?.transcriptSegments.map((segment) => segment.text) ?? []
+      activeWorkspace.activeSession?.transcriptSegments.map(
+        (segment) => segment.text,
+      ) ?? [];
     const mainWindowMirrorsLiveCue =
-      liveCueQuestion.length > 0 && mainWindowTextDuringLive.includes(liveCueQuestion)
+      liveCueQuestion.length > 0 &&
+      mainWindowTextDuringLive.includes(liveCueQuestion);
     const mainWindowMirrorsLiveTranscript = liveTranscriptTexts.some(
-      (segmentText) => segmentText.length > 0 && mainWindowTextDuringLive.includes(segmentText),
-    )
-    const overlayWindows = await waitForOverlayWindows(app)
+      (segmentText) =>
+        segmentText.length > 0 &&
+        mainWindowTextDuringLive.includes(segmentText),
+    );
+    const overlayWindows = await waitForOverlayWindows(app);
     for (const overlayWindow of overlayWindows) {
-      await overlayWindow.waitForLoadState('domcontentloaded')
-      await overlayWindow.setViewportSize({ width: 560, height: 380 })
+      await overlayWindow.waitForLoadState("domcontentloaded");
+      await overlayWindow.setViewportSize({ width: 560, height: 380 });
     }
-    await capture(window, '03-active-session.png')
+    await capture(window, "03-active-session.png");
     const answerOverlayWindow = overlayWindows.find((appWindow) =>
-      appWindow.url().includes('/interview-helper/overlay/answer'),
-    )
+      appWindow.url().includes("/interview-helper/overlay/answer"),
+    );
     const transcriptOverlayWindow = overlayWindows.find((appWindow) =>
-      appWindow.url().includes('/interview-helper/overlay/transcript'),
-    )
+      appWindow.url().includes("/interview-helper/overlay/transcript"),
+    );
     if (!answerOverlayWindow || !transcriptOverlayWindow) {
-      throw new Error('Expected answer and transcript overlay windows.')
+      throw new Error("Expected answer and transcript overlay windows.");
     }
-    await capture(answerOverlayWindow, '03-answer-overlay-window.png')
-    await capture(transcriptOverlayWindow, '03-transcript-overlay-window.png')
+    await capture(answerOverlayWindow, "03-answer-overlay-window.png");
+    await capture(transcriptOverlayWindow, "03-transcript-overlay-window.png");
+    const answerOverlayText = await answerOverlayWindow.evaluate(
+      () => document.body.innerText,
+    );
+    const transcriptOverlayText = await transcriptOverlayWindow.evaluate(
+      () => document.body.innerText,
+    );
+    const answerOverlayCompactVisible = answerOverlayText
+      .toLowerCase()
+      .includes("compact");
+    const transcriptOverlayCompactVisible =
+      transcriptOverlayText.toLowerCase().includes("compact");
 
-    await window.getByRole('button', { name: /Verify protection/i }).click()
+    await window.getByRole("button", { name: /Verify protection/i }).click();
     const runtimeProtectionWorkspace = await waitForWorkspace(
       window,
       (workspace) =>
         Boolean(
           workspace.activeSession?.protectedSurfaces.some(
-            (surface) => surface.protectionState !== 'requested_unverified',
+            (surface) => surface.protectionState !== "requested_unverified",
           ),
         ),
-      'runtime overlay protection verification',
-    )
+      "runtime overlay protection verification",
+    );
 
     const nativeTranscriptText =
-      'How would you keep Electron overlay IPC isolated from the main app?'
+      "How would you keep Electron overlay IPC isolated from the main app?";
     const nativeTranscriptWorkspace = await window.evaluate(
       ({ sessionId, text }) =>
         window.unemployed.interviewHelper.addTranscriptSegment({
           sessionId,
-          source: 'meeting_native_transcript',
+          source: "meeting_native_transcript",
           text,
-          engineKind: 'platform_local',
+          engineKind: "platform_local",
         }),
       {
         sessionId: activeWorkspace.activeSession?.id,
         text: nativeTranscriptText,
       },
-    )
-    const mainWindowTextAfterNativeTranscript = await window.evaluate(() => document.body.innerText)
+    );
+    const mainWindowTextAfterNativeTranscript = await window.evaluate(
+      () => document.body.innerText,
+    );
 
-    const visualWorkspace = await performInterviewAction(window, 'capture_screenshot_and_force_cue')
-    const screenshotDiagnosticDetail = latestDiagnosticDetail(visualWorkspace, 'screenshot')
-    await window.reload()
-    await window.waitForLoadState('domcontentloaded')
-    await waitForInterviewWorkspace(window)
-    await window.setViewportSize({ width, height })
-    await capture(window, '04-visual-cue.png')
+    const visualWorkspace = await performInterviewAction(
+      window,
+      "capture_screenshot_and_force_cue",
+    );
+    const screenshotDiagnosticDetail = latestDiagnosticDetail(
+      visualWorkspace,
+      "screenshot",
+    );
+    await window.reload();
+    await window.waitForLoadState("domcontentloaded");
+    await waitForInterviewWorkspace(window);
+    await window.setViewportSize({ width, height });
+    await capture(window, "04-visual-cue.png");
 
-    const panicWorkspace = await performInterviewAction(window, 'panic_hide')
-    await window.reload()
-    await window.waitForLoadState('domcontentloaded')
-    await waitForInterviewWorkspace(window)
-    await window.setViewportSize({ width, height })
-    await capture(window, '05-panic-hidden.png')
+    const panicWorkspace = await performInterviewAction(window, "panic_hide");
+    await window.reload();
+    await window.waitForLoadState("domcontentloaded");
+    await waitForInterviewWorkspace(window);
+    await window.setViewportSize({ width, height });
+    await capture(window, "05-panic-hidden.png");
 
-    const endedWorkspace = await performInterviewAction(window, 'end_session')
-    await window.reload()
-    await window.waitForLoadState('domcontentloaded')
-    await waitForInterviewWorkspace(window)
-    await window.setViewportSize({ width, height })
-    await capture(window, '06-post-session-review.png')
+    const endedWorkspace = await performInterviewAction(window, "end_session");
+    await window.reload();
+    await window.waitForLoadState("domcontentloaded");
+    await waitForInterviewWorkspace(window);
+    await window.setViewportSize({ width, height });
+    await capture(window, "06-post-session-review.png");
 
-    const endedSession = endedWorkspace.recentSessions[0]
+    const endedSession = endedWorkspace.recentSessions[0];
     if (!endedSession) {
-      throw new Error('Expected an ended Interview Helper session in recentSessions.')
+      throw new Error(
+        "Expected an ended Interview Helper session in recentSessions.",
+      );
     }
 
-    await window.getByPlaceholder(/Add a correction or review note/i).fill(
-      'Correction: the interviewer asked about Electron IPC isolation.',
-    )
-    await window.getByRole('button', { name: /Save annotation/i }).click()
+    await window
+      .getByPlaceholder(/Add a correction or review note/i)
+      .fill("Correction: the interviewer asked about Electron IPC isolation.");
+    await window.getByRole("button", { name: /Save annotation/i }).click();
     const annotatedWorkspace = await waitForWorkspace(
       window,
       (workspace) =>
         (workspace.recentSessions[0]?.transcriptAnnotations.length ?? 0) > 0,
-      'saved transcript annotation',
-    )
-    const annotatedSession = annotatedWorkspace.recentSessions[0]
+      "saved transcript annotation",
+    );
+    const annotatedSession = annotatedWorkspace.recentSessions[0];
     if (!annotatedSession) {
-      throw new Error('Expected an annotated Interview Helper session in recentSessions.')
+      throw new Error(
+        "Expected an annotated Interview Helper session in recentSessions.",
+      );
     }
 
     const exportResult = await window.evaluate(
-      ({ sessionId, format }) => window.unemployed.interviewHelper.exportSession(sessionId, format),
-      { sessionId: annotatedSession.id, format: 'markdown' },
-    )
+      ({ sessionId, format }) =>
+        window.unemployed.interviewHelper.exportSession(sessionId, format),
+      { sessionId: annotatedSession.id, format: "markdown" },
+    );
     const artifactWorkspace = await window.evaluate(
       ({ sessionId, cueCardId }) =>
-        window.unemployed.interviewHelper.saveCueAsPrepArtifact({ sessionId, cueCardId }),
+        window.unemployed.interviewHelper.saveCueAsPrepArtifact({
+          sessionId,
+          cueCardId,
+        }),
       {
         sessionId: annotatedSession.id,
         cueCardId: annotatedSession.cueCards.at(-1)?.id,
       },
-    )
-    await window.getByRole('button', { name: /Mark interviewed/i }).click()
-    await window.getByPlaceholder(/Follow-up note/i).fill(
-      'Send availability and a short thank-you note after the interview.',
-    )
-    await window.getByRole('button', { name: /Add follow-up/i }).click()
-    await window.getByText('Job Finder follow-up note added.', { exact: true }).waitFor({
-      timeout: 10000,
-    })
+    );
+    await window.getByRole("button", { name: /Mark interviewed/i }).click();
+    await window
+      .getByPlaceholder(/Follow-up note/i)
+      .fill(
+        "Send availability and a short thank-you note after the interview.",
+      );
+    await window.getByRole("button", { name: /Add follow-up/i }).click();
+    await window
+      .getByText("Job Finder follow-up note added.", { exact: true })
+      .waitFor({
+        timeout: 10000,
+      });
     const jobFinderWriteBackWorkspace = await window.evaluate(() =>
       window.unemployed.jobFinder.getWorkspace(),
-    )
-    const writeBackApplicationRecord = jobFinderWriteBackWorkspace.applicationRecords.find(
-      (record) => record.id === jobFinderApplicationRecord.id,
-    )
+    );
+    const writeBackApplicationRecord =
+      jobFinderWriteBackWorkspace.applicationRecords.find(
+        (record) => record.id === jobFinderApplicationRecord.id,
+      );
     await window.evaluate(
       (sessionId) => window.unemployed.interviewHelper.deleteSession(sessionId),
       annotatedSession.id,
-    )
-    const deletedWorkspace = await getWorkspace(window)
+    );
+    const deletedWorkspace = await getWorkspace(window);
 
     const report = {
       generatedAt: new Date().toISOString(),
       viewport: { width, height },
       screenshots: [
-        '01-setup.png',
-        '02-rehearsed.png',
-        '03-active-session.png',
-        '03-answer-overlay-window.png',
-        '03-transcript-overlay-window.png',
-        '04-visual-cue.png',
-        '05-panic-hidden.png',
-        '06-post-session-review.png',
+        "01-setup.png",
+        "02-rehearsed.png",
+        "03-active-session.png",
+        "03-answer-overlay-window.png",
+        "03-transcript-overlay-window.png",
+        "04-visual-cue.png",
+        "05-panic-hidden.png",
+        "06-post-session-review.png",
       ],
       rehearsalStatus: rehearsedWorkspace.setup.rehearsal?.status,
       jobFinderApplicationContextApplied:
-        applicationWorkspace.setup.targetContext?.label === applicationContext.label &&
-        applicationWorkspace.setup.targetContext?.role === applicationContext.role &&
-        applicationWorkspace.setup.targetContext?.company === applicationContext.company,
+        applicationWorkspace.setup.targetContext?.label ===
+          applicationContext.label &&
+        applicationWorkspace.setup.targetContext?.role ===
+          applicationContext.role &&
+        applicationWorkspace.setup.targetContext?.company ===
+          applicationContext.company,
       jobFinderSavedJobContextApplied:
-        linkedJobWorkspace.setup.targetContext?.label === linkedJobContext.label &&
-        linkedJobWorkspace.setup.targetContext?.role === linkedJobContext.role &&
-        linkedJobWorkspace.setup.targetContext?.company === linkedJobContext.company,
-      setupConsentAccepted: Boolean(rehearsedWorkspace.setup.consent.acceptedAt),
-      setupTranscriptionLanguage: rehearsedWorkspace.setup.transcriptionLanguage,
-      rehearsalTranscriptionLanguage: rehearsedWorkspace.setup.rehearsal?.language,
+        linkedJobWorkspace.setup.targetContext?.label ===
+          linkedJobContext.label &&
+        linkedJobWorkspace.setup.targetContext?.role ===
+          linkedJobContext.role &&
+        linkedJobWorkspace.setup.targetContext?.company ===
+          linkedJobContext.company,
+      setupConsentAccepted: Boolean(
+        rehearsedWorkspace.setup.consent.acceptedAt,
+      ),
+      setupTranscriptionLanguage:
+        rehearsedWorkspace.setup.transcriptionLanguage,
+      rehearsalTranscriptionLanguage:
+        rehearsedWorkspace.setup.rehearsal?.language,
       setupCueSensitivity: rehearsedWorkspace.setup.cueSensitivity,
       setupAutoCaptureOnCue: rehearsedWorkspace.setup.autoCaptureOnCue,
       perSessionConfirmationVisible:
         (await window.getByLabel(/Confirm this session/i).count()) > 0,
-      rehearsalCheckCount: rehearsedWorkspace.setup.rehearsal?.checks.length ?? 0,
+      rehearsalCheckCount:
+        rehearsedWorkspace.setup.rehearsal?.checks.length ?? 0,
       rehearsalCheckIds:
-        rehearsedWorkspace.setup.rehearsal?.checks.map((check) => check.id) ?? [],
+        rehearsedWorkspace.setup.rehearsal?.checks.map((check) => check.id) ??
+        [],
       rehearsalHasLanguageCheck:
         rehearsedWorkspace.setup.rehearsal?.checks.some(
-          (check) => check.id === 'transcription_language' && check.status === 'available',
+          (check) =>
+            check.id === "transcription_language" &&
+            check.status === "available",
         ) ?? false,
       rehearsalHasEngineFallbackCheck:
         rehearsedWorkspace.setup.rehearsal?.checks.some(
           (check) =>
-            check.id === 'transcription_engine_fallback' &&
-            check.status === 'available',
+            check.id === "transcription_engine_fallback" &&
+            check.status === "available",
         ) ?? false,
+      rehearsalHasCueProviderCheck:
+        rehearsedWorkspace.setup.rehearsal?.checks.some(
+          (check) =>
+            check.id === "cue_card_provider" && check.status === "available",
+        ) ?? false,
+      rehearsalCueProviderDetail:
+        rehearsedWorkspace.setup.rehearsal?.checks.find(
+          (check) => check.id === "cue_card_provider",
+        )?.detail ?? null,
       rehearsalHasScreenshotCaptureCheck:
         rehearsedWorkspace.setup.rehearsal?.checks.some(
-          (check) => check.id === 'screenshot_capture' && check.status === 'available',
+          (check) =>
+            check.id === "screenshot_capture" && check.status === "available",
         ) ?? false,
       rehearsalHasScreenshotVisionCheck:
         rehearsedWorkspace.setup.rehearsal?.checks.some(
-          (check) => check.id === 'screenshot_vision' && check.status === 'available',
+          (check) =>
+            check.id === "screenshot_vision" && check.status === "available",
         ) ?? false,
+      rehearsalScreenshotVisionDetail:
+        rehearsedWorkspace.setup.rehearsal?.checks.find(
+          (check) => check.id === "screenshot_vision",
+        )?.detail ?? null,
       rehearsalHasOverlayProtectionCheck:
         rehearsedWorkspace.setup.rehearsal?.checks.some(
           (check) =>
-            check.id === 'overlay_capture_protection' &&
-            ['available', 'degraded'].includes(check.status),
+            check.id === "overlay_capture_protection" &&
+            ["available", "degraded"].includes(check.status),
         ) ?? false,
       rehearsalHasRetentionDefaultsCheck:
         rehearsedWorkspace.setup.rehearsal?.checks.some(
-          (check) => check.id === 'retention_defaults' && check.status === 'available',
+          (check) =>
+            check.id === "retention_defaults" && check.status === "available",
         ) ?? false,
-      audioCapabilityChecks: rehearsedWorkspace.setup.rehearsal?.checks
-        .filter((check) => check.id === 'microphone_audio' || check.id === 'meeting_audio')
-        .map((check) => ({
-          id: check.id,
-          status: check.status,
-          detail: check.detail,
-        })) ?? [],
+      audioCapabilityChecks:
+        rehearsedWorkspace.setup.rehearsal?.checks
+          .filter(
+            (check) =>
+              check.id === "microphone_audio" || check.id === "meeting_audio",
+          )
+          .map((check) => ({
+            id: check.id,
+            status: check.status,
+            detail: check.detail,
+          })) ?? [],
       microphonePermissionUsesElectron:
         rehearsedWorkspace.setup.rehearsal?.checks
-          .find((check) => check.id === 'microphone_audio')
-          ?.detail?.includes('Electron systemPreferences') ?? false,
+          .find((check) => check.id === "microphone_audio")
+          ?.detail?.includes("Electron systemPreferences") ?? false,
       meetingAudioUsesElectronSourceEnumeration:
         rehearsedWorkspace.setup.rehearsal?.checks
-          .find((check) => check.id === 'meeting_audio')
-          ?.detail?.includes('Electron desktopCapturer') ?? false,
-      protectedSurfaceCount: rehearsedWorkspace.setup.rehearsal?.protectedSurfaces.length ?? 0,
-      protectedSurfaceStates: rehearsedWorkspace.setup.rehearsal?.protectedSurfaces.map(
-        (surface) => ({
-          kind: surface.kind,
-          protectionState: surface.protectionState,
-          verificationMethod: surface.verificationMethod,
-        }),
-      ) ?? [],
+          .find((check) => check.id === "meeting_audio")
+          ?.detail?.includes("Electron desktopCapturer") ?? false,
+      protectedSurfaceCount:
+        rehearsedWorkspace.setup.rehearsal?.protectedSurfaces.length ?? 0,
+      protectedSurfaceStates:
+        rehearsedWorkspace.setup.rehearsal?.protectedSurfaces.map(
+          (surface) => ({
+            kind: surface.kind,
+            protectionState: surface.protectionState,
+            verificationMethod: surface.verificationMethod,
+          }),
+        ) ?? [],
       runtimeOverlayProtectionStates:
-        runtimeProtectionWorkspace.activeSession?.protectedSurfaces.map((surface) => ({
-          kind: surface.kind,
-          protectionState: surface.protectionState,
-          verificationMethod: surface.verificationMethod,
-          detail: surface.detail,
-        })) ?? [],
+        runtimeProtectionWorkspace.activeSession?.protectedSurfaces.map(
+          (surface) => ({
+            kind: surface.kind,
+            protectionState: surface.protectionState,
+            verificationMethod: surface.verificationMethod,
+            detail: surface.detail,
+          }),
+        ) ?? [],
       runtimeOverlayProtectionVerified:
         runtimeProtectionWorkspace.activeSession?.protectedSurfaces.some(
-          (surface) => surface.protectionState === 'verified_protected',
+          (surface) => surface.protectionState === "verified_protected",
         ) ?? false,
-      activeSessionStarted: activeWorkspace.activeSession?.status === 'active',
+      activeSessionStarted: activeWorkspace.activeSession?.status === "active",
       mainWindowMirrorsLiveCue,
       mainWindowMirrorsLiveTranscript,
       overlayWindowCountAfterStart: overlayWindows.length,
-      overlayWindowRoutesAfterStart: overlayWindows.map((appWindow) => appWindow.url()),
-      transcriptSegmentCount: activeWorkspace.activeSession?.transcriptSegments.length ?? 0,
+      overlayWindowRoutesAfterStart: overlayWindows.map((appWindow) =>
+        appWindow.url(),
+      ),
+      answerOverlayCompactVisible,
+      transcriptOverlayCompactVisible,
+      transcriptSegmentCount:
+        activeWorkspace.activeSession?.transcriptSegments.length ?? 0,
       initialCueCardCount: activeWorkspace.activeSession?.cueCards.length ?? 0,
       browserSpeechBridgeVisible,
       nativeCaptionWatcherVisible,
@@ -611,73 +766,88 @@ async function runCapture() {
       transientAudioSttControlsVisible,
       resetOverlayLayoutVisible,
       reconfigurationPausedListening:
-        reconfiguringWorkspace.activeSession?.status === 'reconfiguring' &&
+        reconfiguringWorkspace.activeSession?.status === "reconfiguring" &&
         reconfiguringWorkspace.activeSession.listening === false,
       reconfigurationClosedPaused:
-        reconfigurationClosedWorkspace.activeSession?.status === 'paused' &&
+        reconfigurationClosedWorkspace.activeSession?.status === "paused" &&
         reconfigurationClosedWorkspace.activeSession.listening === false,
       diagnosticsPanelVisible,
       nativeTranscriptIngestionAddedSegment:
         nativeTranscriptWorkspace.activeSession?.transcriptSegments.some(
           (segment) =>
-            segment.source === 'meeting_native_transcript' &&
+            segment.source === "meeting_native_transcript" &&
             segment.text === nativeTranscriptText &&
-            segment.engineKind === 'platform_local',
+            segment.engineKind === "platform_local",
         ) ?? false,
       nativeTranscriptIngestionGeneratedCue:
-        nativeTranscriptWorkspace.activeSession?.cueCards.at(-1)?.question === nativeTranscriptText,
+        nativeTranscriptWorkspace.activeSession?.cueCards.at(-1)?.question ===
+        nativeTranscriptText,
       automaticCueCapturedVisualBatch:
-        (nativeTranscriptWorkspace.activeSession?.visualBatches.length ?? 0) > 0,
+        (nativeTranscriptWorkspace.activeSession?.visualBatches.length ?? 0) >
+        0,
       automaticCueDisclosedScreenshot:
-        nativeTranscriptWorkspace.activeSession?.cueCards.at(-1)?.disclosure.screenshotCount === 1,
+        nativeTranscriptWorkspace.activeSession?.cueCards.at(-1)?.disclosure
+          .screenshotCount === 1,
       nativeTranscriptHiddenFromMainWindow:
         !mainWindowTextAfterNativeTranscript.includes(nativeTranscriptText),
       visualCueCardCount: visualWorkspace.activeSession?.cueCards.length ?? 0,
-      visualBatchCount: visualWorkspace.activeSession?.visualBatches.length ?? 0,
+      visualBatchCount:
+        visualWorkspace.activeSession?.visualBatches.length ?? 0,
+      visualObservationSources:
+        visualWorkspace.activeSession?.visualBatches.flatMap((batch) =>
+          batch.observations.map((observation) => observation.source),
+        ) ?? [],
       screenshotDiagnosticDetail,
       screenshotDiagnosticUsesElectronCapture:
-        screenshotDiagnosticDetail.includes('Electron desktopCapturer') &&
-        screenshotDiagnosticDetail.includes('discarded'),
+        screenshotDiagnosticDetail.includes("Electron desktopCapturer") &&
+        screenshotDiagnosticDetail.includes("discarded"),
       overlayContaminationDisclosed:
-        visualWorkspace.activeSession?.cueCards.at(-1)?.disclosure.overlayContaminated ?? false,
+        visualWorkspace.activeSession?.cueCards.at(-1)?.disclosure
+          .overlayContaminated ?? false,
       panicHideStatus: panicWorkspace.activeSession?.status,
       panicHideHidAnswerOverlay: panicWorkspace.answerOverlay.visible === false,
-      panicHideHidTranscriptOverlay: panicWorkspace.transcriptOverlay.visible === false,
+      panicHideHidTranscriptOverlay:
+        panicWorkspace.transcriptOverlay.visible === false,
       endedSessionStatus: endedSession.status,
-      endedSessionRetained: endedWorkspace.recentSessions.some((session) => session.id === endedSession.id),
+      endedSessionRetained: endedWorkspace.recentSessions.some(
+        (session) => session.id === endedSession.id,
+      ),
       transcriptAnnotationCount: annotatedSession.transcriptAnnotations.length,
       transcriptAnnotationPreservesOriginal:
         annotatedSession.transcriptAnnotations[0]?.originalText ===
         annotatedSession.transcriptSegments[0]?.text,
       jobFinderMarkedInterviewed:
-        writeBackApplicationRecord?.status === 'interview',
+        writeBackApplicationRecord?.status === "interview",
       jobFinderFollowUpNoteAdded:
         writeBackApplicationRecord?.events.some(
           (event) =>
-            event.title === 'Interview follow-up note added' &&
-            event.detail.includes('thank-you note'),
+            event.title === "Interview follow-up note added" &&
+            event.detail.includes("thank-you note"),
         ) ?? false,
       exportFileName: exportResult.fileName,
-      exportContainsTranscript: exportResult.content.includes('## Transcript'),
-      exportContainsTranscriptAnnotations:
-        exportResult.content.includes('## Transcript Annotations'),
-      exportContainsCueCards: exportResult.content.includes('## Cue Cards'),
+      exportContainsTranscript: exportResult.content.includes("## Transcript"),
+      exportContainsTranscriptAnnotations: exportResult.content.includes(
+        "## Transcript Annotations",
+      ),
+      exportContainsCueCards: exportResult.content.includes("## Cue Cards"),
       prepArtifactCreated: artifactWorkspace.setup.prepArtifacts.some(
         (artifact) => artifact.sourceSessionId === annotatedSession.id,
       ),
       deletedSessionRemoved:
         !deletedWorkspace.activeSession &&
-        !deletedWorkspace.recentSessions.some((session) => session.id === annotatedSession.id),
-    }
+        !deletedWorkspace.recentSessions.some(
+          (session) => session.id === annotatedSession.id,
+        ),
+    };
 
-    assertInterviewHelperReport(report)
-    await writeJson('interview-helper-report.json', report)
+    assertInterviewHelperReport(report);
+    await writeJson("interview-helper-report.json", report);
   } finally {
-    await app.close()
-    await rm(userDataDirectory, { recursive: true, force: true })
+    await app.close();
+    await rm(userDataDirectory, { recursive: true, force: true });
   }
 
-  process.stdout.write(`Saved Interview Helper UI captures to ${outputDir}\n`)
+  process.stdout.write(`Saved Interview Helper UI captures to ${outputDir}\n`);
 }
 
-void runCapture()
+void runCapture();
