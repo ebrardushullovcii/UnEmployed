@@ -113,6 +113,7 @@ export function InterviewHelperPage() {
   const [followUpDraft, setFollowUpDraft] = useState("");
   const [jobFinderWriteBackStatus, setJobFinderWriteBackStatus] =
     useState<string | null>(null);
+  const [sessionStartConfirmed, setSessionStartConfirmed] = useState(false);
   const [transcriptSource, setTranscriptSource] =
     useState<InterviewTranscriptSource>("meeting_native_transcript");
   const [transcriptDraft, setTranscriptDraft] = useState("");
@@ -307,6 +308,13 @@ export function InterviewHelperPage() {
   const degraded = checks.filter(
     (check) => !check.required && check.status !== "available",
   );
+  const enabledCapabilitiesSummary =
+    checks
+      .filter((check) => check.status === "available")
+      .map((check) => check.label)
+      .join(", ") || "Run rehearsal to list enabled capabilities.";
+  const degradedCapabilitiesSummary =
+    degraded.map((check) => check.label).join(", ") || "No degraded optional checks.";
   const targetLabel = getTargetLabel(workspace);
   const canExport = Boolean(reviewSession);
   const liveOverlaySummaries: Array<{
@@ -325,6 +333,8 @@ export function InterviewHelperPage() {
     workspace.setup.consent.overlayProtectionNotice &&
     workspace.setup.consent.acceptedAt,
   );
+  const canStartSession =
+    sessionStartConfirmed && consentAccepted && Boolean(rehearsal);
 
   async function exportLatest(format: "markdown" | "json") {
     if (!reviewSession) return;
@@ -456,6 +466,7 @@ export function InterviewHelperPage() {
                       window.unemployed.interviewHelper.startSession(),
                     );
                   }}
+                  disabled={isLiveSession || !canStartSession}
                   pending={pendingAction === "start"}
                   size="compact"
                 >
@@ -559,6 +570,26 @@ export function InterviewHelperPage() {
                       <CheckCircle2 className="size-4" />
                       {consentAccepted ? "Setup accepted" : "Accept setup"}
                     </Button>
+                    <label className="grid gap-2 rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
+                      <span className="flex items-center gap-2 text-[0.82rem]">
+                        <input
+                          checked={sessionStartConfirmed}
+                          className="size-4 accent-[var(--color-primary)]"
+                          disabled={!consentAccepted || !rehearsal}
+                          onChange={(event) => {
+                            setSessionStartConfirmed(event.target.checked);
+                          }}
+                          type="checkbox"
+                        />
+                        Confirm this session
+                      </span>
+                      <span className="text-[0.72rem] leading-5 text-muted-foreground">
+                        Enabled: {enabledCapabilitiesSummary}
+                      </span>
+                      <span className="text-[0.72rem] leading-5 text-muted-foreground">
+                        Degraded: {degradedCapabilitiesSummary}
+                      </span>
+                    </label>
                   </div>
                 </Panel>
 

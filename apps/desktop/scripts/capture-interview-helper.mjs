@@ -220,6 +220,7 @@ async function runCapture() {
         workspace.setup.rehearsal?.status === 'degraded',
       'Interview Helper rehearsal results',
     )
+    await window.getByLabel(/Confirm this session/i).check()
     await capture(window, '02-rehearsed.png')
 
     await window.getByRole('button', { name: /Start session/i }).click()
@@ -426,7 +427,39 @@ async function runCapture() {
       rehearsalTranscriptionLanguage: rehearsedWorkspace.setup.rehearsal?.language,
       setupCueSensitivity: rehearsedWorkspace.setup.cueSensitivity,
       setupAutoCaptureOnCue: rehearsedWorkspace.setup.autoCaptureOnCue,
+      perSessionConfirmationVisible:
+        (await window.getByLabel(/Confirm this session/i).count()) > 0,
       rehearsalCheckCount: rehearsedWorkspace.setup.rehearsal?.checks.length ?? 0,
+      rehearsalCheckIds:
+        rehearsedWorkspace.setup.rehearsal?.checks.map((check) => check.id) ?? [],
+      rehearsalHasLanguageCheck:
+        rehearsedWorkspace.setup.rehearsal?.checks.some(
+          (check) => check.id === 'transcription_language' && check.status === 'available',
+        ) ?? false,
+      rehearsalHasEngineFallbackCheck:
+        rehearsedWorkspace.setup.rehearsal?.checks.some(
+          (check) =>
+            check.id === 'transcription_engine_fallback' &&
+            check.status === 'available',
+        ) ?? false,
+      rehearsalHasScreenshotCaptureCheck:
+        rehearsedWorkspace.setup.rehearsal?.checks.some(
+          (check) => check.id === 'screenshot_capture' && check.status === 'available',
+        ) ?? false,
+      rehearsalHasScreenshotVisionCheck:
+        rehearsedWorkspace.setup.rehearsal?.checks.some(
+          (check) => check.id === 'screenshot_vision' && check.status === 'available',
+        ) ?? false,
+      rehearsalHasOverlayProtectionCheck:
+        rehearsedWorkspace.setup.rehearsal?.checks.some(
+          (check) =>
+            check.id === 'overlay_capture_protection' &&
+            ['available', 'degraded'].includes(check.status),
+        ) ?? false,
+      rehearsalHasRetentionDefaultsCheck:
+        rehearsedWorkspace.setup.rehearsal?.checks.some(
+          (check) => check.id === 'retention_defaults' && check.status === 'available',
+        ) ?? false,
       audioCapabilityChecks: rehearsedWorkspace.setup.rehearsal?.checks
         .filter((check) => check.id === 'microphone_audio' || check.id === 'meeting_audio')
         .map((check) => ({

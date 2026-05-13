@@ -1023,6 +1023,10 @@ export function createInterviewHelperService(
       const engines = options.transcriptionProvider.getEngines();
       const audioCapabilities =
         await options.audioCaptureAdapter.checkAudioCapture();
+      const screenshotCapture =
+        await options.screenshotCaptureAdapter.captureInterviewRegion({
+          reason: "rehearsal",
+        });
       const cueStatus = options.cueCardProvider.getStatus();
       const visionStatus = options.screenshotVisionProvider.getStatus();
       const answerSurface =
@@ -1037,6 +1041,21 @@ export function createInterviewHelperService(
           windowKind: "interview-transcript-overlay",
           policy: "screen-share-private",
         });
+      const protectionStates = [
+        answerSurface.protectionState,
+        transcriptSurface.protectionState,
+      ];
+      const protectionStatus = protectionStates.every(
+        (state) => state === "verified_protected",
+      )
+        ? "available"
+        : protectionStates.some((state) => state === "failed")
+          ? "unavailable"
+          : protectionStates.every((state) => state === "unsupported")
+            ? "unsupported"
+            : "degraded";
+      const transcriptPathReady =
+        engines.microphone.ready || engines.meetingAudio.ready;
       const checks: InterviewCapabilityCheck[] = [
         ...audioCapabilities.map((capability) => ({
           id:
@@ -1050,11 +1069,35 @@ export function createInterviewHelperService(
           checkedAt: currentNow,
         })),
         {
+          id: "transcription_language",
+          label: "Selected transcription language",
+          status: current.setup.transcriptionLanguage ? "available" : "unknown",
+          required: false,
+          detail: `Session transcripts will use ${current.setup.transcriptionLanguage}.`,
+          checkedAt: currentNow,
+        },
+        {
+          id: "transcription_engine_fallback",
+          label: "Transcription engine selection and fallback",
+          status: transcriptPathReady ? "available" : "unavailable",
+          required: true,
+          detail: `Microphone engine: ${engines.microphone.label} (${engines.microphone.ready ? "ready" : "not ready"}). Meeting/system engine: ${engines.meetingAudio.label} (${engines.meetingAudio.ready ? "ready" : "not ready"}). Engine order prefers platform/local, local model, browser speech, then cloud fallback.`,
+          checkedAt: currentNow,
+        },
+        {
           id: "cue_card_provider",
           label: cueStatus.label,
           status: cueStatus.ready ? "available" : "unavailable",
           required: true,
           detail: cueStatus.detail,
+          checkedAt: currentNow,
+        },
+        {
+          id: "screenshot_capture",
+          label: "Screenshot capture",
+          status: screenshotCapture.status,
+          required: false,
+          detail: screenshotCapture.detail,
           checkedAt: currentNow,
         },
         {
@@ -1075,6 +1118,17 @@ export function createInterviewHelperService(
           checkedAt: currentNow,
         },
         {
+          id: "overlay_capture_protection",
+          label: "Overlay capture protection request",
+          status: protectionStatus,
+          required: false,
+          detail:
+            protectionStatus === "available"
+              ? "Overlay capture protection is verified for this rehearsal."
+              : "Overlay capture protection is requested but requires runtime verification before it can be labeled protected.",
+          checkedAt: currentNow,
+        },
+        {
           id: "panic_hide",
           label: "Panic-hide hotkey",
           status: "available",
@@ -1089,6 +1143,17 @@ export function createInterviewHelperService(
           status: "available",
           required: false,
           detail: "Tray actions mirror semantic session actions.",
+          checkedAt: currentNow,
+        },
+        {
+          id: "retention_defaults",
+          label: "Structured retention defaults",
+          status: current.setup.consent.localRetention
+            ? "available"
+            : "unknown",
+          required: false,
+          detail:
+            "Session history retains structured transcripts, cue cards, diagnostics, prep artifacts, annotations, and explicit pinned metadata; raw audio, raw prompts, raw provider payloads, and unpinned screenshots are not retained by default.",
           checkedAt: currentNow,
         },
       ];

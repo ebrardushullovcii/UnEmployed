@@ -101,6 +101,23 @@ describe("interview helper service", () => {
     const rehearsed = await service.runRehearsal();
     expect(rehearsed.setup.rehearsal?.status).toBe("degraded");
     expect(rehearsed.setup.rehearsal?.protectedSurfaces).toHaveLength(2);
+    expect(
+      rehearsed.setup.rehearsal?.checks.map((check) => check.id),
+    ).toEqual(
+      expect.arrayContaining([
+        "transcription_language",
+        "transcription_engine_fallback",
+        "screenshot_capture",
+        "screenshot_vision",
+        "overlay_capture_protection",
+        "retention_defaults",
+      ]),
+    );
+    expect(
+      rehearsed.setup.rehearsal?.checks.find(
+        (check) => check.id === "transcription_engine_fallback",
+      )?.status,
+    ).toBe("available");
 
     const active = await service.startSession();
     expect(active.activeSession?.status).toBe("active");
