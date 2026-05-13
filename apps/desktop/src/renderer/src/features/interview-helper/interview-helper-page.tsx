@@ -28,6 +28,7 @@ import { cn } from '@renderer/lib/cn'
 import { AnswerCueOverlay, TranscriptOverlay } from './interview-overlays'
 import { TranscriptAnnotationPanel } from './interview-review-annotations'
 import { InterviewBrowserSpeechBridge } from './interview-browser-speech-bridge'
+import { InterviewMediaStreamProbes } from './interview-media-stream-probes'
 
 type LoadState =
   | { status: 'loading' }
@@ -444,6 +445,7 @@ export function InterviewHelperPage() {
                           }}
                           sessionId={activeSession.id}
                         />
+                        <InterviewMediaStreamProbes />
                         <div className="grid gap-2 sm:grid-cols-[0.62fr_1fr]">
                           <select
                             className="h-9 rounded-(--radius-small) border border-border-subtle bg-black/30 px-2 text-[0.78rem] text-foreground"

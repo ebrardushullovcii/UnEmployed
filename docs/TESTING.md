@@ -87,7 +87,7 @@ Common package aliases:
 - do not run live-site submit flows or final-submit QA unless the user explicitly re-authorizes it
 - validate apply work with deterministic contracts, service tests, and desktop harnesses by default
 - capture artifacts under `apps/desktop/test-artifacts/ui/`; they are QA output, not source files
-- Interview Helper harnesses must keep proving setup consent, rehearsal, browser speech bridge presence, overlay windows, screenshot metadata cleanup, typed native transcript ingestion, no main-window live cue/transcript mirroring, panic-hide, review/export/annotation/delete, and ordinary Electron capture-protection evidence.
+- Interview Helper harnesses must keep proving setup consent, rehearsal, browser speech bridge presence, media stream probe presence, overlay windows, screenshot metadata cleanup, typed native transcript ingestion, no main-window live cue/transcript mirroring, panic-hide, review/export/annotation/delete, and ordinary Electron capture-protection evidence.
 - validate browser visual evidence changes with contract guard tests, source-generic checks, focused browser-agent/browser-runtime/job-finder tests, and desktop Applications recovery UI evidence when apply surfaces change
 
 Track-specific validation and product-bar requirements live in the handoff layer: `docs/STATUS.md`, `docs/TRACKS.md`, and the active plan under `docs/exec-plans/active/`.

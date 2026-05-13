@@ -156,9 +156,11 @@ async function runCapture() {
     await window.getByRole('button', { name: /Start session/i }).click()
     await window.getByText('Listening', { exact: true }).first().waitFor({ timeout: 10000 })
     await window.getByText('Browser speech', { exact: true }).waitFor({ timeout: 10000 })
+    await window.getByText('Media stream probes', { exact: true }).waitFor({ timeout: 10000 })
     const activeWorkspace = await getWorkspace(window)
     const mainWindowTextDuringLive = await window.evaluate(() => document.body.innerText)
     const browserSpeechBridgeVisible = mainWindowTextDuringLive.includes('Browser speech')
+    const mediaStreamProbesVisible = mainWindowTextDuringLive.includes('Media stream probes')
     const liveCueQuestion = activeWorkspace.activeSession?.cueCards.at(-1)?.question ?? ''
     const liveTranscriptTexts =
       activeWorkspace.activeSession?.transcriptSegments.map((segment) => segment.text) ?? []
@@ -313,6 +315,7 @@ async function runCapture() {
       transcriptSegmentCount: activeWorkspace.activeSession?.transcriptSegments.length ?? 0,
       initialCueCardCount: activeWorkspace.activeSession?.cueCards.length ?? 0,
       browserSpeechBridgeVisible,
+      mediaStreamProbesVisible,
       nativeTranscriptIngestionAddedSegment:
         nativeTranscriptWorkspace.activeSession?.transcriptSegments.some(
           (segment) =>
