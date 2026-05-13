@@ -34,7 +34,7 @@ Read `docs/ARCHITECTURE.md` before changing discovery or source-debug behavior.
 
 Current active plan:
 
-- `docs/exec-plans/active/036-interview-helper-live-session-full-product.md`
+- none
 
 Plan directories:
 

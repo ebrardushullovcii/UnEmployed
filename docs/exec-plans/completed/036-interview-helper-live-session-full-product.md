@@ -1,6 +1,20 @@
 # 036 Interview Helper Live Session Full Product
 
-Status: active
+Status: completed
+
+## Completion Summary
+
+- Shipped the first integrated Interview Helper live-session product across contracts, deterministic service state, file-backed persistence, Electron main/preload hosting, desktop setup/active/review UI, two protected overlay windows, Job Finder target-context handoff, explicit post-session Job Finder write-back actions, and replayable desktop harnesses.
+- Preserved the future authorized full capture-exclusion path by keeping protected surfaces as adapter-owned `os-integration` capabilities with explicit states, verification methods, display metadata, stale marking, and runtime evidence, rather than session-level booleans or hidden renderer behavior.
+- Added transcript-first live context through microphone, meeting/system audio, meeting-native transcript, native-caption clipboard/file intake, browser speech bridge, transient media probes, transient audio transcription, configurable local-command STT, cloud transcription fallback, bounded rolling cue context, optional screenshot visual batches, and schema-validated cue/vision provider boundaries.
+- Added setup consent, per-session confirmation, full rehearsal checks, visible degraded capability states, paused reconfiguration, diagnostics, hotkeys/tray semantic controls, panic-hide, layout persistence/reset, display-change protection revalidation, post-session review/export/prep-artifact conversion/transcript annotations/delete, and no live cue/transcript mirroring in the main app.
+- Added gating desktop harnesses for the main Interview Helper flow and Windows ordinary Electron capture-protection verification; both now fail on release-critical report invariant failures instead of only writing false report fields.
+
+## Accepted Exceptions
+
+- macOS and Linux hardware validation could not be executed from this Windows-only workspace. The target-platform commands remain `pnpm --filter @unemployed/desktop ui:interview-helper` and `pnpm --filter @unemployed/desktop ui:interview-helper-protection`; those runs are required on actual macOS and Linux hosts before claiming hardware evidence for those OSes.
+- Meeting-app-specific caption APIs and automatic meeting-caption extraction require an authorized platform/integration path and credentials that are not available in this workspace. The shipped product still supports native meeting transcripts through user-started clipboard/file intake and typed `meeting_native_transcript` ingestion.
+- Meeting-app-specific capture exclusion cannot be proven without authorized meeting-app or OS/platform integration. The shipped protection evidence is scoped to ordinary Electron `desktopCapturer` screen capture on Windows and must not be represented as universal screen-share invisibility.
 
 ## Goal
 
