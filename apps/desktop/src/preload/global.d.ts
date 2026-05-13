@@ -12,6 +12,8 @@ import type {
   InterviewExportResult,
   InterviewHotkeyAction,
   InterviewAudioTranscriptionInput,
+  InterviewCaptionFileReadInput,
+  InterviewCaptionFileTextResult,
   InterviewClipboardTextResult,
   InterviewPrepArtifactFromCueInput,
   InterviewTranscriptAnnotationInput,
@@ -86,6 +88,10 @@ declare global {
         ) => Promise<InterviewWorkspaceSnapshot>;
         verifyOverlayProtection: () => Promise<InterviewWorkspaceSnapshot>;
         readClipboardText: () => Promise<InterviewClipboardTextResult>;
+        selectCaptionFile: () => Promise<InterviewCaptionFileTextResult>;
+        readCaptionFile: (
+          input: InterviewCaptionFileReadInput,
+        ) => Promise<InterviewCaptionFileTextResult>;
         exportSession: (
           sessionId: string,
           format?: InterviewExportFormat,

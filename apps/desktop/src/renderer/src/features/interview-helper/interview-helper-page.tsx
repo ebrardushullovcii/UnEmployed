@@ -28,6 +28,7 @@ import { cn } from "@renderer/lib/cn";
 import { AnswerCueOverlay, TranscriptOverlay } from "./interview-overlays";
 import { TranscriptAnnotationPanel } from "./interview-review-annotations";
 import { InterviewBrowserSpeechBridge } from "./interview-browser-speech-bridge";
+import { InterviewCaptionFileWatcher } from "./interview-caption-file-watcher";
 import { InterviewMediaStreamProbes } from "./interview-media-stream-probes";
 import { InterviewNativeCaptionWatcher } from "./interview-native-caption-watcher";
 
@@ -614,6 +615,18 @@ export function InterviewHelperPage() {
                           sessionId={activeSession.id}
                         />
                         <InterviewNativeCaptionWatcher
+                          listening={activeSession.listening}
+                          onWorkspaceChange={(nextWorkspace) => {
+                            setState((current) => ({
+                              status: "ready",
+                              workspace: nextWorkspace,
+                              exportResult:
+                                current.status === "ready" ? current.exportResult : null,
+                            }));
+                          }}
+                          sessionId={activeSession.id}
+                        />
+                        <InterviewCaptionFileWatcher
                           listening={activeSession.listening}
                           onWorkspaceChange={(nextWorkspace) => {
                             setState((current) => ({

@@ -2,6 +2,8 @@ import { describe, expect, test } from "vitest";
 
 import {
   InterviewAudioTranscriptionInputSchema,
+  InterviewCaptionFileReadInputSchema,
+  InterviewCaptionFileTextResultSchema,
   InterviewProtectedSurfaceVerificationInputSchema,
   InterviewTranscriptAnnotationInputSchema,
   InterviewTranscriptSegmentInputSchema,
@@ -159,6 +161,22 @@ describe("interview helper contracts", () => {
 
     expect(input.source).toBe("meeting_audio");
     expect(input.language).toBe("en-US");
+  });
+
+  test("parses native caption file read contracts", () => {
+    const input = InterviewCaptionFileReadInputSchema.parse({
+      filePath: "C:/captions/interview.vtt",
+    });
+    const result = InterviewCaptionFileTextResultSchema.parse({
+      selected: true,
+      filePath: input.filePath,
+      displayName: "interview.vtt",
+      text: "Can you compare platform captions and local STT?",
+      truncated: false,
+    });
+
+    expect(result.displayName).toBe("interview.vtt");
+    expect(result.text).toContain("platform captions");
   });
 
   test("parses protected surface verification evidence", () => {

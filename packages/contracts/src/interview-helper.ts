@@ -526,6 +526,24 @@ export type InterviewClipboardTextResult = z.infer<
   typeof InterviewClipboardTextResultSchema
 >;
 
+export const InterviewCaptionFileReadInputSchema = z.object({
+  filePath: NonEmptyStringSchema,
+});
+export type InterviewCaptionFileReadInput = z.infer<
+  typeof InterviewCaptionFileReadInputSchema
+>;
+
+export const InterviewCaptionFileTextResultSchema = z.object({
+  selected: z.boolean().default(true),
+  filePath: z.string().nullable().default(null),
+  displayName: z.string().nullable().default(null),
+  text: z.string().default(""),
+  truncated: z.boolean().default(false),
+});
+export type InterviewCaptionFileTextResult = z.infer<
+  typeof InterviewCaptionFileTextResultSchema
+>;
+
 export const InterviewExportFormatSchema = z.enum(["markdown", "json"]);
 export type InterviewExportFormat = z.infer<typeof InterviewExportFormatSchema>;
 

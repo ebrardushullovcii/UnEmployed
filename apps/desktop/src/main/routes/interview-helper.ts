@@ -1,6 +1,9 @@
-import { clipboard, type IpcMain } from "electron";
+import { open, stat } from "node:fs/promises";
+import path from "node:path";
+import { clipboard, dialog, type IpcMain } from "electron";
 import {
   InterviewAudioTranscriptionInputSchema,
+  InterviewCaptionFileReadInputSchema,
   InterviewExportSessionInputSchema,
   InterviewPrepArtifactFromCueInputSchema,
   InterviewSessionActionInputSchema,
@@ -15,6 +18,8 @@ import {
   verifyInterviewOverlayCaptureProtection,
 } from "../setup/interview-overlay-windows";
 
+const MAX_NATIVE_CAPTION_FILE_BYTES = 2 * 1024 * 1024;
+
 async function withSyncedOverlays<
   T extends Awaited<
     ReturnType<
@@ -25,6 +30,28 @@ async function withSyncedOverlays<
   const workspace = await operation();
   syncInterviewOverlayWindows(workspace);
   return workspace;
+}
+
+async function readNativeCaptionFileText(filePath: string) {
+  const fileStats = await stat(filePath);
+  const bytesToRead = Math.min(fileStats.size, MAX_NATIVE_CAPTION_FILE_BYTES);
+  const start = Math.max(0, fileStats.size - bytesToRead);
+  const buffer = Buffer.alloc(bytesToRead);
+  const file = await open(filePath, "r");
+
+  try {
+    await file.read(buffer, 0, bytesToRead, start);
+  } finally {
+    await file.close();
+  }
+
+  return {
+    selected: true,
+    filePath,
+    displayName: path.basename(filePath),
+    text: buffer.toString("utf8"),
+    truncated: fileStats.size > MAX_NATIVE_CAPTION_FILE_BYTES,
+  };
 }
 
 export function registerInterviewHelperRouteHandlers(ipcMain: IpcMain) {
@@ -117,6 +144,41 @@ export function registerInterviewHelperRouteHandlers(ipcMain: IpcMain) {
   ipcMain.handle("interview-helper:read-clipboard-text", () => ({
     text: clipboard.readText(),
   }));
+
+  ipcMain.handle("interview-helper:select-caption-file", async () => {
+    const selection = await dialog.showOpenDialog({
+      title: "Select live caption or transcript file",
+      properties: ["openFile"],
+      filters: [
+        {
+          name: "Caption and transcript files",
+          extensions: ["txt", "vtt", "srt", "json", "md"],
+        },
+        { name: "All files", extensions: ["*"] },
+      ],
+    });
+
+    const filePath = selection.filePaths[0];
+    if (selection.canceled || !filePath) {
+      return {
+        selected: false,
+        filePath: null,
+        displayName: null,
+        text: "",
+        truncated: false,
+      };
+    }
+
+    return readNativeCaptionFileText(filePath);
+  });
+
+  ipcMain.handle(
+    "interview-helper:read-caption-file",
+    async (_event, payload: unknown) => {
+      const input = InterviewCaptionFileReadInputSchema.parse(payload);
+      return readNativeCaptionFileText(input.filePath);
+    },
+  );
 
   ipcMain.handle(
     "interview-helper:export-session",

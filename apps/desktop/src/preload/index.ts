@@ -10,6 +10,8 @@ import type {
   InterviewExportResult,
   InterviewHotkeyAction,
   InterviewAudioTranscriptionInput,
+  InterviewCaptionFileReadInput,
+  InterviewCaptionFileTextResult,
   InterviewClipboardTextResult,
   InterviewPrepArtifactFromCueInput,
   InterviewTranscriptAnnotationInput,
@@ -184,6 +186,15 @@ const desktopApi = {
       ipcRenderer.invoke(
         "interview-helper:read-clipboard-text",
       ) as Promise<InterviewClipboardTextResult>,
+    selectCaptionFile: () =>
+      ipcRenderer.invoke(
+        "interview-helper:select-caption-file",
+      ) as Promise<InterviewCaptionFileTextResult>,
+    readCaptionFile: (input: InterviewCaptionFileReadInput) =>
+      ipcRenderer.invoke(
+        "interview-helper:read-caption-file",
+        input,
+      ) as Promise<InterviewCaptionFileTextResult>,
     exportSession: (
       sessionId: string,
       format: InterviewExportFormat = "markdown",
