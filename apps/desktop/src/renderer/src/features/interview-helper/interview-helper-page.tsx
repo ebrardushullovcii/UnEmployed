@@ -818,7 +818,7 @@ export function InterviewHelperPage() {
                         {activeSession ? activeSession.status : "Session inactive"}
                       </p>
                     </div>
-                    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+                    <div className="grid gap-2">
                       <Button
                         onClick={() => {
                           void perform("toggle_listening");

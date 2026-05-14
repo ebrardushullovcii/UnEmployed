@@ -13,6 +13,20 @@ const width = Number.parseInt(process.env.UI_CAPTURE_WIDTH ?? "1440", 10);
 const height = Number.parseInt(process.env.UI_CAPTURE_HEIGHT ?? "920", 10);
 const runLabel = process.env.UI_CAPTURE_LABEL ?? "interview-helper";
 const outputDir = path.join(desktopDir, "test-artifacts", "ui", runLabel);
+const providerMode =
+  process.env.UI_INTERVIEW_HELPER_PROVIDER_MODE === "deterministic"
+    ? "deterministic"
+    : "configured";
+const deterministicProviderEnv =
+  providerMode === "deterministic"
+    ? {
+        UNEMPLOYED_AI_API_KEY: "",
+        UNEMPLOYED_AI_VISION_API_KEY: "",
+        UNEMPLOYED_RESUME_VISION_API_KEY: "",
+        UNEMPLOYED_INTERVIEW_AI_API_KEY: "",
+        UNEMPLOYED_INTERVIEW_LOCAL_STT_COMMAND: "",
+      }
+    : {};
 
 async function writeJson(fileName, value) {
   await writeFile(
@@ -151,12 +165,14 @@ function assertInterviewHelperReport(report) {
     report.rehearsalCheckCount >= 12,
     "full rehearsal checklist should be present",
   );
-  assertReportInvariant(
-    report.rehearsalCueProviderDetail?.includes(
-      "Configured OpenAI-compatible",
-    ),
-    "cue provider should use configured OpenAI-compatible shared/interview AI credentials",
-  );
+  if (report.providerMode === "configured") {
+    assertReportInvariant(
+      report.rehearsalCueProviderDetail?.includes(
+        "Configured OpenAI-compatible",
+      ),
+      "cue provider should use configured OpenAI-compatible shared/interview AI credentials",
+    );
+  }
   assertReportInvariant(
     report.protectedSurfaceCount === 2,
     "two protected overlay surfaces should be modeled",
@@ -228,6 +244,7 @@ async function runCapture() {
     cwd: desktopDir,
     env: {
       ...process.env,
+      ...deterministicProviderEnv,
       UNEMPLOYED_ENABLE_TEST_API: "1",
       UNEMPLOYED_TEST_SYSTEM_THEME:
         process.env.UNEMPLOYED_TEST_SYSTEM_THEME ?? "dark",
@@ -331,13 +348,15 @@ async function runCapture() {
 
     await capture(window, "01-setup.png");
 
-    await window.getByLabel(/Transcript language/i).selectOption("en-GB");
+    await window.getByRole("combobox", { name: /Transcript language/i }).click();
+    await window.getByRole("option", { name: "English UK" }).click();
     await waitForWorkspace(
       window,
       (workspace) => workspace.setup.transcriptionLanguage === "en-GB",
       "saved Interview Helper transcription language",
     );
-    await window.getByLabel(/Cue sensitivity/i).selectOption("balanced");
+    await window.getByRole("combobox", { name: /Cue sensitivity/i }).click();
+    await window.getByRole("option", { name: "Balanced" }).click();
     await waitForWorkspace(
       window,
       (workspace) => workspace.setup.cueSensitivity === "balanced",
@@ -617,6 +636,7 @@ async function runCapture() {
 
     const report = {
       generatedAt: new Date().toISOString(),
+      providerMode,
       viewport: { width, height },
       screenshots: [
         "01-setup.png",

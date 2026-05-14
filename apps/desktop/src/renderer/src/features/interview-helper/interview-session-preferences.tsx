@@ -3,6 +3,13 @@ import type {
   SaveInterviewSetupInput,
 } from "@unemployed/contracts";
 import { Camera, Languages, SlidersHorizontal } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@renderer/components/ui/select";
 
 const transcriptionLanguages = [
   { value: "en-US", label: "English US" },
@@ -36,21 +43,37 @@ export function InterviewSessionPreferences(props: {
           <Languages className="size-3.5" />
           Transcript language
         </label>
-        <select
-          className="h-9 rounded-(--radius-small) border border-border-subtle bg-black/30 px-2 text-[0.78rem] text-foreground"
+        <Select
           disabled={props.pending}
-          id="interview-transcription-language"
-          onChange={(event) => {
-            props.onSave({ transcriptionLanguage: event.target.value });
+          onValueChange={(value) => {
+            props.onSave({ transcriptionLanguage: value });
           }}
           value={setup.transcriptionLanguage}
         >
-          {transcriptionLanguages.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger
+            aria-label="Transcript language"
+            className="h-9 rounded-(--radius-small) border-border-subtle bg-black/30 text-[0.78rem]"
+            id="interview-transcription-language"
+            size="sm"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent
+            align="start"
+            className="border-border-subtle bg-[rgba(10,10,11,0.98)] text-foreground shadow-[0_18px_60px_rgba(0,0,0,0.5)]"
+            position="popper"
+          >
+            {transcriptionLanguages.map((option) => (
+              <SelectItem
+                className="text-[0.78rem] focus:bg-white/10 focus:text-foreground"
+                key={option.value}
+                value={option.value}
+              >
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="grid gap-2">
@@ -61,24 +84,40 @@ export function InterviewSessionPreferences(props: {
           <SlidersHorizontal className="size-3.5" />
           Cue sensitivity
         </label>
-        <select
-          className="h-9 rounded-(--radius-small) border border-border-subtle bg-black/30 px-2 text-[0.78rem] text-foreground"
+        <Select
           disabled={props.pending}
-          id="interview-cue-sensitivity"
-          onChange={(event) => {
+          onValueChange={(value) => {
             props.onSave({
               cueSensitivity:
-                event.target.value as SaveInterviewSetupInput["cueSensitivity"],
+                value as SaveInterviewSetupInput["cueSensitivity"],
             });
           }}
           value={setup.cueSensitivity}
         >
-          {cueSensitivityOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger
+            aria-label="Cue sensitivity"
+            className="h-9 rounded-(--radius-small) border-border-subtle bg-black/30 text-[0.78rem]"
+            id="interview-cue-sensitivity"
+            size="sm"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent
+            align="start"
+            className="border-border-subtle bg-[rgba(10,10,11,0.98)] text-foreground shadow-[0_18px_60px_rgba(0,0,0,0.5)]"
+            position="popper"
+          >
+            {cueSensitivityOptions.map((option) => (
+              <SelectItem
+                className="text-[0.78rem] focus:bg-white/10 focus:text-foreground"
+                key={option.value}
+                value={option.value}
+              >
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <label className="flex items-start gap-3 border-t border-border-subtle pt-3 text-[0.82rem]">
