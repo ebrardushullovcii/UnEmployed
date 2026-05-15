@@ -217,7 +217,7 @@ const defaultConsent = {
 const defaultOverlayPreferences: readonly InterviewOverlayPreference[] = [
   {
     surfaceKind: "live_answer_overlay",
-    mode: "compact",
+    mode: "expanded",
     visible: true,
     interactionMode: false,
     opacity: 0.86,
@@ -227,7 +227,7 @@ const defaultOverlayPreferences: readonly InterviewOverlayPreference[] = [
   },
   {
     surfaceKind: "live_transcript_overlay",
-    mode: "compact",
+    mode: "expanded",
     visible: true,
     interactionMode: false,
     opacity: 0.86,
@@ -1214,7 +1214,8 @@ export function createInterviewHelperService(
     async startSession() {
       const current = await loadSnapshot();
       const currentNow = now();
-      const setup = current.setup.rehearsal
+      const setup =
+        current.setup.rehearsal && current.setup.rehearsal.status !== "not_run"
         ? current.setup
         : (await this.runRehearsal()).setup;
       const targetContext =

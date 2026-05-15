@@ -5,6 +5,7 @@ import {
   InterviewAudioTranscriptionInputSchema,
   InterviewCaptionFileReadInputSchema,
   InterviewExportSessionInputSchema,
+  InterviewOverlayMoveInputSchema,
   JobFinderInterviewFollowUpInputSchema,
   InterviewPrepArtifactFromCueInputSchema,
   InterviewSessionActionInputSchema,
@@ -16,6 +17,7 @@ import {
 import { getJobFinderWorkspaceService } from "../services/job-finder";
 import { getInterviewHelperService } from "../services/interview-helper";
 import {
+  moveInterviewOverlayWindow,
   syncInterviewOverlayWindows,
   verifyInterviewOverlayCaptureProtection,
 } from "../setup/interview-overlay-windows";
@@ -97,6 +99,14 @@ export function registerInterviewHelperRouteHandlers(ipcMain: IpcMain) {
       const input = InterviewSessionActionInputSchema.parse(payload);
       const service = await getInterviewHelperService();
       return withSyncedOverlays(() => service.performAction(input));
+    },
+  );
+
+  ipcMain.handle(
+    "interview-helper:move-overlay-window",
+    (_event, payload: unknown) => {
+      const input = InterviewOverlayMoveInputSchema.parse(payload);
+      return moveInterviewOverlayWindow(input);
     },
   );
 

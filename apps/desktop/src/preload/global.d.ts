@@ -12,6 +12,7 @@ import type {
   InterviewExportResult,
   JobFinderInterviewFollowUpInput,
   InterviewHotkeyAction,
+  InterviewOverlayMoveInput,
   InterviewAudioTranscriptionInput,
   InterviewCaptionFileReadInput,
   InterviewCaptionFileTextResult,
@@ -74,6 +75,9 @@ declare global {
         performAction: (
           action: InterviewHotkeyAction,
         ) => Promise<InterviewWorkspaceSnapshot>;
+        moveOverlayWindow: (
+          input: InterviewOverlayMoveInput,
+        ) => Promise<{ moved: boolean }>;
         deleteSession: (
           sessionId: string,
         ) => Promise<InterviewWorkspaceSnapshot>;

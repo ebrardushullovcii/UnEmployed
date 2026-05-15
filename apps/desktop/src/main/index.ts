@@ -7,6 +7,7 @@ import {
   closeInterviewOverlayWindows,
   initializeInterviewOverlayWindows,
 } from './setup/interview-overlay-windows'
+import { configureInterviewMediaPermissions } from './setup/interview-media-permissions'
 import {
   disposeInterviewSessionControls,
   initializeInterviewSessionControls,
@@ -31,6 +32,7 @@ void app.whenReady().then(() => {
   Menu.setApplicationMenu(null)
   void getJobFinderWorkspaceService()
   void getInterviewHelperService()
+  configureInterviewMediaPermissions()
   initializeInterviewOverlayWindows(currentDir)
   initializeInterviewSessionControls()
   const mainWindow = createMainWindow(currentDir)

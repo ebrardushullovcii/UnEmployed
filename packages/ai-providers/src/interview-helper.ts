@@ -92,13 +92,66 @@ export interface InterviewAudioTranscriptionResult {
   readonly engineKind: InterviewTranscriptionEngineKind;
 }
 
+function normalizeModelString(value: unknown) {
+  if (Array.isArray(value)) {
+    const joined = value
+      .filter((entry): entry is string => typeof entry === "string")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0)
+      .join("; ");
+
+    return joined.length > 0 ? joined : null;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  return null;
+}
+
+function normalizeModelStringArray(value: unknown) {
+  if (Array.isArray(value)) {
+    return value
+      .filter((entry): entry is string => typeof entry === "string")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? [trimmed] : [];
+  }
+
+  return [];
+}
+
 const InterviewModelCueCardOutputSchema = z.object({
-  title: z.string().trim().min(1),
-  answerOutline: z.array(z.string().trim().min(1)).min(1).max(5),
-  supportingPoints: z.array(z.string().trim().min(1)).max(6).default([]),
-  clarifyingQuestion: z.string().trim().min(1).nullable().default(null),
-  avoidSaying: z.string().trim().min(1).nullable().default(null),
-  expandedContent: z.string().trim().min(1).nullable().default(null),
+  title: z.preprocess(normalizeModelString, z.string().trim().min(1)),
+  answerOutline: z
+    .preprocess(
+      normalizeModelStringArray,
+      z.array(z.string().trim().min(1)).min(1).max(5),
+    ),
+  supportingPoints: z
+    .preprocess(
+      normalizeModelStringArray,
+      z.array(z.string().trim().min(1)).max(6),
+    )
+    .default([]),
+  clarifyingQuestion: z.preprocess(
+    normalizeModelString,
+    z.string().trim().min(1).nullable().default(null),
+  ),
+  avoidSaying: z.preprocess(
+    normalizeModelString,
+    z.string().trim().min(1).nullable().default(null),
+  ),
+  expandedContent: z.preprocess(
+    normalizeModelString,
+    z.string().trim().min(1).nullable().default(null),
+  ),
 });
 
 function normalizeVisualConfidence(value: unknown) {
@@ -977,6 +1030,10 @@ export function createInterviewHelperProvidersFromEnvironment(
         workingDirectory: env.UNEMPLOYED_INTERVIEW_LOCAL_STT_CWD,
       })
     : null;
+  const transcriptionModel =
+    env.UNEMPLOYED_INTERVIEW_TRANSCRIPTION_MODEL ??
+    env.UNEMPLOYED_INTERVIEW_STT_MODEL ??
+    env.UNEMPLOYED_INTERVIEW_AUDIO_MODEL;
 
   if (!apiKey) {
     return {
@@ -1001,11 +1058,13 @@ export function createInterviewHelperProvidersFromEnvironment(
     requestTimeoutMs,
   };
 
-  const cloudTranscriptionProvider =
-    createOpenAiCompatibleInterviewTranscriptionProvider({
-      ...providerOptions,
-      label: "AI interview transcription provider",
-    });
+  const cloudTranscriptionProvider = transcriptionModel
+    ? createOpenAiCompatibleInterviewTranscriptionProvider({
+        ...providerOptions,
+        model: transcriptionModel,
+        label: "AI interview transcription provider",
+      })
+    : null;
 
   return {
     cueCardProvider: createOpenAiCompatibleInterviewCueCardProvider({
@@ -1013,12 +1072,15 @@ export function createInterviewHelperProvidersFromEnvironment(
       label: "AI interview cue provider",
     }),
     screenshotVisionProvider,
-    transcriptionProvider: localTranscriptionProvider
-      ? createFallbackInterviewTranscriptionProvider(
-          localTranscriptionProvider,
-          cloudTranscriptionProvider,
-        )
-      : cloudTranscriptionProvider,
+    transcriptionProvider:
+      localTranscriptionProvider && cloudTranscriptionProvider
+        ? createFallbackInterviewTranscriptionProvider(
+            localTranscriptionProvider,
+            cloudTranscriptionProvider,
+          )
+        : (localTranscriptionProvider ??
+          cloudTranscriptionProvider ??
+          deterministicTranscriptionProvider),
     summaryProvider,
   };
 }

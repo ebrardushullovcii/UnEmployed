@@ -11,7 +11,6 @@ import type {
 } from "@unemployed/contracts";
 import { suiteModules } from "@unemployed/contracts";
 import {
-  AlertTriangle,
   Archive,
   Camera,
   CheckCircle2,
@@ -19,7 +18,6 @@ import {
   FileDown,
   ListChecks,
   Minus,
-  Mic,
   PanelTop,
   Pause,
   Play,
@@ -38,7 +36,6 @@ import { Button } from "@renderer/components/ui/button";
 import { cn } from "@renderer/lib/cn";
 import { AnswerCueOverlay, TranscriptOverlay } from "./interview-overlays";
 import { TranscriptAnnotationPanel } from "./interview-review-annotations";
-import { InterviewBrowserSpeechBridge } from "./interview-browser-speech-bridge";
 import { InterviewCaptionFileWatcher } from "./interview-caption-file-watcher";
 import { InterviewDiagnosticsPanel } from "./interview-diagnostics-panel";
 import { InterviewMediaStreamProbes } from "./interview-media-stream-probes";
@@ -119,6 +116,18 @@ function formatModuleLabel(moduleName: string) {
     .join(" ");
 }
 
+function getInitialInterviewTab(workspace: InterviewWorkspaceSnapshot) {
+  if (workspace.activeSession && workspace.activeSession.status !== "ended") {
+    return "assist";
+  }
+
+  if (workspace.recentSessions.length > 0) {
+    return "review";
+  }
+
+  return "setup";
+}
+
 export function InterviewHelperPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -129,7 +138,12 @@ export function InterviewHelperPage() {
   const [jobFinderWriteBackStatus, setJobFinderWriteBackStatus] = useState<
     string | null
   >(null);
-  const [sessionStartConfirmed, setSessionStartConfirmed] = useState(false);
+  const [mediaPermissionHint, setMediaPermissionHint] = useState<string | null>(
+    null,
+  );
+  const [activeTab, setActiveTab] = useState<
+    "setup" | "assist" | "review" | "settings"
+  >("setup");
   const [transcriptSource, setTranscriptSource] =
     useState<InterviewTranscriptSource>("meeting_native_transcript");
   const [transcriptDraft, setTranscriptDraft] = useState("");
@@ -150,6 +164,7 @@ export function InterviewHelperPage() {
   async function loadWorkspace() {
     try {
       const workspace = await window.unemployed.interviewHelper.getWorkspace();
+      setActiveTab(getInitialInterviewTab(workspace));
       setState({ status: "ready", workspace, exportResult: null });
     } catch (error) {
       setState({
@@ -384,20 +399,15 @@ export function InterviewHelperPage() {
   const transcriptSegments = reviewSession?.transcriptSegments ?? [];
   const latestCue = reviewSession?.cueCards.at(-1) ?? null;
   const checks = rehearsal?.checks ?? [];
+  const rehearsalReady =
+    rehearsal?.status === "passed" || rehearsal?.status === "degraded";
+  const systemTranscriptionAvailable = Boolean(
+    rehearsal?.meetingAudioEngine.ready &&
+      rehearsal.meetingAudioEngine.kind !== "deterministic",
+  );
   const hardBlocks = checks.filter(
     (check) => check.required && check.status !== "available",
   );
-  const degraded = checks.filter(
-    (check) => !check.required && check.status !== "available",
-  );
-  const enabledCapabilitiesSummary =
-    checks
-      .filter((check) => check.status === "available")
-      .map((check) => check.label)
-      .join(", ") || "Run rehearsal to list enabled capabilities.";
-  const degradedCapabilitiesSummary =
-    degraded.map((check) => check.label).join(", ") ||
-    "No degraded optional checks.";
   const targetLabel = getTargetLabel(workspace);
   const canExport = Boolean(reviewSession);
   const liveOverlaySummaries: Array<{
@@ -407,6 +417,9 @@ export function InterviewHelperPage() {
     { label: "Answer cues", overlay: workspace.answerOverlay },
     { label: "Live transcript", overlay: workspace.transcriptOverlay },
   ];
+  const overlayInteractionEnabled = liveOverlaySummaries.some(
+    ({ overlay }) => overlay.interactionMode,
+  );
   const consentAccepted = Boolean(
     workspace.setup.consent.microphoneCapture &&
     workspace.setup.consent.meetingAudioCapture &&
@@ -416,8 +429,105 @@ export function InterviewHelperPage() {
     workspace.setup.consent.overlayProtectionNotice &&
     workspace.setup.consent.acceptedAt,
   );
-  const canStartSession =
-    sessionStartConfirmed && consentAccepted && Boolean(rehearsal);
+  const readinessBlocked = hardBlocks.length > 0 || !consentAccepted;
+  const activeTabDefinitions = [
+    { id: "setup", label: "Setup" },
+    { id: "assist", label: "Assist" },
+    { id: "review", label: "Review" },
+    { id: "settings", label: "Settings" },
+  ] as const;
+  const reviewDisabledButtonClass =
+    "disabled:border-border/75 disabled:bg-(--surface-panel-raised) disabled:text-foreground-soft disabled:opacity-90 disabled:saturate-100";
+  const reviewDisabledDangerButtonClass =
+    "disabled:border-critical/35 disabled:bg-critical/35 disabled:text-critical-foreground disabled:opacity-90 disabled:saturate-100";
+  const setupPrimaryAction = !consentAccepted
+    ? {
+        id: "accept_setup",
+        label: "Allow and continue",
+        detail:
+          "Accept microphone, transcript, model, retention, screenshot, and overlay protection notices.",
+      }
+    : !rehearsalReady
+      ? {
+          id: "rehearsal",
+          label: "Run quick check",
+          detail:
+            "Check microphone, transcript, cues, overlays, and safety hotkeys before the interview.",
+        }
+      : {
+          id: "start",
+          label: "Start interview",
+          detail:
+            "Open the answer and transcript overlays and begin listening for interview context.",
+        };
+
+  async function requestMicrophoneAccessForSetup() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setMediaPermissionHint("Microphone access is unavailable in this window.");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: false,
+      });
+      for (const track of stream.getTracks()) {
+        track.stop();
+      }
+      setMediaPermissionHint("Microphone access is ready.");
+    } catch (error) {
+      setMediaPermissionHint(
+        error instanceof Error
+          ? `Microphone access needs attention: ${error.message}`
+          : "Microphone access needs attention.",
+      );
+    }
+  }
+
+  async function acceptSetup() {
+    await requestMicrophoneAccessForSetup();
+    await updateWorkspace("accept_setup", () =>
+      window.unemployed.interviewHelper.saveSetup({
+        consent: {
+          microphoneCapture: true,
+          meetingAudioCapture: true,
+          screenshotCapture: true,
+          modelTransmission: true,
+          localRetention: true,
+          overlayProtectionNotice: true,
+          acceptedAt: new Date().toISOString(),
+        },
+      }),
+    );
+  }
+
+  async function runQuickCheck() {
+    await updateWorkspace("rehearsal", () =>
+      window.unemployed.interviewHelper.runRehearsal(),
+    );
+  }
+
+  async function startInterview() {
+    await updateWorkspace("start", () =>
+      window.unemployed.interviewHelper.startSession(),
+    );
+    setActiveTab("assist");
+  }
+
+  async function runSetupPrimaryAction() {
+    if (!consentAccepted) {
+      await acceptSetup();
+      return;
+    }
+
+    if (!rehearsalReady) {
+      await runQuickCheck();
+      return;
+    }
+
+    await startInterview();
+  }
 
   async function exportLatest(format: "markdown" | "json") {
     if (!reviewSession) return;
@@ -487,9 +597,9 @@ export function InterviewHelperPage() {
         className="fixed inset-x-0 top-0 z-50 border-b border-border/15 bg-(--shell-header-bg) backdrop-blur-sm"
         style={dragRegionStyle}
       >
-        <div className="job-finder-shell-grid grid h-16 items-stretch pl-2 pr-0 sm:pl-3">
+        <div className="job-finder-shell-grid grid grid-rows-[2.5rem_4rem] items-stretch pl-2 pr-0 sm:pl-3 sm:pr-0">
           <div
-            className="flex min-w-0 items-center pl-2 sm:pl-3"
+            className="row-span-2 flex min-w-0 items-center pl-2 sm:pl-3"
             style={dragRegionStyle}
           >
             <div className="flex min-w-0 flex-col">
@@ -507,7 +617,7 @@ export function InterviewHelperPage() {
           </div>
 
           <div
-            className="col-start-2 flex items-center justify-center"
+            className="col-start-2 row-start-1 flex items-center justify-center"
             style={dragRegionStyle}
           >
             <div
@@ -552,7 +662,7 @@ export function InterviewHelperPage() {
           </div>
 
           <div
-            className="col-start-3 flex h-full items-start justify-end self-start"
+            className="col-start-3 row-start-1 flex h-full items-start justify-end self-start"
             style={dragRegionStyle}
           >
             {!isMac ? (
@@ -602,203 +712,213 @@ export function InterviewHelperPage() {
             ) : null}
           </div>
 
+          <nav
+            aria-label="Interview Helper sections"
+            className="col-start-2 row-start-2 hidden min-w-0 items-center justify-center lg:flex"
+            style={noDragRegionStyle}
+          >
+            <div className="inline-flex max-w-full items-center gap-1 rounded-full border border-(--surface-panel-border) bg-(--surface-panel) p-1">
+              {activeTabDefinitions.map((tab, index) => (
+                <span className="contents" key={tab.id}>
+                  {tab.id === "settings" && index > 0 ? (
+                    <span
+                      aria-hidden="true"
+                      className="mx-1 h-4 w-px bg-border/50"
+                    />
+                  ) : null}
+                  <button
+                    aria-current={activeTab === tab.id ? "page" : undefined}
+                    className={cn(
+                      "inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-[0.76rem] font-medium text-muted-foreground transition-colors hover:text-foreground xl:px-4 xl:text-(length:--text-small)",
+                      activeTab === tab.id ? "bg-secondary text-foreground" : "",
+                    )}
+                    onClick={() => setActiveTab(tab.id)}
+                    type="button"
+                  >
+                    {tab.id === "settings" ? (
+                      <Settings2 className="size-4" />
+                    ) : null}
+                    <span>{tab.label}</span>
+                  </button>
+                </span>
+              ))}
+            </div>
+          </nav>
+
+          <div
+            aria-hidden="true"
+            className="col-start-3 row-start-2 hidden lg:block"
+          />
         </div>
       </header>
 
-      <main className="screen-scroll-area mt-16 h-[calc(100vh-4rem)] scroll-pt-8 overflow-y-auto px-4 pb-8 pt-3 sm:px-6">
+      <main className="screen-scroll-area mt-[6.75rem] h-[calc(100vh-6.75rem)] scroll-pt-8 overflow-y-auto px-4 pb-8 pt-4 sm:px-6">
         <div className="mx-auto grid max-w-[118rem] gap-4">
-          <section className="grid gap-2" id="setup">
-            <p className="text-[0.72rem] font-bold uppercase tracking-(--tracking-page-eyebrow) text-muted-foreground">
-              Interview Helper
-            </p>
-            <div className="flex flex-wrap items-end justify-between gap-4">
-              <div className="grid gap-2">
-                <h1 className="text-[clamp(2.25rem,4vw,4rem)]">
-                  Live interview workspace
-                </h1>
-                <p className="max-w-3xl text-[0.92rem] leading-6 text-muted-foreground">
-                  {targetLabel}
-                </p>
+          <section
+            className="surface-panel-shell relative overflow-hidden rounded-(--radius-panel) border p-4 shadow-[0_24px_90px_rgba(0,0,0,0.2)]"
+            id="setup"
+          >
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
+              <div className="grid min-w-0 gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <StatusPill
+                    label={isLiveSession ? "Live session" : "Setup mode"}
+                    tone={isLiveSession ? "success" : "info"}
+                  />
+                  <StatusPill
+                    label={readinessBlocked ? "Needs attention" : "Ready path"}
+                    tone={readinessBlocked ? "warning" : "success"}
+                  />
+                  <span className="text-[0.72rem] uppercase tracking-(--tracking-badge) text-muted-foreground">
+                    {targetLabel}
+                  </span>
+                </div>
+                <div className="grid gap-2">
+                  <h1 className="text-[clamp(2rem,3.2vw,3.25rem)]">
+                    Live interview workspace
+                  </h1>
+                  <p className="max-w-3xl text-[0.9rem] leading-6 text-muted-foreground">
+                    Prepare capture once, run the live assist surface during the
+                    interview, then review retained notes after the session.
+                  </p>
+                </div>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button
-                  onClick={() => {
-                    void updateWorkspace("rehearsal", () =>
-                      window.unemployed.interviewHelper.runRehearsal(),
-                    );
-                  }}
-                  pending={pendingAction === "rehearsal"}
+                  onClick={() => setActiveTab("settings")}
                   size="compact"
                   variant="secondary"
                 >
-                  <Shield className="size-4" />
-                  Run rehearsal
-                </Button>
-                <Button
-                  onClick={() => {
-                    void updateWorkspace("start", () =>
-                      window.unemployed.interviewHelper.startSession(),
-                    );
-                  }}
-                  disabled={isLiveSession || !canStartSession}
-                  pending={pendingAction === "start"}
-                  size="compact"
-                >
-                  <Play className="size-4" />
-                  Start session
+                  <Settings2 className="size-4" />
+                  Settings
                 </Button>
               </div>
             </div>
           </section>
 
-          <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-            <div className="grid gap-4">
-              <div className="grid gap-4 lg:grid-cols-3">
-                <Panel index={1} title="Context">
-                  <div className="grid gap-3">
-                    <div className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
-                      <span className="text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">
-                        Type
-                      </span>
-                      <p className="mt-1 text-[0.9rem]">
-                        {workspace.setup.targetContext?.kind.replaceAll(
-                          "_",
-                          " ",
-                        )}
+          {activeTab === "setup" ? (
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+              <Panel title="Start interview">
+                <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start">
+                  <div className="grid gap-5">
+                    <div className="grid gap-2">
+                      <p className="text-[1.25rem] font-semibold text-foreground">
+                        {setupPrimaryAction.label}
+                      </p>
+                      <p className="max-w-2xl text-[0.9rem] leading-6 text-muted-foreground">
+                        {setupPrimaryAction.detail}
                       </p>
                     </div>
-                    <div className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
-                      <span className="text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">
-                        Target
-                      </span>
-                      <p className="mt-1 text-[0.9rem]">{targetLabel}</p>
-                    </div>
-                    <div className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
-                      <span className="text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">
-                        Notes
-                      </span>
-                      <p className="mt-1 text-[0.82rem] leading-5 text-muted-foreground">
-                        {workspace.setup.targetContext?.notes ??
-                          "No notes selected."}
-                      </p>
-                    </div>
-                  </div>
-                </Panel>
-
-                <Panel index={2} title="Consent and readiness">
-                  <div className="grid gap-2">
-                    {[
-                      ["Microphone", workspace.setup.consent.microphoneCapture],
-                      [
-                        "Meeting audio",
-                        workspace.setup.consent.meetingAudioCapture,
-                      ],
-                      [
-                        "Screenshots",
-                        workspace.setup.consent.screenshotCapture,
-                      ],
-                      [
-                        "Model transmission",
-                        workspace.setup.consent.modelTransmission,
-                      ],
-                      [
-                        "Local retention",
-                        workspace.setup.consent.localRetention,
-                      ],
-                      [
-                        "Overlay protection limits",
-                        workspace.setup.consent.overlayProtectionNotice,
-                      ],
-                    ].map(([label, accepted]) => (
-                      <div
-                        className="flex items-center justify-between border-b border-border-subtle py-2 last:border-0"
-                        key={String(label)}
-                      >
-                        <span className="text-[0.82rem]">{label}</span>
-                        <StatusPill
-                          label={accepted ? "Enabled" : "Pending"}
-                          tone={accepted ? "success" : "warning"}
-                        />
-                      </div>
-                    ))}
                     <Button
                       onClick={() => {
-                        void updateWorkspace("accept_setup", () =>
-                          window.unemployed.interviewHelper.saveSetup({
-                            consent: {
-                              microphoneCapture: true,
-                              meetingAudioCapture: true,
-                              screenshotCapture: true,
-                              modelTransmission: true,
-                              localRetention: true,
-                              overlayProtectionNotice: true,
-                              acceptedAt: new Date().toISOString(),
-                            },
-                          }),
-                        );
+                        void runSetupPrimaryAction();
                       }}
-                      pending={pendingAction === "accept_setup"}
-                      size="compact"
-                      variant={consentAccepted ? "secondary" : "primary"}
+                      disabled={isLiveSession}
+                      pending={pendingAction === setupPrimaryAction.id}
+                      size="default"
                     >
-                      <CheckCircle2 className="size-4" />
-                      {consentAccepted ? "Setup accepted" : "Accept setup"}
+                      <Play className="size-4" />
+                      {setupPrimaryAction.label}
                     </Button>
-                    <label className="grid gap-2 rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
-                      <span className="flex items-center gap-2 text-[0.82rem]">
-                        <input
-                          checked={sessionStartConfirmed}
-                          className="size-4 accent-[var(--color-primary)]"
-                          disabled={!consentAccepted || !rehearsal}
-                          onChange={(event) => {
-                            setSessionStartConfirmed(event.target.checked);
-                          }}
-                          type="checkbox"
-                        />
-                        Confirm this session
-                      </span>
-                      <span className="text-[0.72rem] leading-5 text-muted-foreground">
-                        Enabled: {enabledCapabilitiesSummary}
-                      </span>
-                      <span className="text-[0.72rem] leading-5 text-muted-foreground">
-                        Degraded: {degradedCapabilitiesSummary}
-                      </span>
-                    </label>
-                  </div>
-                </Panel>
-
-                <Panel index={3} title="Audio and transcript">
-                  <div className="grid gap-3">
-                    <div className="flex items-start gap-3">
-                      <Mic className="mt-1 size-4 text-(--success-text)" />
-                      <div>
-                        <p className="text-[0.86rem]">Microphone</p>
-                        <p className="text-[0.76rem] text-muted-foreground">
-                          {rehearsal?.microphoneEngine.label ?? "Not checked"}
+                    {mediaPermissionHint ? (
+                      <p className="text-[0.78rem] leading-5 text-muted-foreground">
+                        {mediaPermissionHint}
+                      </p>
+                    ) : null}
+                    <div className="grid gap-3 text-[0.84rem] text-muted-foreground sm:grid-cols-3">
+                      <div className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
+                        <CheckCircle2 className="mb-2 size-4 text-(--success-text)" />
+                        <p className="font-semibold text-foreground">
+                          1. Allow
+                        </p>
+                        <p className="mt-1 leading-5">
+                          One click accepts the required capture and privacy
+                          notices.
+                        </p>
+                      </div>
+                      <div className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
+                        <Shield className="mb-2 size-4 text-(--info-text)" />
+                        <p className="font-semibold text-foreground">
+                          2. Quick check
+                        </p>
+                        <p className="mt-1 leading-5">
+                          We check audio, cues, overlays, and the panic-hide
+                          shortcut.
+                        </p>
+                      </div>
+                      <div className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
+                        <Sparkles className="mb-2 size-4 text-(--warning-text)" />
+                        <p className="font-semibold text-foreground">
+                          3. Start
+                        </p>
+                        <p className="mt-1 leading-5">
+                          Answer cues and live transcript open in separate
+                          overlays.
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-start gap-3">
-                      <Radio className="mt-1 size-4 text-(--warning-text)" />
-                      <div>
-                        <p className="text-[0.86rem]">Meeting/system audio</p>
-                        <p className="text-[0.76rem] text-muted-foreground">
-                          {rehearsal?.meetingAudioEngine.label ?? "Not checked"}
-                        </p>
-                      </div>
+                  </div>
+                  <aside className="grid gap-3 rounded-(--radius-small) border border-border-subtle bg-black/20 p-4">
+                    <div className="grid gap-1">
+                      <span className="text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">
+                        Interview target
+                      </span>
+                      <p className="text-[0.92rem] font-semibold text-foreground">
+                        {targetLabel}
+                      </p>
                     </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-black/40">
-                      <div className="h-full w-[72%] rounded-full bg-[linear-gradient(90deg,var(--success-text),var(--info-text))]" />
+                    <div className="grid gap-2 border-t border-border-subtle pt-3 text-[0.8rem] text-muted-foreground">
+                      <p>
+                        Language:{" "}
+                        <span className="text-foreground">
+                          {workspace.setup.transcriptionLanguage}
+                        </span>
+                      </p>
+                      <p>
+                        Cues:{" "}
+                        <span className="text-foreground">
+                          {workspace.setup.cueSensitivity.replaceAll("_", " ")}
+                        </span>
+                      </p>
                     </div>
-                    <InterviewSessionPreferences
-                      onSave={saveSetupPreference}
-                      pending={pendingAction === "setup_preferences"}
-                      workspace={workspace}
-                    />
+                    <button
+                      className="text-left text-[0.78rem] font-semibold text-(--info-text) hover:text-foreground"
+                      onClick={() => setActiveTab("settings")}
+                      type="button"
+                    >
+                      Change settings
+                    </button>
+                  </aside>
+                </div>
+              </Panel>
+              <Panel title="Test audio before starting">
+                <InterviewMediaStreamProbes
+                  language={workspace.setup.transcriptionLanguage}
+                  listening
+                  systemTranscriptionAvailable={systemTranscriptionAvailable}
+                />
+              </Panel>
+              <aside className="grid content-start gap-4">
+                <Panel title="Need to know">
+                  <div className="grid gap-3 text-[0.84rem] leading-5 text-muted-foreground">
+                    <p>
+                      During the interview, use the small overlay windows. The
+                      main app intentionally avoids showing sensitive live
+                      transcript and answer text.
+                    </p>
+                    <div className="rounded-(--radius-small) border border-(--info-border) bg-(--info-surface) p-3 text-(--info-text)">
+                      Press <kbd className="rounded-sm border border-(--info-border) px-1.5 py-0.5 font-mono">Alt + I</kbd>{" "}
+                      during a session to make overlays clickable and movable.
+                    </div>
                   </div>
                 </Panel>
-              </div>
+              </aside>
+            </div>
+          ) : null}
 
+          {activeTab === "assist" ? (
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+            <div className="grid gap-4">
               <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
                 <Panel id="session" index={4} title="Live controls">
                   <div className="grid gap-3">
@@ -865,6 +985,21 @@ export function InterviewHelperPage() {
                       </Button>
                       <Button
                         onClick={() => {
+                          void perform("toggle_overlay_interaction_mode");
+                        }}
+                        pending={
+                          pendingAction === "toggle_overlay_interaction_mode"
+                        }
+                        size="compact"
+                        variant={overlayInteractionEnabled ? "primary" : "secondary"}
+                      >
+                        <Settings2 className="size-4" />
+                        {overlayInteractionEnabled
+                          ? "Finish moving overlays"
+                          : "Move or resize overlays"}
+                      </Button>
+                      <Button
+                        onClick={() => {
                           void verifyOverlayProtection();
                         }}
                         pending={pendingAction === "verify_overlay_protection"}
@@ -917,23 +1052,72 @@ export function InterviewHelperPage() {
                     >
                       End session
                     </Button>
-                    {activeSession ? (
-                      <div className="grid gap-2 border-t border-border-subtle pt-3">
-                        <InterviewBrowserSpeechBridge
-                          language={workspace.setup.transcriptionLanguage}
-                          listening={activeSession.listening}
-                          onWorkspaceChange={(nextWorkspace) => {
-                            setState((current) => ({
-                              status: "ready",
-                              workspace: nextWorkspace,
-                              exportResult:
-                                current.status === "ready"
-                                  ? current.exportResult
-                                  : null,
-                            }));
+                  </div>
+                </Panel>
+
+                <Panel index={5} title="Audio and questions">
+                  {activeSession ? (
+                    <div className="grid gap-3">
+                      <InterviewMediaStreamProbes
+                        language={workspace.setup.transcriptionLanguage}
+                        listening={activeSession.listening}
+                        onWorkspaceChange={(nextWorkspace) => {
+                          setState((current) => ({
+                            status: "ready",
+                            workspace: nextWorkspace,
+                            exportResult:
+                              current.status === "ready"
+                                ? current.exportResult
+                                : null,
+                          }));
+                        }}
+                        sessionId={activeSession.id}
+                        systemTranscriptionAvailable={
+                          systemTranscriptionAvailable
+                        }
+                      />
+                      <div className="grid gap-2 rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
+                        <p className="text-[0.82rem]">Send a question</p>
+                        <textarea
+                          className="min-h-24 resize-y rounded-(--radius-small) border border-border-subtle bg-black/30 p-3 text-[0.82rem] leading-5 text-foreground outline-none focus:border-(--info-border)"
+                          onChange={(event) => {
+                            setTranscriptDraft(event.target.value);
                           }}
-                          sessionId={activeSession.id}
+                          placeholder="Paste or type the interviewer question here."
+                          value={transcriptDraft}
                         />
+                        <div className="grid gap-2 sm:grid-cols-[0.62fr_1fr]">
+                          <select
+                            className="h-9 rounded-(--radius-small) border border-border-subtle bg-black/30 px-2 text-[0.78rem] text-foreground"
+                            onChange={(event) => {
+                              setTranscriptSource(
+                                event.target.value as InterviewTranscriptSource,
+                              );
+                            }}
+                            value={transcriptSource}
+                          >
+                            <option value="meeting_native_transcript">
+                              Interviewer question
+                            </option>
+                            <option value="meeting_audio">Meeting audio</option>
+                            <option value="microphone">My answer</option>
+                          </select>
+                          <Button
+                            disabled={transcriptDraft.trim().length === 0}
+                            onClick={() => {
+                              void submitTranscriptSegment();
+                            }}
+                            pending={pendingAction === "add_transcript_segment"}
+                            size="compact"
+                            variant="secondary"
+                          >
+                            <Radio className="size-4" />
+                            Send question
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="grid gap-2 rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
+                        <p className="text-[0.82rem]">Other transcript sources</p>
                         <InterviewNativeCaptionWatcher
                           language={workspace.setup.transcriptionLanguage}
                           listening={activeSession.listening}
@@ -964,95 +1148,97 @@ export function InterviewHelperPage() {
                           }}
                           sessionId={activeSession.id}
                         />
-                        <InterviewMediaStreamProbes
-                          language={workspace.setup.transcriptionLanguage}
-                          listening={activeSession.listening}
-                          onWorkspaceChange={(nextWorkspace) => {
-                            setState((current) => ({
-                              status: "ready",
-                              workspace: nextWorkspace,
-                              exportResult:
-                                current.status === "ready"
-                                  ? current.exportResult
-                                  : null,
-                            }));
-                          }}
-                          sessionId={activeSession.id}
-                        />
-                        <div className="grid gap-2 sm:grid-cols-[0.62fr_1fr]">
-                          <select
-                            className="h-9 rounded-(--radius-small) border border-border-subtle bg-black/30 px-2 text-[0.78rem] text-foreground"
-                            onChange={(event) => {
-                              setTranscriptSource(
-                                event.target.value as InterviewTranscriptSource,
-                              );
-                            }}
-                            value={transcriptSource}
-                          >
-                            <option value="meeting_native_transcript">
-                              Native captions
-                            </option>
-                            <option value="meeting_audio">Meeting audio</option>
-                            <option value="microphone">Microphone</option>
-                          </select>
-                          <Button
-                            disabled={transcriptDraft.trim().length === 0}
-                            onClick={() => {
-                              void submitTranscriptSegment();
-                            }}
-                            pending={pendingAction === "add_transcript_segment"}
-                            size="compact"
-                            variant="secondary"
-                          >
-                            <Radio className="size-4" />
-                            Add transcript
-                          </Button>
-                        </div>
-                        <textarea
-                          className="min-h-20 resize-y rounded-(--radius-small) border border-border-subtle bg-black/30 p-3 text-[0.82rem] leading-5 text-foreground outline-none focus:border-(--info-border)"
-                          onChange={(event) => {
-                            setTranscriptDraft(event.target.value);
-                          }}
-                          placeholder="Paste a native caption or transcript line."
-                          value={transcriptDraft}
-                        />
                       </div>
-                    ) : null}
-                  </div>
-                </Panel>
-
-                <Panel index={5} title="Capability warnings">
-                  <div className="grid gap-2">
-                    {[...hardBlocks, ...degraded].length > 0 ? (
-                      [...hardBlocks, ...degraded].map((check) => (
-                        <div
-                          className="rounded-(--radius-small) border border-(--warning-border) bg-(--warning-surface) p-3"
-                          key={check.id}
-                        >
-                          <div className="flex items-center gap-2">
-                            <AlertTriangle className="size-4 text-(--warning-text)" />
-                            <p className="text-[0.86rem]">{check.label}</p>
-                          </div>
-                          {check.detail ? (
-                            <p className="mt-2 text-[0.76rem] leading-5 text-muted-foreground">
-                              {check.detail}
-                            </p>
-                          ) : null}
-                        </div>
-                      ))
-                    ) : (
-                      <div className="rounded-(--radius-small) border border-(--success-border) bg-(--success-surface) p-3 text-(--success-text)">
-                        <CheckCircle2 className="mb-2 size-4" />
-                        <p className="text-[0.86rem]">
-                          All required checks are ready.
-                        </p>
-                      </div>
-                    )}
-                  </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3 text-[0.82rem] text-muted-foreground">
+                      Start the interview to use audio and send questions.
+                    </div>
+                  )}
                 </Panel>
               </div>
 
-              <Panel id="review" index={6} title="Post-session review">
+            </div>
+
+            <aside className="grid content-start gap-4">
+              {isLiveSession ? (
+                <Panel title="Overlay surfaces">
+                  <div className="grid gap-3">
+                    {liveOverlaySummaries.map(({ label, overlay }) => (
+                      <div
+                        className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3"
+                        key={label}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[0.82rem]">{label}</span>
+                          <StatusPill
+                            label={overlay.visible ? "Visible" : "Hidden"}
+                            tone={overlay.visible ? "success" : "warning"}
+                          />
+                        </div>
+                        <p className="mt-2 text-[0.74rem] leading-5 text-muted-foreground">
+                          {overlay.protectionState.replaceAll("_", " ")}
+                        </p>
+                      </div>
+                    ))}
+                    <Button
+                      onClick={() => {
+                        void resetOverlayLayout();
+                      }}
+                      pending={pendingAction === "reset_overlay_layout"}
+                      size="compact"
+                      variant="secondary"
+                    >
+                      <RotateCcw className="size-4" />
+                      Reset overlay layout
+                    </Button>
+                  </div>
+                </Panel>
+              ) : (
+                <>
+                  <AnswerCueOverlay framed snapshot={workspace.answerOverlay} />
+                  <TranscriptOverlay
+                    framed
+                    snapshot={workspace.transcriptOverlay}
+                  />
+                </>
+              )}
+              <Panel title="Session summary">
+                <div className="grid gap-3 text-[0.82rem] text-muted-foreground">
+                  <p>
+                    {isLiveSession
+                      ? "Use the answer and transcript overlays during the call. Press Alt + I or use the move button to make them clickable."
+                      : "Start a session to use the assist controls."}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Clock className="size-4" />
+                    <span>
+                      {isLiveSession
+                        ? `${activeSession?.transcriptSegments.length ?? 0} transcript segments`
+                        : `${workspace.recentSessions.length} retained sessions`}
+                    </span>
+                  </div>
+                </div>
+              </Panel>
+              {diagnosticsOpen ? (
+                <Panel title="Diagnostics">
+                  <InterviewDiagnosticsPanel
+                    diagnostics={
+                      activeSession?.diagnostics ??
+                      reviewSession?.diagnostics ??
+                      []
+                    }
+                  />
+                </Panel>
+              ) : null}
+            </aside>
+          </div>
+          ) : null}
+
+          {activeTab === "review" ? (
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+            <div className="grid gap-4">
+              <Panel id="review" title="Post-session review">
                 {isLiveSession ? (
                   <div className="rounded-(--radius-small) border border-(--info-border) bg-(--info-surface) p-4">
                     <p className="text-[0.88rem] text-(--info-text)">
@@ -1062,6 +1248,29 @@ export function InterviewHelperPage() {
                       The main window keeps live cue-card and transcript text
                       out of this surface while capture is active.
                     </p>
+                  </div>
+                ) : !reviewSession ? (
+                  <div className="grid min-h-[18rem] place-items-center rounded-(--radius-small) border border-border-subtle bg-black/20 p-6 text-center">
+                    <div className="grid max-w-md gap-3">
+                      <Archive className="mx-auto size-7 text-muted-foreground" />
+                      <div className="grid gap-2">
+                        <h3 className="text-[0.95rem] font-semibold text-foreground">
+                          No saved interview session yet
+                        </h3>
+                        <p className="text-[0.82rem] leading-5 text-muted-foreground">
+                          Start and end a session before exporting notes,
+                          saving prep, or deleting retained interview data.
+                        </p>
+                      </div>
+                      <Button
+                        onClick={() => setActiveTab("setup")}
+                        size="compact"
+                        variant="secondary"
+                      >
+                        <ListChecks className="size-4" />
+                        Go to setup
+                      </Button>
+                    </div>
                   </div>
                 ) : (
                   <div className="grid gap-4 lg:grid-cols-[1fr_0.8fr_0.7fr]">
@@ -1114,6 +1323,7 @@ export function InterviewHelperPage() {
                     </div>
                     <div className="grid content-start gap-2">
                       <Button
+                        className={reviewDisabledButtonClass}
                         disabled={!latestCue || !reviewSession}
                         onClick={() => {
                           if (latestCue && reviewSession) {
@@ -1135,6 +1345,7 @@ export function InterviewHelperPage() {
                         Save prep
                       </Button>
                       <Button
+                        className={reviewDisabledButtonClass}
                         disabled={!canExport}
                         onClick={() => {
                           void exportLatest("markdown");
@@ -1150,6 +1361,7 @@ export function InterviewHelperPage() {
                       "job_application" ? (
                         <div className="grid gap-2 border-t border-border-subtle pt-2">
                           <Button
+                            className={reviewDisabledButtonClass}
                             disabled={!reviewSession}
                             onClick={() => {
                               void recordJobFinderFollowUp("mark_interviewed");
@@ -1170,6 +1382,7 @@ export function InterviewHelperPage() {
                             value={followUpDraft}
                           />
                           <Button
+                            className={reviewDisabledButtonClass}
                             disabled={
                               !reviewSession ||
                               followUpDraft.trim().length === 0
@@ -1194,6 +1407,7 @@ export function InterviewHelperPage() {
                         </div>
                       ) : null}
                       <Button
+                        className={reviewDisabledDangerButtonClass}
                         disabled={!reviewSession}
                         onClick={() => {
                           if (reviewSession) {
@@ -1323,6 +1537,84 @@ export function InterviewHelperPage() {
               ) : null}
             </aside>
           </div>
+          ) : null}
+
+          {activeTab === "settings" ? (
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+              <div className="grid gap-4">
+                <Panel title="Preferences">
+                  <InterviewSessionPreferences
+                    onSave={saveSetupPreference}
+                    pending={pendingAction === "setup_preferences"}
+                    workspace={workspace}
+                  />
+                </Panel>
+                <Panel title="Diagnostics">
+                  <InterviewDiagnosticsPanel
+                    diagnostics={
+                      activeSession?.diagnostics ??
+                      reviewSession?.diagnostics ??
+                      []
+                    }
+                  />
+                </Panel>
+              </div>
+              <aside className="grid content-start gap-4">
+                <Panel title="Overlay layout">
+                  <div className="grid gap-3">
+                    {liveOverlaySummaries.map(({ label, overlay }) => (
+                      <div
+                        className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3"
+                        key={label}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[0.82rem]">{label}</span>
+                          <StatusPill
+                            label={overlay.mode}
+                            tone={overlay.visible ? "success" : "warning"}
+                          />
+                        </div>
+                        <p className="mt-2 text-[0.74rem] leading-5 text-muted-foreground">
+                          {overlay.protectionState.replaceAll("_", " ")}
+                        </p>
+                      </div>
+                    ))}
+                    <Button
+                      onClick={() => {
+                        void resetOverlayLayout();
+                      }}
+                      pending={pendingAction === "reset_overlay_layout"}
+                      size="compact"
+                      variant="secondary"
+                    >
+                      <RotateCcw className="size-4" />
+                      Reset overlay layout
+                    </Button>
+                  </div>
+                </Panel>
+                <Panel title="Hotkeys">
+                  <div className="grid gap-2">
+                    {[
+                      ["Alt + H", "Panic hide"],
+                      ["Alt + Q", "Force cue"],
+                      ["Alt + S", "Screenshot"],
+                      ["Alt + T", "Transcript overlay"],
+                    ].map(([keys, label]) => (
+                      <div
+                        className="flex items-center justify-between border-b border-border-subtle py-2 last:border-0"
+                        key={keys}
+                      >
+                        <span className="text-[0.82rem]">{label}</span>
+                        <kbd className="rounded-sm border border-border-subtle bg-black/30 px-2 py-1 font-mono text-[0.7rem] text-muted-foreground">
+                          {keys}
+                        </kbd>
+                      </div>
+                    ))}
+                  </div>
+                </Panel>
+              </aside>
+            </div>
+          ) : null}
         </div>
       </main>
     </div>

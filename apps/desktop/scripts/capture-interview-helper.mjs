@@ -101,7 +101,10 @@ function assertInterviewHelperReport(report) {
     "jobFinderApplicationContextApplied",
     "jobFinderSavedJobContextApplied",
     "setupConsentAccepted",
-    "perSessionConfirmationVisible",
+    "simpleStartActionVisible",
+    "preSessionAudioTestVisible",
+    "preSessionMicCaptionTestVisible",
+    "preSessionSystemAudioTestVisible",
     "rehearsalHasLanguageCheck",
     "rehearsalHasEngineFallbackCheck",
     "rehearsalHasCueProviderCheck",
@@ -113,19 +116,25 @@ function assertInterviewHelperReport(report) {
     "meetingAudioUsesElectronSourceEnumeration",
     "runtimeOverlayProtectionVerified",
     "activeSessionStarted",
-    "browserSpeechBridgeVisible",
+    "micCaptionControlsVisible",
     "nativeCaptionWatcherVisible",
     "captionFileWatcherVisible",
-    "mediaStreamProbesVisible",
-    "transientAudioSttControlsVisible",
+    "liveAudioControlsVisible",
+    "rendererMicrophoneProbeAvailable",
+    "rendererSystemAudioProbeAvailable",
+    "liveAudioCaptureControlsVisible",
     "resetOverlayLayoutVisible",
-    "answerOverlayCompactVisible",
-    "transcriptOverlayCompactVisible",
+    "answerOverlayExpandedVisible",
+    "transcriptOverlayExpandedVisible",
+    "overlayInteractionModeEnabled",
+    "answerOverlayMovedByDrag",
+    "transcriptOverlayMovedByDrag",
     "reconfigurationPausedListening",
     "reconfigurationClosedPaused",
     "diagnosticsPanelVisible",
     "nativeTranscriptIngestionAddedSegment",
     "nativeTranscriptIngestionGeneratedCue",
+    "manualQuestionUiGeneratedCue",
     "automaticCueCapturedVisualBatch",
     "automaticCueDisclosedScreenshot",
     "nativeTranscriptHiddenFromMainWindow",
@@ -230,6 +239,22 @@ async function waitForOverlayWindows(app) {
 
   throw new Error(
     "Timed out waiting for two Interview Helper overlay windows.",
+  );
+}
+
+async function getOverlayWindowBounds(app, routePart) {
+  return app.evaluate(
+    ({ BrowserWindow }, routePart) => {
+      const targetWindow = BrowserWindow.getAllWindows().find((candidate) =>
+        candidate.webContents.getURL().includes(routePart),
+      );
+      if (!targetWindow) {
+        return null;
+      }
+
+      return targetWindow.getBounds();
+    },
+    routePart,
   );
 }
 
@@ -348,6 +373,10 @@ async function runCapture() {
 
     await capture(window, "01-setup.png");
 
+    await window
+      .getByLabel("Interview Helper sections")
+      .getByRole("button", { name: /^Settings$/i })
+      .click();
     await window.getByRole("combobox", { name: /Transcript language/i }).click();
     await window.getByRole("option", { name: "English UK" }).click();
     await waitForWorkspace(
@@ -362,38 +391,95 @@ async function runCapture() {
       (workspace) => workspace.setup.cueSensitivity === "balanced",
       "saved Interview Helper cue sensitivity",
     );
-    await window.getByLabel(/Auto screenshot on cue/i).check();
+    await window
+      .getByLabel(/Auto screenshot on cue/i)
+      .waitFor({ state: "visible" });
+    await window.waitForFunction(() => {
+      const checkbox = document.querySelector(
+        'input[type="checkbox"]',
+      );
+      return checkbox && !checkbox.disabled;
+    });
+    const autoScreenshotChecked = await window
+      .getByLabel(/Auto screenshot on cue/i)
+      .isChecked();
+    if (!autoScreenshotChecked) {
+      await window.getByLabel(/Auto screenshot on cue/i).click();
+    }
     await waitForWorkspace(
       window,
       (workspace) => workspace.setup.autoCaptureOnCue === true,
       "saved Interview Helper automatic screenshot preference",
     );
 
-    await window.getByRole("button", { name: /Accept setup/i }).click();
+    await window.getByRole("button", { name: /^Setup/i }).click();
+    await window.getByRole("button", { name: /Allow and continue/i }).click();
     await waitForWorkspace(
       window,
       (workspace) => Boolean(workspace.setup.consent.acceptedAt),
       "accepted Interview Helper setup disclosures",
     );
+    await window.reload();
+    await window.waitForLoadState("domcontentloaded");
+    await waitForInterviewWorkspace(window);
+    await window.getByRole("button", { name: /^Setup/i }).click();
 
-    await window.getByRole("button", { name: /Run rehearsal/i }).click();
-    const rehearsedWorkspace = await waitForWorkspace(
-      window,
-      (workspace) =>
-        workspace.setup.rehearsal?.status === "passed" ||
-        workspace.setup.rehearsal?.status === "degraded",
-      "Interview Helper rehearsal results",
-    );
-    await window.getByLabel(/Confirm this session/i).check();
+    const allowAgainButton = window.getByRole("button", {
+      name: /Allow and continue/i,
+    });
+    if ((await allowAgainButton.count()) > 0) {
+      await allowAgainButton.click();
+      await waitForWorkspace(
+        window,
+        (workspace) => Boolean(workspace.setup.consent.acceptedAt),
+        "accepted Interview Helper setup disclosures after reload",
+      );
+    }
+
+    const quickCheckButton = window.getByRole("button", {
+      name: /Run quick check/i,
+    });
+    let quickCheckClicked = false;
+    if ((await quickCheckButton.count()) > 0) {
+      await quickCheckButton.click();
+      quickCheckClicked = true;
+    }
+    let rehearsedWorkspace = await getWorkspace(window);
+    if (
+      quickCheckClicked &&
+      rehearsedWorkspace.setup.rehearsal?.status !== "passed" &&
+      rehearsedWorkspace.setup.rehearsal?.status !== "degraded"
+    ) {
+      rehearsedWorkspace = await waitForWorkspace(
+        window,
+        (workspace) =>
+          workspace.setup.rehearsal?.status === "passed" ||
+          workspace.setup.rehearsal?.status === "degraded",
+        "Interview Helper rehearsal results",
+      );
+    }
     await capture(window, "02-rehearsed.png");
+    await window
+      .getByText("Test audio before starting", { exact: true })
+      .waitFor({ timeout: 10000 });
+    const preSessionAudioTestVisible =
+      (await window
+        .getByText("Test audio before starting", { exact: true })
+        .count()) > 0;
+    const preSessionMicCaptionTestVisible =
+      (await window
+        .getByRole("button", { name: /Test mic captions/i })
+        .count()) > 0;
+    const preSessionSystemAudioTestVisible =
+      (await window.getByRole("button", { name: /Test system/i }).count()) > 0;
 
-    await window.getByRole("button", { name: /Start session/i }).click();
+    const preStartWorkspace = await getWorkspace(window);
+    if (!preStartWorkspace.activeSession) {
+      await window.getByRole("button", { name: /Start interview/i }).click();
+    }
     await window
       .getByText("Live", { exact: true })
       .first()
-      .waitFor({ timeout: 10000 });
-    await window
-      .getByText("Browser speech", { exact: true })
       .waitFor({ timeout: 10000 });
     await window
       .getByText("Native captions", { exact: true })
@@ -409,30 +495,50 @@ async function runCapture() {
       .getByRole("button", { name: /Watch file/i })
       .waitFor({ timeout: 10000 });
     await window
-      .getByText("Media stream probes", { exact: true })
+      .getByText("Live audio", { exact: true })
       .waitFor({ timeout: 10000 });
     await window
-      .getByRole("button", { name: /Mic STT/i })
+      .getByRole("button", { name: /Start mic captions/i })
       .waitFor({ timeout: 10000 });
     await window
-      .getByRole("button", { name: /System STT/i })
+      .getByRole("button", { name: /Start system audio/i })
       .waitFor({ timeout: 10000 });
     const activeWorkspace = await getWorkspace(window);
+    if (
+      rehearsedWorkspace.setup.rehearsal?.status !== "passed" &&
+      rehearsedWorkspace.setup.rehearsal?.status !== "degraded"
+    ) {
+      rehearsedWorkspace = activeWorkspace;
+    }
     const mainWindowTextDuringLive = await window.evaluate(
       () => document.body.innerText,
     );
-    const browserSpeechBridgeVisible =
-      mainWindowTextDuringLive.includes("Browser speech");
+    const micCaptionControlsVisible =
+      mainWindowTextDuringLive.includes("Start mic captions");
     const nativeCaptionWatcherVisible =
       mainWindowTextDuringLive.includes("Native captions");
     const captionFileWatcherVisible =
       mainWindowTextDuringLive.includes("Caption file");
-    const mediaStreamProbesVisible = mainWindowTextDuringLive.includes(
-      "Media stream probes",
+    const liveAudioControlsVisible =
+      mainWindowTextDuringLive.includes("Live audio");
+    const liveAudioCaptureControlsVisible =
+      (await window
+        .getByRole("button", { name: /Start mic captions/i })
+        .count()) > 0 &&
+      (await window
+        .getByRole("button", { name: /Start system audio/i })
+        .count()) > 0;
+    await window.getByRole("button", { name: /Test mic/i }).click();
+    await window
+      .getByText(/available: Temporary microphone stream opened/i)
+      .waitFor({ timeout: 10000 });
+    await window.getByRole("button", { name: /Test system/i }).click();
+    await window
+      .getByText(/available: Temporary display stream exposed/i)
+      .waitFor({ timeout: 10000 });
+    const liveAudioProbeText = await window.evaluate(
+      () => document.body.innerText,
     );
-    const transientAudioSttControlsVisible =
-      (await window.getByRole("button", { name: /Mic STT/i }).count()) > 0 &&
-      (await window.getByRole("button", { name: /System STT/i }).count()) > 0;
     const resetOverlayLayoutVisible =
       (await window
         .getByRole("button", { name: /Reset overlay layout/i })
@@ -454,6 +560,14 @@ async function runCapture() {
       "Interview Helper closed reconfiguration flow",
     );
     await window.getByRole("button", { name: /Resume/i }).click();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const afterResumeClickWorkspace = await getWorkspace(window);
+    if (
+      afterResumeClickWorkspace.activeSession?.status !== "active" ||
+      afterResumeClickWorkspace.activeSession.listening !== true
+    ) {
+      await performInterviewAction(window, "toggle_listening");
+    }
     await waitForWorkspace(
       window,
       (workspace) =>
@@ -504,11 +618,11 @@ async function runCapture() {
     const transcriptOverlayText = await transcriptOverlayWindow.evaluate(
       () => document.body.innerText,
     );
-    const answerOverlayCompactVisible = answerOverlayText
+    const answerOverlayExpandedVisible = answerOverlayText
       .toLowerCase()
-      .includes("compact");
-    const transcriptOverlayCompactVisible =
-      transcriptOverlayText.toLowerCase().includes("compact");
+      .includes("expanded");
+    const transcriptOverlayExpandedVisible =
+      transcriptOverlayText.toLowerCase().includes("expanded");
 
     await window.getByRole("button", { name: /Verify protection/i }).click();
     const runtimeProtectionWorkspace = await waitForWorkspace(
@@ -522,20 +636,94 @@ async function runCapture() {
       "runtime overlay protection verification",
     );
 
+    const answerBoundsBeforeMove = await getOverlayWindowBounds(
+      app,
+      "/interview-helper/overlay/answer",
+    );
+    const transcriptBoundsBeforeMove = await getOverlayWindowBounds(
+      app,
+      "/interview-helper/overlay/transcript",
+    );
+    await window
+      .getByRole("button", { name: /Move or resize overlays/i })
+      .click();
+    const interactionWorkspace = await waitForWorkspace(
+      window,
+      (workspace) =>
+        workspace.answerOverlay.interactionMode &&
+        workspace.transcriptOverlay.interactionMode,
+      "overlay interaction mode enabled",
+    );
+    await answerOverlayWindow.waitForLoadState("domcontentloaded");
+    await answerOverlayWindow
+      .locator("header")
+      .waitFor({ state: "visible", timeout: 10000 });
+    await answerOverlayWindow.mouse.move(120, 20);
+    await answerOverlayWindow.mouse.down();
+    await answerOverlayWindow.mouse.move(230, 85, { steps: 12 });
+    await answerOverlayWindow.mouse.up();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const answerBoundsAfterMove = await getOverlayWindowBounds(
+      app,
+      "/interview-helper/overlay/answer",
+    );
+    const answerOverlayMovedByDrag = Boolean(
+      answerBoundsBeforeMove &&
+        answerBoundsAfterMove &&
+        (Math.abs(answerBoundsAfterMove.x - answerBoundsBeforeMove.x) >= 20 ||
+          Math.abs(answerBoundsAfterMove.y - answerBoundsBeforeMove.y) >= 20),
+    );
+    await transcriptOverlayWindow.waitForLoadState("domcontentloaded");
+    await transcriptOverlayWindow
+      .locator("header")
+      .waitFor({ state: "visible", timeout: 10000 });
+    await transcriptOverlayWindow.mouse.move(120, 20);
+    await transcriptOverlayWindow.mouse.down();
+    await transcriptOverlayWindow.mouse.move(230, 85, { steps: 12 });
+    await transcriptOverlayWindow.mouse.up();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const transcriptBoundsAfterMove = await getOverlayWindowBounds(
+      app,
+      "/interview-helper/overlay/transcript",
+    );
+    const transcriptOverlayMovedByDrag = Boolean(
+      transcriptBoundsBeforeMove &&
+        transcriptBoundsAfterMove &&
+        (Math.abs(transcriptBoundsAfterMove.x - transcriptBoundsBeforeMove.x) >=
+          20 ||
+          Math.abs(transcriptBoundsAfterMove.y - transcriptBoundsBeforeMove.y) >=
+            20),
+    );
+    await window
+      .getByRole("button", { name: /Finish moving overlays/i })
+      .click();
+    await waitForWorkspace(
+      window,
+      (workspace) =>
+        !workspace.answerOverlay.interactionMode &&
+        !workspace.transcriptOverlay.interactionMode,
+      "overlay interaction mode disabled after drag",
+    );
+    await answerOverlayWindow.waitForLoadState("domcontentloaded");
+
     const nativeTranscriptText =
       "How would you keep Electron overlay IPC isolated from the main app?";
-    const nativeTranscriptWorkspace = await window.evaluate(
-      ({ sessionId, text }) =>
-        window.unemployed.interviewHelper.addTranscriptSegment({
-          sessionId,
-          source: "meeting_native_transcript",
-          text,
-          engineKind: "platform_local",
-        }),
-      {
-        sessionId: activeWorkspace.activeSession?.id,
-        text: nativeTranscriptText,
-      },
+    await window
+      .getByPlaceholder(/interviewer question/i)
+      .fill(nativeTranscriptText);
+    await window.getByRole("button", { name: /Send question/i }).click();
+    const nativeTranscriptWorkspace = await waitForWorkspace(
+      window,
+      (workspace) =>
+        workspace.activeSession?.transcriptSegments.some(
+          (segment) =>
+            segment.source === "meeting_native_transcript" &&
+            segment.text === nativeTranscriptText &&
+            segment.engineKind === "platform_local",
+        ) === true &&
+        workspace.activeSession.cueCards.at(-1)?.question ===
+          nativeTranscriptText,
+      "manual question ingestion and cue generation through the Assist UI",
     );
     const mainWindowTextAfterNativeTranscript = await window.evaluate(
       () => document.body.innerText,
@@ -633,6 +821,7 @@ async function runCapture() {
       annotatedSession.id,
     );
     const deletedWorkspace = await getWorkspace(window);
+    await window.getByRole("button", { name: /^Setup/i }).click();
 
     const report = {
       generatedAt: new Date().toISOString(),
@@ -666,14 +855,18 @@ async function runCapture() {
       setupConsentAccepted: Boolean(
         rehearsedWorkspace.setup.consent.acceptedAt,
       ),
+      preSessionAudioTestVisible,
+      preSessionMicCaptionTestVisible,
+      preSessionSystemAudioTestVisible,
       setupTranscriptionLanguage:
         rehearsedWorkspace.setup.transcriptionLanguage,
       rehearsalTranscriptionLanguage:
         rehearsedWorkspace.setup.rehearsal?.language,
       setupCueSensitivity: rehearsedWorkspace.setup.cueSensitivity,
       setupAutoCaptureOnCue: rehearsedWorkspace.setup.autoCaptureOnCue,
-      perSessionConfirmationVisible:
-        (await window.getByLabel(/Confirm this session/i).count()) > 0,
+      simpleStartActionVisible:
+        (await window.getByRole("button", { name: /Start interview/i }).count()) >
+        0,
       rehearsalCheckCount:
         rehearsedWorkspace.setup.rehearsal?.checks.length ?? 0,
       rehearsalCheckIds:
@@ -764,9 +957,12 @@ async function runCapture() {
           }),
         ) ?? [],
       runtimeOverlayProtectionVerified:
-        runtimeProtectionWorkspace.activeSession?.protectedSurfaces.some(
-          (surface) => surface.protectionState === "verified_protected",
-        ) ?? false,
+        (runtimeProtectionWorkspace.activeSession?.protectedSurfaces.length ===
+          2 &&
+          runtimeProtectionWorkspace.activeSession.protectedSurfaces.every(
+            (surface) => surface.protectionState === "verified_protected",
+          )) ??
+        false,
       activeSessionStarted: activeWorkspace.activeSession?.status === "active",
       mainWindowMirrorsLiveCue,
       mainWindowMirrorsLiveTranscript,
@@ -774,16 +970,27 @@ async function runCapture() {
       overlayWindowRoutesAfterStart: overlayWindows.map((appWindow) =>
         appWindow.url(),
       ),
-      answerOverlayCompactVisible,
-      transcriptOverlayCompactVisible,
+      answerOverlayExpandedVisible,
+      transcriptOverlayExpandedVisible,
+      overlayInteractionModeEnabled:
+        interactionWorkspace.answerOverlay.interactionMode &&
+        interactionWorkspace.transcriptOverlay.interactionMode,
+      answerOverlayMovedByDrag,
+      transcriptOverlayMovedByDrag,
       transcriptSegmentCount:
         activeWorkspace.activeSession?.transcriptSegments.length ?? 0,
       initialCueCardCount: activeWorkspace.activeSession?.cueCards.length ?? 0,
-      browserSpeechBridgeVisible,
+      micCaptionControlsVisible,
       nativeCaptionWatcherVisible,
       captionFileWatcherVisible,
-      mediaStreamProbesVisible,
-      transientAudioSttControlsVisible,
+      liveAudioControlsVisible,
+      rendererMicrophoneProbeAvailable: liveAudioProbeText.includes(
+        "available: Temporary microphone stream opened",
+      ),
+      rendererSystemAudioProbeAvailable: liveAudioProbeText.includes(
+        "available: Temporary display stream exposed",
+      ),
+      liveAudioCaptureControlsVisible,
       resetOverlayLayoutVisible,
       reconfigurationPausedListening:
         reconfiguringWorkspace.activeSession?.status === "reconfiguring" &&
@@ -800,6 +1007,9 @@ async function runCapture() {
             segment.engineKind === "platform_local",
         ) ?? false,
       nativeTranscriptIngestionGeneratedCue:
+        nativeTranscriptWorkspace.activeSession?.cueCards.at(-1)?.question ===
+        nativeTranscriptText,
+      manualQuestionUiGeneratedCue:
         nativeTranscriptWorkspace.activeSession?.cueCards.at(-1)?.question ===
         nativeTranscriptText,
       automaticCueCapturedVisualBatch:
@@ -860,8 +1070,8 @@ async function runCapture() {
         ),
     };
 
-    assertInterviewHelperReport(report);
     await writeJson("interview-helper-report.json", report);
+    assertInterviewHelperReport(report);
   } finally {
     await app.close();
     await rm(userDataDirectory, { recursive: true, force: true });

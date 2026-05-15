@@ -2,8 +2,68 @@ import type {
   InterviewOverlaySnapshot,
   InterviewTranscriptSegment,
 } from "@unemployed/contracts";
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { Check, Copy, Mic, Shield, Sparkles, X } from "lucide-react";
 import { cn } from "@renderer/lib/cn";
+
+const overlayNoDragRegionStyle = {
+  WebkitAppRegion: "no-drag",
+} as CSSProperties;
+
+function createOverlayDragProps(enabled: boolean) {
+  if (!enabled) {
+    return {};
+  }
+
+  return {
+    onPointerDown(event: ReactPointerEvent<HTMLElement>) {
+      if (event.button !== 0) {
+        return;
+      }
+
+      event.preventDefault();
+      const target = event.currentTarget;
+      const surfaceKind = target.dataset.surfaceKind as
+        | "live_answer_overlay"
+        | "live_transcript_overlay";
+      let lastX = event.screenX;
+      let lastY = event.screenY;
+
+      try {
+        target.setPointerCapture(event.pointerId);
+      } catch {
+        // Electron automation can deliver pointer events without capture support.
+      }
+      const handleMove = (moveEvent: PointerEvent) => {
+        const deltaX = Math.round(moveEvent.screenX - lastX);
+        const deltaY = Math.round(moveEvent.screenY - lastY);
+        lastX = moveEvent.screenX;
+        lastY = moveEvent.screenY;
+
+        if (deltaX !== 0 || deltaY !== 0) {
+          void window.unemployed.interviewHelper
+            .moveOverlayWindow({
+              surfaceKind,
+              deltaX,
+              deltaY,
+            })
+            .catch(() => {
+              window.moveBy(deltaX, deltaY);
+            });
+        }
+      };
+      const cleanup = () => {
+        window.removeEventListener("pointermove", handleMove);
+        window.removeEventListener("pointerup", cleanup);
+        window.removeEventListener("pointercancel", cleanup);
+      };
+
+      window.addEventListener("pointermove", handleMove);
+      window.addEventListener("pointerup", cleanup, { once: true });
+      window.addEventListener("pointercancel", cleanup, { once: true });
+    },
+  };
+}
 
 function formatSource(source: InterviewTranscriptSegment["source"]) {
   switch (source) {
@@ -52,8 +112,19 @@ export function AnswerCueOverlay(props: {
       )}
       style={{ opacity: props.snapshot.opacity }}
     >
-      <header className="flex items-center justify-between border-b border-border-subtle bg-white/[0.025] px-4 py-3">
-        <div className="flex items-center gap-2">
+      <header
+        className={cn(
+          "flex items-center justify-between border-b border-border-subtle bg-white/[0.025] px-4 py-3",
+          props.snapshot.interactionMode && !props.framed ? "cursor-move" : "",
+        )}
+        {...createOverlayDragProps(
+          props.snapshot.interactionMode && !props.framed,
+        )}
+        data-surface-kind={props.snapshot.surfaceKind}
+      >
+        <div
+          className="flex items-center gap-2"
+        >
           <Sparkles className="size-4 text-(--warning-text)" />
           <div className="grid gap-0.5">
             <span className="text-[11px] font-bold uppercase tracking-(--tracking-badge)">
@@ -64,7 +135,10 @@ export function AnswerCueOverlay(props: {
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div
+          className="flex items-center gap-2"
+          style={overlayNoDragRegionStyle}
+        >
           <span className="rounded-sm border border-border-subtle bg-black/20 px-2 py-1 text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">
             {compact ? "Compact" : "Expanded"}
           </span>
@@ -162,8 +236,19 @@ export function TranscriptOverlay(props: {
       )}
       style={{ opacity: props.snapshot.opacity }}
     >
-      <header className="flex items-center justify-between border-b border-border-subtle bg-white/[0.025] px-4 py-3">
-        <div className="flex items-center gap-2">
+      <header
+        className={cn(
+          "flex items-center justify-between border-b border-border-subtle bg-white/[0.025] px-4 py-3",
+          props.snapshot.interactionMode && !props.framed ? "cursor-move" : "",
+        )}
+        {...createOverlayDragProps(
+          props.snapshot.interactionMode && !props.framed,
+        )}
+        data-surface-kind={props.snapshot.surfaceKind}
+      >
+        <div
+          className="flex items-center gap-2"
+        >
           <Mic className="size-4 text-(--info-text)" />
           <div className="grid gap-0.5">
             <span className="text-[11px] font-bold uppercase tracking-(--tracking-badge)">
@@ -174,7 +259,10 @@ export function TranscriptOverlay(props: {
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div
+          className="flex items-center gap-2"
+          style={overlayNoDragRegionStyle}
+        >
           <span className="rounded-sm border border-border-subtle bg-black/20 px-2 py-1 text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">
             {compact ? "Compact" : "Expanded"}
           </span>

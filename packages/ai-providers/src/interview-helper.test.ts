@@ -105,6 +105,52 @@ describe("Interview Helper AI providers", () => {
     }
   });
 
+  test("normalizes array cue fields returned by the model", async () => {
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              title: "Array-shaped cue",
+              answerOutline: "Start with the observed bottleneck.",
+              supportingPoints: [
+                "Mention measurement first.",
+                "Tie the fix to the transcript.",
+              ],
+              clarifyingQuestion: ["Which path is slowest?"],
+              avoidSaying: [
+                "Do not invent benchmark numbers.",
+                "Do not claim tools not in context.",
+              ],
+              expandedContent: ["Profile, prioritize, then validate."],
+            }),
+          },
+        },
+      ],
+    });
+
+    try {
+      const provider = createOpenAiCompatibleInterviewCueCardProvider({
+        apiKey: "test-key",
+        baseUrl: "https://example.com/v1",
+        model: "test-model",
+      });
+      const cue = await provider.generateCueCard(createCueRequest());
+
+      expect(cue.title).toBe("Array-shaped cue");
+      expect(cue.answerOutline).toEqual([
+        "Start with the observed bottleneck.",
+      ]);
+      expect(cue.clarifyingQuestion).toBe("Which path is slowest?");
+      expect(cue.avoidSaying).toBe(
+        "Do not invent benchmark numbers.; Do not claim tools not in context.",
+      );
+      expect(cue.expandedContent).toBe("Profile, prioritize, then validate.");
+    } finally {
+      restoreFetch();
+    }
+  });
+
   test("retries cue-card generation once before falling back", async () => {
     const originalFetch = globalThis.fetch;
     const fetchMock = vi
@@ -224,7 +270,7 @@ describe("Interview Helper AI providers", () => {
     }
   });
 
-  test("uses shared AI credentials for Interview Helper cue providers", () => {
+  test("uses shared AI credentials for Interview Helper cue providers without assuming STT", () => {
     const providers =
       createInterviewHelperProvidersFromEnvironment(createEnvironment());
 
@@ -239,8 +285,24 @@ describe("Interview Helper AI providers", () => {
     expect(
       providers.transcriptionProvider.getEngines().meetingAudio,
     ).toMatchObject({
+      kind: "deterministic",
+      ready: true,
+    });
+  });
+
+  test("uses an explicit Interview Helper STT model for audio transcription", () => {
+    const providers = createInterviewHelperProvidersFromEnvironment(
+      createEnvironment({
+        UNEMPLOYED_INTERVIEW_STT_MODEL: "whisper-test",
+      }),
+    );
+
+    expect(
+      providers.transcriptionProvider.getEngines().meetingAudio,
+    ).toMatchObject({
       kind: "cloud_ai",
       ready: true,
+      label: "Cloud meeting/system transcription",
     });
   });
 

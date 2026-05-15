@@ -8,6 +8,7 @@ import {
 } from 'electron'
 import path from 'node:path'
 import type {
+  InterviewOverlayMoveInput,
   InterviewOverlayPreference,
   InterviewOverlaySnapshot,
   InterviewProtectedSurface,
@@ -113,10 +114,10 @@ function createOverlayWindow(kind: InterviewOverlayKind, route: string): Intervi
 
   const isAnswer = kind === 'answer'
   const window = new BrowserWindow({
-    width: isAnswer ? 440 : 560,
-    height: isAnswer ? 260 : 380,
-    minWidth: isAnswer ? 320 : 420,
-    minHeight: isAnswer ? 180 : 260,
+    width: isAnswer ? 560 : 680,
+    height: isAnswer ? 420 : 460,
+    minWidth: isAnswer ? 420 : 500,
+    minHeight: isAnswer ? 280 : 320,
     show: false,
     frame: false,
     transparent: true,
@@ -232,6 +233,25 @@ export function syncInterviewOverlayWindows(snapshot: InterviewWorkspaceSnapshot
     )
     applyOverlaySnapshot(entry, overlay, preference, overlay.visible)
   }
+}
+
+export function moveInterviewOverlayWindow(input: InterviewOverlayMoveInput) {
+  const entry = overlayEntries.find(
+    (candidate) => toSurfaceKind(candidate.kind) === input.surfaceKind,
+  )
+  if (!entry || entry.window.isDestroyed()) {
+    return { moved: false }
+  }
+
+  const bounds = entry.window.getBounds()
+  entry.window.setBounds({
+    ...bounds,
+    x: bounds.x + input.deltaX,
+    y: bounds.y + input.deltaY,
+  })
+  persistOverlayLayout(entry)
+
+  return { moved: true }
 }
 
 export function closeInterviewOverlayWindows() {

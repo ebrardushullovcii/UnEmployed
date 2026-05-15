@@ -456,6 +456,15 @@ export type InterviewSessionActionInput = z.infer<
   typeof InterviewSessionActionInputSchema
 >;
 
+export const InterviewOverlayMoveInputSchema = z.object({
+  surfaceKind: InterviewProtectedSurfaceKindSchema,
+  deltaX: z.number().int().min(-2000).max(2000),
+  deltaY: z.number().int().min(-2000).max(2000),
+});
+export type InterviewOverlayMoveInput = z.input<
+  typeof InterviewOverlayMoveInputSchema
+>;
+
 export const InterviewSessionIdInputSchema = z.object({
   sessionId: NonEmptyStringSchema,
 });

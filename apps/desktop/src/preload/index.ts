@@ -10,6 +10,7 @@ import type {
   InterviewExportResult,
   JobFinderInterviewFollowUpInput,
   InterviewHotkeyAction,
+  InterviewOverlayMoveInput,
   InterviewAudioTranscriptionInput,
   InterviewCaptionFileReadInput,
   InterviewCaptionFileTextResult,
@@ -163,6 +164,11 @@ const desktopApi = {
       ipcRenderer.invoke("interview-helper:perform-action", {
         action,
       }) as Promise<InterviewWorkspaceSnapshot>,
+    moveOverlayWindow: (input: InterviewOverlayMoveInput) =>
+      ipcRenderer.invoke(
+        "interview-helper:move-overlay-window",
+        input,
+      ) as Promise<{ moved: boolean }>,
     deleteSession: (sessionId: string) =>
       ipcRenderer.invoke("interview-helper:delete-session", {
         sessionId,
