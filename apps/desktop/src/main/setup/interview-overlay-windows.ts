@@ -451,7 +451,8 @@ export async function verifyInterviewOverlayCaptureProtection(): Promise<
         if (screenX < 0 || screenX >= screenSize.width) continue
         const overlayPixel = getPixel(overlayBitmap, overlaySize.width, x, y)
         const screenPixel = getPixel(screenBitmap, screenSize.width, screenX, screenY)
-        const overlayIsSignal = brightness(overlayPixel) > 52
+        const overlayIsSignal =
+          overlayPixel[3] > 180 && brightness(overlayPixel) > 52
         if (!overlayIsSignal) continue
 
         overlaySignalPixels += 1

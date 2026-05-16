@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic, MicOff, Monitor, Radio } from "lucide-react";
-import type { InterviewWorkspaceSnapshot } from "@unemployed/contracts";
+import type {
+  InterviewTranscriptSource,
+  InterviewWorkspaceSnapshot,
+} from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
 
 type ProbeStatus = "idle" | "checking" | "available" | "unavailable" | "failed";
 type CaptureStatus = "idle" | "starting" | "recording" | "stopping" | "failed";
 const MIN_AUDIO_CHUNK_BYTES = 2048;
 const AUDIO_SIGNAL_THRESHOLD = 0.015;
+const RECORDER_CHUNK_INTERVAL_MS = 5000;
 
 interface BrowserSpeechAlternative {
   readonly transcript: string;
@@ -65,7 +69,9 @@ function getBrowserSpeechRecognitionConstructor() {
   };
 
   return (
-    speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition ?? null
+    speechWindow.SpeechRecognition ??
+    speechWindow.webkitSpeechRecognition ??
+    null
   );
 }
 
@@ -136,11 +142,17 @@ function selectSupportedAudioMimeType() {
   );
 }
 
+function getAudioSourceLabel(
+  source: Extract<InterviewTranscriptSource, "microphone" | "meeting_audio">,
+) {
+  return source === "microphone" ? "Mic audio" : "System audio";
+}
+
 export function InterviewMediaStreamProbes(props: {
   sessionId?: string;
   language: string;
   listening: boolean;
-  systemTranscriptionAvailable: boolean;
+  audioTranscriptionAvailable: boolean;
   onWorkspaceChange?: (workspace: InterviewWorkspaceSnapshot) => void;
 }) {
   const [microphoneStatus, setMicrophoneStatus] = useState<ProbeStatus>("idle");
@@ -155,18 +167,33 @@ export function InterviewMediaStreamProbes(props: {
   const [captionStatus, setCaptionStatus] = useState<CaptureStatus>("idle");
   const [captionDetail, setCaptionDetail] = useState("Mic captions are off.");
   const [captionPreview, setCaptionPreview] = useState("");
-  const [recorderStatus, setRecorderStatus] = useState<CaptureStatus>("idle");
-  const [recorderDetail, setRecorderDetail] = useState(
-    props.systemTranscriptionAvailable
-      ? "System audio transcription is off."
-      : "System audio transcription needs a configured STT engine.",
+  const [microphoneRecorderStatus, setMicrophoneRecorderStatus] =
+    useState<CaptureStatus>("idle");
+  const [microphoneRecorderDetail, setMicrophoneRecorderDetail] = useState(
+    props.audioTranscriptionAvailable
+      ? "Mic audio transcription is off."
+      : "Mic audio transcription needs a local or cloud STT engine.",
   );
-  const [activeRecorder, setActiveRecorder] = useState<{
+  const [systemRecorderStatus, setSystemRecorderStatus] =
+    useState<CaptureStatus>("idle");
+  const [systemRecorderDetail, setSystemRecorderDetail] = useState(
+    props.audioTranscriptionAvailable
+      ? "System audio transcription is off."
+      : "System audio transcription needs a local or cloud STT engine.",
+  );
+  const [activeMicrophoneRecorder, setActiveMicrophoneRecorder] = useState<{
     recorder: MediaRecorder;
     stream: MediaStream;
     startedAt: string;
   } | null>(null);
-  const activeRecorderRef = useRef<typeof activeRecorder>(null);
+  const [activeSystemRecorder, setActiveSystemRecorder] = useState<{
+    recorder: MediaRecorder;
+    stream: MediaStream;
+    startedAt: string;
+  } | null>(null);
+  const activeMicrophoneRecorderRef =
+    useRef<typeof activeMicrophoneRecorder>(null);
+  const activeSystemRecorderRef = useRef<typeof activeSystemRecorder>(null);
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const sessionIdRef = useRef(props.sessionId ?? null);
   const workspaceChangeRef = useRef(props.onWorkspaceChange);
@@ -174,11 +201,18 @@ export function InterviewMediaStreamProbes(props: {
   const listeningRef = useRef(props.listening);
   const captionEnabledRef = useRef(captionEnabled);
   const recognitionRunIdRef = useRef("");
-  const uploadInFlightRef = useRef(false);
+  const uploadInFlightRef = useRef({
+    microphone: false,
+    meeting_audio: false,
+  });
 
   useEffect(() => {
-    activeRecorderRef.current = activeRecorder;
-  }, [activeRecorder]);
+    activeMicrophoneRecorderRef.current = activeMicrophoneRecorder;
+  }, [activeMicrophoneRecorder]);
+
+  useEffect(() => {
+    activeSystemRecorderRef.current = activeSystemRecorder;
+  }, [activeSystemRecorder]);
 
   useEffect(() => {
     sessionIdRef.current = props.sessionId ?? null;
@@ -201,18 +235,30 @@ export function InterviewMediaStreamProbes(props: {
   }, [captionEnabled]);
 
   useEffect(() => {
-    if (!props.systemTranscriptionAvailable && !activeRecorder) {
-      setRecorderDetail(
-        "System audio transcription needs UNEMPLOYED_INTERVIEW_STT_MODEL or UNEMPLOYED_INTERVIEW_LOCAL_STT_COMMAND.",
+    if (!props.audioTranscriptionAvailable && !activeMicrophoneRecorder) {
+      setMicrophoneRecorderDetail(
+        "Mic audio transcription needs UNEMPLOYED_INTERVIEW_LOCAL_STT_COMMAND or a configured transcription model.",
       );
     }
-  }, [activeRecorder, props.systemTranscriptionAvailable]);
+
+    if (!props.audioTranscriptionAvailable && !activeSystemRecorder) {
+      setSystemRecorderDetail(
+        "System audio transcription needs UNEMPLOYED_INTERVIEW_LOCAL_STT_COMMAND or a configured transcription model.",
+      );
+    }
+  }, [
+    activeMicrophoneRecorder,
+    activeSystemRecorder,
+    props.audioTranscriptionAvailable,
+  ]);
 
   useEffect(() => {
     if (!props.listening && recognitionRef.current) {
       recognitionRef.current.stop();
       setCaptionStatus(captionEnabled ? "idle" : "stopping");
-      setCaptionDetail(captionEnabled ? "Mic captions paused." : "Stopping mic captions.");
+      setCaptionDetail(
+        captionEnabled ? "Mic captions paused." : "Stopping mic captions.",
+      );
     }
   }, [captionEnabled, props.listening]);
 
@@ -232,14 +278,19 @@ export function InterviewMediaStreamProbes(props: {
       recognitionRef.current?.abort();
       recognitionRef.current = null;
 
-      const recorderState = activeRecorderRef.current;
-      if (!recorderState) {
-        return;
-      }
-      if (recorderState.recorder.state !== "inactive") {
-        recorderState.recorder.stop();
-      } else {
-        stopStream(recorderState.stream);
+      for (const recorderState of [
+        activeMicrophoneRecorderRef.current,
+        activeSystemRecorderRef.current,
+      ]) {
+        if (!recorderState) {
+          continue;
+        }
+
+        if (recorderState.recorder.state !== "inactive") {
+          recorderState.recorder.stop();
+        } else {
+          stopStream(recorderState.stream);
+        }
       }
     };
   }, []);
@@ -371,7 +422,9 @@ export function InterviewMediaStreamProbes(props: {
         setCaptionPreview(text);
 
         if (!sessionIdRef.current || !workspaceChangeRef.current) {
-          setCaptionDetail("Mic captions heard you. Preview is not saved until a session is running.");
+          setCaptionDetail(
+            "Mic captions heard you. Preview is not saved until a session is running.",
+          );
           continue;
         }
 
@@ -402,7 +455,9 @@ export function InterviewMediaStreamProbes(props: {
       } else {
         setCaptionStatus("idle");
         setCaptionDetail(
-          captionEnabledRef.current ? "Mic captions paused." : "Mic captions are off.",
+          captionEnabledRef.current
+            ? "Mic captions paused."
+            : "Mic captions are off.",
         );
       }
     };
@@ -424,9 +479,22 @@ export function InterviewMediaStreamProbes(props: {
       setCaptionEnabled(false);
       setCaptionStatus("failed");
       setCaptionDetail(
-        error instanceof Error ? error.message : "Mic captions failed to start.",
+        error instanceof Error
+          ? error.message
+          : "Mic captions failed to start.",
       );
     }
+  }
+
+  async function createMicrophoneRecorderStream() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("navigator.mediaDevices.getUserMedia is unavailable.");
+    }
+
+    return navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: false,
+    });
   }
 
   async function createSystemAudioRecorderStream() {
@@ -451,24 +519,75 @@ export function InterviewMediaStreamProbes(props: {
     return new MediaStream(audioTracks);
   }
 
-  async function startSystemAudioTranscription() {
-    if (!props.listening) {
-      setRecorderStatus("failed");
-      setRecorderDetail("Resume listening before starting system audio.");
+  function setRecorderStatus(
+    source: Extract<InterviewTranscriptSource, "microphone" | "meeting_audio">,
+    status: CaptureStatus,
+  ) {
+    if (source === "microphone") {
+      setMicrophoneRecorderStatus(status);
       return;
     }
 
-    if (!props.systemTranscriptionAvailable) {
-      setRecorderStatus("failed");
+    setSystemRecorderStatus(status);
+  }
+
+  function setRecorderDetail(
+    source: Extract<InterviewTranscriptSource, "microphone" | "meeting_audio">,
+    detail: string,
+  ) {
+    if (source === "microphone") {
+      setMicrophoneRecorderDetail(detail);
+      return;
+    }
+
+    setSystemRecorderDetail(detail);
+  }
+
+  function setActiveRecorderState(
+    source: Extract<InterviewTranscriptSource, "microphone" | "meeting_audio">,
+    recorderState: {
+      recorder: MediaRecorder;
+      stream: MediaStream;
+      startedAt: string;
+    } | null,
+  ) {
+    if (source === "microphone") {
+      setActiveMicrophoneRecorder(recorderState);
+      return;
+    }
+
+    setActiveSystemRecorder(recorderState);
+  }
+
+  async function startAudioTranscription(
+    source: Extract<InterviewTranscriptSource, "microphone" | "meeting_audio">,
+  ) {
+    const sourceLabel = getAudioSourceLabel(source);
+
+    if (!props.listening) {
+      setRecorderStatus(source, "failed");
       setRecorderDetail(
-        "System audio transcription needs UNEMPLOYED_INTERVIEW_STT_MODEL or UNEMPLOYED_INTERVIEW_LOCAL_STT_COMMAND.",
+        source,
+        `Resume listening before starting ${sourceLabel.toLowerCase()}.`,
+      );
+      return;
+    }
+
+    if (!props.audioTranscriptionAvailable) {
+      setRecorderStatus(source, "failed");
+      setRecorderDetail(
+        source,
+        `${sourceLabel} transcription needs UNEMPLOYED_INTERVIEW_LOCAL_STT_COMMAND or a configured transcription model.`,
       );
       return;
     }
 
     if (!props.sessionId || !props.onWorkspaceChange) {
-      setRecorderStatus("failed");
-      setRecorderDetail("Start a session before recording system audio transcription.");
+      setRecorderStatus(source, "failed");
+      setRecorderDetail(
+        source,
+        `Start a session before recording ${sourceLabel.toLowerCase()} transcription.`,
+      );
       return;
     }
 
@@ -476,16 +595,25 @@ export function InterviewMediaStreamProbes(props: {
     const onWorkspaceChange = props.onWorkspaceChange;
 
     if (!("MediaRecorder" in window)) {
-      setRecorderStatus("failed");
-      setRecorderDetail("MediaRecorder is unavailable in this renderer.");
+      setRecorderStatus(source, "failed");
+      setRecorderDetail(
+        source,
+        "MediaRecorder is unavailable in this renderer.",
+      );
       return;
     }
 
-    setRecorderStatus("starting");
-    setRecorderDetail("Requesting system audio for transient transcription.");
+    setRecorderStatus(source, "starting");
+    setRecorderDetail(
+      source,
+      `Requesting ${sourceLabel.toLowerCase()} for transient transcription.`,
+    );
 
     try {
-      const stream = await createSystemAudioRecorderStream();
+      const stream =
+        source === "microphone"
+          ? await createMicrophoneRecorderStream()
+          : await createSystemAudioRecorderStream();
       const mimeType = selectSupportedAudioMimeType();
       const recorder = new MediaRecorder(
         stream,
@@ -497,23 +625,24 @@ export function InterviewMediaStreamProbes(props: {
       recorder.ondataavailable = (event) => {
         if (event.data.size < MIN_AUDIO_CHUNK_BYTES) {
           setRecorderDetail(
-            "System audio is recording; waiting for a usable audio chunk.",
+            source,
+            `${sourceLabel} is recording; waiting for a usable audio chunk.`,
           );
           return;
         }
 
-        if (uploadInFlightRef.current) {
+        if (uploadInFlightRef.current[source]) {
           return;
         }
 
-        uploadInFlightRef.current = true;
+        uploadInFlightRef.current[source] = true;
         void event.data
           .arrayBuffer()
           .then((buffer) =>
             window.unemployed.interviewHelper
               .transcribeAudioChunk({
                 sessionId,
-                source: "meeting_audio",
+                source,
                 mimeType: event.data.type || mimeType || "audio/webm",
                 audioBase64: toBase64(buffer),
                 startedAt,
@@ -522,6 +651,10 @@ export function InterviewMediaStreamProbes(props: {
               })
               .then((workspace) => {
                 onWorkspaceChange(workspace);
+                setRecorderDetail(
+                  source,
+                  `${sourceLabel} chunk transcribed into the live transcript.`,
+                );
                 const latestDiagnostic =
                   workspace.activeSession?.diagnostics.at(-1);
                 if (
@@ -536,11 +669,12 @@ export function InterviewMediaStreamProbes(props: {
               })
               .catch((error: unknown) => {
                 stoppedByFailure = true;
-                setRecorderStatus("failed");
+                setRecorderStatus(source, "failed");
                 setRecorderDetail(
+                  source,
                   error instanceof Error
                     ? error.message
-                    : "System audio transcription failed.",
+                    : `${sourceLabel} transcription failed.`,
                 );
                 if (recorder.state !== "inactive") {
                   recorder.stop();
@@ -549,17 +683,18 @@ export function InterviewMediaStreamProbes(props: {
                 }
               })
               .finally(() => {
-                uploadInFlightRef.current = false;
+                uploadInFlightRef.current[source] = false;
               }),
           )
           .catch((error: unknown) => {
-            uploadInFlightRef.current = false;
+            uploadInFlightRef.current[source] = false;
             stoppedByFailure = true;
-            setRecorderStatus("failed");
+            setRecorderStatus(source, "failed");
             setRecorderDetail(
+              source,
               error instanceof Error
                 ? error.message
-                : "System audio chunk could not be read.",
+                : `${sourceLabel} chunk could not be read.`,
             );
             if (recorder.state !== "inactive") {
               recorder.stop();
@@ -569,48 +704,69 @@ export function InterviewMediaStreamProbes(props: {
           });
       };
       recorder.onstop = () => {
-        uploadInFlightRef.current = false;
+        uploadInFlightRef.current[source] = false;
         stopStream(stream);
-        setActiveRecorder(null);
+        setActiveRecorderState(source, null);
         if (!stoppedByFailure) {
-          setRecorderStatus("idle");
-          setRecorderDetail("System audio transcription stopped.");
+          setRecorderStatus(source, "idle");
+          setRecorderDetail(source, `${sourceLabel} transcription stopped.`);
         }
       };
 
-      recorder.start(5000);
-      setActiveRecorder({ recorder, stream, startedAt });
-      setRecorderStatus("recording");
-      setRecorderDetail("System audio is recording in transient 5s chunks.");
-    } catch (error) {
-      setActiveRecorder(null);
-      setRecorderStatus("failed");
+      recorder.start(RECORDER_CHUNK_INTERVAL_MS);
+      setActiveRecorderState(source, { recorder, stream, startedAt });
+      setRecorderStatus(source, "recording");
       setRecorderDetail(
+        source,
+        `${sourceLabel} is recording in transient 5s chunks.`,
+      );
+    } catch (error) {
+      setActiveRecorderState(source, null);
+      setRecorderStatus(source, "failed");
+      setRecorderDetail(
+        source,
         error instanceof Error
           ? error.message
-          : "System audio recorder failed.",
+          : `${sourceLabel} recorder failed.`,
       );
     }
   }
 
-  function stopSystemAudioTranscription() {
-    if (!activeRecorder) {
+  function stopAudioTranscription(
+    source: Extract<InterviewTranscriptSource, "microphone" | "meeting_audio">,
+  ) {
+    const recorderState =
+      source === "microphone" ? activeMicrophoneRecorder : activeSystemRecorder;
+    if (!recorderState) {
       return;
     }
 
-    setRecorderStatus("stopping");
-    setRecorderDetail("Stopping system audio transcription.");
-    activeRecorder.recorder.stop();
+    setRecorderStatus(source, "stopping");
+    setRecorderDetail(
+      source,
+      `Stopping ${getAudioSourceLabel(source).toLowerCase()} transcription.`,
+    );
+    recorderState.recorder.stop();
   }
 
   function stopLiveAudio() {
     if (captionEnabled || recognitionRef.current) {
       stopMicCaptions();
     }
-    if (activeRecorder) {
-      stopSystemAudioTranscription();
+    if (activeMicrophoneRecorder) {
+      stopAudioTranscription("microphone");
+    }
+    if (activeSystemRecorder) {
+      stopAudioTranscription("meeting_audio");
     }
   }
+
+  const anyRecorderActive = Boolean(
+    activeMicrophoneRecorder || activeSystemRecorder,
+  );
+  const anyRecorderBusy =
+    microphoneRecorderStatus === "stopping" ||
+    systemRecorderStatus === "stopping";
 
   return (
     <div className="grid gap-2 rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
@@ -620,9 +776,9 @@ export function InterviewMediaStreamProbes(props: {
         </p>
         <p className="text-[0.72rem] leading-5 text-muted-foreground">
           {props.sessionId
-            ? "Start mic captions to save your spoken words into the transcript overlay."
-            : "Test mic captions before the interview. Preview text stays local here."}{" "}
-          System audio needs a configured STT engine.
+            ? "Start mic and system audio to save transient STT chunks into the transcript overlay."
+            : "Test mic captions and capture readiness before the interview. Preview text stays local here."}{" "}
+          Local-command STT keeps audio transcription free when configured.
         </p>
       </div>
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
@@ -656,68 +812,93 @@ export function InterviewMediaStreamProbes(props: {
         <p>{describeStatus(displayStatus, displayDetail)}</p>
       </div>
       <div className="grid gap-2 border-t border-border-subtle pt-2">
-        <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
-          <Button
-            disabled={
-              !props.listening ||
-              captionStatus === "starting" ||
-              captionStatus === "recording"
-            }
-            onClick={startMicCaptions}
-            pending={captionStatus === "starting"}
-            size="compact"
-            variant="secondary"
-          >
-            <Radio className="size-4" />
-            {props.sessionId ? "Start mic captions" : "Test mic captions"}
-          </Button>
-          <Button
-            disabled={
-              !props.listening ||
-              !props.sessionId ||
-              !props.systemTranscriptionAvailable ||
-              recorderStatus === "starting" ||
-              recorderStatus === "recording"
-            }
-            onClick={() => {
-              void startSystemAudioTranscription();
-            }}
-            pending={recorderStatus === "starting"}
-            size="compact"
-            variant="secondary"
-          >
-            <Monitor className="size-4" />
-            Start system audio
-          </Button>
-          <Button
-            disabled={
-              (!captionEnabled && !activeRecorder) ||
-              captionStatus === "stopping" ||
-              recorderStatus === "stopping"
-            }
-            onClick={stopLiveAudio}
-            pending={
-              captionStatus === "stopping" || recorderStatus === "stopping"
-            }
-            size="compact"
-            variant="outline"
-          >
-            {captionEnabled || activeRecorder ? (
-              <MicOff className="size-4" />
-            ) : (
+        {props.sessionId ? (
+          <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
+            <Button
+              disabled={
+                !props.listening ||
+                !props.audioTranscriptionAvailable ||
+                microphoneRecorderStatus === "starting" ||
+                microphoneRecorderStatus === "recording"
+              }
+              onClick={() => {
+                void startAudioTranscription("microphone");
+              }}
+              pending={microphoneRecorderStatus === "starting"}
+              size="compact"
+              variant="secondary"
+            >
               <Mic className="size-4" />
-            )}
-            Stop audio
-          </Button>
-        </div>
+              Start mic audio
+            </Button>
+            <Button
+              disabled={
+                !props.listening ||
+                !props.audioTranscriptionAvailable ||
+                systemRecorderStatus === "starting" ||
+                systemRecorderStatus === "recording"
+              }
+              onClick={() => {
+                void startAudioTranscription("meeting_audio");
+              }}
+              pending={systemRecorderStatus === "starting"}
+              size="compact"
+              variant="secondary"
+            >
+              <Monitor className="size-4" />
+              Start system audio
+            </Button>
+            <Button
+              disabled={
+                (!captionEnabled && !anyRecorderActive) || anyRecorderBusy
+              }
+              onClick={stopLiveAudio}
+              pending={captionStatus === "stopping" || anyRecorderBusy}
+              size="compact"
+              variant="outline"
+            >
+              {captionEnabled || anyRecorderActive ? (
+                <MicOff className="size-4" />
+              ) : (
+                <Mic className="size-4" />
+              )}
+              Stop audio
+            </Button>
+          </div>
+        ) : null}
         <div className="grid gap-1 text-[0.72rem] leading-5 text-muted-foreground">
+          {props.sessionId ? (
+            <>
+              <p>{microphoneRecorderDetail}</p>
+              <p>{systemRecorderDetail}</p>
+            </>
+          ) : null}
+          <div className="grid gap-2 pt-1 sm:grid-cols-[minmax(0,1fr)_auto] xl:grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_auto]">
+            <p>
+              Browser captions are a mic-only fallback when Chromium exposes
+              speech recognition.
+            </p>
+            <Button
+              disabled={
+                !props.listening ||
+                captionStatus === "starting" ||
+                captionStatus === "recording"
+              }
+              onClick={startMicCaptions}
+              pending={captionStatus === "starting"}
+              size="compact"
+              variant="secondary"
+            >
+              <Radio className="size-4" />
+              {props.sessionId ? "Start browser captions" : "Test mic captions"}
+            </Button>
+          </div>
           <p>{captionDetail}</p>
           {captionPreview ? (
             <p className="rounded-(--radius-small) border border-(--info-border) bg-(--info-surface) p-2 text-(--info-text)">
               {captionPreview}
             </p>
           ) : null}
-          <p>{recorderDetail}</p>
         </div>
       </div>
     </div>
