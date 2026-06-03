@@ -4,21 +4,21 @@
 
 Owns profile, resume import, discovery, source-debug, resume workspace, review queue, applications, and apply orchestration.
 
-## Responsibilities
+## Current Baseline
 
-- Own guided setup, profile copilot, resume import, discovery, source-debug, resume workspace, review queue, applications, and apply flows.
+- Guided setup and profile copilot create and maintain local-first candidate data.
+- Resume import uses parser/text/vision evidence, review candidates, and explicit user confirmation before canonical writes.
+- Discovery and source-debug stay source-generic and use typed target instructions.
+- Resume Studio owns preview, export, approval, template selection, and manual experience ordering.
+- Applications owns safe recovery and review state for non-submitting apply.
+
+## Hard Rules
+
 - Keep boundaries typed through `packages/contracts`.
-- Treat source instructions and browser recovery as generic capabilities, not hardcoded board branches.
-- Preserve resume approval and stale-state checks before apply; keep live submit disabled unless explicitly re-authorized.
-- Treat browser visual evidence as schema-validated review/recovery context only; it must not become selectors, direct browser actions, saved-job behavior, generated answers, final-submit guidance, or site-specific workflow rules.
-
-## Important Defaults
-
-- profile and resume data are local-first
-- source-debug and discovery use typed target instructions
-- resume approval is required before apply work
-- live submit remains intentionally disabled unless explicitly re-authorized
-- apply visual checkpoints require explicit orchestrator opt-in and are temporary by default unless retained evidence is needed for review/recovery
+- Do not hardcode one job board's routing, query maps, triage overrides, or recovery behavior into shared discovery.
+- Preserve resume approval and stale-state checks before apply.
+- Keep live submit disabled unless explicitly re-authorized.
+- Treat browser visual evidence as schema-validated review/recovery context only.
 
 ## Where To Continue
 

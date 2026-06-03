@@ -1,38 +1,40 @@
 # Product
 
-`UnEmployed` is one desktop app with two modules:
+`UnEmployed` is one local-first desktop app with two modules:
 
 - `Job Finder`
 - `Interview Helper`
 
-## Shared Product Baseline
+## Shared Baseline
 
-- shared local profile and document base
-- shared application history
-- shared browser and AI infrastructure
-- shared desktop shell and settings
+- shared local profile, documents, reusable answers, and application history
+- shared browser runtime, source intelligence, AI provider roles, desktop shell, settings, tray, and hotkeys
+- UI-first workflows with agent assistance inside bounded product surfaces
 
 ## Job Finder
 
-Current product baseline:
+Current baseline:
 
-- resume import and profile editing
-- guided setup and profile copilot
+- resume import and profile editing with guided setup and profile copilot
 - browser-driven job discovery across configured targets
-- source-debug for learning reusable target instructions, including bounded visual evidence when visible page state explains weak DOM/text evidence or blockers
-- resume workspace with ATS-first PDF approval
-- resume template selection is direct and one-click in Settings and Resume Studio with truthful template metadata, real preview-backed selection, explicit lane badges, and deterministic per-draft recommendations when job and draft evidence justify them; Resume Studio also supports per-draft manual experience ordering with move controls and reset-to-chronology, and the shared preview/export renderer respects the same order for exported resumes; the shipped `apply-safe` catalog has eight materially distinct layout options: `Chronology Classic`, `Senior Brief`, `Modern Editorial`, `Engineering Spec`, `Proof Portfolio`, `Formal Proof`, `Longform Timeline`, and `Career Pivot Bridge`
-- apply flows that stop before final submission with Applications recovery, including explicit visual checkpoints for visible form/blocker/recovery context when safe
-- hard product rule: live submit remains intentionally disabled until explicitly re-authorized; see `docs/exec-plans/completed/015-job-finder-automatic-job-apply.md` for provenance
+- source-debug that learns reusable target instructions from schema-safe DOM/text evidence and bounded visual evidence
+- resume workspace with ATS-first preview, export, approval, template selection, and manual experience ordering
+- eight apply-safe templates: `Chronology Classic`, `Senior Brief`, `Modern Editorial`, `Engineering Spec`, `Proof Portfolio`, `Formal Proof`, `Longform Timeline`, and `Career Pivot Bridge`
+- safe apply flows that stop before final submission and use Applications recovery plus explicit visual checkpoints when safe
+
+Hard rule: live submit remains disabled until explicitly re-authorized. See [ADR 0006](adr/0006-safe-non-submitting-apply-boundary.md).
 
 ## Interview Helper
 
-Planned product baseline:
+Current baseline:
 
-- prep workspace from resume, job, notes, and application history
-- live session with transcript-aware context
-- compact overlay plus full panel
-- local transcript, capture, and suggestion history
+- target-context setup from Job Finder records or direct user input
+- rehearsal checks for transcript language, audio, transcription fallback, providers, screenshots, overlays, capture-protection state, hotkeys, tray controls, and retention defaults
+- user-started live sessions with microphone, meeting/system audio, native-caption intake, browser speech bridge, local-command STT, cloud transcription, screenshots, and cue-card generation behind typed provider roles
+- two separate protected overlay windows for answer cues and live transcript state
+- explicit paused reconfiguration, panic-hide, tray/global-hotkey semantic actions, diagnostics, post-session review, export, transcript annotations, delete, and explicit Job Finder follow-up actions
+
+Hard rule: capture, screenshots, overlays, and model use must stay explicit, visible, auditable, and adapter-owned. See [ADR 0003](adr/0003-interview-helper-live-session-architecture.md).
 
 ## Product Defaults
 
