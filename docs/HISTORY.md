@@ -4,7 +4,7 @@ Use this for short completed milestones. Do not turn it into an active changelog
 
 ## Milestones
 
-- `2026-06-03`: documentation cleanup removed completed exec-plan sprawl and generic local skill reference libraries; durable context now lives in goals, product, architecture, contracts, ADRs, compact history, and package guides.
+- `2026-06-03`: documentation cleanup removed completed exec-plan sprawl; durable context now lives in goals, product, architecture, contracts, ADRs, compact history, and package guides.
 - `2026-04-23`: handoff docs and `AGENTS.md` files were shortened so agents start from goals, decisions, blockers, and next steps instead of long narratives.
 - `2026-04`: Job Finder baseline landed: guided setup, profile copilot, resume import, source-generic discovery/source-debug, resume workspace, ATS-first templates, Applications recovery, and safe non-submitting apply.
 - `2026-04`: browser/source-debug visual evidence and apply visual checkpoints landed as schema-safe evidence-only flows.
