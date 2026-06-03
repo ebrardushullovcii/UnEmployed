@@ -78,7 +78,7 @@ Common package aliases:
 
 - Run from the repo root: `pnpm --filter @unemployed/desktop build`
 - Do this before desktop benchmark scripts or benchmark-backed source/debug checks because `apps/desktop/scripts/benchmark-job-finder-app.mjs` launches `out/main/index.cjs`, and stale build output can invalidate results
-- Historical `017` benchmark evidence lives in `docs/exec-plans/completed/017-experiment-tracker.md`
+- Historical benchmark detail is no longer kept as plan docs; use current benchmark reports under `apps/desktop/test-artifacts/ui/` and git history when old run detail is needed.
 
 ## Safety Rules
 

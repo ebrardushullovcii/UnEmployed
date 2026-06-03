@@ -22,7 +22,7 @@ function buildClaudeMd() {
 
 - Start with @docs/README.md
 - Read @docs/STATUS.md and @docs/TRACKS.md only for active feature work, broad repo changes, handoff updates, or unclear current state
-- Read linked exec plans and package-local @AGENTS.md only when relevant to the task
+- Read active or queued exec plans and package-local @AGENTS.md only when relevant to the task
 - Use @docs/AGENT_CONTEXT.md and @.agents/registry.yaml only for repo-guidance or adapter changes
 - Use @docs/ARCHITECTURE.md, @docs/CONTRACTS.md, and @docs/TESTING.md only for those concerns
 - Project-local skills live in @.agents/skills
@@ -46,7 +46,7 @@ alwaysApply: true
 - Start with \`AGENTS.md\` and \`docs/README.md\`.
 - Read only the smallest relevant doc set.
 - Read \`docs/STATUS.md\` and \`docs/TRACKS.md\` only for active feature work, broad repo changes, handoff updates, or unclear current state.
-- Read linked exec plans only when relevant.
+- Read active or queued exec plans only when relevant.
 - Use package-local \`AGENTS.md\` when editing that workspace.
 - Use \`docs/AGENT_CONTEXT.md\` and \`.agents/registry.yaml\` only when changing repo guidance or generated adapters.
 - Shared contracts live in \`packages/contracts\`; do not introduce untyped cross-package boundaries.
@@ -75,7 +75,18 @@ async function syncCompatibilityLinks() {
   const linkType = isWindows ? 'junction' : 'dir'
 
   await fs.mkdir(claudeRoot, { recursive: true })
-  await fs.rm(claudeSkillsPath, { recursive: true, force: true })
+  try {
+    const existingLink = await fs.lstat(claudeSkillsPath)
+    if (existingLink.isSymbolicLink()) {
+      await fs.unlink(claudeSkillsPath)
+    } else {
+      await fs.rm(claudeSkillsPath, { recursive: true, force: true })
+    }
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      throw error
+    }
+  }
   await fs.symlink(linkTarget, claudeSkillsPath, linkType)
 }
 

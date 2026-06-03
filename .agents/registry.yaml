@@ -7,10 +7,12 @@ canonicalDocs:
     purpose: status
   - path: docs/TRACKS.md
     purpose: tracks
-  - path: docs/PLAN.md
-    purpose: plan
+  - path: docs/GOALS.md
+    purpose: goals
   - path: docs/PRODUCT.md
     purpose: product
+  - path: CONTEXT.md
+    purpose: glossary
   - path: docs/AGENT_CONTEXT.md
     purpose: agent-context
   - path: docs/ARCHITECTURE.md
@@ -21,6 +23,10 @@ canonicalDocs:
     purpose: testing
   - path: docs/HISTORY.md
     purpose: history
+  - path: docs/adr/README.md
+    purpose: decisions
+  - path: docs/exec-plans/README.md
+    purpose: exec-plans
   - path: docs/Design/README.md
     purpose: design
   - path: docs/modules/JOB_FINDER.md
@@ -42,11 +48,6 @@ requiredLocalGuides:
   - packages/testing/AGENTS.md
   - native/macos/AGENTS.md
   - native/windows/AGENTS.md
-generatedAdapters:
-  - path: CLAUDE.md
-    kind: claude
-  - path: .cursor/rules/00-project.mdc
-    kind: cursor
 projectSkills:
   canonicalDir: .agents/skills
 validation:

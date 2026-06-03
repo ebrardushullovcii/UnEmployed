@@ -6,14 +6,15 @@ Currently provides overlay UI types and helpers for interview session visualizat
 
 Will own interview prep, live session state, transcript context, capture state, and suggestion generation once the full session module is implemented.
 
-## Current State
+## Current Baseline
 
-- overlay UI types/helpers exist; full session state is planned, not active focus
+- overlay UI types/helpers exist; full session state is planned, not part of the mainline baseline
 - active runtime integration is limited to overlay-facing helpers and `packages/os-integration`
 
 ## Design Principles
 
 - future session flows should reuse shared profile and application history
+- capture, transcript, model, and retention behavior must stay explicit and auditable
 - document retrieval and AI dependencies should stay behind explicit adapters
 
 ## Boundaries
