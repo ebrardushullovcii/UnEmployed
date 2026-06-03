@@ -10,7 +10,7 @@ Use this for cross-package contract rules and workflow semantics. Put field-leve
 - use typed result shapes for recoverable workflow outcomes
 - do not import package internals across workspace boundaries
 
-## Main Shared Domains
+## Shared Domains
 
 - candidate profile, search preferences, proof, narrative, and reusable answers
 - resume import runs, document bundles, field candidates, and setup review items
@@ -21,7 +21,7 @@ Use this for cross-package contract rules and workflow semantics. Put field-leve
 - compaction policy and lightweight compaction snapshots for long-running agent work
 - browser visual snapshot requests/refs, observation sets, reconciliations, evidence summaries, source-debug visual findings, and apply visual checkpoints
 
-## Current Shared Semantics
+## Shared Semantics
 
 - discovery, source-debug, and apply consume the newest instruction artifact for the exact target: latest `draft`, otherwise latest `validated`
 - canonical profile writes from import happen only through accepted candidates or explicit user edits
@@ -36,4 +36,4 @@ Use this for cross-package contract rules and workflow semantics. Put field-leve
 - normalize browser extraction through schemas before saving jobs
 - validate provider output before workflow code uses it
 - keep import, source-debug, and apply artifacts replayable and auditable
-- store screenshots only through typed evidence refs or checkpoint metadata with explicit retention/redaction decisions; normal discovery and normal apply screenshots are temporary by default
+- store screenshots only through typed evidence refs or checkpoint metadata with explicit retention/redaction decisions
