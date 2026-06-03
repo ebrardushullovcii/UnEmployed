@@ -1,8 +1,8 @@
-# Interview Helper live-session architecture
+# Interview Helper Live-Session Architecture
 
 Status: accepted
 
-Interview Helper live assistance will be built around an explicit user-started Interview live session rather than ambient background listening, with a setup gate, rehearsal checklist, dual microphone plus meeting/system audio transcription, conservative cue triggers, temporary screenshot batches, two screen-share-private overlays, structured retention, and post-session review. We chose this shape because the feature needs low-latency help during interviews while keeping capture boundaries visible, auditable, adapter-owned, recoverable across Windows, macOS, and Linux, and intentionally aimed at future authorized full capture exclusion without baking hiding behavior into session logic.
+Interview Helper live assistance is built around an explicit user-started Interview live session rather than ambient background listening, with a setup gate, rehearsal checklist, dual microphone plus meeting/system audio transcription, conservative cue triggers, temporary screenshot batches, two screen-share-private overlays, structured retention, and post-session review. We chose this shape because the feature needs low-latency help during interviews while keeping capture boundaries visible, auditable, adapter-owned, recoverable across Windows, macOS, and Linux, and intentionally open to future authorized full capture exclusion without baking hiding behavior into session logic.
 
 ## Considered Options
 
@@ -17,6 +17,5 @@ Interview Helper live assistance will be built around an explicit user-started I
 
 - `packages/interview-helper` owns deterministic live-session state, cue triggers, rolling cue context, and retained session history.
 - `packages/os-integration` owns global hotkeys, overlay window policy, capture protection, and platform differences.
-- `packages/ai-providers` needs narrow Interview model roles for STT, cue-card chat, and screenshot vision, with provider fallback allowed but product contracts kept separate.
-- The release is gated on cross-platform validation for audio capture, hotkeys, overlays, screenshots, and screen-share-private capture protection rather than treating non-Windows support as follow-up.
-- Future authorized full capture exclusion is a product goal and should be added as new capture-protection adapter capabilities once the relevant user, app, company, platform, or meeting-system approvals exist, so the rest of Interview Helper does not need to change.
+- `packages/ai-providers` owns narrow Interview model roles for STT, cue-card chat, and screenshot vision.
+- Future authorized full capture exclusion should be added as new capture-protection adapter capabilities once the relevant user, app, company, platform, or meeting-system approvals exist.

@@ -1,14 +1,18 @@
 # History
 
-Use this file for short completed milestones. Do not turn it into an active changelog.
+Use this for short completed milestones. Do not turn it into an active changelog.
 
 ## Milestones
 
-- `2026-04-23`: handoff docs and `AGENTS.md` files were aggressively shortened so agents start from goals, decisions, blockers, and next steps instead of long narratives
-- `2026-04-19`: safe non-submitting apply baseline, shared compaction baseline, and ATS-first resume baseline were complete
-- `2026-04-16`: source intelligence and faster discovery baseline were complete
-- `2026-04-15`: guided setup, profile copilot polish, and resume-import packaging hardening were complete
-- `2026-04-10`: reviewable resume-import pipeline landed
-- `2026-04-06`: full-app copy pass, browser-efficiency baseline, and resume workspace baseline were complete
-- `2026-03-24` to `2026-03-26`: repo guidance, desktop shell, and early browser-agent seeded discovery flows were established
-- `2026-03-20` to `2026-03-23`: first Job Finder vertical slice, typed contracts, local persistence, structured profile, and screenshot-based desktop QA were established
+- `2026-06-03`: documentation cleanup removed completed exec-plan sprawl and generic local skill reference libraries; durable context now lives in goals, product, architecture, contracts, ADRs, compact history, and package guides.
+- `2026-04-23`: handoff docs and `AGENTS.md` files were shortened so agents start from goals, decisions, blockers, and next steps instead of long narratives.
+- `2026-04`: Job Finder baseline landed: guided setup, profile copilot, resume import, source-generic discovery/source-debug, resume workspace, ATS-first templates, Applications recovery, and safe non-submitting apply.
+- `2026-04`: browser/source-debug visual evidence and apply visual checkpoints landed as schema-safe evidence-only flows.
+- `2026-04`: resume generation hardening landed: coverage policy, manual experience ordering, eight apply-safe templates, and expanded replayable quality evidence.
+- `2026-04`: parallel vision resume import landed for supported local document types with text/vision reconciliation and user-confirmed canonical writes.
+- `2026-04`: Interview Helper first integrated desktop workflow landed: setup, rehearsal, transcript ingestion, local/cloud STT paths, cue cards, protected overlays, diagnostics, retention, review/export/delete, and explicit Job Finder follow-up actions.
+- `2026-03`: repo foundation landed: pnpm/turbo monorepo, Electron desktop shell, typed contracts, local SQLite persistence, package boundaries, documentation guidance, and screenshot-based desktop QA.
+
+## Historical Detail Policy
+
+Completed exec plans are not durable docs. If a future agent needs old implementation detail, use ADRs for rationale, canonical docs for current behavior, test artifacts for evidence, and git history for the removed plan text.

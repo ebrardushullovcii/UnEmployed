@@ -6,7 +6,7 @@ Agent-first Electron monorepo for `Job Finder` and `Interview Helper`.
 
 1. Read `docs/README.md`
 2. Read `docs/STATUS.md` and `docs/TRACKS.md` only for active feature work, broad repo changes, handoff updates, or unclear current state
-3. Read a linked exec plan only if the task touches it
+3. Read an active or queued exec plan only if the task is scoped by it
 4. Read the nearest package `AGENTS.md` only when editing or reviewing that package
 
 ## Rules
@@ -16,7 +16,8 @@ Agent-first Electron monorepo for `Job Finder` and `Interview Helper`.
 - Do not introduce `any`, deep cross-package imports, or untyped IPC
 - Follow the source-generic discovery rules in `docs/ARCHITECTURE.md`
 - Keep durable knowledge in `docs/`; keep `AGENTS.md` short and pointer-based
-- Use `docs/STATUS.md`, `docs/TRACKS.md`, and relevant exec plans as the handoff layer
+- Use `docs/STATUS.md`, `docs/TRACKS.md`, and active or queued exec plans as the handoff layer
+- Use `docs/HISTORY.md` and `docs/adr/` for completed context instead of old plan files
 - For narrow local tasks, prefer package guides and code over global handoff docs
 
 ## Doc Updates
@@ -25,7 +26,7 @@ Agent-first Electron monorepo for `Job Finder` and `Interview Helper`.
 - architecture or ownership: `docs/ARCHITECTURE.md`
 - contracts, schemas, preload APIs, IPC: `docs/CONTRACTS.md`
 - verification flow: `docs/TESTING.md`
-- active state: `docs/STATUS.md`, `docs/TRACKS.md`, relevant exec plan
+- active state: `docs/STATUS.md`, `docs/TRACKS.md`, relevant active or queued exec plan
 
 ## Validation
 
@@ -41,6 +42,6 @@ Agent-first Electron monorepo for `Job Finder` and `Interview Helper`.
 
 ## Agent Assets
 
-- Skills live in `.agents/skills/`
+- Repo-specific skills live in `.agents/skills/`
 - Registry lives in `.agents/registry.yaml`
 - `CLAUDE.md` and `.cursor/rules/00-project.mdc` are generated

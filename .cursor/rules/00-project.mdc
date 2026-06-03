@@ -9,7 +9,7 @@ alwaysApply: true
 - Start with `AGENTS.md` and `docs/README.md`.
 - Read only the smallest relevant doc set.
 - Read `docs/STATUS.md` and `docs/TRACKS.md` only for active feature work, broad repo changes, handoff updates, or unclear current state.
-- Read linked exec plans only when relevant.
+- Read active or queued exec plans only when relevant.
 - Use package-local `AGENTS.md` when editing that workspace.
 - Use `docs/AGENT_CONTEXT.md` and `.agents/registry.yaml` only when changing repo guidance or generated adapters.
 - Shared contracts live in `packages/contracts`; do not introduce untyped cross-package boundaries.

@@ -10,44 +10,33 @@ Use this for cross-package contract rules and workflow semantics. Put field-leve
 - use typed result shapes for recoverable workflow outcomes
 - do not import package internals across workspace boundaries
 
-## Main Shared Domains
+## Shared Domains
 
 - candidate profile, search preferences, proof, narrative, and reusable answers
 - resume import runs, document bundles, field candidates, and setup review items
-- saved jobs, discovery runs, discovery ledger, source intelligence, and review queue items
-- resume drafts, export metadata, approval state, and stale-state rules
-- application records, apply runs, blocker state, consent state, and replay checkpoints
-- source-debug runs, evidence refs, and learned instruction artifacts
-- compaction policy and lightweight compaction snapshots for long-running agent work
-- browser visual snapshot requests/refs, observation sets, reconciliations, evidence summaries, source-debug visual findings, and apply visual checkpoints
-- Interview Helper setup state, selected transcription language, cue sensitivity, automatic screenshot-on-cue preference, target-context snapshots, rehearsal checklists, protected overlay surfaces, transcript segment ingestion, transcript annotations, cue visual batches, cue cards, diagnostics, overlay snapshots, live sessions, export payloads, Job Finder follow-up actions, and semantic session actions
+- saved jobs, discovery runs, discovery ledger, source intelligence, review queue items, source-debug evidence, and learned instruction artifacts
+- resume drafts, export metadata, approval state, stale-state rules, templates, and manual entry ordering
+- application records, apply runs, blocker state, consent state, replay checkpoints, and visual checkpoints
+- browser visual snapshot requests, observation sets, reconciliations, source-debug visual findings, and apply visual summaries
+- Interview Helper setup state, target context, rehearsal checks, protected surfaces, transcript segments, cue visual batches, cue cards, diagnostics, overlays, sessions, exports, transcript annotations, retention, and Job Finder follow-up actions
 
-## Current Shared Semantics
+## Shared Semantics
 
 - discovery, source-debug, and apply consume the newest instruction artifact for the exact target: latest `draft`, otherwise latest `validated`
 - canonical profile writes from import happen only through accepted candidates or explicit user edits
 - resume approval is separate from apply approval
-- apply automation must refuse missing or stale approved resumes; the staleness rules are the approval-state and stale-state checks for resume-affecting profile, settings, and saved-job changes in `packages/job-finder/src/internal/resume-workspace-staleness.ts`
-- persist structured artifacts and summaries, not raw hidden worker transcripts
-- browser visual output is evidence-only and schema validation rejects selectors, browser-action directives, saved-job directives, generated answers, final-submit guidance, and site-specific workflow rules
-- application-page visual capture requires explicit apply-run/action opt-in (`visualCheckpointsEnabled` defaults false); browser-runtime must not infer screenshot capture from an ambient visual-capable AI client
-- Interview Helper cue generation consumes bounded source-labeled transcript windows, target-context snapshots, selected prep artifacts, compact summary state, and active visual observations. It must not resend raw full transcripts or persist raw audio, raw provider payloads, raw prompts, or unpinned screenshots by default.
-- Interview Helper model-backed cue providers must validate the model response into the shared cue-card schema before display and must fall back to a safe deterministic cue card on transient provider failure.
-- Interview Helper cue generation must mark the bounded transcript segments used for each cue through `usedInCueIds`, so review/export code can audit cue grounding without reconstructing prompts.
-- Interview Helper live transcript ingestion uses a typed source-labeled payload for `microphone`, `meeting_audio`, and `meeting_native_transcript`; partial updates may replace an existing segment id and final/stable non-microphone segments may trigger cue generation according to session sensitivity. Setup-owned transcription language is copied into rehearsal checks, deterministic sample segments, browser speech recognition, native-caption intake, caption-file intake, manual transcript ingestion, and transient audio transcription payloads.
-- Interview Helper reconfiguration is explicit session state. Entering `reconfiguring` pauses listening and automatic cue triggers; closing the flow applies current setup preferences to the active session and returns it to `paused` rather than silently resuming capture.
-- Interview Helper automatic screenshot-on-cue is an explicit setup preference. When enabled, an automatic transcript cue asks the screenshot adapter for a temporary visual batch before cue generation; transient screenshot image bytes may be sent to the screenshot-vision provider, but retained history stores only normalized visual observations, screenshot counts, pinned screenshot metadata, and overlay-contamination disclosure. Overlay contamination is disclosed in the cue-card input instead of hiding the risk.
-- Interview Helper native-caption intake is user-started. Clipboard intake returns only the current clipboard text through typed preload IPC; caption-file intake returns bounded local text from a user-selected transcript/caption file. Renderer code must convert both into `meeting_native_transcript` segments through the same transcript ingestion contract.
-- Interview Helper transient audio transcription IPC accepts only a session id, `microphone` or `meeting_audio` source, MIME type, bounded base64 audio chunk, timing, and language. The raw audio payload is provider input only and must not be retained in workspace/session state. Local-command STT may write the chunk to a temporary file for a user-installed local engine, but that file must be deleted after the command exits.
-- Interview Helper transcript annotations are additive review records. Corrections and notes retain the referenced original transcript text and must not overwrite the source transcript segment.
-- Interview Helper protected overlay state uses explicit states such as `verified_protected`, `requested_unverified`, `best_effort`, `unsupported`, `failed`, and `unknown`; product code must not collapse these into a boolean or label requested protection as verified protection. Runtime verification evidence is submitted through a typed protected-surface verification payload and records the method, display label, detail, timestamp, and explicit state.
-- Interview Helper overlay layout preferences store each protected surface's bounds, display id, opacity, visibility, interaction mode, and requested protection policy separately from session history. Resetting overlay layout restores default overlay preferences only and must not delete or rewrite retained session history.
-- Interview Helper renderer/preload calls use narrow semantic actions (`toggle_listening`, `force_cue`, `capture_screenshot`, `capture_screenshot_and_force_cue`, overlay toggles, `panic_hide`, `end_session`) instead of exposing Electron or Node primitives.
-- Interview Helper may write back to Job Finder only through explicit post-session actions validated by `JobFinderInterviewFollowUpInputSchema`. Marking an interview complete can move the linked application and saved job to `interview`; adding a follow-up note appends an application event. Live transcript or cue content must not automatically mutate profile, resume, saved-job, or application records.
+- apply automation must refuse missing or stale approved resumes
+- browser visual output is evidence-only; schema validation rejects selectors, browser-action directives, saved-job directives, generated answers, final-submit guidance, and site-specific workflow rules
+- application-page visual capture requires explicit apply-run/action opt-in; browser-runtime must not infer screenshot capture from an ambient visual-capable AI client
+- Interview Helper cue generation consumes bounded source-labeled transcript windows, target-context snapshots, selected prep artifacts, compact summary state, and active visual observations
+- Interview Helper must not persist raw audio, raw provider payloads, raw prompts, raw full transcripts, or unpinned screenshots by default
+- Interview Helper protected overlay state uses explicit states such as `verified_protected`, `requested_unverified`, `best_effort`, `unsupported`, `failed`, and `unknown`; product code must not collapse these into a boolean
+- Interview Helper renderer/preload calls use narrow semantic actions instead of exposing Electron or Node primitives
+- Interview Helper may write back to Job Finder only through explicit post-session actions validated by `JobFinderInterviewFollowUpInputSchema`
 
 ## Validation Expectations
 
 - normalize browser extraction through schemas before saving jobs
 - validate provider output before workflow code uses it
-- keep import, source-debug, and apply artifacts replayable and auditable
-- store screenshots only through typed evidence refs or checkpoint metadata with explicit retention/redaction decisions; normal discovery and normal apply screenshots are temporary by default
+- keep import, source-debug, apply, and Interview Helper artifacts replayable and auditable
+- store screenshots only through typed evidence refs or checkpoint metadata with explicit retention/redaction decisions
