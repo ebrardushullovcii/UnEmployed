@@ -34,6 +34,7 @@ async function waitForCondition(check, description, timeoutMs = 15000, intervalM
 }
 
 async function waitForProfileOrSetupHeading(window) {
+  await window.evaluate(() => { window.location.hash = '#/job-finder/profile' })
   await window.waitForFunction(() => {
     const heading = document.querySelector('h1')
     return heading?.textContent?.includes('Your profile') || heading?.textContent?.includes('Guided setup')

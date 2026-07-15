@@ -4,6 +4,8 @@ import { clipboard, dialog, type IpcMain } from "electron";
 import {
   InterviewAudioTranscriptionInputSchema,
   InterviewCaptionFileReadInputSchema,
+  InterviewClipboardWriteInputSchema,
+  SendInterviewChatMessageInputSchema,
   InterviewExportSessionInputSchema,
   InterviewOverlayMoveInputSchema,
   JobFinderInterviewFollowUpInputSchema,
@@ -13,6 +15,7 @@ import {
   InterviewTranscriptAnnotationInputSchema,
   InterviewTranscriptSegmentInputSchema,
   SaveInterviewSetupInputSchema,
+  UpdateInterviewOverlayPreferenceInputSchema,
 } from "@unemployed/contracts";
 import { getJobFinderWorkspaceService } from "../services/job-finder";
 import { getInterviewHelperService } from "../services/interview-helper";
@@ -111,6 +114,15 @@ export function registerInterviewHelperRouteHandlers(ipcMain: IpcMain) {
   );
 
   ipcMain.handle(
+    "interview-helper:update-overlay-preference",
+    async (_event, payload: unknown) => {
+      const input = UpdateInterviewOverlayPreferenceInputSchema.parse(payload);
+      const service = await getInterviewHelperService();
+      return withSyncedOverlays(() => service.updateOverlayPreference(input));
+    },
+  );
+
+  ipcMain.handle(
     "interview-helper:delete-session",
     async (_event, payload: unknown) => {
       const input = InterviewSessionIdInputSchema.parse(payload);
@@ -147,6 +159,17 @@ export function registerInterviewHelperRouteHandlers(ipcMain: IpcMain) {
   );
 
   ipcMain.handle(
+    "interview-helper:send-chat-message",
+    async (_event, payload: unknown) => {
+      const input = SendInterviewChatMessageInputSchema.parse(payload);
+      const service = await getInterviewHelperService();
+      const turn = await service.sendChatMessage(input);
+      syncInterviewOverlayWindows(await service.getWorkspace());
+      return turn;
+    },
+  );
+
+  ipcMain.handle(
     "interview-helper:transcribe-audio-chunk",
     async (_event, payload: unknown) => {
       const input = InterviewAudioTranscriptionInputSchema.parse(payload);
@@ -171,6 +194,15 @@ export function registerInterviewHelperRouteHandlers(ipcMain: IpcMain) {
   ipcMain.handle("interview-helper:read-clipboard-text", () => ({
     text: clipboard.readText(),
   }));
+
+  ipcMain.handle(
+    "interview-helper:write-clipboard-text",
+    (_event, payload: unknown) => {
+      const input = InterviewClipboardWriteInputSchema.parse(payload);
+      clipboard.writeText(input.text);
+      return { written: true as const };
+    },
+  );
 
   ipcMain.handle("interview-helper:select-caption-file", async () => {
     const selection = await dialog.showOpenDialog({

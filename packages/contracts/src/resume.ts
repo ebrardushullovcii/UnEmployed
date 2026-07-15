@@ -542,6 +542,9 @@ export type ResumeQualityBenchmarkRequest = z.infer<
 
 export const ResumeQualityBenchmarkMetricsSchema = z.object({
   groundedVisibleSkillRate: ProbabilitySchema.default(0),
+  workHistoryRepresentationRate: ProbabilitySchema.default(0),
+  fragmentFreeExperienceBulletRate: ProbabilitySchema.default(0),
+  professionalExperienceSummaryRate: ProbabilitySchema.default(0),
   bleedFreeCaseRate: ProbabilitySchema.default(0),
   keywordCoverageRate: ProbabilitySchema.default(0),
   duplicateIssueFreeRate: ProbabilitySchema.default(0),

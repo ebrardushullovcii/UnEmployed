@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import type { ReviewQueueItem, SavedJob, TailoredAsset } from '@unemployed/contracts'
+import type { ResumeSourceDocument, ReviewQueueItem, SavedJob, TailoredAsset } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
 import { EmptyState } from '../../components/empty-state'
 import { StatusBadge } from '../../components/status-badge'
@@ -11,6 +11,7 @@ interface ReviewQueuePreviewPanelProps {
   isGenerating?: boolean
   onEditResumeWorkspace: (jobId: string) => void
   onGenerateResume: (jobId: string) => void
+  originalResume?: ResumeSourceDocument
   previewState: PreviewState
   queue: readonly ReviewQueueItem[]
   selectedAsset: TailoredAsset | null
@@ -20,7 +21,7 @@ interface ReviewQueuePreviewPanelProps {
 
 type PreviewState = 'missing' | null
 
-export function ReviewQueuePreviewPanel({ displayedProgress, isGenerating: isSelectedJobPending = false, onEditResumeWorkspace, onGenerateResume, previewState, queue, selectedAsset, selectedItem, selectedJob }: ReviewQueuePreviewPanelProps) {
+export function ReviewQueuePreviewPanel({ displayedProgress, isGenerating: isSelectedJobPending = false, onEditResumeWorkspace, onGenerateResume, originalResume, previewState, queue, selectedAsset, selectedItem, selectedJob }: ReviewQueuePreviewPanelProps) {
   const needsGeneration = needsResumeGeneration(selectedItem)
   const hasGenerationFailure = hasResumeGenerationFailure(selectedItem)
   const isGenerating = isResumeGenerationInProgress(selectedItem) || isSelectedJobPending
@@ -98,6 +99,42 @@ export function ReviewQueuePreviewPanel({ displayedProgress, isGenerating: isSel
           />
         </div>
       ) : null}
+      {queue.length > 0 && selectedItem?.resumeReview.status === 'original_resume' ? (
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5">
+          <div className="surface-card-tint relative grid gap-5 rounded-(--radius-field) border border-primary/25 p-6 text-(length:--text-body) leading-[1.48] text-foreground">
+            <div className="grid gap-3 border-b border-(--surface-panel-border) pb-4 sm:grid-cols-[1fr_auto] sm:items-end">
+              <div className="grid gap-1">
+                <span className="label-mono-xs text-primary">Original CV · unchanged</span>
+                <strong className="text-[1.1rem] text-(--text-headline)">{selectedItem.resumeReview.fileName}</strong>
+              </div>
+              <StatusBadge tone="positive">Ready for this job</StatusBadge>
+            </div>
+            <p className="rounded-(--radius-field) border border-primary/20 bg-primary/8 px-4 py-3 text-sm leading-6 text-foreground-soft">
+              Apply Copilot will attach this exact imported file. Job Finder will not rewrite it, remove roles, or create a job-specific copy.
+            </p>
+            <div className="grid gap-2">
+              <span className="label-mono-xs">Extracted CV text</span>
+              {originalResume?.textContent ? (
+                <div className="max-h-[56vh] overflow-y-auto whitespace-pre-wrap rounded-(--radius-field) border border-(--surface-panel-border) bg-background/35 p-5 text-sm leading-7 text-foreground-soft">
+                  {originalResume.textContent}
+                </div>
+              ) : (
+                <p className="rounded-(--radius-field) border border-(--surface-panel-border) bg-background/35 p-5 text-sm leading-6 text-foreground-soft">
+                  The original file is available, but extracted preview text is not. Re-import it in Profile if you want a readable preview before continuing.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {queue.length > 0 && selectedItem?.resumeApplicationMode === 'original_resume' && selectedItem.resumeReview.status !== 'original_resume' ? (
+        <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
+          <div className="grid w-full max-w-xl gap-4 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) p-8 text-center">
+            <EmptyState title="Original CV unavailable" description="Import or re-import your original CV in Profile. This mode never substitutes a tailored resume when the original file is missing." />
+            <Button asChild type="button" variant="primary"><a href={JOB_FINDER_ROUTE_HREFS.profile}>Go to Profile</a></Button>
+          </div>
+        </div>
+      ) : null}
       {queue.length > 0 && previewState === 'missing' ? (
         <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
           <div className="grid w-full max-w-xl gap-4 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) p-8 text-center">
@@ -113,7 +150,7 @@ export function ReviewQueuePreviewPanel({ displayedProgress, isGenerating: isSel
           </div>
         </div>
       ) : null}
-      {queue.length > 0 && selectedItem && !showGenerationState && selectedAsset ? (
+      {queue.length > 0 && selectedItem && selectedItem.resumeApplicationMode !== 'original_resume' && !showGenerationState && selectedAsset ? (
         <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5">
           <div className="surface-card-tint relative grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) p-6 text-(length:--text-body) leading-[1.48] text-foreground">
             <div className="grid items-end gap-3 border-b border-(--surface-panel-border) pb-4 sm:grid-cols-[1fr_auto]">

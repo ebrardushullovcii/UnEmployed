@@ -33,7 +33,10 @@ import {
 import { extractLiteralCandidates } from "./resume-import-literal-extraction";
 import { enrichExperienceCandidatesFromNearbyMarkers } from "./resume-import-experience-markers";
 import {
+  ResumeImportStageExtractionResultSchema,
   ResumeVisionExtractionResultSchema,
+  type ResumeImportExtractionStage,
+  type ResumeImportStageExtractionResult,
   type ResumeVisionExtractionResult,
 } from "@unemployed/ai-providers";
 import {
@@ -132,10 +135,24 @@ type ResumeImportBranchResult =
       providerKind: Extract<AiProviderKind, "deterministic" | "openai_compatible"> | null;
       providerLabel: string | null;
       notes: string[];
+      warnings: string[];
     }
   | {
       ok: false;
       message: string;
+    };
+
+type ResumeImportStageExtractionOutcome =
+  | {
+      ok: true;
+      stage: ResumeImportExtractionStage;
+      result: ResumeImportStageExtractionResult;
+    }
+  | {
+      ok: false;
+      stage: ResumeImportExtractionStage;
+      message: string;
+      diagnostic: string;
     };
 
 type ResumeVisionBranchResult =
@@ -192,6 +209,23 @@ function branchStatusForFailure(message: string): "failed" | "timed_out" {
 
 function messageFromUnknownError(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
+}
+
+function resumeImportStageFailureOutcome(
+  stage: ResumeImportExtractionStage,
+  error: unknown,
+): Extract<ResumeImportStageExtractionOutcome, { ok: false }> {
+  const message = messageFromUnknownError(
+    error,
+    "The extraction provider rejected the stage without an error message.",
+  );
+
+  return {
+    ok: false,
+    stage,
+    message,
+    diagnostic: `Resume import ${stage} stage failed; other text stages continued. ${message}`,
+  };
 }
 
 function visionTimeoutMsFor(ctx: WorkspaceServiceContext): number {
@@ -839,22 +873,78 @@ export async function runResumeImportWorkflow(
 
     const textBranchPromise: Promise<ResumeImportBranchResult> = (async (): Promise<ResumeImportBranchResult> => {
       const literalCandidates = extractLiteralCandidates(runId, bundle, now);
-      const stageResults = await Promise.all(
-        RESUME_IMPORT_STAGES.map(async (stage) => {
-          const result = await ctx.aiClient.extractResumeImportStage({
-            stage,
-            existingProfile: input.profile,
-            existingSearchPreferences: input.searchPreferences,
-            documentBundle: bundle,
-          });
+      const stageSettlements = await Promise.allSettled(
+        RESUME_IMPORT_STAGES.map((stage) =>
+          Promise.resolve().then(() =>
+            ctx.aiClient.extractResumeImportStage({
+              stage,
+              existingProfile: input.profile,
+              existingSearchPreferences: input.searchPreferences,
+              documentBundle: bundle,
+            }),
+          ),
+        ),
+      );
+      const stageOutcomes: ResumeImportStageExtractionOutcome[] =
+        RESUME_IMPORT_STAGES.map((stage, index) => {
+          const settlement = stageSettlements[index];
+
+          if (!settlement) {
+            return resumeImportStageFailureOutcome(
+              stage,
+              new Error("The extraction stage did not produce a settled result."),
+            );
+          }
+
+          if (settlement.status === "rejected") {
+            return resumeImportStageFailureOutcome(stage, settlement.reason);
+          }
+
+          const parsedResult = ResumeImportStageExtractionResultSchema.safeParse(
+            settlement.value,
+          );
+          if (!parsedResult.success) {
+            return resumeImportStageFailureOutcome(stage, parsedResult.error);
+          }
+
+          if (parsedResult.data.stage !== stage) {
+            return resumeImportStageFailureOutcome(
+              stage,
+              new Error(
+                `The provider returned the ${parsedResult.data.stage} stage instead of ${stage}.`,
+              ),
+            );
+          }
+
           return {
+            ok: true,
             stage,
-            result,
+            result: parsedResult.data,
           };
-        }),
+        });
+      const successfulStages = stageOutcomes.filter(
+        (
+          outcome,
+        ): outcome is Extract<ResumeImportStageExtractionOutcome, { ok: true }> =>
+          outcome.ok,
+      );
+      const failedStages = stageOutcomes.filter(
+        (
+          outcome,
+        ): outcome is Extract<ResumeImportStageExtractionOutcome, { ok: false }> =>
+          !outcome.ok,
       );
 
-      const stageCandidates = stageResults.flatMap(({ stage, result }) => {
+      if (successfulStages.length === 0) {
+        return {
+          ok: false,
+          message:
+            failedStages[0]?.message ||
+            "Text resume import branch produced no usable extraction results.",
+        };
+      }
+
+      const stageCandidates = successfulStages.flatMap(({ stage, result }) => {
         const sourceKind = (() => {
           switch (stage) {
             case "identity_summary":
@@ -880,12 +970,13 @@ export async function runResumeImportWorkflow(
         literalCandidates,
         stageCandidates,
         providerKind:
-          stageResults.find((entry) => entry.result.analysisProviderKind !== null)?.result
+          successfulStages.find((entry) => entry.result.analysisProviderKind !== null)?.result
             .analysisProviderKind ?? null,
         providerLabel:
-          stageResults.find((entry) => entry.result.analysisProviderLabel)?.result
+          successfulStages.find((entry) => entry.result.analysisProviderLabel)?.result
             .analysisProviderLabel ?? null,
-        notes: uniqueStrings(stageResults.flatMap((entry) => entry.result.notes)),
+        notes: uniqueStrings(successfulStages.flatMap((entry) => entry.result.notes)),
+        warnings: uniqueStrings(failedStages.map((entry) => entry.diagnostic)),
       };
     })().catch((error: unknown): ResumeImportBranchResult => ({
       ok: false,
@@ -950,6 +1041,7 @@ export async function runResumeImportWorkflow(
           completedAt: new Date().toISOString(),
           providerKind: textBranch.ok ? textBranch.providerKind : null,
           providerLabel: textBranch.ok ? textBranch.providerLabel : null,
+          warning: textBranch.ok ? textBranch.warnings[0] ?? null : null,
           errorMessage: textBranch.ok ? null : textBranch.message,
           candidateCount: textBranch.ok ? textBranch.literalCandidates.length + textBranch.stageCandidates.length : 0,
         },
@@ -1057,7 +1149,9 @@ export async function runResumeImportWorkflow(
         ? []
         : [visionBranch.message];
     const stageNotes = uniqueStrings([
-      ...(textBranch.ok ? textBranch.notes : [textBranch.message]),
+      ...(textBranch.ok
+        ? [...textBranch.notes, ...textBranch.warnings]
+        : [textBranch.message]),
       ...visionBranchNotes,
       ...adjudicationResult.notes,
       ...adjudicationResult.warnings,

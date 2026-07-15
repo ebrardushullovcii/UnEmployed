@@ -25,6 +25,7 @@ import {
   JobSourceAdapterKindSchema,
   JobSourceSchema,
   NonEmptyStringSchema,
+  ResumeApplicationModeSchema,
   SourceIntelligenceProviderKeySchema,
   SourceDebugPhaseCompletionModeSchema,
   SourceInstructionStatusSchema,
@@ -98,10 +99,103 @@ export const JobSearchPreferencesSchema = z.object({
 });
 export type JobSearchPreferences = z.infer<typeof JobSearchPreferencesSchema>;
 
+export const jobRequirementCategoryValues = [
+  "skill",
+  "experience",
+  "seniority",
+  "location",
+  "work_mode",
+  "work_authorization",
+  "domain",
+] as const;
+export const JobRequirementCategorySchema = z.enum(
+  jobRequirementCategoryValues,
+);
+export type JobRequirementCategory = z.infer<
+  typeof JobRequirementCategorySchema
+>;
+
+export const jobRequirementImportanceValues = [
+  "required",
+  "preferred",
+  "inferred",
+] as const;
+export const JobRequirementImportanceSchema = z.enum(
+  jobRequirementImportanceValues,
+);
+export type JobRequirementImportance = z.infer<
+  typeof JobRequirementImportanceSchema
+>;
+
+export const jobRequirementEvidenceStatusValues = [
+  "supported",
+  "partial",
+  "missing",
+  "unknown",
+  "conflict",
+] as const;
+export const JobRequirementEvidenceStatusSchema = z.enum(
+  jobRequirementEvidenceStatusValues,
+);
+export type JobRequirementEvidenceStatus = z.infer<
+  typeof JobRequirementEvidenceStatusSchema
+>;
+
+export const resumeEvidenceSourceKindValues = [
+  "profile_skill",
+  "experience",
+  "project",
+  "profile",
+] as const;
+export const ResumeEvidenceSourceKindSchema = z.enum(
+  resumeEvidenceSourceKindValues,
+);
+export type ResumeEvidenceSourceKind = z.infer<
+  typeof ResumeEvidenceSourceKindSchema
+>;
+
+export const ResumeRequirementEvidenceSchema = z.object({
+  sourceKind: ResumeEvidenceSourceKindSchema,
+  sourceId: NonEmptyStringSchema.nullable().default(null),
+  label: NonEmptyStringSchema,
+  detail: NonEmptyStringSchema,
+});
+export type ResumeRequirementEvidence = z.infer<
+  typeof ResumeRequirementEvidenceSchema
+>;
+
+export const JobRequirementAssessmentSchema = z.object({
+  id: NonEmptyStringSchema,
+  category: JobRequirementCategorySchema,
+  label: NonEmptyStringSchema,
+  importance: JobRequirementImportanceSchema,
+  status: JobRequirementEvidenceStatusSchema,
+  jobEvidence: NonEmptyStringSchema,
+  resumeEvidence: z.array(ResumeRequirementEvidenceSchema).default([]),
+  explanation: NonEmptyStringSchema,
+});
+export type JobRequirementAssessment = z.infer<
+  typeof JobRequirementAssessmentSchema
+>;
+
+export const fitRecommendationValues = [
+  "strong_fit",
+  "apply_with_original",
+  "review_before_applying",
+  "skip",
+] as const;
+export const FitRecommendationSchema = z.enum(fitRecommendationValues);
+export type FitRecommendation = z.infer<typeof FitRecommendationSchema>;
+
 export const MatchAssessmentSchema = z.object({
   score: z.number().int().min(0).max(100),
   reasons: z.array(NonEmptyStringSchema).default([]),
   gaps: z.array(NonEmptyStringSchema).default([]),
+  recommendation: FitRecommendationSchema.default("review_before_applying"),
+  recommendationRationale: NonEmptyStringSchema.default(
+    "Review the listing and resume evidence before applying.",
+  ),
+  requirements: z.array(JobRequirementAssessmentSchema).default([]),
 });
 export type MatchAssessment = z.infer<typeof MatchAssessmentSchema>;
 
@@ -194,6 +288,18 @@ export const JobScreeningHintsSchema = z.object({
 });
 export type JobScreeningHints = z.infer<typeof JobScreeningHintsSchema>;
 
+export const jobPostingDetailQualityValues = [
+  "card_only",
+  "partial_detail",
+  "detail_enriched",
+] as const;
+export const JobPostingDetailQualitySchema = z.enum(
+  jobPostingDetailQualityValues,
+);
+export type JobPostingDetailQuality = z.infer<
+  typeof JobPostingDetailQualitySchema
+>;
+
 export const JobPostingSchema = z.object({
   source: JobSourceSchema,
   sourceJobId: NonEmptyStringSchema,
@@ -216,6 +322,7 @@ export const JobPostingSchema = z.object({
   lastVerifiedActiveAt: IsoDateTimeSchema.nullable().default(null),
   salaryText: NonEmptyStringSchema.nullable(),
   normalizedCompensation: NormalizedCompensationSchema.default({}),
+  detailQuality: JobPostingDetailQualitySchema.default("card_only"),
   summary: NonEmptyStringSchema.nullable().default(null),
   description: NonEmptyStringSchema,
   keySkills: z.array(NonEmptyStringSchema).default([]),
@@ -285,6 +392,7 @@ export const DiscoveryLedgerEntrySchema = z.object({
   targetId: NonEmptyStringSchema,
   collectionMethod:
     JobDiscoveryCollectionMethodSchema.default("fallback_search"),
+  detailQuality: JobPostingDetailQualitySchema.default("card_only"),
   firstSeenAt: IsoDateTimeSchema,
   lastSeenAt: IsoDateTimeSchema,
   lastAppliedAt: IsoDateTimeSchema.nullable().default(null),
@@ -353,6 +461,12 @@ export const ReviewQueueResumeReviewStateSchema = z.discriminatedUnion("status",
     approvedFormat: ResumeExportFormatSchema,
     approvedFilePath: NonEmptyStringSchema,
   }),
+  z.object({
+    status: z.literal("original_resume"),
+    sourceDocumentId: NonEmptyStringSchema,
+    fileName: NonEmptyStringSchema,
+    filePath: NonEmptyStringSchema,
+  }),
 ]);
 export type ReviewQueueResumeReviewState = z.infer<
   typeof ReviewQueueResumeReviewStateSchema
@@ -368,6 +482,8 @@ export const ReviewQueueItemSchema = z.object({
   assetStatus: AssetStatusSchema,
   progressPercent: z.number().int().min(0).max(100).nullable(),
   resumeAssetId: NonEmptyStringSchema.nullable(),
+  resumeApplicationMode:
+    ResumeApplicationModeSchema.default("tailored_per_job"),
   resumeReview: ReviewQueueResumeReviewStateSchema.default({
     status: "not_started",
   }),

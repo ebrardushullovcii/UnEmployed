@@ -99,15 +99,16 @@ function normalizeNullableString(value: unknown): string | null {
 
 type FallbackExperienceEntry = TailoredResumeDraft["experienceEntries"][number];
 
+interface CanonicalExperienceEvidence {
+  summary: string | null;
+  bullets: readonly string[];
+}
+
 function normalizeComparableText(value: string | null | undefined): string {
   return (value ?? "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
-}
-
-function tokenizeResumeDetail(value: string | null | undefined): string[] {
-  return normalizeComparableText(value).split(/\s+/).filter(Boolean);
 }
 
 function canonicalizeComparableDatePart(value: string | null | undefined): string | null {
@@ -220,86 +221,81 @@ function selectCanonicalDateRange(input: {
     : null;
 }
 
-function isWeakGeneratedSummary(input: {
-  generated: string | null | undefined;
-  title: string | null | undefined;
-  employer: string | null | undefined;
-  location: string | null | undefined;
-  dateRange: string | null | undefined;
-}): boolean {
-  const generated = input.generated?.trim() ?? "";
-  if (!generated) {
-    return true;
+function findCanonicalProse(
+  generated: string | null | undefined,
+  canonicalCandidates: readonly string[],
+): string | null {
+  const normalizedGenerated = normalizeComparableText(generated);
+  if (!normalizedGenerated) {
+    return null;
   }
 
-  if (tokenizeResumeDetail(generated).length < 6) {
-    return true;
-  }
-
-  const metadata = normalizeComparableText([
-    input.title,
-    input.employer,
-    input.location,
-    input.dateRange,
-  ].filter((value): value is string => Boolean(value?.trim())).join(" "));
-
-  return Boolean(metadata && normalizeComparableText(generated) === metadata);
+  return (
+    canonicalCandidates.find(
+      (candidate) => normalizeComparableText(candidate) === normalizedGenerated,
+    ) ?? null
+  );
 }
 
-function selectSummary(input: {
+function selectCanonicalSummary(input: {
   generated: string | null | undefined;
   fallback: string | null | undefined;
-  title: string | null | undefined;
-  employer: string | null | undefined;
-  location: string | null | undefined;
-  dateRange: string | null | undefined;
+  canonical: string | null | undefined;
 }): string | null {
-  const generated = normalizeNullableString(input.generated);
-  const fallback = normalizeNullableString(input.fallback);
-  if (!fallback) {
-    return generated;
-  }
+  const candidates = uniqueStrings(
+    [input.fallback, input.canonical].filter(
+      (value): value is string => Boolean(value?.trim()),
+    ),
+  );
 
-  return isWeakGeneratedSummary({ ...input, generated }) ? fallback : generated;
+  return (
+    findCanonicalProse(input.generated, candidates) ??
+    normalizeNullableString(input.fallback) ??
+    normalizeNullableString(input.canonical)
+  );
 }
 
-function splitResumeDetailLine(value: string): string[] {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return [];
-  }
-
-  if (trimmed.length < 220 && !/[.!?]\s+\S/.test(trimmed)) {
-    return [trimmed];
-  }
-
-  const sentenceParts = trimmed
-    .split(/(?<=[.!?])\s+(?=[A-Z0-9])/)
-    .map((part) => part.trim())
-    .filter(Boolean);
-  if (sentenceParts.length > 1) {
-    return sentenceParts;
-  }
-
-  if (trimmed.length >= 260 && /;\s+/.test(trimmed)) {
-    return trimmed
-      .split(/;\s+/)
-      .map((part) => part.trim())
-      .filter(Boolean);
-  }
-
-  return [trimmed];
-}
-
-function mergeBullets(
+function selectCanonicalBullets(
   generatedBullets: unknown,
   fallbackBullets: readonly string[],
+  canonicalBullets: readonly string[],
   maxBullets = 3,
 ): string[] {
-  return uniqueStrings([
-    ...sanitizeStringArray(generatedBullets).flatMap(splitResumeDetailLine),
-    ...fallbackBullets.flatMap(splitResumeDetailLine),
-  ]).slice(0, maxBullets);
+  const canonicalCandidates = uniqueStrings([
+    ...fallbackBullets,
+    ...canonicalBullets,
+  ]);
+  const selectedBullets = uniqueStrings(
+    sanitizeStringArray(generatedBullets).flatMap((generatedBullet) => {
+      const canonicalBullet = findCanonicalProse(
+        generatedBullet,
+        canonicalCandidates,
+      );
+      return canonicalBullet ? [canonicalBullet] : [];
+    }),
+  );
+
+  return uniqueStrings([...selectedBullets, ...fallbackBullets]).slice(
+    0,
+    maxBullets,
+  );
+}
+
+function selectCanonicalStringList(
+  generatedValues: unknown,
+  fallbackValues: readonly string[],
+): string[] {
+  const selectedValues = uniqueStrings(
+    sanitizeStringArray(generatedValues).flatMap((generatedValue) => {
+      const canonicalValue = findCanonicalProse(
+        generatedValue,
+        fallbackValues,
+      );
+      return canonicalValue ? [canonicalValue] : [];
+    }),
+  );
+
+  return selectedValues.length > 0 ? selectedValues : [...fallbackValues];
 }
 
 function entryMatchesFallback(
@@ -391,6 +387,10 @@ function normalizeExperienceEntries(
   fallbackEntries: ReturnType<
     typeof buildDeterministicStructuredResumeDraft
   >["experienceEntries"],
+  canonicalEvidenceByRecordId: ReadonlyMap<
+    string,
+    CanonicalExperienceEvidence
+  >,
 ) {
   const knownFallbackIds = new Set(
     fallbackEntries
@@ -480,7 +480,14 @@ function normalizeExperienceEntries(
       generated: matchedEntry.dateRange,
       fallback: fallbackDateRange,
     });
-    const bullets = mergeBullets(matchedEntry.bullets, fallbackEntry.bullets);
+    const canonicalEvidence = fallbackEntry.profileRecordId
+      ? canonicalEvidenceByRecordId.get(fallbackEntry.profileRecordId)
+      : null;
+    const bullets = selectCanonicalBullets(
+      matchedEntry.bullets,
+      fallbackEntry.bullets,
+      canonicalEvidence?.bullets ?? [],
+    );
 
     return {
       title:
@@ -494,13 +501,10 @@ function normalizeExperienceEntries(
         fallbackEntry.location ??
         null,
       dateRange,
-      summary: selectSummary({
+      summary: selectCanonicalSummary({
         generated: matchedEntry.summary,
         fallback: fallbackEntry.summary,
-        title: matchedEntry.title ?? fallbackEntry.title,
-        employer: matchedEntry.employer ?? fallbackEntry.employer,
-        location: matchedEntry.location ?? fallbackEntry.location,
-        dateRange,
+        canonical: canonicalEvidence?.summary,
       }),
       bullets,
       profileRecordId: fallbackEntry.profileRecordId ?? null,
@@ -531,13 +535,7 @@ export function completeTailoredResumeDraft(
     primary && typeof primary === "object" && !Array.isArray(primary)
       ? (primary as Record<string, unknown>)
       : {};
-  const sanitizedExperienceHighlights = sanitizeStringArray(
-    normalizedPrimary.experienceHighlights,
-  );
   const sanitizedCoreSkills = sanitizeStringArray(normalizedPrimary.coreSkills);
-  const sanitizedTargetedKeywords = sanitizeStringArray(
-    normalizedPrimary.targetedKeywords,
-  );
   const sanitizedExperienceEntries = sanitizeStructuredEntries<{
     title?: string | null;
     employer?: string | null;
@@ -547,47 +545,15 @@ export function completeTailoredResumeDraft(
     bullets?: string[];
     profileRecordId?: string | null;
   }>(normalizedPrimary.experienceEntries, "bullets");
-  const sanitizedProjectEntries = sanitizeStructuredEntries<{
-    name?: string | null;
-    role?: string | null;
-    summary?: string | null;
-    outcome?: string | null;
-    bullets?: string[];
-    profileRecordId?: string | null;
-  }>(normalizedPrimary.projectEntries, "bullets");
-  const sanitizedEducationEntries = sanitizeStructuredEntries<{
-    school?: string | null;
-    degree?: string | null;
-    fieldOfStudy?: string | null;
-    location?: string | null;
-    dateRange?: string | null;
-    summary?: string | null;
-    profileRecordId?: string | null;
-  }>(normalizedPrimary.educationEntries);
-  const sanitizedCertificationEntries = sanitizeStructuredEntries<{
-    name?: string | null;
-    issuer?: string | null;
-    dateRange?: string | null;
-    profileRecordId?: string | null;
-  }>(normalizedPrimary.certificationEntries);
+  const sanitizedTargetedKeywords = sanitizeStringArray(
+    normalizedPrimary.targetedKeywords,
+  );
   const sanitizedAdditionalSkills = sanitizeStringArray(
     normalizedPrimary.additionalSkills,
   );
-  const sanitizedLanguages = sanitizeStringArray(normalizedPrimary.languages);
-  const label =
-    typeof normalizedPrimary.label === "string" &&
-    normalizedPrimary.label.trim().length > 0
-      ? normalizedPrimary.label
-      : fallback.label;
-  const summary =
-    typeof normalizedPrimary.summary === "string" &&
-    normalizedPrimary.summary.trim().length > 0
-      ? normalizedPrimary.summary
-      : fallback.summary;
-  const experienceHighlights =
-    sanitizedExperienceHighlights.length > 0
-      ? sanitizedExperienceHighlights
-      : fallback.experienceHighlights;
+  const label = fallback.label;
+  const summary = fallback.summary;
+  const experienceHighlights = fallback.experienceHighlights;
   const coreSkills =
     sanitizedCoreSkills.length > 0 ? sanitizedCoreSkills : fallback.coreSkills;
   const groundedCoreSkills = filterGroundedVisibleSkills(
@@ -595,10 +561,10 @@ export function completeTailoredResumeDraft(
     coreSkills,
     8,
   );
-  const targetedKeywords =
-    sanitizedTargetedKeywords.length > 0
-      ? sanitizedTargetedKeywords
-      : fallback.targetedKeywords;
+  const targetedKeywords = selectCanonicalStringList(
+    sanitizedTargetedKeywords,
+    fallback.targetedKeywords,
+  );
   const groundedAdditionalSkills = filterGroundedVisibleSkills(
     fallbackInput.profile,
     sanitizedAdditionalSkills.length > 0
@@ -611,19 +577,21 @@ export function completeTailoredResumeDraft(
         (coreSkill) => coreSkill.toLowerCase() === skill.toLowerCase(),
       ),
   );
-  const notes = uniqueStrings([
-    ...fallback.notes,
-    ...(Array.isArray(normalizedPrimary.notes)
-      ? normalizedPrimary.notes.filter(
-          (note): note is string =>
-            typeof note === "string" && note.trim().length > 0,
-        )
-      : []),
-  ]);
+  const notes = fallback.notes;
+  const canonicalExperienceEvidenceByRecordId = new Map(
+    fallbackInput.profile.experiences.map((experience) => [
+      experience.id,
+      {
+        summary: experience.summary,
+        bullets: experience.achievements,
+      } satisfies CanonicalExperienceEvidence,
+    ]),
+  );
   const experienceEntries = sanitizedExperienceEntries.length > 0
     ? normalizeExperienceEntries(
         sanitizedExperienceEntries,
         fallback.experienceEntries,
+        canonicalExperienceEvidenceByRecordId,
       )
     : fallback.experienceEntries;
   const fullText = composeDeterministicFullText({
@@ -632,44 +600,11 @@ export function completeTailoredResumeDraft(
     experienceHighlights,
     coreSkills: groundedCoreSkills,
     experienceEntries,
-    projectEntries:
-      sanitizedProjectEntries.length > 0
-        ? sanitizedProjectEntries.map((entry) => ({
-            name: typeof entry.name === "string" ? entry.name : null,
-            role: typeof entry.role === "string" ? entry.role : null,
-            summary: typeof entry.summary === "string" ? entry.summary : null,
-            outcome: typeof entry.outcome === "string" ? entry.outcome : null,
-            bullets: sanitizeStringArray(entry.bullets),
-          }))
-        : fallback.projectEntries,
-    educationEntries:
-      sanitizedEducationEntries.length > 0
-        ? sanitizedEducationEntries.map((entry) => ({
-            school: typeof entry.school === "string" ? entry.school : null,
-            degree: typeof entry.degree === "string" ? entry.degree : null,
-            fieldOfStudy:
-              typeof entry.fieldOfStudy === "string"
-                ? entry.fieldOfStudy
-                : null,
-            location:
-              typeof entry.location === "string" ? entry.location : null,
-            dateRange:
-              typeof entry.dateRange === "string" ? entry.dateRange : null,
-            summary: typeof entry.summary === "string" ? entry.summary : null,
-          }))
-        : fallback.educationEntries,
-    certificationEntries:
-      sanitizedCertificationEntries.length > 0
-        ? sanitizedCertificationEntries.map((entry) => ({
-            name: typeof entry.name === "string" ? entry.name : null,
-            issuer: typeof entry.issuer === "string" ? entry.issuer : null,
-            dateRange:
-              typeof entry.dateRange === "string" ? entry.dateRange : null,
-          }))
-        : fallback.certificationEntries,
+    projectEntries: fallback.projectEntries,
+    educationEntries: fallback.educationEntries,
+    certificationEntries: fallback.certificationEntries,
     additionalSkills: groundedAdditionalSkills,
-    languages:
-      sanitizedLanguages.length > 0 ? sanitizedLanguages : fallback.languages,
+    languages: fallback.languages,
     targetedKeywords,
     notes,
   });
@@ -682,58 +617,12 @@ export function completeTailoredResumeDraft(
     coreSkills: groundedCoreSkills,
     targetedKeywords,
     coverageMetadata: fallback.coverageMetadata,
-    experienceEntries:
-      experienceEntries,
-    projectEntries:
-      sanitizedProjectEntries.length > 0
-        ? sanitizedProjectEntries.map((entry) => ({
-            name: typeof entry.name === "string" ? entry.name : null,
-            role: typeof entry.role === "string" ? entry.role : null,
-            summary: typeof entry.summary === "string" ? entry.summary : null,
-            outcome: typeof entry.outcome === "string" ? entry.outcome : null,
-            bullets: sanitizeStringArray(entry.bullets),
-            profileRecordId:
-              typeof entry.profileRecordId === "string"
-                ? entry.profileRecordId
-                : null,
-          }))
-        : fallback.projectEntries,
-    educationEntries:
-      sanitizedEducationEntries.length > 0
-        ? sanitizedEducationEntries.map((entry) => ({
-            school: typeof entry.school === "string" ? entry.school : null,
-            degree: typeof entry.degree === "string" ? entry.degree : null,
-            fieldOfStudy:
-              typeof entry.fieldOfStudy === "string"
-                ? entry.fieldOfStudy
-                : null,
-            location:
-              typeof entry.location === "string" ? entry.location : null,
-            dateRange:
-              typeof entry.dateRange === "string" ? entry.dateRange : null,
-            summary: typeof entry.summary === "string" ? entry.summary : null,
-            profileRecordId:
-              typeof entry.profileRecordId === "string"
-                ? entry.profileRecordId
-                : null,
-          }))
-        : fallback.educationEntries,
-    certificationEntries:
-      sanitizedCertificationEntries.length > 0
-        ? sanitizedCertificationEntries.map((entry) => ({
-            name: typeof entry.name === "string" ? entry.name : null,
-            issuer: typeof entry.issuer === "string" ? entry.issuer : null,
-            dateRange:
-              typeof entry.dateRange === "string" ? entry.dateRange : null,
-            profileRecordId:
-              typeof entry.profileRecordId === "string"
-                ? entry.profileRecordId
-                : null,
-          }))
-        : fallback.certificationEntries,
+    experienceEntries,
+    projectEntries: fallback.projectEntries,
+    educationEntries: fallback.educationEntries,
+    certificationEntries: fallback.certificationEntries,
     additionalSkills: groundedAdditionalSkills,
-    languages:
-      sanitizedLanguages.length > 0 ? sanitizedLanguages : fallback.languages,
+    languages: fallback.languages,
     fullText,
     compatibilityScore:
       typeof normalizedPrimary.compatibilityScore === "number"

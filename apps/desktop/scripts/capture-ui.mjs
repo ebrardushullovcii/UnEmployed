@@ -64,6 +64,7 @@ async function waitForHeading(window, headings, options) {
 }
 
 async function waitForProfileOrSetupHeading(window) {
+  await window.evaluate(() => { window.location.hash = '#/job-finder/profile' })
   await waitForHeading(window, ['Your profile', 'Guided setup'], { timeout: 15000 })
 }
 

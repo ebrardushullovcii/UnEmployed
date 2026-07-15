@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { IsoDateTimeSchema, NonEmptyStringSchema } from "./base";
+import { InterviewChatConversationSchema } from "./interview-chat";
 import { CandidateProfileSchema } from "./profile";
 import { SavedJobSchema } from "./discovery";
 
@@ -390,6 +391,7 @@ export const InterviewLiveSessionSchema = z.object({
     .array(InterviewTranscriptAnnotationSchema)
     .default([]),
   cueCards: z.array(InterviewCueCardSchema).default([]),
+  chatConversation: InterviewChatConversationSchema.nullable().default(null),
   visualBatches: z.array(InterviewCueVisualBatchSchema).default([]),
   diagnostics: z.array(InterviewDiagnosticEventSchema).default([]),
   protectedSurfaces: z.array(InterviewProtectedSurfaceSchema).default([]),
@@ -535,6 +537,13 @@ export const InterviewClipboardTextResultSchema = z.object({
 });
 export type InterviewClipboardTextResult = z.infer<
   typeof InterviewClipboardTextResultSchema
+>;
+
+export const InterviewClipboardWriteInputSchema = z.object({
+  text: z.string().max(30_000),
+});
+export type InterviewClipboardWriteInput = z.infer<
+  typeof InterviewClipboardWriteInputSchema
 >;
 
 export const InterviewCaptionFileReadInputSchema = z.object({

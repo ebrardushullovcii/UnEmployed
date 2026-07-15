@@ -16,12 +16,16 @@ import type {
   InterviewAudioTranscriptionInput,
   InterviewCaptionFileReadInput,
   InterviewCaptionFileTextResult,
+  InterviewChatTurn,
   InterviewClipboardTextResult,
+  InterviewClipboardWriteInput,
   InterviewPrepArtifactFromCueInput,
   InterviewTranscriptAnnotationInput,
   InterviewTranscriptSegmentInput,
   InterviewWorkspaceSnapshot,
   SaveInterviewSetupInput,
+  SendInterviewChatMessageInput,
+  UpdateInterviewOverlayPreferenceInput,
   JobFinderOpenBrowserSessionInput,
   ProfileCopilotContext,
   ProfileSetupReviewActionOptions,
@@ -65,6 +69,9 @@ declare global {
       };
       interviewHelper: {
         getWorkspace: () => Promise<InterviewWorkspaceSnapshot>;
+        onWorkspaceChange: (
+          listener: (workspace: InterviewWorkspaceSnapshot) => void,
+        ) => () => void;
         saveSetup: (
           input: SaveInterviewSetupInput,
         ) => Promise<InterviewWorkspaceSnapshot>;
@@ -78,6 +85,9 @@ declare global {
         moveOverlayWindow: (
           input: InterviewOverlayMoveInput,
         ) => Promise<{ moved: boolean }>;
+        updateOverlayPreference: (
+          input: UpdateInterviewOverlayPreferenceInput,
+        ) => Promise<InterviewWorkspaceSnapshot>;
         deleteSession: (
           sessionId: string,
         ) => Promise<InterviewWorkspaceSnapshot>;
@@ -90,12 +100,18 @@ declare global {
         addTranscriptSegment: (
           input: InterviewTranscriptSegmentInput,
         ) => Promise<InterviewWorkspaceSnapshot>;
+        sendChatMessage: (
+          input: SendInterviewChatMessageInput,
+        ) => Promise<InterviewChatTurn>;
         transcribeAudioChunk: (
           input: InterviewAudioTranscriptionInput,
         ) => Promise<InterviewWorkspaceSnapshot>;
         verifyOverlayProtection: () => Promise<InterviewWorkspaceSnapshot>;
         resetOverlayPreferences: () => Promise<InterviewWorkspaceSnapshot>;
         readClipboardText: () => Promise<InterviewClipboardTextResult>;
+        writeClipboardText: (
+          input: InterviewClipboardWriteInput,
+        ) => Promise<{ written: true }>;
         selectCaptionFile: () => Promise<InterviewCaptionFileTextResult>;
         readCaptionFile: (
           input: InterviewCaptionFileReadInput,

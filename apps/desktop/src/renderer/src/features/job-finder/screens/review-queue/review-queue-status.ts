@@ -46,7 +46,7 @@ export function getReviewQueueWorkflowStatus(
 
   if (isQueueStageReady(item)) {
     return {
-      label: 'Ready to apply',
+      label: item.resumeReview.status === 'original_resume' ? 'Original CV ready' : 'Ready to apply',
       tone: 'positive'
     }
   }
@@ -76,7 +76,7 @@ export function isResumeGenerationInProgress(item: ReviewQueueItem | null): bool
 }
 
 export function needsResumeGeneration(item: ReviewQueueItem | null): boolean {
-  return item?.assetStatus === 'not_started'
+  return item?.resumeApplicationMode !== 'original_resume' && item?.assetStatus === 'not_started'
 }
 
 export function hasResumeGenerationFailure(item: ReviewQueueItem | null): boolean {
@@ -88,7 +88,7 @@ export function isQueueStageReady(item: ReviewQueueItem | null): boolean {
     item &&
       item.assetStatus === 'ready' &&
       item.resumeAssetId &&
-      item.resumeReview.status === 'approved'
+      (item.resumeReview.status === 'approved' || item.resumeReview.status === 'original_resume')
   )
 }
 

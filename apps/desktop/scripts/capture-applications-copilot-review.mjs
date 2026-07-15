@@ -39,6 +39,8 @@ async function waitForCondition(check, description, timeoutMs = 15000, intervalM
 }
 
 async function waitForProfileOrSetupHeading(window) {
+  await window.waitForFunction(() => Boolean(window.unemployed?.jobFinder?.test), undefined, { timeout: 15000 })
+  await window.evaluate(() => { window.location.hash = '#/job-finder/profile' })
   await window.waitForFunction(() => {
     const heading = document.querySelector('h1')
     return heading?.textContent?.includes('Your profile') || heading?.textContent?.includes('Guided setup')
@@ -176,7 +178,15 @@ async function captureApplicationsCopilotReview() {
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '02-review-queue-approved.png') })
 
     await startApplyCopilotButton.click()
-    await window.getByRole('heading', { level: 1, name: 'Applications' }).waitFor({ timeout: 10000 })
+    const checkpointDialog = window.getByRole('dialog')
+    await checkpointDialog.waitFor({ timeout: 10000 })
+    await checkpointDialog.getByRole('button', { name: 'Continue without' }).click()
+    await waitForCondition(
+      async () => (await getWorkspace(window)).applicationRecords.length > 0,
+      'application record created by Apply Copilot',
+    )
+    await window.evaluate(() => { window.location.hash = '#/job-finder/applications' })
+    await window.locator('h1').filter({ hasText: /^Applications$/ }).waitFor({ timeout: 10000 })
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '03-applications-open.png') })
 
     const reviewDataHeading = window.getByText('Apply run review data', { exact: true })
@@ -184,7 +194,7 @@ async function captureApplicationsCopilotReview() {
     await reviewDataSection.waitFor({ timeout: 10000 })
     await reviewDataSection.getByText('Replay checkpoints', { exact: true }).waitFor({ timeout: 10000 })
     await reviewDataSection.getByText('Retained artifacts', { exact: true }).waitFor({ timeout: 10000 })
-    await reviewDataSection.getByText('Attached tailored resume', { exact: true }).first().waitFor({ timeout: 10000 })
+    await reviewDataSection.getByText('Attached selected resume', { exact: true }).first().waitFor({ timeout: 10000 })
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '04-applications-copilot-review-data.png') })
 
     const reviewData = await getSelectedApplyReviewData(window)

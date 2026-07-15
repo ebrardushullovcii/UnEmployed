@@ -64,6 +64,8 @@ export function SettingsEditableDefaults({
   const selectedFontPreset = fontPresetOptions.find(
     (fontPreset) => fontPreset.value === settingsForm.fontPreset
   )
+  const selectedResumeApplicationMode =
+    settingsForm.resumeApplicationMode ?? 'tailored_per_job'
 
   useEffect(() => {
     setSettingsForm(settings)
@@ -72,6 +74,51 @@ export function SettingsEditableDefaults({
   return (
     <section className="surface-panel-shell relative grid content-start gap-3 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
       <div className="grid gap-3">
+        <section className="grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-overlay-subtle) p-3.5">
+          <div className="grid gap-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-[1.02rem] font-semibold text-(--text-headline)">CV used for applications</h2>
+              <Badge variant="section">Applies after jobs are found</Badge>
+            </div>
+            <p className="max-w-[72ch] text-(length:--text-description) leading-5 text-foreground-soft">
+              Choose whether each job gets a tailored CV or the exact file you imported in Profile. You still decide job by job before Apply Copilot opens the application.
+            </p>
+          </div>
+
+          <div className="grid gap-2.5 md:grid-cols-2" role="radiogroup" aria-label="CV application mode">
+            <button
+              aria-checked={selectedResumeApplicationMode === 'tailored_per_job'}
+              className={`grid min-h-32 gap-2 rounded-(--radius-field) border p-4 text-left transition-colors ${selectedResumeApplicationMode === 'tailored_per_job' ? 'border-primary/70 bg-primary/8' : 'border-(--surface-panel-border) bg-background/45 hover:border-primary/35'}`}
+              disabled={isSavePending}
+              onClick={() => updateSettingsForm((current) => ({ ...current, resumeApplicationMode: 'tailored_per_job' }))}
+              role="radio"
+              type="button"
+            >
+              <span className="font-semibold text-foreground">Tailor a CV for each job</span>
+              <span className="text-(length:--text-description) leading-5 text-foreground-soft">Create, review, and approve a job-specific PDF before it can be attached.</span>
+              <span className="label-mono-xs">Current default</span>
+            </button>
+            <button
+              aria-checked={selectedResumeApplicationMode === 'original_resume'}
+              className={`grid min-h-32 gap-2 rounded-(--radius-field) border p-4 text-left transition-colors ${selectedResumeApplicationMode === 'original_resume' ? 'border-primary/70 bg-primary/8' : 'border-(--surface-panel-border) bg-background/45 hover:border-primary/35'}`}
+              disabled={isSavePending}
+              onClick={() => updateSettingsForm((current) => ({ ...current, resumeApplicationMode: 'original_resume' }))}
+              role="radio"
+              type="button"
+            >
+              <span className="font-semibold text-foreground">Use my original CV unchanged</span>
+              <span className="text-(length:--text-description) leading-5 text-foreground-soft">Skip CV generation. Review Queue shows the imported file and Apply Copilot attaches that same file.</span>
+              <span className="label-mono-xs">No rewriting or job removal</span>
+            </button>
+          </div>
+
+          {selectedResumeApplicationMode === 'original_resume' ? (
+            <p className="rounded-(--radius-field) border border-primary/25 bg-primary/6 px-3.5 py-3 text-sm leading-5 text-foreground-soft">
+              Original-CV mode preserves the imported file byte for byte. Template and font choices below only apply when tailored-CV mode is selected.
+            </p>
+          ) : null}
+        </section>
+
         <section className="grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-overlay-subtle) p-3.5">
           <div className="grid gap-1">
             <h2 className="text-[1.02rem] font-semibold text-(--text-headline)">Default template picker</h2>
@@ -149,7 +196,7 @@ export function SettingsEditableDefaults({
             <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) px-3.5 py-3">
               <span className="label-mono-xs">Workflow defaults</span>
               <strong className="mt-1.5 block text-(length:--text-body) font-semibold text-foreground">
-                {settingsForm.keepSessionAlive ? 'Keep browser open' : 'Close after runs'} · {settingsForm.discoveryOnly ? 'Shortlist only' : 'Save findings'}
+                {selectedResumeApplicationMode === 'original_resume' ? 'Original CV' : 'Tailored CV'} · {settingsForm.keepSessionAlive ? 'Keep browser open' : 'Close after runs'}
               </strong>
               <p className="mt-1.5 text-(length:--text-description) leading-5 text-foreground-soft">
                 Decide whether Job Finder reuses a warm browser session and whether new search results persist automatically.
@@ -191,8 +238,8 @@ export function SettingsEditableDefaults({
             {actionMessage ? <p className="text-primary">{actionMessage}</p> : 'Only future work changes until you save these defaults.'}
           </div>
         <div className="flex flex-wrap items-center gap-3">
-          <Badge variant="section">New drafts inherit these defaults</Badge>
-          <Button variant="primary" pending={isSavePending} onClick={() => onSaveSettings(settingsForm)} type="button">
+          <Badge variant="section">Future application steps use this mode</Badge>
+          <Button variant="primary" pending={isSavePending} onClick={() => onSaveSettings({ ...settingsForm, resumeApplicationMode: selectedResumeApplicationMode })} type="button">
             Save settings
           </Button>
         </div>

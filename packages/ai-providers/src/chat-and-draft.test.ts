@@ -139,12 +139,178 @@ describe("openai-compatible chat and draft behavior", () => {
       expect(result.compatibilityScore).toBe(
         deterministicFallback.compatibilityScore,
       );
-      expect(result.notes).toEqual(
-        expect.arrayContaining([
-          "Model draft partial",
-          ...deterministicFallback.notes,
-        ]),
+      expect(result.notes).toEqual(deterministicFallback.notes);
+      expect(result.fullText).not.toContain("Model draft partial");
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("rejects fabricated model claims and records outside canonical resume evidence", async () => {
+    const fabricatedSummary =
+      "Fabricated executive summary claiming fifty million dollars in growth.";
+    const fabricatedHighlight = "Invented a forty-million-dollar turnaround.";
+    const fabricatedProject = "Project Mirage";
+    const fabricatedSchool = "Imaginary University";
+    const fabricatedCertification = "Quantum Cloud Grandmaster";
+    const fabricatedLanguage = "Klingon — Native";
+    const fabricatedKeyword = "Unverified Quantum Computing";
+    const fabricatedNote = "Won an invented global engineering award.";
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              label: "World-Class Executive Resume",
+              summary: fabricatedSummary,
+              experienceHighlights: [fabricatedHighlight],
+              coreSkills: ["React", "ImaginarySkill"],
+              targetedKeywords: [fabricatedKeyword],
+              projectEntries: [
+                {
+                  name: fabricatedProject,
+                  role: "Founder",
+                  summary: "Built a fictional global platform.",
+                  outcome: "Created one billion dollars in value.",
+                  bullets: ["Served every person on earth."],
+                  profileRecordId: "project_fabricated",
+                },
+              ],
+              educationEntries: [
+                {
+                  school: fabricatedSchool,
+                  degree: "PhD",
+                  fieldOfStudy: "Quantum Leadership",
+                  dateRange: "2020 – 2024",
+                  profileRecordId: "education_fabricated",
+                },
+              ],
+              certificationEntries: [
+                {
+                  name: fabricatedCertification,
+                  issuer: "Imaginary Cloud Council",
+                  dateRange: "2026",
+                  profileRecordId: "certification_fabricated",
+                },
+              ],
+              additionalSkills: ["TypeScript", "ImaginarySkill"],
+              languages: [fabricatedLanguage],
+              compatibilityScore: 91,
+              notes: [fabricatedNote],
+            }),
+          },
+        },
+      ],
+    });
+
+    try {
+      const client = createOpenAiCompatibleJobFinderAiClient({
+        apiKey: "test-key",
+        baseUrl: "https://example.com/v1",
+        model: "test-model",
+      });
+      const input = {
+        profile: {
+          ...createProfile(),
+          projects: [
+            {
+              id: "project_workflow_console",
+              name: "Workflow Console",
+              projectType: null,
+              summary: "Built a canonical workflow operations console.",
+              role: "Lead Engineer",
+              skills: ["React", "TypeScript"],
+              outcome: "Reduced canonical support response time by 20%.",
+              projectUrl: null,
+              repositoryUrl: null,
+              caseStudyUrl: null,
+            },
+          ],
+          education: [
+            {
+              id: "education_engineering",
+              schoolName: "Canonical Technical University",
+              degree: "BSc",
+              fieldOfStudy: "Software Engineering",
+              location: "London, UK",
+              startDate: "2012",
+              endDate: "2016",
+              isDraft: false,
+              summary: "Completed the canonical software engineering curriculum.",
+            },
+          ],
+          certifications: [
+            {
+              id: "certification_cloud",
+              name: "Canonical Cloud Practitioner",
+              issuer: "Canonical Cloud Institute",
+              issueDate: "2024",
+              expiryDate: null,
+              credentialUrl: null,
+              isDraft: false,
+            },
+          ],
+          spokenLanguages: [
+            {
+              id: "language_english",
+              language: "English",
+              proficiency: "Fluent",
+              interviewPreference: true,
+              notes: null,
+            },
+          ],
+        },
+        searchPreferences: createPreferences(),
+        settings: createSettings(),
+        job: createJobPosting(),
+        resumeText: "Resume text",
+        evidence: {
+          summary: [],
+          candidateSummary: [],
+          experience: [],
+          skills: ["React", "TypeScript"],
+          keywords: ["React", "TypeScript"],
+        },
+        researchContext: {
+          companyNotes: [],
+          domainVocabulary: [],
+          priorityThemes: [],
+        },
+      } satisfies Parameters<typeof client.createResumeDraft>[0];
+
+      const result = await client.createResumeDraft(input);
+      const deterministicFallback =
+        buildDeterministicStructuredResumeDraft(input);
+
+      expect(result).toMatchObject({
+        label: deterministicFallback.label,
+        summary: deterministicFallback.summary,
+        experienceHighlights: deterministicFallback.experienceHighlights,
+        targetedKeywords: deterministicFallback.targetedKeywords,
+        projectEntries: deterministicFallback.projectEntries,
+        educationEntries: deterministicFallback.educationEntries,
+        certificationEntries: deterministicFallback.certificationEntries,
+        languages: deterministicFallback.languages,
+        notes: deterministicFallback.notes,
+        compatibilityScore: 91,
+      });
+      expect(result.coreSkills).toContain("React");
+      expect(result.additionalSkills).toContain("TypeScript");
+      expect([...result.coreSkills, ...result.additionalSkills]).not.toContain(
+        "ImaginarySkill",
       );
+      for (const fabricatedClaim of [
+        fabricatedSummary,
+        fabricatedHighlight,
+        fabricatedProject,
+        fabricatedSchool,
+        fabricatedCertification,
+        fabricatedLanguage,
+        fabricatedKeyword,
+        fabricatedNote,
+      ]) {
+        expect(result.fullText).not.toContain(fabricatedClaim);
+      }
     } finally {
       restoreFetch();
     }
@@ -232,6 +398,108 @@ describe("openai-compatible chat and draft behavior", () => {
       expect(result.fullText).toContain(
         deterministicFallback.experienceEntries[0]?.dateRange ?? "",
       );
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("filters fabricated model role prose while preserving canonical bullet selection order", async () => {
+    const canonicalSummary =
+      "Directed platform reliability for customer-facing workflow systems.";
+    const canonicalBullets = [
+      "Improved production uptime from 99.5% to 99.9%.",
+      "Reduced median API latency by 30% after profiling critical requests.",
+    ];
+    const fabricatedSummary =
+      "Transformed the enterprise through visionary, best-in-class leadership.";
+    const vagueBullet =
+      "Worked hard across strategic priorities to deliver exceptional results.";
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              label: "Tailored Resume",
+              summary: "Tailored summary",
+              experienceEntries: [
+                {
+                  title: "Platform Engineer",
+                  employer: "Acme Labs",
+                  summary: fabricatedSummary,
+                  bullets: [canonicalBullets[1], vagueBullet, canonicalBullets[0]],
+                  profileRecordId: "experience_platform",
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    });
+
+    try {
+      const client = createOpenAiCompatibleJobFinderAiClient({
+        apiKey: "test-key",
+        baseUrl: "https://example.com/v1",
+        model: "test-model",
+      });
+      const input = {
+        profile: {
+          ...createProfile(),
+          skills: ["TypeScript", "Node.js"],
+          proofBank: [],
+          experiences: [
+            {
+              id: "experience_platform",
+              companyName: "Acme Labs",
+              companyUrl: null,
+              title: "Platform Engineer",
+              employmentType: null,
+              location: "Remote",
+              workMode: ["remote" as const],
+              startDate: "2022-01",
+              endDate: null,
+              isCurrent: true,
+              isDraft: false,
+              summary: canonicalSummary,
+              achievements: canonicalBullets,
+              skills: ["TypeScript", "Node.js"],
+              domainTags: ["platform reliability"],
+              peopleManagementScope: null,
+              ownershipScope: null,
+            },
+          ],
+        },
+        searchPreferences: createPreferences(),
+        settings: createSettings(),
+        job: {
+          ...createJobPosting(),
+          title: "Platform Engineer",
+          keySkills: ["TypeScript", "Node.js"],
+        },
+        resumeText: "Resume text",
+        evidence: {
+          summary: [],
+          candidateSummary: [],
+          experience: [],
+          skills: ["TypeScript", "Node.js"],
+          keywords: ["TypeScript", "Node.js"],
+        },
+        researchContext: {
+          companyNotes: [],
+          domainVocabulary: [],
+          priorityThemes: [],
+        },
+      } satisfies Parameters<typeof client.createResumeDraft>[0];
+
+      const result = await client.createResumeDraft(input);
+
+      expect(result.experienceEntries[0]).toMatchObject({
+        profileRecordId: "experience_platform",
+        summary: canonicalSummary,
+        bullets: [canonicalBullets[1], canonicalBullets[0]],
+      });
+      expect(result.fullText).not.toContain(fabricatedSummary);
+      expect(result.fullText).not.toContain(vagueBullet);
     } finally {
       restoreFetch();
     }
@@ -341,7 +609,8 @@ describe("openai-compatible chat and draft behavior", () => {
       ]);
       expect(result.experienceEntries[0]).toMatchObject({
         profileRecordId: "experience_frontend",
-        summary: "Model kept only the newest role.",
+        summary: "Builds React workflow products.",
+        bullets: ["Built React workflow products for hiring teams."],
       });
       expect(result.experienceEntries[1]).toMatchObject({
         profileRecordId: "experience_dotnet",
@@ -562,11 +831,9 @@ describe("openai-compatible chat and draft behavior", () => {
       ]);
       expect(result.experienceEntries.map((entry) => entry.profileRecordId)).not.toContain("fake_id");
       expect(result.experienceEntries[0]?.bullets).toEqual([
-        "Model omitted id for newest role.",
         "Built React workflow products for hiring teams.",
       ]);
       expect(result.experienceEntries[1]?.bullets).toEqual([
-        "Model reordered older role first.",
         "Improved API latency by 25% through cached .NET endpoints.",
       ]);
     } finally {
@@ -794,7 +1061,6 @@ describe("openai-compatible chat and draft behavior", () => {
         "Built modern workflow tooling.",
       ]);
       expect(result.experienceEntries[1]?.bullets).toEqual([
-        "Model text for the older Orbit stint.",
         "Maintained legacy workflow tooling.",
       ]);
     } finally {
@@ -901,7 +1167,6 @@ describe("openai-compatible chat and draft behavior", () => {
         "experience_orbit_old",
       ]);
       expect(result.experienceEntries[1]?.bullets).toEqual([
-        "Model text for the older Orbit stint.",
         "Maintained legacy workflow tooling.",
       ]);
     } finally {

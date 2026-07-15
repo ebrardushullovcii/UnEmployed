@@ -13,7 +13,7 @@ import type {
   JobPosting,
   JobSearchPreferences,
   JobSource,
-  ResumeExportArtifact,
+  ApplicationResumeArtifact,
   SourceDebugPhase,
   SharedAgentCompactionPolicy,
   SavedJob,
@@ -27,8 +27,7 @@ export interface OpenBrowserSessionOptions {
 
 export interface ExecuteEasyApplyInput {
   job: SavedJob;
-  resumeExport: ResumeExportArtifact;
-  resumeFilePath: string;
+  resumeArtifact: ApplicationResumeArtifact;
   profile: CandidateProfile;
   settings: JobFinderSettings;
   instructions?: readonly string[];
@@ -38,6 +37,23 @@ export type ApplicationExecutionMode = "prepare_only" | "submit_when_ready";
 
 export interface ExecuteApplicationFlowInput extends ExecuteEasyApplyInput {
   mode: ApplicationExecutionMode;
+  /**
+   * Explicit permission for non-final ATS writes such as draft creation,
+   * autosave, or a verified non-final continuation step. This does not
+   * authorize DOM form submission or clicking a final apply control.
+   * Omitted values are false.
+   */
+  intermediateMutationsAuthorized?: boolean;
+  /**
+   * Explicit final-submit authorization. The production Playwright runtime
+   * treats omitted values as false.
+   *
+   * The production Playwright runtime currently remains prepare-only even when
+   * this value is true. Keeping authorization separate from `mode` prevents a
+   * `submit_when_ready` request from becoming implicit permission to click a
+   * final submit control.
+   */
+  submitAuthorized?: boolean;
   recoveryContext?: ApplyRecoveryContext;
   captureVisualSnapshot?: (
     request: BrowserVisualSnapshotRequest,

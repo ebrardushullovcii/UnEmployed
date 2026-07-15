@@ -97,8 +97,7 @@ describe("buildResumeRenderDocument", () => {
       startDate: "2020-01",
       endDate: null,
       isCurrent: true,
-      heading:
-        "Senior systems designer — Signal Systems | London, UK | Jan 2020 – Present",
+      heading: "Senior systems designer — Signal Systems | London, UK | Jan 2020 – Present",
       summary: "Tailored workflow platform summary.",
       bullets: [
         {
@@ -164,8 +163,9 @@ describe("buildResumeRenderDocument", () => {
       templateId: seed.settings.resumeTemplateId,
     });
     const experienceEntries = draft.sections.find((section) => section.kind === "experience")?.entries ?? [];
-    const documentEntries = buildResumeRenderDocument(profile, draft).sections
-      .find((section) => section.kind === "experience")?.entries ?? [];
+    const documentEntries =
+      buildResumeRenderDocument(profile, draft).sections.find((section) => section.kind === "experience")?.entries ??
+      [];
 
     expect(experienceEntries.map((entry) => entry.profileRecordId)).toEqual([
       "current_platform",
@@ -173,9 +173,7 @@ describe("buildResumeRenderDocument", () => {
       "older_dotnet",
     ]);
     expect(experienceEntries.map((entry) => entry.sortOrder)).toEqual([0, 1, 2]);
-    expect(documentEntries.map((entry) => entry.id)).toEqual(
-      experienceEntries.map((entry) => entry.id),
-    );
+    expect(documentEntries.map((entry) => entry.id)).toEqual(experienceEntries.map((entry) => entry.id));
   });
 
   test("buildResumeDraftFromTailoredDraft keeps suggested-hidden guidance out of rendered resume content", () => {
@@ -251,9 +249,7 @@ describe("buildResumeRenderDocument", () => {
       },
     });
     const experienceSection = draft.sections.find((section) => section.kind === "experience");
-    const hiddenEntry = experienceSection?.entries.find(
-      (entry) => entry.profileRecordId === "experience_sales_bridge",
-    );
+    const hiddenEntry = experienceSection?.entries.find((entry) => entry.profileRecordId === "experience_sales_bridge");
     const document = buildResumeRenderDocument(profile, draft);
 
     expect(hiddenEntry).toMatchObject({
@@ -262,6 +258,86 @@ describe("buildResumeRenderDocument", () => {
     });
     expect(JSON.stringify(document)).not.toContain("weaker career-family fit");
     expect(JSON.stringify(document)).not.toContain("Sales Operations Associate");
+  });
+
+  test("buildResumeDraftFromTailoredDraft keeps every canonical job available in the editor", () => {
+    const seed = createSeed();
+    const primaryExperience = seed.profile.experiences[0]!;
+    const profile = {
+      ...seed.profile,
+      experiences: [
+        primaryExperience,
+        {
+          ...primaryExperience,
+          id: "experience_omitted",
+          title: "Earlier operations role",
+          startDate: "2018-01",
+          endDate: "2019-01",
+          isCurrent: false,
+        },
+        {
+          ...primaryExperience,
+          id: "experience_missing_from_provider",
+          title: "Earlier support role",
+          startDate: "2016-01",
+          endDate: "2017-01",
+          isCurrent: false,
+        },
+      ],
+    };
+    const draft = buildResumeDraftFromTailoredDraft({
+      job: seed.savedJobs[0]!,
+      templateId: seed.settings.resumeTemplateId,
+      createdAt: "2026-03-20T10:04:00.000Z",
+      generationMethod: "deterministic",
+      profile,
+      draft: {
+        label: "Tailored Resume",
+        summary: "Grounded software summary.",
+        experienceHighlights: [],
+        coreSkills: ["React"],
+        targetedKeywords: ["React"],
+        experienceEntries: [
+          {
+            title: primaryExperience.title,
+            employer: primaryExperience.companyName,
+            location: primaryExperience.location,
+            dateRange: "Jan 2020 – Present",
+            summary: primaryExperience.summary,
+            bullets: primaryExperience.achievements,
+            profileRecordId: primaryExperience.id,
+          },
+        ],
+        projectEntries: [],
+        educationEntries: [],
+        certificationEntries: [],
+        coverageMetadata: [
+          {
+            profileRecordId: "experience_omitted",
+            classification: "omitted",
+            careerFamilyFit: "weak",
+            reasons: ["weak fit"],
+            reviewGuidance: ["Keep available for review."],
+            coversMeaningfulGap: false,
+          },
+        ],
+        additionalSkills: [],
+        languages: [],
+        fullText: "Grounded software summary.",
+        compatibilityScore: 80,
+        notes: [],
+      },
+    });
+
+    const entries = draft.sections.find((section) => section.kind === "experience")?.entries ?? [];
+
+    expect(entries.map((entry) => entry.profileRecordId)).toEqual([
+      primaryExperience.id,
+      "experience_omitted",
+      "experience_missing_from_provider",
+    ]);
+    expect(entries.find((entry) => entry.profileRecordId === "experience_omitted")?.included).toBe(false);
+    expect(entries.find((entry) => entry.profileRecordId === "experience_missing_from_provider")?.included).toBe(false);
   });
 
   test("buildResumeDraftFromTailoredDraft preserves imported dates and detail when tailored entries are thin", () => {
@@ -431,6 +507,7 @@ describe("buildResumeRenderDocument", () => {
           isCurrent: true,
           summary: "Led hands-on product engineering across order, kitchen, and billing workflows.",
           achievements: [
+            "Project Lead (React, Next.js) – QA Management System",
             "Engineered a real-time restaurant order platform with React, Next.js, TailwindCSS & WebSockets, synchronizing POS and kitchen screens and eliminating manual order calls. Improved release confidence across kitchen workflows.",
             "Integrated car-repair parts tracking and service scheduling; reducing car-parts load time by 87% (15s to 2s); improving ordering logic aligned with safety protocols.",
           ],
@@ -475,7 +552,7 @@ describe("buildResumeRenderDocument", () => {
       .find((section) => section.kind === "experience")
       ?.entries.find((item) => item.profileRecordId === "experience_operations_system");
 
-    expect(entry?.dateRange).toBe("Jan 2023 – Present");
+    expect(entry?.dateRange).toBe("Jul 2023 – Present");
     expect(entry?.startDate).toBe("01/07/2023");
     expect(entry?.endDate).toBeNull();
     expect(entry?.isCurrent).toBe(true);
@@ -485,6 +562,58 @@ describe("buildResumeRenderDocument", () => {
       "Engineered a real-time restaurant order platform with React, Next.js, TailwindCSS & WebSockets, synchronizing POS and kitchen screens and eliminating manual order calls.",
       "Improved release confidence across kitchen workflows.",
     ]);
+  });
+
+  test("buildResumeDraftFromTailoredDraft drops career-change meta from experience summaries", () => {
+    const seed = createSeed();
+    const profile = {
+      ...seed.profile,
+      experiences: [
+        {
+          ...seed.profile.experiences[0]!,
+          summary: "After deciding to return to my passion for development, I transitioned back into a hands-on role.",
+        },
+      ],
+    };
+    const profileExperience = profile.experiences[0]!;
+    const draft = buildResumeDraftFromTailoredDraft({
+      job: seed.savedJobs[0]!,
+      templateId: seed.settings.resumeTemplateId,
+      createdAt: "2026-03-20T10:04:00.000Z",
+      generationMethod: "deterministic",
+      profile,
+      draft: {
+        label: "Tailored Resume",
+        summary: "Grounded software summary.",
+        experienceHighlights: [],
+        coreSkills: ["React"],
+        targetedKeywords: ["React"],
+        experienceEntries: [
+          {
+            title: profileExperience.title,
+            employer: profileExperience.companyName,
+            location: profileExperience.location,
+            dateRange: "Jan 2020 – Present",
+            summary: "Remote, Kosovo",
+            bullets: profileExperience.achievements,
+            profileRecordId: profileExperience.id,
+          },
+        ],
+        projectEntries: [],
+        educationEntries: [],
+        certificationEntries: [],
+        coverageMetadata: [],
+        additionalSkills: [],
+        languages: [],
+        fullText: "Grounded software summary.",
+        compatibilityScore: 80,
+        notes: [],
+      },
+    });
+    const entry = draft.sections.find((section) => section.kind === "experience")?.entries[0];
+
+    expect(entry?.summary).toBeNull();
+    expect(entry?.bullets.length).toBeGreaterThan(0);
   });
 
   test("buildResumeDraftFromTailoredDraft chronologically reinserts suggested-hidden entries", () => {
@@ -630,7 +759,10 @@ describe("buildResumeRenderDocument", () => {
       { field: "portfolioUrl", text: "https://alex.example.com" },
       { field: "personalWebsiteUrl", text: "https://alex.dev" },
       { field: "githubUrl", text: "https://github.com/alex-vanguard" },
-      { field: "linkedinUrl", text: "https://www.linkedin.com/in/alex-vanguard" },
+      {
+        field: "linkedinUrl",
+        text: "https://www.linkedin.com/in/alex-vanguard",
+      },
       { field: "additionalLinks", text: "https://alex.example.com/case-study" },
     ]);
     expect(project).toEqual({
@@ -672,18 +804,24 @@ describe("buildResumeRenderDocument", () => {
           personalWebsiteUrl: null,
           additionalLinks: [],
         }),
-        fullName: 'Alex Tailored',
-        headline: 'Staff platform engineer',
-        location: 'Remote',
-        email: 'tailored@example.com',
-        phone: '+1 555 0100',
+        fullName: "Alex Tailored",
+        headline: "Staff platform engineer",
+        location: "Remote",
+        email: "tailored@example.com",
+        phone: "+1 555 0100",
       },
     });
 
-    expect(document.fullName).toBe('Alex Tailored');
-    expect(document.headline).toBe('Staff platform engineer');
-    expect(document.location).toBe('Remote');
-    expect(document.contactItems[0]).toEqual({ field: 'email', text: 'tailored@example.com' });
-    expect(document.contactItems[1]).toEqual({ field: 'phone', text: '+1 555 0100' });
+    expect(document.fullName).toBe("Alex Tailored");
+    expect(document.headline).toBe("Staff platform engineer");
+    expect(document.location).toBe("Remote");
+    expect(document.contactItems[0]).toEqual({
+      field: "email",
+      text: "tailored@example.com",
+    });
+    expect(document.contactItems[1]).toEqual({
+      field: "phone",
+      text: "+1 555 0100",
+    });
   });
 });

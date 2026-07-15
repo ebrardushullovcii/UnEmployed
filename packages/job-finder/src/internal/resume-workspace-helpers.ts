@@ -1,7 +1,4 @@
-import {
-  buildCandidateSkillBank,
-  type TailoredResumeDraft,
-} from "@unemployed/ai-providers";
+import { buildCandidateSkillBank, type TailoredResumeDraft } from "@unemployed/ai-providers";
 import {
   ResumeAssistantMessageSchema,
   ResumeDraftRevisionSchema,
@@ -10,35 +7,29 @@ import {
   TailoredAssetSchema,
   type CandidateProfile,
   type ResumeAssistantMessage,
-    type ResumeDraft,
-    type ResumeDraftBullet,
-    type ResumeDraftPatch,
-    type ResumeDraftRevision,
-   type ResumeExportArtifact,
-   type ResumeResearchArtifact,
+  type ResumeDraft,
+  type ResumeDraftBullet,
+  type ResumeDraftPatch,
+  type ResumeDraftRevision,
+  type ResumeExportArtifact,
+  type ResumeResearchArtifact,
   type ResumeTemplateDefinition,
-   type ResumeValidationIssue,
-   type ResumeValidationResult,
-   type SavedJob,
-   type TailoredAsset,
-   type WorkHistoryReviewSuggestion,
+  type ResumeValidationIssue,
+  type ResumeValidationResult,
+  type SavedJob,
+  type TailoredAsset,
+  type WorkHistoryReviewSuggestion,
 } from "@unemployed/contracts";
 import { createLocalKnowledgeIndex } from "@unemployed/knowledge-base";
 import { createUniqueId, normalizeText, tokenize, uniqueStrings } from "./shared";
-import {
-  buildJobContextText,
-  buildPriorityJobTerms,
-} from "./resume-workspace-primitives";
+import { buildJobContextText, buildPriorityJobTerms } from "./resume-workspace-primitives";
 import {
   buildPreviewSectionsFromResumeDraft as buildStructuredPreviewSectionsFromResumeDraft,
   buildResumeDraftFromTailoredDraft as buildStructuredResumeDraftFromTailoredDraft,
   buildTailoredResumeTextFromResumeDraft as buildStructuredTailoredResumeTextFromResumeDraft,
   seedResumeDraft as seedStructuredResumeDraft,
 } from "./resume-workspace-structure";
-import {
-  buildResumeEntryDateQualityIssues,
-  normalizeResumeDraftEntryOrdering,
-} from "./resume-entry-ordering";
+import { buildResumeEntryDateQualityIssues, normalizeResumeDraftEntryOrdering } from "./resume-entry-ordering";
 
 export interface ResumeWorkspaceEvidence {
   summary: readonly string[];
@@ -71,14 +62,10 @@ function matchesWholePhrase(candidate: string, phrase: string): boolean {
     return candidateTokens.has(desiredTokens[0] ?? "");
   }
 
-  return new RegExp(
-    `(^|\\s)${escapeRegex(normalizeText(phrase))}($|\\s)`,
-  ).test(normalizeText(candidate));
+  return new RegExp(`(^|\\s)${escapeRegex(normalizeText(phrase))}($|\\s)`).test(normalizeText(candidate));
 }
 
-export function buildPreviewSectionsFromResumeDraft(
-  draft: ResumeDraft,
-): Array<{ heading: string; lines: string[] }> {
+export function buildPreviewSectionsFromResumeDraft(draft: ResumeDraft): Array<{ heading: string; lines: string[] }> {
   return buildStructuredPreviewSectionsFromResumeDraft(draft);
 }
 
@@ -160,49 +147,43 @@ function buildProfileSupportBank(profile: CandidateProfile | undefined): string[
     return [];
   }
 
-  return uniqueStrings([
-    profile.baseResume.textContent ?? "",
-    profile.summary ?? "",
-    profile.professionalSummary.fullSummary ?? "",
-    profile.professionalSummary.shortValueProposition ?? "",
-    profile.narrative.professionalStory ?? "",
-    profile.narrative.nextChapterSummary ?? "",
-    profile.narrative.careerTransitionSummary ?? "",
-    ...profile.narrative.differentiators,
-    ...profile.skills,
-    ...profile.skillGroups.coreSkills,
-    ...profile.skillGroups.tools,
-    ...profile.skillGroups.languagesAndFrameworks,
-    ...profile.experiences.flatMap((experience) => [
-      experience.title,
-      experience.companyName,
-      experience.summary,
-      ...experience.achievements,
-    ]),
-    ...profile.projects.flatMap((project) => [
-      project.name,
-      project.role,
-      project.summary,
-      project.outcome,
-      ...project.skills,
-    ]),
-    ...profile.education.flatMap((education) => [
-      education.schoolName,
-      education.degree,
-      education.fieldOfStudy,
-      education.summary,
-    ]),
-    ...profile.certifications.flatMap((certification) => [
-      certification.name,
-      certification.issuer,
-    ]),
-    ...profile.proofBank.flatMap((proof) => [
-      proof.title,
-      proof.claim,
-      proof.heroMetric,
-      proof.supportingContext,
-    ]),
-  ].filter((entry): entry is string => Boolean(entry && entry.trim())));
+  return uniqueStrings(
+    [
+      profile.baseResume.textContent ?? "",
+      profile.summary ?? "",
+      profile.professionalSummary.fullSummary ?? "",
+      profile.professionalSummary.shortValueProposition ?? "",
+      profile.narrative.professionalStory ?? "",
+      profile.narrative.nextChapterSummary ?? "",
+      profile.narrative.careerTransitionSummary ?? "",
+      ...profile.narrative.differentiators,
+      ...profile.skills,
+      ...profile.skillGroups.coreSkills,
+      ...profile.skillGroups.tools,
+      ...profile.skillGroups.languagesAndFrameworks,
+      ...profile.experiences.flatMap((experience) => [
+        experience.title,
+        experience.companyName,
+        experience.summary,
+        ...experience.achievements,
+      ]),
+      ...profile.projects.flatMap((project) => [
+        project.name,
+        project.role,
+        project.summary,
+        project.outcome,
+        ...project.skills,
+      ]),
+      ...profile.education.flatMap((education) => [
+        education.schoolName,
+        education.degree,
+        education.fieldOfStudy,
+        education.summary,
+      ]),
+      ...profile.certifications.flatMap((certification) => [certification.name, certification.issuer]),
+      ...profile.proofBank.flatMap((proof) => [proof.title, proof.claim, proof.heroMetric, proof.supportingContext]),
+    ].filter((entry): entry is string => Boolean(entry && entry.trim())),
+  );
 }
 
 function isSupportedByProfile(content: string, profileSupportBank: readonly string[]): boolean {
@@ -232,10 +213,7 @@ function isSupportedByProfile(content: string, profileSupportBank: readonly stri
   });
 }
 
-function isGroundedVisibleSkill(
-  content: string,
-  candidateSkillBank: readonly string[],
-): boolean {
+function isGroundedVisibleSkill(content: string, candidateSkillBank: readonly string[]): boolean {
   const normalized = normalizeText(content);
 
   if (!normalized) {
@@ -247,9 +225,7 @@ function isGroundedVisibleSkill(
   });
 }
 
-function buildCandidateLanguageBank(
-  profile: CandidateProfile | null | undefined,
-): string[] {
+function buildCandidateLanguageBank(profile: CandidateProfile | null | undefined): string[] {
   if (!profile) {
     return [];
   }
@@ -263,10 +239,7 @@ function buildCandidateLanguageBank(
   );
 }
 
-function isGroundedVisibleLanguage(
-  content: string,
-  candidateLanguageBank: readonly string[],
-): boolean {
+function isGroundedVisibleLanguage(content: string, candidateLanguageBank: readonly string[]): boolean {
   const normalized = normalizeText(content);
 
   if (!normalized) {
@@ -282,11 +255,7 @@ function isLanguageSection(section: Pick<ResumeDraft["sections"][number], "kind"
   return section.kind === "skills" && normalizeText(section.label).includes("language");
 }
 
-function isShortJobTermBleed(
-  content: string,
-  job: SavedJob,
-  profileSupportBank: readonly string[],
-): boolean {
+function isShortJobTermBleed(content: string, job: SavedJob, profileSupportBank: readonly string[]): boolean {
   const normalizedContent = normalizeText(content);
 
   if (!normalizedContent || tokenize(content).length > 4) {
@@ -297,19 +266,19 @@ function isShortJobTermBleed(
     return false;
   }
 
-  const shortJobTerms = uniqueStrings([
-    job.company,
-    job.title,
-    job.team ?? "",
-    job.department ?? "",
-    job.atsProvider ?? "",
-    ...job.benefits,
-    ...job.screeningHints.remoteGeographies,
-  ].filter(Boolean));
-
-  return shortJobTerms.some(
-    (term) => normalizeText(term) && normalizeText(term) === normalizedContent,
+  const shortJobTerms = uniqueStrings(
+    [
+      job.company,
+      job.title,
+      job.team ?? "",
+      job.department ?? "",
+      job.atsProvider ?? "",
+      ...job.benefits,
+      ...job.screeningHints.remoteGeographies,
+    ].filter(Boolean),
   );
+
+  return shortJobTerms.some((term) => normalizeText(term) && normalizeText(term) === normalizedContent);
 }
 
 function isJobDescriptionBleed(
@@ -338,7 +307,13 @@ function isJobDescriptionBleed(
 function looksLikeKeywordStuffing(content: string): boolean {
   const commaCount = (content.match(/,/g) ?? []).length;
   const tokenCount = tokenize(content).length;
-  return commaCount >= 4 && tokenCount >= 8 && !/\b(led|built|designed|shipped|managed|improved|created|owned|delivered|launched|partnered|collaborated|standardized|reduced|increased|drove|implemented)\b/i.test(content);
+  return (
+    commaCount >= 4 &&
+    tokenCount >= 8 &&
+    !/\b(led|built|designed|shipped|managed|improved|created|owned|delivered|launched|partnered|collaborated|standardized|reduced|increased|drove|implemented)\b/i.test(
+      content,
+    )
+  );
 }
 
 function looksLikeVagueFiller(content: string): boolean {
@@ -497,11 +472,7 @@ export function sanitizeResumeDraft(input: {
     const nextBullets = sanitizeBullets(section.bullets, nextText);
     const hasVisibleContent = Boolean(nextText) || nextBullets.length > 0 || nextEntries.length > 0;
     const nextIncluded =
-      section.kind === "keywords"
-        ? false
-        : section.locked
-          ? true
-          : hasVisibleContent && section.included;
+      section.kind === "keywords" ? false : section.locked ? true : hasVisibleContent && section.included;
 
     return {
       ...section,
@@ -541,11 +512,7 @@ export function validateResumeDraft(input: {
         )),
   );
 
-  function pushBulletIssues(args: {
-    bullet: ResumeDraftBullet;
-    sectionId: string;
-    entryId?: string | null;
-  }) {
+  function pushBulletIssues(args: { bullet: ResumeDraftBullet; sectionId: string; entryId?: string | null }) {
     const normalizedBullet = normalizeText(args.bullet.text);
     const existing = seenBullets.get(normalizedBullet);
 
@@ -574,8 +541,7 @@ export function validateResumeDraft(input: {
         sectionId: args.sectionId,
         entryId: args.entryId ?? null,
         bulletId: args.bullet.id,
-        message:
-          "This bullet reads like copied job-description language instead of grounded candidate evidence.",
+        message: "This bullet reads like copied job-description language instead of grounded candidate evidence.",
       });
     }
 
@@ -587,8 +553,7 @@ export function validateResumeDraft(input: {
         sectionId: args.sectionId,
         entryId: args.entryId ?? null,
         bulletId: args.bullet.id,
-        message:
-          "This bullet uses short job-only language that is not grounded in the candidate profile.",
+        message: "This bullet uses short job-only language that is not grounded in the candidate profile.",
       });
     }
 
@@ -620,9 +585,7 @@ export function validateResumeDraft(input: {
   for (const section of includedSections) {
     const includedBullets = section.bullets.filter((bullet) => bullet.included);
     const includedEntries = section.entries.filter((entry) => entry.included);
-    const includedEntriesWithVisibleContent = includedEntries.filter(
-      (entry) => hasVisibleEntryContent(entry),
-    );
+    const includedEntriesWithVisibleContent = includedEntries.filter((entry) => hasVisibleEntryContent(entry));
 
     if (!section.text && includedBullets.length === 0 && includedEntriesWithVisibleContent.length === 0) {
       issues.push({
@@ -695,9 +658,7 @@ export function validateResumeDraft(input: {
       .join(" "),
   );
   const keywordTargets = buildPriorityJobTerms(input.job);
-  const matchingKeywords = keywordTargets.filter((skill) =>
-    matchesWholePhrase(visibleText, skill),
-  );
+  const matchingKeywords = keywordTargets.filter((skill) => matchesWholePhrase(visibleText, skill));
 
   if (keywordTargets.length > 0 && matchingKeywords.length === 0) {
     issues.push({
@@ -762,9 +723,7 @@ export function validateResumeDraft(input: {
 }
 
 function buildCoverageMetadataMap(draft: TailoredResumeDraft) {
-  return new Map(
-    draft.coverageMetadata.map((metadata) => [metadata.profileRecordId, metadata]),
-  );
+  return new Map(draft.coverageMetadata.map((metadata) => [metadata.profileRecordId, metadata]));
 }
 
 export function buildWorkHistoryReviewSuggestions(input: {
@@ -779,44 +738,46 @@ export function buildWorkHistoryReviewSuggestions(input: {
       .map((entry) => [entry.profileRecordId as string, entry]),
   );
 
-  return input.tailoredDraft.coverageMetadata.flatMap((metadata) => {
-    const guidance = metadata.reviewGuidance[0] ?? metadata.reasons[0] ?? null;
-    const entry = entriesByRecordId.get(metadata.profileRecordId) ?? null;
+  return input.tailoredDraft.coverageMetadata
+    .flatMap((metadata) => {
+      const guidance = metadata.reviewGuidance[0] ?? metadata.reasons[0] ?? null;
+      const entry = entriesByRecordId.get(metadata.profileRecordId) ?? null;
 
-    if (!guidance) {
-      return [];
-    }
+      if (!guidance) {
+        return [];
+      }
 
-    if (metadata.classification === "detailed" || metadata.classification === "omitted") {
-      return [];
-    }
+      if (metadata.classification === "detailed") {
+        return [];
+      }
 
-    const kind = metadata.coversMeaningfulGap
-      ? "gap_coverage"
-      : metadata.classification === "compact"
-        ? "compact_recommended"
-        : "weak_fit";
-    const action = metadata.classification === "suggested_hidden"
-      ? "consider_showing"
-      : "keep_compact";
+      const isHiddenRecommendation =
+        metadata.classification === "suggested_hidden" || metadata.classification === "omitted";
 
-    return [{
-      id: `work_history_review_${metadata.profileRecordId}`,
-      profileRecordId: metadata.profileRecordId,
-      sectionId: experienceSection?.id ?? null,
-      entryId:
-        metadata.classification === "suggested_hidden"
-          ? null
-          : entry?.id ?? null,
-      kind,
-      action,
-      severity: metadata.classification === "suggested_hidden" ? "info" : "info",
-      message: guidance,
-    } satisfies WorkHistoryReviewSuggestion];
-  }).filter((suggestion, index, suggestions) => {
-    const existingIndex = suggestions.findIndex((entry) => entry.id === suggestion.id);
-    return existingIndex === index && coverageByRecordId.has(suggestion.profileRecordId);
-  });
+      const kind = metadata.coversMeaningfulGap
+        ? "gap_coverage"
+        : metadata.classification === "compact"
+          ? "compact_recommended"
+          : "weak_fit";
+      const action = isHiddenRecommendation ? "consider_showing" : "keep_compact";
+
+      return [
+        {
+          id: `work_history_review_${metadata.profileRecordId}`,
+          profileRecordId: metadata.profileRecordId,
+          sectionId: experienceSection?.id ?? null,
+          entryId: isHiddenRecommendation ? null : (entry?.id ?? null),
+          kind,
+          action,
+          severity: "info",
+          message: guidance,
+        } satisfies WorkHistoryReviewSuggestion,
+      ];
+    })
+    .filter((suggestion, index, suggestions) => {
+      const existingIndex = suggestions.findIndex((entry) => entry.id === suggestion.id);
+      return existingIndex === index && coverageByRecordId.has(suggestion.profileRecordId);
+    });
 }
 
 export { applyPatchToResumeDraft } from "./resume-workspace-patches";
@@ -870,18 +831,13 @@ export function buildTailoredAssetBridge(input: {
   templates?: readonly ResumeTemplateDefinition[];
 }): TailoredAsset {
   const updatedAt = input.draft.updatedAt;
-  const shouldClearStoragePath =
-    (input.clearStoragePath ?? false) || input.draft.status === "stale";
+  const shouldClearStoragePath = (input.clearStoragePath ?? false) || input.draft.status === "stale";
   const resolvedStoragePath = shouldClearStoragePath
     ? null
-    : input.storagePath ?? input.existingAsset?.storagePath ?? null;
+    : (input.storagePath ?? input.existingAsset?.storagePath ?? null);
   const isApprovalStale = input.draft.status === "stale" || !resolvedStoragePath;
-  const fallbackStatus = isApprovalStale
-    ? "failed"
-    : input.existingAsset?.status ?? "queued";
-  const fallbackProgressPercent = isApprovalStale
-    ? 0
-    : input.existingAsset?.progressPercent ?? 0;
+  const fallbackStatus = isApprovalStale ? "failed" : (input.existingAsset?.status ?? "queued");
+  const fallbackProgressPercent = isApprovalStale ? 0 : (input.existingAsset?.progressPercent ?? 0);
 
   return TailoredAssetSchema.parse({
     id: input.existingAsset?.id ?? `resume_${input.job.id}`,
@@ -900,14 +856,9 @@ export function buildTailoredAssetBridge(input: {
     progressPercent: resolvedStoragePath ? 100 : fallbackProgressPercent,
     updatedAt,
     storagePath: resolvedStoragePath,
-    contentText: buildTailoredResumeTextFromResumeDraft(
-      input.profile,
-      input.job,
-      input.draft,
-    ),
+    contentText: buildTailoredResumeTextFromResumeDraft(input.profile, input.job, input.draft),
     previewSections: buildPreviewSectionsFromResumeDraft(input.draft),
-    generationMethod:
-      input.draft.generationMethod === "ai" ? "ai_assisted" : "deterministic",
+    generationMethod: input.draft.generationMethod === "ai" ? "ai_assisted" : "deterministic",
     notes: uniqueStrings([
       ...(input.existingAsset?.notes ?? []),
       ...(input.notes ?? []),
@@ -960,9 +911,7 @@ export function collectResumeWorkspaceEvidence(input: {
     input.profile.narrative.nextChapterSummary ?? "",
     input.profile.narrative.careerTransitionSummary ?? "",
     ...input.profile.narrative.differentiators,
-    ...input.profile.experiences
-      .map((experience) => experience.summary ?? "")
-      .filter(Boolean),
+    ...input.profile.experiences.map((experience) => experience.summary ?? "").filter(Boolean),
   ]).slice(0, 4);
 
   const highlightedProofs = input.profile.proofBank.slice(0, 6);
@@ -1026,13 +975,7 @@ export function collectResumeWorkspaceEvidence(input: {
   highlightedProofs.forEach((proof) => {
     index.addDocument(
       proof.id,
-      [
-        proof.title,
-        proof.claim,
-        proof.heroMetric,
-        proof.supportingContext,
-        ...proof.roleFamilies,
-      ]
+      [proof.title, proof.claim, proof.heroMetric, proof.supportingContext, ...proof.roleFamilies]
         .filter(Boolean)
         .join(" "),
       {
@@ -1045,13 +988,7 @@ export function collectResumeWorkspaceEvidence(input: {
   });
 
   input.profile.projects.forEach((project) => {
-    const text = [
-      project.name,
-      project.summary,
-      project.role,
-      project.outcome,
-      ...project.skills,
-    ]
+    const text = [project.name, project.summary, project.role, project.outcome, ...project.skills]
       .filter(Boolean)
       .join(" ");
 
@@ -1070,18 +1007,12 @@ export function collectResumeWorkspaceEvidence(input: {
       return;
     }
 
-    index.addDocument(
-      link.id,
-      [link.label, link.url, link.kind]
-        .filter(Boolean)
-        .join(" "),
-      {
-        tags: ["profile"],
-        title: link.label ?? link.url ?? "Profile link",
-        section: "link",
-        sourceId: link.id,
-      },
-    );
+    index.addDocument(link.id, [link.label, link.url, link.kind].filter(Boolean).join(" "), {
+      tags: ["profile"],
+      title: link.label ?? link.url ?? "Profile link",
+      section: "link",
+      sourceId: link.id,
+    });
   });
 
   const skillText = uniqueStrings([
@@ -1127,10 +1058,22 @@ export function collectResumeWorkspaceEvidence(input: {
   });
 
   return {
-    summary: index.search(`${input.job.title} ${input.job.company} summary`, { limit: 3 }).map((entry: { text: string }) => entry.text),
+    summary: index
+      .search(`${input.job.title} ${input.job.company} summary`, { limit: 3 })
+      .map((entry: { text: string }) => entry.text),
     candidateSummary: candidateSummaryEvidence,
-    experience: index.search(`${input.job.title} ${buildPriorityJobTerms(input.job).join(" ")} achievements`, { limit: 6, tags: ["profile", "resume"] }).map((entry: { text: string }) => entry.text),
-    skills: index.search(`${buildPriorityJobTerms(input.job).join(" ")} ${input.job.title} skills`, { limit: 6, tags: ["profile", "job"] }).map((entry: { text: string }) => entry.text),
+    experience: index
+      .search(`${input.job.title} ${buildPriorityJobTerms(input.job).join(" ")} achievements`, {
+        limit: 6,
+        tags: ["profile", "resume"],
+      })
+      .map((entry: { text: string }) => entry.text),
+    skills: index
+      .search(`${buildPriorityJobTerms(input.job).join(" ")} ${input.job.title} skills`, {
+        limit: 6,
+        tags: ["profile", "job"],
+      })
+      .map((entry: { text: string }) => entry.text),
     keywords: uniqueStrings([
       ...buildPriorityJobTerms(input.job),
       ...input.research.flatMap((artifact) => artifact.domainVocabulary),
@@ -1139,9 +1082,7 @@ export function collectResumeWorkspaceEvidence(input: {
   };
 }
 
-export function collectResearchContext(
-  research: readonly ResumeResearchArtifact[],
-): ResumeWorkspaceResearchContext {
+export function collectResearchContext(research: readonly ResumeResearchArtifact[]): ResumeWorkspaceResearchContext {
   return {
     companyNotes: research
       .map((artifact) => artifact.companyNotes)

@@ -4,20 +4,20 @@ Start here, then read only the docs needed for the task.
 
 ## Task Routing
 
-| Task | Read |
-| --- | --- |
-| typo, small local fix, or command output | nearest package `AGENTS.md` if editing there |
-| active feature work or unclear state | `docs/STATUS.md`, `docs/TRACKS.md`, relevant active or queued exec plan |
-| handoff/status update | `docs/STATUS.md`, `docs/TRACKS.md`, relevant active or queued exec plan |
-| durable product direction | `docs/GOALS.md`, `docs/PRODUCT.md` |
-| product behavior | `docs/PRODUCT.md` |
-| architecture, package ownership, discovery/source-debug | `docs/ARCHITECTURE.md` |
-| contracts, schemas, preload APIs, IPC | `docs/CONTRACTS.md` |
-| tests, harnesses, validation choice | `docs/TESTING.md` |
-| decisions and rationale | `docs/adr/README.md`, then the linked ADR |
-| domain language | `CONTEXT.md` |
-| repo guidance, adapters, project skills, package guide policy | `docs/AGENT_CONTEXT.md`, `.agents/registry.yaml` |
-| module-level behavior | `docs/modules/JOB_FINDER.md` or `docs/modules/INTERVIEW_HELPER.md` |
+| Task                                                          | Read                                                                    |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| typo, small local fix, or command output                      | nearest package `AGENTS.md` if editing there                            |
+| active feature work or unclear state                          | `docs/STATUS.md`, `docs/TRACKS.md`, relevant active or queued exec plan |
+| handoff/status update                                         | `docs/STATUS.md`, `docs/TRACKS.md`, relevant active or queued exec plan |
+| durable product direction                                     | `docs/GOALS.md`, `docs/PRODUCT.md`                                      |
+| product behavior                                              | `docs/PRODUCT.md`                                                       |
+| architecture, package ownership, discovery/source-debug       | `docs/ARCHITECTURE.md`                                                  |
+| contracts, schemas, preload APIs, IPC                         | `docs/CONTRACTS.md`                                                     |
+| tests, harnesses, validation choice                           | `docs/TESTING.md`                                                       |
+| decisions and rationale                                       | `docs/adr/README.md`, then the linked ADR                               |
+| domain language                                               | `CONTEXT.md`                                                            |
+| repo guidance, adapters, project skills, package guide policy | `docs/AGENT_CONTEXT.md`, `.agents/registry.yaml`                        |
+| module-level behavior                                         | `docs/modules/JOB_FINDER.md` or `docs/modules/INTERVIEW_HELPER.md`      |
 
 Read `docs/ARCHITECTURE.md` before changing discovery or source-debug behavior.
 
@@ -28,9 +28,7 @@ Read `docs/ARCHITECTURE.md` before changing discovery or source-debug behavior.
 - `docs/exec-plans/active/`: detailed active plans
 - `docs/exec-plans/queued/`: detailed ready plans
 
-Current active plan:
-
-- none
+Current active plan: none.
 
 ## Durable Docs
 

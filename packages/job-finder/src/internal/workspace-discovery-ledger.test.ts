@@ -22,6 +22,7 @@ function createLedgerEntry(overrides: Partial<DiscoveryLedgerEntry> = {}): Disco
     company: "Acme",
     targetId: "target_one",
     collectionMethod: "careers_page",
+    detailQuality: "card_only",
     firstSeenAt: "2026-03-20T09:00:00.000Z",
     lastSeenAt: "2026-03-20T09:00:00.000Z",
     lastAppliedAt: null,
@@ -53,7 +54,11 @@ describe("workspace-discovery-ledger", () => {
 
   test("skips enriched ledger entries as existing handled jobs", () => {
     const decision = shouldSkipPostingFromLedger({
-      ledgerEntry: createLedgerEntry({ latestStatus: "enriched", lastEnrichedAt: "2026-03-20T09:05:00.000Z" }),
+      ledgerEntry: createLedgerEntry({
+        latestStatus: "enriched",
+        detailQuality: "detail_enriched",
+        lastEnrichedAt: "2026-03-20T09:05:00.000Z",
+      }),
       posting: {
         title: "Software Engineer",
         company: "Acme",
@@ -65,6 +70,27 @@ describe("workspace-discovery-ledger", () => {
       skip: true,
       reason: "Already retained from an earlier run.",
       outcome: "skip_existing",
+    });
+  });
+
+  test("revisits legacy enriched entries whose detail quality defaults to card only", () => {
+    const decision = shouldSkipPostingFromLedger({
+      ledgerEntry: createLedgerEntry({
+        latestStatus: "enriched",
+        detailQuality: "card_only",
+        lastEnrichedAt: "2026-03-20T09:05:00.000Z",
+      }),
+      posting: {
+        title: "Software Engineer",
+        company: "Acme",
+      },
+      triageOutcome: "pass",
+    });
+
+    expect(decision).toEqual({
+      skip: false,
+      reason: null,
+      outcome: "pass",
     });
   });
 
@@ -81,6 +107,7 @@ describe("workspace-discovery-ledger", () => {
         title: "Software Engineer",
         company: "Acme",
         collectionMethod: "careers_page",
+        detailQuality: "card_only",
         titleTriageOutcome: "pass",
       },
       targetId: "target_one",
@@ -131,6 +158,7 @@ describe("workspace-discovery-ledger", () => {
         title: "Software Engineer",
         company: "Acme",
         collectionMethod: "careers_page",
+        detailQuality: "card_only",
         titleTriageOutcome: "pass",
       },
       targetId: "target_one",
@@ -161,6 +189,7 @@ describe("workspace-discovery-ledger", () => {
         title: "Software Engineer",
         company: "Acme",
         collectionMethod: "careers_page",
+        detailQuality: "detail_enriched",
         titleTriageOutcome: "pass",
       },
       targetId: "target_one",

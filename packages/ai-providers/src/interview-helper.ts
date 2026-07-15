@@ -129,11 +129,10 @@ function normalizeModelStringArray(value: unknown) {
 
 const InterviewModelCueCardOutputSchema = z.object({
   title: z.preprocess(normalizeModelString, z.string().trim().min(1)),
-  answerOutline: z
-    .preprocess(
-      normalizeModelStringArray,
-      z.array(z.string().trim().min(1)).min(1).max(5),
-    ),
+  answerOutline: z.preprocess(
+    normalizeModelStringArray,
+    z.array(z.string().trim().min(1)).min(1).max(5),
+  ),
   supportingPoints: z
     .preprocess(
       normalizeModelStringArray,
@@ -294,10 +293,140 @@ function buildCueCardPrompt(): string {
     "Keep the cue speakable while someone is in an interview.",
     "Ground every claim in the provided target context, prep artifacts, transcript window, and visual observations.",
     "Never invent candidate employers, achievements, metrics, credentials, tools, links, or external actions.",
+    "When the interviewer asks for a personal story but the supplied context does not contain the candidate's real story, return a clearly labeled fill-in scaffold with bracketed placeholders instead of inventing an example.",
+    "Visual observations come from images the user explicitly attached or captured. When model-backed visual observations are present, use them as evidence and never claim that you cannot see or access the screenshot.",
+    "When visual observations are generic or uncertain, state what is unclear and ask for a tighter crop instead of guessing.",
     "For coding interviews, explain reasoning, edge cases, tradeoffs, and clarifying questions, but never instruct the app to operate an editor, browser, meeting tool, or coding platform.",
     "If visual context is marked overlay-contaminated, ignore Interview Helper UI and mention uncertainty only when it matters.",
     "Prefer 2-4 answer outline bullets and 2-4 supporting points.",
   ].join(" ");
+}
+
+const personalStoryRequestPattern =
+  /\b(?:star\s+answer|tell\s+me\s+about\s+a\s+time|describe\s+(?:a\s+)?(?:time|situation)|give\s+me\s+(?:an?\s+)?example|example\s+of\s+(?:a\s+)?time)\b/i;
+
+const screenshotDependentQuestionPattern =
+  /\b(?:attached\s+)?(?:image|photo|picture|screen(?:shot)?)\b|\b(?:what|which)\s+(?:is|does|screen)\b[\s\S]{0,80}\b(?:show|shown|visible)\b/i;
+
+const groundedStoryEvidencePattern =
+  /\b(?:i|we|my|our)\b[\s\S]{0,220}\b(?:built|created|delivered|fixed|handled|implemented|improved|led|managed|reduced|resolved|shipped|worked)\b/i;
+
+function hasGroundedPersonalStory(input: InterviewCueCardRequest): boolean {
+  return input.transcriptSegments.some((segment) => {
+    const text = segment.text.trim();
+    return text.length >= 40 && groundedStoryEvidencePattern.test(text);
+  });
+}
+
+function createPersonalStoryScaffold(
+  input: InterviewCueCardRequest,
+): InterviewCueCard {
+  return InterviewCueCardSchema.parse({
+    id: `cue_${input.createdAt.replace(/\W/g, "_")}`,
+    sessionId: input.sessionId,
+    title: "STAR answer scaffold",
+    question: pickQuestion(input),
+    answerOutline: [
+      "Situation — [state the real context and stakes in one sentence].",
+      "Task — [name your actual responsibility and constraint].",
+      "Action — [describe the specific steps you truly took].",
+      "Result — [share the verified outcome and what you learned].",
+    ],
+    supportingPoints: [
+      "Use only details you can defend in a follow-up question.",
+      "Add real metrics only when you know they are accurate.",
+      "Keep the final answer to roughly 60–90 seconds.",
+    ],
+    clarifyingQuestion:
+      "What actually happened, what did you personally do, and what verified result can we use?",
+    avoidSaying:
+      "Do not invent an employer, incident, technology, timeline, metric, or outcome.",
+    expandedContent:
+      "Situation—[real context]. Task—[your responsibility]. Action—[your real steps]. Result—[verified outcome and lesson]. Replace every bracket before saying this aloud.",
+    triggerKind: input.triggerKind,
+    disclosure: input.disclosure,
+    createdAt: input.createdAt,
+  });
+}
+
+function createVisionUnavailableCue(
+  input: InterviewCueCardRequest,
+): InterviewCueCard {
+  return InterviewCueCardSchema.parse({
+    id: `cue_${input.createdAt.replace(/\W/g, "_")}`,
+    sessionId: input.sessionId,
+    title: "Screenshot needs visual analysis",
+    question: pickQuestion(input),
+    answerOutline: [
+      "The screenshot was attached successfully.",
+      "This run does not have model-backed visual observations, so its contents cannot be identified reliably.",
+      "Retry with a vision-capable provider or paste the visible text for immediate help.",
+    ],
+    supportingPoints: [
+      "The attachment is available to the current turn.",
+      "No claim about the screen should be made from a generic attachment placeholder.",
+    ],
+    clarifyingQuestion:
+      "Can you paste the visible text, describe the screen, or retry after the vision provider reports ready?",
+    avoidSaying:
+      "Do not guess the screenshot contents or reuse an earlier interview question as visual evidence.",
+    expandedContent:
+      "I received the screenshot, but this run does not have model-backed visual analysis. I cannot reliably identify the screen yet. Paste the visible text or retry with a vision-capable provider, and I can help with the next step.",
+    triggerKind: input.triggerKind,
+    disclosure: input.disclosure,
+    createdAt: input.createdAt,
+  });
+}
+
+function replaceFalseVisionDisclaimer(value: string | null): string | null {
+  if (value === null) return null;
+
+  return value
+    .replace(
+      /\b(?:since\s+)?i\s+(?:do\s+not|don't)\s+have\s+(?:direct\s+)?access\s+to\s+(?:the|your)\s+screenshot\s*[,;:]?\s*/gi,
+      "Using the attached screenshot context, ",
+    )
+    .replace(
+      /\bi\s+(?:can\s*not|can't)\s+see\s+(?:the|your)\s+screenshot\b/gi,
+      "a screenshot detail is unclear",
+    );
+}
+
+function enforceGroundedCueCard(
+  input: InterviewCueCardRequest,
+  cue: InterviewCueCard,
+): InterviewCueCard {
+  if (
+    personalStoryRequestPattern.test(pickQuestion(input)) &&
+    !hasGroundedPersonalStory(input)
+  ) {
+    return createPersonalStoryScaffold(input);
+  }
+
+  const hasModelBackedVisualEvidence = input.visualObservations.some(
+    (observation) => observation.source === "screenshot",
+  );
+
+  if (
+    input.disclosure.screenshotCount > 0 &&
+    screenshotDependentQuestionPattern.test(pickQuestion(input)) &&
+    !hasModelBackedVisualEvidence
+  ) {
+    return createVisionUnavailableCue(input);
+  }
+
+  if (!hasModelBackedVisualEvidence) {
+    return cue;
+  }
+
+  return InterviewCueCardSchema.parse({
+    ...cue,
+    answerOutline: cue.answerOutline.map(replaceFalseVisionDisclaimer),
+    supportingPoints: cue.supportingPoints.map(replaceFalseVisionDisclaimer),
+    clarifyingQuestion: replaceFalseVisionDisclaimer(cue.clarifyingQuestion),
+    avoidSaying: replaceFalseVisionDisclaimer(cue.avoidSaying),
+    expandedContent: replaceFalseVisionDisclaimer(cue.expandedContent),
+  });
 }
 
 function buildCueCardPayload(input: InterviewCueCardRequest) {
@@ -429,7 +558,7 @@ export function createOpenAiCompatibleInterviewCueCardProvider(
           const payload = await fetchCueCard(input);
           const modelCue = InterviewModelCueCardOutputSchema.parse(payload);
 
-          return InterviewCueCardSchema.parse({
+          const cue = InterviewCueCardSchema.parse({
             id: `cue_${input.createdAt.replace(/\W/g, "_")}`,
             sessionId: input.sessionId,
             question: pickQuestion(input),
@@ -438,6 +567,7 @@ export function createOpenAiCompatibleInterviewCueCardProvider(
             createdAt: input.createdAt,
             ...modelCue,
           });
+          return enforceGroundedCueCard(input, cue);
         } catch (error) {
           lastError = error;
         }
@@ -954,6 +1084,13 @@ export function createDeterministicInterviewCueCardProvider(
     generateCueCard(input) {
       const question = pickQuestion(input);
       const visualContext = input.visualObservations[0]?.summary ?? null;
+      if (
+        personalStoryRequestPattern.test(question) &&
+        !hasGroundedPersonalStory(input)
+      ) {
+        return Promise.resolve(createPersonalStoryScaffold(input));
+      }
+
       return Promise.resolve(
         InterviewCueCardSchema.parse({
           id: `cue_${input.createdAt.replace(/\W/g, "_")}`,

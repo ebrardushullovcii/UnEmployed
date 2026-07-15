@@ -153,8 +153,7 @@ export function createDesktopBrowserRuntime(input: {
 
   if (isBrowserAgentEnabled(env)) {
     const aiClient = input.aiClient ?? createDesktopJobFinderAiClient(env)
-
-    return createBrowserAgentRuntime({
+    const runtime = createBrowserAgentRuntime({
       userDataDir: getBrowserAgentProfileDirectory(),
       headless: isBrowserHeadlessEnabled(env),
       ...(env.UNEMPLOYED_CHROME_PATH
@@ -164,6 +163,23 @@ export function createDesktopBrowserRuntime(input: {
       jobExtractor: (runtimeInput) => aiClient.extractJobsFromPage(runtimeInput),
       aiClient,
     })
+
+    if (
+      desktopTestApiEnabled &&
+      isEnabled(env.UNEMPLOYED_TEST_AUTHORIZE_INTERMEDIATE_ATS_WRITES)
+    ) {
+      return {
+        ...runtime,
+        executeApplicationFlow: (source, executionInput) =>
+          runtime.executeApplicationFlow(source, {
+            ...executionInput,
+            intermediateMutationsAuthorized: true,
+            submitAuthorized: false,
+          }),
+      }
+    }
+
+    return runtime
   }
 
   const runtime = createCatalogBrowserSessionRuntime({

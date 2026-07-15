@@ -42,8 +42,10 @@ function createTestJob() {
       minAnnualUsd: null,
       maxAnnualUsd: null,
     },
+    detailQuality: "detail_enriched" as const,
     summary: "Build resilient workflows.",
-    description: "Upload resume and review required fields before final submit.",
+    description:
+      "Upload resume and review required fields before final submit.",
     keySkills: ["TypeScript"],
     responsibilities: [],
     minimumQualifications: [],
@@ -76,6 +78,9 @@ function createTestJob() {
       score: 91,
       reasons: ["Strong fit"],
       gaps: [],
+      recommendation: "review_before_applying" as const,
+      recommendationRationale: "Test fixture requires explicit review.",
+      requirements: [],
     },
     provenance: [],
   };
@@ -193,17 +198,16 @@ function createTestSettings() {
   };
 }
 
-function createTestResumeExport() {
+function createTestResumeArtifact() {
   return {
-    id: "resume_export_visual_runtime",
-    draftId: "resume_draft_visual_runtime",
+    id: "application_resume_visual_runtime",
     jobId: "job_visual_runtime",
-    format: "pdf" as const,
+    source: "tailored_export" as const,
+    sourceDocumentId: null,
+    exportArtifactId: "resume_export_visual_runtime",
+    fileName: "alex-vanguard.pdf",
     filePath: "/tmp/alex-vanguard.pdf",
-    pageCount: 2,
-    templateId: "classic_ats" as const,
-    exportedAt: "2026-03-20T10:00:00.000Z",
-    isApproved: true,
+    approvedAt: "2026-03-20T10:00:00.000Z",
   };
 }
 
@@ -643,6 +647,8 @@ describe("playwright browser runtime", () => {
     try {
       const chromeExecutablePath = join(userDataDir, "chrome.exe");
       await writeFile(chromeExecutablePath, "", "utf8");
+      const approvedResumePath = join(userDataDir, "alex-vanguard.pdf");
+      await writeFile(approvedResumePath, "approved resume", "utf8");
       const debugPort = await reserveFreePort();
       const launchedChromeProcess = createMockChildProcess({ pid: 42427 });
       const fakePage = {
@@ -687,7 +693,9 @@ describe("playwright browser runtime", () => {
       });
       const analyzeBrowserVisualSnapshot = vi
         .fn<
-          (input: BrowserVisualAnalysisInput) => Promise<BrowserVisualObservationSet>
+          (
+            input: BrowserVisualAnalysisInput,
+          ) => Promise<BrowserVisualObservationSet>
         >()
         .mockResolvedValue(visualObservationSet);
 
@@ -731,11 +739,14 @@ describe("playwright browser runtime", () => {
 
       const input = {
         job: createTestJob(),
-        resumeExport: createTestResumeExport(),
-        resumeFilePath: "/tmp/alex-vanguard.pdf",
+        resumeArtifact: {
+          ...createTestResumeArtifact(),
+          filePath: approvedResumePath,
+        },
         profile: createTestProfile(),
         settings: createTestSettings(),
         mode: "prepare_only" as const,
+        submitAuthorized: false,
       };
       const defaultResult = await runtime.executeApplicationFlow(
         "target_site",
@@ -1538,7 +1549,8 @@ describe("playwright browser runtime", () => {
         bringToFront: vi.fn().mockResolvedValue(undefined),
         goto: vi.fn().mockResolvedValue(undefined),
         isClosed: () => false,
-        url: () => "https://example.com/jobs/search/?keywords=frontend&currentJobId=123#top",
+        url: () =>
+          "https://example.com/jobs/search/?keywords=frontend&currentJobId=123#top",
       };
       const fakeContext = {
         newPage: vi.fn().mockResolvedValue(fakePage),

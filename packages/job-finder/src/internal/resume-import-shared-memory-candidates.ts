@@ -4,7 +4,11 @@ import {
   type ResumeImportFieldCandidate,
 } from "@unemployed/contracts";
 
-import { isObject, toStringArray } from "./resume-import-common";
+import {
+  isObject,
+  toNarrativeStringArray,
+  toStringArray,
+} from "./resume-import-common";
 import { normalizeText } from "./shared";
 
 export function promoteGroundedSharedMemoryCandidates(
@@ -84,7 +88,11 @@ export function promoteGroundedSharedMemoryCandidates(
           typeof candidate.evidenceText === "string" &&
           summaryValues.has(normalizeText(candidate.evidenceText))))
     ) {
-      return { ...candidate, resolution: "auto_applied", resolvedAt: new Date().toISOString() };
+      return {
+        ...candidate,
+        resolution: "auto_applied",
+        resolvedAt: new Date().toISOString(),
+      };
     }
 
     if (
@@ -93,7 +101,11 @@ export function promoteGroundedSharedMemoryCandidates(
       typeof candidate.value === "string" &&
       summaryValues.has(normalizeText(candidate.value))
     ) {
-      return { ...candidate, resolution: "auto_applied", resolvedAt: new Date().toISOString() };
+      return {
+        ...candidate,
+        resolution: "auto_applied",
+        resolvedAt: new Date().toISOString(),
+      };
     }
 
     if (
@@ -102,7 +114,11 @@ export function promoteGroundedSharedMemoryCandidates(
       typeof candidate.value === "string" &&
       emailValues.has(normalizeText(candidate.value))
     ) {
-      return { ...candidate, resolution: "auto_applied", resolvedAt: new Date().toISOString() };
+      return {
+        ...candidate,
+        resolution: "auto_applied",
+        resolvedAt: new Date().toISOString(),
+      };
     }
 
     if (
@@ -111,16 +127,26 @@ export function promoteGroundedSharedMemoryCandidates(
       typeof candidate.value === "string" &&
       phoneValues.has(normalizeText(candidate.value))
     ) {
-      return { ...candidate, resolution: "auto_applied", resolvedAt: new Date().toISOString() };
+      return {
+        ...candidate,
+        resolution: "auto_applied",
+        resolvedAt: new Date().toISOString(),
+      };
     }
 
     if (
       candidate.target.section === "application_identity" &&
       candidate.target.key === "preferredLinkUrls" &&
       toStringArray(candidate.value).length > 0 &&
-      toStringArray(candidate.value).every((url) => groundedLinkUrls.has(normalizeText(url)))
+      toStringArray(candidate.value).every((url) =>
+        groundedLinkUrls.has(normalizeText(url)),
+      )
     ) {
-      return { ...candidate, resolution: "auto_applied", resolvedAt: new Date().toISOString() };
+      return {
+        ...candidate,
+        resolution: "auto_applied",
+        resolvedAt: new Date().toISOString(),
+      };
     }
 
     if (
@@ -130,13 +156,22 @@ export function promoteGroundedSharedMemoryCandidates(
       candidate.confidence >= 0.9 &&
       candidate.sourceBlockIds.length > 0
     ) {
-      return { ...candidate, resolution: "auto_applied", resolvedAt: new Date().toISOString() };
+      return {
+        ...candidate,
+        resolution: "auto_applied",
+        resolvedAt: new Date().toISOString(),
+      };
     }
 
-    if (candidate.target.section === "proof_point" && isObject(candidate.value)) {
+    if (
+      candidate.target.section === "proof_point" &&
+      isObject(candidate.value)
+    ) {
       const proof = candidate.value;
-      const proofTitle = typeof proof.title === "string" ? normalizeText(proof.title) : "";
-      const proofClaim = typeof proof.claim === "string" ? normalizeText(proof.claim) : "";
+      const proofTitle =
+        typeof proof.title === "string" ? normalizeText(proof.title) : "";
+      const proofClaim =
+        typeof proof.claim === "string" ? normalizeText(proof.claim) : "";
 
       const isGrounded = groundedExperiences.some((experienceCandidate) => {
         if (!isObject(experienceCandidate.value)) {
@@ -144,16 +179,28 @@ export function promoteGroundedSharedMemoryCandidates(
         }
 
         const experience = experienceCandidate.value;
-        const experienceTitle = typeof experience.title === "string" ? normalizeText(experience.title) : "";
-        const achievements = toStringArray(experience.achievements).map((entry) =>
-          normalizeText(entry),
-        );
+        const experienceTitle =
+          typeof experience.title === "string"
+            ? normalizeText(experience.title)
+            : "";
+        const achievements = toNarrativeStringArray(
+          experience.achievements,
+        ).map((entry) => normalizeText(entry));
 
-        return proofTitle.length > 0 && proofClaim.length > 0 && proofTitle === experienceTitle && achievements.includes(proofClaim);
+        return (
+          proofTitle.length > 0 &&
+          proofClaim.length > 0 &&
+          proofTitle === experienceTitle &&
+          achievements.includes(proofClaim)
+        );
       });
 
       if (isGrounded) {
-        return { ...candidate, resolution: "auto_applied", resolvedAt: new Date().toISOString() };
+        return {
+          ...candidate,
+          resolution: "auto_applied",
+          resolvedAt: new Date().toISOString(),
+        };
       }
 
       if (
@@ -164,7 +211,11 @@ export function promoteGroundedSharedMemoryCandidates(
         typeof proof.claim === "string" &&
         proof.claim.trim().length > 0
       ) {
-        return { ...candidate, resolution: "auto_applied", resolvedAt: new Date().toISOString() };
+        return {
+          ...candidate,
+          resolution: "auto_applied",
+          resolvedAt: new Date().toISOString(),
+        };
       }
     }
 
@@ -176,11 +227,17 @@ export function normalizeSharedMemoryCandidates(
   candidates: readonly ResumeImportFieldCandidate[],
 ): ResumeImportFieldCandidate[] {
   return candidates.map((candidate) => {
-    if (candidate.target.section !== "proof_point" || candidate.target.key === "record") {
+    if (
+      candidate.target.section !== "proof_point" ||
+      candidate.target.key === "record"
+    ) {
       return candidate;
     }
 
-    if (candidate.target.key === "careerTransition" && typeof candidate.value === "string") {
+    if (
+      candidate.target.key === "careerTransition" &&
+      typeof candidate.value === "string"
+    ) {
       return ResumeImportFieldCandidateSchema.parse({
         ...candidate,
         target: {

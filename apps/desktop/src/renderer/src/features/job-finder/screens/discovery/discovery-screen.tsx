@@ -95,30 +95,47 @@ export function DiscoveryScreen(props: {
     enabledSourceAccessPrompts.find(
       (prompt) => prompt.state === 'prompt_login_required',
     ) ?? enabledSourceAccessPrompts[0] ?? null
-  const primaryRecoveryAction =
-    browserSession.status === 'ready'
-      ? null
-      : primarySourceAccessPrompt
-        ? {
-            label: primarySourceAccessPrompt.actionLabel,
-            pending: isBrowserSessionPendingForTarget(
-              primarySourceAccessPrompt.targetId,
-            ),
-            nextStep: primarySourceAccessPrompt.rerunLabel
-              ? `Then ${primarySourceAccessPrompt.rerunLabel}.`
-              : 'Then search again.',
-            onAction: () =>
-              onOpenBrowserSessionForTarget(primarySourceAccessPrompt.targetId),
-          }
-        : {
-            label:
-              browserSession.status === 'blocked'
-                ? 'Open browser to recover'
-                : 'Open browser to sign in',
-            pending: isBrowserSessionPending,
-            nextStep: 'Then search again.',
-            onAction: onOpenBrowserSession,
-          }
+  let primaryRecoveryAction: {
+    label: string
+    pending: boolean
+    nextStep: string
+    onAction: () => void
+  } | null = null
+  if (primarySourceAccessPrompt?.state === 'prompt_login_required') {
+    if (browserSession.status === 'ready' && props.onRunDiscoveryForTarget) {
+      primaryRecoveryAction = {
+        label: `I'm signed in — retry ${primarySourceAccessPrompt.targetLabel}`,
+        pending: isTargetPending(primarySourceAccessPrompt.targetId),
+        nextStep: 'Job Finder will check only this source and show the sign-in handoff again if access is still blocked.',
+        onAction: () => props.onRunDiscoveryForTarget?.(primarySourceAccessPrompt.targetId),
+      }
+    } else {
+      primaryRecoveryAction = {
+        label: primarySourceAccessPrompt.actionLabel,
+        pending: isBrowserSessionPendingForTarget(primarySourceAccessPrompt.targetId),
+        nextStep: 'Job Finder will wait while you sign in, then you can confirm and retry only this source.',
+        onAction: () => onOpenBrowserSessionForTarget(primarySourceAccessPrompt.targetId),
+      }
+    }
+  } else if (browserSession.status !== 'ready') {
+    primaryRecoveryAction = primarySourceAccessPrompt
+      ? {
+          label: primarySourceAccessPrompt.actionLabel,
+          pending: isBrowserSessionPendingForTarget(primarySourceAccessPrompt.targetId),
+          nextStep: primarySourceAccessPrompt.rerunLabel
+            ? `Then ${primarySourceAccessPrompt.rerunLabel}.`
+            : 'Then search again.',
+          onAction: () => onOpenBrowserSessionForTarget(primarySourceAccessPrompt.targetId),
+        }
+      : {
+          label: browserSession.status === 'blocked'
+            ? 'Open browser to recover'
+            : 'Open browser to sign in',
+          pending: isBrowserSessionPending,
+          nextStep: 'Then search again.',
+          onAction: onOpenBrowserSession,
+        }
+  }
   const configuredFilters = getDiscoveryConfiguredFilters(searchPreferences)
   const hasSearchRoles =
     searchPreferences.targetRoles.length > 0 || searchPreferences.jobFamilies.length > 0

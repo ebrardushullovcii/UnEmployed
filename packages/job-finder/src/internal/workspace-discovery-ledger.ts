@@ -128,6 +128,7 @@ export function recordDiscoveredPostingInLedger(input: {
     | "title"
     | "company"
     | "collectionMethod"
+    | "detailQuality"
     | "titleTriageOutcome"
   >;
   targetId: string;
@@ -151,6 +152,7 @@ export function recordDiscoveredPostingInLedger(input: {
       company: input.posting.company,
       targetId: input.targetId,
       collectionMethod: input.posting.collectionMethod,
+      detailQuality: input.posting.detailQuality,
       firstSeenAt: existingEntry?.firstSeenAt ?? input.seenAt,
       lastSeenAt: input.seenAt,
       lastAppliedAt:
@@ -212,6 +214,7 @@ export function markSavedJobStatusInLedger(input: {
         input.job.provenance[input.job.provenance.length - 1]?.collectionMethod ??
         existingEntry?.collectionMethod ??
         input.job.collectionMethod,
+      detailQuality: input.job.detailQuality,
       titleTriageOutcome: input.job.titleTriageOutcome,
     },
     targetId,
@@ -254,7 +257,10 @@ export function shouldSkipPostingFromLedger(input: {
     };
   }
 
-  if (input.ledgerEntry.latestStatus === "enriched") {
+  if (
+    input.ledgerEntry.latestStatus === "enriched" &&
+    input.ledgerEntry.detailQuality === "detail_enriched"
+  ) {
     return {
       skip: true,
       reason: "Already retained from an earlier run.",

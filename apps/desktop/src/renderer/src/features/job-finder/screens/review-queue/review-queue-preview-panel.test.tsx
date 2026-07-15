@@ -28,4 +28,58 @@ describe('ReviewQueuePreviewPanel', () => {
     expect(screen.getByText('Find jobs first, then shortlist the strongest matches to start building tailored resumes.')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Go to Find jobs' }).getAttribute('href')).toBe('#/job-finder/discovery')
   })
+
+  it('shows the imported CV and makes the unchanged-file behavior explicit', () => {
+    const selectedItem = {
+      jobId: 'job_1',
+      title: 'Product Designer',
+      company: 'Signal Systems',
+      location: 'Remote',
+      matchScore: 92,
+      applicationStatus: 'ready_for_review' as const,
+      resumeApplicationMode: 'original_resume' as const,
+      assetStatus: 'ready' as const,
+      progressPercent: 100,
+      resumeAssetId: 'resume_1',
+      resumeReview: {
+        status: 'original_resume' as const,
+        sourceDocumentId: 'resume_1',
+        fileName: 'alex-original.pdf',
+        filePath: '/tmp/alex-original.pdf',
+      },
+      updatedAt: '2026-07-14T10:00:00.000Z',
+    }
+
+    render(
+      <ReviewQueuePreviewPanel
+        displayedProgress={100}
+        onEditResumeWorkspace={vi.fn()}
+        onGenerateResume={vi.fn()}
+        originalResume={{
+          id: 'resume_1',
+          fileName: 'alex-original.pdf',
+          uploadedAt: '2026-07-14T10:00:00.000Z',
+          storagePath: '/tmp/alex-original.pdf',
+          textContent: 'Alex Example\nProduct designer\nFull work history',
+          textUpdatedAt: '2026-07-14T10:00:00.000Z',
+          extractionStatus: 'ready',
+          lastAnalyzedAt: '2026-07-14T10:00:00.000Z',
+          analysisProviderKind: null,
+          analysisProviderLabel: null,
+          analysisWarnings: [],
+        }}
+        previewState={null}
+        queue={[selectedItem]}
+        selectedAsset={null}
+        selectedItem={selectedItem}
+        selectedJob={null}
+      />,
+    )
+
+    expect(screen.getByText('Original CV · unchanged')).toBeTruthy()
+    expect(screen.getByText('alex-original.pdf')).toBeTruthy()
+    expect(screen.getByText(/will not rewrite it, remove roles/i)).toBeTruthy()
+    expect(screen.getByText(/Full work history/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /create tailored resume/i })).toBeNull()
+  })
 })

@@ -89,6 +89,7 @@ async function ensureLocatorText(page, text) {
 }
 
 async function waitForProfileOrSetupHeading(page, timeout = 15000) {
+  await page.evaluate(() => { window.location.hash = '#/job-finder/profile' })
   await page.waitForFunction(() => {
     const heading = document.querySelector('h1')
     return heading?.textContent?.includes('Your profile') || heading?.textContent?.includes('Guided setup')

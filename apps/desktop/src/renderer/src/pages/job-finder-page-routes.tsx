@@ -211,6 +211,7 @@ export function JobFinderReviewQueueRoute() {
       onRemoveReviewJob={context.onRemoveReviewJob}
       isJobPending={(jobId) => context.isPending(jobFinderPendingActions.resumeJob(jobId))}
       onSelectItem={context.onSelectReviewItem}
+      originalResume={context.workspace.profile.baseResume}
       queue={context.workspace.reviewQueue}
       selectedAsset={context.selectedTailoredAsset}
       selectedItem={context.selectedReviewItem}

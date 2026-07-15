@@ -12,6 +12,7 @@ import {
   IsoDateTimeSchema,
   JobSourceSchema,
   NonEmptyStringSchema,
+  ResumeApplicationModeSchema,
   ResumeTemplateIdSchema,
   SourceAccessPromptStateSchema,
   SourceDebugPhaseSchema,
@@ -425,6 +426,7 @@ export const JobFinderSettingsSchema = z.object({
   allowAutoSubmitOverride: z.boolean(),
   keepSessionAlive: z.boolean(),
   discoveryOnly: z.boolean().default(false),
+  resumeApplicationMode: ResumeApplicationModeSchema.optional(),
 });
 export type JobFinderSettings = z.infer<typeof JobFinderSettingsSchema>;
 

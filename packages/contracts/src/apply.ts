@@ -28,6 +28,31 @@ export const applyRunModeValues = [
 export const ApplyRunModeSchema = z.enum(applyRunModeValues);
 export type ApplyRunMode = z.infer<typeof ApplyRunModeSchema>;
 
+export const applicationResumeSourceValues = [
+  "tailored_export",
+  "original_upload",
+] as const;
+export const ApplicationResumeSourceSchema = z.enum(
+  applicationResumeSourceValues,
+);
+export type ApplicationResumeSource = z.infer<
+  typeof ApplicationResumeSourceSchema
+>;
+
+export const ApplicationResumeArtifactSchema = z.object({
+  id: NonEmptyStringSchema,
+  jobId: NonEmptyStringSchema,
+  source: ApplicationResumeSourceSchema,
+  sourceDocumentId: NonEmptyStringSchema.nullable().default(null),
+  exportArtifactId: NonEmptyStringSchema.nullable().default(null),
+  fileName: NonEmptyStringSchema,
+  filePath: NonEmptyStringSchema,
+  approvedAt: IsoDateTimeSchema,
+});
+export type ApplicationResumeArtifact = z.infer<
+  typeof ApplicationResumeArtifactSchema
+>;
+
 export const applyRunStateValues = [
   "draft",
   "awaiting_submit_approval",

@@ -85,6 +85,14 @@ function assistantField(window) {
 
 async function waitForProfileOrSetupHeading(window) {
   await window.waitForFunction(
+    () => Boolean(window.unemployed?.jobFinder?.test),
+    undefined,
+    { timeout: 15000 },
+  );
+  await window.evaluate(() => {
+    window.location.hash = "#/job-finder/profile";
+  });
+  await window.waitForFunction(
     () => {
       const heading = document.querySelector("h1");
       return (

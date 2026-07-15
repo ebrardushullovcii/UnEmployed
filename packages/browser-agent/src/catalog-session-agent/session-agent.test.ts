@@ -1,7 +1,7 @@
 import type {
   BrowserSessionState,
   JobPosting,
-  ResumeExportArtifact,
+  ApplicationResumeArtifact,
   SavedJob,
 } from '@unemployed/contracts'
 import { SavedJobSchema } from '@unemployed/contracts'
@@ -49,6 +49,7 @@ function createCatalogJob(overrides: Partial<JobPosting> = {}): JobPosting {
     lastSeenAt: '2026-03-20T10:01:00.000Z',
     lastVerifiedActiveAt: '2026-03-20T10:01:00.000Z',
     salaryText: '$180k',
+    detailQuality: 'card_only',
     normalizedCompensation: {
       currency: 'USD',
       interval: 'year',
@@ -159,17 +160,16 @@ function createSavedJob(overrides: Partial<SavedJob> = {}): SavedJob {
   })
 }
 
-function createResumeExportArtifact(): ResumeExportArtifact {
+function createResumeArtifact(): ApplicationResumeArtifact {
   return {
-    id: 'resume_export_1',
-    draftId: 'resume_draft_1',
+    id: 'application_resume_1',
     jobId: 'job_1',
-    format: 'pdf',
+    source: 'tailored_export',
+    sourceDocumentId: null,
+    exportArtifactId: 'resume_export_1',
+    fileName: 'resume.pdf',
     filePath: '/tmp/resume.pdf',
-    pageCount: 2,
-    templateId: 'classic_ats',
-    exportedAt: '2026-03-20T10:07:00.000Z',
-    isApproved: true,
+    approvedAt: '2026-03-20T10:07:00.000Z',
   }
 }
 
@@ -217,8 +217,7 @@ describe('createCatalogSessionAgent', () => {
         description:
           'Lead product design for operational software. This application asks about relocation support before submission.',
       }),
-      resumeExport: createResumeExportArtifact(),
-      resumeFilePath: '/tmp/resume.pdf',
+      resumeArtifact: createResumeArtifact(),
       profile: createProfile(),
       settings: {
         resumeFormat: 'pdf',
@@ -258,8 +257,7 @@ describe('createCatalogSessionAgent', () => {
 
     const result = await agent.executeApplicationFlow('target_site', {
       job: createSavedJob(),
-      resumeExport: createResumeExportArtifact(),
-      resumeFilePath: '/tmp/resume.pdf',
+      resumeArtifact: createResumeArtifact(),
       profile: createProfile(),
       settings: {
         resumeFormat: 'pdf',
@@ -305,8 +303,7 @@ describe('createCatalogSessionAgent', () => {
         description:
           'Lead product design for operational software. This application asks about relocation support before submission.',
       }),
-      resumeExport: createResumeExportArtifact(),
-      resumeFilePath: '/tmp/resume.pdf',
+      resumeArtifact: createResumeArtifact(),
       profile: createProfile(),
       settings: {
         resumeFormat: 'pdf',
@@ -342,8 +339,7 @@ describe('createCatalogSessionAgent', () => {
         description:
           'Lead product design for operational software. This application asks whether you already have an account before continuing.',
       }),
-      resumeExport: createResumeExportArtifact(),
-      resumeFilePath: '/tmp/resume.pdf',
+      resumeArtifact: createResumeArtifact(),
       profile: createProfile(),
       settings: {
         resumeFormat: 'pdf',
@@ -380,8 +376,7 @@ describe('createCatalogSessionAgent', () => {
 
     const result = await agent.executeApplicationFlow('target_site', {
       job: createSavedJob(),
-      resumeExport: createResumeExportArtifact(),
-      resumeFilePath: '/tmp/resume.pdf',
+      resumeArtifact: createResumeArtifact(),
       profile: createProfile(),
       settings: {
         resumeFormat: 'pdf',
@@ -441,8 +436,7 @@ describe('createCatalogSessionAgent', () => {
     await expect(
       agent.executeEasyApply('target_site', {
         job: createSavedJob(),
-        resumeExport: createResumeExportArtifact(),
-        resumeFilePath: '/tmp/resume.pdf',
+        resumeArtifact: createResumeArtifact(),
         profile: createProfile(),
         settings: {
           resumeFormat: 'pdf',

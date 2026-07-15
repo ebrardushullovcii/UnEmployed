@@ -5,6 +5,7 @@ import { Button, ProgressBar } from '@renderer/components/ui'
 import { EmptyState } from '../../components/empty-state'
 import { PreferenceList } from '../../components/preference-list'
 import { StatusBadge } from '../../components/status-badge'
+import { MatchEvidenceMatrix } from '../../components/match-evidence-matrix'
 import { jobDescriptionToText } from '../../lib/job-description-text'
 import {
   buildMissionPanelState,
@@ -169,6 +170,7 @@ export function ReviewQueueMissionPanel({
             <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
               <PreferenceList label="Why it fits" values={selectedJob.matchAssessment.reasons} />
             </div>
+            <MatchEvidenceMatrix assessment={selectedJob.matchAssessment} />
             <div className="surface-card-tint grid min-w-0 gap-3 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
               <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
                 <div className="grid gap-1">
@@ -265,7 +267,7 @@ export function ReviewQueueMissionPanel({
                     type="button"
                     variant="outline"
                   >
-                    Run legacy submit path
+                    Prepare application to final review
                   </Button>
                 </div>
               </div>

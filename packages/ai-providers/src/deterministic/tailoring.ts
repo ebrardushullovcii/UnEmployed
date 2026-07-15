@@ -9,7 +9,10 @@ import type {
   ReviseResumeDraftInput,
   TailorResumeInput,
 } from "../shared";
-import { ResumeAssistantReplySchema, TailoredResumeDraftSchema } from "../shared";
+import {
+  ResumeAssistantReplySchema,
+  TailoredResumeDraftSchema,
+} from "../shared";
 import { clampScore, uniqueStrings } from "./utils";
 import { filterGroundedVisibleSkills } from "./resume-skill-grounding";
 import { deriveResumeCoveragePlan } from "./resume-coverage";
@@ -24,27 +27,64 @@ function tokenizeForQuality(value: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
-function hasStrongRoleSignal(value: string | null | undefined, roleTarget: string): boolean {
+function hasStrongRoleSignal(
+  value: string | null | undefined,
+  roleTarget: string,
+): boolean {
   const tokens = new Set(tokenizeForQuality(value));
   if (tokens.size === 0) {
     return false;
   }
 
-  return tokenizeForQuality(roleTarget).some((token) => token.length >= 4 && tokens.has(token));
+  return tokenizeForQuality(roleTarget).some(
+    (token) => token.length >= 4 && tokens.has(token),
+  );
+}
+
+function isProfessionalResumeNarrative(
+  value: string | null | undefined,
+): boolean {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) {
+    return false;
+  }
+
+  const hasFirstPersonVoice = /\b(?:i|i'm|i've|me|my|mine)\b/i.test(trimmed);
+  const hasCareerChangeMeta =
+    /\b(?:decid(?:e|ed|ing)|passion|return(?:ed|ing)?|transition(?:ed|ing)?\s+back)\b/i.test(
+      trimmed,
+    );
+  const isLocationOnly =
+    /^(?:remote|hybrid|onsite|on-site)(?:(?:\s+in)|\s*,)?\s*[a-z\s,-]+$/i.test(
+      trimmed,
+    );
+
+  return !isLocationOnly && !(hasFirstPersonVoice && hasCareerChangeMeta);
 }
 
 function shouldPreferStoredSummary(input: {
   storedSummary: string | null | undefined;
   roleTarget: string;
 }): boolean {
+  if (!isProfessionalResumeNarrative(input.storedSummary)) {
+    return false;
+  }
+
   const tokens = tokenizeForQuality(input.storedSummary);
-  return tokens.length >= 12 || hasStrongRoleSignal(input.storedSummary, input.roleTarget);
+  return (
+    tokens.length >= 12 ||
+    hasStrongRoleSignal(input.storedSummary, input.roleTarget)
+  );
 }
 
 function shouldKeepExperienceSummary(input: {
   summary: string | null | undefined;
   bullets: readonly string[];
 }): boolean {
+  if (!isProfessionalResumeNarrative(input.summary)) {
+    return false;
+  }
+
   const tokens = tokenizeForQuality(input.summary);
   if (tokens.length === 0) {
     return false;
@@ -57,7 +97,10 @@ function shouldKeepExperienceSummary(input: {
   return input.bullets.length === 0;
 }
 
-function calculateQualityOverlap(left: string | null | undefined, right: string | null | undefined): number {
+function calculateQualityOverlap(
+  left: string | null | undefined,
+  right: string | null | undefined,
+): number {
   const leftTokens = [...new Set(tokenizeForQuality(left))];
   const rightTokens = new Set(tokenizeForQuality(right));
 
@@ -83,9 +126,13 @@ function buildProofBullet(input: {
 
   const claimTokens = tokenizeForQuality(claim);
   const metricTokens = tokenizeForQuality(heroMetric);
-  const includesMetricTokens = metricTokens.length > 0 && claimTokens.some((_, index) =>
-    metricTokens.every((token, tokenIndex) => claimTokens[index + tokenIndex] === token),
-  );
+  const includesMetricTokens =
+    metricTokens.length > 0 &&
+    claimTokens.some((_, index) =>
+      metricTokens.every(
+        (token, tokenIndex) => claimTokens[index + tokenIndex] === token,
+      ),
+    );
 
   if (metricTokens.length === 0 || includesMetricTokens) {
     return claim;
@@ -98,11 +145,26 @@ function buildProofBullet(input: {
   return `${claim}${/[.!?]$/.test(claim) ? "" : "."} ${normalizedHeroMetric}`;
 }
 
-function shouldKeepSupportingContext(value: string | null | undefined): boolean {
+function shouldKeepSupportingContext(
+  value: string | null | undefined,
+): boolean {
   return tokenizeForQuality(value).length >= 8;
 }
 
-const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const monthNames = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
 const monthByName: Record<string, number> = {
   jan: 1,
   january: 1,
@@ -168,13 +230,58 @@ function formatMonthYear(value: string | null | undefined): string | null {
   return null;
 }
 
-function formatDateRange(start: string | null | undefined, end: string | null | undefined): string | null {
-  return [formatMonthYear(start), formatMonthYear(end)].filter(Boolean).join(" – ") || null;
+function formatDateRange(
+  start: string | null | undefined,
+  end: string | null | undefined,
+): string | null {
+  return (
+    [formatMonthYear(start), formatMonthYear(end)]
+      .filter(Boolean)
+      .join(" – ") || null
+  );
 }
 
 const QUALITY_OVERLAP_THRESHOLD = 0.72;
+const EXPERIENCE_IMPACT_SIGNAL_PATTERN =
+  /\b(?:accelerated|cut|decreased|delivered|eliminated|grew|improved|increased|lowered|optimized|outperformed|raised|reduced|saved|scaled|shortened)\b/i;
+const EXPERIENCE_GENERIC_OPENING_PATTERN =
+  /^(?:adopted|assisted|collaborated|helped|managed end-to-end|participated|responsible for|worked (?:on|with))\b/i;
+const EXPERIENCE_PROJECT_HEADING_PATTERN =
+  /^[^.!?]{2,80}\([^)]{2,80}\)\s*[–—]\s*[^.!?]{2,120}$/u;
 
-function isDistinctQualityLine(value: string, existing: readonly string[]): boolean {
+function looksLikeProjectHeading(value: string): boolean {
+  return EXPERIENCE_PROJECT_HEADING_PATTERN.test(value.trim());
+}
+
+function scoreExperienceBullet(
+  value: string,
+  targetTerms: readonly string[],
+): number {
+  const tokens = new Set(tokenizeForQuality(value));
+  const metricCount =
+    value.match(
+      /(?:\$\s?\d[\d,.]*|\b\d+(?:\.\d+)?\s?%|\b\d+\+|\b\d+\s*(?:days?|weeks?|months?|hours?|minutes?|seconds?|users?|customers?|tickets?|projects?|developers?|teams?))/gi,
+    )?.length ?? 0;
+  const targetOverlap = uniqueStrings(targetTerms)
+    .flatMap(tokenizeForQuality)
+    .filter((token) => token.length >= 3 && tokens.has(token)).length;
+  const hasImpactSignal = EXPERIENCE_IMPACT_SIGNAL_PATTERN.test(value);
+  const isGenericOpening = EXPERIENCE_GENERIC_OPENING_PATTERN.test(value);
+  const hasUsefulLength = value.length >= 55 && value.length <= 240;
+
+  return (
+    Math.min(9, metricCount * 3) +
+    Math.min(4, targetOverlap) +
+    (hasImpactSignal ? 3 : 0) +
+    (hasUsefulLength ? 1 : 0) -
+    (isGenericOpening && metricCount === 0 ? 3 : 0)
+  );
+}
+
+function isDistinctQualityLine(
+  value: string,
+  existing: readonly string[],
+): boolean {
   return existing.every((entry) => {
     const overlap = calculateQualityOverlap(value, entry);
     return overlap < QUALITY_OVERLAP_THRESHOLD;
@@ -185,9 +292,17 @@ function buildExperienceBullets(input: {
   experience: CandidateProfile["experiences"][number];
   proofBank: CandidateProfile["proofBank"];
   maxBullets?: number;
+  targetTerms?: readonly string[];
   usedBulletSignatures?: Set<string>;
 }): string[] {
-  const baseBullets = uniqueStrings(input.experience.achievements);
+  const canonicalBullets = uniqueStrings(input.experience.achievements);
+  const narrativeBullets = canonicalBullets.filter(
+    (bullet) => !looksLikeProjectHeading(bullet),
+  );
+  // Prefer accomplishment prose over project-heading fragments, but never
+  // erase the only canonical evidence available for a role.
+  const baseBullets =
+    narrativeBullets.length > 0 ? narrativeBullets : canonicalBullets;
   const matchedProofs: Array<CandidateProfile["proofBank"][number]> = [];
   const usedProofIds = new Set<string>();
 
@@ -228,7 +343,12 @@ function buildExperienceBullets(input: {
       continue;
     }
 
-    if (!isDistinctQualityLine(candidate, [...enrichedBullets, ...supportingContextBullets])) {
+    if (
+      !isDistinctQualityLine(candidate, [
+        ...enrichedBullets,
+        ...supportingContextBullets,
+      ])
+    ) {
       continue;
     }
 
@@ -237,8 +357,19 @@ function buildExperienceBullets(input: {
 
   const maxBullets = input.maxBullets ?? 3;
   const selectedBullets: string[] = [];
+  const rankedEnrichedBullets = enrichedBullets
+    .map((bullet, index) => ({
+      bullet,
+      index,
+      score: scoreExperienceBullet(bullet, input.targetTerms ?? []),
+    }))
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .map(({ bullet }) => bullet);
 
-  for (const bullet of uniqueStrings([...enrichedBullets, ...supportingContextBullets])) {
+  for (const bullet of uniqueStrings([
+    ...rankedEnrichedBullets,
+    ...supportingContextBullets,
+  ])) {
     const signature = tokenizeForQuality(bullet).join(" ");
     if (signature && input.usedBulletSignatures?.has(signature)) {
       continue;
@@ -263,9 +394,11 @@ function shouldExportCoverageClassification(
   return classification === "detailed" || classification === "compact";
 }
 
-function compactExperienceSummary(value: string | null | undefined): string | null {
+function compactExperienceSummary(
+  value: string | null | undefined,
+): string | null {
   const trimmed = value?.trim() ?? "";
-  if (!trimmed) {
+  if (!isProfessionalResumeNarrative(trimmed)) {
     return null;
   }
 
@@ -325,19 +458,27 @@ function compareExperienceReverseChronology(
   left: CandidateProfile["experiences"][number],
   right: CandidateProfile["experiences"][number],
 ): number {
-  const leftMonth = (left.isCurrent
-    ? Number.MAX_SAFE_INTEGER
-    : parseChronologyMonth(left.endDate)) ?? parseChronologyMonth(left.startDate) ?? Number.MIN_SAFE_INTEGER;
-  const rightMonth = (right.isCurrent
-    ? Number.MAX_SAFE_INTEGER
-    : parseChronologyMonth(right.endDate)) ?? parseChronologyMonth(right.startDate) ?? Number.MIN_SAFE_INTEGER;
+  const leftMonth =
+    (left.isCurrent
+      ? Number.MAX_SAFE_INTEGER
+      : parseChronologyMonth(left.endDate)) ??
+    parseChronologyMonth(left.startDate) ??
+    Number.MIN_SAFE_INTEGER;
+  const rightMonth =
+    (right.isCurrent
+      ? Number.MAX_SAFE_INTEGER
+      : parseChronologyMonth(right.endDate)) ??
+    parseChronologyMonth(right.startDate) ??
+    Number.MIN_SAFE_INTEGER;
 
   if (rightMonth !== leftMonth) {
     return rightMonth - leftMonth;
   }
 
-  const leftStart = parseChronologyMonth(left.startDate) ?? Number.MIN_SAFE_INTEGER;
-  const rightStart = parseChronologyMonth(right.startDate) ?? Number.MIN_SAFE_INTEGER;
+  const leftStart =
+    parseChronologyMonth(left.startDate) ?? Number.MIN_SAFE_INTEGER;
+  const rightStart =
+    parseChronologyMonth(right.startDate) ?? Number.MIN_SAFE_INTEGER;
   if (rightStart !== leftStart) {
     return rightStart - leftStart;
   }
@@ -389,7 +530,10 @@ export function buildDeterministicResumeText(
   additionalSkills: readonly string[] = [],
   languages: readonly string[] = [],
 ): string {
-  const formatHeading = (parts: readonly (string | null)[], right?: string | null) => {
+  const formatHeading = (
+    parts: readonly (string | null)[],
+    right?: string | null,
+  ) => {
     const left = parts.filter(Boolean).join(" — ");
     if (left && right) {
       return `${left} | ${right}`;
@@ -402,7 +546,10 @@ export function buildDeterministicResumeText(
       ? [
           "Experience",
           ...experienceEntries.flatMap((entry) => [
-            formatHeading([entry.title, entry.employer], formatHeading([entry.location], entry.dateRange)),
+            formatHeading(
+              [entry.title, entry.employer],
+              formatHeading([entry.location], entry.dateRange),
+            ),
             entry.summary,
             ...entry.bullets.map((line) => `- ${line}`),
             "",
@@ -415,14 +562,18 @@ export function buildDeterministicResumeText(
   return [
     profile.fullName,
     profile.headline,
-    [profile.currentLocation, profile.email, profile.phone].filter(Boolean).join(" | "),
+    [profile.currentLocation, profile.email, profile.phone]
+      .filter(Boolean)
+      .join(" | "),
     "",
     "Summary",
     summary,
     "",
     ...experienceSection,
     coreSkills.length > 0 ? `Core Skills: ${coreSkills.join(", ")}` : null,
-    additionalSkills.length > 0 ? `Additional Skills: ${additionalSkills.join(", ")}` : null,
+    additionalSkills.length > 0
+      ? `Additional Skills: ${additionalSkills.join(", ")}`
+      : null,
     languages.length > 0 ? `Languages: ${languages.join(", ")}` : null,
     "",
     ...(projectEntries.length > 0
@@ -441,7 +592,11 @@ export function buildDeterministicResumeText(
           "Education",
           ...educationEntries.flatMap((entry) => [
             formatHeading(
-              [entry.school, [entry.degree, entry.fieldOfStudy].filter(Boolean).join(", ") || null],
+              [
+                entry.school,
+                [entry.degree, entry.fieldOfStudy].filter(Boolean).join(", ") ||
+                  null,
+              ],
               formatHeading([entry.location], entry.dateRange),
             ),
             entry.summary,
@@ -458,9 +613,13 @@ export function buildDeterministicResumeText(
           "",
         ]
       : []),
-    targetedKeywords.length > 0 ? `Keywords: ${targetedKeywords.join(", ")}` : null,
+    targetedKeywords.length > 0
+      ? `Keywords: ${targetedKeywords.join(", ")}`
+      : null,
   ]
-    .filter((value): value is string => Boolean(value && value.trim().length > 0))
+    .filter((value): value is string =>
+      Boolean(value && value.trim().length > 0),
+    )
     .join("\n");
 }
 
@@ -495,13 +654,23 @@ export function buildDeterministicTailoredResume(input: TailorResumeInput) {
     .slice(0, 8);
   const languages = uniqueStrings(
     input.profile.spokenLanguages
-      .map((entry) => [entry.language, entry.proficiency].filter(Boolean).join(" — "))
+      .map((entry) =>
+        [entry.language, entry.proficiency].filter(Boolean).join(" — "),
+      )
       .filter(Boolean),
   ).slice(0, 6);
-  const workModeSummary = input.job.workMode.join(", ") || "flexible";
-  const roleTarget = input.job.title || input.searchPreferences.targetRoles[0] || "the target role";
+  const roleTarget =
+    input.job.title ||
+    input.searchPreferences.targetRoles[0] ||
+    "the target role";
   const headline = input.profile.headline ?? roleTarget;
-  const synthesizedSummary = `${headline} with ${input.profile.yearsExperience ? `${input.profile.yearsExperience}+ years of experience` : "relevant experience"} delivering solutions in ${targetedKeywords.slice(0, 3).join(", ") || "core role requirements"} within ${workModeSummary} environments.`;
+  const experienceDepth = input.profile.yearsExperience
+    ? `${input.profile.yearsExperience}+ years of experience`
+    : "relevant professional experience";
+  const groundedSkillSummary = coreSkills.slice(0, 3).join(", ");
+  const synthesizedSummary = groundedSkillSummary
+    ? `${headline} with ${experienceDepth} across ${groundedSkillSummary}.`
+    : `${headline} with ${experienceDepth}.`;
   const preferredStoredSummary =
     input.profile.professionalSummary.fullSummary ??
     input.profile.professionalSummary.shortValueProposition ??
@@ -527,7 +696,10 @@ export function buildDeterministicTailoredResume(input: TailorResumeInput) {
     .sort(compareExperienceReverseChronology)
     .flatMap((experience) => {
       const coverage = coverageByRecordId.get(experience.id);
-      if (!coverage || !shouldExportCoverageClassification(coverage.classification)) {
+      if (
+        !coverage ||
+        !shouldExportCoverageClassification(coverage.classification)
+      ) {
         return [];
       }
 
@@ -536,25 +708,31 @@ export function buildDeterministicTailoredResume(input: TailorResumeInput) {
         experience,
         proofBank: input.profile.proofBank,
         maxBullets: isCompact ? 1 : 3,
+        targetTerms: [input.job.title, ...input.job.keySkills],
         usedBulletSignatures,
       });
 
-      return [{
-        title: experience.title,
-        employer: experience.companyName,
-        location: experience.location,
-        dateRange: formatDateRange(experience.startDate, experience.isCurrent ? "Present" : experience.endDate),
-        summary: isCompact
-          ? compactExperienceSummary(experience.summary)
-          : shouldKeepExperienceSummary({
-              summary: experience.summary,
-              bullets,
-            })
-            ? experience.summary
-            : null,
-        bullets,
-        profileRecordId: experience.id,
-      }];
+      return [
+        {
+          title: experience.title,
+          employer: experience.companyName,
+          location: experience.location,
+          dateRange: formatDateRange(
+            experience.startDate,
+            experience.isCurrent ? "Present" : experience.endDate,
+          ),
+          summary: isCompact
+            ? compactExperienceSummary(experience.summary)
+            : shouldKeepExperienceSummary({
+                  summary: experience.summary,
+                  bullets,
+                })
+              ? experience.summary
+              : null,
+          bullets,
+          profileRecordId: experience.id,
+        },
+      ];
     });
   const projectEntries = input.profile.projects.slice(0, 2).map((project) => ({
     name: project.name,
@@ -573,12 +751,14 @@ export function buildDeterministicTailoredResume(input: TailorResumeInput) {
     summary: entry.summary,
     profileRecordId: entry.id,
   }));
-  const certificationEntries = input.profile.certifications.slice(0, 3).map((entry) => ({
-    name: entry.name,
-    issuer: entry.issuer,
-    dateRange: formatDateRange(entry.issueDate, entry.expiryDate),
-    profileRecordId: null,
-  }));
+  const certificationEntries = input.profile.certifications
+    .slice(0, 3)
+    .map((entry) => ({
+      name: entry.name,
+      issuer: entry.issuer,
+      dateRange: formatDateRange(entry.issueDate, entry.expiryDate),
+      profileRecordId: null,
+    }));
   const fullText = buildDeterministicResumeText(
     input.profile,
     input.job,
@@ -608,7 +788,9 @@ export function buildDeterministicTailoredResume(input: TailorResumeInput) {
     additionalSkills,
     languages,
     fullText,
-    compatibilityScore: clampScore(78 + Math.min(input.job.keySkills.length * 3, 18)),
+    compatibilityScore: clampScore(
+      78 + Math.min(input.job.keySkills.length * 3, 18),
+    ),
     notes: ["Used the built-in deterministic resume tailorer."],
   });
 }
@@ -658,12 +840,19 @@ export function composeDeterministicFullText(input: {
     input.label ?? null,
     input.summary,
     ...(input.experienceEntries ?? []).flatMap((entry) => [
-      stringifyEntry([entry.title, entry.employer, entry.location, entry.dateRange]),
+      stringifyEntry([
+        entry.title,
+        entry.employer,
+        entry.location,
+        entry.dateRange,
+      ]),
       entry.summary,
       ...entry.bullets,
     ]),
     ...input.experienceHighlights,
-    input.coreSkills.length > 0 ? `Core skills: ${input.coreSkills.join(", ")}` : null,
+    input.coreSkills.length > 0
+      ? `Core skills: ${input.coreSkills.join(", ")}`
+      : null,
     input.additionalSkills && input.additionalSkills.length > 0
       ? `Additional skills: ${input.additionalSkills.join(", ")}`
       : null,
@@ -692,7 +881,9 @@ export function composeDeterministicFullText(input: {
       : null,
     ...(input.notes ?? []),
   ]
-    .filter((entry): entry is string => Boolean(entry && entry.trim().length > 0))
+    .filter((entry): entry is string =>
+      Boolean(entry && entry.trim().length > 0),
+    )
     .join("\n\n");
 }
 
@@ -706,16 +897,11 @@ export function buildDeterministicStructuredResumeDraft(
     ...(input.researchContext?.priorityThemes ?? []),
   ]).slice(0, 6);
   const summary =
-    evidence?.candidateSummary[0] ??
-    evidence?.summary[0] ??
-    baseDraft.summary;
+    evidence?.candidateSummary[0] ?? evidence?.summary[0] ?? baseDraft.summary;
   const experienceHighlights: string[] = [];
   const coreSkills = filterGroundedVisibleSkills(
     input.profile,
-    [
-      ...(evidence?.skills ?? []),
-      ...baseDraft.coreSkills,
-    ],
+    [...(evidence?.skills ?? []), ...baseDraft.coreSkills],
     8,
   );
   const targetedKeywords = uniqueStrings([
@@ -726,7 +912,9 @@ export function buildDeterministicStructuredResumeDraft(
   const notes = uniqueStrings([
     ...baseDraft.notes,
     ...(researchTerms.length > 0
-      ? ["Incorporated bounded employer research vocabulary into deterministic draft creation."]
+      ? [
+          "Incorporated bounded employer research vocabulary into deterministic draft creation.",
+        ]
       : []),
   ]);
   const fullText = composeDeterministicFullText({
@@ -766,17 +954,27 @@ export function buildDeterministicResumeAssistantReply(
 ): ResumeAssistantReply {
   const lowerRequest = input.request.toLowerCase();
   const patches: ResumeDraftPatch[] = [];
-  const summarySection = input.draft.sections.find((section) => section.kind === "summary") ?? null;
+  const summarySection =
+    input.draft.sections.find((section) => section.kind === "summary") ?? null;
   const experienceSection =
-    input.draft.sections.find((section) => section.kind === "experience") ?? null;
+    input.draft.sections.find((section) => section.kind === "experience") ??
+    null;
 
-  const isSummaryShorteningRequest = /\bshort(?:en|er)?\b.*\bsummary\b|\bsummary\b.*\bshort(?:en|er)?\b/.test(lowerRequest);
-
-  if (summarySection && !summarySection.locked && (lowerRequest.includes("summary") || lowerRequest.includes("ats") || isSummaryShorteningRequest)) {
-    const currentSummary = summarySection.text ?? `${input.job.title} alignment summary`;
-    const tightenedSummary = tightenSentence(
-      currentSummary,
+  const isSummaryShorteningRequest =
+    /\bshort(?:en|er)?\b.*\bsummary\b|\bsummary\b.*\bshort(?:en|er)?\b/.test(
+      lowerRequest,
     );
+
+  if (
+    summarySection &&
+    !summarySection.locked &&
+    (lowerRequest.includes("summary") ||
+      lowerRequest.includes("ats") ||
+      isSummaryShorteningRequest)
+  ) {
+    const currentSummary =
+      summarySection.text ?? `${input.job.title} alignment summary`;
+    const tightenedSummary = tightenSentence(currentSummary);
     if (tightenedSummary !== currentSummary) {
       patches.push({
         id: createPatchId("assistant_patch_summary"),
@@ -799,11 +997,30 @@ export function buildDeterministicResumeAssistantReply(
     }
   }
 
-  const isExperienceShorteningRequest = lowerRequest.includes("shorten") && (lowerRequest.includes("experience") || lowerRequest.includes("bullet"));
+  const isExperienceShorteningRequest =
+    lowerRequest.includes("shorten") &&
+    (lowerRequest.includes("experience") || lowerRequest.includes("bullet"));
 
-  if (experienceSection && !experienceSection.locked && (lowerRequest.includes("bullet") || lowerRequest.includes("experience") || isExperienceShorteningRequest)) {
-    const ordinalPatterns = ["first", "1st", "second", "2nd", "third", "3rd", "fourth", "4th"];
-    const requestedOrdinalIndex = ordinalPatterns.findIndex((pattern) => lowerRequest.includes(pattern));
+  if (
+    experienceSection &&
+    !experienceSection.locked &&
+    (lowerRequest.includes("bullet") ||
+      lowerRequest.includes("experience") ||
+      isExperienceShorteningRequest)
+  ) {
+    const ordinalPatterns = [
+      "first",
+      "1st",
+      "second",
+      "2nd",
+      "third",
+      "3rd",
+      "fourth",
+      "4th",
+    ];
+    const requestedOrdinalIndex = ordinalPatterns.findIndex((pattern) =>
+      lowerRequest.includes(pattern),
+    );
     const unlockedEntryBullets = experienceSection.entries.flatMap((entry) =>
       entry.locked
         ? []
@@ -814,23 +1031,27 @@ export function buildDeterministicResumeAssistantReply(
     const unlockedBullets = experienceSection.bullets
       .filter((bullet) => !bullet.locked)
       .map((bullet) => ({ bullet, entryId: null as string | null }));
-    const candidateBullets = unlockedEntryBullets.length > 0 ? unlockedEntryBullets : unlockedBullets;
-    const keywordMatchedBullet = candidateBullets.find((item) =>
-      item.bullet.text
-        .toLowerCase()
-        .split(/[^a-z0-9]+/)
-        .filter((token) => token.length >= 3)
-        .some((token) => lowerRequest.includes(token)),
-    ) ?? null;
-    const targetBullet = requestedOrdinalIndex >= 0
-      ? candidateBullets[requestedOrdinalIndex] ?? null
-      : keywordMatchedBullet ?? candidateBullets[0] ?? null;
+    const candidateBullets =
+      unlockedEntryBullets.length > 0 ? unlockedEntryBullets : unlockedBullets;
+    const keywordMatchedBullet =
+      candidateBullets.find((item) =>
+        item.bullet.text
+          .toLowerCase()
+          .split(/[^a-z0-9]+/)
+          .filter((token) => token.length >= 3)
+          .some((token) => lowerRequest.includes(token)),
+      ) ?? null;
+    const targetBullet =
+      requestedOrdinalIndex >= 0
+        ? (candidateBullets[requestedOrdinalIndex] ?? null)
+        : (keywordMatchedBullet ?? candidateBullets[0] ?? null);
 
     if (targetBullet) {
       const tightenedBullet = tightenSentence(targetBullet.bullet.text);
       if (tightenedBullet === targetBullet.bullet.text) {
         return ResumeAssistantReplySchema.parse({
-          content: "I could not safely turn that request into a grounded patch, so no changes were applied.",
+          content:
+            "I could not safely turn that request into a grounded patch, so no changes were applied.",
           patches,
         });
       }
@@ -879,7 +1100,8 @@ function tightenSentence(value: string): string {
 
   const candidate = normalized.slice(0, 240);
   const boundaryMatch = candidate.match(/^.*(?=[\s.!?;][^\s.!?;]*$)/);
-  const trimmed = boundaryMatch?.[0]?.trim() ?? candidate.replace(/\s+\S*$/, "").trim();
+  const trimmed =
+    boundaryMatch?.[0]?.trim() ?? candidate.replace(/\s+\S*$/, "").trim();
   const safe = trimmed.length > 0 ? trimmed : candidate.trim();
 
   return /[.!?;]$/.test(safe) ? safe : `${safe}...`;

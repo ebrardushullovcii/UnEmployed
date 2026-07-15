@@ -2,6 +2,8 @@ import type {
   ApplicationRecord,
   ApplicationStatus,
   AssetStatus,
+  CandidateProfile,
+  JobFinderSettings,
   ResumeDraft,
   ResumeExportArtifact,
   ReviewQueueItem,
@@ -86,7 +88,13 @@ export function buildReviewQueue(
   tailoredAssets: readonly TailoredAsset[],
   resumeDrafts: readonly ResumeDraft[],
   resumeExportArtifacts: readonly ResumeExportArtifact[],
+  profile?: CandidateProfile,
+  settings?: JobFinderSettings,
 ): ReviewQueueItem[] {
+  const usesOriginalResume =
+    settings?.resumeApplicationMode === "original_resume";
+  const originalResume = profile?.baseResume ?? null;
+  const originalResumePath = originalResume?.storagePath?.trim() ?? "";
   const assetsByJobId = new Map(
     tailoredAssets.map((asset) => [asset.jobId, asset]),
   );
@@ -112,6 +120,35 @@ export function buildReviewQueue(
   return savedJobs
     .filter((job) => reviewableStatuses.has(job.status))
     .map<ReviewQueueItem>((job) => {
+      if (usesOriginalResume) {
+        const hasOriginalResume = Boolean(originalResume && originalResumePath);
+        return {
+          jobId: job.id,
+          title: job.title,
+          company: job.company,
+          location: job.location,
+          matchScore: job.matchAssessment.score,
+          applicationStatus: job.status,
+          resumeApplicationMode: "original_resume",
+          assetStatus: hasOriginalResume ? "ready" : "not_started",
+          progressPercent: hasOriginalResume ? 100 : null,
+          resumeAssetId: hasOriginalResume ? originalResume!.id : null,
+          resumeReview: hasOriginalResume
+            ? {
+                status: "original_resume",
+                sourceDocumentId: originalResume!.id,
+                fileName: originalResume!.fileName,
+                filePath: originalResumePath,
+              }
+            : { status: "not_started" },
+          updatedAt:
+            [originalResume?.textUpdatedAt, originalResume?.uploadedAt]
+              .filter((value): value is string => Boolean(value))
+              .sort()
+              .at(-1) ?? job.discoveredAt,
+        };
+      }
+
       const asset = assetsByJobId.get(job.id) ?? null;
       const draft = draftsByJobId.get(job.id) ?? null;
       const approvedExport = approvedExportsByJobId.get(job.id) ?? null;
@@ -130,6 +167,7 @@ export function buildReviewQueue(
         location: job.location,
         matchScore: job.matchAssessment.score,
         applicationStatus: job.status,
+        resumeApplicationMode: "tailored_per_job",
         assetStatus: asset?.status ?? "not_started",
         progressPercent: asset?.progressPercent ?? null,
         resumeAssetId: asset?.id ?? null,

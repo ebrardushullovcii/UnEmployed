@@ -171,7 +171,7 @@ export function getReadinessDescription(input: {
   }
 
   if (applySupportState === 'incomplete') {
-    return 'The approved PDF is ready, but this selection is missing apply-path data. Refresh the job details before starting apply copilot.'
+    return `${selectedItem.resumeReview.status === 'original_resume' ? 'The original CV' : 'The approved PDF'} is ready, but this selection is missing apply-path data. Refresh the job details before starting apply copilot.`
   }
 
   if (browserActionMessage) {
@@ -179,10 +179,12 @@ export function getReadinessDescription(input: {
   }
 
   if (applySupportState === 'manual_follow_up') {
-    return 'The approved PDF is ready, but saved job data does not confirm a supported Easy Apply path. Starting apply copilot can still stop with a manual-only next step.'
+    return `${selectedItem.resumeReview.status === 'original_resume' ? 'The original CV' : 'The approved PDF'} is ready, but saved job data does not confirm a supported Easy Apply path. Starting apply copilot can still stop with a manual-only next step.`
   }
 
-  return 'The approved PDF is ready to use. Apply copilot can prepare the application and pause before final submit if the live form asks for unsupported information.'
+  return selectedItem.resumeReview.status === 'original_resume'
+    ? 'Your original CV is ready to use unchanged. Apply copilot can attach it and prepare the application, then pause before final submit.'
+    : 'The approved PDF is ready to use. Apply copilot can prepare the application and pause before final submit if the live form asks for unsupported information.'
 }
 
 export function buildMissionPanelState(input: {
@@ -211,16 +213,19 @@ export function buildMissionPanelState(input: {
   const isGenerating = isResumeGenerationInProgress(selectedItem) || isSelectedJobPending
   const applySupportState = getApplySupportState(selectedJob)
   const resumeReviewStatus = selectedItem?.resumeReview.status ?? 'not_started'
+  const usesOriginalResume = selectedItem?.resumeReview.status === 'original_resume'
   const approvedResumeReview = selectedItem?.resumeReview.status === 'approved'
     ? selectedItem.resumeReview
     : null
-  const hasApprovedResumeExport = approvedResumeReview !== null
+  const hasApprovedResumeExport = approvedResumeReview !== null || usesOriginalResume
   const hasReadyApprovedAsset =
-    selectedAsset !== null &&
-    selectedAsset.status === 'ready' &&
-    selectedItem?.resumeAssetId === selectedAsset.id &&
-    approvedResumeReview !== null &&
-    selectedAsset.storagePath === approvedResumeReview.approvedFilePath
+    usesOriginalResume
+      ? selectedItem?.assetStatus === 'ready' && Boolean(selectedItem.resumeAssetId)
+      : selectedAsset !== null &&
+        selectedAsset.status === 'ready' &&
+        selectedItem?.resumeAssetId === selectedAsset.id &&
+        approvedResumeReview !== null &&
+        selectedAsset.storagePath === approvedResumeReview.approvedFilePath
   const canApproveApply =
     browserSession.status === 'ready' &&
     hasApprovedResumeExport &&
@@ -244,7 +249,7 @@ export function buildMissionPanelState(input: {
   })
   const checklist: ApplyChecklistItem[] = [
     {
-      label: 'Tailored resume ready',
+      label: usesOriginalResume ? 'Original CV ready' : 'Tailored resume ready',
       state: hasGenerationFailure ? 'blocked' : isGenerating ? 'in_progress' : needsGeneration ? 'blocked' : 'complete',
       description: hasGenerationFailure
         ? 'The last resume run failed. Try again or open the workspace to fix it.'
@@ -252,13 +257,17 @@ export function buildMissionPanelState(input: {
           ? 'Create the first tailored resume for this job.'
           : isGenerating
             ? 'Job Finder is still preparing the latest draft.'
-            : 'A tailored resume exists for this job.',
+            : usesOriginalResume
+              ? 'The unchanged CV imported in Profile is available for this job.'
+              : 'A tailored resume exists for this job.',
     },
     {
-      label: 'Approved PDF ready',
+      label: usesOriginalResume ? 'Original file selected' : 'Approved PDF ready',
       state: hasReadyApprovedAsset ? 'complete' : 'blocked',
       description: hasReadyApprovedAsset
-        ? 'The current approved PDF will be used when you start apply copilot.'
+        ? usesOriginalResume
+          ? 'Apply Copilot will attach the original file shown in Review Queue.'
+          : 'The current approved PDF will be used when you start apply copilot.'
         : resumeReviewStatus === 'approved'
           ? 'The approved PDF could not be matched to the latest ready export. Reopen the workspace and approve again.'
           : resumeReviewStatus === 'stale'

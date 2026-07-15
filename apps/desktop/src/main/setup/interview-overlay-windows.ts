@@ -16,6 +16,7 @@ import type {
   InterviewWorkspaceSnapshot,
 } from '@unemployed/contracts'
 import { getInterviewHelperService } from '../services/interview-helper'
+import { resolveVisibleInterviewPopupInputMode } from './interview-surface-mode'
 
 type InterviewOverlayKind = 'answer' | 'transcript'
 type InterviewDisplayChangeReason =
@@ -48,10 +49,7 @@ function toWindowKind(kind: InterviewOverlayKind) {
   return kind === 'answer' ? 'interview-answer-overlay' : 'interview-transcript-overlay'
 }
 
-function sameBounds(
-  first: Rectangle,
-  second: NonNullable<InterviewOverlayPreference['bounds']>,
-) {
+function sameBounds(first: Rectangle, second: NonNullable<InterviewOverlayPreference['bounds']>) {
   return (
     first.x === second.x &&
     first.y === second.y &&
@@ -107,17 +105,20 @@ function bindOverlayLayoutPersistence(entry: InterviewOverlayWindowEntry) {
   })
 }
 
-function createOverlayWindow(kind: InterviewOverlayKind, route: string): InterviewOverlayWindowEntry {
+function createOverlayWindow(
+  kind: InterviewOverlayKind,
+  route: string,
+): InterviewOverlayWindowEntry {
   if (!currentDirForOverlays) {
     throw new Error('Interview overlay windows were not initialized.')
   }
 
   const isAnswer = kind === 'answer'
   const window = new BrowserWindow({
-    width: isAnswer ? 560 : 680,
-    height: isAnswer ? 420 : 460,
-    minWidth: isAnswer ? 420 : 500,
-    minHeight: isAnswer ? 280 : 320,
+    width: isAnswer ? 600 : 680,
+    height: isAnswer ? 640 : 460,
+    minWidth: isAnswer ? 460 : 500,
+    minHeight: isAnswer ? 400 : 320,
     show: false,
     frame: false,
     transparent: true,
@@ -192,8 +193,11 @@ function applyOverlaySnapshot(
   }
 
   window.setOpacity(overlay.opacity)
-  window.setFocusable(overlay.interactionMode)
-  window.setIgnoreMouseEvents(!overlay.interactionMode, { forward: true })
+  // Visible-first popup windows behave like ordinary desktop windows. Hidden,
+  // click-through overlays can be reintroduced later behind an explicit mode.
+  const inputMode = resolveVisibleInterviewPopupInputMode()
+  window.setFocusable(inputMode.focusable)
+  window.setIgnoreMouseEvents(inputMode.ignoreMouseEvents)
 
   if (shouldShow) {
     if (window.webContents.isLoading()) {
@@ -204,7 +208,6 @@ function applyOverlaySnapshot(
       })
     } else {
       window.showInactive()
-      window.webContents.reloadIgnoringCache()
     }
   } else {
     window.hide()
@@ -220,7 +223,16 @@ export function syncInterviewOverlayWindows(snapshot: InterviewWorkspaceSnapshot
   lastSnapshot = snapshot
   const activeSession = snapshot.activeSession
 
-  if (!activeSession || activeSession.status === 'ended' || activeSession.status === 'interrupted') {
+  if (!currentDirForOverlays) {
+    closeInterviewOverlayWindows()
+    return
+  }
+
+  if (
+    !activeSession ||
+    activeSession.status === 'ended' ||
+    activeSession.status === 'interrupted'
+  ) {
     closeInterviewOverlayWindows()
     return
   }
@@ -232,6 +244,12 @@ export function syncInterviewOverlayWindows(snapshot: InterviewWorkspaceSnapshot
       (item) => item.surfaceKind === toSurfaceKind(entry.kind),
     )
     applyOverlaySnapshot(entry, overlay, preference, overlay.visible)
+  }
+
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed() && !window.webContents.isLoading()) {
+      window.webContents.send('interview-helper:workspace-changed', snapshot)
+    }
   }
 }
 
@@ -277,9 +295,9 @@ function hasActiveOverlaySession() {
   const session = lastSnapshot?.activeSession
   return Boolean(
     session &&
-      session.status !== 'ended' &&
-      session.status !== 'interrupted' &&
-      overlayEntries.some((entry) => !entry.window.isDestroyed()),
+    session.status !== 'ended' &&
+    session.status !== 'interrupted' &&
+    overlayEntries.some((entry) => !entry.window.isDestroyed()),
   )
 }
 
@@ -352,7 +370,10 @@ function scheduleDisplayChangeRevalidation(input: {
         }),
       )
       .catch((error: unknown) => {
-        console.warn('[InterviewHelper] Failed to revalidate overlay protection after display change.', error)
+        console.warn(
+          '[InterviewHelper] Failed to revalidate overlay protection after display change.',
+          error,
+        )
         return lastSnapshot
       })
   }, 500)
@@ -427,12 +448,10 @@ export async function verifyInterviewOverlayCaptureProtection(): Promise<
   for (const entry of entries) {
     const bounds = entry.window.getBounds()
     const overlayImage = await entry.window.webContents.capturePage()
-    const resizedOverlay = nativeImage
-      .createFromBuffer(overlayImage.toPNG())
-      .resize({
-        width: Math.round(bounds.width * scaleX),
-        height: Math.round(bounds.height * scaleY),
-      })
+    const resizedOverlay = nativeImage.createFromBuffer(overlayImage.toPNG()).resize({
+      width: Math.round(bounds.width * scaleX),
+      height: Math.round(bounds.height * scaleY),
+    })
     const overlayBitmap = resizedOverlay.getBitmap()
     const overlaySize = resizedOverlay.getSize()
     const cropOriginX = Math.max(0, Math.round(bounds.x * scaleX))
@@ -451,8 +470,7 @@ export async function verifyInterviewOverlayCaptureProtection(): Promise<
         if (screenX < 0 || screenX >= screenSize.width) continue
         const overlayPixel = getPixel(overlayBitmap, overlaySize.width, x, y)
         const screenPixel = getPixel(screenBitmap, screenSize.width, screenX, screenY)
-        const overlayIsSignal =
-          overlayPixel[3] > 180 && brightness(overlayPixel) > 52
+        const overlayIsSignal = overlayPixel[3] > 180 && brightness(overlayPixel) > 52
         if (!overlayIsSignal) continue
 
         overlaySignalPixels += 1

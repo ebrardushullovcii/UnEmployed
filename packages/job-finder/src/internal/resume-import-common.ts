@@ -1,18 +1,13 @@
 import type { ResumeImportFieldCandidate } from "@unemployed/contracts";
 
-import {
-  areEquivalentEducationRecords,
-  areEquivalentExperienceRecords,
-} from "./resume-record-identity";
+import { areEquivalentEducationRecords, areEquivalentExperienceRecords } from "./resume-record-identity";
 
 export function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 export function stringifyCandidateTarget(candidate: ResumeImportFieldCandidate): string {
-  return [candidate.target.section, candidate.target.key, candidate.target.recordId ?? ""]
-    .join("|")
-    .trim();
+  return [candidate.target.section, candidate.target.key, candidate.target.recordId ?? ""].join("|").trim();
 }
 
 export function areEquivalentRecordCandidates(
@@ -43,8 +38,20 @@ export function toStringArray(value: unknown): string[] {
     return [];
   }
 
-  return value
-    .flatMap((entry) => (typeof entry === "string" ? splitListString(entry.trim()) : []))
+  return value.flatMap((entry) => (typeof entry === "string" ? splitListString(entry.trim()) : [])).filter(Boolean);
+}
+
+export function toNarrativeStringArray(value: unknown): string[] {
+  const entries =
+    typeof value === "string"
+      ? [value]
+      : Array.isArray(value)
+        ? value.filter((entry): entry is string => typeof entry === "string")
+        : [];
+
+  return entries
+    .flatMap((entry) => entry.split(/\r?\n+/))
+    .map((entry) => entry.trim().replace(/^(?:[-*•]\s+|\d+[.)]\s+)/, ""))
     .filter(Boolean);
 }
 

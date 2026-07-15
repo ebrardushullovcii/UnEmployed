@@ -105,6 +105,155 @@ describe("Interview Helper AI providers", () => {
     }
   });
 
+  test("replaces an invented personal story with a grounded STAR scaffold", async () => {
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              title: "Invented incident",
+              answerOutline: [
+                "Our payment service failed during peak traffic.",
+                "I fixed a database pool in 45 minutes.",
+              ],
+              supportingPoints: ["Thousands of payments were affected."],
+              clarifyingQuestion: "Was the outage global?",
+              avoidSaying: "Nothing.",
+              expandedContent:
+                "I restored the payment service in 45 minutes with zero data loss.",
+            }),
+          },
+        },
+      ],
+    });
+    const baseRequest = createCueRequest();
+    const question =
+      "Give me a concise STAR answer about resolving a difficult production incident.";
+    const request: InterviewCueCardRequest = {
+      ...baseRequest,
+      question,
+      targetLabel: "General interview",
+      targetContextKind: "general_interview",
+      transcriptSegments: [
+        {
+          ...baseRequest.transcriptSegments[0]!,
+          text: question,
+        },
+      ],
+    };
+
+    try {
+      const provider = createOpenAiCompatibleInterviewCueCardProvider({
+        apiKey: "test-key",
+        baseUrl: "https://example.com/v1",
+        model: "test-model",
+      });
+      const cue = await provider.generateCueCard(request);
+
+      expect(cue.title).toBe("STAR answer scaffold");
+      expect(cue.expandedContent).toContain("[real context]");
+      expect(cue.expandedContent).not.toContain("payment service");
+      expect(cue.avoidSaying).toContain("Do not invent");
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("removes false screenshot-access disclaimers when vision evidence exists", async () => {
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              title: "Screenshot review",
+              answerOutline: ["Verify the visible audio permission."],
+              supportingPoints: ["The setup panel is visible."],
+              clarifyingQuestion: "Is the system-audio option enabled?",
+              avoidSaying: "I can't see your screenshot.",
+              expandedContent:
+                "Since I don't have direct access to your screenshot, verify the audio permission.",
+            }),
+          },
+        },
+      ],
+    });
+
+    try {
+      const provider = createOpenAiCompatibleInterviewCueCardProvider({
+        apiKey: "test-key",
+        baseUrl: "https://example.com/v1",
+        model: "test-model",
+      });
+      const cue = await provider.generateCueCard(createCueRequest());
+
+      expect(cue.expandedContent).toContain(
+        "Using the attached screenshot context",
+      );
+      expect(cue.expandedContent).not.toContain("don't have direct access");
+      expect(cue.avoidSaying).not.toContain("can't see your screenshot");
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("does not guess screenshot contents when only deterministic observations exist", async () => {
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              title: "Guessed previous question",
+              answerOutline: ["The screenshot shows a STAR interview prompt."],
+              supportingPoints: ["Discuss the production incident."],
+              clarifyingQuestion: "Which system failed?",
+              avoidSaying: "Nothing.",
+              expandedContent:
+                "The screenshot shows the previous production-incident question.",
+            }),
+          },
+        },
+      ],
+    });
+    const baseRequest = createCueRequest();
+    const question =
+      "What screen is shown in the attached screenshot, and what should I do next?";
+    const request: InterviewCueCardRequest = {
+      ...baseRequest,
+      question,
+      transcriptSegments: [
+        {
+          ...baseRequest.transcriptSegments[0]!,
+          text: question,
+        },
+      ],
+      visualObservations: [
+        {
+          ...baseRequest.visualObservations[0]!,
+          summary: "Screenshot attached for the next cue.",
+          source: "deterministic",
+        },
+      ],
+    };
+
+    try {
+      const provider = createOpenAiCompatibleInterviewCueCardProvider({
+        apiKey: "test-key",
+        baseUrl: "https://example.com/v1",
+        model: "test-model",
+      });
+      const cue = await provider.generateCueCard(request);
+
+      expect(cue.title).toBe("Screenshot needs visual analysis");
+      expect(cue.expandedContent).toContain(
+        "does not have model-backed visual analysis",
+      );
+      expect(cue.expandedContent).not.toContain("production-incident");
+      expect(cue.avoidSaying).toContain("Do not guess");
+    } finally {
+      restoreFetch();
+    }
+  });
+
   test("normalizes array cue fields returned by the model", async () => {
     const restoreFetch = mockJsonFetch({
       choices: [

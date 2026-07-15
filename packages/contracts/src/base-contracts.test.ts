@@ -4,11 +4,15 @@ import {
   ApplyRunModeSchema,
   ApplyRunStateSchema,
   ApplySubmitApprovalStatusSchema,
+  ApplicationResumeArtifactSchema,
   ApplicationStatusSchema,
   BrowserRunWaitReasonSchema,
+  CandidateExperienceSchema,
   CandidateProfileSchema,
   DesktopWindowControlsStateSchema,
   JobSearchPreferencesSchema,
+  JobFinderSettingsSchema,
+  ResumeApplicationModeSchema,
   SourceAccessPromptStateSchema,
   WorkModeListSchema,
   applicationStatusValues,
@@ -26,7 +30,9 @@ describe("contracts base schemas", () => {
     expect(ApplyRunStateSchema.parse("paused_for_user_review")).toBe(
       "paused_for_user_review",
     );
-    expect(ApplyJobStateSchema.parse("awaiting_review")).toBe("awaiting_review");
+    expect(ApplyJobStateSchema.parse("awaiting_review")).toBe(
+      "awaiting_review",
+    );
     expect(ApplySubmitApprovalStatusSchema.parse("approved")).toBe("approved");
     expect(SourceAccessPromptStateSchema.parse("prompt_login_required")).toBe(
       "prompt_login_required",
@@ -41,9 +47,40 @@ describe("contracts base schemas", () => {
       "prompt_login_required",
       "prompt_login_recommended",
     ]);
-    expect(SourceAccessPromptStateSchema.parse("prompt_login_recommended")).toBe(
-      "prompt_login_recommended",
+    expect(
+      SourceAccessPromptStateSchema.parse("prompt_login_recommended"),
+    ).toBe("prompt_login_recommended");
+  });
+
+  test("parses original-CV application settings and typed resume artifacts", () => {
+    expect(ResumeApplicationModeSchema.parse("original_resume")).toBe(
+      "original_resume",
     );
+    expect(
+      JobFinderSettingsSchema.parse({
+        resumeFormat: "pdf",
+        resumeTemplateId: "classic_ats",
+        fontPreset: "inter_requisite",
+        appearanceTheme: "system",
+        humanReviewRequired: true,
+        allowAutoSubmitOverride: false,
+        keepSessionAlive: false,
+        discoveryOnly: false,
+        resumeApplicationMode: "original_resume",
+      }).resumeApplicationMode,
+    ).toBe("original_resume");
+    expect(
+      ApplicationResumeArtifactSchema.parse({
+        id: "application_resume_1",
+        jobId: "job_1",
+        source: "original_upload",
+        sourceDocumentId: "resume_1",
+        exportArtifactId: null,
+        fileName: "alex-original.pdf",
+        filePath: "/tmp/alex-original.pdf",
+        approvedAt: "2026-07-14T10:00:00.000Z",
+      }).source,
+    ).toBe("original_upload");
   });
 
   test("rejects invalid apply foundation enum values", () => {
@@ -97,6 +134,26 @@ describe("contracts base schemas", () => {
 
     expect(preferences.companyBlacklist).toEqual([]);
     expect(preferences.workModes).toEqual([]);
+  });
+
+  test("preserves user-authored achievement list boundaries", () => {
+    const experience = CandidateExperienceSchema.parse({
+      id: "experience_short_achievements",
+      companyName: "Signal Systems",
+      title: "Site Reliability Engineer",
+      workMode: [],
+      achievements: [
+        "Led QA",
+        "Maintained CI pipelines",
+        "Cross-functional leadership",
+      ],
+    });
+
+    expect(experience.achievements).toEqual([
+      "Led QA",
+      "Maintained CI pipelines",
+      "Cross-functional leadership",
+    ]);
   });
 
   test("parses discovery targets with optional custom instructions", () => {
@@ -167,10 +224,8 @@ describe("contracts base schemas", () => {
   });
 
   test("normalizes legacy onsite work mode spellings", () => {
-    expect(WorkModeListSchema.parse(["on-site", "in office", "remote"])).toEqual([
-      "onsite",
-      "onsite",
-      "remote",
-    ]);
+    expect(
+      WorkModeListSchema.parse(["on-site", "in office", "remote"]),
+    ).toEqual(["onsite", "onsite", "remote"]);
   });
 });

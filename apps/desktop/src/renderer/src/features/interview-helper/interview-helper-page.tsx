@@ -35,12 +35,14 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@renderer/components/ui/button";
 import { cn } from "@renderer/lib/cn";
 import { AnswerCueOverlay, TranscriptOverlay } from "./interview-overlays";
+import { InterviewAnswerPopup } from "./interview-answer-popup";
 import { TranscriptAnnotationPanel } from "./interview-review-annotations";
 import { InterviewCaptionFileWatcher } from "./interview-caption-file-watcher";
 import { InterviewDiagnosticsPanel } from "./interview-diagnostics-panel";
 import { InterviewMediaStreamProbes } from "./interview-media-stream-probes";
 import { InterviewNativeCaptionWatcher } from "./interview-native-caption-watcher";
 import { InterviewSessionPreferences } from "./interview-session-preferences";
+import { InterviewVisibleChat } from "./interview-visible-chat";
 
 type LoadState =
   | { status: "loading" }
@@ -128,6 +130,20 @@ function getInitialInterviewTab(workspace: InterviewWorkspaceSnapshot) {
   return "setup";
 }
 
+export function shouldApplyInterviewWorkspaceSnapshot(
+  currentGeneratedAt: string,
+  nextGeneratedAt: string,
+) {
+  const currentTimestamp = Date.parse(currentGeneratedAt);
+  const nextTimestamp = Date.parse(nextGeneratedAt);
+
+  if (!Number.isFinite(currentTimestamp) || !Number.isFinite(nextTimestamp)) {
+    return true;
+  }
+
+  return nextTimestamp >= currentTimestamp;
+}
+
 export function InterviewHelperPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -138,9 +154,6 @@ export function InterviewHelperPage() {
   const [jobFinderWriteBackStatus, setJobFinderWriteBackStatus] = useState<
     string | null
   >(null);
-  const [mediaPermissionHint, setMediaPermissionHint] = useState<string | null>(
-    null,
-  );
   const [activeTab, setActiveTab] = useState<
     "setup" | "assist" | "review" | "settings"
   >("setup");
@@ -161,6 +174,30 @@ export function InterviewHelperPage() {
   const noDragRegionStyle = { WebkitAppRegion: "no-drag" } as CSSProperties;
   const isMac = platform === "darwin";
 
+  function applyWorkspaceSnapshot(
+    workspace: InterviewWorkspaceSnapshot,
+    force = false,
+  ) {
+    setState((current) => {
+      if (
+        !force &&
+        current.status === "ready" &&
+        !shouldApplyInterviewWorkspaceSnapshot(
+          current.workspace.generatedAt,
+          workspace.generatedAt,
+        )
+      ) {
+        return current;
+      }
+
+      return {
+        status: "ready",
+        workspace,
+        exportResult: current.status === "ready" ? current.exportResult : null,
+      };
+    });
+  }
+
   async function loadWorkspace() {
     try {
       const workspace = await window.unemployed.interviewHelper.getWorkspace();
@@ -179,6 +216,9 @@ export function InterviewHelperPage() {
 
   useEffect(() => {
     void loadWorkspace();
+    return window.unemployed.interviewHelper.onWorkspaceChange(
+      applyWorkspaceSnapshot,
+    );
   }, []);
 
   useEffect(() => {
@@ -242,11 +282,7 @@ export function InterviewHelperPage() {
     setPendingAction(actionId);
     try {
       const workspace = await action();
-      setState((current) => ({
-        status: "ready",
-        workspace,
-        exportResult: current.status === "ready" ? current.exportResult : null,
-      }));
+      applyWorkspaceSnapshot(workspace, true);
     } finally {
       setPendingAction(null);
     }
@@ -256,6 +292,9 @@ export function InterviewHelperPage() {
     await updateWorkspace(action, () =>
       window.unemployed.interviewHelper.performAction(action),
     );
+    if (action === "end_session") {
+      setActiveTab("review");
+    }
   }
 
   function saveSetupPreference(input: SaveInterviewSetupInput) {
@@ -273,6 +312,18 @@ export function InterviewHelperPage() {
   async function resetOverlayLayout() {
     await updateWorkspace("reset_overlay_layout", () =>
       window.unemployed.interviewHelper.resetOverlayPreferences(),
+    );
+  }
+
+  async function setOverlayVisibility(
+    overlay: InterviewOverlaySnapshot,
+    visible: boolean,
+  ) {
+    await updateWorkspace(`set_${overlay.surfaceKind}_${String(visible)}`, () =>
+      window.unemployed.interviewHelper.updateOverlayPreference({
+        surfaceKind: overlay.surfaceKind,
+        visible,
+      }),
     );
   }
 
@@ -333,12 +384,7 @@ export function InterviewHelperPage() {
         },
       })
       .then((workspace) => {
-        setState((current) => ({
-          status: "ready",
-          workspace,
-          exportResult:
-            current.status === "ready" ? current.exportResult : null,
-        }));
+        applyWorkspaceSnapshot(workspace);
       });
   }, [searchParams, state]);
 
@@ -392,6 +438,8 @@ export function InterviewHelperPage() {
   const isLiveSession = Boolean(
     activeSession && activeSession.status !== "ended",
   );
+  const advancedSurfaceUiEnabled =
+    import.meta.env.VITE_UNEMPLOYED_INTERVIEW_ADVANCED_SURFACES === "1";
   const rehearsal = workspace.setup.rehearsal;
   const reviewSession = activeSession
     ? null
@@ -421,9 +469,6 @@ export function InterviewHelperPage() {
     ({ overlay }) => overlay.interactionMode,
   );
   const consentAccepted = Boolean(
-    workspace.setup.consent.microphoneCapture &&
-    workspace.setup.consent.meetingAudioCapture &&
-    workspace.setup.consent.screenshotCapture &&
     workspace.setup.consent.modelTransmission &&
     workspace.setup.consent.localRetention &&
     workspace.setup.consent.overlayProtectionNotice &&
@@ -445,56 +490,27 @@ export function InterviewHelperPage() {
         id: "accept_setup",
         label: "Allow and continue",
         detail:
-          "Accept microphone, transcript, model, retention, screenshot, and overlay protection notices.",
+          "Accept the assistant, local-retention, and visible-overlay notices. Microphone, system audio, and screenshots remain separate opt-ins.",
       }
     : !rehearsalReady
       ? {
           id: "rehearsal",
           label: "Run quick check",
           detail:
-            "Check microphone, transcript, cues, overlays, and safety hotkeys before the interview.",
+            "Check microphone, system audio, transcription, screenshots, and assistant responses before the interview.",
         }
       : {
           id: "start",
           label: "Start interview",
           detail:
-            "Open the answer and transcript overlays and begin listening for interview context.",
+            "Open the visible chat and begin listening for interview context.",
         };
 
-  async function requestMicrophoneAccessForSetup() {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setMediaPermissionHint(
-        "Microphone access is unavailable in this window.",
-      );
-      return;
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: false,
-      });
-      for (const track of stream.getTracks()) {
-        track.stop();
-      }
-      setMediaPermissionHint("Microphone access is ready.");
-    } catch (error) {
-      setMediaPermissionHint(
-        error instanceof Error
-          ? `Microphone access needs attention: ${error.message}`
-          : "Microphone access needs attention.",
-      );
-    }
-  }
-
   async function acceptSetup() {
-    await requestMicrophoneAccessForSetup();
     await updateWorkspace("accept_setup", () =>
       window.unemployed.interviewHelper.saveSetup({
         consent: {
-          microphoneCapture: true,
-          meetingAudioCapture: true,
-          screenshotCapture: true,
+          ...workspace.setup.consent,
           modelTransmission: true,
           localRetention: true,
           overlayProtectionNotice: true,
@@ -758,47 +774,51 @@ export function InterviewHelperPage() {
 
       <main className="screen-scroll-area mt-[6.75rem] h-[calc(100vh-6.75rem)] scroll-pt-8 overflow-y-auto px-4 pb-8 pt-4 sm:px-6">
         <div className="mx-auto grid max-w-[118rem] gap-4">
-          <section
-            className="surface-panel-shell relative overflow-hidden rounded-(--radius-panel) border p-4 shadow-[0_24px_90px_rgba(0,0,0,0.2)]"
-            id="setup"
-          >
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
-              <div className="grid min-w-0 gap-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <StatusPill
-                    label={isLiveSession ? "Live session" : "Setup mode"}
-                    tone={isLiveSession ? "success" : "info"}
-                  />
-                  <StatusPill
-                    label={readinessBlocked ? "Needs attention" : "Ready path"}
-                    tone={readinessBlocked ? "warning" : "success"}
-                  />
-                  <span className="text-[0.72rem] uppercase tracking-(--tracking-badge) text-muted-foreground">
-                    {targetLabel}
-                  </span>
+          {activeTab !== "assist" ? (
+            <section
+              className="surface-panel-shell relative overflow-hidden rounded-(--radius-panel) border p-4 shadow-[0_24px_90px_rgba(0,0,0,0.2)]"
+              id="setup"
+            >
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
+                <div className="grid min-w-0 gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusPill
+                      label={isLiveSession ? "Live session" : "Setup mode"}
+                      tone={isLiveSession ? "success" : "info"}
+                    />
+                    <StatusPill
+                      label={
+                        readinessBlocked ? "Needs attention" : "Ready path"
+                      }
+                      tone={readinessBlocked ? "warning" : "success"}
+                    />
+                    <span className="text-[0.72rem] uppercase tracking-(--tracking-badge) text-muted-foreground">
+                      {targetLabel}
+                    </span>
+                  </div>
+                  <div className="grid gap-2">
+                    <h1 className="text-[clamp(2rem,3.2vw,3.25rem)]">
+                      Interview conversation
+                    </h1>
+                    <p className="max-w-3xl text-[0.9rem] leading-6 text-muted-foreground">
+                      Talk to the assistant in this window, attach screenshots,
+                      and bring in microphone or system-audio context as needed.
+                    </p>
+                  </div>
                 </div>
-                <div className="grid gap-2">
-                  <h1 className="text-[clamp(2rem,3.2vw,3.25rem)]">
-                    Live interview workspace
-                  </h1>
-                  <p className="max-w-3xl text-[0.9rem] leading-6 text-muted-foreground">
-                    Prepare capture once, run the live assist surface during the
-                    interview, then review retained notes after the session.
-                  </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    onClick={() => setActiveTab("settings")}
+                    size="compact"
+                    variant="secondary"
+                  >
+                    <Settings2 className="size-4" />
+                    Settings
+                  </Button>
                 </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  onClick={() => setActiveTab("settings")}
-                  size="compact"
-                  variant="secondary"
-                >
-                  <Settings2 className="size-4" />
-                  Settings
-                </Button>
-              </div>
-            </div>
-          </section>
+            </section>
+          ) : null}
 
           {activeTab === "setup" ? (
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
@@ -824,11 +844,57 @@ export function InterviewHelperPage() {
                       <Play className="size-4" />
                       {setupPrimaryAction.label}
                     </Button>
-                    {mediaPermissionHint ? (
-                      <p className="text-[0.78rem] leading-5 text-muted-foreground">
-                        {mediaPermissionHint}
-                      </p>
-                    ) : null}
+                    <div className="grid gap-2 rounded-(--radius-small) border border-border-subtle bg-black/20 p-3 sm:grid-cols-3">
+                      {[
+                        {
+                          key: "microphoneCapture" as const,
+                          label: "Microphone",
+                          detail:
+                            "Optional — enable when you are ready to test your mic.",
+                        },
+                        {
+                          key: "meetingAudioCapture" as const,
+                          label: "System audio",
+                          detail:
+                            "Listen to the interview, call, podcast, or video playing on this computer.",
+                        },
+                        {
+                          key: "screenshotCapture" as const,
+                          label: "Screenshots",
+                          detail:
+                            "Allow explicit screen captures as temporary answer context.",
+                        },
+                      ].map((option) => (
+                        <label
+                          className="flex items-start gap-3 rounded-(--radius-small) border border-border-subtle bg-black/20 p-3 text-[0.82rem]"
+                          key={option.key}
+                        >
+                          <input
+                            aria-label={`Enable ${option.label.toLowerCase()}`}
+                            checked={workspace.setup.consent[option.key]}
+                            className="mt-1 size-4 accent-(--info-text)"
+                            disabled={Boolean(pendingAction)}
+                            onChange={(event) => {
+                              saveSetupPreference({
+                                consent: {
+                                  ...workspace.setup.consent,
+                                  [option.key]: event.target.checked,
+                                },
+                              });
+                            }}
+                            type="checkbox"
+                          />
+                          <span className="grid gap-1">
+                            <span className="font-semibold text-foreground">
+                              {option.label}
+                            </span>
+                            <span className="text-[0.72rem] leading-5 text-muted-foreground">
+                              {option.detail}
+                            </span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
                     <div className="grid gap-3 text-[0.84rem] text-muted-foreground sm:grid-cols-3">
                       <div className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
                         <CheckCircle2 className="mb-2 size-4 text-(--success-text)" />
@@ -846,8 +912,8 @@ export function InterviewHelperPage() {
                           2. Quick check
                         </p>
                         <p className="mt-1 leading-5">
-                          We check audio, cues, overlays, and the panic-hide
-                          shortcut.
+                          We check the audio, transcription, screenshot, and
+                          response paths before the interview.
                         </p>
                       </div>
                       <div className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
@@ -856,8 +922,8 @@ export function InterviewHelperPage() {
                           3. Start
                         </p>
                         <p className="mt-1 leading-5">
-                          Answer cues and live transcript open in separate
-                          overlays.
+                          The visible chat opens with audio controls and a live
+                          transcript beside it.
                         </p>
                       </div>
                     </div>
@@ -897,6 +963,12 @@ export function InterviewHelperPage() {
               </Panel>
               <Panel title="Test audio before starting">
                 <InterviewMediaStreamProbes
+                  meetingAudioCaptureAllowed={
+                    workspace.setup.consent.meetingAudioCapture
+                  }
+                  microphoneCaptureAllowed={
+                    workspace.setup.consent.microphoneCapture
+                  }
                   language={workspace.setup.transcriptionLanguage}
                   listening
                   audioTranscriptionAvailable={audioTranscriptionAvailable}
@@ -906,16 +978,14 @@ export function InterviewHelperPage() {
                 <Panel title="Need to know">
                   <div className="grid gap-3 text-[0.84rem] leading-5 text-muted-foreground">
                     <p>
-                      During the interview, use the small overlay windows. The
-                      main app intentionally avoids showing sensitive live
-                      transcript and answer text.
+                      Visible answer and transcript popups open with each live
+                      session. The main conversation remains the control
+                      surface; hidden mode, global shortcuts, and panic-hide
+                      controls are deferred.
                     </p>
                     <div className="rounded-(--radius-small) border border-(--info-border) bg-(--info-surface) p-3 text-(--info-text)">
-                      Press{" "}
-                      <kbd className="rounded-sm border border-(--info-border) px-1.5 py-0.5 font-mono">
-                        Alt + I
-                      </kbd>{" "}
-                      during a session to make overlays clickable and movable.
+                      You can pause either audio source at any time and remove
+                      an attached image before sending it.
                     </div>
                   </div>
                 </Panel>
@@ -924,6 +994,16 @@ export function InterviewHelperPage() {
           ) : null}
 
           {activeTab === "assist" ? (
+            <InterviewVisibleChat
+              audioTranscriptionAvailable={audioTranscriptionAvailable}
+              onPerform={perform}
+              onWorkspaceChange={applyWorkspaceSnapshot}
+              pendingAction={pendingAction}
+              workspace={workspace}
+            />
+          ) : null}
+
+          {advancedSurfaceUiEnabled && activeTab === "assist" ? (
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
               <div className="grid gap-4">
                 <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
@@ -982,6 +1062,7 @@ export function InterviewHelperPage() {
                       </div>
                       <div className="grid gap-2 sm:grid-cols-2">
                         <Button
+                          disabled={!workspace.setup.consent.screenshotCapture}
                           onClick={() => {
                             void perform("force_cue");
                           }}
@@ -1092,18 +1173,15 @@ export function InterviewHelperPage() {
                     {activeSession ? (
                       <div className="grid gap-3">
                         <InterviewMediaStreamProbes
+                          meetingAudioCaptureAllowed={
+                            workspace.setup.consent.meetingAudioCapture
+                          }
+                          microphoneCaptureAllowed={
+                            workspace.setup.consent.microphoneCapture
+                          }
                           language={workspace.setup.transcriptionLanguage}
                           listening={activeSession.listening}
-                          onWorkspaceChange={(nextWorkspace) => {
-                            setState((current) => ({
-                              status: "ready",
-                              workspace: nextWorkspace,
-                              exportResult:
-                                current.status === "ready"
-                                  ? current.exportResult
-                                  : null,
-                            }));
-                          }}
+                          onWorkspaceChange={applyWorkspaceSnapshot}
                           sessionId={activeSession.id}
                           audioTranscriptionAvailable={
                             audioTranscriptionAvailable
@@ -1161,31 +1239,13 @@ export function InterviewHelperPage() {
                           <InterviewNativeCaptionWatcher
                             language={workspace.setup.transcriptionLanguage}
                             listening={activeSession.listening}
-                            onWorkspaceChange={(nextWorkspace) => {
-                              setState((current) => ({
-                                status: "ready",
-                                workspace: nextWorkspace,
-                                exportResult:
-                                  current.status === "ready"
-                                    ? current.exportResult
-                                    : null,
-                              }));
-                            }}
+                            onWorkspaceChange={applyWorkspaceSnapshot}
                             sessionId={activeSession.id}
                           />
                           <InterviewCaptionFileWatcher
                             language={workspace.setup.transcriptionLanguage}
                             listening={activeSession.listening}
-                            onWorkspaceChange={(nextWorkspace) => {
-                              setState((current) => ({
-                                status: "ready",
-                                workspace: nextWorkspace,
-                                exportResult:
-                                  current.status === "ready"
-                                    ? current.exportResult
-                                    : null,
-                              }));
-                            }}
+                            onWorkspaceChange={applyWorkspaceSnapshot}
                             sessionId={activeSession.id}
                           />
                         </div>
@@ -1218,6 +1278,23 @@ export function InterviewHelperPage() {
                           <p className="mt-2 text-[0.74rem] leading-5 text-muted-foreground">
                             {overlay.protectionState.replaceAll("_", " ")}
                           </p>
+                          <Button
+                            className="mt-3 w-full"
+                            onClick={() => {
+                              void setOverlayVisibility(
+                                overlay,
+                                !overlay.visible,
+                              );
+                            }}
+                            pending={
+                              pendingAction ===
+                              `set_${overlay.surfaceKind}_${String(!overlay.visible)}`
+                            }
+                            size="compact"
+                            variant="secondary"
+                          >
+                            {overlay.visible ? "Hide popup" : "Show popup"}
+                          </Button>
                         </div>
                       ))}
                       <Button
@@ -1249,7 +1326,7 @@ export function InterviewHelperPage() {
                   <div className="grid gap-3 text-[0.82rem] text-muted-foreground">
                     <p>
                       {isLiveSession
-                        ? "Use the answer and transcript overlays during the call. Press Alt + I or use the move button to make them clickable."
+                        ? "Use the answer and transcript popups during the call. Drag either popup by its header to place it where you want; the app restores that layout next time."
                         : "Start a session to use the assist controls."}
                     </p>
                     <div className="flex items-center gap-2">
@@ -1349,16 +1426,7 @@ export function InterviewHelperPage() {
                         </div>
                         {reviewSession ? (
                           <TranscriptAnnotationPanel
-                            onWorkspaceChange={(nextWorkspace) => {
-                              setState((current) => ({
-                                status: "ready",
-                                workspace: nextWorkspace,
-                                exportResult:
-                                  current.status === "ready"
-                                    ? current.exportResult
-                                    : null,
-                              }));
-                            }}
+                            onWorkspaceChange={applyWorkspaceSnapshot}
                             session={reviewSession}
                           />
                         ) : null}
@@ -1486,73 +1554,88 @@ export function InterviewHelperPage() {
               </div>
 
               <aside className="grid content-start gap-4">
-                {isLiveSession ? (
-                  <Panel title="Overlay surfaces">
-                    <div className="grid gap-3">
-                      {liveOverlaySummaries.map(({ label, overlay }) => (
-                        <div
-                          className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3"
-                          key={label}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-[0.82rem]">{label}</span>
-                            <StatusPill
-                              label={
-                                overlay.visible ? "Overlay window" : "Hidden"
-                              }
-                              tone={overlay.visible ? "success" : "warning"}
-                            />
-                          </div>
-                          <p className="mt-2 text-[0.74rem] leading-5 text-muted-foreground">
-                            {overlay.protectionState.replaceAll("_", " ")}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </Panel>
-                ) : (
+                {advancedSurfaceUiEnabled ? (
                   <>
-                    <AnswerCueOverlay
-                      framed
-                      snapshot={workspace.answerOverlay}
-                    />
-                    <TranscriptOverlay
-                      framed
-                      snapshot={workspace.transcriptOverlay}
-                    />
-                  </>
-                )}
-                <Panel title="Hotkeys and tray">
-                  <div className="grid gap-2">
-                    {[
-                      ["Alt + H", "Panic hide"],
-                      ["Alt + Q", "Force cue"],
-                      ["Alt + S", "Screenshot"],
-                      ["Alt + T", "Transcript overlay"],
-                    ].map(([keys, label]) => (
-                      <div
-                        className="flex items-center justify-between border-b border-border-subtle py-2 last:border-0"
-                        key={keys}
-                      >
-                        <span className="text-[0.82rem]">{label}</span>
-                        <kbd className="rounded-sm border border-border-subtle bg-black/30 px-2 py-1 font-mono text-[0.7rem] text-muted-foreground">
-                          {keys}
-                        </kbd>
+                    {isLiveSession ? (
+                      <Panel title="Overlay surfaces">
+                        <div className="grid gap-3">
+                          {liveOverlaySummaries.map(({ label, overlay }) => (
+                            <div
+                              className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3"
+                              key={label}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[0.82rem]">{label}</span>
+                                <StatusPill
+                                  label={
+                                    overlay.visible
+                                      ? "Overlay window"
+                                      : "Hidden"
+                                  }
+                                  tone={overlay.visible ? "success" : "warning"}
+                                />
+                              </div>
+                              <p className="mt-2 text-[0.74rem] leading-5 text-muted-foreground">
+                                {overlay.protectionState.replaceAll("_", " ")}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </Panel>
+                    ) : (
+                      <>
+                        <AnswerCueOverlay
+                          framed
+                          snapshot={workspace.answerOverlay}
+                        />
+                        <TranscriptOverlay
+                          framed
+                          snapshot={workspace.transcriptOverlay}
+                        />
+                      </>
+                    )}
+                    <Panel title="Hotkeys and tray">
+                      <div className="grid gap-2">
+                        {[
+                          ["Alt + H", "Panic hide"],
+                          ["Alt + Q", "Force cue"],
+                          ["Alt + S", "Screenshot"],
+                          ["Alt + T", "Transcript overlay"],
+                        ].map(([keys, label]) => (
+                          <div
+                            className="flex items-center justify-between border-b border-border-subtle py-2 last:border-0"
+                            key={keys}
+                          >
+                            <span className="text-[0.82rem]">{label}</span>
+                            <kbd className="rounded-sm border border-border-subtle bg-black/30 px-2 py-1 font-mono text-[0.7rem] text-muted-foreground">
+                              {keys}
+                            </kbd>
+                          </div>
+                        ))}
+                        <Button
+                          onClick={() => {
+                            void resetOverlayLayout();
+                          }}
+                          pending={pendingAction === "reset_overlay_layout"}
+                          size="compact"
+                          variant="secondary"
+                        >
+                          <RotateCcw className="size-4" />
+                          Reset overlay layout
+                        </Button>
                       </div>
-                    ))}
-                    <Button
-                      onClick={() => {
-                        void resetOverlayLayout();
-                      }}
-                      pending={pendingAction === "reset_overlay_layout"}
-                      size="compact"
-                      variant="secondary"
-                    >
-                      <RotateCcw className="size-4" />
-                      Reset overlay layout
-                    </Button>
-                  </div>
-                </Panel>
+                    </Panel>
+                  </>
+                ) : (
+                  <Panel title="Visible mode">
+                    <p className="text-[0.78rem] leading-5 text-muted-foreground">
+                      The answer and transcript popups stay visible during a
+                      session. Hidden mode, panic-hide, tray controls, and
+                      global hotkeys are disabled; coaching controls stay in the
+                      main conversation window.
+                    </p>
+                  </Panel>
+                )}
                 <Panel title="Session summary">
                   <div className="grid gap-3 text-[0.82rem] text-muted-foreground">
                     <p>
@@ -1607,58 +1690,115 @@ export function InterviewHelperPage() {
                 </Panel>
               </div>
               <aside className="grid content-start gap-4">
-                <Panel title="Overlay layout">
-                  <div className="grid gap-3">
-                    {liveOverlaySummaries.map(({ label, overlay }) => (
-                      <div
-                        className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3"
-                        key={label}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[0.82rem]">{label}</span>
-                          <StatusPill
-                            label={overlay.mode}
-                            tone={overlay.visible ? "success" : "warning"}
-                          />
+                {advancedSurfaceUiEnabled ? (
+                  <>
+                    <Panel title="Overlay layout">
+                      <div className="grid gap-3">
+                        {liveOverlaySummaries.map(({ label, overlay }) => (
+                          <div
+                            className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3"
+                            key={label}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[0.82rem]">{label}</span>
+                              <StatusPill
+                                label={overlay.mode}
+                                tone={overlay.visible ? "success" : "warning"}
+                              />
+                            </div>
+                            <p className="mt-2 text-[0.74rem] leading-5 text-muted-foreground">
+                              {overlay.protectionState.replaceAll("_", " ")}
+                            </p>
+                          </div>
+                        ))}
+                        <Button
+                          onClick={() => {
+                            void resetOverlayLayout();
+                          }}
+                          pending={pendingAction === "reset_overlay_layout"}
+                          size="compact"
+                          variant="secondary"
+                        >
+                          <RotateCcw className="size-4" />
+                          Reset overlay layout
+                        </Button>
+                      </div>
+                    </Panel>
+                    <Panel title="Hotkeys">
+                      <div className="grid gap-2">
+                        {[
+                          ["Alt + H", "Panic hide"],
+                          ["Alt + Q", "Force cue"],
+                          ["Alt + S", "Screenshot"],
+                          ["Alt + T", "Transcript overlay"],
+                        ].map(([keys, label]) => (
+                          <div
+                            className="flex items-center justify-between border-b border-border-subtle py-2 last:border-0"
+                            key={keys}
+                          >
+                            <span className="text-[0.82rem]">{label}</span>
+                            <kbd className="rounded-sm border border-border-subtle bg-black/30 px-2 py-1 font-mono text-[0.7rem] text-muted-foreground">
+                              {keys}
+                            </kbd>
+                          </div>
+                        ))}
+                      </div>
+                    </Panel>
+                  </>
+                ) : (
+                  <Panel title="Popup windows">
+                    <div className="grid gap-3">
+                      <p className="text-[0.78rem] leading-5 text-muted-foreground">
+                        Answer and transcript popups open with every live
+                        interview. Move and resize them like ordinary windows.
+                      </p>
+                      {liveOverlaySummaries.map(({ label, overlay }) => (
+                        <div
+                          className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3"
+                          key={label}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <p className="text-[0.82rem]">{label}</p>
+                              <p className="mt-1 text-[0.7rem] text-muted-foreground">
+                                {overlay.visible
+                                  ? "Open now"
+                                  : "Currently hidden"}
+                              </p>
+                            </div>
+                            <Button
+                              onClick={() => {
+                                void setOverlayVisibility(
+                                  overlay,
+                                  !overlay.visible,
+                                );
+                              }}
+                              pending={
+                                pendingAction ===
+                                `set_${overlay.surfaceKind}_${String(!overlay.visible)}`
+                              }
+                              size="compact"
+                              variant="secondary"
+                            >
+                              {overlay.visible ? "Hide" : "Show"}
+                            </Button>
+                          </div>
                         </div>
-                        <p className="mt-2 text-[0.74rem] leading-5 text-muted-foreground">
-                          {overlay.protectionState.replaceAll("_", " ")}
-                        </p>
-                      </div>
-                    ))}
-                    <Button
-                      onClick={() => {
-                        void resetOverlayLayout();
-                      }}
-                      pending={pendingAction === "reset_overlay_layout"}
-                      size="compact"
-                      variant="secondary"
-                    >
-                      <RotateCcw className="size-4" />
-                      Reset overlay layout
-                    </Button>
-                  </div>
-                </Panel>
-                <Panel title="Hotkeys">
-                  <div className="grid gap-2">
-                    {[
-                      ["Alt + H", "Panic hide"],
-                      ["Alt + Q", "Force cue"],
-                      ["Alt + S", "Screenshot"],
-                      ["Alt + T", "Transcript overlay"],
-                    ].map(([keys, label]) => (
-                      <div
-                        className="flex items-center justify-between border-b border-border-subtle py-2 last:border-0"
-                        key={keys}
+                      ))}
+                      <Button
+                        onClick={() => {
+                          void resetOverlayLayout();
+                        }}
+                        pending={pendingAction === "reset_overlay_layout"}
+                        size="compact"
+                        variant="secondary"
                       >
-                        <span className="text-[0.82rem]">{label}</span>
-                        <kbd className="rounded-sm border border-border-subtle bg-black/30 px-2 py-1 font-mono text-[0.7rem] text-muted-foreground">
-                          {keys}
-                        </kbd>
-                      </div>
-                    ))}
-                  </div>
-                </Panel>
+                        <RotateCcw className="size-4" />
+                        Reset saved positions
+                      </Button>
+                    </div>
+                  </Panel>
+                )}
               </aside>
             </div>
           ) : null}
@@ -1668,30 +1808,74 @@ export function InterviewHelperPage() {
   );
 }
 
-export function InterviewAnswerOverlayRoute() {
+function useInterviewPopupWorkspace() {
   const [workspace, setWorkspace] = useState<InterviewWorkspaceSnapshot | null>(
     null,
   );
 
   useEffect(() => {
-    void window.unemployed.interviewHelper.getWorkspace().then(setWorkspace);
+    let mounted = true;
+    const unsubscribe = window.unemployed.interviewHelper.onWorkspaceChange(
+      (nextWorkspace) => {
+        if (mounted) setWorkspace(nextWorkspace);
+      },
+    );
+
+    void window.unemployed.interviewHelper
+      .getWorkspace()
+      .then((nextWorkspace) => {
+        if (mounted) setWorkspace(nextWorkspace);
+      });
+
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
   }, []);
 
+  return [workspace, setWorkspace] as const;
+}
+
+export function InterviewAnswerOverlayRoute() {
+  const [workspace, setWorkspace] = useInterviewPopupWorkspace();
+
   return workspace ? (
-    <AnswerCueOverlay snapshot={workspace.answerOverlay} />
+    <InterviewAnswerPopup
+      onWorkspaceChange={setWorkspace}
+      workspace={workspace}
+    />
   ) : null;
 }
 
 export function InterviewTranscriptOverlayRoute() {
-  const [workspace, setWorkspace] = useState<InterviewWorkspaceSnapshot | null>(
-    null,
-  );
+  const [workspace, setWorkspace] = useInterviewPopupWorkspace();
+  const [copyLabel, setCopyLabel] = useState("Copy transcript");
 
-  useEffect(() => {
-    void window.unemployed.interviewHelper.getWorkspace().then(setWorkspace);
-  }, []);
+  async function copyTranscript() {
+    if (!workspace) return;
+    const segments = workspace.activeSession?.transcriptSegments ?? [];
+    const text = segments.map((segment) => segment.text).join("\n");
+    if (!text) return;
+    await window.unemployed.interviewHelper.writeClipboardText({ text });
+    setCopyLabel("Copied");
+    window.setTimeout(() => setCopyLabel("Copy transcript"), 1_500);
+  }
+
+  async function hideTranscript() {
+    setWorkspace(
+      await window.unemployed.interviewHelper.updateOverlayPreference({
+        surfaceKind: "live_transcript_overlay",
+        visible: false,
+      }),
+    );
+  }
 
   return workspace ? (
-    <TranscriptOverlay snapshot={workspace.transcriptOverlay} />
+    <TranscriptOverlay
+      copyLabel={copyLabel}
+      onCopy={() => void copyTranscript()}
+      onHide={() => void hideTranscript()}
+      snapshot={workspace.transcriptOverlay}
+    />
   ) : null;
 }

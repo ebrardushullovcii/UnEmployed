@@ -1,5 +1,12 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import type { Browser, BrowserContext, Page } from "playwright";
 import {
@@ -30,6 +37,10 @@ import type {
   ExecuteApplicationFlowInput,
   ExecuteEasyApplyInput,
 } from "./runtime-types";
+import {
+  buildPreparationResult,
+  runGenericApplicationPreparation,
+} from "./playwright-application-flow";
 import {
   areStructurallyEquivalentHttpUrls,
   buildChromeExecutableCandidates,
@@ -131,7 +142,9 @@ async function buildApplyVisualDiagnostics(input: {
   analyzeVisualSnapshot?: ExecuteApplicationFlowInput["analyzeVisualSnapshot"];
 }): Promise<{
   visualEvidence: NonNullable<ApplyExecutionResult["visualEvidence"]>;
-  visualObservationSets: NonNullable<ApplyExecutionResult["visualObservationSets"]>;
+  visualObservationSets: NonNullable<
+    ApplyExecutionResult["visualObservationSets"]
+  >;
   visualCheckpoints: NonNullable<ApplyExecutionResult["visualCheckpoints"]>;
 }> {
   if (!input.captureVisualSnapshot || !input.analyzeVisualSnapshot) {
@@ -355,7 +368,9 @@ async function cleanupExpiredVisualSnapshots(input: {
     });
 
     await Promise.all(
-      [...pathsToDelete].map((path) => rm(path, { force: true }).catch(() => {})),
+      [...pathsToDelete].map((path) =>
+        rm(path, { force: true }).catch(() => {}),
+      ),
     );
   } catch {
     // Retention cleanup is best-effort and must never block browser work.
@@ -556,7 +571,8 @@ async function resolveAutomationPageForContext(
         areStructurallyEquivalentHttpUrls(page.url(), normalizedTargetUrl),
       )
     : null;
-  const blankPage = openPages.find((page) => !isHttpUrlLike(page.url())) ?? null;
+  const blankPage =
+    openPages.find((page) => !isHttpUrlLike(page.url())) ?? null;
   const page = exactTargetPage ?? blankPage ?? (await context.newPage());
 
   if (options.bringToFront !== false) {
@@ -936,17 +952,17 @@ export function createBrowserAgentRuntime(
       typeof input.targetUrl === "string" ? input.targetUrl.trim() : "";
     if (isHttpUrlLike(normalizedTargetUrl)) {
       await prepareAutomationPageForTarget(await getContext(), {
-          targetUrl: normalizedTargetUrl,
-          bringToFront: true,
-          setBlockedState: (detail) => {
-            setSessionState(
-              input.source,
-              "blocked",
-              "Browser navigation failed",
-              detail,
-            );
-          },
-        });
+        targetUrl: normalizedTargetUrl,
+        bringToFront: true,
+        setBlockedState: (detail) => {
+          setSessionState(
+            input.source,
+            "blocked",
+            "Browser navigation failed",
+            detail,
+          );
+        },
+      });
     } else {
       await getReadyPage(input.source);
     }
@@ -1140,39 +1156,147 @@ export function createBrowserAgentRuntime(
         }),
       );
     },
-    executeApplicationFlow(
+    async executeApplicationFlow(
       source,
       input: ExecuteApplicationFlowInput,
     ): Promise<ApplyExecutionResult> {
       const startedAt = new Date().toISOString();
       const targetUrl = input.job.applicationUrl ?? input.job.canonicalUrl;
+      const resumeFilePath = input.resumeArtifact.filePath.trim();
+      const approvedResumeFileExists = resumeFilePath
+        ? await pathExists(resumeFilePath)
+        : false;
+      let executionResult: ApplyExecutionResult;
+      let applicationPageOpened = false;
 
-      return buildApplyVisualDiagnostics({
-        job: input.job,
-        mode: input.mode,
-        targetUrl,
-        ...(input.captureVisualSnapshot
-          ? { captureVisualSnapshot: input.captureVisualSnapshot }
-          : {}),
-        ...(input.analyzeVisualSnapshot
-          ? { analyzeVisualSnapshot: input.analyzeVisualSnapshot }
-          : {}),
-      }).then((visualDiagnostics) =>
-        buildUnsupportedApplyResult({
+      if (
+        input.resumeArtifact.jobId !== input.job.id ||
+        !approvedResumeFileExists
+      ) {
+        const detail =
+          "The production runtime refused to open the application because the approved application resume is missing or does not belong to this job.";
+        executionResult = buildPreparationResult({
+          executionInput: input,
+          state: "failed",
+          summary: "Approved resume export is missing",
+          detail,
+          questions: [],
+          blocker: {
+            code: "missing_resume",
+            summary: "A current approved resume export is required.",
+            detail,
+            questionIds: [],
+            sourceDebugEvidenceRefIds: [],
+            url: isHttpUrlLike(targetUrl) ? targetUrl : null,
+          },
+          checkpoints: [],
+          checkpointLabel: "Stopped before opening the application",
+          checkpointDetail: detail,
+          checkpointUrls: isHttpUrlLike(targetUrl) ? [targetUrl] : [],
+          lastUrl: isHttpUrlLike(targetUrl) ? targetUrl : null,
+          now: startedAt,
+          nextActionLabel: "Export and approve the tailored resume",
+        });
+      } else if (!isHttpUrlLike(targetUrl)) {
+        executionResult = buildUnsupportedApplyResult({
           job: input.job,
           startedAt,
           mode: input.mode,
-          targetUrl,
-          visualEvidence: visualDiagnostics.visualEvidence,
-          visualObservationSets: visualDiagnostics.visualObservationSets,
-          visualCheckpoints: visualDiagnostics.visualCheckpoints,
-        }),
-      );
+          targetUrl: null,
+        });
+      } else {
+        try {
+          const context = await getContext();
+          const prepared = await prepareAutomationPageForTarget(context, {
+            targetUrl,
+            bringToFront: true,
+            setBlockedState: (detail) => {
+              setSessionState(
+                source,
+                "blocked",
+                "Application navigation failed",
+                detail,
+              );
+            },
+          });
+          applicationPageOpened = true;
+          setSessionState(
+            source,
+            "ready",
+            "Application preparation paused safely",
+            "The dedicated browser profile is open at the current application checkpoint. Final submission remains disabled.",
+          );
+          executionResult = await runGenericApplicationPreparation({
+            context,
+            page: prepared.page,
+            executionInput: input,
+            startedAt,
+          });
+        } catch (error) {
+          const errorDetail =
+            error instanceof Error
+              ? error.message
+              : "The application page could not be inspected safely.";
+          const detail = `The runtime stopped without submitting after browser preparation failed: ${errorDetail}`;
+          executionResult = buildPreparationResult({
+            executionInput: input,
+            summary: "Application preparation stopped safely",
+            detail,
+            questions: [],
+            blocker: {
+              code: "requires_manual_review",
+              summary: "The live application page needs manual review.",
+              detail,
+              questionIds: [],
+              sourceDebugEvidenceRefIds: [],
+              url: targetUrl,
+            },
+            checkpoints: [],
+            checkpointLabel: "Stopped after a safe browser failure",
+            checkpointDetail: detail,
+            checkpointUrls: [targetUrl],
+            lastUrl: targetUrl,
+            now: new Date().toISOString(),
+            nextActionLabel: "Inspect the application page manually",
+          });
+        }
+      }
+
+      const visualDiagnostics = applicationPageOpened
+        ? await buildApplyVisualDiagnostics({
+            job: input.job,
+            mode: input.mode,
+            targetUrl: executionResult.replay.lastUrl ?? targetUrl,
+            ...(input.captureVisualSnapshot
+              ? { captureVisualSnapshot: input.captureVisualSnapshot }
+              : {}),
+            ...(input.analyzeVisualSnapshot
+              ? { analyzeVisualSnapshot: input.analyzeVisualSnapshot }
+              : {}),
+          })
+        : {
+            visualEvidence: [],
+            visualObservationSets: [],
+            visualCheckpoints: [],
+          };
+      const lastCheckpointIndex = executionResult.checkpoints.length - 1;
+
+      return ApplyExecutionResultSchema.parse({
+        ...executionResult,
+        checkpoints: executionResult.checkpoints.map((checkpoint, index) =>
+          index === lastCheckpointIndex
+            ? {
+                ...checkpoint,
+                visualEvidence: visualDiagnostics.visualEvidence,
+              }
+            : checkpoint,
+        ),
+        visualEvidence: visualDiagnostics.visualEvidence,
+        visualObservationSets: visualDiagnostics.visualObservationSets,
+        visualCheckpoints: visualDiagnostics.visualCheckpoints,
+      });
     },
-    async captureVisualSnapshot(
-      source,
-      request: BrowserVisualSnapshotRequest,
-    ) {
+    async captureVisualSnapshot(source, request: BrowserVisualSnapshotRequest) {
       return captureVisualSnapshotForSource(source, request);
     },
     async runAgentDiscovery(
@@ -1276,7 +1400,10 @@ export function createBrowserAgentRuntime(
                 visualAnalysis: {
                   enabled: true,
                   captureSnapshot: (request, snapshotPage) =>
-                    captureVisualSnapshotForPage(snapshotPage ?? page!, request),
+                    captureVisualSnapshotForPage(
+                      snapshotPage ?? page!,
+                      request,
+                    ),
                   analyzeSnapshot: ({ snapshot, context }) =>
                     ensuredAiClient.analyzeBrowserVisualSnapshot
                       ? ensuredAiClient.analyzeBrowserVisualSnapshot({

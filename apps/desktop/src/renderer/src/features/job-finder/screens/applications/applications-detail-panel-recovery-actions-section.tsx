@@ -40,6 +40,7 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
     selectedRun,
     visibleApplyResult,
   } = props;
+  const isWaitingForSignIn = visibleApplyResult?.blockerReason === "auth_required";
 
   return (
     <>
@@ -48,9 +49,9 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
           <div className="grid gap-1">
             <h3 className="label-mono-xs text-primary">Recovery</h3>
             <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-              Start a fresh safe run for this job without leaving Applications. Each
-              recovery action creates a new run and still stops before any final
-              submit click.
+              {isWaitingForSignIn
+                ? "Job Finder is waiting while you sign in in the open browser. It never handles or stores your credentials. Return here after sign-in and retry this application."
+                : "Start a fresh safe run for this job without leaving Applications. Each recovery action creates a new run and still stops before any final submit click."}
             </p>
           </div>
           <StatusBadge tone={visibleApplyResult ? "active" : "muted"}>
@@ -65,7 +66,7 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
             variant="secondary"
             disabled={isApplyPending}
           >
-            Rerun apply copilot
+            {isWaitingForSignIn ? "I'm signed in — retry application" : "Rerun apply copilot"}
           </Button>
           <Button
             onClick={() => onStartAutoApply(selectedRecordJobId)}

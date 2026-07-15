@@ -19,6 +19,62 @@ export function secureDatabaseFile(filePath: string): Promise<void> {
   ).then(() => undefined);
 }
 
+function isStrongLegacyAchievementContinuation(value: string): boolean {
+  const trimmed = value.trim();
+  const startsWithContinuationWord =
+    /^(?:and|or|while|which|that|with|using|including|ensuring|improving|reducing|synchronizing|supporting)\b/u.test(
+      trimmed,
+    );
+  const technologyTokens = trimmed.split(/\s+(?:and|&)\s+/u);
+  const isTechnologyList =
+    trimmed.length <= 48 &&
+    technologyTokens.length <= 4 &&
+    technologyTokens.every(
+      (token) =>
+        !/\s/u.test(token) &&
+        (/[A-Za-z]\.[A-Za-z]/u.test(token) ||
+          /[a-z][A-Z]/u.test(token) ||
+          /^(?:\.?NET|[A-Za-z][A-Za-z0-9]*#|[A-Za-z][A-Za-z0-9]*\+\+)$/u.test(
+            token,
+          )),
+    );
+
+  return startsWithContinuationWord || isTechnologyList;
+}
+
+export function repairLegacyCommaSplitAchievements(
+  values: readonly string[],
+): string[] {
+  const normalized = values.map((value) => value.trim()).filter(Boolean);
+  if (
+    !normalized.some(
+      (value, index) =>
+        index > 0 && isStrongLegacyAchievementContinuation(value),
+    )
+  ) {
+    return normalized;
+  }
+
+  const repaired: string[] = [];
+  let current = normalized[0] ?? "";
+
+  for (const value of normalized.slice(1)) {
+    if (
+      !/[.!?]$/u.test(current) &&
+      isStrongLegacyAchievementContinuation(value)
+    ) {
+      current = `${current}${/[,;:]$/u.test(current) ? " " : ", "}${value}`;
+      continue;
+    }
+
+    repaired.push(current);
+    current = value;
+  }
+
+  if (current) repaired.push(current);
+  return repaired;
+}
+
 export function runMigrations(database: DatabaseSync): void {
   function hasTable(tableName: string): boolean {
     return Boolean(
@@ -93,6 +149,97 @@ export function runMigrations(database: DatabaseSync): void {
       CREATE INDEX IF NOT EXISTS profile_revisions_created_at_idx
         ON profile_revisions(created_at DESC, id ASC);
     `);
+  }
+
+  function repairProfileRecordAchievementFragments(profile: unknown): boolean {
+    if (!profile || typeof profile !== "object" || Array.isArray(profile)) {
+      return false;
+    }
+
+    const profileRecord = profile as Record<string, unknown>;
+    if (!Array.isArray(profileRecord.experiences)) return false;
+    let changed = false;
+
+    for (const experience of profileRecord.experiences) {
+      if (
+        !experience ||
+        typeof experience !== "object" ||
+        Array.isArray(experience)
+      ) {
+        continue;
+      }
+      const experienceRecord = experience as Record<string, unknown>;
+      if (
+        !Array.isArray(experienceRecord.achievements) ||
+        !experienceRecord.achievements.every(
+          (achievement) => typeof achievement === "string",
+        )
+      ) {
+        continue;
+      }
+
+      const achievements = experienceRecord.achievements;
+      const repaired = repairLegacyCommaSplitAchievements(achievements);
+      if (
+        repaired.length === achievements.length &&
+        repaired.every((value, index) => value === achievements[index])
+      ) {
+        continue;
+      }
+
+      experienceRecord.achievements = repaired;
+      changed = true;
+    }
+
+    return changed;
+  }
+
+  function repairPersistedProfileAchievementFragments(): void {
+    if (hasTable("singleton_state")) {
+      const row = database
+        .prepare("SELECT value FROM singleton_state WHERE key = ?")
+        .get("profile") as { value?: string } | undefined;
+
+      if (row?.value) {
+        try {
+          const profile = JSON.parse(row.value) as unknown;
+          if (repairProfileRecordAchievementFragments(profile)) {
+            database
+              .prepare("UPDATE singleton_state SET value = ? WHERE key = ?")
+              .run(JSON.stringify(profile), "profile");
+          }
+        } catch {
+          // Leave malformed legacy state untouched; schema loading will surface it.
+        }
+      }
+    }
+
+    if (!hasTable("profile_revisions")) return;
+
+    const revisionRows = database
+      .prepare("SELECT id, value FROM profile_revisions")
+      .all() as Array<{ id: string; value: string }>;
+    const updateRevision = database.prepare(
+      "UPDATE profile_revisions SET value = ? WHERE id = ?",
+    );
+
+    for (const row of revisionRows) {
+      try {
+        const revision = JSON.parse(row.value) as unknown;
+        if (
+          revision &&
+          typeof revision === "object" &&
+          !Array.isArray(revision) &&
+          repairProfileRecordAchievementFragments(
+            (revision as Record<string, unknown>).snapshotProfile,
+          )
+        ) {
+          updateRevision.run(JSON.stringify(revision), row.id);
+        }
+      } catch {
+        // Leave malformed revision rows untouched; schema loading will surface them.
+      }
+    }
   }
 
   function ensureApplyFoundationTables(): void {
@@ -239,7 +386,11 @@ export function runMigrations(database: DatabaseSync): void {
       return null;
     }
 
-    if (!parsedValue || typeof parsedValue !== "object" || Array.isArray(parsedValue)) {
+    if (
+      !parsedValue ||
+      typeof parsedValue !== "object" ||
+      Array.isArray(parsedValue)
+    ) {
       console.warn(
         `[DB migration] Skipping embedded resultId rewrite for ${input.tableName}.${input.rowId} because the persisted value is not a JSON object.`,
       );
@@ -254,12 +405,12 @@ export function runMigrations(database: DatabaseSync): void {
 
   function dedupeApplyJobResultsByRunAndJob(): void {
     const evidenceTables = [
-      'application_question_records',
-      'application_answer_records',
-      'application_artifact_refs',
-      'application_replay_checkpoints',
-      'application_consent_requests',
-    ] as const
+      "application_question_records",
+      "application_answer_records",
+      "application_artifact_refs",
+      "application_replay_checkpoints",
+      "application_consent_requests",
+    ] as const;
 
     database.exec(`
       CREATE TEMP TABLE apply_job_result_dedupe_map AS
@@ -281,14 +432,16 @@ export function runMigrations(database: DatabaseSync): void {
       SELECT id AS duplicate_id, survivor_id
       FROM ranked_results
       WHERE row_number > 1;
-    `)
+    `);
 
     for (const tableName of evidenceTables) {
       if (!hasTable(tableName)) {
-        continue
+        continue;
       }
 
-      const rows = database.prepare(`
+      const rows = database
+        .prepare(
+          `
         SELECT
           ${tableName}.id AS id,
           ${tableName}.value AS value,
@@ -296,13 +449,15 @@ export function runMigrations(database: DatabaseSync): void {
         FROM ${tableName}
         INNER JOIN apply_job_result_dedupe_map
           ON apply_job_result_dedupe_map.duplicate_id = ${tableName}.result_id;
-      `).all()
+      `,
+        )
+        .all();
 
       const updateStatement = database.prepare(`
         UPDATE ${tableName}
         SET value = ?, result_id = ?
         WHERE id = ?
-      `)
+      `);
 
       for (const row of rows) {
         if (
@@ -312,23 +467,28 @@ export function runMigrations(database: DatabaseSync): void {
           typeof (row as { value?: unknown }).value !== "string" ||
           typeof (row as { survivor_id?: unknown }).survivor_id !== "string"
         ) {
-          throw new Error(`Invalid ${tableName} evidence row while rewriting apply result ids.`)
+          throw new Error(
+            `Invalid ${tableName} evidence row while rewriting apply result ids.`,
+          );
         }
-        const typedRow = row as { id: string; value: string; survivor_id: string }
+        const typedRow = row as {
+          id: string;
+          value: string;
+          survivor_id: string;
+        };
         const rewrittenValue = rewritePersistedResultId({
           tableName,
           rowId: typedRow.id,
           serializedValue: typedRow.value,
           survivorId: typedRow.survivor_id,
-        })
+        });
 
         updateStatement.run(
           rewrittenValue ?? typedRow.value,
           typedRow.survivor_id,
           typedRow.id,
-        )
+        );
       }
-
     }
 
     database.exec(`
@@ -336,7 +496,7 @@ export function runMigrations(database: DatabaseSync): void {
       WHERE id IN (SELECT duplicate_id FROM apply_job_result_dedupe_map);
 
       DROP TABLE apply_job_result_dedupe_map;
-    `)
+    `);
   }
 
   database.exec(`
@@ -358,6 +518,13 @@ export function runMigrations(database: DatabaseSync): void {
     )
     .get() as { version?: number } | undefined;
   const currentVersion = Number(versionRow?.version ?? 0);
+  const appliedVersions = new Set(
+    (
+      database.prepare("SELECT version FROM schema_migrations").all() as Array<{
+        version: number;
+      }>
+    ).map((row) => Number(row.version)),
+  );
 
   if (currentVersion >= 4) {
     const resumeImportTablesMissing =
@@ -375,9 +542,13 @@ export function runMigrations(database: DatabaseSync): void {
       !hasTable("application_artifact_refs") ||
       !hasTable("application_replay_checkpoints") ||
       !hasTable("application_consent_requests");
-    const needsProfileCopilotMigration = currentVersion < 5;
-    const needsApplyFoundationMigration = currentVersion < 6;
-    const needsApplyFoundationIndexMigration = currentVersion < 7;
+    // Migration rows can be removed independently while reproducing or
+    // repairing legacy databases. Do not let a later version hide a missing
+    // earlier migration merely because MAX(version) is newer.
+    const needsProfileCopilotMigration = !appliedVersions.has(5);
+    const needsApplyFoundationMigration = !appliedVersions.has(6);
+    const needsApplyFoundationIndexMigration = !appliedVersions.has(7);
+    const needsProfileAchievementRepairMigration = !appliedVersions.has(8);
 
     if (
       resumeImportTablesMissing ||
@@ -385,7 +556,8 @@ export function runMigrations(database: DatabaseSync): void {
       applyFoundationTablesMissing ||
       needsProfileCopilotMigration ||
       needsApplyFoundationMigration ||
-      needsApplyFoundationIndexMigration
+      needsApplyFoundationIndexMigration ||
+      needsProfileAchievementRepairMigration
     ) {
       database.exec("BEGIN IMMEDIATE");
       try {
@@ -402,7 +574,10 @@ export function runMigrations(database: DatabaseSync): void {
           needsApplyFoundationMigration ||
           needsApplyFoundationIndexMigration
         ) {
-          if (hasTable("apply_job_results") && needsApplyFoundationIndexMigration) {
+          if (
+            hasTable("apply_job_results") &&
+            needsApplyFoundationIndexMigration
+          ) {
             dedupeApplyJobResultsByRunAndJob();
           }
 
@@ -411,20 +586,35 @@ export function runMigrations(database: DatabaseSync): void {
 
         if (needsProfileCopilotMigration) {
           database
-            .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+            .prepare(
+              "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
+            )
             .run(5, "job_finder_profile_copilot_history");
         }
 
         if (needsApplyFoundationMigration) {
           database
-            .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+            .prepare(
+              "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
+            )
             .run(6, "job_finder_apply_foundation");
         }
 
         if (needsApplyFoundationIndexMigration) {
           database
-            .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+            .prepare(
+              "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
+            )
             .run(7, "job_finder_apply_foundation_dedupe");
+        }
+
+        if (needsProfileAchievementRepairMigration) {
+          repairPersistedProfileAchievementFragments();
+          database
+            .prepare(
+              "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
+            )
+            .run(8, "repair_legacy_profile_achievement_fragments");
         }
 
         database.exec("COMMIT");
@@ -607,6 +797,13 @@ export function runMigrations(database: DatabaseSync): void {
       database
         .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
         .run(7, "job_finder_apply_foundation_dedupe");
+    }
+
+    if (currentVersion < 8) {
+      repairPersistedProfileAchievementFragments();
+      database
+        .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+        .run(8, "repair_legacy_profile_achievement_fragments");
     }
 
     database.exec("COMMIT");

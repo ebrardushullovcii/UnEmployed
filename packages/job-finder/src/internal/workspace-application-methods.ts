@@ -9,6 +9,7 @@ import {
   ApplicationAttemptQuestionSchema,
   ApplicationAttemptSchema,
   ApplicationRecordSchema,
+  ApplicationResumeArtifactSchema,
   JobFinderInterviewFollowUpInputSchema,
   ResumeAssistantMessageSchema,
   ResumeValidationResultSchema,
@@ -206,12 +207,14 @@ export function createWorkspaceApplicationMethods(
   }
 
   async function resolveJobApplyPrerequisites(jobId: string) {
-    const [savedJobs, tailoredAssets, draft, approvedExports] =
+    const [savedJobs, tailoredAssets, draft, approvedExports, profile, settings] =
       await Promise.all([
         ctx.repository.listSavedJobs(),
         ctx.repository.listTailoredAssets(),
         ctx.repository.getResumeDraftByJobId(jobId),
         ctx.repository.listResumeExportArtifacts({ jobId }),
+        ctx.repository.getProfile(),
+        ctx.repository.getSettings(),
       ]);
     const job = savedJobs.find((entry) => entry.id === jobId) ?? null;
 
@@ -219,6 +222,38 @@ export function createWorkspaceApplicationMethods(
       throw new Error(
         `Unable to start automatic apply for unknown job '${jobId}'.`,
       );
+    }
+
+    if (settings.resumeApplicationMode === "original_resume") {
+      const originalResumePath = profile.baseResume.storagePath?.trim() ?? "";
+      if (!originalResumePath) {
+        throw new Error(
+          `The original CV is unavailable for '${job.title}'. Import or re-import it in Profile before starting Apply Copilot.`,
+        );
+      }
+
+      if (
+        ctx.exportFileVerifier &&
+        !(await ctx.exportFileVerifier.exists(originalResumePath))
+      ) {
+        throw new Error(
+          `The original CV file is missing on disk for '${job.title}'. Re-import it in Profile before starting Apply Copilot.`,
+        );
+      }
+
+      return {
+        job,
+        resumeArtifact: ApplicationResumeArtifactSchema.parse({
+          id: `application_resume_${job.id}_${profile.baseResume.id}`,
+          jobId: job.id,
+          source: "original_upload",
+          sourceDocumentId: profile.baseResume.id,
+          exportArtifactId: null,
+          fileName: profile.baseResume.fileName,
+          filePath: originalResumePath,
+          approvedAt: new Date().toISOString(),
+        }),
+      };
     }
 
     const approvedExport = draft?.approvedExportId
@@ -262,9 +297,19 @@ export function createWorkspaceApplicationMethods(
     }
 
     return {
-      approvedExport,
-      asset,
       job,
+      resumeArtifact: ApplicationResumeArtifactSchema.parse({
+        id: `application_resume_${job.id}_${approvedExport.id}`,
+        jobId: job.id,
+        source: "tailored_export",
+        sourceDocumentId: null,
+        exportArtifactId: approvedExport.id,
+        fileName:
+          approvedExport.filePath.split(/[\\/]/).at(-1) ??
+          `${job.title}-resume.pdf`,
+        filePath: approvedExport.filePath,
+        approvedAt: new Date().toISOString(),
+      }),
     };
   }
 
@@ -409,7 +454,9 @@ export function createWorkspaceApplicationMethods(
     ]);
     const latestResult =
       results
-        .filter((entry) => entry.jobId === jobId)
+        .filter(
+          (entry) => entry.jobId === jobId && entry.state !== "planned",
+        )
         .sort((left, right) => {
           const rightTime = getApplyResultSortTime(right);
           const leftTime = getApplyResultSortTime(left);
@@ -618,7 +665,7 @@ export function createWorkspaceApplicationMethods(
           continue;
         }
 
-        const { approvedExport, job } =
+        const { job, resumeArtifact } =
           await resolveJobApplyPrerequisites(jobId);
         const recoverySeed = await buildApplyRecoveryContext(jobId);
         if (activeSource !== job.source) {
@@ -653,11 +700,11 @@ export function createWorkspaceApplicationMethods(
           job.source,
           {
             job,
-            resumeExport: approvedExport,
-            resumeFilePath: approvedExport.filePath,
+            resumeArtifact,
             profile,
             settings,
             mode: "prepare_only",
+            submitAuthorized: false,
             ...(recoverySeed.recoveryContext
               ? { recoveryContext: recoverySeed.recoveryContext }
               : {}),
@@ -1854,33 +1901,21 @@ export function createWorkspaceApplicationMethods(
         searchPreferences,
         settings,
         savedJobs,
-        tailoredAssets,
         applicationRecords,
         sourceInstructionArtifacts,
         sourceDebugAttempts,
-        draft,
-        approvedExports,
         discoveryState,
       ] = await Promise.all([
         ctx.repository.getProfile(),
         ctx.repository.getSearchPreferences(),
         ctx.repository.getSettings(),
         ctx.repository.listSavedJobs(),
-        ctx.repository.listTailoredAssets(),
         ctx.repository.listApplicationRecords(),
         ctx.repository.listSourceInstructionArtifacts(),
         ctx.repository.listSourceDebugAttempts(),
-        ctx.repository.getResumeDraftByJobId(jobId),
-        ctx.repository.listResumeExportArtifacts({ jobId }),
         ctx.repository.getDiscoveryState(),
       ]);
       const job = savedJobs.find((entry) => entry.id === jobId);
-      const asset = tailoredAssets.find((entry) => entry.jobId === jobId);
-      const approvedExport = draft?.approvedExportId
-        ? (approvedExports.find(
-            (entry) => entry.id === draft.approvedExportId,
-          ) ?? null)
-        : null;
 
       if (!job) {
         throw new Error(
@@ -1888,39 +1923,7 @@ export function createWorkspaceApplicationMethods(
         );
       }
 
-      if (!draft || draft.status !== "approved" || !approvedExport) {
-        throw new Error(
-          `An approved tailored PDF is required before applying to '${job.title}'.`,
-        );
-      }
-
-      validateApplyTemplate({
-        templateId: draft.templateId,
-        templates: ctx.documentManager.listResumeTemplates(),
-        jobTitle: job.title,
-      });
-
-      if (ctx.exportFileVerifier) {
-        const approvedFileExists = await ctx.exportFileVerifier.exists(
-          approvedExport.filePath,
-        );
-
-        if (!approvedFileExists) {
-          throw new Error(
-            `The approved tailored PDF is missing on disk for '${job.title}'. Re-export and approve the resume again before applying.`,
-          );
-        }
-      }
-
-      if (
-        !asset ||
-        asset.status !== "ready" ||
-        asset.storagePath !== approvedExport.filePath
-      ) {
-        throw new Error(
-          `A ready approved tailored resume is required before applying to '${job.title}'.`,
-        );
-      }
+      const { resumeArtifact } = await resolveJobApplyPrerequisites(jobId);
 
       const provenanceTargetId =
         job.provenance[job.provenance.length - 1]?.targetId ??
@@ -1946,14 +1949,15 @@ export function createWorkspaceApplicationMethods(
         ...buildInstructionGuidance(activeInstruction),
       ]);
 
-      const executionResult = await ctx.browserRuntime.executeEasyApply(
+      const executionResult = await ctx.browserRuntime.executeApplicationFlow(
         job.source,
         {
           job,
-          resumeExport: approvedExport,
-          resumeFilePath: approvedExport.filePath,
+          resumeArtifact,
           profile,
           settings,
+          mode: "prepare_only",
+          submitAuthorized: false,
           ...(applyInstructions.length > 0
             ? { instructions: applyInstructions }
             : {}),
@@ -2103,18 +2107,23 @@ export function createWorkspaceApplicationMethods(
         : null;
       const asset =
         tailoredAssets.find((entry) => entry.jobId === jobId) ?? null;
+      const originalResumePath = profile.baseResume.storagePath?.trim() ?? "";
+      const usesOriginalResume =
+        settings.resumeApplicationMode === "original_resume";
 
       const shouldBlockForMissingResume =
-        !draft ||
-        draft.status !== "approved" ||
-        !approvedExport ||
-        !asset ||
-        asset.status !== "ready" ||
-        asset.storagePath !== approvedExport.filePath;
+        usesOriginalResume
+          ? !originalResumePath
+          : !draft ||
+            draft.status !== "approved" ||
+            !approvedExport ||
+            !asset ||
+            asset.status !== "ready" ||
+            asset.storagePath !== approvedExport.filePath;
 
       if (!shouldBlockForMissingResume && ctx.exportFileVerifier) {
         const approvedFileExists = await ctx.exportFileVerifier.exists(
-          approvedExport.filePath,
+          usesOriginalResume ? originalResumePath : approvedExport!.filePath,
         );
 
         if (!approvedFileExists) {
@@ -2196,6 +2205,8 @@ export function createWorkspaceApplicationMethods(
         return ctx.getWorkspaceSnapshot();
       }
 
+      const { resumeArtifact } = await resolveJobApplyPrerequisites(jobId);
+
       const provenanceTargetId =
         job.provenance[job.provenance.length - 1]?.targetId ??
         job.provenance[0]?.targetId ??
@@ -2225,11 +2236,11 @@ export function createWorkspaceApplicationMethods(
         job.source,
         {
           job,
-          resumeExport: approvedExport,
-          resumeFilePath: approvedExport.filePath,
+          resumeArtifact,
           profile,
           settings,
           mode: "prepare_only",
+          submitAuthorized: false,
           ...(recoverySeed.recoveryContext
             ? { recoveryContext: recoverySeed.recoveryContext }
             : {}),

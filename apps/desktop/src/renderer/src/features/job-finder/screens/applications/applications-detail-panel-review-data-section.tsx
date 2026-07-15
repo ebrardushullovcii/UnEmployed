@@ -145,7 +145,7 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
                   ) : null}
                   {question.submittedAnswer ? (
                     <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">
-                      Submitted: {question.submittedAnswer}
+                      {question.status === "submitted" ? "Submitted" : "Prepared answer"}: {question.submittedAnswer}
                     </p>
                   ) : null}
                   {question.pageUrl ? (

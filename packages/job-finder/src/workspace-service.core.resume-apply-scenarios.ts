@@ -8,7 +8,7 @@ import {
   SavedJobSchema,
 } from "@unemployed/contracts";
 import type { JobFinderDocumentManager } from "./internal/workspace-service-contracts";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { createAiClient } from "./workspace-service.test-runtimes";
 import {
   createBrowserRuntime,
@@ -30,7 +30,78 @@ function buildRecordQuery(input: {
 }
 
 describe("createJobFinderWorkspaceService", () => {
-  test("generates a tailored resume and submits a supported Easy Apply attempt", async () => {
+  test("uses the original imported CV unchanged without generating a tailored resume", async () => {
+    const seed = createSeed();
+    seed.settings = {
+      ...seed.settings,
+      resumeApplicationMode: "original_resume",
+    };
+    const catalogRuntime = createBrowserRuntime();
+    const executeApplicationFlow = vi.fn(
+      catalogRuntime.executeApplicationFlow.bind(catalogRuntime),
+    );
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      browserRuntime: { ...catalogRuntime, executeApplicationFlow },
+    });
+
+    const beforeApply = await workspaceService.getWorkspaceSnapshot();
+    const queueItem = beforeApply.reviewQueue.find(
+      (item) => item.jobId === "job_ready",
+    );
+
+    expect(queueItem).toMatchObject({
+      resumeApplicationMode: "original_resume",
+      assetStatus: "ready",
+      resumeAssetId: "resume_1",
+      resumeReview: {
+        status: "original_resume",
+        sourceDocumentId: "resume_1",
+        fileName: "alex-vanguard.pdf",
+        filePath: "/tmp/alex-vanguard.pdf",
+      },
+    });
+    const existingTailoredAssets = beforeApply.tailoredAssets;
+
+    const snapshot = await workspaceService.startApplyCopilotRun("job_ready");
+    const executionInput = executeApplicationFlow.mock.calls[0]?.[1];
+
+    expect(executionInput?.resumeArtifact).toMatchObject({
+      jobId: "job_ready",
+      source: "original_upload",
+      sourceDocumentId: "resume_1",
+      exportArtifactId: null,
+      fileName: "alex-vanguard.pdf",
+      filePath: "/tmp/alex-vanguard.pdf",
+    });
+    expect(snapshot.resumeDrafts).toHaveLength(0);
+    expect(snapshot.resumeExportArtifacts).toHaveLength(0);
+    expect(snapshot.tailoredAssets).toEqual(existingTailoredAssets);
+    expect(snapshot.applyRuns[0]?.state).toBe("paused_for_user_review");
+  });
+
+  test("blocks original-CV mode when the imported file is missing on disk", async () => {
+    const seed = createSeed();
+    seed.settings = {
+      ...seed.settings,
+      resumeApplicationMode: "original_resume",
+    };
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      exportFileVerifier: { exists: () => Promise.resolve(false) },
+    });
+
+    const snapshot = await workspaceService.startApplyCopilotRun("job_ready");
+
+    expect(snapshot.applyJobResults[0]).toMatchObject({
+      jobId: "job_ready",
+      state: "blocked",
+      blockerReason: "resume_missing",
+    });
+    expect(snapshot.applicationAttempts).toHaveLength(0);
+  });
+
+  test("generates a tailored resume and pauses a supported application at final review", async () => {
     const { workspaceService } = createWorkspaceServiceHarness();
 
     await workspaceService.generateResume("job_ready");
@@ -47,14 +118,20 @@ describe("createJobFinderWorkspaceService", () => {
       (asset) => asset.jobId === "job_ready",
     );
 
-    expect(snapshot.discoveryJobs.some((job) => job.id === "job_ready")).toBe(false);
+    expect(snapshot.discoveryJobs.some((job) => job.id === "job_ready")).toBe(true);
     expect(
       snapshot.applicationRecords.some((record) => record.jobId === "job_ready"),
     ).toBe(true);
-    expect(snapshot.applicationAttempts[0]?.state).toBe("submitted");
+    expect(snapshot.applicationAttempts[0]?.state).toBe("paused");
+    expect(snapshot.applicationAttempts[0]?.outcome).toBeNull();
+    expect(snapshot.applicationAttempts[0]?.checkpoints.at(-1)?.state).toBe(
+      "paused",
+    );
     expect(snapshot.applicationAttempts[0]?.questions[0]?.kind).toBe("resume");
     expect(snapshot.applicationAttempts[0]?.consentDecisions.length).toBeGreaterThan(0);
     expect(snapshot.applicationAttempts[0]?.replay.lastUrl).toContain("/apply");
+    expect(snapshot.applicationRecords[0]?.status).toBe("approved");
+    expect(snapshot.applicationRecords[0]?.lastAttemptState).toBe("paused");
     expect(snapshot.applicationRecords[0]?.questionSummary.total).toBe(1);
     expect(snapshot.applicationRecords[0]?.replaySummary.lastUrl).toContain("/apply");
     expect(tailoredAsset?.storagePath).toBe("/tmp/generated-classic_ats.pdf");
@@ -537,6 +614,15 @@ describe("createJobFinderWorkspaceService", () => {
     if (!initialRunId) {
       return;
     }
+
+    const stagedAutoSnapshot =
+      await workspaceService.startAutoApplyRun("job_ready");
+    expect(
+      stagedAutoSnapshot.applyJobResults.some(
+        (result) =>
+          result.jobId === "job_ready" && result.state === "planned",
+      ),
+    ).toBe(true);
 
     const retrySnapshot = await workspaceService.startApplyCopilotRun("job_ready");
     const latestRun = retrySnapshot.applyRuns[0];
@@ -2863,7 +2949,7 @@ describe("createJobFinderWorkspaceService", () => {
     );
   });
 
-  test("dismissing and applying jobs writes durable discovery-ledger statuses", async () => {
+  test("dismissing a job is durable while prepare-only apply does not record a false applied status", async () => {
     const { repository, workspaceService } = createWorkspaceServiceHarness({
       seed: {
         ...createSeed(),
@@ -2959,17 +3045,21 @@ describe("createJobFinderWorkspaceService", () => {
       (artifact) => artifact.jobId === "job_ready",
     );
     await workspaceService.approveResume("job_ready", approvedExport!.id);
-    await workspaceService.approveApply("job_ready");
+    const preparedSnapshot = await workspaceService.approveApply("job_ready");
 
     discoveryState = await repository.getDiscoveryState();
-    expect(discoveryState.discoveryLedger).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_signal_ready",
-          latestStatus: "applied",
-          lastAppliedAt: expect.any(String) as string,
-        }),
-      ]),
-    );
+    expect(preparedSnapshot.applicationAttempts[0]?.state).toBe("paused");
+    expect(
+      discoveryState.discoveryLedger.find(
+        (entry) =>
+          entry.canonicalUrl ===
+          "https://www.linkedin.com/jobs/view/linkedin_signal_ready",
+      ),
+    ).toBeUndefined();
+    expect(
+      discoveryState.discoveryLedger.some(
+        (entry) => entry.latestStatus === "applied",
+      ),
+    ).toBe(false);
   });
 });

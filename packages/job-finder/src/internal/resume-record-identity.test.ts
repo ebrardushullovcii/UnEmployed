@@ -23,4 +23,25 @@ describe("resume record identity", () => {
       ),
     ).toBe(true);
   });
+
+  test("treats zero-padded imported dates as D/M/YYYY when both positions are ambiguous", () => {
+    expect(
+      areEquivalentExperienceRecords(
+        {
+          companyName: "Example Co",
+          title: "Engineer",
+          startDate: "01/07/2023",
+          endDate: "30/06/2024",
+          isCurrent: false,
+        },
+        {
+          companyName: "Example Co",
+          title: "Engineer",
+          startDate: "2023-07",
+          endDate: "2024-06",
+          isCurrent: false,
+        },
+      ),
+    ).toBe(true);
+  });
 });

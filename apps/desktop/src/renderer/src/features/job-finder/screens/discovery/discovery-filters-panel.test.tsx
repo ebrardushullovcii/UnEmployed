@@ -15,6 +15,7 @@ describe('DiscoveryFiltersPanel', () => {
 
   it('shows a source-aware sign-in prompt near the search controls', () => {
     const onOpenBrowserSessionForTarget = vi.fn()
+    const onRunDiscoveryForTarget = vi.fn()
     const searchPreferences: JobSearchPreferences = {
       targetRoles: ['Principal Designer'],
       jobFamilies: [],
@@ -94,7 +95,7 @@ describe('DiscoveryFiltersPanel', () => {
           onOpenBrowserSession={vi.fn()}
           onOpenBrowserSessionForTarget={onOpenBrowserSessionForTarget}
           onRunAgentDiscovery={vi.fn()}
-          onRunDiscoveryForTarget={vi.fn()}
+          onRunDiscoveryForTarget={onRunDiscoveryForTarget}
           onViewProgress={vi.fn()}
           searchPreferences={searchPreferences}
           sourceAccessPrompts={[sourceAccessPrompt]}
@@ -104,7 +105,7 @@ describe('DiscoveryFiltersPanel', () => {
 
     expect(container.textContent).toContain('Sign in to LinkedIn before the next search can continue.')
     expect(container.textContent).toContain('Please sign in first.')
-    expect(container.textContent).toContain('Then Search again after sign-in.')
+    expect(container.textContent).toContain("I'm signed in — retry LinkedIn")
     expect(container.textContent?.match(/Sign in to LinkedIn before the next search can continue\./g)).toHaveLength(1)
 
     const signInButton = within(getByRole('status')).getByRole('button', {
@@ -114,6 +115,13 @@ describe('DiscoveryFiltersPanel', () => {
     fireEvent.click(signInButton)
 
     expect(onOpenBrowserSessionForTarget).toHaveBeenCalledWith('target_linkedin_default')
+
+    fireEvent.click(within(getByRole('status')).getByRole('button', {
+      name: /i'm signed in — retry linkedin/i,
+    }))
+
+    expect(onRunDiscoveryForTarget).toHaveBeenCalledWith('target_linkedin_default')
+    expect(container.textContent).toContain('Job Finder waits here and never handles your credentials.')
   })
 
   it('ignores disabled-target prompts for the primary sign-in CTA', () => {
@@ -406,6 +414,7 @@ describe('DiscoveryFiltersPanel', () => {
               minAnnualUsd: null,
               maxAnnualUsd: null,
             },
+            detailQuality: 'card_only',
             summary: 'Strong fit',
             seniority: null,
             postedAt: null,
@@ -440,6 +449,9 @@ describe('DiscoveryFiltersPanel', () => {
               score: 92,
               reasons: ['Strong fit'],
               gaps: [],
+              recommendation: 'strong_fit',
+              recommendationRationale: 'No hard blockers detected.',
+              requirements: [],
             },
             status: 'discovered',
             applyPath: 'easy_apply',

@@ -124,7 +124,7 @@ export function InterviewSessionPreferences(props: {
         <input
           checked={setup.autoCaptureOnCue}
           className="mt-1 size-4 accent-(--info-text)"
-          disabled={props.pending}
+          disabled={props.pending || !setup.consent.screenshotCapture}
           onChange={(event) => {
             props.onSave({ autoCaptureOnCue: event.target.checked });
           }}
@@ -138,7 +138,9 @@ export function InterviewSessionPreferences(props: {
           <span className="text-[0.72rem] leading-5 text-muted-foreground">
             {setup.autoCaptureOnCue
               ? "Automatic cues include a temporary visual batch."
-              : "Manual screenshot hotkeys control visual context."}
+              : setup.consent.screenshotCapture
+                ? "Manual screenshot controls decide when visual context is captured."
+                : "Enable screenshot capture before using visual context."}
           </span>
         </span>
       </label>

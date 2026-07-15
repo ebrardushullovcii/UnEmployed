@@ -8,6 +8,7 @@ import {
   getInterviewHelperTemporaryScreenshotDirectory,
   getInterviewHelperWorkspaceFilePath,
 } from './paths'
+import { areAdvancedInterviewSurfacesEnabled } from '../../setup/interview-surface-mode'
 
 let interviewHelperServicePromise:
   | Promise<ReturnType<typeof createInterviewHelperService>>
@@ -19,6 +20,7 @@ export function getInterviewHelperService() {
       const interviewProviders = createInterviewHelperProvidersFromEnvironment()
 
       return createInterviewHelperService({
+        advancedSurfacesEnabled: areAdvancedInterviewSurfacesEnabled(),
         repository: createFileInterviewHelperRepository({
           filePath: getInterviewHelperWorkspaceFilePath(),
         }),

@@ -14,12 +14,16 @@ import type {
   InterviewAudioTranscriptionInput,
   InterviewCaptionFileReadInput,
   InterviewCaptionFileTextResult,
+  InterviewChatTurn,
   InterviewClipboardTextResult,
+  InterviewClipboardWriteInput,
   InterviewPrepArtifactFromCueInput,
   InterviewTranscriptAnnotationInput,
   InterviewTranscriptSegmentInput,
   InterviewWorkspaceSnapshot,
   SaveInterviewSetupInput,
+  SendInterviewChatMessageInput,
+  UpdateInterviewOverlayPreferenceInput,
   JobFinderApplyConsentActionInput,
   JobFinderApplyCopilotActionInput,
   JobFinderApplyQueueActionInput,
@@ -81,6 +85,20 @@ function isSaveWorkspaceInputsPayload(
   return "profile" in profileOrInput && "searchPreferences" in profileOrInput;
 }
 
+function isInterviewWorkspaceSnapshot(
+  value: unknown,
+): value is InterviewWorkspaceSnapshot {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    candidate.module === "interview-helper" &&
+    typeof candidate.generatedAt === "string" &&
+    typeof candidate.setup === "object" &&
+    typeof candidate.answerOverlay === "object" &&
+    typeof candidate.transcriptOverlay === "object"
+  );
+}
+
 function toSaveWorkspaceInputsPayload(
   profileOrInput: CandidateProfile | SaveJobFinderWorkspaceInput,
   searchPreferences?: JobSearchPreferences,
@@ -139,6 +157,22 @@ const desktopApi = {
       ipcRenderer.invoke(
         "interview-helper:get-workspace",
       ) as Promise<InterviewWorkspaceSnapshot>,
+    onWorkspaceChange: (
+      listener: (workspace: InterviewWorkspaceSnapshot) => void,
+    ) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        workspace: unknown,
+      ) => {
+        if (isInterviewWorkspaceSnapshot(workspace)) listener(workspace);
+      };
+
+      ipcRenderer.on("interview-helper:workspace-changed", handler);
+
+      return () => {
+        ipcRenderer.off("interview-helper:workspace-changed", handler);
+      };
+    },
     saveSetup: (input: SaveInterviewSetupInput) =>
       ipcRenderer.invoke(
         "interview-helper:save-setup",
@@ -169,6 +203,11 @@ const desktopApi = {
         "interview-helper:move-overlay-window",
         input,
       ) as Promise<{ moved: boolean }>,
+    updateOverlayPreference: (input: UpdateInterviewOverlayPreferenceInput) =>
+      ipcRenderer.invoke(
+        "interview-helper:update-overlay-preference",
+        input,
+      ) as Promise<InterviewWorkspaceSnapshot>,
     deleteSession: (sessionId: string) =>
       ipcRenderer.invoke("interview-helper:delete-session", {
         sessionId,
@@ -188,6 +227,11 @@ const desktopApi = {
         "interview-helper:add-transcript-segment",
         input,
       ) as Promise<InterviewWorkspaceSnapshot>,
+    sendChatMessage: (input: SendInterviewChatMessageInput) =>
+      ipcRenderer.invoke(
+        "interview-helper:send-chat-message",
+        input,
+      ) as Promise<InterviewChatTurn>,
     transcribeAudioChunk: (input: InterviewAudioTranscriptionInput) =>
       ipcRenderer.invoke(
         "interview-helper:transcribe-audio-chunk",
@@ -205,6 +249,11 @@ const desktopApi = {
       ipcRenderer.invoke(
         "interview-helper:read-clipboard-text",
       ) as Promise<InterviewClipboardTextResult>,
+    writeClipboardText: (input: InterviewClipboardWriteInput) =>
+      ipcRenderer.invoke(
+        "interview-helper:write-clipboard-text",
+        input,
+      ) as Promise<{ written: true }>,
     selectCaptionFile: () =>
       ipcRenderer.invoke(
         "interview-helper:select-caption-file",

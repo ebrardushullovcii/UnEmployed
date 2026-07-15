@@ -51,6 +51,14 @@ async function waitForCondition(
 
 async function waitForProfileOrSetupHeading(window) {
   await window.waitForFunction(
+    () => Boolean(window.unemployed?.jobFinder?.test),
+    undefined,
+    { timeout: 15000 },
+  );
+  await window.evaluate(() => {
+    window.location.hash = "#/job-finder/profile";
+  });
+  await window.waitForFunction(
     () => {
       const heading = document.querySelector("h1");
       return (
@@ -231,8 +239,20 @@ async function startInitialCopilotRun(window) {
   });
   await startApplyCopilotButton.waitFor({ timeout: 10000 });
   await startApplyCopilotButton.click();
+  const checkpointDialog = window.getByRole("dialog");
+  await checkpointDialog.waitFor({ timeout: 10000 });
+  await checkpointDialog
+    .getByRole("button", { name: "Continue without" })
+    .click();
+  await waitForCondition(async () => {
+    return (await getWorkspace(window)).applicationRecords.length > 0;
+  }, "application record created by Apply Copilot");
+  await window.evaluate(() => {
+    window.location.hash = "#/job-finder/applications";
+  });
   await window
-    .getByRole("heading", { level: 1, name: "Applications" })
+    .locator("h1")
+    .filter({ hasText: /^Applications$/ })
     .waitFor({ timeout: 10000 });
 }
 
@@ -356,6 +376,11 @@ async function captureApplicationsRecovery() {
     });
     await rerunCopilotButton.waitFor({ timeout: 10000 });
     await rerunCopilotButton.click();
+    const rerunCheckpointDialog = window.getByRole("dialog");
+    await rerunCheckpointDialog.waitFor({ timeout: 10000 });
+    await rerunCheckpointDialog
+      .getByRole("button", { name: "Continue without" })
+      .click();
     await waitForCondition(async () => {
       const workspace = await getWorkspace(window);
       return (
@@ -397,7 +422,7 @@ async function captureApplicationsRecovery() {
       )
     ) {
       throw new Error(
-        "Expected the rerun to retain a recovery checkpoint from the previous apply context.",
+        `Expected the rerun to retain a recovery checkpoint from the previous apply context. Checkpoints: ${JSON.stringify(rerunReviewData.details.checkpoints)}`,
       );
     }
     await window.screenshot({

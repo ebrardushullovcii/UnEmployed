@@ -4,6 +4,7 @@ import {
   InterviewAudioTranscriptionInputSchema,
   InterviewCaptionFileReadInputSchema,
   InterviewCaptionFileTextResultSchema,
+  InterviewClipboardWriteInputSchema,
   InterviewProtectedSurfaceVerificationInputSchema,
   InterviewTranscriptAnnotationInputSchema,
   InterviewTranscriptSegmentInputSchema,
@@ -179,6 +180,16 @@ describe("interview helper contracts", () => {
 
     expect(result.displayName).toBe("interview.vtt");
     expect(result.text).toContain("platform captions");
+  });
+
+  test("bounds popup clipboard writes", () => {
+    expect(
+      InterviewClipboardWriteInputSchema.parse({ text: "A concise answer" }),
+    ).toEqual({ text: "A concise answer" });
+    expect(
+      InterviewClipboardWriteInputSchema.safeParse({ text: "x".repeat(30_001) })
+        .success,
+    ).toBe(false);
   });
 
   test("parses protected surface verification evidence", () => {

@@ -11,7 +11,7 @@ import {
   type JobPosting,
   type JobSearchPreferences,
   type JobSource,
-  type ResumeExportArtifact,
+  type ApplicationResumeArtifact,
   type SavedJob,
 } from '@unemployed/contracts'
 import { buildApplyReplay, buildScreeningQuestions } from './apply'
@@ -37,8 +37,7 @@ export interface CatalogSessionAgentDiscoveryOptions {
 
 export interface CatalogSessionEasyApplyInput {
   job: SavedJob
-  resumeExport: ResumeExportArtifact
-  resumeFilePath: string
+  resumeArtifact: ApplicationResumeArtifact
   profile: CandidateProfile
   settings: JobFinderSettings
   instructions?: readonly string[]
@@ -112,7 +111,12 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
     }
 
     const now = new Date().toISOString()
-    const { job, resumeExport, resumeFilePath } = input
+    const { job, resumeArtifact } = input
+    const resumeFilePath = resumeArtifact.filePath
+    const resumeLabel =
+      resumeArtifact.source === 'original_upload'
+        ? 'Original resume selected by the user'
+        : 'Approved tailored resume export'
     const questions = buildScreeningQuestions({
       job,
       profile: input.profile,
@@ -141,7 +145,7 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
           state: 'failed',
           summary: 'Approved resume export is missing',
           detail:
-            'The apply flow cannot continue until an approved tailored resume export path is available.',
+            'The apply flow cannot continue until the selected application resume is available.',
           submittedAt: null,
           outcome: null,
           questions: [],
@@ -184,14 +188,14 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
           id: `suggested_answer_${job.id}_resume_upload`,
           text: resumeFilePath,
           sourceKind: 'resume' as const,
-          sourceId: resumeExport.id,
-          confidenceLabel: 'approved export',
+          sourceId: resumeArtifact.id,
+          confidenceLabel: 'user-approved resume',
           provenance: [
             {
-              id: `answer_provenance_resume_${resumeExport.id}`,
+              id: `answer_provenance_resume_${resumeArtifact.id}`,
               sourceKind: 'resume' as const,
-              sourceId: resumeExport.id,
-              label: 'Approved tailored resume export',
+              sourceId: resumeArtifact.id,
+              label: resumeLabel,
               snippet: resumeFilePath,
             },
           ],
@@ -275,10 +279,10 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
             {
               id: `consent_${job.id}_resume_use`,
               kind: 'resume_use',
-              label: 'Use the approved tailored resume for this apply flow',
+              label: 'Use the selected resume for this apply flow',
               status: 'approved',
               decidedAt: now,
-              detail: `Approved export ${resumeExport.id} stayed selected for this run.`,
+              detail: `${resumeLabel} (${resumeArtifact.id}) stayed selected for this run.`,
             },
             {
               id: `consent_${job.id}_consent_interrupt`,
@@ -305,8 +309,8 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
             {
               id: `checkpoint_${job.id}_resume_attached`,
               at: now,
-              label: 'Attached tailored resume',
-              detail: `Attached approved resume export from ${resumeFilePath}.`,
+              label: 'Attached selected resume',
+              detail: `Attached the selected application resume from ${resumeFilePath}.`,
               state: 'in_progress',
             },
             {
@@ -352,10 +356,10 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
             {
               id: `consent_${job.id}_resume_use`,
               kind: 'resume_use',
-              label: 'Use the approved tailored resume for this apply flow',
+              label: 'Use the selected resume for this apply flow',
               status: 'approved',
               decidedAt: now,
-              detail: `Approved export ${resumeExport.id} stayed selected for this copilot run.`,
+              detail: `${resumeLabel} (${resumeArtifact.id}) stayed selected for this copilot run.`,
             },
             {
               id: `consent_${job.id}_autofill_profile`,
@@ -385,8 +389,8 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
             {
               id: `checkpoint_${job.id}_resume_attached`,
               at: now,
-              label: 'Attached tailored resume',
-              detail: `Attached approved resume export from ${resumeFilePath}.`,
+              label: 'Attached selected resume',
+              detail: `Attached the selected application resume from ${resumeFilePath}.`,
               state: 'in_progress',
             },
             {
@@ -427,10 +431,10 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
             {
               id: `consent_${job.id}_resume_use`,
               kind: 'resume_use',
-              label: 'Use the approved tailored resume for this apply flow',
+              label: 'Use the selected resume for this apply flow',
               status: 'approved',
               decidedAt: now,
-              detail: `Approved export ${resumeExport.id} stayed selected for this attempt.`,
+              detail: `${resumeLabel} (${resumeArtifact.id}) stayed selected for this attempt.`,
             },
             {
               id: `consent_${job.id}_manual_follow_up`,
@@ -457,8 +461,8 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
             {
               id: `checkpoint_${job.id}_resume_attached`,
               at: now,
-              label: 'Attached tailored resume',
-              detail: `Attached approved resume export from ${resumeFilePath}.`,
+              label: 'Attached selected resume',
+              detail: `Attached the selected application resume from ${resumeFilePath}.`,
               state: 'in_progress',
             },
             {
@@ -515,8 +519,8 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
           {
             id: `checkpoint_${job.id}_resume_attached`,
             at: now,
-            label: 'Attached tailored resume',
-            detail: `Attached approved resume export from ${resumeFilePath}.`,
+            label: 'Attached selected resume',
+            detail: `Attached the selected application resume from ${resumeFilePath}.`,
             state: 'in_progress',
           },
           {

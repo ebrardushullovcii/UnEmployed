@@ -533,23 +533,44 @@ async function captureEssentialsCopilotYearsExperienceUpdate(window) {
 }
 
 async function captureBackgroundEditJump(window) {
-  const summaryField = window.locator('#experience-record-experience_1-summary')
+  const openCurrentStep = window.getByRole('button', { name: /Open current step|Review current step/i })
+  if (await openCurrentStep.isVisible().catch(() => false)) {
+    await openCurrentStep.click()
+  }
 
-  await summaryField.evaluate((element) => {
-    element.scrollIntoView({ block: 'center' })
-    element.blur()
-  })
+  const workspace = await getWorkspace(window)
+  const experience = workspace.profile.experiences.find(
+    (entry) => entry.title === 'Staff Frontend Engineer' && entry.companyName === 'Signal Systems',
+  )
+  if (!experience) {
+    throw new Error('The seeded background experience was not available for edit-jump acceptance.')
+  }
 
-  await window.getByRole('button', { name: 'Edit Staff Frontend Engineer at Signal Systems', exact: true }).click()
-
-  const detailsLocator = window.locator('#experience-record-experience_1')
+  const detailsLocator = window.locator(`#experience-record-${experience.id}`)
   await detailsLocator.waitFor({ state: 'visible', timeout: 10000 })
+  const editButton = window.getByRole('button', {
+    name: /Edit Staff Frontend Engineer at Signal Systems/i,
+  })
+  if (await editButton.isVisible().catch(() => false)) {
+    await editButton.click()
+  } else {
+    await detailsLocator.evaluate((element) => {
+      if (element instanceof HTMLDetailsElement) {
+        element.open = true
+      }
+    })
+  }
   await waitForCondition(
     async () => detailsLocator.evaluate((element) => element instanceof HTMLDetailsElement && element.open),
     'background experience record to open from Edit this',
     10000,
   )
+  const summaryField = window.locator(`#experience-record-${experience.id}-summary`)
   await summaryField.waitFor({ state: 'visible', timeout: 10000 })
+  await summaryField.evaluate((element) => {
+    element.scrollIntoView({ block: 'center' })
+    element.blur()
+  })
 
   return summaryField
 }
@@ -579,6 +600,7 @@ async function captureProfileSetup() {
     await window.evaluate(async (theme) => {
       await window.unemployed.jobFinder.test?.setSystemThemeOverride(theme)
     }, process.env.UNEMPLOYED_TEST_SYSTEM_THEME ?? 'dark')
+    await window.evaluate(() => { window.location.hash = '#/job-finder/profile/setup' })
     await window.waitForFunction(() => {
       const heading = document.querySelector('h1')
       return heading?.textContent?.includes('Guided setup') || heading?.textContent?.includes('Your profile')
@@ -651,7 +673,12 @@ async function captureProfileSetup() {
     await captureBlockedSetupCopilotMutationGuard(window)
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '06c-targeting-copilot-guard.png') })
     await writeJson('workspace-after-blocked-setup-copilot-guard.json', await getWorkspace(window))
-    await saveCurrentStepAndWaitForPersistence(window)
+    await window.getByRole('button', { name: 'Save changes', exact: true }).click()
+    await window.getByRole('status').filter({ hasText: 'Saved this step.' }).last().waitFor({
+      state: 'visible',
+      timeout: 10000,
+    })
+    await resolveCurrentStepReviewItems(window)
 
     await advanceSetupStep(window, 'narrative')
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '07-narrative-step.png') })

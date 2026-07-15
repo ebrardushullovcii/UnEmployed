@@ -37,7 +37,11 @@ import {
   runImmediateTransaction,
   syncApprovedResumeExportsForJob,
 } from './file-repository-support'
-import { secureDatabaseFile, runMigrations } from './internal/migrations'
+import {
+  repairLegacyCommaSplitAchievements,
+  secureDatabaseFile,
+  runMigrations,
+} from './internal/migrations'
 import {
   normalizeLegacyDiscoveryState,
   normalizeLegacySourceDebugRunRecord,
@@ -66,7 +70,35 @@ export async function createFileJobFinderRepository(
 
   if (!hasPersistedState(database)) {
     const legacySeed = await readLegacySeed(options.filePath, normalizedSeed)
-    bootstrapState(database, legacySeed ?? normalizedSeed)
+    const bootstrapSeed = legacySeed
+      ? JobFinderRepositoryStateSchema.parse({
+          ...legacySeed,
+          profile: {
+            ...legacySeed.profile,
+            experiences: legacySeed.profile.experiences.map((experience) => ({
+              ...experience,
+              achievements: repairLegacyCommaSplitAchievements(
+                experience.achievements,
+              ),
+            })),
+          },
+          profileRevisions: legacySeed.profileRevisions.map((revision) => ({
+            ...revision,
+            snapshotProfile: {
+              ...revision.snapshotProfile,
+              experiences: revision.snapshotProfile.experiences.map(
+                (experience) => ({
+                  ...experience,
+                  achievements: repairLegacyCommaSplitAchievements(
+                    experience.achievements,
+                  ),
+                }),
+              ),
+            },
+          })),
+        })
+      : normalizedSeed
+    bootstrapState(database, bootstrapSeed)
     await secureDatabaseFile(options.filePath)
   }
 

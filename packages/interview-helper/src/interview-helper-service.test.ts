@@ -39,11 +39,15 @@ function createMemoryRepository(): InterviewHelperRepository {
 function createService(
   repository: InterviewHelperRepository = createMemoryRepository(),
   options: {
+    advancedSurfacesEnabled?: boolean;
     cueCardProvider?: InterviewCueCardProvider;
     transcriptionProvider?: InterviewTranscriptionProvider;
   } = {},
 ) {
   return createInterviewHelperService({
+    ...(options.advancedSurfacesEnabled === undefined
+      ? {}
+      : { advancedSurfacesEnabled: options.advancedSurfacesEnabled }),
     repository,
     audioCaptureAdapter: createStaticDesktopAudioCaptureAdapter("win32"),
     screenshotCaptureAdapter: createStaticDesktopScreenshotCaptureAdapter({
@@ -94,16 +98,49 @@ describe("interview helper service", () => {
     ).toBe(true);
   });
 
-  test("runs rehearsal and starts a transcript-first live session", async () => {
+  test("starts with system audio enabled while microphone capture stays off", async () => {
     const service = createService();
+
+    await service.saveSetup({
+      consent: {
+        microphoneCapture: false,
+        meetingAudioCapture: true,
+        screenshotCapture: false,
+        modelTransmission: true,
+        localRetention: true,
+        overlayProtectionNotice: true,
+        acceptedAt: "2026-05-13T05:00:00.000Z",
+      },
+    });
+    await service.runRehearsal();
+    const started = await service.startSession();
+
+    expect(started.activeSession?.status).toBe("active");
+    expect(started.setup.consent).toMatchObject({
+      microphoneCapture: false,
+      meetingAudioCapture: true,
+    });
+
+    await expect(
+      service.transcribeAudioChunk({
+        sessionId: started.activeSession!.id,
+        source: "microphone",
+        mimeType: "audio/webm",
+        audioBase64: "bWljcm9waG9uZQ==",
+      }),
+    ).rejects.toThrow("Enable microphone capture");
+  });
+
+  test("runs rehearsal and starts a transcript-first live session", async () => {
+    const service = createService(createMemoryRepository(), {
+      advancedSurfacesEnabled: true,
+    });
 
     await acceptSetup(service);
     const rehearsed = await service.runRehearsal();
     expect(rehearsed.setup.rehearsal?.status).toBe("degraded");
     expect(rehearsed.setup.rehearsal?.protectedSurfaces).toHaveLength(2);
-    expect(
-      rehearsed.setup.rehearsal?.checks.map((check) => check.id),
-    ).toEqual(
+    expect(rehearsed.setup.rehearsal?.checks.map((check) => check.id)).toEqual(
       expect.arrayContaining([
         "transcription_language",
         "transcription_engine_fallback",
@@ -121,16 +158,44 @@ describe("interview helper service", () => {
 
     const active = await service.startSession();
     expect(active.activeSession?.status).toBe("active");
-    expect(active.activeSession?.transcriptSegments).toHaveLength(2);
-    expect(active.activeSession?.cueCards).toHaveLength(1);
+    expect(active.activeSession?.transcriptSegments).toEqual([]);
+    expect(active.activeSession?.cueCards).toEqual([]);
+    expect(active.answerOverlay.currentCue).toBeNull();
+  });
+
+  test("uses visible-chat mode without requiring overlays, tray controls, or panic hide", async () => {
+    const service = createService(createMemoryRepository(), {
+      advancedSurfacesEnabled: false,
+    });
+
+    await acceptSetup(service);
+    const rehearsed = await service.runRehearsal();
+    const started = await service.startSession();
+
+    expect(rehearsed.setup.rehearsal?.protectedSurfaces).toEqual([]);
     expect(
-      active.activeSession?.transcriptSegments.every(
-        (segment) => segment.usedInCueIds.length === 1,
+      rehearsed.setup.rehearsal?.checks.find(
+        (check) => check.id === "overlay_windows",
       ),
-    ).toBe(true);
-    expect(active.answerOverlay.currentCue?.answerOutline[0]).toContain(
-      "direct",
-    );
+    ).toMatchObject({
+      status: "unsupported",
+      required: false,
+    });
+    expect(
+      rehearsed.setup.rehearsal?.checks.find(
+        (check) => check.id === "panic_hide",
+      ),
+    ).toMatchObject({
+      status: "unsupported",
+      required: false,
+    });
+    expect(started.activeSession?.status).toBe("active");
+
+    const ignoredPanicHide = await service.performAction({
+      action: "panic_hide",
+    });
+    expect(ignoredPanicHide.activeSession?.status).toBe("active");
+    expect(ignoredPanicHide.activeSession?.listening).toBe(true);
   });
 
   test("persists setup preferences into rehearsal and session behavior", async () => {
@@ -150,7 +215,7 @@ describe("interview helper service", () => {
     expect(saved.setup.autoCaptureOnCue).toBe(true);
     expect(rehearsed.setup.rehearsal?.language).toBe("en-GB");
     expect(active.activeSession?.automaticCueSensitivity).toBe("manual_only");
-    expect(active.activeSession?.transcriptSegments[0]?.language).toBe("en-GB");
+    expect(active.activeSession?.transcriptSegments).toEqual([]);
   });
 
   test("queues contaminated screenshot context and discloses it in a forced cue", async () => {
@@ -172,7 +237,9 @@ describe("interview helper service", () => {
   });
 
   test("panic-hide hides overlays without ending the session", async () => {
-    const service = createService();
+    const service = createService(createMemoryRepository(), {
+      advancedSurfacesEnabled: true,
+    });
 
     await acceptSetup(service);
     await service.runRehearsal();
@@ -213,7 +280,18 @@ describe("interview helper service", () => {
 
     await acceptSetup(service);
     await service.runRehearsal();
-    await service.startSession();
+    const started = await service.startSession();
+    const activeSession = started.activeSession;
+    if (!activeSession) {
+      throw new Error("Expected an active session.");
+    }
+    await service.addTranscriptSegment({
+      sessionId: activeSession.id,
+      source: "meeting_native_transcript",
+      text: "How do you isolate Electron IPC?",
+      language: "en-US",
+      engineKind: "platform_local",
+    });
     const ended = await service.performAction({ action: "end_session" });
     const session = ended.recentSessions[0];
     const segment = session?.transcriptSegments[0];
@@ -275,6 +353,235 @@ describe("interview helper service", () => {
     );
   });
 
+  test("always answers an explicit chat message and keeps attached image bytes transient", async () => {
+    const service = createService();
+
+    await acceptSetup(service);
+    await service.runRehearsal();
+    const started = await service.startSession();
+    const session = started.activeSession;
+    if (!session) {
+      throw new Error("Expected an active session.");
+    }
+    const cueCountBefore = session.cueCards.length;
+
+    const turn = await service.sendChatMessage({
+      conversationId: `interview_${session.id}`,
+      sessionId: session.id,
+      content: "Help me explain the architecture in this screenshot",
+      attachments: [
+        {
+          source: "file_picker",
+          fileName: "architecture.png",
+          mimeType: "image/png",
+          dataBase64: "dGVzdA==",
+          byteSize: 4,
+          dimensions: null,
+        },
+      ],
+    });
+    const updated = await service.getWorkspace();
+
+    expect(turn.userMessage.content).toContain("explain the architecture");
+    expect(turn.userMessage.attachments[0]).not.toHaveProperty("dataBase64");
+    expect(turn.assistantMessage.content.length).toBeGreaterThan(0);
+    expect(turn.assistantMessage.usedAttachmentIds).toEqual([
+      turn.userMessage.attachments[0]?.id,
+    ]);
+    expect(updated.activeSession?.cueCards).toHaveLength(cueCountBefore + 1);
+    expect(updated.activeSession?.cueCards.at(-1)?.question).toBe(
+      "Help me explain the architecture in this screenshot",
+    );
+    expect(updated.activeSession?.chatConversation).toMatchObject({
+      id: `interview_${session.id}`,
+      sessionId: session.id,
+    });
+    expect(updated.activeSession?.chatConversation?.messages).toEqual([
+      turn.userMessage,
+      turn.assistantMessage,
+    ]);
+    expect(JSON.stringify(updated)).not.toContain("dGVzdA==");
+  });
+
+  test("serializes end-session behind an in-flight chat response", async () => {
+    const deterministicProvider = createDeterministicInterviewCueCardProvider();
+    let releaseCue!: () => void;
+    let markCueStarted: (() => void) | null = null;
+    let delayNextCue = false;
+    const cueStarted = new Promise<void>((resolve) => {
+      markCueStarted = resolve;
+    });
+    const cueGate = new Promise<void>((resolve) => {
+      releaseCue = resolve;
+    });
+    const service = createService(createMemoryRepository(), {
+      cueCardProvider: {
+        getStatus: () => deterministicProvider.getStatus(),
+        async generateCueCard(input) {
+          if (delayNextCue) {
+            markCueStarted?.();
+            await cueGate;
+          }
+          return deterministicProvider.generateCueCard(input);
+        },
+      },
+    });
+
+    await acceptSetup(service);
+    await service.runRehearsal();
+    const started = await service.startSession();
+    const session = started.activeSession;
+    if (!session) {
+      throw new Error("Expected an active session.");
+    }
+    delayNextCue = true;
+
+    const sendPromise = service.sendChatMessage({
+      conversationId: `interview_${session.id}`,
+      sessionId: session.id,
+      content: "Explain the trade-off",
+      attachments: [],
+    });
+    await cueStarted;
+    const endPromise = service.performAction({ action: "end_session" });
+    releaseCue();
+
+    await sendPromise;
+    const ended = await endPromise;
+
+    expect(ended.activeSession).toBeNull();
+    expect(ended.recentSessions[0]?.id).toBe(session.id);
+    expect(ended.recentSessions[0]?.chatConversation?.messages).toHaveLength(2);
+  });
+
+  test("preserves queued session mutations behind an in-flight chat response", async () => {
+    const deterministicProvider = createDeterministicInterviewCueCardProvider();
+    let releaseCue!: () => void;
+    let markCueStarted!: () => void;
+    let delayNextCue = false;
+    const cueStarted = new Promise<void>((resolve) => {
+      markCueStarted = resolve;
+    });
+    const cueGate = new Promise<void>((resolve) => {
+      releaseCue = resolve;
+    });
+    const service = createService(createMemoryRepository(), {
+      cueCardProvider: {
+        getStatus: () => deterministicProvider.getStatus(),
+        async generateCueCard(input) {
+          if (delayNextCue) {
+            markCueStarted();
+            await cueGate;
+          }
+          return deterministicProvider.generateCueCard(input);
+        },
+      },
+    });
+
+    await acceptSetup(service);
+    await service.runRehearsal();
+    const started = await service.startSession();
+    const startedSession = started.activeSession;
+    if (!startedSession) {
+      throw new Error("Expected an active session.");
+    }
+    const withInitialCue = await service.addTranscriptSegment({
+      sessionId: startedSession.id,
+      source: "meeting_native_transcript",
+      text: "How do you preserve session mutations under concurrency?",
+      language: "en-US",
+      engineKind: "platform_local",
+    });
+    const session = withInitialCue.activeSession;
+    if (!session) {
+      throw new Error("Expected an active session after transcript ingestion.");
+    }
+    delayNextCue = true;
+
+    const sendPromise = service.sendChatMessage({
+      conversationId: `interview_${session.id}`,
+      sessionId: session.id,
+      content: "Explain the concurrency boundary",
+      attachments: [],
+    });
+    await cueStarted;
+    const setupPromise = service.saveSetup({ cueSensitivity: "manual_only" });
+    const overlayPromise = service.updateOverlayPreference({
+      surfaceKind: "live_answer_overlay",
+      bounds: { x: 20, y: 30, width: 480, height: 280 },
+    });
+    const cueCardId = session.cueCards[0]?.id;
+    if (!cueCardId) {
+      throw new Error("Expected a cue card to preserve as prep.");
+    }
+    const prepPromise = service.saveCueAsPrepArtifact({
+      sessionId: session.id,
+      cueCardId,
+    });
+    const verificationPromise = service.recordProtectedSurfaceVerification({
+      protectedSurfaces: [
+        {
+          id: "answer_surface",
+          kind: "live_answer_overlay",
+          requestedPolicy: "screen_share_private",
+          protectionState: "verified_protected",
+          verificationMethod: "test-verification",
+          displayLabel: "Screen 1",
+          detail: "Verified before the display change.",
+          lastVerifiedAt: "2026-05-13T05:00:00.000Z",
+        },
+      ],
+    });
+    const displayPromise = service.recordDisplayChange({
+      reason: "display_metrics_changed",
+      detail: "Primary display bounds changed.",
+    });
+    const annotationPromise = service.addTranscriptAnnotation({
+      sessionId: session.id,
+      transcriptSegmentId: null,
+      kind: "note",
+      body: "Keep the mutation queue explicit.",
+    });
+    releaseCue();
+
+    await Promise.all([
+      sendPromise,
+      setupPromise,
+      overlayPromise,
+      prepPromise,
+      verificationPromise,
+      displayPromise,
+      annotationPromise,
+    ]);
+    const updated = await service.getWorkspace();
+
+    expect(updated.activeSession?.chatConversation?.messages).toHaveLength(2);
+    expect(updated.setup.cueSensitivity).toBe("manual_only");
+    expect(updated.setup.prepArtifacts[0]?.sourceSessionId).toBe(session.id);
+    expect(
+      updated.overlayPreferences.find(
+        (preference) => preference.surfaceKind === "live_answer_overlay",
+      )?.bounds,
+    ).toEqual({ x: 20, y: 30, width: 480, height: 280 });
+    expect(updated.activeSession?.transcriptAnnotations.at(-1)?.body).toBe(
+      "Keep the mutation queue explicit.",
+    );
+    expect(updated.activeSession?.protectedSurfaces[0]).toMatchObject({
+      id: "answer_surface",
+      protectionState: "requested_unverified",
+      verificationMethod: "display-change-revalidation-required",
+    });
+    expect(
+      updated.activeSession?.diagnostics.map((diagnostic) => diagnostic.label),
+    ).toEqual(
+      expect.arrayContaining([
+        "Overlay capture protection verified",
+        "Display change requires overlay revalidation",
+        "Transcript annotation saved",
+      ]),
+    );
+  });
+
   test("captures a temporary visual batch for automatic cues when enabled", async () => {
     const service = createService();
 
@@ -294,7 +601,9 @@ describe("interview helper service", () => {
       engineKind: "platform_local",
     });
 
-    expect(updated.activeSession?.visualBatches.at(-1)?.clearedAt).not.toBeNull();
+    expect(
+      updated.activeSession?.visualBatches.at(-1)?.clearedAt,
+    ).not.toBeNull();
     expect(updated.activeSession?.cueCards.at(-1)?.disclosure).toMatchObject({
       screenshotCount: 1,
       overlayContaminated: true,
@@ -394,6 +703,193 @@ describe("interview helper service", () => {
     );
   });
 
+  test("does not retain Whisper non-speech sentinels as transcript context", async () => {
+    const transcriptionProvider =
+      createDeterministicInterviewTranscriptionProvider();
+    const nonSpeechResults = [
+      ">> [BLANK_AUDIO]",
+      "(coughing)",
+      "[music playing]",
+    ];
+    let resultIndex = 0;
+    const service = createService(createMemoryRepository(), {
+      transcriptionProvider: {
+        ...transcriptionProvider,
+        transcribeAudioChunk: () =>
+          Promise.resolve({
+            text: nonSpeechResults[resultIndex++] ?? "[silence]",
+            confidence: 0,
+            language: "en-US",
+            engineKind: "local_model",
+          }),
+      },
+    });
+
+    await acceptSetup(service);
+    await service.runRehearsal();
+    const active = await service.startSession();
+    const sessionId = active.activeSession?.id;
+    if (!sessionId) {
+      throw new Error("Expected an active session.");
+    }
+
+    let updated = active;
+    for (let index = 0; index < nonSpeechResults.length; index += 1) {
+      updated = await service.transcribeAudioChunk({
+        sessionId,
+        source: "meeting_audio",
+        mimeType: "audio/webm",
+        audioBase64: "c2lsZW5jZQ==",
+      });
+    }
+
+    expect(updated.activeSession?.transcriptSegments).toEqual([]);
+    expect(updated.activeSession?.cueCards).toEqual([]);
+  });
+
+  test("pauses before an in-flight audio provider finishes and ignores its late result", async () => {
+    const transcriptionProvider =
+      createDeterministicInterviewTranscriptionProvider();
+    let releaseProvider!: () => void;
+    let markProviderStarted!: () => void;
+    const providerGate = new Promise<void>((resolve) => {
+      releaseProvider = resolve;
+    });
+    const providerStarted = new Promise<void>((resolve) => {
+      markProviderStarted = resolve;
+    });
+    const service = createService(createMemoryRepository(), {
+      transcriptionProvider: {
+        ...transcriptionProvider,
+        async transcribeAudioChunk() {
+          markProviderStarted();
+          await providerGate;
+          return {
+            text: "Late audio result",
+            confidence: 0.9,
+            language: "en-US",
+            engineKind: "cloud_ai",
+          };
+        },
+      },
+    });
+
+    await acceptSetup(service);
+    await service.runRehearsal();
+    const started = await service.startSession();
+    const session = started.activeSession;
+    if (!session) {
+      throw new Error("Expected an active session.");
+    }
+
+    const transcriptionPromise = service.transcribeAudioChunk({
+      sessionId: session.id,
+      source: "microphone",
+      mimeType: "audio/webm",
+      audioBase64: "bGF0ZSBhdWRpbw==",
+    });
+    await providerStarted;
+    const paused = await service.performAction({ action: "toggle_listening" });
+
+    expect(paused.activeSession?.listening).toBe(false);
+    releaseProvider();
+    await transcriptionPromise;
+
+    const updated = await service.getWorkspace();
+    expect(
+      updated.activeSession?.transcriptSegments.some(
+        (segment) => segment.text === "Late audio result",
+      ),
+    ).toBe(false);
+    expect(updated.activeSession?.diagnostics.at(-1)?.label).toBe(
+      "Audio transcription ignored while paused",
+    );
+  });
+
+  test("serializes microphone and system transcript mutations without losing chunks", async () => {
+    const transcriptionProvider =
+      createDeterministicInterviewTranscriptionProvider();
+    let releaseMicrophone!: () => void;
+    let markMicrophoneStarted!: () => void;
+    const microphoneGate = new Promise<void>((resolve) => {
+      releaseMicrophone = resolve;
+    });
+    const microphoneStarted = new Promise<void>((resolve) => {
+      markMicrophoneStarted = resolve;
+    });
+    const providerCalls: string[] = [];
+    const service = createService(createMemoryRepository(), {
+      transcriptionProvider: {
+        ...transcriptionProvider,
+        async transcribeAudioChunk(input) {
+          providerCalls.push(input.source);
+          if (input.source === "microphone") {
+            markMicrophoneStarted();
+            await microphoneGate;
+          }
+
+          return {
+            text:
+              input.source === "microphone"
+                ? "Candidate microphone answer"
+                : "Interviewer system prompt",
+            confidence: 0.92,
+            language: "en-US",
+            engineKind: "cloud_ai",
+          };
+        },
+      },
+    });
+
+    await acceptSetup(service);
+    await service.runRehearsal();
+    const active = await service.startSession();
+    const activeSession = active.activeSession;
+    if (!activeSession) {
+      throw new Error("Expected an active session.");
+    }
+
+    const microphone = service.transcribeAudioChunk({
+      sessionId: activeSession.id,
+      source: "microphone",
+      mimeType: "audio/webm",
+      audioBase64: "bWljcm9waG9uZQ==",
+      startedAt: "2026-05-13T05:00:00.000Z",
+      endedAt: "2026-05-13T05:00:05.000Z",
+    });
+    const system = service.transcribeAudioChunk({
+      sessionId: activeSession.id,
+      source: "meeting_audio",
+      mimeType: "audio/webm",
+      audioBase64: "c3lzdGVt",
+      startedAt: "2026-05-13T05:00:05.000Z",
+      endedAt: "2026-05-13T05:00:10.000Z",
+    });
+
+    await microphoneStarted;
+    expect(providerCalls).toEqual(["microphone"]);
+
+    releaseMicrophone();
+    await Promise.all([microphone, system]);
+
+    const updated = await service.getWorkspace();
+    expect(providerCalls).toEqual(["microphone", "meeting_audio"]);
+    expect(
+      updated.activeSession?.transcriptSegments
+        .filter(
+          (segment) =>
+            segment.text === "Candidate microphone answer" ||
+            segment.text === "Interviewer system prompt",
+        )
+        .map((segment) => ({ source: segment.source, text: segment.text })),
+    ).toEqual([
+      { source: "microphone", text: "Candidate microphone answer" },
+      { source: "meeting_audio", text: "Interviewer system prompt" },
+    ]);
+    expect(JSON.stringify(updated)).not.toContain("bWljcm9waG9uZQ==");
+    expect(JSON.stringify(updated)).not.toContain("c3lzdGVt");
+  });
+
   test("shows a quiet fallback cue card when provider output fails validation", async () => {
     const invalidCueProvider: InterviewCueCardProvider = {
       getStatus() {
@@ -417,7 +913,18 @@ describe("interview helper service", () => {
 
     await acceptSetup(service);
     await service.runRehearsal();
-    const updated = await service.startSession();
+    const started = await service.startSession();
+    const session = started.activeSession;
+    if (!session) {
+      throw new Error("Expected an active session.");
+    }
+    const updated = await service.addTranscriptSegment({
+      sessionId: session.id,
+      source: "meeting_native_transcript",
+      text: "How should I respond when cue generation fails?",
+      language: "en-US",
+      engineKind: "platform_local",
+    });
 
     const cue = updated.activeSession?.cueCards.at(-1);
     expect(cue?.title).toBe("Cue unavailable");
@@ -468,9 +975,9 @@ describe("interview helper service", () => {
         (surface) => surface.kind === "live_answer_overlay",
       )?.protectionState,
     ).toBe("verified_protected");
-    expect(
-      updated.activeSession?.diagnostics.at(-1)?.kind,
-    ).toBe("capture_protection");
+    expect(updated.activeSession?.diagnostics.at(-1)?.kind).toBe(
+      "capture_protection",
+    );
     expect(updated.activeSession?.diagnostics.at(-1)?.detail).toContain(
       "ordinary Electron screen-capture verification",
     );

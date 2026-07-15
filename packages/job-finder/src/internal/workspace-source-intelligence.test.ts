@@ -58,6 +58,25 @@ function createLeverTarget(): JobDiscoveryTarget {
   };
 }
 
+function createAshbyTarget(): JobDiscoveryTarget {
+  return {
+    ...createGreenhouseTarget(),
+    id: "ashby_constructor",
+    label: "Constructor Ashby",
+    startingUrl: "https://jobs.ashbyhq.com/constructor/ashby_job_1",
+  };
+}
+
+function createWorkdayTarget(): JobDiscoveryTarget {
+  return {
+    ...createGreenhouseTarget(),
+    id: "workday_amat",
+    label: "Applied Materials Workday",
+    startingUrl:
+      "https://amat.wd1.myworkdayjobs.com/en-US/External/job/SingaporeSGP/Software-Engineer_R2612079",
+  };
+}
+
 function createUnknownCareersTarget(): JobDiscoveryTarget {
   return {
     id: "unknown_careers",
@@ -198,6 +217,140 @@ async function collectGreenhouseJobs(updatedAt: string | null) {
 }
 
 describe("collectPublicProviderJobs", () => {
+  test("collects current Ashby board jobs through the reusable posting API", async () => {
+    const target = createAshbyTarget();
+    const intelligence = inferSourceIntelligenceFromTarget({ target, currentArtifact: null });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        jobs: [{
+          id: "ashby_job_1",
+          title: "Software Engineer: Core",
+          location: "Remote - EMEA",
+          publishedAt: "2026-06-04T12:01:47.857+02:00",
+          workplaceType: "Remote",
+          employmentType: "FullTime",
+          department: "Engineering",
+          team: "Core",
+          jobUrl: "https://jobs.ashbyhq.com/constructor/ashby_job_1",
+          applyUrl: "https://jobs.ashbyhq.com/constructor/ashby_job_1/application",
+          descriptionPlain: "Build high-availability backend systems.",
+        }],
+      }),
+    } as Response);
+
+    const result = await collectPublicProviderJobs({
+      target,
+      artifact: { intelligence },
+      source: "target_site",
+    });
+
+    expect(intelligence.provider).toMatchObject({
+      key: "ashby",
+      apiAvailability: "available",
+      boardSlug: "constructor",
+      publicApiUrlTemplate: "https://api.ashbyhq.com/posting-api/job-board/constructor",
+    });
+    expect(result.warning).toBeNull();
+    expect(result.jobs[0]).toMatchObject({
+      sourceJobId: "ashby_job_1",
+      company: "Constructor",
+      canonicalUrl: target.startingUrl,
+      applicationUrl: "https://jobs.ashbyhq.com/constructor/ashby_job_1/application",
+      providerKey: "ashby",
+      workMode: ["remote"],
+    });
+  });
+
+  test("collects an exact Workday job through its public candidate-experience endpoint", async () => {
+    const target = createWorkdayTarget();
+    const intelligence = inferSourceIntelligenceFromTarget({ target, currentArtifact: null });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        jobPostingInfo: {
+          jobReqId: "R2612079",
+          title: "Software Engineer",
+          location: "Singapore,SGP",
+          externalUrl:
+            "https://amat.wd1.myworkdayjobs.com/External/job/SingaporeSGP/Software-Engineer_R2612079",
+          jobDescription: "<p>Build software for semiconductor systems.</p>",
+          startDate: "2026-02-02",
+          timeType: "Full time",
+        },
+      }),
+    } as Response);
+
+    const result = await collectPublicProviderJobs({
+      target,
+      artifact: { intelligence },
+      source: "target_site",
+    });
+
+    expect(intelligence.provider).toMatchObject({
+      key: "workday",
+      apiAvailability: "available",
+      boardSlug: "External",
+      publicApiUrlTemplate:
+        "https://amat.wd1.myworkdayjobs.com/wday/cxs/amat/External/job/SingaporeSGP/Software-Engineer_R2612079",
+    });
+    expect(result.warning).toBeNull();
+    expect(result.jobs[0]).toMatchObject({
+      sourceJobId: "R2612079",
+      canonicalUrl: target.startingUrl,
+      providerKey: "workday",
+      description: "Build software for semiconductor systems.",
+    });
+  });
+
+  test("prioritizes an exact provider job URL before applying collection caps", async () => {
+    const target = {
+      ...createGreenhouseTarget(),
+      startingUrl:
+        "https://job-boards.greenhouse.io/remote/jobs/target_job?gh_src=test",
+    };
+    const intelligence = inferSourceIntelligenceFromTarget({
+      target,
+      currentArtifact: null,
+    });
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          jobs: [
+            {
+              id: "unrelated_job",
+              title: "Unrelated role",
+              absolute_url:
+                "https://job-boards.greenhouse.io/remote/jobs/unrelated_job",
+              location: { name: "Remote" },
+              content: "<p>Unrelated role.</p>",
+            },
+            {
+              id: "target_job",
+              title: "Software Engineer",
+              absolute_url:
+                "https://job-boards.greenhouse.io/remote/jobs/target_job",
+              location: { name: "Remote" },
+              content: "<p>Build software.</p>",
+            },
+          ],
+        }),
+    } as Response);
+
+    const result = await collectPublicProviderJobs({
+      target,
+      artifact: { intelligence },
+      source: "target_site",
+    });
+
+    expect(result.jobs.map((job) => job.sourceJobId)).toEqual([
+      "target_job",
+      "unrelated_job",
+    ]);
+  });
+
   test("normalizes Greenhouse offset timestamps before job parsing", async () => {
     const result = await collectGreenhouseJobs("2024-07-24T16:08:01-04:00");
 
@@ -231,8 +384,16 @@ describe("collectPublicProviderJobs", () => {
           hostedUrl: "https://jobs.lever.co/aircall/lever_job_1",
           applyUrl: null,
           descriptionPlain: "Build platform features.",
+          additionalPlain: "Remote-friendly engineering culture.",
+          workplaceType: "hybrid",
+          lists: [
+            {
+              text: "What we're looking for",
+              content: "<p>Production experience with React and TypeScript.</p>",
+            },
+          ],
           categories: {
-            location: "Remote",
+            location: "Madrid Office",
           },
         },
       ]),
@@ -247,6 +408,10 @@ describe("collectPublicProviderJobs", () => {
     expect(result.warning).toBeNull();
     expect(result.jobs).toHaveLength(1);
     expect(result.jobs[0]?.postedAt).toBe("2024-07-24T20:08:01.000Z");
+    expect(result.jobs[0]?.description).toContain(
+      "Production experience with React and TypeScript.",
+    );
+    expect(result.jobs[0]?.workMode).toContain("hybrid");
   });
 
   test("returns a clear timeout warning when the Greenhouse API hangs", async () => {
@@ -1110,6 +1275,53 @@ describe("applyDiscoveryTitleTriage", () => {
     ).toBe("skip_title");
   });
 
+  test("does not treat provider descriptions as role titles", () => {
+    const seed = createSeed();
+    const searchPreferences = createSearchPreferences({
+      targetRoles: ["Senior Software Engineer"],
+    });
+    const posting = createPosting({
+      title: "Accountant",
+      providerKey: "greenhouse",
+      description:
+        "Partner with software engineers and use React-based finance tooling.",
+      keySkills: ["React"],
+    });
+
+    expect(
+      applyDiscoveryTitleTriage({
+        posting,
+        profile: seed.profile,
+        searchPreferences,
+      }).outcome,
+    ).toBe("skip_title");
+  });
+
+  test("does not widen software searches into unrelated data or automation families", () => {
+    const seed = createSeed();
+    const searchPreferences = createSearchPreferences({
+      targetRoles: ["Senior Software Engineer", "Backend Engineer"],
+    });
+
+    for (const title of [
+      "Finance Systems Data Analyst",
+      "CX AI & Automation Lead",
+      "Senior Data Engineer",
+    ]) {
+      expect(
+        applyDiscoveryTitleTriage({
+          posting: createPosting({
+            title,
+            description:
+              "Work with software engineers using Python, SQL, React, and AWS.",
+          }),
+          profile: seed.profile,
+          searchPreferences,
+        }).outcome,
+      ).toBe("skip_title");
+    }
+  });
+
   test("keeps adjacent technical roles when profile skill evidence is missing but the posting is clearly technical", () => {
     const seed = createSeed();
     const profile = {
@@ -1162,6 +1374,29 @@ describe("applyDiscoveryTitleTriage", () => {
         searchPreferences,
       }).outcome,
     ).toBe("pass");
+  });
+
+  test("rejects remote technical roles tied to an incompatible broad region", () => {
+    const seed = createSeed();
+    const searchPreferences = createSearchPreferences({
+      targetRoles: ["Senior Full-Stack Software Engineer"],
+      locations: ["Prishtina, Kosovo"],
+      workModes: ["remote"],
+    });
+    const posting = createPosting({
+      title: "Senior Backend Engineer",
+      location: "Remote-APAC",
+      workMode: ["remote"],
+      description: "Build backend services with TypeScript and PostgreSQL.",
+    });
+
+    expect(
+      applyDiscoveryTitleTriage({
+        posting,
+        profile: seed.profile,
+        searchPreferences,
+      }).outcome,
+    ).toBe("skip_location");
   });
 
   test("keeps lower-match technical roles in nearby remote locations instead of dropping to zero", () => {
@@ -1281,8 +1516,10 @@ describe("applyDiscoveryTitleTriage", () => {
       searchPreferences,
     });
 
-    expect(triage.outcome).toBe("skip_location");
-    expect(triage.reason).toBe("Location is outside the preferred search areas.");
+    expect(triage.outcome).toBe("skip_work_mode");
+    expect(triage.reason).toBe(
+      "Work mode is outside the preferred operating model.",
+    );
   });
 
   test("keeps technical hybrid roles in nearby locations even when exact location matching is weak", () => {

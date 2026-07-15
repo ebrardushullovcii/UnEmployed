@@ -15,6 +15,10 @@ import {
   parseNormalizedCompensation,
   parseSalaryFloor,
 } from "./matching-compensation";
+import {
+  buildFitRecommendation,
+  buildRequirementEvidenceAssessment,
+} from "./matching-requirements";
 export {
   buildApplicationRecords,
   buildDiscoveryJobs,
@@ -34,6 +38,32 @@ const titleTokenAliases = new Map<string, string>([
   ["dev", "engineer"],
 ]);
 
+const genericTitleTokens = new Set([
+  "junior",
+  "senior",
+  "staff",
+  "lead",
+  "principal",
+  "engineer",
+]);
+
+const titleTechnologySpecializations = [
+  "elixir",
+  "ruby",
+  "java",
+  "kotlin",
+  "golang",
+  "rust",
+  "php",
+  "python",
+  "react",
+  "angular",
+  "vue",
+  "salesforce",
+  "ios",
+  "android",
+] as const;
+
 const locationNoiseTokens = new Set([
   "remote",
   "hybrid",
@@ -46,6 +76,121 @@ const locationNoiseTokens = new Set([
   "worldwide",
   "global",
 ]);
+
+type BroadLocationRegion = "europe" | "americas" | "apac" | "africa";
+type EuropeanLocationRegion =
+  | "northern_europe"
+  | "southern_europe"
+  | "western_europe"
+  | "central_europe"
+  | "eastern_europe";
+
+const broadLocationRegionPatterns: Record<
+  BroadLocationRegion,
+  readonly RegExp[]
+> = {
+  europe: [
+    /\beurope\b/,
+    /\bemea\b/,
+    /\buk\b|\bunited kingdom\b|\bireland\b/,
+    /\bkosovo\b|\bprishtina\b|\bpristina\b|\balbania\b|\bbalkan(?:s)?\b/,
+    /\bspain\b|\bportugal\b|\bfrance\b|\bgermany\b|\baustria\b|\bnetherlands\b/,
+    /\bhungary\b|\bpoland\b|\bitaly\b|\bsweden\b|\bnorway\b|\bdenmark\b|\bfinland\b/,
+  ],
+  americas: [
+    /\bamericas?\b|\blatam\b/,
+    /\bunited states\b|\busa\b|\bu\s*s\b|\bcanada\b/,
+    /\bbrazil\b|\bmexico\b|\bargentina\b|\bcolombia\b/,
+  ],
+  apac: [
+    /\bapac\b|\basia\b/,
+    /\baustralia\b|\bnew zealand\b|\bjapan\b|\bsingapore\b|\bindia\b/,
+  ],
+  africa: [/\bafrica\b|\bnigeria\b|\bkenya\b|\bsouth africa\b/],
+};
+
+const europeanLocationRegionPatterns: Record<
+  EuropeanLocationRegion,
+  readonly RegExp[]
+> = {
+  northern_europe: [
+    /\bnorthern europe\b/,
+    /\b(?:united kingdom|uk|ireland|sweden|norway|denmark|finland|iceland)\b/,
+  ],
+  southern_europe: [
+    /\bsouthern europe\b/,
+    /\b(?:kosovo|prishtina|pristina|albania|balkans?|spain|portugal|italy|greece|malta|cyprus)\b/,
+  ],
+  western_europe: [
+    /\bwestern europe\b/,
+    /\b(?:france|germany|austria|netherlands|belgium|luxembourg|switzerland)\b/,
+  ],
+  central_europe: [
+    /\bcentral europe\b/,
+    /\b(?:hungary|poland|czechia|czech republic|slovakia|slovenia|croatia)\b/,
+  ],
+  eastern_europe: [
+    /\beastern europe\b/,
+    /\b(?:romania|bulgaria|moldova|ukraine|estonia|latvia|lithuania)\b/,
+  ],
+};
+
+function inferBroadLocationRegions(value: string): Set<BroadLocationRegion> {
+  const normalized = normalizeText(value);
+  return new Set(
+    (Object.entries(broadLocationRegionPatterns) as Array<
+      [BroadLocationRegion, readonly RegExp[]]
+    >).flatMap(([region, patterns]) =>
+      patterns.some((pattern) => pattern.test(normalized)) ? [region] : [],
+    ),
+  );
+}
+
+function inferEuropeanLocationRegions(
+  value: string,
+): Set<EuropeanLocationRegion> {
+  const normalized = normalizeText(value);
+  return new Set(
+    (Object.entries(europeanLocationRegionPatterns) as Array<
+      [EuropeanLocationRegion, readonly RegExp[]]
+    >).flatMap(([region, patterns]) =>
+      patterns.some((pattern) => pattern.test(normalized)) ? [region] : [],
+    ),
+  );
+}
+
+export function getBroadLocationCompatibility(
+  candidate: string,
+  desiredValues: readonly string[],
+): boolean | null {
+  const candidateRegions = inferBroadLocationRegions(candidate);
+  const desiredRegions = new Set(
+    desiredValues.flatMap((value) => [...inferBroadLocationRegions(value)]),
+  );
+
+  if (candidateRegions.size === 0 || desiredRegions.size === 0) {
+    return null;
+  }
+
+  if (candidateRegions.has("europe") && desiredRegions.has("europe")) {
+    const candidateEuropeanRegions = inferEuropeanLocationRegions(candidate);
+    const desiredEuropeanRegions = new Set(
+      desiredValues.flatMap((value) => [...inferEuropeanLocationRegions(value)]),
+    );
+
+    if (candidateEuropeanRegions.size > 0) {
+      if (desiredEuropeanRegions.size === 0) {
+        return null;
+      }
+
+      return [...candidateEuropeanRegions].some((region) =>
+        desiredEuropeanRegions.has(region),
+      );
+    }
+  }
+
+  return [...candidateRegions].some((region) => desiredRegions.has(region));
+}
 
 function cleanTitleMatchCandidate(value: string): string {
   const collapsed = value.replace(/\s+/g, " ").trim();
@@ -573,7 +718,14 @@ export function matchesTitlePreference(
       const matchRatio = matchedCount / desiredTokens.length;
 
       if (desiredTokens.length === 3) {
-        return matchedCount >= 2 && matchRatio >= 2 / 3;
+        const hasSpecificTokenMatch = desiredTokens
+          .filter((token) => !genericTitleTokens.has(token))
+          .some((desiredToken) =>
+            candidateTokens.some((candidateToken) =>
+              phraseMatchTokensEqual(candidateToken, desiredToken),
+            ),
+          );
+        return matchedCount >= 2 && matchRatio >= 2 / 3 && hasSpecificTokenMatch;
       }
 
       return matchedCount >= 3 && matchRatio >= 0.6;
@@ -599,6 +751,17 @@ export function matchesLocationPreference(
   const normalizedCandidate = candidateTokens.join(" ");
 
   if (isRemoteOnlyLocation(candidate)) {
+    return true;
+  }
+
+  const candidateUsesBroadRemoteGeography =
+    /\bremote\b|\bhybrid\b|\bemea\b|\beurope\b|\bapac\b|\blatam\b|\bamericas?\b|\bworldwide\b|\bglobal\b/iu.test(
+      candidate,
+    );
+  if (
+    candidateUsesBroadRemoteGeography &&
+    getBroadLocationCompatibility(candidate, desiredValues) === true
+  ) {
     return true;
   }
 
@@ -658,6 +821,8 @@ export function createMatchAssessment(
   posting: JobPosting,
 ): MatchAssessment {
   let score = 48;
+  // Deterministic overlap is a shortlist signal, not proof that every listed requirement is met.
+  let scoreCeiling = 94;
   const reasons: string[] = [];
   const gaps: string[] = [];
 
@@ -681,39 +846,133 @@ export function createMatchAssessment(
   const isPreferredCompany = searchPreferences.companyWhitelist.some(
     (company) => normalizeText(company) === normalizeText(posting.company),
   );
-  const profileSkills = new Set(
-    profile.skills.map((skill) => normalizeText(skill)),
+  const profileSkills = uniqueStrings([
+    ...profile.skills,
+    ...profile.skillGroups.coreSkills,
+    ...profile.skillGroups.tools,
+    ...profile.skillGroups.languagesAndFrameworks,
+    ...profile.skillGroups.highlightedSkills,
+    ...profile.experiences.flatMap((experience) => experience.skills),
+    ...profile.projects.flatMap((project) => project.skills),
+  ]);
+  const postingSkillEvidence = [
+    ...posting.keySkills,
+    ...posting.keywordSignals.map((signal) => signal.label),
+    posting.description,
+    ...posting.responsibilities,
+    ...posting.minimumQualifications,
+    ...posting.preferredQualifications,
+  ].join(" ");
+  const overlappingSkills = profileSkills.filter((skill) =>
+    matchesAnyPhrase(postingSkillEvidence, [skill]),
   );
-  const overlappingSkills = posting.keySkills.filter((skill) =>
-    profileSkills.has(normalizeText(skill)),
-  );
+  const profileCapabilityEvidence = [
+    ...profileSkills,
+    profile.headline,
+    ...profile.experiences.flatMap((experience) => [
+      experience.title,
+      experience.summary,
+      ...experience.achievements,
+    ]),
+    ...profile.projects.flatMap((project) => [
+      project.name,
+      project.role,
+      project.summary,
+      project.outcome,
+    ]),
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ");
+  const requirements = buildRequirementEvidenceAssessment({
+    profile,
+    posting,
+    matchesLocation,
+    matchesWorkMode,
+    hasLocationPreferences: searchPreferences.locations.length > 0,
+    hasWorkModePreferences: searchPreferences.workModes.length > 0,
+  });
 
   if (matchesRole) {
     score += 16;
     reasons.push("Role title aligns closely with the current target roles.");
   } else {
+    score -= 12;
     gaps.push(
       "Role title is adjacent to the target list but not an exact fit.",
     );
   }
 
-  if (matchesLocation) {
+  if (searchPreferences.locations.length === 0) {
+    // An unconstrained search is neutral. It is not evidence that the listing
+    // matches a location the user explicitly chose.
+  } else if (matchesLocation) {
     score += 10;
     reasons.push("Location fits the saved search preferences.");
   } else {
+    score -= 10;
     gaps.push("Location falls outside the preferred search areas.");
   }
 
-  if (matchesWorkMode) {
+  if (searchPreferences.workModes.length === 0) {
+    // An unconstrained work mode is neutral for the same reason.
+  } else if (matchesWorkMode) {
     score += 8;
     reasons.push("Work mode matches the preferred operating model.");
   } else {
+    score -= 8;
     gaps.push(
       "Work mode does not match the saved remote or hybrid preferences.",
     );
   }
 
-  if (meetsSalaryExpectation) {
+  const postingRequestsElevatedSeniority =
+    /\b(?:staff|principal|director|manager|head)\b/iu.test(posting.title);
+  const currentEngineeringTitle = [
+    profile.headline,
+    profile.experiences[0]?.title ?? "",
+  ].join(" ");
+  const profileShowsElevatedSeniority =
+    /\b(?:staff|principal|director|manager|head|chief)\b/iu.test(
+      currentEngineeringTitle,
+    );
+  if (postingRequestsElevatedSeniority && !profileShowsElevatedSeniority) {
+    score -= 8;
+    gaps.push(
+      "The title signals a staff-or-leadership scope not yet explicit in the current engineering profile.",
+    );
+  }
+
+  const missingTitleTechnology = titleTechnologySpecializations.find(
+    (technology) =>
+      matchesAnyPhrase(posting.title, [technology]) &&
+      !matchesAnyPhrase(profileCapabilityEvidence, [technology]),
+  );
+  if (missingTitleTechnology) {
+    score -= 16;
+    scoreCeiling = Math.min(scoreCeiling, 84);
+    gaps.push(
+      `The title explicitly specializes in ${missingTitleTechnology}, which is not present in the current profile evidence.`,
+    );
+  }
+
+  const postingIsSiteReliabilitySpecialist =
+    /\b(?:site reliability|sre)\b/iu.test(posting.title);
+  const profileShowsSiteReliabilityDepth =
+    /\b(?:site reliability|sre|kubernetes|terraform|incident response|on[ -]?call|observability)\b/iu.test(
+      profileCapabilityEvidence,
+    );
+  if (postingIsSiteReliabilitySpecialist && !profileShowsSiteReliabilityDepth) {
+    score -= 12;
+    scoreCeiling = Math.min(scoreCeiling, 72);
+    gaps.push(
+      "The role is explicitly site-reliability focused, but the profile does not yet show SRE, on-call, infrastructure-as-code, or production-operations depth.",
+    );
+  }
+
+  if (searchPreferences.minimumSalaryUsd === null) {
+    // Missing compensation preferences and missing listing salary data should
+    // never manufacture positive fit evidence.
+  } else if (meetsSalaryExpectation) {
     score += 6;
   } else {
     gaps.push("Compensation looks below the saved salary target.");
@@ -742,10 +1001,47 @@ export function createMatchAssessment(
     );
   }
 
+  const requirementEvidencePenalty = requirements.reduce(
+    (total, requirement) => {
+      if (
+        requirement.category === "location" ||
+        requirement.category === "work_mode" ||
+        requirement.status === "supported"
+      ) {
+        return total;
+      }
+
+      if (requirement.status === "conflict") {
+        return total + 16;
+      }
+      if (requirement.status === "unknown") {
+        return total + (requirement.importance === "required" ? 4 : 1);
+      }
+      if (requirement.importance === "required") {
+        return total + 8;
+      }
+      if (requirement.importance === "preferred") {
+        return total + 3;
+      }
+      return total + 2;
+    },
+    0,
+  );
+  score -= Math.min(24, requirementEvidencePenalty);
+
+  const finalScore = clampScore(Math.min(score, scoreCeiling));
+  const recommendation = buildFitRecommendation({
+    score: finalScore,
+    requirements,
+  });
+
   return {
-    score: clampScore(score),
+    score: finalScore,
     reasons: reasons.slice(0, 3),
     gaps: gaps.slice(0, 3),
+    recommendation: recommendation.recommendation,
+    recommendationRationale: recommendation.rationale,
+    requirements,
   };
 }
 
@@ -771,6 +1067,7 @@ export async function createMatchAssessmentAsync(
   }
 
   return {
+    ...fallbackAssessment,
     score: clampScore(assistedAssessment.score),
     reasons: assistedAssessment.reasons.slice(0, 3),
     gaps: assistedAssessment.gaps.slice(0, 3),

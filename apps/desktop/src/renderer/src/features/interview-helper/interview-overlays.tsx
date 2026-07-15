@@ -6,11 +6,30 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { Check, Copy, Mic, Shield, Sparkles, X } from "lucide-react";
 import { cn } from "@renderer/lib/cn";
 
-const overlayNoDragRegionStyle = {
+export const interviewPopupNoDragStyle = {
   WebkitAppRegion: "no-drag",
 } as CSSProperties;
 
-function createOverlayDragProps(enabled: boolean) {
+export const interviewPopupThemeStyle = {
+  "--foreground": "#f4f1e8",
+  "--foreground-soft": "#d2cec5",
+  "--muted-foreground": "#aaa69e",
+  "--border-subtle": "rgba(255, 255, 255, 0.13)",
+  "--surface-panel-border-warm": "rgba(227, 202, 127, 0.38)",
+  "--warning-border": "rgba(227, 202, 127, 0.34)",
+  "--warning-surface": "rgba(227, 202, 127, 0.12)",
+  "--warning-text": "#f0cf70",
+  "--success-border": "rgba(86, 184, 120, 0.34)",
+  "--success-surface": "rgba(86, 184, 120, 0.12)",
+  "--success-text": "#98e5b2",
+  "--info-border": "rgba(86, 164, 255, 0.4)",
+  "--info-text": "#83c0ff",
+  "--surface-panel-raised": "rgba(255, 255, 255, 0.055)",
+  "--surface-fill-soft": "rgba(255, 255, 255, 0.035)",
+  "--critical": "#ff8d86",
+} as CSSProperties;
+
+export function createInterviewPopupDragProps(enabled: boolean) {
   if (!enabled) {
     return {};
   }
@@ -76,7 +95,7 @@ function formatSource(source: InterviewTranscriptSegment["source"]) {
   }
 }
 
-function ProtectionBadge({
+export function ProtectionBadge({
   state,
 }: {
   state: InterviewOverlaySnapshot["protectionState"];
@@ -110,16 +129,18 @@ export function AnswerCueOverlay(props: {
         "overflow-hidden border border-(--surface-panel-border-warm) bg-[rgba(8,8,9,0.82)] text-foreground shadow-[0_24px_90px_rgba(0,0,0,0.48)] backdrop-blur-2xl",
         props.framed ? "rounded-(--radius-panel)" : "h-screen",
       )}
-      style={{ opacity: props.snapshot.opacity }}
+      style={
+        props.framed
+          ? { opacity: props.snapshot.opacity }
+          : interviewPopupThemeStyle
+      }
     >
       <header
         className={cn(
           "flex items-center justify-between border-b border-border-subtle bg-white/[0.025] px-4 py-3",
-          props.snapshot.interactionMode && !props.framed ? "cursor-move" : "",
+          !props.framed ? "cursor-move" : "",
         )}
-        {...createOverlayDragProps(
-          props.snapshot.interactionMode && !props.framed,
-        )}
+        {...createInterviewPopupDragProps(!props.framed)}
         data-surface-kind={props.snapshot.surfaceKind}
       >
         <div
@@ -137,13 +158,12 @@ export function AnswerCueOverlay(props: {
         </div>
         <div
           className="flex items-center gap-2"
-          style={overlayNoDragRegionStyle}
+          style={interviewPopupNoDragStyle}
         >
           <span className="rounded-sm border border-border-subtle bg-black/20 px-2 py-1 text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">
             {compact ? "Compact" : "Expanded"}
           </span>
           <ProtectionBadge state={props.snapshot.protectionState} />
-          <X className="size-3.5 text-muted-foreground" />
         </div>
       </header>
 
@@ -225,6 +245,9 @@ export function AnswerCueOverlay(props: {
 export function TranscriptOverlay(props: {
   snapshot: InterviewOverlaySnapshot;
   framed?: boolean;
+  onCopy?: () => void;
+  onHide?: () => void;
+  copyLabel?: string;
 }) {
   const compact = props.snapshot.mode === "compact";
 
@@ -234,16 +257,18 @@ export function TranscriptOverlay(props: {
         "overflow-hidden border border-(--info-border) bg-[rgba(8,8,9,0.84)] text-foreground shadow-[0_24px_90px_rgba(0,0,0,0.48)] backdrop-blur-2xl",
         props.framed ? "rounded-(--radius-panel)" : "h-screen",
       )}
-      style={{ opacity: props.snapshot.opacity }}
+      style={
+        props.framed
+          ? { opacity: props.snapshot.opacity }
+          : interviewPopupThemeStyle
+      }
     >
       <header
         className={cn(
           "flex items-center justify-between border-b border-border-subtle bg-white/[0.025] px-4 py-3",
-          props.snapshot.interactionMode && !props.framed ? "cursor-move" : "",
+          !props.framed ? "cursor-move" : "",
         )}
-        {...createOverlayDragProps(
-          props.snapshot.interactionMode && !props.framed,
-        )}
+        {...createInterviewPopupDragProps(!props.framed)}
         data-surface-kind={props.snapshot.surfaceKind}
       >
         <div
@@ -261,13 +286,23 @@ export function TranscriptOverlay(props: {
         </div>
         <div
           className="flex items-center gap-2"
-          style={overlayNoDragRegionStyle}
+          style={interviewPopupNoDragStyle}
         >
           <span className="rounded-sm border border-border-subtle bg-black/20 px-2 py-1 text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">
             {compact ? "Compact" : "Expanded"}
           </span>
           <ProtectionBadge state={props.snapshot.protectionState} />
-          <X className="size-3.5 text-muted-foreground" />
+          {!props.framed && props.onHide ? (
+            <button
+              aria-label="Hide transcript popup"
+              className="grid size-7 place-items-center rounded-md border border-transparent text-muted-foreground transition hover:border-border-subtle hover:bg-white/[0.06] hover:text-foreground"
+              onClick={props.onHide}
+              title="Hide transcript popup"
+              type="button"
+            >
+              <X className="size-3.5" />
+            </button>
+          ) : null}
         </div>
       </header>
 
@@ -323,10 +358,18 @@ export function TranscriptOverlay(props: {
           <span className="size-2 rounded-full bg-(--success-text)" />
           {props.snapshot.statusLabel}
         </span>
-        <span className="inline-flex items-center gap-2">
-          {props.snapshot.confidenceLabel}
-          <Copy className="size-3.5" />
-        </span>
+        {!props.framed && props.onCopy ? (
+          <button
+            className="inline-flex items-center gap-2 rounded-md px-2 py-1 transition hover:bg-white/[0.06] hover:text-foreground"
+            onClick={props.onCopy}
+            type="button"
+          >
+            {props.copyLabel ?? "Copy transcript"}
+            <Copy className="size-3.5" />
+          </button>
+        ) : (
+          <span>{props.snapshot.confidenceLabel}</span>
+        )}
       </footer>
     </section>
   );

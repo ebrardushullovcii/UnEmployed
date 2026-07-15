@@ -387,6 +387,9 @@ describe("contracts resume workspace schemas", () => {
           issueCount: 0,
           metrics: {
             groundedVisibleSkillRate: 1,
+            workHistoryRepresentationRate: 1,
+            fragmentFreeExperienceBulletRate: 1,
+            professionalExperienceSummaryRate: 1,
             bleedFreeCaseRate: 1,
             keywordCoverageRate: 1,
             duplicateIssueFreeRate: 1,
@@ -401,6 +404,9 @@ describe("contracts resume workspace schemas", () => {
       ],
       aggregate: {
         groundedVisibleSkillRate: 1,
+        workHistoryRepresentationRate: 1,
+        fragmentFreeExperienceBulletRate: 1,
+        professionalExperienceSummaryRate: 1,
         bleedFreeCaseRate: 1,
         keywordCoverageRate: 1,
         duplicateIssueFreeRate: 1,
@@ -426,6 +432,26 @@ describe("contracts resume workspace schemas", () => {
       "apps/desktop/test-artifacts/ui/resume-quality-benchmark",
     );
     expect(report.cases[0]?.metrics.atsRenderPassRate).toBe(1);
+    expect(report.cases[0]?.metrics.workHistoryRepresentationRate).toBe(1);
+  });
+
+  test("defaults omitted resume quality acceptance metrics for old reports", () => {
+    const metrics = ResumeQualityBenchmarkReportSchema.shape.aggregate.parse({
+      groundedVisibleSkillRate: 1,
+      bleedFreeCaseRate: 1,
+      keywordCoverageRate: 1,
+      duplicateIssueFreeRate: 1,
+      thinOutputFreeRate: 1,
+      pageTargetPassRate: 1,
+      atsRenderPassRate: 1,
+      issueFreeCaseRate: 1,
+    });
+
+    expect(metrics).toMatchObject({
+      workHistoryRepresentationRate: 0,
+      fragmentFreeExperienceBulletRate: 0,
+      professionalExperienceSummaryRate: 0,
+    });
   });
 
   test("parses draft templateId for template themes", () => {

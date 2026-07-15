@@ -1551,7 +1551,7 @@ describe("resume import deduplication", () => {
     expect(merged).toHaveLength(2);
   });
 
-  test("auto-applies grounded fresh-start placeholder replacements while allowing weaker fields to stay review-first", async () => {
+  test("auto-applies grounded fresh-start fields while inferred search preferences stay review-first", async () => {
     const seed = createSeed();
     const { workspaceService } = createWorkspaceServiceHarness({
       seed: {
@@ -1634,7 +1634,15 @@ describe("resume import deduplication", () => {
         (candidate) => candidate.target.section === "experience",
       ),
     ).toBe(false);
-    expect(snapshot.latestResumeImportRun?.status).toBe("applied");
+    const pendingTargetingKeys = snapshot.latestResumeImportReviewCandidates
+      .filter((candidate) => candidate.target.section === "search_preferences")
+      .map((candidate) => candidate.target.key);
+
+    expect(snapshot.searchPreferences.targetRoles).toEqual([]);
+    expect(snapshot.searchPreferences.locations).toEqual([]);
+    expect(pendingTargetingKeys).toContain("targetRoles");
+    expect(pendingTargetingKeys).toContain("locations");
+    expect(snapshot.latestResumeImportRun?.status).toBe("review_ready");
     expect(snapshot.profileSetupState.reviewItems.map((item) => item.label)).not.toContain(
       "Work history",
     );

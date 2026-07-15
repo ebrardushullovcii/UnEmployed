@@ -314,6 +314,7 @@ async function captureProfileCopilotPreferences() {
 
     await window.reload()
     await window.waitForLoadState('domcontentloaded')
+    await window.evaluate(() => { window.location.hash = '#/job-finder/profile' })
     await window.waitForFunction(() => {
       const heading = document.querySelector('h1')
       return heading?.textContent?.includes('Guided setup') || heading?.textContent?.includes('Your profile')

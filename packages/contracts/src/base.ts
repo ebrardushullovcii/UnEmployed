@@ -44,6 +44,18 @@ export const tailoringModeValues = [
 export const TailoringModeSchema = z.enum(tailoringModeValues);
 export type TailoringMode = z.infer<typeof TailoringModeSchema>;
 
+export const resumeApplicationModeValues = [
+  "tailored_per_job",
+  "original_resume",
+] as const;
+
+export const ResumeApplicationModeSchema = z.enum(
+  resumeApplicationModeValues,
+);
+export type ResumeApplicationMode = z.infer<
+  typeof ResumeApplicationModeSchema
+>;
+
 export const appearanceThemeValues = ["dark", "light", "system"] as const;
 
 export const AppearanceThemeSchema = z.enum(appearanceThemeValues);

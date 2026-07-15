@@ -194,6 +194,8 @@ export function createWorkspaceSnapshotProfileMethods(
       tailoredAssets,
       normalizedResumeDrafts,
       resumeExportArtifacts,
+      setupContext.profile,
+      settings,
     );
     const orderedApplicationRecords = buildApplicationRecords(applicationRecords);
 

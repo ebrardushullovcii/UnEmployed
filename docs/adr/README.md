@@ -13,6 +13,7 @@ ADRs capture durable decisions and rejected alternatives. Use them to avoid reop
 | [0005](0005-canonical-agent-documentation-system.md) | accepted | Canonical agent documentation system |
 | [0006](0006-safe-non-submitting-apply-boundary.md) | accepted | Safe non-submitting apply boundary |
 | [0007](0007-source-generic-browser-workflows.md) | accepted | Source-generic browser workflows |
+| [0008](0008-visible-first-interview-helper.md) | accepted | Visible-first Interview Helper |
 
 ## Policy
 

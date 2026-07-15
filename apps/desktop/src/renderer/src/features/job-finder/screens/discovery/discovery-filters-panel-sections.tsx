@@ -17,7 +17,9 @@ export function DiscoverySessionSummary(props: {
   isBlocked: boolean
   isBrowserSessionVisible: boolean
   isReady: boolean
+  isTargetPending: (targetId: string) => boolean
   needsLogin: boolean
+  onConfirmSignedInForTarget?: (targetId: string) => void
   onOpenBrowserSessionForTarget: (targetId: string) => void
   primarySourceAccessPrompt: SourceAccessPrompt | null
   sectionDetail: string
@@ -29,7 +31,9 @@ export function DiscoverySessionSummary(props: {
     isBrowserSessionVisible,
     isBrowserSessionPendingForTarget,
     isReady,
+    isTargetPending,
     needsLogin,
+    onConfirmSignedInForTarget,
     onOpenBrowserSessionForTarget,
     primarySourceAccessPrompt,
     sectionDetail,
@@ -77,12 +81,27 @@ export function DiscoverySessionSummary(props: {
                 >
                   {primarySourceAccessPrompt.actionLabel}
                 </Button>
-                {primarySourceAccessPrompt.rerunLabel ? (
-                  <span className="self-center text-(length:--text-small) opacity-80">
-                    {`Then ${primarySourceAccessPrompt.rerunLabel}.`}
-                  </span>
+                {primarySourceAccessPrompt.state === 'prompt_login_required' && onConfirmSignedInForTarget ? (
+                  <Button
+                    onClick={() => onConfirmSignedInForTarget(primarySourceAccessPrompt.targetId)}
+                    pending={isTargetPending(primarySourceAccessPrompt.targetId)}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    {`I'm signed in — retry ${primarySourceAccessPrompt.targetLabel}`}
+                  </Button>
                 ) : null}
               </div>
+              {primarySourceAccessPrompt.state === 'prompt_login_required' ? (
+                <p className="mt-2 text-(length:--text-small) opacity-80">
+                  Job Finder waits here and never handles your credentials. Finish sign-in in the browser, return here, then confirm to retry only this source.
+                </p>
+              ) : primarySourceAccessPrompt.rerunLabel ? (
+                <p className="mt-2 text-(length:--text-small) opacity-80">
+                  {`Then ${primarySourceAccessPrompt.rerunLabel}.`}
+                </p>
+              ) : null}
             </div>
           ) : null}
           {(needsLogin || isBlocked) && !primarySourceAccessPrompt ? (
@@ -93,12 +112,12 @@ export function DiscoverySessionSummary(props: {
               Some sources may need sign-in before the next search can finish.
             </div>
           ) : null}
-          {isReady ? (
+          {isReady && !primarySourceAccessPrompt ? (
             <div
               role="status"
               className="rounded-(--radius-small) border border-(--success-border) bg-(--success-surface) px-3 py-3 text-(length:--text-description) leading-6 text-(--success-text)"
             >
-              You're signed in on sources that need the browser.
+              Browser ready. Any signed-in source sessions in this dedicated profile will be reused.
             </div>
           ) : null}
           {hasRecommendedSourceAccessPrompt && !primarySourceAccessPrompt && !needsLogin && !isBlocked ? (
@@ -196,6 +215,7 @@ export function DiscoveryRunOneSourceSection(props: {
   isTargetPending: (targetId: string) => boolean
   activeTargetId: string | null
   onOpenBrowserSessionForTarget: (targetId: string) => void
+  onConfirmSignedInForTarget: (targetId: string) => void
   onRunDiscoveryForTarget: (targetId: string) => void
   primarySourceAccessPrompt: SourceAccessPrompt | null
   runOneSourceHeadingId: string
@@ -207,6 +227,7 @@ export function DiscoveryRunOneSourceSection(props: {
     isBrowserSessionPendingForTarget,
     isTargetPending,
     onOpenBrowserSessionForTarget,
+    onConfirmSignedInForTarget,
     onRunDiscoveryForTarget,
     primarySourceAccessPrompt,
     runOneSourceHeadingId,
@@ -271,6 +292,17 @@ export function DiscoveryRunOneSourceSection(props: {
                       >
                         {targetPrompt.actionLabel}
                       </Button>
+                      {targetPrompt.state === 'prompt_login_required' ? (
+                        <Button
+                          onClick={() => onConfirmSignedInForTarget(target.id)}
+                          pending={isTargetPending(target.id)}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          I'm signed in — retry
+                        </Button>
+                      ) : null}
                     </div>
                   </div>
                 ) : null}

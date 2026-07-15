@@ -194,8 +194,12 @@ export function DiscoveryFiltersPanel({
             isBrowserSessionPendingForTarget={isBrowserSessionPendingForTarget}
             isBrowserSessionVisible={isBrowserSessionVisible}
             isReady={isReady}
+            isTargetPending={isTargetPending}
             needsLogin={needsLogin}
             onOpenBrowserSessionForTarget={onOpenBrowserSessionForTarget}
+            {...(onRunDiscoveryForTarget
+              ? { onConfirmSignedInForTarget: onRunDiscoveryForTarget }
+              : {})}
             primarySourceAccessPrompt={primarySourceAccessPrompt}
             sectionDetail={sessionDetail}
           />
@@ -218,6 +222,7 @@ export function DiscoveryFiltersPanel({
               isBrowserSessionPendingForTarget={isBrowserSessionPendingForTarget}
               isTargetPending={isTargetPending}
               onOpenBrowserSessionForTarget={onOpenBrowserSessionForTarget}
+              onConfirmSignedInForTarget={onRunDiscoveryForTarget}
               onRunDiscoveryForTarget={onRunDiscoveryForTarget}
               primarySourceAccessPrompt={primarySourceAccessPrompt}
               runOneSourceHeadingId={runOneSourceHeadingId}

@@ -3,6 +3,7 @@ import { Button } from '@renderer/components/ui/button'
 import { EmptyState } from '../../components/empty-state'
 import { PreferenceList } from '../../components/preference-list'
 import { StatusBadge } from '../../components/status-badge'
+import { MatchEvidenceMatrix } from '../../components/match-evidence-matrix'
 import { jobDescriptionToText } from '../../lib/job-description-text'
 import { buildIntelligenceSummaries } from '../../lib/source-intelligence-utils'
 import { formatOptionalDateOnly, formatStatusLabel, getApplicationTone } from '../../lib/job-finder-utils'
@@ -92,6 +93,8 @@ export function DiscoveryDetailPanel({
                 </div>
               ) : null}
             </div>
+
+            <MatchEvidenceMatrix assessment={selectedJob.matchAssessment} />
 
             <p className="text-(length:--text-body) leading-7 text-foreground-soft">
               {jobDescriptionToText(selectedJob.summary ?? selectedJob.description)}

@@ -12,6 +12,7 @@ import {
   disposeInterviewSessionControls,
   initializeInterviewSessionControls,
 } from './setup/interview-session-controls'
+import { areAdvancedInterviewSurfacesEnabled } from './setup/interview-surface-mode'
 import { createMainWindow } from './setup/window-shell'
 import {
   getJobFinderWorkspaceService,
@@ -22,10 +23,12 @@ import {
   shutdownInterviewHelperService,
 } from './services/interview-helper'
 
+loadDesktopEnvironment()
+
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
 const jobFinderShutdownTimeoutMs = 15_000
+const advancedInterviewSurfacesEnabled = areAdvancedInterviewSurfacesEnabled()
 
-loadDesktopEnvironment()
 registerDesktopRoutes(ipcMain)
 
 void app.whenReady().then(() => {
@@ -33,8 +36,10 @@ void app.whenReady().then(() => {
   void getJobFinderWorkspaceService()
   void getInterviewHelperService()
   configureInterviewMediaPermissions()
-  initializeInterviewOverlayWindows(currentDir)
-  initializeInterviewSessionControls()
+  if (advancedInterviewSurfacesEnabled) {
+    initializeInterviewOverlayWindows(currentDir)
+    initializeInterviewSessionControls()
+  }
   const mainWindow = createMainWindow(currentDir)
   mainWindow.on('closed', () => {
     closeInterviewOverlayWindows()
@@ -66,10 +71,9 @@ app.on('before-quit', (event) => {
     }, jobFinderShutdownTimeoutMs)
   })
   void Promise.race([
-    Promise.all([
-      shutdownJobFinderWorkspaceService(),
-      shutdownInterviewHelperService(),
-    ]).then(() => undefined),
+    Promise.all([shutdownJobFinderWorkspaceService(), shutdownInterviewHelperService()]).then(
+      () => undefined,
+    ),
     shutdownTimeout,
   ])
     .catch((error) => {

@@ -81,12 +81,6 @@ async function waitForHeading(page, headings, options) {
   );
 }
 
-async function waitForProfileOrSetupHeading(page) {
-  await waitForHeading(page, ["Your profile", "Guided setup"], {
-    timeout: 15000,
-  });
-}
-
 async function clickNavigationControl(page, name) {
   for (const role of ["button", "tab"]) {
     const control = page.getByRole(role, { name }).first();
@@ -236,6 +230,10 @@ async function captureFindJobsTop(page, viewport, report) {
     .locator('button[type="button"]')
     .first()
     .waitFor({ timeout: 10000 });
+  await page
+    .getByRole("button", { name: /I'm signed in — retry/i })
+    .first()
+    .waitFor({ timeout: 10000 });
 
   const fileName = `find-jobs-${viewport.slug}.png`;
   await page.screenshot({
@@ -316,23 +314,25 @@ async function captureSourceSignInPrompts() {
 
     await page.reload();
     await page.waitForLoadState("domcontentloaded");
-    await waitForProfileOrSetupHeading(page);
+    await page.evaluate(() => {
+      window.location.hash = "#/job-finder/profile";
+    });
+    await page
+      .getByRole("button", { name: /^Profile$/ })
+      .first()
+      .waitFor({ state: "visible", timeout: 15000 });
 
-    const initialHeading =
-      (await page.locator("h1").first().textContent())?.trim() ?? "";
-    if (initialHeading !== "Your profile") {
-      const navigatedToProfile = await clickProfileNavigation(page);
+    const navigatedToProfile = await clickProfileNavigation(page);
 
-      if (!navigatedToProfile) {
-        throw new Error(
-          "Could not find a visible Profile navigation control after loading the seeded workspace.",
-        );
-      }
-
-      await page
-        .getByRole("heading", { level: 1, name: "Your profile" })
-        .waitFor({ timeout: 10000 });
+    if (!navigatedToProfile) {
+      throw new Error(
+        "Could not find a visible Profile navigation control after loading the seeded workspace.",
+      );
     }
+
+    await page
+      .getByRole("heading", { level: 1, name: "Your profile" })
+      .waitFor({ timeout: 10000 });
 
     const report = {
       capturedAt: new Date().toISOString(),

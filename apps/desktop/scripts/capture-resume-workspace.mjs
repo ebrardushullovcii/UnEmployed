@@ -272,10 +272,36 @@ function getLatestBy(items, getTimestamp) {
 }
 
 async function waitForProfileOrSetupHeading(window) {
-  await window
-    .locator("h1")
-    .filter({ hasText: /Your profile|Guided setup|Senior Product Designer/ })
-    .waitFor({ timeout: 15000 });
+  await window.waitForFunction(
+    () => Boolean(window.unemployed?.jobFinder?.test),
+    undefined,
+    { timeout: 15000 },
+  );
+  await window.evaluate(() => {
+    window.location.hash = "#/job-finder/profile";
+  });
+  try {
+    await window.waitForFunction(
+      () => {
+        const heading = document.querySelector("h1");
+        return /Your profile|Guided setup/.test(heading?.textContent ?? "");
+      },
+      undefined,
+      { timeout: 15000 },
+    );
+  } catch (error) {
+    const pageState = await window.evaluate(() => ({
+      hash: window.location.hash,
+      headings: Array.from(document.querySelectorAll("h1")).map(
+        (heading) => heading.textContent,
+      ),
+      bodyText: document.body.innerText.slice(0, 500),
+    }));
+    throw new Error(
+      `Profile route did not become ready: ${JSON.stringify(pageState)}`,
+      { cause: error },
+    );
+  }
 }
 
 function summaryField(window) {
@@ -1022,10 +1048,36 @@ async function captureResumeWorkspace() {
     });
 
     await readyApproveButton.click();
-    await window.getByRole("button", { name: /^Applications/ }).click();
-    await window
-      .getByRole("heading", { level: 1, name: "Applications" })
-      .waitFor({ timeout: 10000 });
+    const checkpointDialog = window.getByRole("dialog");
+    await checkpointDialog.waitFor({ timeout: 10000 });
+    await checkpointDialog
+      .getByRole("button", { name: "Continue without" })
+      .click();
+    await waitForCondition(async () => {
+      const currentWorkspace = await getWorkspace(window);
+      return currentWorkspace.applicationRecords.length > 0;
+    }, "application record created by Apply Copilot");
+    await window.evaluate(() => {
+      window.location.hash = "#/job-finder/applications";
+    });
+    try {
+      await window
+        .locator("h1")
+        .filter({ hasText: /^Applications$/ })
+        .waitFor({ timeout: 10000 });
+    } catch (error) {
+      const pageState = await window.evaluate(() => ({
+        hash: window.location.hash,
+        headings: Array.from(document.querySelectorAll("h1")).map(
+          (heading) => heading.textContent,
+        ),
+        bodyText: document.body.innerText.slice(0, 750),
+      }));
+      throw new Error(
+        `Applications route did not become ready: ${JSON.stringify(pageState)}`,
+        { cause: error },
+      );
+    }
     await window.screenshot({
       animations: "disabled",
       path: path.join(outputDir, "13-applications-after-apply.png"),

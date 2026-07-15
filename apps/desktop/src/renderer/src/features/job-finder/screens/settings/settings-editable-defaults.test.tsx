@@ -168,4 +168,50 @@ describe('SettingsEditableDefaults', () => {
     )
     expect(disabledNonSaveControls.length).toBeGreaterThan(0)
   })
+
+  it('saves original-CV mode as an explicit application workflow choice', () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    const onSaveSettings = vi.fn()
+
+    act(() => {
+      root?.render(
+        <SettingsEditableDefaults
+          actionMessage={null}
+          availableResumeTemplates={[resumeTemplateFixtures.classicAts]}
+          isSavePending={false}
+          onSaveSettings={onSaveSettings}
+          settings={{
+            resumeFormat: 'pdf',
+            resumeTemplateId: 'classic_ats',
+            fontPreset: 'inter_requisite',
+            appearanceTheme: 'system',
+            humanReviewRequired: true,
+            allowAutoSubmitOverride: false,
+            keepSessionAlive: false,
+            discoveryOnly: false,
+          }}
+        />,
+      )
+    })
+
+    const originalCvChoice = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.includes('Use my original CV unchanged'),
+    )
+    expect(originalCvChoice?.getAttribute('aria-checked')).toBe('false')
+
+    act(() => originalCvChoice?.click())
+
+    expect(originalCvChoice?.getAttribute('aria-checked')).toBe('true')
+    const saveButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'Save settings',
+    )
+    act(() => saveButton?.click())
+
+    expect(onSaveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ resumeApplicationMode: 'original_resume' }),
+    )
+    expect(container.textContent).toContain('preserves the imported file byte for byte')
+  })
 })

@@ -548,21 +548,46 @@ function parseNameParts(fullName: string | null) {
   };
 }
 
-function inferHeadline(lines: readonly string[]): string | null {
-  const candidate = lines.find((line) => {
-    const sanitized = trimTrailingContactFragments(line);
+function isHeadlineCandidate(line: string): boolean {
+  const sanitized = trimTrailingContactFragments(line);
 
-    return (
-      !sanitized.includes("@") &&
-      !/^https?:\/\//i.test(sanitized) &&
-      !contactOrMetaPattern.test(sanitized) &&
-      headlineKeywordPattern.test(sanitized) &&
-      sanitized.length <= 72 &&
-      sanitized.split(/\s+/).length <= 10
-    );
-  });
+  return (
+    !sanitized.includes("@") &&
+    !/^https?:\/\//i.test(sanitized) &&
+    !contactOrMetaPattern.test(sanitized) &&
+    headlineKeywordPattern.test(sanitized) &&
+    sanitized.length <= 72 &&
+    sanitized.split(/\s+/).length <= 10
+  );
+}
 
-  return candidate ? normalizeHeadlineText(trimTrailingContactFragments(candidate)) : null;
+type HeadlineExperience = {
+  isCurrent: boolean;
+  title: string | null;
+};
+
+function inferHeadline(
+  lines: readonly string[],
+  experiences: readonly HeadlineExperience[],
+): string | null {
+  const firstSectionIndex = lines.findIndex((line) => isResumeSectionHeading(line));
+  const headerLines = firstSectionIndex === -1 ? lines.slice(0, 12) : lines.slice(0, firstSectionIndex);
+  const headerCandidate = headerLines.find(isHeadlineCandidate);
+
+  if (headerCandidate) {
+    return normalizeHeadlineText(trimTrailingContactFragments(headerCandidate));
+  }
+
+  const primaryCurrentExperience =
+    experiences.find(
+      (experience) =>
+        experience.isCurrent &&
+        experience.title &&
+        !/\b(?:consultant|part[ -]?time)\b/i.test(experience.title),
+    ) ?? experiences.find((experience) => experience.isCurrent && experience.title);
+  const canonicalRoleTitle = primaryCurrentExperience?.title ?? experiences.find((experience) => experience.title)?.title;
+
+  return canonicalRoleTitle ? normalizeHeadlineText(canonicalRoleTitle) : null;
 }
 
 function inferSummary(lines: readonly string[]): string | null {
@@ -626,7 +651,8 @@ export function buildDeterministicResumeProfileExtraction(
   const lines = splitLines(input.resumeText);
   const fullName = inferName(lines);
   const nameParts = parseNameParts(fullName);
-  const headline = inferHeadline(lines);
+  const experiences = inferExperienceEntries(input.resumeText);
+  const headline = inferHeadline(lines, experiences);
   const summary = inferSummary(lines);
   const currentLocation = inferCurrentLocation(lines, fullName);
   const skills = inferSkills(
@@ -636,7 +662,6 @@ export function buildDeterministicResumeProfileExtraction(
   const skillGroups = inferSkillGroups(input.resumeText, skills);
   const personalWebsiteUrl = inferPersonalWebsiteUrl(input.resumeText);
   const portfolioUrl = inferPortfolioUrl(input.resumeText, personalWebsiteUrl);
-  const experiences = inferExperienceEntries(input.resumeText);
   const education = inferEducationEntries(input.resumeText);
   const notes = buildProfileExtractionNotes({ fullName, headline, summary, currentLocation });
   const parsedYearsExperience = Number.parseInt(

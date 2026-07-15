@@ -131,6 +131,8 @@ export function normalizeJobFinderSettings(
 
   return JobFinderSettingsSchema.parse({
     ...settings,
+    resumeApplicationMode:
+      settings.resumeApplicationMode ?? "tailored_per_job",
     resumeFormat: "pdf",
     resumeTemplateId: selectedTemplateAvailable
       ? settings.resumeTemplateId

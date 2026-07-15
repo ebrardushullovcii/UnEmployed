@@ -216,6 +216,34 @@ describe("buildDeterministicResumeProfileExtraction", () => {
     );
   });
 
+  test("uses the primary current role instead of a nested project heading as the headline", () => {
+    const extraction = buildDeterministicResumeProfileExtraction(
+      {
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: [
+          "Ebrar Dushullovci",
+          "Address: Prishtina, Kosovo (Home)",
+          "ABOUT MYSELF",
+          "A full-stack developer focused on production automation systems.",
+          "WORK EXPERIENCE",
+          "SENIOR FULL-STACK SOFTWARE ENGINEER – AUTOMATEDPROS – 01/07/2023 – Current – REMOTE, KOSOVO",
+          "• Engineered a real-time restaurant order platform.",
+          "Project Lead (React, Next.js) – QA Management System",
+          "• Developed a QA Management System with React and Next.js.",
+          "SENIOR FULL-STACK SOFTWARE ENGINEER (PART-TIME CONSULTANT) – INFOTECH L.L.C – 01/11/2021 – Current – REMOTE, KOSOVO",
+          "• Provided on-call architecture and performance triage.",
+        ].join("\n"),
+      },
+      "deterministic",
+      "Test provider",
+      { preserveExistingValues: false },
+    );
+
+    expect(extraction.headline).toBe("Senior Full-Stack Software Engineer");
+    expect(extraction.targetRoles).toEqual(["Senior Full-Stack Software Engineer"]);
+  });
+
   test("does not inflate ISO month date ranges into a full year of experience", () => {
     const extraction = buildDeterministicResumeProfileExtraction(
       {

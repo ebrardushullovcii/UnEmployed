@@ -18,10 +18,12 @@ Read this for active work and ready follow-ups. Read `docs/STATUS.md` first when
 
 ## Active
 
-- none
+- None.
 
 ## Ready Queue
 
+- Keep intermediate ATS writes separately authorized and restricted to disposable fake-profile acceptance runs; final submission remains disabled. Expand the live corpus only when a new ATS exposes a concrete generic-driver gap.
+- Run a signed-in Workday final-checkpoint acceptance only when a user voluntarily signs in to the dedicated browser profile; anonymous acceptance remains the account-gate handoff and never requires credentials from the app or agent.
 - Validate Interview Helper cross-platform audio, overlay, screenshot, and capture-protection behavior on macOS/Linux target hosts.
 - Add authorized meeting-platform caption integration only when a concrete approved platform path is available.
 - Add authorized full capture-exclusion integration only when approvals and target APIs exist.
