@@ -109,7 +109,6 @@ Read individual reference files for detailed explanations and code examples:
 
 - For schema validation with Zod resolver, see `zod` skill
 - For React 19 server actions, see `react-19` skill
-- For UI/UX form design, see `frontend-design` skill
 
 ## Full Compiled Document
 
