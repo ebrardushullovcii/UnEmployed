@@ -1,18 +1,20 @@
 import { AlertCircle, CheckCircle2, Circle, Compass, FileSearch, Sparkles, Target, UserRound } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import type { ProfileSetupReviewActionOptions, ProfileSetupState, ProfileSetupStep, ResumeImportFieldCandidateSummary } from '@unemployed/contracts'
+import type { ProfileSetupReviewActionOptions, ProfileSetupState, ProfileSetupStep, ResumeImportFieldCandidateSummary, ResumeImportProgressEvent } from '@unemployed/contracts'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@renderer/components/ui/card'
 import { Checkbox } from '@renderer/components/ui/checkbox'
 import { ScrollArea } from '@renderer/components/ui/scroll-area'
 import { formatProfileSetupStepLabel, profileSetupStepDefinitions } from './profile-setup-steps'
+import { ResumeImportProgress } from '../resume-import-progress'
 import {
   badgeVariantForSeverity,
   canClearReviewItem,
   canConfirmReviewItem,
   formatReviewSeverity,
   formatReviewStatus,
+  formatProfileSetupReviewValue,
   getReviewItemEditHint,
   type ProfileSetupReviewItemDisplay,
 } from './profile-setup-screen-helpers'
@@ -47,6 +49,8 @@ export function ProfileSetupSummaryCards(props: {
   importDisabledReason?: string | null
   isImportResumePending: boolean
   isProfileSetupPending: boolean
+  resumeImportProgress: ResumeImportProgressEvent | null
+  hasImportedResume: boolean
   onImportResume: () => void
   onOpenProfile: () => void
   onResumeCurrentStep: () => void
@@ -66,9 +70,15 @@ export function ProfileSetupSummaryCards(props: {
             </Badge>
             {props.reviewItemCount > 0 ? <Badge variant="status">{props.reviewItemCount} review item{props.reviewItemCount === 1 ? '' : 's'} waiting</Badge> : null}
           </div>
-          <CardTitle>Finish the key profile details before you move on.</CardTitle>
+          <CardTitle>
+            {props.profileSetupState.status === 'not_started'
+              ? 'Build your job-search profile.'
+              : 'Finish the key profile details before you move on.'}
+          </CardTitle>
           <CardDescription>
-            Review imported suggestions, fill the missing details, and keep every edit in sync with your full profile.
+            {props.profileSetupState.status === 'not_started'
+              ? 'Import a resume or start manually. Job Finder will show specific review items after it has something to evaluate.'
+              : 'Review imported suggestions, fill the missing details, and keep every edit in sync with your full profile.'}
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-5 pt-6">
@@ -82,15 +92,26 @@ export function ProfileSetupSummaryCards(props: {
           </div>
 
           <div className="flex flex-wrap gap-3">
-            <Button onClick={props.onImportResume} disabled={Boolean(props.importDisabledReason)} pending={props.isImportResumePending}>Import or refresh resume</Button>
-            <Button variant="secondary" onClick={props.onResumeCurrentStep} pending={props.isProfileSetupPending}>
-              {hasPendingReviewItems ? 'Review current step' : 'Open current step'}
-            </Button>
+            {props.hasImportedResume ? (
+              <>
+                <Button onClick={props.onResumeCurrentStep} pending={props.isProfileSetupPending}>
+                  {hasPendingReviewItems ? 'Review current step' : 'Open current step'}
+                </Button>
+                <Button variant="secondary" onClick={props.onImportResume} disabled={Boolean(props.importDisabledReason)} pending={props.isImportResumePending}>
+                  Replace resume
+                </Button>
+              </>
+            ) : (
+              <Button onClick={props.onResumeCurrentStep} pending={props.isProfileSetupPending}>
+                Start setup
+              </Button>
+            )}
             <Button variant="ghost" onClick={props.onOpenProfile} pending={props.isProfileSetupPending}>Open full Profile</Button>
           </div>
           {props.importDisabledReason ? (
             <p className="text-sm leading-6 text-foreground-soft">{props.importDisabledReason}</p>
           ) : null}
+          <ResumeImportProgress isPending={props.isImportResumePending} progress={props.resumeImportProgress} />
         </CardContent>
       </Card>
 
@@ -109,6 +130,8 @@ export function ProfileSetupSummaryCards(props: {
           <div className="rounded-(--radius-field) border border-border/30 bg-background/60 p-4 text-sm text-foreground-soft">
             {hasPendingReviewItems
               ? `${props.reviewItemCount} review item${props.reviewItemCount === 1 ? '' : 's'} still ${props.reviewItemCount === 1 ? 'needs' : 'need'} attention in this step before the setup feels trustworthy.`
+              : props.profileSetupState.status === 'not_started'
+                ? 'Start by importing a resume or opening the current step to enter your details manually.'
               : 'This step is in good shape right now. Save any edits here, then continue when you are ready.'}
           </div>
           {props.actionMessage ? (
@@ -139,9 +162,13 @@ export function ProfileSetupPathCard(props: {
         {profileSetupStepDefinitions.map((step, index) => {
           const StepIcon = stepIconById[step.id]
           const isActive = props.currentStep === step.id
+          const pendingReviewCount = props.profileSetupState.reviewItems.filter(
+            (item) => item.step === step.id && item.status === 'pending',
+          ).length
           const isComplete =
-            props.profileSetupState.status === 'completed' ||
-            profileSetupStepDefinitions.findIndex((entry) => entry.id === props.currentStep) > index
+            pendingReviewCount === 0 &&
+            (props.profileSetupState.status === 'completed' ||
+              profileSetupStepDefinitions.findIndex((entry) => entry.id === props.currentStep) > index)
 
           return (
             <button
@@ -157,11 +184,18 @@ export function ProfileSetupPathCard(props: {
                 <span className="flex items-center gap-2">
                   <span className="text-sm font-semibold text-foreground">{step.label}</span>
                   {isActive ? <Badge variant="default">Current</Badge> : null}
-                  {props.profileSetupState.reviewItems.some((item) => item.step === step.id && item.status === 'pending') ? (
-                    <Badge variant="status">Needs review</Badge>
+                  {pendingReviewCount > 0 ? (
+                    <Badge variant="status">{pendingReviewCount} to review</Badge>
+                  ) : isComplete && !isActive ? (
+                    <Badge variant="outline">Complete</Badge>
                   ) : null}
                 </span>
                 <span className="mt-1 block text-sm leading-6 text-foreground-soft">{step.summary}</span>
+                {pendingReviewCount > 0 ? (
+                  <span className="mt-1 block text-xs leading-5 text-foreground-muted">
+                    New imports or edits can add review items here; completing another step does not clear them.
+                  </span>
+                ) : null}
               </span>
             </button>
           )
@@ -224,7 +258,7 @@ export function ProfileSetupReviewQueueCard(props: {
   }
 
   return (
-    <Card className="min-h-0 flex-1 overflow-hidden rounded-(--radius-panel) border-border/40">
+    <Card className="min-h-0 flex-1 overflow-hidden rounded-(--radius-panel) border-border/40" id="profile-setup-review-queue" tabIndex={-1}>
       <CardHeader className="gap-2 border-b border-border/30 pb-5">
         <CardTitle>Step review queue</CardTitle>
         <CardDescription>
@@ -277,7 +311,7 @@ export function ProfileSetupReviewQueueCard(props: {
                   {item.proposedValue ? (
                     <div className="mt-3 rounded-(--radius-field) border border-dashed border-border/40 bg-background/70 p-3">
                       <p className="text-(length:--text-tiny) uppercase tracking-[0.2em] text-muted-foreground">Suggested value</p>
-                      <p className="mt-2 text-sm text-foreground">{item.proposedValue}</p>
+                      <p className="mt-2 text-sm text-foreground">{formatProfileSetupReviewValue(item.proposedValue)}</p>
                     </div>
                   ) : null}
                   {(linkedCandidate?.conflictChoices?.length ?? 0) >= 2 ? (
@@ -309,7 +343,7 @@ export function ProfileSetupReviewQueueCard(props: {
                                 </Button>
                               ) : null}
                             </div>
-                            <p className="mt-2 text-sm text-foreground">{choice.valuePreview ?? 'Review this imported value.'}</p>
+                            <p className="mt-2 text-sm text-foreground">{formatProfileSetupReviewValue(choice.valuePreview ?? choice.value) ?? 'Review this imported value.'}</p>
                             {choice.evidenceText ? <p className="mt-1 text-xs leading-5 text-foreground-soft">{choice.evidenceText}</p> : null}
                           </div>
                         ))}

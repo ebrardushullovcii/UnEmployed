@@ -55,4 +55,53 @@ describe('ApplicationsDetailPanelRecoveryActionsSection', () => {
     fireEvent.click(getByRole('button', { name: /i'm signed in — retry application/i }))
     expect(onStartApplyCopilot).toHaveBeenCalledWith('job_workday')
   })
+
+  it('explains a failed CV attachment and makes retry an explicit approval', () => {
+    const onStartApplyCopilot = vi.fn()
+    const visibleApplyResult: JobFinderWorkspaceSnapshot['applyJobResults'][number] = {
+      id: 'result_resume_wait',
+      runId: 'run_resume_wait',
+      jobId: 'job_greenhouse',
+      queuePosition: 0,
+      state: 'blocked',
+      summary: 'Resume attachment needs your help',
+      detail: 'The approved CV was not attached.',
+      startedAt: '2026-07-16T10:00:00.000Z',
+      updatedAt: '2026-07-16T10:01:00.000Z',
+      completedAt: '2026-07-16T10:01:00.000Z',
+      blockerReason: 'required_human_input',
+      blockerSummary: 'Resume attachment needs your help',
+      visualObservationSets: [],
+      visualCheckpoints: [],
+      latestQuestionCount: 4,
+      latestAnswerCount: 3,
+      pendingConsentRequestCount: 0,
+      artifactCount: 1,
+      latestCheckpointId: 'checkpoint_resume_wait',
+    }
+
+    const { getByRole, getByText, queryByText } = render(
+      <ApplicationsDetailPanelRecoveryActionsSection
+        applyRunHistoryCount={1}
+        canRestageAutoRun={false}
+        canRestageQueueRun={false}
+        excludedQueueRecoveryEntries={[]}
+        isApplyPending={false}
+        onStartApplyCopilot={onStartApplyCopilot}
+        onStartAutoApply={vi.fn()}
+        onStartAutoApplyQueue={vi.fn()}
+        selectedQueueOutcomeEntries={[]}
+        selectedQueueRecoveryEntries={[]}
+        selectedQueueRecoveryJobIds={[]}
+        selectedRecordJobId="job_greenhouse"
+        selectedRun={null}
+        visibleApplyResult={visibleApplyResult}
+      />,
+    )
+
+    expect(getByText(/approved CV was not attached/i)).toBeTruthy()
+    expect(queryByText(/POST|XHR|mutating page action/i)).toBeNull()
+    fireEvent.click(getByRole('button', { name: /approve and retry CV attachment/i }))
+    expect(onStartApplyCopilot).toHaveBeenCalledWith('job_greenhouse')
+  })
 })

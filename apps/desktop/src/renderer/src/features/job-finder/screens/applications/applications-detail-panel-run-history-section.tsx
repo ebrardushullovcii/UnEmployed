@@ -5,7 +5,10 @@ import {
   formatStatusLabel,
 } from "@renderer/features/job-finder/lib/job-finder-utils";
 import { StatusBadge } from "../../components/status-badge";
-import { formatVisibleRunId } from "./applications-detail-panel-helpers";
+import {
+  formatVisibleRunId,
+  getCustomerFacingApplyText,
+} from "./applications-detail-panel-helpers";
 
 export function ApplicationsDetailPanelRunHistorySection(props: {
   applyRunHistory: Array<{
@@ -67,12 +70,14 @@ export function ApplicationsDetailPanelRunHistorySection(props: {
                   </StatusBadge>
                 </div>
                 <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                  {result.summary}
+                  {getCustomerFacingApplyText(result.summary)}
                 </p>
                 <p className="text-(length:--text-small) leading-6 text-foreground-soft">
                   {formatTimestamp(result.updatedAt)}
                   {run ? ` • ${formatStatusLabel(run.state)}` : ""}
-                  {result.blockerSummary ? ` • ${result.blockerSummary}` : ""}
+                  {result.blockerSummary
+                    ? ` • ${getCustomerFacingApplyText(result.blockerSummary)}`
+                    : ""}
                 </p>
                 <p className="text-(length:--text-small) leading-6 text-foreground-soft">
                   Run {formatVisibleRunId(result.runId)}

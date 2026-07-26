@@ -12,6 +12,27 @@ export type QueueEntry = {
   includeInRecovery: boolean;
 };
 
+const APPLY_TRANSPORT_LANGUAGE =
+  /\b(?:post|xhr|xmlhttprequest|fetch|network request|mutating page action|prepare-only (?:safety )?guard)\b/i;
+
+export function getCustomerFacingApplyText(
+  value: string | null | undefined,
+): string | null {
+  const text = value?.trim() ?? "";
+  if (!text) {
+    return null;
+  }
+  if (!APPLY_TRANSPORT_LANGUAGE.test(text)) {
+    return text;
+  }
+
+  if (/\b(?:resume|cv|attachment|upload)\b/i.test(text)) {
+    return "The selected CV could not be attached. Your other confirmed fields remain in the open application. Approve and retry the CV attachment; Job Finder will still stop before final submit.";
+  }
+
+  return "The application page could not safely save this prepared step. Review the open application and retry; Job Finder will still stop before final submit.";
+}
+
 export function buildQueueEntries(input: {
   applicationRecords: readonly ApplicationRecord[];
   applyJobResults: JobFinderWorkspaceSnapshot["applyJobResults"];

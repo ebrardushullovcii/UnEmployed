@@ -20,10 +20,7 @@ import {
   summarizeProgressAction,
   updateTargetExecution,
 } from "./discovery-state";
-import {
-  createMatchAssessment,
-  mergeDiscoveredPostings,
-} from "./matching";
+import { createMatchAssessment, mergeDiscoveredPostings } from "./matching";
 import {
   buildDiscoveryInstructionGuidance,
   enrichSearchPreferencesFromProfile,
@@ -32,10 +29,7 @@ import {
   resolveAdapterKind,
 } from "./workspace-helpers";
 import { collectResumeAffectingChangedJobIds } from "./resume-workspace-staleness";
-import {
-  DEFAULT_ROLE,
-  discoveryAdapters,
-} from "./workspace-defaults";
+import { DEFAULT_ROLE, discoveryAdapters } from "./workspace-defaults";
 import {
   applyInactiveLedgerMarks,
   createDiscoveryProvenance,
@@ -810,21 +804,39 @@ export function createWorkspaceDiscoveryMethods(
       return ctx.getWorkspaceSnapshot();
     }
 
-    let workingSavedJobs = [...startingSavedJobs];
-    let workingPendingJobs = [...startingDiscovery.pendingDiscoveryJobs];
+    // Re-score the local inventory before consulting the discovery ledger. A
+    // ledger hit can legitimately skip an unchanged posting, but the user's
+    // profile or preferences may have changed since its last assessment.
+    // Keeping the stale assessment made shortlisted jobs contradict the
+    // current profile until the provider returned a materially changed post.
+    let workingSavedJobs = startingSavedJobs.map((job) => ({
+      ...job,
+      matchAssessment: createMatchAssessment(profile, enrichedPreferences, job),
+    }));
+    let workingPendingJobs = startingDiscovery.pendingDiscoveryJobs.map(
+      (job) => ({
+        ...job,
+        matchAssessment: createMatchAssessment(
+          profile,
+          enrichedPreferences,
+          job,
+        ),
+      }),
+    );
     let workingLedger: DiscoveryLedgerEntry[] = [
       ...startingDiscovery.discoveryLedger,
     ];
     const touchedSavedJobIds = new Set<string>();
     const touchedPendingJobIds = new Set<string>();
+    workingSavedJobs.forEach((job) => touchedSavedJobIds.add(job.id));
+    workingPendingJobs.forEach((job) => touchedPendingJobIds.add(job.id));
     const openedSessionSources = new Set<JobSource>();
-    const sourceInstructionArtifacts =
-      await ctx.repository
-        .listSourceInstructionArtifacts()
-        .catch((error: unknown) => {
-          clearActiveController();
-          throw error;
-        });
+    const sourceInstructionArtifacts = await ctx.repository
+      .listSourceInstructionArtifacts()
+      .catch((error: unknown) => {
+        clearActiveController();
+        throw error;
+      });
     const targets =
       options.scope === "run_all"
         ? prioritizeDiscoveryTargets(
@@ -841,9 +853,15 @@ export function createWorkspaceDiscoveryMethods(
       scope: options.scope,
     });
 
-    const emitActivity = (event: DiscoveryActivityEvent) => {
+    const recordActivity = (event: DiscoveryActivityEvent) => {
       activeRun = appendDiscoveryEvent(activeRun, event);
+    };
+    const publishActivity = (event: DiscoveryActivityEvent) => {
       options.onActivity?.(event);
+    };
+    const emitActivity = (event: DiscoveryActivityEvent) => {
+      recordActivity(event);
+      publishActivity(event);
     };
 
     emitActivity(
@@ -989,8 +1007,9 @@ export function createWorkspaceDiscoveryMethods(
             useAgentRuntime: options.useAgentRuntime ?? false,
             ...(prefetchedPublicApiResults.get(target.id)
               ? {
-                  prefetchedPublicApiResult:
-                    prefetchedPublicApiResults.get(target.id)!,
+                  prefetchedPublicApiResult: prefetchedPublicApiResults.get(
+                    target.id,
+                  )!,
                 }
               : {}),
           });
@@ -1004,18 +1023,13 @@ export function createWorkspaceDiscoveryMethods(
 
           const failedAt = new Date().toISOString();
           const warning = `Discovery failed for ${target.label}: ${describeUnknownThrowable(error)}`;
-          activeRun = completeTargetExecution(
-            activeRun,
-            target.id,
-            failedAt,
-            {
-              state: "failed",
-              jobsFound: 0,
-              jobsPersisted: 0,
-              jobsStaged: 0,
-              warning,
-            },
-          );
+          activeRun = completeTargetExecution(activeRun, target.id, failedAt, {
+            state: "failed",
+            jobsFound: 0,
+            jobsPersisted: 0,
+            jobsStaged: 0,
+            warning,
+          });
           emitActivity(
             createDiscoveryEvent({
               runId,
@@ -1312,9 +1326,7 @@ export function createWorkspaceDiscoveryMethods(
             targetId: target.id,
             seenAt: new Date().toISOString(),
             status:
-              posting.detailQuality === "detail_enriched"
-                ? "enriched"
-                : "seen",
+              posting.detailQuality === "detail_enriched" ? "enriched" : "seen",
           });
         }
 
@@ -1378,28 +1390,30 @@ export function createWorkspaceDiscoveryMethods(
             warning: collected.result.warning,
           },
         );
-        emitActivity(
-          createDiscoveryEvent({
-            runId,
-            timestamp: targetCompletedAt,
-            kind: "success",
-            stage: "target",
-            waitReason: "persisting_results",
-            targetId: target.id,
-            adapterKind: target.adapterKind,
-            resolvedAdapterKind: collected.adapterKind,
-            collectionMethod: collected.collectionMethod,
-            sourceIntelligenceProvider: collectedProviderKey,
-            terminalState: "completed",
-            message: `Finished ${target.label} (${index + 1}/${targets.length})`,
-            url: target.startingUrl,
-            jobsFound: mergeResult.validatedCount,
-            jobsPersisted,
-            jobsStaged,
-            duplicatesMerged: mergeResult.duplicatesMerged,
-            invalidSkipped: mergeResult.invalidSkipped,
-          }),
-        );
+        const targetCompletedEvent = createDiscoveryEvent({
+          runId,
+          timestamp: targetCompletedAt,
+          kind: "success",
+          stage: "target",
+          waitReason: "persisting_results",
+          targetId: target.id,
+          adapterKind: target.adapterKind,
+          resolvedAdapterKind: collected.adapterKind,
+          collectionMethod: collected.collectionMethod,
+          sourceIntelligenceProvider: collectedProviderKey,
+          terminalState: "completed",
+          message: `Finished ${target.label} (${index + 1}/${targets.length})`,
+          url: target.startingUrl,
+          jobsFound: mergeResult.validatedCount,
+          jobsPersisted,
+          jobsStaged,
+          duplicatesMerged: mergeResult.duplicatesMerged,
+          invalidSkipped: mergeResult.invalidSkipped,
+        });
+        // Record the event before saving so run history stays complete, but do
+        // not publish "Finished" until the jobs and ledger are durable. The
+        // desktop uses this terminal event as its progressive-refresh signal.
+        recordActivity(targetCompletedEvent);
 
         const latestDiscoveryState = await ctx.repository.getDiscoveryState();
         await ctx.repository.replaceSavedJobs(
@@ -1430,6 +1444,7 @@ export function createWorkspaceDiscoveryMethods(
             enrichedPreferences,
           ),
         );
+        publishActivity(targetCompletedEvent);
       }
     } catch (error) {
       const interrupted =

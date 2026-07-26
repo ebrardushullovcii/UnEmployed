@@ -38,9 +38,10 @@ export type ApplicationExecutionMode = "prepare_only" | "submit_when_ready";
 export interface ExecuteApplicationFlowInput extends ExecuteEasyApplyInput {
   mode: ApplicationExecutionMode;
   /**
-   * Explicit permission for non-final ATS writes such as draft creation,
-   * autosave, or a verified non-final continuation step. This does not
-   * authorize DOM form submission or clicking a final apply control.
+   * Explicit customer permission for non-final ATS writes such as attaching
+   * the selected resume, draft creation, autosave, or a verified non-final
+   * continuation step. This does not authorize DOM form submission or
+   * clicking a final apply control; those remain independently blocked.
    * Omitted values are false.
    */
   intermediateMutationsAuthorized?: boolean;

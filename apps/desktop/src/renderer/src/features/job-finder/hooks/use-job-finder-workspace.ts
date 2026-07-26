@@ -14,6 +14,7 @@ import type {
   ProfileSetupReviewAction,
   ProfileSetupReviewActionOptions,
   ProfileSetupState,
+  ResumeImportProgressEvent,
   ResumeDraft,
   ResumeDraftPatch,
   SourceDebugProgressEvent,
@@ -26,6 +27,7 @@ type JobFinderWorkspaceState =
       status: "ready";
       actions: JobFinderShellActions;
       platform: "darwin" | "win32" | "linux";
+      resumeImportProgress: ResumeImportProgressEvent | null;
       workspace: JobFinderWorkspaceSnapshot;
     }
   | { status: "error"; message: string };
@@ -156,8 +158,16 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.revokeApplyRunApproval(runId),
         ),
-      importResume: () =>
-        runWorkspaceAction(() => window.unemployed.jobFinder.importResume()),
+      importResume: () => {
+        setWorkspaceState((currentState) => currentState.status === "ready"
+          ? { ...currentState, resumeImportProgress: null }
+          : currentState);
+        return runWorkspaceAction(() => window.unemployed.jobFinder.importResume((progress) => {
+          setWorkspaceState((currentState) => currentState.status === "ready"
+            ? { ...currentState, resumeImportProgress: progress }
+            : currentState);
+        }));
+      },
       queueJobForReview: (jobId: string) =>
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.queueJobForReview(jobId),
@@ -284,6 +294,7 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
             status: "ready",
             actions,
             platform: platformResponse.platform,
+            resumeImportProgress: null,
             workspace,
           });
         }

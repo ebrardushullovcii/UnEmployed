@@ -14,6 +14,7 @@ import { ProfileOptionalSection } from './profile-optional-section'
 import type { ProfileFieldArrayKeyName } from './profile-field-array-types'
 import { ProfileRecordCard } from './profile-record-card'
 import { ProfileSectionHeader } from './profile-section-header'
+import { PreferredApplicationLinksField } from './preferred-application-links-field'
 
 const booleanSelectOptions = [
   { label: 'Not set', value: '' },
@@ -137,7 +138,7 @@ export function ProfilePreferencesEligibilitySection(props: {
         <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
           <div className="grid min-w-0 content-start gap-(--gap-field) h-full"><FieldLabel htmlFor={preferredApplicationEmailId}>Preferred application email</FieldLabel><ProfileInput id={preferredApplicationEmailId} placeholder="Leave blank to reuse your main email" {...register('applicationIdentity.preferredEmail')} /></div>
           <div className="grid min-w-0 content-start gap-(--gap-field) h-full"><FieldLabel htmlFor={preferredApplicationPhoneId}>Preferred application phone</FieldLabel><ProfileInput id={preferredApplicationPhoneId} placeholder="Leave blank to reuse your main phone" {...register('applicationIdentity.preferredPhone')} /></div>
-          <div className="grid min-w-0 content-start gap-(--gap-field) h-full md:col-span-2"><FieldLabel htmlFor={preferredApplicationLinksId}>Preferred public link IDs</FieldLabel><ProfileTextarea className="min-h-(--textarea-compact) max-h-(--textarea-compact)" id={preferredApplicationLinksId} rows={4} placeholder="Copy link IDs from the Background tab, one per line" {...register('applicationIdentity.preferredLinkIds')} /></div>
+          <PreferredApplicationLinksField fieldId={preferredApplicationLinksId} profileForm={props.profileForm} />
         </div>
       </article>
 

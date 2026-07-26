@@ -1,69 +1,73 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { JobSearchPreferences, SourceAccessPrompt } from '@unemployed/contracts'
-import { DiscoveryFiltersPanel } from './discovery-filters-panel'
-import { DiscoveryResultsPanel } from './discovery-results-panel'
+import { cleanup, fireEvent, render, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type {
+  JobSearchPreferences,
+  SavedJob,
+  SourceAccessPrompt,
+} from "@unemployed/contracts";
+import { DiscoveryFiltersPanel } from "./discovery-filters-panel";
+import { DiscoveryResultsPanel } from "./discovery-results-panel";
 
-describe('DiscoveryFiltersPanel', () => {
+describe("DiscoveryFiltersPanel", () => {
   afterEach(() => {
-    cleanup()
-    vi.clearAllMocks()
-  })
+    cleanup();
+    vi.clearAllMocks();
+  });
 
-  it('shows a source-aware sign-in prompt near the search controls', () => {
-    const onOpenBrowserSessionForTarget = vi.fn()
-    const onRunDiscoveryForTarget = vi.fn()
+  it("shows a source-aware sign-in prompt near the search controls", () => {
+    const onOpenBrowserSessionForTarget = vi.fn();
+    const onRunDiscoveryForTarget = vi.fn();
     const searchPreferences: JobSearchPreferences = {
-      targetRoles: ['Principal Designer'],
+      targetRoles: ["Principal Designer"],
       jobFamilies: [],
-      locations: ['Remote'],
+      locations: ["Remote"],
       excludedLocations: [],
-      workModes: ['remote'],
+      workModes: ["remote"],
       seniorityLevels: [],
       targetIndustries: [],
       targetCompanyStages: [],
       employmentTypes: [],
       minimumSalaryUsd: null,
       targetSalaryUsd: null,
-      salaryCurrency: 'USD',
-      approvalMode: 'review_before_submit',
-      tailoringMode: 'balanced',
+      salaryCurrency: "USD",
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
       companyBlacklist: [],
       companyWhitelist: [],
       discovery: {
         historyLimit: 5,
         targets: [
           {
-            id: 'target_linkedin_default',
-            label: 'LinkedIn',
-            startingUrl: 'https://www.linkedin.com/jobs/search/',
+            id: "target_linkedin_default",
+            label: "LinkedIn",
+            startingUrl: "https://www.linkedin.com/jobs/search/",
             enabled: true,
-            adapterKind: 'auto',
+            adapterKind: "auto",
             customInstructions: null,
-            instructionStatus: 'draft',
+            instructionStatus: "draft",
             validatedInstructionId: null,
-            draftInstructionId: 'instruction_1',
+            draftInstructionId: "instruction_1",
             lastDebugRunId: null,
             lastVerifiedAt: null,
             staleReason: null,
           },
         ],
       },
-    }
+    };
     const sourceAccessPrompt: SourceAccessPrompt = {
-      targetId: 'target_linkedin_default',
-      targetLabel: 'LinkedIn',
-      targetUrl: 'https://www.linkedin.com/jobs/search/',
-      state: 'prompt_login_required',
-      summary: 'Sign in to LinkedIn before the next search can continue.',
-      detail: 'Please sign in first.',
-      actionLabel: 'Sign in to LinkedIn',
-      rerunLabel: 'Search again after sign-in',
-      updatedAt: '2026-03-20T10:01:00.000Z',
-    }
+      targetId: "target_linkedin_default",
+      targetLabel: "LinkedIn",
+      targetUrl: "https://www.linkedin.com/jobs/search/",
+      state: "prompt_login_required",
+      summary: "Sign in to LinkedIn before the next search can continue.",
+      detail: "Please sign in first.",
+      actionLabel: "Sign in to LinkedIn",
+      rerunLabel: "Search again after sign-in",
+      updatedAt: "2026-03-20T10:01:00.000Z",
+    };
 
     const { container, getByRole } = render(
       <MemoryRouter>
@@ -71,21 +75,21 @@ describe('DiscoveryFiltersPanel', () => {
           activeRun={null}
           actionMessage={null}
           browserSession={{
-            source: 'target_site',
-            status: 'login_required',
-            driver: 'catalog_seed',
-            label: 'Browser session needs sign-in',
-            detail: 'A saved source needs sign-in.',
-            lastCheckedAt: '2026-03-20T10:00:00.000Z',
+            source: "target_site",
+            status: "login_required",
+            driver: "catalog_seed",
+            label: "Browser session needs sign-in",
+            detail: "A saved source needs sign-in.",
+            lastCheckedAt: "2026-03-20T10:00:00.000Z",
           }}
           discoverySessions={[
             {
-              adapterKind: 'target_site',
-              status: 'login_required',
-              driver: 'chrome_profile_agent',
-              label: 'Browser session needs sign-in',
-              detail: 'A saved source needs sign-in.',
-              lastCheckedAt: '2026-03-20T10:00:00.000Z',
+              adapterKind: "target_site",
+              status: "login_required",
+              driver: "chrome_profile_agent",
+              label: "Browser session needs sign-in",
+              detail: "A saved source needs sign-in.",
+              lastCheckedAt: "2026-03-20T10:00:00.000Z",
             },
           ]}
           isBrowserSessionPending={false}
@@ -101,60 +105,74 @@ describe('DiscoveryFiltersPanel', () => {
           sourceAccessPrompts={[sourceAccessPrompt]}
         />
       </MemoryRouter>,
-    )
+    );
 
-    expect(container.textContent).toContain('Sign in to LinkedIn before the next search can continue.')
-    expect(container.textContent).toContain('Please sign in first.')
-    expect(container.textContent).toContain("I'm signed in — retry LinkedIn")
-    expect(container.textContent?.match(/Sign in to LinkedIn before the next search can continue\./g)).toHaveLength(1)
+    expect(container.textContent).toContain(
+      "Sign in to LinkedIn before the next search can continue.",
+    );
+    expect(container.textContent).toContain("Please sign in first.");
+    expect(container.textContent).toContain("I'm signed in — retry LinkedIn");
+    expect(
+      container.textContent?.match(
+        /Sign in to LinkedIn before the next search can continue\./g,
+      ),
+    ).toHaveLength(1);
 
-    const signInButton = within(getByRole('status')).getByRole('button', {
+    const signInButton = within(getByRole("status")).getByRole("button", {
       name: /sign in to linkedin/i,
-    })
+    });
 
-    fireEvent.click(signInButton)
+    fireEvent.click(signInButton);
 
-    expect(onOpenBrowserSessionForTarget).toHaveBeenCalledWith('target_linkedin_default')
+    expect(onOpenBrowserSessionForTarget).toHaveBeenCalledWith(
+      "target_linkedin_default",
+    );
 
-    fireEvent.click(within(getByRole('status')).getByRole('button', {
-      name: /i'm signed in — retry linkedin/i,
-    }))
+    fireEvent.click(
+      within(getByRole("status")).getByRole("button", {
+        name: /i'm signed in — retry linkedin/i,
+      }),
+    );
 
-    expect(onRunDiscoveryForTarget).toHaveBeenCalledWith('target_linkedin_default')
-    expect(container.textContent).toContain('Job Finder waits here and never handles your credentials.')
-  })
+    expect(onRunDiscoveryForTarget).toHaveBeenCalledWith(
+      "target_linkedin_default",
+    );
+    expect(container.textContent).toContain(
+      "Job Finder waits here and never handles your credentials.",
+    );
+  });
 
-  it('ignores disabled-target prompts for the primary sign-in CTA', () => {
-    const onOpenBrowserSession = vi.fn()
-    const onOpenBrowserSessionForTarget = vi.fn()
+  it("ignores disabled-target prompts for the primary sign-in CTA", () => {
+    const onOpenBrowserSession = vi.fn();
+    const onOpenBrowserSessionForTarget = vi.fn();
     const searchPreferences: JobSearchPreferences = {
-      targetRoles: ['Principal Designer'],
+      targetRoles: ["Principal Designer"],
       jobFamilies: [],
-      locations: ['Remote'],
+      locations: ["Remote"],
       excludedLocations: [],
-      workModes: ['remote'],
+      workModes: ["remote"],
       seniorityLevels: [],
       targetIndustries: [],
       targetCompanyStages: [],
       employmentTypes: [],
       minimumSalaryUsd: null,
       targetSalaryUsd: null,
-      salaryCurrency: 'USD',
-      approvalMode: 'review_before_submit',
-      tailoringMode: 'balanced',
+      salaryCurrency: "USD",
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
       companyBlacklist: [],
       companyWhitelist: [],
       discovery: {
         historyLimit: 5,
         targets: [
           {
-            id: 'target_disabled',
-            label: 'Disabled source',
-            startingUrl: 'https://disabled.example/jobs',
+            id: "target_disabled",
+            label: "Disabled source",
+            startingUrl: "https://disabled.example/jobs",
             enabled: false,
-            adapterKind: 'auto',
+            adapterKind: "auto",
             customInstructions: null,
-            instructionStatus: 'draft',
+            instructionStatus: "draft",
             validatedInstructionId: null,
             draftInstructionId: null,
             lastDebugRunId: null,
@@ -162,13 +180,13 @@ describe('DiscoveryFiltersPanel', () => {
             staleReason: null,
           },
           {
-            id: 'target_enabled',
-            label: 'Enabled source',
-            startingUrl: 'https://enabled.example/jobs',
+            id: "target_enabled",
+            label: "Enabled source",
+            startingUrl: "https://enabled.example/jobs",
             enabled: true,
-            adapterKind: 'auto',
+            adapterKind: "auto",
             customInstructions: null,
-            instructionStatus: 'draft',
+            instructionStatus: "draft",
             validatedInstructionId: null,
             draftInstructionId: null,
             lastDebugRunId: null,
@@ -177,31 +195,31 @@ describe('DiscoveryFiltersPanel', () => {
           },
         ],
       },
-    }
+    };
     const sourceAccessPrompts: SourceAccessPrompt[] = [
       {
-        targetId: 'target_disabled',
-        targetLabel: 'Disabled source',
-        targetUrl: 'https://disabled.example/jobs',
-        state: 'prompt_login_required',
-        summary: 'Sign in to Disabled source.',
+        targetId: "target_disabled",
+        targetLabel: "Disabled source",
+        targetUrl: "https://disabled.example/jobs",
+        state: "prompt_login_required",
+        summary: "Sign in to Disabled source.",
         detail: null,
-        actionLabel: 'Sign in to Disabled source',
-        rerunLabel: 'search again',
-        updatedAt: '2026-03-20T10:01:00.000Z',
+        actionLabel: "Sign in to Disabled source",
+        rerunLabel: "search again",
+        updatedAt: "2026-03-20T10:01:00.000Z",
       },
       {
-        targetId: 'target_enabled',
-        targetLabel: 'Enabled source',
-        targetUrl: 'https://enabled.example/jobs',
-        state: 'prompt_login_required',
-        summary: 'Sign in to Enabled source.',
+        targetId: "target_enabled",
+        targetLabel: "Enabled source",
+        targetUrl: "https://enabled.example/jobs",
+        state: "prompt_login_required",
+        summary: "Sign in to Enabled source.",
         detail: null,
-        actionLabel: 'Sign in to Enabled source',
-        rerunLabel: 'search again',
-        updatedAt: '2026-03-20T10:02:00.000Z',
+        actionLabel: "Sign in to Enabled source",
+        rerunLabel: "search again",
+        updatedAt: "2026-03-20T10:02:00.000Z",
       },
-    ]
+    ];
 
     const { getAllByRole, container } = render(
       <MemoryRouter>
@@ -209,12 +227,12 @@ describe('DiscoveryFiltersPanel', () => {
           activeRun={null}
           actionMessage={null}
           browserSession={{
-            source: 'target_site',
-            status: 'login_required',
-            driver: 'chrome_profile_agent',
-            label: 'Browser session needs sign-in',
-            detail: 'A saved source needs sign-in.',
-            lastCheckedAt: '2026-03-20T10:00:00.000Z',
+            source: "target_site",
+            status: "login_required",
+            driver: "chrome_profile_agent",
+            label: "Browser session needs sign-in",
+            detail: "A saved source needs sign-in.",
+            lastCheckedAt: "2026-03-20T10:00:00.000Z",
           }}
           discoverySessions={[]}
           isBrowserSessionPending={false}
@@ -230,61 +248,63 @@ describe('DiscoveryFiltersPanel', () => {
           sourceAccessPrompts={sourceAccessPrompts}
         />
       </MemoryRouter>,
-    )
+    );
 
-    expect(container.textContent).toContain('Sign in to Enabled source.')
-    expect(container.textContent).not.toContain('Sign in to Disabled source.')
+    expect(container.textContent).toContain("Sign in to Enabled source.");
+    expect(container.textContent).not.toContain("Sign in to Disabled source.");
 
-    const primaryPrompt = getAllByRole('status').find((element) =>
-      element.textContent?.includes('Sign in to Enabled source.'),
-    )
-    expect(primaryPrompt).toBeDefined()
+    const primaryPrompt = getAllByRole("status").find((element) =>
+      element.textContent?.includes("Sign in to Enabled source."),
+    );
+    expect(primaryPrompt).toBeDefined();
 
     if (!primaryPrompt) {
-      throw new Error('Expected enabled-source sign-in prompt to be rendered.')
+      throw new Error("Expected enabled-source sign-in prompt to be rendered.");
     }
 
-    const enabledSourceButton = within(primaryPrompt).getByRole('button', {
+    const enabledSourceButton = within(primaryPrompt).getByRole("button", {
       name: /sign in to enabled source/i,
-    })
+    });
 
-    fireEvent.click(enabledSourceButton)
+    fireEvent.click(enabledSourceButton);
 
-    expect(onOpenBrowserSessionForTarget).toHaveBeenCalledWith('target_enabled')
-    expect(onOpenBrowserSession).not.toHaveBeenCalled()
-  })
+    expect(onOpenBrowserSessionForTarget).toHaveBeenCalledWith(
+      "target_enabled",
+    );
+    expect(onOpenBrowserSession).not.toHaveBeenCalled();
+  });
 
-  it('keeps the main browser CTA generic when sign-in is only recommended', () => {
-    const onOpenBrowserSession = vi.fn()
-    const onOpenBrowserSessionForTarget = vi.fn()
+  it("keeps the main browser CTA generic when sign-in is only recommended", () => {
+    const onOpenBrowserSession = vi.fn();
+    const onOpenBrowserSessionForTarget = vi.fn();
     const searchPreferences: JobSearchPreferences = {
-      targetRoles: ['Principal Designer'],
+      targetRoles: ["Principal Designer"],
       jobFamilies: [],
-      locations: ['Remote'],
+      locations: ["Remote"],
       excludedLocations: [],
-      workModes: ['remote'],
+      workModes: ["remote"],
       seniorityLevels: [],
       targetIndustries: [],
       targetCompanyStages: [],
       employmentTypes: [],
       minimumSalaryUsd: null,
       targetSalaryUsd: null,
-      salaryCurrency: 'USD',
-      approvalMode: 'review_before_submit',
-      tailoringMode: 'balanced',
+      salaryCurrency: "USD",
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
       companyBlacklist: [],
       companyWhitelist: [],
       discovery: {
         historyLimit: 5,
         targets: [
           {
-            id: 'target_greenhouse',
-            label: 'GreenHouse',
-            startingUrl: 'https://boards.greenhouse.io/remotecoin/jobs',
+            id: "target_greenhouse",
+            label: "GreenHouse",
+            startingUrl: "https://boards.greenhouse.io/remotecoin/jobs",
             enabled: true,
-            adapterKind: 'auto',
+            adapterKind: "auto",
             customInstructions: null,
-            instructionStatus: 'draft',
+            instructionStatus: "draft",
             validatedInstructionId: null,
             draftInstructionId: null,
             lastDebugRunId: null,
@@ -293,20 +313,22 @@ describe('DiscoveryFiltersPanel', () => {
           },
         ],
       },
-    }
+    };
     const sourceAccessPrompts: SourceAccessPrompt[] = [
       {
-        targetId: 'target_greenhouse',
-        targetLabel: 'GreenHouse',
-        targetUrl: 'https://boards.greenhouse.io/remotecoin/jobs',
-        state: 'prompt_login_recommended',
-        summary: 'Open the browser for GreenHouse if you want better search coverage on the next run.',
-        detail: 'Jobs are visible without login, but the browser can improve coverage.',
-        actionLabel: 'Open browser for GreenHouse',
-        rerunLabel: 'Search again for fuller results',
-        updatedAt: '2026-03-20T10:01:00.000Z',
+        targetId: "target_greenhouse",
+        targetLabel: "GreenHouse",
+        targetUrl: "https://boards.greenhouse.io/remotecoin/jobs",
+        state: "prompt_login_recommended",
+        summary:
+          "Open the browser for GreenHouse if you want better search coverage on the next run.",
+        detail:
+          "Jobs are visible without login, but the browser can improve coverage.",
+        actionLabel: "Open browser for GreenHouse",
+        rerunLabel: "Search again for fuller results",
+        updatedAt: "2026-03-20T10:01:00.000Z",
       },
-    ]
+    ];
 
     const { getByRole, queryByRole, getByText } = render(
       <MemoryRouter>
@@ -314,12 +336,13 @@ describe('DiscoveryFiltersPanel', () => {
           activeRun={null}
           actionMessage={null}
           browserSession={{
-            source: 'target_site',
-            status: 'unknown',
-            driver: 'chrome_profile_agent',
-            label: 'Browser starting',
-            detail: 'The dedicated browser profile is closed. It will reopen automatically when the next run starts.',
-            lastCheckedAt: '2026-03-20T10:00:00.000Z',
+            source: "target_site",
+            status: "unknown",
+            driver: "chrome_profile_agent",
+            label: "Browser starting",
+            detail:
+              "The dedicated browser profile is closed. It will reopen automatically when the next run starts.",
+            lastCheckedAt: "2026-03-20T10:00:00.000Z",
           }}
           discoverySessions={[]}
           isBrowserSessionPending={false}
@@ -335,29 +358,35 @@ describe('DiscoveryFiltersPanel', () => {
           sourceAccessPrompts={sourceAccessPrompts}
         />
       </MemoryRouter>,
-    )
+    );
 
-    expect(getByText('Some sources work without sign-in, but the browser can improve coverage.')).toBeTruthy()
-    expect(getByText('The browser will reopen automatically on the next run.')).toBeTruthy()
-    expect(queryByRole('button', { name: 'Sign in to GreenHouse' })).toBeNull()
+    expect(
+      getByText(
+        "Some sources work without sign-in, but the browser can improve coverage.",
+      ),
+    ).toBeTruthy();
+    expect(
+      getByText("The browser will reopen automatically on the next run."),
+    ).toBeTruthy();
+    expect(queryByRole("button", { name: "Sign in to GreenHouse" })).toBeNull();
 
-    fireEvent.click(getByRole('button', { name: 'Open browser' }))
+    fireEvent.click(getByRole("button", { name: "Open browser" }));
 
-    expect(onOpenBrowserSession).toHaveBeenCalledTimes(1)
-    expect(onOpenBrowserSessionForTarget).not.toHaveBeenCalled()
-  })
+    expect(onOpenBrowserSession).toHaveBeenCalledTimes(1);
+    expect(onOpenBrowserSessionForTarget).not.toHaveBeenCalled();
+  });
 
-  it('shows a primary recovery action inside blocked results', () => {
-    const onRecoveryAction = vi.fn()
+  it("shows a primary recovery action inside blocked results", () => {
+    const onRecoveryAction = vi.fn();
     const { container, getByText } = render(
       <DiscoveryResultsPanel
         browserSession={{
-          source: 'target_site',
-          status: 'login_required',
-          driver: 'chrome_profile_agent',
-          label: 'Browser session needs sign-in',
-          detail: 'A saved source needs sign-in.',
-          lastCheckedAt: '2026-03-20T10:00:00.000Z',
+          source: "target_site",
+          status: "login_required",
+          driver: "chrome_profile_agent",
+          label: "Browser session needs sign-in",
+          detail: "A saved source needs sign-in.",
+          lastCheckedAt: "2026-03-20T10:00:00.000Z",
         }}
         jobs={[]}
         onRecoveryAction={onRecoveryAction}
@@ -367,43 +396,45 @@ describe('DiscoveryFiltersPanel', () => {
         recoveryActionPending={false}
         selectedJob={null}
       />,
-    )
+    );
 
-    expect(getByText('Next step')).toBeTruthy()
-    fireEvent.click(within(container).getByRole('button', { name: 'Sign in to LinkedIn' }))
-    expect(onRecoveryAction).toHaveBeenCalledTimes(1)
-  })
+    expect(getByText("Next step")).toBeTruthy();
+    fireEvent.click(
+      within(container).getByRole("button", { name: "Sign in to LinkedIn" }),
+    );
+    expect(onRecoveryAction).toHaveBeenCalledTimes(1);
+  });
 
-  it('keeps a primary recovery action visible when blocked state still shows stale results', () => {
-    const onRecoveryAction = vi.fn()
+  it("keeps a primary recovery action visible when blocked state still shows stale results", () => {
+    const onRecoveryAction = vi.fn();
     const { container, getByText } = render(
       <DiscoveryResultsPanel
         browserSession={{
-          source: 'target_site',
-          status: 'login_required',
-          driver: 'chrome_profile_agent',
-          label: 'Browser session needs sign-in',
-          detail: 'A saved source needs sign-in.',
-          lastCheckedAt: '2026-03-20T10:00:00.000Z',
+          source: "target_site",
+          status: "login_required",
+          driver: "chrome_profile_agent",
+          label: "Browser session needs sign-in",
+          detail: "A saved source needs sign-in.",
+          lastCheckedAt: "2026-03-20T10:00:00.000Z",
         }}
         jobs={[
           {
-            id: 'job_1',
-            source: 'target_site',
-            sourceJobId: 'job_1',
-            discoveryMethod: 'catalog_seed',
-            collectionMethod: 'fallback_search',
-            canonicalUrl: 'https://example.com/job-1',
-            applicationUrl: 'https://example.com/job-1/apply',
-            title: 'Principal Designer',
-            company: 'Acme',
-            location: 'Remote',
-            workMode: ['remote'],
+            id: "job_1",
+            source: "target_site",
+            sourceJobId: "job_1",
+            discoveryMethod: "catalog_seed",
+            collectionMethod: "fallback_search",
+            canonicalUrl: "https://example.com/job-1",
+            applicationUrl: "https://example.com/job-1/apply",
+            title: "Principal Designer",
+            company: "Acme",
+            location: "Remote",
+            workMode: ["remote"],
             easyApplyEligible: true,
-            discoveredAt: '2026-03-20T10:00:00.000Z',
-            firstSeenAt: '2026-03-20T10:00:00.000Z',
-            lastSeenAt: '2026-03-20T10:00:00.000Z',
-            lastVerifiedActiveAt: '2026-03-20T10:00:00.000Z',
+            discoveredAt: "2026-03-20T10:00:00.000Z",
+            firstSeenAt: "2026-03-20T10:00:00.000Z",
+            lastSeenAt: "2026-03-20T10:00:00.000Z",
+            lastVerifiedActiveAt: "2026-03-20T10:00:00.000Z",
             employmentType: null,
             salaryText: null,
             normalizedCompensation: {
@@ -414,12 +445,12 @@ describe('DiscoveryFiltersPanel', () => {
               minAnnualUsd: null,
               maxAnnualUsd: null,
             },
-            detailQuality: 'card_only',
-            summary: 'Strong fit',
+            detailQuality: "card_only",
+            summary: "Strong fit",
             seniority: null,
             postedAt: null,
             postedAtText: null,
-            description: 'Lead design systems work.',
+            description: "Lead design systems work.",
             responsibilities: [],
             minimumQualifications: [],
             preferredQualifications: [],
@@ -431,7 +462,7 @@ describe('DiscoveryFiltersPanel', () => {
             providerKey: null,
             providerBoardToken: null,
             providerIdentifier: null,
-            titleTriageOutcome: 'pass',
+            titleTriageOutcome: "pass",
             sourceIntelligence: null,
             screeningHints: {
               sponsorshipText: null,
@@ -447,14 +478,14 @@ describe('DiscoveryFiltersPanel', () => {
             benefits: [],
             matchAssessment: {
               score: 92,
-              reasons: ['Strong fit'],
+              reasons: ["Strong fit"],
               gaps: [],
-              recommendation: 'strong_fit',
-              recommendationRationale: 'No hard blockers detected.',
+              recommendation: "strong_fit",
+              recommendationRationale: "No hard blockers detected.",
               requirements: [],
             },
-            status: 'discovered',
-            applyPath: 'easy_apply',
+            status: "discovered",
+            applyPath: "easy_apply",
             provenance: [],
           },
         ]}
@@ -465,40 +496,192 @@ describe('DiscoveryFiltersPanel', () => {
         recoveryActionPending={false}
         selectedJob={null}
       />,
-    )
+    );
 
-    expect(getByText(/last completed search/i)).toBeTruthy()
-    fireEvent.click(within(container).getAllByRole('button', { name: 'Sign in to LinkedIn' })[0]!)
-    expect(onRecoveryAction).toHaveBeenCalledTimes(1)
-  })
+    expect(getByText(/last completed search/i)).toBeTruthy();
+    fireEvent.click(
+      within(container).getAllByRole("button", {
+        name: "Sign in to LinkedIn",
+      })[0]!,
+    );
+    expect(onRecoveryAction).toHaveBeenCalledTimes(1);
+  });
 
-  it('prioritizes missing search setup over browser startup copy', () => {
+  it("prioritizes missing search setup over browser startup copy", () => {
     const { getByText, getByRole, queryByText } = render(
       <DiscoveryResultsPanel
         browserSession={{
-          source: 'target_site',
-          status: 'unknown',
-          driver: 'chrome_profile_agent',
-          label: 'Browser starting',
-          detail: 'Preparing browser runtime.',
-          lastCheckedAt: '2026-03-20T10:00:00.000Z',
+          source: "target_site",
+          status: "unknown",
+          driver: "chrome_profile_agent",
+          label: "Browser starting",
+          detail: "Preparing browser runtime.",
+          lastCheckedAt: "2026-03-20T10:00:00.000Z",
         }}
         jobs={[]}
         onSelectJob={vi.fn()}
         searchSetupBlocker={{
-          title: 'Add a target role before searching',
-          description: 'Add at least one target role in Profile so Find jobs can aim the next search.',
-          actionLabel: 'Edit search in Profile',
-          actionHref: '#/job-finder/profile',
-          nextStep: 'Then search again.',
+          title: "Add a target role before searching",
+          description:
+            "Add at least one target role in Profile so Find jobs can aim the next search.",
+          actionLabel: "Edit search in Profile",
+          actionHref:
+            "#/job-finder/profile?section=preferences&focus=job-sources",
+          nextStep: "Then search again.",
         }}
         selectedJob={null}
       />,
-    )
+    );
 
-    expect(getByText('Add a target role before searching')).toBeTruthy()
-    expect(getByText('Add at least one target role in Profile so Find jobs can aim the next search.')).toBeTruthy()
-    expect(queryByText('Browser is starting')).toBeNull()
-    expect((getByRole('link', { name: 'Edit search in Profile' }) as HTMLAnchorElement).getAttribute('href')).toBe('#/job-finder/profile')
-  })
-})
+    expect(getByText("Add a target role before searching")).toBeTruthy();
+    expect(
+      getByText(
+        "Add at least one target role in Profile so Find jobs can aim the next search.",
+      ),
+    ).toBeTruthy();
+    expect(queryByText("Browser is starting")).toBeNull();
+    expect(
+      (
+        getByRole("link", {
+          name: "Edit search in Profile",
+        }) as HTMLAnchorElement
+      ).getAttribute("href"),
+    ).toBe("#/job-finder/profile?section=preferences&focus=job-sources");
+  });
+
+  it("shows a ready first-search state before any completed run", () => {
+    const { getByText, queryByText } = render(
+      <DiscoveryResultsPanel
+        browserSession={{
+          source: "target_site",
+          status: "ready",
+          driver: "chrome_profile_agent",
+          label: "Browser ready",
+          detail: "Ready when needed.",
+          lastCheckedAt: "2026-03-20T10:00:00.000Z",
+        }}
+        jobs={[]}
+        onSelectJob={vi.fn()}
+        selectedJob={null}
+      />,
+    );
+
+    expect(getByText("Ready for your first search")).toBeTruthy();
+    expect(queryByText("No matches from this search")).toBeNull();
+  });
+
+  it("shows no matches only after a completed search", () => {
+    const { getByRole, getByText, queryByText } = render(
+      <DiscoveryResultsPanel
+        browserSession={{
+          source: "target_site",
+          status: "ready",
+          driver: "chrome_profile_agent",
+          label: "Browser ready",
+          detail: "Ready when needed.",
+          lastCheckedAt: "2026-03-20T10:00:00.000Z",
+        }}
+        hasCompletedSearch
+        jobs={[]}
+        onSelectJob={vi.fn()}
+        selectedJob={null}
+      />,
+    );
+
+    expect(getByText("No matches from this search")).toBeTruthy();
+    expect(getByRole("link", { name: "Broaden search" })).toBeTruthy();
+    expect(queryByText("Ready for your first search")).toBeNull();
+  });
+
+  it("keeps completed-source matches visible while the remaining sources run", () => {
+    const progressiveJob = {
+      id: "job_progressive",
+      title: "Senior Product Designer",
+      company: "Acme",
+      location: "Remote",
+      matchAssessment: { score: 88 },
+      status: "discovered",
+      applyPath: "external_redirect",
+      salaryText: null,
+      workMode: ["remote"],
+      postedAt: "2026-07-15T00:00:00.000Z",
+      postedAtText: null,
+    } as unknown as SavedJob;
+    const { getByRole, getByText, queryByRole } = render(
+      <DiscoveryResultsPanel
+        browserSession={{
+          source: "target_site",
+          status: "ready",
+          driver: "chrome_profile_agent",
+          label: "Browser ready",
+          detail: "Ready when needed.",
+          lastCheckedAt: "2026-07-16T10:00:00.000Z",
+        }}
+        isSearchInProgress
+        jobs={[progressiveJob]}
+        onSelectJob={vi.fn()}
+        selectedJob={progressiveJob}
+      />,
+    );
+
+    expect(getByText("1 match ready to review.")).toBeTruthy();
+    expect(getByText(/remaining sources/i)).toBeTruthy();
+    expect(getByText("Senior Product Designer")).toBeTruthy();
+    expect(queryByRole("listbox")).toBeNull();
+    expect(
+      getByRole("button", { name: /senior product designer/i }).getAttribute(
+        "aria-current",
+      ),
+    ).toBe("true");
+    expect(
+      getByRole("button", { name: /senior product designer/i }).getAttribute(
+        "data-job-result-id",
+      ),
+    ).toBe("job_progressive");
+  });
+
+  it("does not treat the neutral optional-browser snapshot as browser startup", () => {
+    const { getByText, queryByText } = render(
+      <DiscoveryResultsPanel
+        browserSession={{
+          source: "target_site",
+          status: "unknown",
+          driver: "catalog_seed",
+          label: "Browser optional",
+          detail: "The browser is only needed for sign-in.",
+          lastCheckedAt: "2026-03-20T10:00:00.000Z",
+        }}
+        jobs={[]}
+        onSelectJob={vi.fn()}
+        selectedJob={null}
+      />,
+    );
+
+    expect(getByText("Ready for your first search")).toBeTruthy();
+    expect(queryByText("Browser is starting")).toBeNull();
+    expect(queryByText("No matches from this search")).toBeNull();
+  });
+
+  it("shows live search progress instead of an empty result verdict", () => {
+    const { getByText, queryByText } = render(
+      <DiscoveryResultsPanel
+        browserSession={{
+          source: "target_site",
+          status: "ready",
+          driver: "chrome_profile_agent",
+          label: "Browser ready",
+          detail: "Ready when needed.",
+          lastCheckedAt: "2026-03-20T10:00:00.000Z",
+        }}
+        hasCompletedSearch
+        isSearchInProgress
+        jobs={[]}
+        onSelectJob={vi.fn()}
+        selectedJob={null}
+      />,
+    );
+
+    expect(getByText("Searching your sources")).toBeTruthy();
+    expect(queryByText("No matches from this search")).toBeNull();
+  });
+});

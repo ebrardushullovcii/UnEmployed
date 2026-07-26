@@ -232,6 +232,7 @@ describe('ApplicationsScreen', () => {
     await waitFor(() => {
       expect(onGetApplyRunDetails).toHaveBeenCalledTimes(1)
     })
+    expect(screen.getByRole('link', { name: /prepare interview/i })).toBeTruthy()
 
     const olderRunButton = screen.getByTitle('apply_run_older')
 
@@ -430,5 +431,6 @@ describe('ApplicationsScreen', () => {
     })
     expect(screen.getAllByText(/Visible resume upload and disabled final submit button/i).length).toBeGreaterThan(0)
     expect(screen.getByText(/Resume upload control is visible/i)).toBeTruthy()
+    expect(screen.queryByRole('link', { name: /prepare interview/i })).toBeNull()
   })
 })

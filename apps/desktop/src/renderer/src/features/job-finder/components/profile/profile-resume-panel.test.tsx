@@ -68,6 +68,7 @@ describe('ProfileResumePanel', () => {
           isAnalyzeProfilePending={false}
           isImportResumePending={false}
           latestResumeImportReviewCandidates={[]}
+          resumeImportProgress={null}
           latestResumeImportRun={null}
           onAnalyzeProfileFromResume={vi.fn()}
           onImportResume={vi.fn()}
@@ -129,6 +130,7 @@ describe('ProfileResumePanel', () => {
           isAnalyzeProfilePending={false}
           isImportResumePending={false}
           latestResumeImportReviewCandidates={[]}
+          resumeImportProgress={null}
           latestResumeImportRun={null}
           onAnalyzeProfileFromResume={vi.fn()}
           onImportResume={vi.fn()}
@@ -185,6 +187,7 @@ describe('ProfileResumePanel', () => {
           isAnalyzeProfilePending={false}
           isImportResumePending={false}
           latestResumeImportReviewCandidates={[]}
+          resumeImportProgress={null}
           latestResumeImportRun={ResumeImportRunSchema.parse({
             id: 'resume_import_run_1',
             sourceResumeId: 'resume_3',
@@ -275,6 +278,7 @@ describe('ProfileResumePanel', () => {
               notes: [],
             }),
           ]}
+          resumeImportProgress={null}
           latestResumeImportRun={null}
           onAnalyzeProfileFromResume={vi.fn()}
           onImportResume={vi.fn()}

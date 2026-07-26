@@ -167,6 +167,10 @@ export function ApplicationsDetailPanel({
   const selectedRecordJob = selectedRecord
     ? discoveryJobs.find((job) => job.id === selectedRecord.jobId) ?? null
     : null;
+  const canPrepareInterview = selectedRecord
+    ? selectedRecord.lastAttemptState === "submitted" ||
+      ["submitted", "assessment", "interview", "offer"].includes(selectedRecord.status)
+    : false;
 
   return (
     <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col gap-6 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) px-8 py-5 xl:h-full xl:min-h-0">
@@ -189,7 +193,7 @@ export function ApplicationsDetailPanel({
       </div>
       {selectedRecord ? (
         <div className="grid min-h-0 min-w-0 flex-1 content-start gap-6 overflow-y-auto pr-1">
-          <Button
+          {canPrepareInterview ? <Button
             asChild
             className="h-10 justify-start px-3.5 text-sm font-medium normal-case tracking-normal"
             size="compact"
@@ -204,7 +208,7 @@ export function ApplicationsDetailPanel({
               <Mic aria-hidden="true" className="size-4" focusable="false" />
               Prepare interview
             </a>
-          </Button>
+          </Button> : null}
           <ApplicationsDetailPanelOverviewSections
             selectedAttempt={selectedAttempt}
             selectedRecord={selectedRecord}

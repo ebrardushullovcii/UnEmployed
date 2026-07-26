@@ -704,6 +704,7 @@ export function createWorkspaceApplicationMethods(
             profile,
             settings,
             mode: "prepare_only",
+            intermediateMutationsAuthorized: true,
             submitAuthorized: false,
             ...(recoverySeed.recoveryContext
               ? { recoveryContext: recoverySeed.recoveryContext }
@@ -1957,6 +1958,7 @@ export function createWorkspaceApplicationMethods(
           profile,
           settings,
           mode: "prepare_only",
+          intermediateMutationsAuthorized: true,
           submitAuthorized: false,
           ...(applyInstructions.length > 0
             ? { instructions: applyInstructions }
@@ -2240,6 +2242,7 @@ export function createWorkspaceApplicationMethods(
           profile,
           settings,
           mode: "prepare_only",
+          intermediateMutationsAuthorized: true,
           submitAuthorized: false,
           ...(recoverySeed.recoveryContext
             ? { recoveryContext: recoverySeed.recoveryContext }

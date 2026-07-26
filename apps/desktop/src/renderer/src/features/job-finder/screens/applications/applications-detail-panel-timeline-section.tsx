@@ -4,6 +4,7 @@ import {
   formatTimestamp,
   getEventTone,
 } from "@renderer/features/job-finder/lib/job-finder-utils";
+import { getCustomerFacingApplyText } from "./applications-detail-panel-helpers";
 
 export function ApplicationsDetailPanelTimelineSection(props: {
   events: ApplicationRecord["events"];
@@ -48,10 +49,10 @@ export function ApplicationsDetailPanelTimelineSection(props: {
                           : "text-foreground",
                   )}
                 >
-                  {event.title}
+                  {getCustomerFacingApplyText(event.title)}
                 </strong>
                 <p className="mt-2 text-(length:--text-description) leading-relaxed text-foreground-soft">
-                  {event.detail}
+                  {getCustomerFacingApplyText(event.detail)}
                 </p>
               </div>
             </article>

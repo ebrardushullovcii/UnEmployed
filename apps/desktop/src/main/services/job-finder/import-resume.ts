@@ -2,6 +2,7 @@ import { copyFile, mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import {
   JobFinderWorkspaceSnapshotSchema,
+  type ResumeImportProgressEvent,
   type ResumeSourceDocument,
 } from '@unemployed/contracts'
 import { detectResumeDocumentFileKind, extractResumeDocument } from '../../adapters/resume-document'
@@ -10,6 +11,7 @@ import { getJobFinderWorkspaceService } from './workspace-service'
 import { getJobFinderDocumentsDirectory } from './paths'
 
 export interface ImportResumeFromSourcePathOptions {
+  onProgress?: (event: ResumeImportProgressEvent) => void
   useVision?: boolean
 }
 
@@ -20,7 +22,12 @@ export async function importResumeFromSourcePath(
   const targetDirectory = getJobFinderDocumentsDirectory()
   const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
   const useVision = options.useVision ?? true
+  const reportProgress = (
+    stage: ResumeImportProgressEvent['stage'],
+    message: string,
+  ) => options.onProgress?.({ stage, message, occurredAt: new Date().toISOString() })
 
+  reportProgress('saving_file', 'Saving a private working copy on this device.')
   await mkdir(targetDirectory, { recursive: true })
 
   const timestamp = Date.now()
@@ -32,6 +39,7 @@ export async function importResumeFromSourcePath(
   const sourceFileKind = detectResumeDocumentFileKind(targetPath)
 
   await copyFile(sourcePath, targetPath)
+  reportProgress('reading_document', 'Reading resume text, sections, and page layout.')
   const extractionInput = {
     bundleId: `resume_bundle_${timestamp}`,
     runId: seedRunId,
@@ -80,6 +88,7 @@ export async function importResumeFromSourcePath(
   }
 
   if (!extractedResume.textContent && !generatedVisionArtifact.artifact?.pages.length) {
+    reportProgress('saving_results', 'Saving the import issue and recovery guidance.')
     const currentSnapshot = await jobFinderWorkspaceService.getWorkspaceSnapshot()
     const snapshot = await jobFinderWorkspaceService.saveProfile({
       ...currentSnapshot.profile,
@@ -97,6 +106,7 @@ export async function importResumeFromSourcePath(
     return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
   }
 
+  reportProgress('building_profile', 'Building grounded profile suggestions for your review.')
   const snapshot = await jobFinderWorkspaceService.runResumeImport({
     baseResume,
     documentBundle: extractedResume.bundle,
@@ -104,5 +114,6 @@ export async function importResumeFromSourcePath(
     visionArtifact: generatedVisionArtifact.artifact,
   })
 
+  reportProgress('saving_results', 'Saving the imported resume and review items.')
   return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
 }

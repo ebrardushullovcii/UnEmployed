@@ -66,6 +66,21 @@ export function SettingsEditableDefaults({
   )
   const selectedResumeApplicationMode =
     settingsForm.resumeApplicationMode ?? 'tailored_per_job'
+  const savedResumeApplicationMode =
+    settings.resumeApplicationMode ?? 'tailored_per_job'
+  const hasUnsavedChanges =
+    settingsForm.resumeTemplateId !== settings.resumeTemplateId ||
+    settingsForm.fontPreset !== settings.fontPreset ||
+    settingsForm.appearanceTheme !== settings.appearanceTheme ||
+    settingsForm.keepSessionAlive !== settings.keepSessionAlive ||
+    settingsForm.discoveryOnly !== settings.discoveryOnly ||
+    selectedResumeApplicationMode !== savedResumeApplicationMode
+  const saveSettings = () => {
+    onSaveSettings({
+      ...settingsForm,
+      resumeApplicationMode: selectedResumeApplicationMode,
+    })
+  }
 
   useEffect(() => {
     setSettingsForm(settings)
@@ -75,14 +90,19 @@ export function SettingsEditableDefaults({
     <section className="surface-panel-shell relative grid content-start gap-3 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
       <div className="grid gap-3">
         <section className="grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-overlay-subtle) p-3.5">
-          <div className="grid gap-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-[1.02rem] font-semibold text-(--text-headline)">CV used for applications</h2>
-              <Badge variant="section">Applies after jobs are found</Badge>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="grid max-w-[72ch] gap-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-[1.02rem] font-semibold text-(--text-headline)">CV used for applications</h2>
+                <Badge variant="section">Current and future shortlisted jobs</Badge>
+              </div>
+              <p className="text-(length:--text-description) leading-5 text-foreground-soft">
+                Choose whether each job gets a tailored CV or the exact file you imported in Profile. You still decide job by job before Apply Copilot opens the application.
+              </p>
             </div>
-            <p className="max-w-[72ch] text-(length:--text-description) leading-5 text-foreground-soft">
-              Choose whether each job gets a tailored CV or the exact file you imported in Profile. You still decide job by job before Apply Copilot opens the application.
-            </p>
+            <Button disabled={!hasUnsavedChanges || isSavePending} pending={isSavePending} onClick={saveSettings} type="button" variant="primary">
+              Save CV preference
+            </Button>
           </div>
 
           <div className="grid gap-2.5 md:grid-cols-2" role="radiogroup" aria-label="CV application mode">
@@ -96,7 +116,13 @@ export function SettingsEditableDefaults({
             >
               <span className="font-semibold text-foreground">Tailor a CV for each job</span>
               <span className="text-(length:--text-description) leading-5 text-foreground-soft">Create, review, and approve a job-specific PDF before it can be attached.</span>
-              <span className="label-mono-xs">Current default</span>
+              <span className="label-mono-xs">
+                {selectedResumeApplicationMode === 'tailored_per_job'
+                  ? savedResumeApplicationMode === 'tailored_per_job'
+                    ? 'Saved default'
+                    : 'Selected · save to apply'
+                  : 'Job-specific rewriting'}
+              </span>
             </button>
             <button
               aria-checked={selectedResumeApplicationMode === 'original_resume'}
@@ -108,14 +134,25 @@ export function SettingsEditableDefaults({
             >
               <span className="font-semibold text-foreground">Use my original CV unchanged</span>
               <span className="text-(length:--text-description) leading-5 text-foreground-soft">Skip CV generation. Review Queue shows the imported file and Apply Copilot attaches that same file.</span>
-              <span className="label-mono-xs">No rewriting or job removal</span>
+              <span className="label-mono-xs">
+                {selectedResumeApplicationMode === 'original_resume'
+                  ? savedResumeApplicationMode === 'original_resume'
+                    ? 'Saved default · no rewriting'
+                    : 'Selected · save to apply'
+                  : 'No rewriting or job removal'}
+              </span>
             </button>
           </div>
 
           {selectedResumeApplicationMode === 'original_resume' ? (
-            <p className="rounded-(--radius-field) border border-primary/25 bg-primary/6 px-3.5 py-3 text-sm leading-5 text-foreground-soft">
-              Original-CV mode preserves the imported file byte for byte. Template and font choices below only apply when tailored-CV mode is selected.
-            </p>
+            <div className="grid gap-1 rounded-(--radius-field) border border-primary/25 bg-primary/6 px-3.5 py-3 text-sm leading-5 text-foreground-soft" aria-live="polite">
+              <strong className="text-foreground">
+                {savedResumeApplicationMode === 'original_resume'
+                  ? 'Original CV is the saved application default.'
+                  : 'Save this preference before leaving Settings.'}
+              </strong>
+              <p>Original-CV mode preserves the imported file byte for byte. It applies immediately to current and future shortlisted jobs. Template and font choices below only apply when tailored-CV mode is selected.</p>
+            </div>
           ) : null}
         </section>
 
@@ -235,11 +272,11 @@ export function SettingsEditableDefaults({
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/10 pt-2.5">
           <div className="min-h-[1.5rem] text-sm leading-6 text-foreground-soft">
-            {actionMessage ? <p className="text-primary">{actionMessage}</p> : 'Only future work changes until you save these defaults.'}
+            {actionMessage ? <p className="text-primary" role="status">{actionMessage}</p> : hasUnsavedChanges ? <p className="text-(--warning-text)" role="status">You have unsaved settings changes.</p> : 'All settings on this page are saved.'}
           </div>
         <div className="flex flex-wrap items-center gap-3">
-          <Badge variant="section">Future application steps use this mode</Badge>
-          <Button variant="primary" pending={isSavePending} onClick={() => onSaveSettings({ ...settingsForm, resumeApplicationMode: selectedResumeApplicationMode })} type="button">
+          <Badge variant="section">Current and future shortlisted jobs use this mode</Badge>
+          <Button disabled={!hasUnsavedChanges || isSavePending} variant="primary" pending={isSavePending} onClick={saveSettings} type="button">
             Save settings
           </Button>
         </div>

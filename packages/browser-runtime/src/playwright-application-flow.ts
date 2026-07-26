@@ -1,4 +1,5 @@
-import { resolve } from "node:path";
+import { readFile } from "node:fs/promises";
+import { extname, resolve } from "node:path";
 import type { BrowserContext, Page } from "playwright";
 import {
   ApplyExecutionResultSchema,
@@ -66,6 +67,9 @@ const APPLICATION_ACTION_CONTROL_SELECTOR = [
 ].join(", ");
 
 const MAX_APPLICATION_PREPARATION_STEPS = 8;
+const FORM_STABILITY_SAMPLE_INTERVAL_MS = 1_500;
+const REQUIRED_STABLE_FORM_SAMPLES = 3;
+const MAX_TRANSIENT_FORM_SAMPLES = 30;
 
 export interface PrepareOnlyBlockedAttempt {
   kind:
@@ -374,6 +378,7 @@ interface ApplicationPageInspection {
 
 interface GroundedControlAnswer {
   value: string;
+  fileName?: string;
   kind: ApplicationAttemptQuestion["kind"];
   sourceKind: "profile" | "resume";
   sourceId: string;
@@ -625,10 +630,92 @@ function isResumeUploadControl(control: InspectedFormControl): boolean {
     );
 }
 
+function isPhoneCountryCodeControl(
+  control: InspectedFormControl,
+): boolean {
+  const label = normalizeControlSignal(control.label);
+  const groupLabel = normalizeControlSignal(control.groupLabel);
+  const signal = normalizeControlSignal(
+    [control.label, control.groupLabel, control.name, control.id].join(" "),
+  );
+  return (
+    /\b(?:phone country|country code|calling code|dial code)\b/u.test(signal) ||
+    (label === "country" && groupLabel === "phone")
+  );
+}
+
+function resolvePreferredProfileLink(
+  profile: CandidateProfile,
+  kind: "linkedin" | "github" | "portfolio" | "website",
+): string | null {
+  const preferredLinkIds = new Set(
+    profile.applicationIdentity.preferredLinkIds,
+  );
+  const candidates = profile.links.filter((link) => {
+    if (!link.url || link.isDraft) {
+      return false;
+    }
+    const signal = normalizeControlSignal(
+      [link.kind, link.label, link.url].filter(Boolean).join(" "),
+    );
+    return kind === "linkedin"
+      ? /\blinkedin\b/u.test(signal)
+      : kind === "github"
+        ? /\bgithub\b/u.test(signal)
+        : kind === "portfolio"
+          ? /\b(?:portfolio|case study)\b/u.test(signal)
+          : /\b(?:website|personal site)\b/u.test(signal);
+  });
+
+  return (
+    candidates.find((link) => preferredLinkIds.has(link.id))?.url ??
+    candidates[0]?.url ??
+    null
+  );
+}
+
+function stripSelectedCallingCode(
+  phone: string,
+  controls: readonly InspectedFormControl[],
+): string {
+  const countryCodeControl = controls.find((candidate) => {
+    const selectedValue = [
+      candidate.selectedOptionLabel,
+      candidate.value,
+    ].join(" ");
+    return (
+      isPhoneCountryCodeControl(candidate) && /\+\d{1,4}/u.test(selectedValue)
+    );
+  });
+  const callingCode = [
+    countryCodeControl?.selectedOptionLabel,
+    countryCodeControl?.value,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => value.match(/\+\d{1,4}/u)?.[0] ?? null)
+    .find((value): value is string => Boolean(value));
+
+  if (!callingCode) {
+    return phone;
+  }
+
+  const escapedCode = callingCode.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const withoutPrefix = phone
+    .trim()
+    .replace(
+      new RegExp(`^(?:\\(\\s*)?${escapedCode}(?:\\s*\\))?[\\s.-]*`, "u"),
+      "",
+    )
+    .trim();
+  return withoutPrefix || phone;
+}
+
 function getGroundedControlAnswer(input: {
   control: InspectedFormControl;
+  controls: readonly InspectedFormControl[];
   profile: CandidateProfile;
   resumeFilePath: string;
+  resumeFileName: string;
   resumeArtifactId: string;
   resumeProvenanceLabel: string;
 }): GroundedControlAnswer | null {
@@ -638,6 +725,7 @@ function getGroundedControlAnswer(input: {
   if (isResumeUploadControl(control)) {
     return {
       value: input.resumeFilePath,
+      fileName: input.resumeFileName,
       kind: "resume",
       sourceKind: "resume",
       sourceId: input.resumeArtifactId,
@@ -701,14 +789,28 @@ function getGroundedControlAnswer(input: {
 
   const preferredPhone =
     profile.applicationIdentity.preferredPhone ?? profile.phone;
+  const preferredCallingCode = preferredPhone?.match(/\+\d{1,4}/u)?.[0] ?? null;
+  if (
+    preferredCallingCode &&
+    isPhoneCountryCodeControl(control)
+  ) {
+    return {
+      value: preferredCallingCode,
+      kind: "personal_info",
+      sourceKind: "profile",
+      sourceId: profile.id,
+      provenanceLabel: "Candidate profile phone country code",
+    };
+  }
   if (
     preferredPhone &&
+    !isPhoneCountryCodeControl(control) &&
     (autocomplete === "tel" ||
       autocomplete.startsWith("tel ") ||
       hasExactControlSignal(control, PHONE_SIGNALS))
   ) {
     return {
-      value: preferredPhone,
+      value: stripSelectedCallingCode(preferredPhone, input.controls),
       kind: "personal_info",
       sourceKind: "profile",
       sourceId: profile.id,
@@ -749,9 +851,11 @@ function getGroundedControlAnswer(input: {
     };
   }
 
-  if (profile.linkedinUrl && hasExactControlSignal(control, LINKEDIN_SIGNALS)) {
+  const linkedinUrl =
+    profile.linkedinUrl ?? resolvePreferredProfileLink(profile, "linkedin");
+  if (linkedinUrl && hasExactControlSignal(control, LINKEDIN_SIGNALS)) {
     return {
-      value: profile.linkedinUrl,
+      value: linkedinUrl,
       kind: "portfolio",
       sourceKind: "profile",
       sourceId: profile.id,
@@ -759,9 +863,11 @@ function getGroundedControlAnswer(input: {
     };
   }
 
-  if (profile.githubUrl && hasExactControlSignal(control, GITHUB_SIGNALS)) {
+  const githubUrl =
+    profile.githubUrl ?? resolvePreferredProfileLink(profile, "github");
+  if (githubUrl && hasExactControlSignal(control, GITHUB_SIGNALS)) {
     return {
-      value: profile.githubUrl,
+      value: githubUrl,
       kind: "portfolio",
       sourceKind: "profile",
       sourceId: profile.id,
@@ -769,12 +875,11 @@ function getGroundedControlAnswer(input: {
     };
   }
 
-  if (
-    profile.portfolioUrl &&
-    hasExactControlSignal(control, PORTFOLIO_SIGNALS)
-  ) {
+  const portfolioUrl =
+    profile.portfolioUrl ?? resolvePreferredProfileLink(profile, "portfolio");
+  if (portfolioUrl && hasExactControlSignal(control, PORTFOLIO_SIGNALS)) {
     return {
-      value: profile.portfolioUrl,
+      value: portfolioUrl,
       kind: "portfolio",
       sourceKind: "profile",
       sourceId: profile.id,
@@ -782,12 +887,12 @@ function getGroundedControlAnswer(input: {
     };
   }
 
-  if (
-    profile.personalWebsiteUrl &&
-    hasExactControlSignal(control, WEBSITE_SIGNALS)
-  ) {
+  const personalWebsiteUrl =
+    profile.personalWebsiteUrl ??
+    resolvePreferredProfileLink(profile, "website");
+  if (personalWebsiteUrl && hasExactControlSignal(control, WEBSITE_SIGNALS)) {
     return {
-      value: profile.personalWebsiteUrl,
+      value: personalWebsiteUrl,
       kind: "portfolio",
       sourceKind: "profile",
       sourceId: profile.id,
@@ -966,29 +1071,29 @@ async function inspectApplicationPage(
       .innerText({ timeout: 5_000 })
       .then((text) => text.slice(0, 20_000))
       .catch(() => ""),
-    page
-      .locator("iframe")
-      .evaluateAll((elements) =>
-        elements.flatMap((element) => {
-          const htmlElement = element as HTMLElement;
-          const style = window.getComputedStyle(htmlElement);
-          const visible =
-            style.display !== "none" &&
-            style.visibility !== "hidden" &&
-            style.opacity !== "0" &&
-            htmlElement.getClientRects().length > 0;
-          if (!visible) {
-            return [];
-          }
-          return [[
+    page.locator("iframe").evaluateAll((elements) =>
+      elements.flatMap((element) => {
+        const htmlElement = element as HTMLElement;
+        const style = window.getComputedStyle(htmlElement);
+        const visible =
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          style.opacity !== "0" &&
+          htmlElement.getClientRects().length > 0;
+        if (!visible) {
+          return [];
+        }
+        return [
+          [
             element.getAttribute("title"),
             element.getAttribute("name"),
             element.getAttribute("src"),
           ]
             .filter((value): value is string => Boolean(value))
-            .join(" ")];
-        }),
-      ),
+            .join(" "),
+        ];
+      }),
+    ),
   ]);
 
   return {
@@ -1026,7 +1131,7 @@ async function clickCurrentSafeActionBySignature(input: {
   }
 
   const action = matchingActions[0]!;
-  if (!isSafeApplicationAdvance(action)) {
+  if (!isSafeApplicationAdvance(action, inspection)) {
     return { status: "unsafe", action };
   }
 
@@ -1074,7 +1179,7 @@ async function clickCurrentSafeActionBySignature(input: {
     !handleAction.visible ||
     handleAction.disabled ||
     createActionSemanticSignature(handleAction) !== input.expectedSignature ||
-    !isSafeApplicationAdvance(handleAction)
+    !isSafeApplicationAdvance(handleAction, inspection)
   ) {
     return { status: "changed", action: handleAction };
   }
@@ -1086,6 +1191,11 @@ async function clickCurrentSafeActionBySignature(input: {
 function detectPageBlocker(
   inspection: ApplicationPageInspection,
 ): DetectedPageBlocker | null {
+  const visiblePageSignal = normalizeControlSignal(
+    [inspection.title, inspection.bodyText]
+      .filter((value): value is string => Boolean(value))
+      .join(" "),
+  );
   const bodySignal = normalizeControlSignal(
     [inspection.title, inspection.bodyText, ...inspection.frameHints]
       .filter((value): value is string => Boolean(value))
@@ -1096,7 +1206,7 @@ function detectPageBlocker(
   );
   const captchaVisible =
     /\b(?:captcha|recaptcha|hcaptcha|verify you are human|human verification|security challenge|cloudflare challenge)\b/u.test(
-      bodySignal,
+      visiblePageSignal,
     );
   const visibleActionLabels = inspection.actions
     .filter((action) => action.visible && !action.disabled)
@@ -1272,6 +1382,9 @@ function toStableIdSegment(value: string): string {
 }
 
 function getQuestionPrompt(control: InspectedFormControl): string {
+  if (isPhoneCountryCodeControl(control)) {
+    return "Phone country code";
+  }
   return (
     control.groupLabel ||
     control.label ||
@@ -1406,7 +1519,24 @@ async function fillGroundedControl(input: {
     .nth(input.control.index);
 
   if (input.control.inputType === "file") {
-    await locator.setInputFiles(input.answer.value);
+    if (input.answer.fileName) {
+      const extension = extname(input.answer.fileName).toLowerCase();
+      const mimeType =
+        extension === ".pdf"
+          ? "application/pdf"
+          : extension === ".docx"
+            ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            : extension === ".doc"
+              ? "application/msword"
+              : "application/octet-stream";
+      await locator.setInputFiles({
+        name: input.answer.fileName,
+        mimeType,
+        buffer: await readFile(input.answer.value),
+      });
+    } else {
+      await locator.setInputFiles(input.answer.value);
+    }
     return "filled";
   }
 
@@ -1415,16 +1545,26 @@ async function fillGroundedControl(input: {
   }
 
   if (input.control.tagName === "select") {
-    const matchingOption = input.control.options.find(
-      (option) =>
-        normalizeControlSignal(option) ===
-        normalizeControlSignal(input.answer.value),
+    const normalizedAnswer = normalizeControlSignal(input.answer.value);
+    const isCountryControl = hasExactControlSignal(
+      input.control,
+      COUNTRY_SIGNALS,
     );
+    const isPhoneCountryControl = isPhoneCountryCodeControl(input.control);
+    const matchingOption = input.control.options.find((option) => {
+      const normalizedOption = normalizeControlSignal(option);
+      return (
+        normalizedOption === normalizedAnswer ||
+        (isPhoneCountryControl && normalizedOption.includes(normalizedAnswer)) ||
+        (isCountryControl &&
+          normalizedOption.startsWith(`${normalizedAnswer} `) &&
+          /\+\d{1,4}/u.test(option))
+      );
+    });
     if (!matchingOption) {
       return "unsupported";
     }
 
-    const normalizedAnswer = normalizeControlSignal(input.answer.value);
     const normalizedCurrentValue = normalizeControlSignal(input.control.value);
     const normalizedSelectedLabel = normalizeControlSignal(
       input.control.selectedOptionLabel,
@@ -1455,19 +1595,87 @@ async function fillGroundedControl(input: {
   }
 
   if (input.control.value.trim()) {
-    return normalizeControlSignal(input.control.value) ===
-      normalizeControlSignal(input.answer.value)
+    return groundedAnswerPersisted(input.control, input.answer)
       ? "already_matches"
       : "mismatch";
   }
 
   await locator.fill(input.answer.value);
+  if (input.answer.provenanceLabel === "Candidate profile phone") {
+    // Greenhouse's international-phone control commits its React state on
+    // blur. Without this, the digits can remain visibly present while the
+    // widget later replaces the underlying input during validation.
+    await locator.blur();
+  }
   return "filled";
+}
+
+function groundedAnswerPersisted(
+  control: InspectedFormControl,
+  answer: GroundedControlAnswer,
+): boolean {
+  if (control.inputType === "file") {
+    return Boolean(control.value.trim());
+  }
+
+  const normalizedAnswer = normalizeControlSignal(answer.value);
+  const normalizedValues = [control.value, control.selectedOptionLabel]
+    .map(normalizeControlSignal)
+    .filter(Boolean);
+  if (normalizedValues.includes(normalizedAnswer)) {
+    return true;
+  }
+
+  // International phone widgets commonly keep the country selector and the
+  // national number as separate controls while rendering the text input back
+  // as a fully formatted number (for example, `(+383) 44283970`). The grounded
+  // answer intentionally strips the selected calling code before filling that
+  // input, so compare canonical digits as well as presentation text. Limit the
+  // equivalence to an exact phone control and a plausible 1-4 digit calling
+  // code prefix; this must not make arbitrary field mismatches look valid.
+  if (
+    !isPhoneCountryCodeControl(control) &&
+    (answer.provenanceLabel === "Candidate profile phone" ||
+      hasExactControlSignal(control, PHONE_SIGNALS))
+  ) {
+    const answerDigits = answer.value.replace(/\D/gu, "");
+    const persistedPhoneMatches = [
+      control.value,
+      control.selectedOptionLabel,
+    ].some((value) => {
+      const persistedDigits = value.replace(/\D/gu, "");
+      const prefixLength = persistedDigits.length - answerDigits.length;
+      const answerPrefixLength = answerDigits.length - persistedDigits.length;
+      return (
+        answerDigits.length >= 6 &&
+        ((prefixLength >= 0 &&
+          prefixLength <= 4 &&
+          persistedDigits.endsWith(answerDigits)) ||
+          (persistedDigits.length >= 6 &&
+            answerPrefixLength >= 1 &&
+            answerPrefixLength <= 4 &&
+            answerDigits.endsWith(persistedDigits)))
+      );
+    });
+    if (persistedPhoneMatches) {
+      return true;
+    }
+  }
+
+  return (
+    control.tagName === "select" &&
+    ((isPhoneCountryCodeControl(control) &&
+      normalizedValues.some((value) => value.includes(normalizedAnswer))) ||
+      (hasExactControlSignal(control, COUNTRY_SIGNALS) &&
+        normalizedValues.some((value) =>
+          value.startsWith(`${normalizedAnswer} `),
+        )))
+  );
 }
 
 function hasFinalApplicationWording(action: InspectedActionControl): boolean {
   const label = normalizeControlSignal(action.label);
-  return /\b(?:submit|send|finish|complete|apply|confirm)\b/u.test(label);
+  return /\b(?:submit|send|finish|complete|confirm)\b/u.test(label);
 }
 
 function hasFinalApplicationPageEvidence(
@@ -1491,18 +1699,42 @@ function isFinalApplicationAction(
     return true;
   }
 
+  const normalizedLabel = normalizeControlSignal(action.label);
+  const applicationFormVisible = inspection.controls.some(
+    (control) =>
+      control.visible &&
+      (control.required ||
+        control.invalid ||
+        isResumeUploadControl(control)),
+  );
+  if (
+    new Set(["apply", "apply now"]).has(normalizedLabel) &&
+    (applicationFormVisible || hasFinalApplicationPageEvidence(inspection))
+  ) {
+    return true;
+  }
+
   return (
     action.type === "submit" && hasFinalApplicationPageEvidence(inspection)
   );
 }
 
-function isSafeApplicationAdvance(action: InspectedActionControl): boolean {
-  if (action.type === "submit" || hasFinalApplicationWording(action)) {
+function isSafeApplicationAdvance(
+  action: InspectedActionControl,
+  inspection: ApplicationPageInspection,
+): boolean {
+  if (
+    action.type === "submit" ||
+    hasFinalApplicationWording(action) ||
+    isFinalApplicationAction(action, inspection)
+  ) {
     return false;
   }
 
   const label = normalizeControlSignal(action.label);
   return new Set([
+    "apply",
+    "apply now",
     "next",
     "continue",
     "continue application",
@@ -1542,6 +1774,7 @@ function createPreparationConsentDecisions(input: {
   jobId: string;
   now: string;
   questions: readonly ApplicationAttemptQuestion[];
+  usesOriginalResume: boolean;
   manualDecisionLabel?: string;
 }) {
   const resumeAttached = input.questions.some(
@@ -1557,11 +1790,14 @@ function createPreparationConsentDecisions(input: {
           {
             id: `consent_${input.jobId}_resume_use`,
             kind: "resume_use" as const,
-            label: "Use the approved tailored resume for this application",
+            label: input.usesOriginalResume
+              ? "Use the selected original resume for this application"
+              : "Use the approved tailored resume for this application",
             status: "approved" as const,
             decidedAt: input.now,
-            detail:
-              "The approved tailored resume was attached during prepare-only automation.",
+            detail: input.usesOriginalResume
+              ? "The exact original resume selected by the user was attached during prepare-only automation."
+              : "The approved tailored resume was attached during prepare-only automation.",
           },
         ]
       : []),
@@ -1632,6 +1868,8 @@ export function buildPreparationResult(input: {
       jobId: input.executionInput.job.id,
       now: input.now,
       questions,
+      usesOriginalResume:
+        input.executionInput.resumeArtifact.source === "original_upload",
       ...(input.manualDecisionLabel
         ? { manualDecisionLabel: input.manualDecisionLabel }
         : {}),
@@ -1729,14 +1967,28 @@ export async function runGenericApplicationPreparation(input: {
 
   const buildGuardSafetyStop = (
     attempt: PrepareOnlyBlockedAttempt,
+    interruptedField?: {
+      kind: ApplicationAttemptQuestion["kind"];
+      label: string;
+    },
   ): ApplyExecutionResult => {
-    const mechanism = attempt.kind.replaceAll("_", " ");
-    const detail = `The prepare-only safety guard blocked a ${attempt.method} ${mechanism} attempt triggered by the application page. The guarded action was not allowed to reach the network, and automation stopped instead of assuming the page remained safe.`;
+    const resumeInterrupted = interruptedField?.kind === "resume";
+    const fieldLabel = interruptedField?.label || "application field";
+    const summary = resumeInterrupted
+      ? "Resume attachment needs your help"
+      : "The application page could not safely save a prepared field";
+    const detail = resumeInterrupted
+      ? `The application site tried to upload the approved CV while '${fieldLabel}' was being prepared, but this run did not have permission for that external save. Your other confirmed fields remain in the open browser. Approve preparation and retry, or attach the selected CV there manually; Job Finder will still never activate the final submit control.`
+      : `The application site tried to save '${fieldLabel}' while it was being prepared, but this run did not have permission for that external save. Job Finder stopped and left the application open instead of risking a final submission.`;
     return buildManualSafetyStop({
-      summary: "Prepare-only guard blocked a mutating page action",
+      summary,
       detail,
-      checkpointLabel: "Paused after the prepare-only guard intervened",
-      nextActionLabel: "Review and continue this application manually",
+      checkpointLabel: resumeInterrupted
+        ? "Paused before the resume could be attached"
+        : "Paused before the application field could be saved",
+      nextActionLabel: resumeInterrupted
+        ? "Approve preparation and retry resume attachment"
+        : "Review the open application and retry preparation",
     });
   };
 
@@ -1868,6 +2120,7 @@ export async function runGenericApplicationPreparation(input: {
     for (const inspectedControl of inspection.controls) {
       const controlSignature = createControlSemanticSignature(inspectedControl);
       let control: InspectedFormControl;
+      let currentControls: readonly InspectedFormControl[];
 
       try {
         const guard = await ensurePrepareOnlyMutationGuard(
@@ -1880,6 +2133,7 @@ export async function runGenericApplicationPreparation(input: {
         }
 
         const currentInspection = await inspectApplicationPage(currentPage);
+        currentControls = currentInspection.controls;
         const matchingControls = currentInspection.controls.filter(
           (candidate) =>
             createControlSemanticSignature(candidate) === controlSignature,
@@ -1910,8 +2164,10 @@ export async function runGenericApplicationPreparation(input: {
 
       const answer = getGroundedControlAnswer({
         control,
+        controls: currentControls,
         profile: executionInput.profile,
         resumeFilePath: executionInput.resumeArtifact.filePath,
+        resumeFileName: executionInput.resumeArtifact.fileName,
         resumeArtifactId: executionInput.resumeArtifact.id,
         resumeProvenanceLabel:
           executionInput.resumeArtifact.source === "original_upload"
@@ -1947,7 +2203,10 @@ export async function runGenericApplicationPreparation(input: {
         });
       }
       if (blockedAttempt) {
-        return buildGuardSafetyStop(blockedAttempt);
+        return buildGuardSafetyStop(blockedAttempt, {
+          kind: answer.kind,
+          label: getQuestionPrompt(control),
+        });
       }
 
       if (fillResult === "mismatch") {
@@ -1991,6 +2250,113 @@ export async function runGenericApplicationPreparation(input: {
         return buildGuardSafetyStop(blockedAttempt);
       }
       inspection = await inspectApplicationPage(currentPage);
+
+      // File uploads and controlled form widgets can rerender the application
+      // form after earlier fields were filled. Give the page a brief settling
+      // window, then restore any exact grounded value that was cleared before
+      // we declare the form ready for the user.
+      await currentPage.waitForTimeout(500);
+      inspection = await inspectApplicationPage(currentPage);
+      for (const inspectedControl of inspection.controls) {
+        if (
+          inspectedControl.inputType === "file" ||
+          inspectedControl.disabled ||
+          inspectedControl.readOnly ||
+          inspectedControl.inputType === "hidden"
+        ) {
+          continue;
+        }
+
+        const answer = getGroundedControlAnswer({
+          control: inspectedControl,
+          controls: inspection.controls,
+          profile: executionInput.profile,
+          resumeFilePath: executionInput.resumeArtifact.filePath,
+          resumeFileName: executionInput.resumeArtifact.fileName,
+          resumeArtifactId: executionInput.resumeArtifact.id,
+          resumeProvenanceLabel:
+            executionInput.resumeArtifact.source === "original_upload"
+              ? "Original resume selected by the user"
+              : "Approved tailored resume export",
+        });
+        if (!answer || groundedAnswerPersisted(inspectedControl, answer)) {
+          continue;
+        }
+
+        try {
+          const valueAfterRemovingSelectedCode = stripSelectedCallingCode(
+            inspectedControl.value,
+            inspection.controls,
+          );
+          const canCorrectDuplicatedPhoneCode =
+            answer.kind === "personal_info" &&
+            !isPhoneCountryCodeControl(inspectedControl) &&
+            valueAfterRemovingSelectedCode !== inspectedControl.value &&
+            normalizeControlSignal(valueAfterRemovingSelectedCode) ===
+              normalizeControlSignal(answer.value);
+          await fillGroundedControl({
+            page: currentPage,
+            control: canCorrectDuplicatedPhoneCode
+              ? { ...inspectedControl, value: "" }
+              : inspectedControl,
+            answer,
+          });
+        } catch {
+          // The persisted-value verification below turns this into a visible
+          // manual-review stop instead of reporting a false ready state.
+        }
+      }
+      // Controlled ATS widgets can briefly expose the requested value, clear
+      // it during an asynchronous rerender, and restore their committed state
+      // after a provider-side validation finishes. Require several consecutive
+      // good observations rather than treating the first good frame as stable.
+      // Normal forms add only a short quiet-period check. Once a transient
+      // mismatch is observed, keep sampling within a bounded recovery window
+      // before asking the user to repair a value that the provider may still
+      // restore on its own. These samples are read-only and the final-submit
+      // guard remains installed throughout.
+      let consecutiveStableSamples = 0;
+      for (
+        let settleAttempt = 0;
+        settleAttempt < MAX_TRANSIENT_FORM_SAMPLES;
+        settleAttempt += 1
+      ) {
+        await currentPage.waitForTimeout(FORM_STABILITY_SAMPLE_INTERVAL_MS);
+        inspection = await inspectApplicationPage(currentPage);
+        const hasUnpersistedGroundedValue = inspection.controls.some(
+          (candidate) => {
+            if (
+              candidate.disabled ||
+              candidate.readOnly ||
+              candidate.inputType === "hidden"
+            ) {
+              return false;
+            }
+            const candidateAnswer = getGroundedControlAnswer({
+              control: candidate,
+              controls: inspection.controls,
+              profile: executionInput.profile,
+              resumeFilePath: executionInput.resumeArtifact.filePath,
+              resumeFileName: executionInput.resumeArtifact.fileName,
+              resumeArtifactId: executionInput.resumeArtifact.id,
+              resumeProvenanceLabel:
+                executionInput.resumeArtifact.source === "original_upload"
+                  ? "Original resume selected by the user"
+                  : "Approved tailored resume export",
+            });
+            return Boolean(
+              candidateAnswer &&
+                !groundedAnswerPersisted(candidate, candidateAnswer),
+            );
+          },
+        );
+        consecutiveStableSamples = hasUnpersistedGroundedValue
+          ? 0
+          : consecutiveStableSamples + 1;
+        if (consecutiveStableSamples >= REQUIRED_STABLE_FORM_SAMPLES) {
+          break;
+        }
+      }
     } catch (error) {
       const detail = `The application page could not be safely re-inspected after autofill, so the runtime stopped before choosing any page action: ${describeUnknownError(error, "Unknown post-fill inspection failure.")}`;
       return buildManualSafetyStop({
@@ -2014,6 +2380,56 @@ export async function runGenericApplicationPreparation(input: {
         nextActionLabel: "Review the conflicting application fields manually",
         lastUrl: inspection.url,
         questionIds: mismatchedQuestions.map((question) => question.id),
+      });
+    }
+
+    const unpersistedQuestions: ApplicationAttemptQuestion[] = [];
+    for (const control of inspection.controls) {
+      if (
+        control.disabled ||
+        control.readOnly ||
+        control.inputType === "hidden"
+      ) {
+        continue;
+      }
+      const answer = getGroundedControlAnswer({
+        control,
+        controls: inspection.controls,
+        profile: executionInput.profile,
+        resumeFilePath: executionInput.resumeArtifact.filePath,
+        resumeFileName: executionInput.resumeArtifact.fileName,
+        resumeArtifactId: executionInput.resumeArtifact.id,
+        resumeProvenanceLabel:
+          executionInput.resumeArtifact.source === "original_upload"
+            ? "Original resume selected by the user"
+            : "Approved tailored resume export",
+      });
+      if (!answer || groundedAnswerPersisted(control, answer)) {
+        continue;
+      }
+
+      const question = buildGroundedMismatchQuestion({
+        jobId: executionInput.job.id,
+        step,
+        control,
+        answer,
+        now: new Date().toISOString(),
+      });
+      const questionKey = `${question.kind}:${normalizeControlSignal(question.prompt)}`;
+      questions.set(questionKey, question);
+      unpersistedQuestions.push(question);
+    }
+
+    if (unpersistedQuestions.length > 0) {
+      const detail =
+        "One or more exact profile fields did not remain filled after the application page finished updating. The runtime retried those fields, verified the visible form, and stopped instead of reporting a false ready state.";
+      return buildManualSafetyStop({
+        summary: "Prepared application fields need manual review",
+        detail,
+        checkpointLabel: "Paused after a prepared field was cleared",
+        nextActionLabel: "Review the highlighted application fields manually",
+        lastUrl: inspection.url,
+        questionIds: unpersistedQuestions.map((question) => question.id),
       });
     }
 
@@ -2120,7 +2536,9 @@ export async function runGenericApplicationPreparation(input: {
       });
     }
 
-    const safeAdvance = actionableControls.find(isSafeApplicationAdvance);
+    const safeAdvance = actionableControls.find((action) =>
+      isSafeApplicationAdvance(action, inspection),
+    );
     if (!safeAdvance) {
       const detail =
         "The page exposes no clearly non-final Next, Continue, or Review control. The runtime stopped instead of guessing which action is safe.";

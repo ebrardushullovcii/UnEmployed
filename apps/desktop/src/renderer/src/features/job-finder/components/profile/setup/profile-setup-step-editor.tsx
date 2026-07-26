@@ -4,6 +4,7 @@ import {
   type JobSearchPreferences,
   type ProfileSetupStep,
   type ResumeImportFieldCandidateSummary,
+  type ResumeImportProgressEvent,
 } from '@unemployed/contracts'
 import type { UseFieldArrayReturn, UseFormReturn } from 'react-hook-form'
 import { Button } from '@renderer/components/ui/button'
@@ -63,6 +64,7 @@ export function ProfileSetupStepEditor(props: {
   isImportResumePending: boolean
   isProfileSetupPending: boolean
   latestResumeImportReviewCandidates: readonly ResumeImportFieldCandidateSummary[]
+  resumeImportProgress: ResumeImportProgressEvent | null
   onContinueToProfile: () => void
   onImportResume: () => void
   onSaveCurrentStep: () => void
@@ -102,8 +104,16 @@ export function ProfileSetupStepEditor(props: {
       (item) => item.step === 'narrative' && item.status === 'pending',
     ),
   })
+  const hasChosenWorkMode = props.draftSearchPreferences.workModes.length > 0
+  const needsRemoteEligibilityAnswer =
+    props.draftSearchPreferences.workModes.includes('remote') &&
+    props.draftProfile.workEligibility.remoteEligible === null
   const discoveryStatus = getReadinessStatus({
-    hasSignal: readiness.hasTargeting && readiness.hasEligibilityPreferences,
+    hasSignal:
+      readiness.hasTargeting &&
+      readiness.hasEligibilityPreferences &&
+      hasChosenWorkMode &&
+      !needsRemoteEligibilityAnswer,
     hasReviewItems: props.profileSetupReviewItems.some(
       (item) =>
         (item.step === 'essentials' || item.step === 'targeting') &&
@@ -189,6 +199,7 @@ export function ProfileSetupStepEditor(props: {
           isImportResumePending={props.isImportResumePending}
           isProfileSetupPending={props.isProfileSetupPending}
           latestResumeImportReviewCandidates={props.latestResumeImportReviewCandidates}
+          resumeImportProgress={props.resumeImportProgress}
           onContinueToProfile={props.onContinueToProfile}
           onImportResume={props.onImportResume}
           onSaveAndGoToStep={props.onSaveAndGoToStep}
@@ -271,11 +282,12 @@ export function ProfileSetupStepEditor(props: {
       return (
         <ProfileSetupReadyCheckStep
           applyStatus={applyStatus}
-          blockingPendingItemsCount={blockingPendingItems.length}
+          blockingPendingItems={blockingPendingItems}
           canFinishSetup={canFinishSetup}
           discoveryStatus={discoveryStatus}
           getReadinessTone={getReadinessTone}
           narrativeStatus={narrativeStatus}
+          onGoToStep={props.onSaveAndGoToStep}
           onSaveAndFinish={props.onSaveAndFinish}
           renderFooter={renderFooter}
         />

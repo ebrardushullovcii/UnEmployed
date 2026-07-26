@@ -10,7 +10,10 @@ import {
   getAttemptTone,
 } from "@renderer/features/job-finder/lib/job-finder-utils";
 import { StatusBadge } from "../../components/status-badge";
-import { formatVisibleRunId } from "./applications-detail-panel-helpers";
+import {
+  formatVisibleRunId,
+  getCustomerFacingApplyText,
+} from "./applications-detail-panel-helpers";
 import {
   getApplicationNextStepLabel,
   getApplicationReadableNextStepLabel,
@@ -28,8 +31,8 @@ export function ApplicationsDetailPanelOverviewSections(props: {
     selectedAttempt?.nextActionLabel ?? selectedRecord.nextActionLabel ?? null;
   const readableHighlightedNextStep =
     getApplicationReadableNextStepLabel(highlightedNextStep) ?? highlightedNextStep;
-  const attemptSummary = selectedAttempt?.summary?.trim() || null;
-  const attemptDetail = selectedAttempt?.detail?.trim() || null;
+  const attemptSummary = getCustomerFacingApplyText(selectedAttempt?.summary);
+  const attemptDetail = getCustomerFacingApplyText(selectedAttempt?.detail);
   const savedNextStepLabel = getApplicationNextStepLabel(selectedRecord);
   const readableSavedNextStepLabel =
     getApplicationReadableNextStepLabel(savedNextStepLabel) ?? savedNextStepLabel;
@@ -136,7 +139,7 @@ export function ApplicationsDetailPanelOverviewSections(props: {
           </strong>
           {selectedRecord.latestBlocker ? (
             <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">
-              {selectedRecord.latestBlocker.summary}
+              {getCustomerFacingApplyText(selectedRecord.latestBlocker.summary)}
             </p>
           ) : null}
         </div>
@@ -190,7 +193,7 @@ export function ApplicationsDetailPanelOverviewSections(props: {
             ) : null}
             {visibleApplyResult.blockerSummary ? (
               <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">
-                {visibleApplyResult.blockerSummary}
+                {getCustomerFacingApplyText(visibleApplyResult.blockerSummary)}
               </p>
             ) : null}
             <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">

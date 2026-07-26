@@ -138,9 +138,9 @@ export function DiscoverySessionSummary(props: {
 
       <Link
         className="text-(length:--text-small) font-medium text-primary underline-offset-4 hover:underline"
-        to={JOB_FINDER_ROUTE_HREFS.profile.slice(1)}
+        to={JOB_FINDER_ROUTE_HREFS.profileSources.slice(1)}
       >
-        Edit search in Profile
+        Edit search sources and preferences
       </Link>
     </>
   )
@@ -343,7 +343,21 @@ export function DiscoveryFiltersFooter(props: {
   } = props
 
   return (
-    <div className="mt-auto grid gap-3 border-t border-(--surface-panel-border) px-4 py-4">
+    <div className="grid gap-3 border-b border-(--surface-panel-border) px-4 py-4">
+      {onRunAgentDiscovery ? (
+        <Button
+          className="h-auto min-h-12 w-full whitespace-normal px-4 py-3 text-center normal-case tracking-(--tracking-normal)"
+          disabled={!canRunDiscovery}
+          pending={isDiscoveryAllPending}
+          onClick={onRunAgentDiscovery}
+          size="sm"
+          type="button"
+          variant="primary"
+        >
+          Search jobs
+        </Button>
+      ) : null}
+
       <div className="grid gap-2">
         <Button
           className="h-auto min-h-12 w-full justify-start whitespace-normal px-4 py-3 text-left normal-case tracking-(--tracking-normal)"
@@ -383,20 +397,6 @@ export function DiscoveryFiltersFooter(props: {
         <History className="size-4" />
         Search history
       </Button>
-
-      {onRunAgentDiscovery ? (
-        <Button
-          className="h-auto min-h-12 w-full whitespace-normal px-4 py-3 text-center normal-case tracking-(--tracking-normal)"
-          disabled={!canRunDiscovery}
-          pending={isDiscoveryAllPending}
-          onClick={onRunAgentDiscovery}
-          size="sm"
-          type="button"
-          variant="primary"
-        >
-          Search jobs
-        </Button>
-      ) : null}
 
       {actionMessage ? (
         <p

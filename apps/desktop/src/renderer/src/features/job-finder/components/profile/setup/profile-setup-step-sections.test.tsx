@@ -68,6 +68,7 @@ describe('ProfileSetupImportStep', () => {
           isImportResumePending={false}
           isProfileSetupPending={false}
           latestResumeImportReviewCandidates={[]}
+          resumeImportProgress={null}
           onContinueToProfile={vi.fn()}
           onImportResume={vi.fn()}
           onSaveAndGoToStep={vi.fn()}
@@ -78,7 +79,7 @@ describe('ProfileSetupImportStep', () => {
       )
     })
 
-    const importButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent?.includes('Import or refresh resume'))
+    const importButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent?.toLowerCase().includes('resume'))
     expect(importButton?.hasAttribute('disabled')).toBe(true)
     expect(container?.textContent).toContain('Save your current profile or setup draft before importing or refreshing from resume so those unsaved edits do not get overwritten.')
   })
@@ -158,6 +159,7 @@ describe('ProfileSetupImportStep', () => {
               ],
             }),
           ]}
+          resumeImportProgress={null}
           onContinueToProfile={vi.fn()}
           onImportResume={vi.fn()}
           onSaveAndGoToStep={vi.fn()}

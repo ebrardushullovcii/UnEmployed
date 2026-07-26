@@ -4,7 +4,10 @@ import type * as childProcess from "node:child_process";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ApplyExecutionResult } from "@unemployed/contracts";
+import type {
+  ApplyExecutionResult,
+  CandidateProfile,
+} from "@unemployed/contracts";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 interface FakeFormControl {
@@ -27,6 +30,8 @@ interface FakeFormControl {
   checked: boolean;
   options: string[];
   selectedOptionLabel: string;
+  valueAfterFill: string | undefined;
+  valuesAfterWaits: string[];
 }
 
 interface FakeActionControl {
@@ -66,6 +71,7 @@ interface FakeApplicationState {
   selectedOptions: Map<string, string>;
   guardInstallCount: number;
   networkGuardInstallCount: number;
+  waitCount: number;
   guardBlockedAttempts: Array<{
     kind: "dom_submit" | "form_request_submit" | "fetch" | "xhr";
     method: string;
@@ -73,6 +79,14 @@ interface FakeApplicationState {
     at: string;
   }>;
 }
+
+type FakeUploadedFile =
+  | string
+  | {
+      name: string;
+      mimeType: string;
+      buffer: Buffer;
+    };
 
 const execFileMock = vi.fn();
 const spawnMock = vi.fn();
@@ -166,6 +180,8 @@ function createFakeApplicationPage(stepsInput: readonly FakeApplicationStep[]) {
       checked: control.checked ?? false,
       options: [...(control.options ?? [])],
       selectedOptionLabel: control.selectedOptionLabel ?? "",
+      valueAfterFill: control.valueAfterFill,
+      valuesAfterWaits: [...(control.valuesAfterWaits ?? [])],
     })),
     actions: (step.actions ?? []).map((action, index) => ({
       index,
@@ -195,6 +211,7 @@ function createFakeApplicationPage(stepsInput: readonly FakeApplicationStep[]) {
     selectedOptions: new Map(),
     guardInstallCount: 0,
     networkGuardInstallCount: 0,
+    waitCount: 0,
     guardBlockedAttempts: [],
   };
   let stepIndex = 0;
@@ -233,23 +250,25 @@ function createFakeApplicationPage(stepsInput: readonly FakeApplicationStep[]) {
   };
 
   const createControlLocator = (index: number) => ({
+    blur: () => Promise.resolve(),
     fill: (value: string) => {
       const control = currentStep().controls[index];
       if (!control) {
         throw new Error(`Missing fake form control ${index}.`);
       }
-      control.value = value;
+      control.value = control.valueAfterFill ?? value;
       state.filledValues.set(control.label, value);
       applyMutationEffects(control);
       return Promise.resolve();
     },
-    setInputFiles: (filePath: string) => {
+    setInputFiles: (file: FakeUploadedFile) => {
       const control = currentStep().controls[index];
       if (!control) {
         throw new Error(`Missing fake file control ${index}.`);
       }
-      control.value = filePath;
-      state.uploadedFiles.set(control.label, filePath);
+      const displayedFileName = typeof file === "string" ? file : file.name;
+      control.value = displayedFileName;
+      state.uploadedFiles.set(control.label, displayedFileName);
       applyMutationEffects(control);
       return Promise.resolve();
     },
@@ -324,6 +343,16 @@ function createFakeApplicationPage(stepsInput: readonly FakeApplicationStep[]) {
       return Promise.resolve(null);
     }),
     waitForLoadState: vi.fn().mockResolvedValue(undefined),
+    waitForTimeout: vi.fn().mockImplementation(() => {
+      state.waitCount += 1;
+      for (const control of currentStep().controls) {
+        const nextValue = control.valuesAfterWaits.shift();
+        if (nextValue !== undefined) {
+          control.value = nextValue;
+        }
+      }
+      return Promise.resolve(undefined);
+    }),
     route: vi.fn().mockImplementation(() => {
       state.networkGuardInstallCount += 1;
       return Promise.resolve(undefined);
@@ -449,7 +478,7 @@ function createTestJob() {
   };
 }
 
-function createTestProfile() {
+function createTestProfile(): CandidateProfile {
   return {
     id: "candidate_prepare_runtime",
     firstName: "Alex",
@@ -565,7 +594,11 @@ async function runApplicationScenario(input: {
   steps: readonly FakeApplicationStep[];
   mode?: "prepare_only" | "submit_when_ready";
   submitAuthorized?: boolean;
+  intermediateMutationsAuthorized?: boolean;
   applicationUrl?: string | null;
+  profile?: ReturnType<typeof createTestProfile>;
+  resumeSource?: "original_upload" | "tailored_export";
+  resumeFileName?: string;
 }): Promise<{
   result: ApplyExecutionResult;
   state: FakeApplicationState;
@@ -623,16 +656,22 @@ async function runApplicationScenario(input: {
       resumeArtifact: {
         id: "application_resume_prepare_runtime",
         jobId: "job_prepare_runtime",
-        source: "tailored_export" as const,
+        source: input.resumeSource ?? ("tailored_export" as const),
         sourceDocumentId: null,
         exportArtifactId: "resume_export_prepare_runtime",
-        fileName: "resume.pdf",
+        fileName: input.resumeFileName ?? "resume.pdf",
         filePath: resumeFilePath,
         approvedAt: "2026-03-20T10:00:00.000Z",
       },
-      profile: createTestProfile(),
+      profile: input.profile ?? createTestProfile(),
       settings: createTestSettings(),
       mode: input.mode ?? ("prepare_only" as const),
+      ...(input.intermediateMutationsAuthorized !== undefined
+        ? {
+            intermediateMutationsAuthorized:
+              input.intermediateMutationsAuthorized,
+          }
+        : {}),
       ...(input.submitAuthorized !== undefined
         ? { submitAuthorized: input.submitAuthorized }
         : {}),
@@ -831,7 +870,7 @@ describe("Playwright prepare-only application flow", () => {
   });
 
   test("fills exact grounded fields, uploads the approved resume, advances non-final steps, and never clicks final submit", async () => {
-    const { result, state, resumeFilePath } = await runApplicationScenario({
+    const { result, state } = await runApplicationScenario({
       submitAuthorized: false,
       steps: [
         {
@@ -887,7 +926,7 @@ describe("Playwright prepare-only application flow", () => {
     expect(state.filledValues.get("First name")).toBe("Alex");
     expect(state.filledValues.get("Email address")).toBe("alex@example.com");
     expect(state.filledValues.get("Phone number")).toBe("+36 30 123 4567");
-    expect(state.uploadedFiles.get("Resume / CV")).toBe(resumeFilePath);
+    expect(state.uploadedFiles.get("Resume / CV")).toBe("resume.pdf");
     expect(state.clickedLabels).toEqual([
       "Next",
       "Continue",
@@ -920,6 +959,398 @@ describe("Playwright prepare-only application flow", () => {
     expect(state.guardInstallCount).toBeGreaterThan(0);
     expect(state.networkGuardInstallCount).toBe(1);
   }, 10_000);
+
+  test("opens a listing-level Apply action before preparing the form", async () => {
+    const { result, state } = await runApplicationScenario({
+      submitAuthorized: false,
+      steps: [
+        {
+          bodyText: "Senior software engineer job listing",
+          actions: [{ label: "Apply" }],
+        },
+        {
+          controls: [
+            {
+              label: "First name",
+              autocomplete: "given-name",
+              required: true,
+            },
+            {
+              label: "Resume / CV",
+              inputType: "file",
+              required: true,
+            },
+          ],
+          actions: [{ label: "Submit application", type: "submit" }],
+        },
+      ],
+    });
+
+    expect(state.clickedLabels).toEqual(["Apply"]);
+    expect(state.filledValues.get("First name")).toBe("Alex");
+    expect(state.uploadedFiles.get("Resume / CV")).toBe("resume.pdf");
+    expect(state.clickedLabels).not.toContain("Submit application");
+    expect(result.summary).toContain("final pre-submit checkpoint");
+  });
+
+  test("never clicks a button-typed Apply control when an application form is already visible", async () => {
+    const { result, state } = await runApplicationScenario({
+      submitAuthorized: false,
+      steps: [
+        {
+          controls: [
+            {
+              label: "First name",
+              autocomplete: "given-name",
+              required: true,
+            },
+            {
+              label: "Resume / CV",
+              inputType: "file",
+              required: true,
+            },
+          ],
+          bodyText: "Complete your application",
+          actions: [{ label: "Apply", type: "button" }],
+        },
+      ],
+    });
+
+    expect(state.clickedLabels).not.toContain("Apply");
+    expect(result.summary).toBe(
+      "Application prepared at the final pre-submit checkpoint",
+    );
+    expect(result.checkpoints.at(-1)?.label).toBe("Paused before final submit");
+    expect(result.submittedAt).toBeNull();
+  });
+
+  test("reuses a confirmed preferred LinkedIn link and removes a separately selected phone calling code", async () => {
+    const profile = createTestProfile();
+    profile.linkedinUrl = null;
+    profile.currentCountry = "Kosovo";
+    profile.phone = "(+383) 44 283 970";
+    profile.applicationIdentity.preferredPhone = "(+383) 44 283 970";
+    profile.links = [
+      {
+        id: "link_linkedin_confirmed",
+        label: "LinkedIn",
+        url: "https://www.linkedin.com/in/alex-vanguard",
+        kind: "linkedin",
+        isDraft: false,
+      },
+    ];
+    profile.applicationIdentity.preferredLinkIds = ["link_linkedin_confirmed"];
+
+    const { result, state } = await runApplicationScenario({
+      intermediateMutationsAuthorized: true,
+      profile,
+      resumeSource: "original_upload",
+      resumeFileName: "Ebrar.pdf",
+      steps: [
+        {
+          controls: [
+            {
+              label: "Country",
+              groupLabel: "Phone",
+              name: "candidate[phone_country]",
+              tagName: "select",
+              value: "",
+              selectedOptionLabel: "",
+              options: ["Kosovo (+383)"],
+            },
+            {
+              label: "Phone",
+              name: "candidate[phone]",
+              inputType: "tel",
+              valueAfterFill: "(+383) 44 283 970",
+            },
+            {
+              label: "LinkedIn Profile",
+              name: "candidate[linkedin]",
+            },
+            {
+              label: "Resume / CV",
+              name: "candidate[resume]",
+              inputType: "file",
+              required: true,
+            },
+          ],
+          bodyText: "Review your application before submission",
+          actions: [{ label: "Submit application", type: "submit" }],
+        },
+      ],
+    });
+
+    expect(state.filledValues.get("Phone")).toBe("44 283 970");
+    expect(state.selectedOptions.get("Country")).toBe("Kosovo (+383)");
+    expect(state.filledValues.get("LinkedIn Profile")).toBe(
+      "https://www.linkedin.com/in/alex-vanguard",
+    );
+    expect(state.uploadedFiles.has("Resume / CV")).toBe(true);
+    expect(state.uploadedFiles.get("Resume / CV")).toBe("Ebrar.pdf");
+    expect(state.clickedLabels).not.toContain("Submit application");
+    expect(result.summary).toContain("final pre-submit checkpoint");
+    expect(result.submittedAt).toBeNull();
+    expect(result.consentDecisions).toContainEqual(
+      expect.objectContaining({
+        kind: "resume_use",
+        label: "Use the selected original resume for this application",
+        detail:
+          "The exact original resume selected by the user was attached during prepare-only automation.",
+      }),
+    );
+  });
+
+  test("accepts a phone widget that restores the selected calling code in its formatted value", async () => {
+    const profile = createTestProfile();
+    profile.phone = "(+383) 44 283 970";
+    profile.applicationIdentity.preferredPhone = "(+383) 44 283 970";
+
+    const { result, state } = await runApplicationScenario({
+      intermediateMutationsAuthorized: true,
+      profile,
+      steps: [
+        {
+          controls: [
+            {
+              label: "Country",
+              groupLabel: "Phone",
+              name: "candidate[phone_country]",
+              tagName: "select",
+              value: "+383",
+              selectedOptionLabel: "Kosovo (+383)",
+              options: ["Kosovo (+383)"],
+            },
+            {
+              label: "Phone",
+              name: "candidate[phone]",
+              inputType: "tel",
+              value: "(+383) 44 283 970",
+            },
+            {
+              label: "Resume / CV",
+              name: "candidate[resume]",
+              inputType: "file",
+              required: true,
+            },
+          ],
+          bodyText: "Review your application before submission",
+          actions: [{ label: "Submit application", type: "submit" }],
+        },
+      ],
+    });
+
+    expect(state.filledValues.has("Phone")).toBe(false);
+    expect(state.uploadedFiles.get("Resume / CV")).toBe("resume.pdf");
+    expect(state.clickedLabels).not.toContain("Submit application");
+    expect(result.summary).toContain("final pre-submit checkpoint");
+    expect(result.submittedAt).toBeNull();
+  });
+
+  test("accepts a formatted phone value when a rerender drops the visible phone label", async () => {
+    const profile = createTestProfile();
+    profile.phone = "(+383) 44 283 970";
+    profile.applicationIdentity.preferredPhone = "(+383) 44 283 970";
+
+    const { result, state } = await runApplicationScenario({
+      intermediateMutationsAuthorized: true,
+      profile,
+      steps: [
+        {
+          controls: [
+            {
+              label: "Country",
+              groupLabel: "Phone",
+              name: "candidate[phone_country]",
+              tagName: "select",
+              value: "+383",
+              selectedOptionLabel: "Kosovo (+383)",
+              options: ["Kosovo (+383)"],
+            },
+            {
+              label: "",
+              name: "candidate[contact_number]",
+              inputType: "tel",
+              autocomplete: "tel",
+              value: "(+383) 44 283 970",
+            },
+            {
+              label: "Resume / CV",
+              name: "candidate[resume]",
+              inputType: "file",
+              required: true,
+            },
+          ],
+          bodyText: "Review your application before submission",
+          actions: [{ label: "Submit application", type: "submit" }],
+        },
+      ],
+    });
+
+    expect(state.uploadedFiles.get("Resume / CV")).toBe("resume.pdf");
+    expect(state.clickedLabels).not.toContain("Submit application");
+    expect(result.summary).toContain("final pre-submit checkpoint");
+    expect(result.submittedAt).toBeNull();
+  });
+
+  test("accepts the national phone digits while the calling-code widget is transiently blank", async () => {
+    const profile = createTestProfile();
+    profile.phone = "(+383) 44 283 970";
+    profile.applicationIdentity.preferredPhone = "(+383) 44 283 970";
+
+    const { result } = await runApplicationScenario({
+      intermediateMutationsAuthorized: true,
+      profile,
+      steps: [
+        {
+          controls: [
+            {
+              label: "Country",
+              groupLabel: "Phone",
+              name: "candidate[phone_country]",
+              tagName: "select",
+              options: ["Kosovo (+383)"],
+            },
+            {
+              label: "Phone",
+              name: "candidate[phone]",
+              inputType: "tel",
+              value: "44 283 970",
+            },
+            {
+              label: "Resume / CV",
+              name: "candidate[resume]",
+              inputType: "file",
+              required: true,
+            },
+          ],
+          bodyText: "Review your application before submission",
+          actions: [{ label: "Submit application", type: "submit" }],
+        },
+      ],
+    });
+
+    expect(result.summary).toContain("final pre-submit checkpoint");
+    expect(result.submittedAt).toBeNull();
+  });
+
+  test("waits through a late controlled-phone rerender before declaring the form ready", async () => {
+    const profile = createTestProfile();
+    profile.phone = "(+383) 44 283 970";
+    profile.applicationIdentity.preferredPhone = "(+383) 44 283 970";
+
+    const { result, state } = await runApplicationScenario({
+      intermediateMutationsAuthorized: true,
+      profile,
+      steps: [
+        {
+          controls: [
+            {
+              label: "Country",
+              groupLabel: "Phone",
+              name: "candidate[phone_country]",
+              tagName: "select",
+              value: "+383",
+              selectedOptionLabel: "Kosovo (+383)",
+              options: ["Kosovo (+383)"],
+            },
+            {
+              label: "Phone",
+              name: "candidate[phone]",
+              inputType: "tel",
+              valueAfterFill: "",
+              valuesAfterWaits: [
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "(+383) 44 283 970",
+                "(+383) 44 283 970",
+                "(+383) 44 283 970",
+              ],
+            },
+            {
+              label: "Resume / CV",
+              name: "candidate[resume]",
+              inputType: "file",
+              required: true,
+            },
+          ],
+          bodyText: "Review your application before submission",
+          actions: [{ label: "Submit application", type: "submit" }],
+        },
+      ],
+    });
+
+    expect(state.waitCount).toBeGreaterThan(10);
+    expect(state.clickedLabels).not.toContain("Submit application");
+    expect(result.summary).toContain("final pre-submit checkpoint");
+    expect(result.submittedAt).toBeNull();
+  });
+
+  test("stops for review when a controlled phone value never persists within the recovery window", async () => {
+    const profile = createTestProfile();
+    profile.phone = "(+383) 44 283 970";
+    profile.applicationIdentity.preferredPhone = "(+383) 44 283 970";
+
+    const { result, state } = await runApplicationScenario({
+      intermediateMutationsAuthorized: true,
+      profile,
+      steps: [
+        {
+          controls: [
+            {
+              label: "Country",
+              groupLabel: "Phone",
+              name: "candidate[phone_country]",
+              tagName: "select",
+              value: "+383",
+              selectedOptionLabel: "Kosovo (+383)",
+              options: ["Kosovo (+383)"],
+            },
+            {
+              label: "Phone",
+              name: "candidate[phone]",
+              inputType: "tel",
+              valueAfterFill: "",
+            },
+            {
+              label: "Resume / CV",
+              name: "candidate[resume]",
+              inputType: "file",
+              required: true,
+            },
+          ],
+          bodyText: "Review your application before submission",
+          actions: [{ label: "Submit application", type: "submit" }],
+        },
+      ],
+    });
+
+    expect(state.waitCount).toBe(31);
+    expect(state.clickedLabels).not.toContain("Submit application");
+    expect(result.summary).toBe(
+      "Prepared application fields need manual review",
+    );
+    expect(result.questions).toContainEqual(
+      expect.objectContaining({
+        prompt: "Phone",
+        kind: "personal_info",
+        status: "detected",
+      }),
+    );
+    expect(result.submittedAt).toBeNull();
+  });
 
   test("re-inspects after autofill and never clicks a Continue position that rerendered into Submit", async () => {
     const { result, state } = await runApplicationScenario({
@@ -1019,12 +1450,10 @@ describe("Playwright prepare-only application flow", () => {
 
     expect(state.clickedLabels).toEqual([]);
     expect(state.guardBlockedAttempts).toHaveLength(1);
-    expect(result.summary).toBe(
-      "Prepare-only guard blocked a mutating page action",
-    );
+    expect(result.summary).toBe("Resume attachment needs your help");
     expect(result.blocker?.code).toBe("requires_manual_review");
     expect(result.checkpoints.at(-1)?.label).toBe(
-      "Paused after the prepare-only guard intervened",
+      "Paused before the resume could be attached",
     );
   });
 
@@ -1052,7 +1481,7 @@ describe("Playwright prepare-only application flow", () => {
     expect(state.clickedLabels).toEqual(["Continue"]);
     expect(state.guardBlockedAttempts).toHaveLength(1);
     expect(result.summary).toBe(
-      "Prepare-only guard blocked a mutating page action",
+      "The application page could not safely save a prepared field",
     );
     expect(result.submittedAt).toBeNull();
     expect(result.outcome).toBeNull();

@@ -1,5 +1,4 @@
-import { Mic, Pencil } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Pencil } from 'lucide-react'
 import type { BrowserSessionState, ReviewQueueItem, SavedJob, TailoredAsset } from '@unemployed/contracts'
 import { Button, ProgressBar } from '@renderer/components/ui'
 import { EmptyState } from '../../components/empty-state'
@@ -14,23 +13,6 @@ import {
   getChecklistTone,
   summarizeSelectedQueueTitles,
 } from './review-queue-mission-panel-helpers'
-
-function buildInterviewHelperHref(job: SavedJob): string {
-  const params = new URLSearchParams({
-    source: 'saved_job',
-    id: job.id,
-    label: `${job.title} at ${job.company}`,
-    role: job.title,
-    company: job.company,
-    sourceUrl: job.canonicalUrl,
-  })
-
-  if (job.summary) {
-    params.set('notes', job.summary)
-  }
-
-  return `/interview-helper?${params.toString()}`
-}
 
 interface ReviewQueueMissionPanelProps {
   actionMessage: string | null
@@ -201,26 +183,7 @@ export function ReviewQueueMissionPanel({
                 </p>
               ) : null}
             </div>
-            {actionMessage ? <p aria-atomic="true" aria-live="polite" className="min-w-0 break-words text-(length:--text-small) leading-6 text-primary" role="status">{actionMessage}</p> : null}
             <div className="grid min-w-0 gap-2.5">
-              <Button
-                className="h-11 w-full justify-start px-4 text-sm font-semibold normal-case tracking-normal"
-                pending={isSelectedJobPending || isPrimaryApplyPending}
-                variant="primary"
-                disabled={isSelectedJobPending || isPrimaryApplyPending || isGenerating || (isGenerationAction ? false : !canApproveApply)}
-                onClick={() => {
-                  if (isGenerationAction) {
-                    onGenerateResume(selectedItem.jobId)
-                    return
-                  }
-
-                  onStartApplyCopilot(selectedItem.jobId)
-                }}
-                type="button"
-              >
-                {primaryActionLabel}
-              </Button>
-
               <div className="grid gap-1.5 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/20 p-2.5">
                 <p className="text-(length:--text-label-mono-xs) uppercase tracking-(--tracking-badge) text-muted-foreground">More actions</p>
                 <div className="grid gap-2">
@@ -272,28 +235,18 @@ export function ReviewQueueMissionPanel({
                 </div>
               </div>
 
-              <Button
-                className="h-auto w-full justify-start px-0 text-left text-sm font-medium normal-case tracking-normal text-foreground-soft hover:text-foreground"
-                onClick={() => onEditResumeWorkspace(selectedItem.jobId)}
-                size="sm"
-                type="button"
-                variant="ghost"
-              >
-                <Pencil aria-hidden="true" className="size-4" focusable="false" />
-                Open resume workspace
-              </Button>
-              <Button
-                asChild
-                className="h-auto w-full justify-start px-0 text-left text-sm font-medium normal-case tracking-normal text-foreground-soft hover:text-foreground"
-                size="sm"
-                type="button"
-                variant="ghost"
-              >
-                <Link to={buildInterviewHelperHref(selectedJob)}>
-                  <Mic aria-hidden="true" className="size-4" focusable="false" />
-                  Prepare interview
-                </Link>
-              </Button>
+              {selectedItem.resumeApplicationMode !== 'original_resume' ? (
+                <Button
+                  className="h-auto w-full justify-start px-0 text-left text-sm font-medium normal-case tracking-normal text-foreground-soft hover:text-foreground"
+                  onClick={() => onEditResumeWorkspace(selectedItem.jobId)}
+                  size="sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  <Pencil aria-hidden="true" className="size-4" focusable="false" />
+                  Open resume workspace
+                </Button>
+              ) : null}
             </div>
           </>
         ) : selectedItem ? (
@@ -308,6 +261,40 @@ export function ReviewQueueMissionPanel({
           />
         )}
       </div>
+      {selectedItem && selectedJob ? (
+        <div
+          className="grid shrink-0 gap-2 border-t border-(--surface-panel-border) bg-(--surface-panel) px-6 py-4"
+          data-testid="apply-copilot-footer"
+        >
+          {actionMessage ? (
+            <p
+              aria-atomic="true"
+              aria-live="polite"
+              className="min-w-0 break-words text-(length:--text-small) leading-6 text-primary"
+              role="status"
+            >
+              {actionMessage}
+            </p>
+          ) : null}
+          <Button
+            className="h-11 w-full justify-start px-4 text-sm font-semibold normal-case tracking-normal"
+            pending={isSelectedJobPending || isPrimaryApplyPending}
+            variant="primary"
+            disabled={isSelectedJobPending || isPrimaryApplyPending || isGenerating || (isGenerationAction ? false : !canApproveApply)}
+            onClick={() => {
+              if (isGenerationAction) {
+                onGenerateResume(selectedItem.jobId)
+                return
+              }
+
+              onStartApplyCopilot(selectedItem.jobId)
+            }}
+            type="button"
+          >
+            {primaryActionLabel}
+          </Button>
+        </div>
+      ) : null}
     </section>
   )
 }

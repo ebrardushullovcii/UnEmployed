@@ -164,6 +164,8 @@ function hasCurrentTargetValue(
 
 function humanizeRecordFieldKey(key: string): string {
   switch (key) {
+    case 'schoolName':
+      return 'School name'
     case 'companyName':
       return 'Company'
     case 'isCurrent':
@@ -174,6 +176,8 @@ function humanizeRecordFieldKey(key: string): string {
       return 'End'
     case 'fieldOfStudy':
       return 'Field of study'
+    case 'interviewPreference':
+      return 'Interview preference'
     case 'workMode':
       return 'Work mode'
     case 'dateEarned':
@@ -208,6 +212,10 @@ function summarizeValue(value: unknown): string | null {
 
   if (isObjectRecord(value)) {
     const parts = Object.entries(value).flatMap(([key, entry]) => {
+      if (key === 'id' || key === 'recordId' || key.endsWith('Id')) {
+        return []
+      }
+
       const summary = summarizeValue(entry)
       return summary ? [`${humanizeRecordFieldKey(key)}: ${summary}`] : []
     })
@@ -216,6 +224,24 @@ function summarizeValue(value: unknown): string | null {
   }
 
   return null
+}
+
+/** Formats imported structured values for people instead of exposing serialized storage objects. */
+export function formatProfileSetupReviewValue(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return summarizeValue(value)
+  }
+
+  const trimmed = value.trim()
+  if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) {
+    return summarizeValue(value)
+  }
+
+  try {
+    return summarizeValue(JSON.parse(trimmed)) ?? summarizeValue(value)
+  } catch {
+    return summarizeValue(value)
+  }
 }
 
 function normalizeComparableSummary(value: string | null): string | null {

@@ -56,8 +56,8 @@ export function ProfilePreferencesTargetingSection(props: {
         description="Use this section to specify the roles, locations, and companies to focus on."
       />
 
-        <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
-          <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">Target roles</h3>
+        <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4" id="profile-target-roles">
+          <h3 className="scroll-mt-4 text-[0.98rem] font-semibold text-(--text-headline) outline-none" id="profile-target-roles-heading" tabIndex={-1}>Target roles</h3>
           <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
           <ProfileListEditor inputId="profile-setup-field-search-preferences-target-roles" label="Target roles" onChange={(values) => setValue('targetRoles', joinListInput(values), listFieldOptions)} placeholder="Add a target role" values={parseListInput(watch('targetRoles'))} />
           <ProfileListEditor label="Related role areas" onChange={(values) => setValue('jobFamilies', joinListInput(values), listFieldOptions)} placeholder="Add a related role area" values={parseListInput(watch('jobFamilies'))} />
@@ -153,18 +153,21 @@ export function ProfilePreferencesTargetingSection(props: {
         </div>
       </ProfileOptionalSection>
 
-      <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
+      <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4" id="profile-job-sources">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="grid gap-1">
-            <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">Job sources</h3>
-            <p className="text-[0.9rem] leading-6 text-foreground-soft">Add the job boards or company career pages to search. Each source can save reusable guidance after a quick source check.</p>
+            <h3 className="scroll-mt-4 text-[0.98rem] font-semibold text-(--text-headline) outline-none" id="profile-job-sources-heading" tabIndex={-1}>Job sources</h3>
+            <p className="text-[0.9rem] leading-6 text-foreground-soft">Paste a company careers page or public job-board URL. Give it a recognizable name, keep it included, save your changes, then search. No provider-specific setup is required.</p>
           </div>
           <Button onClick={props.addDiscoveryTarget} type="button" variant="secondary">Add source</Button>
         </div>
 
         <div className="grid gap-3">
           {props.discoveryTargets.length === 0 ? (
-            <p className="text-[0.9rem] leading-6 text-foreground-soft">No job sources yet. Add the first source to search.</p>
+            <div className="rounded-(--radius-field) border border-(--info-border) bg-(--info-surface) px-4 py-3 text-[0.9rem] leading-6 text-(--info-text)">
+              <p className="font-medium">Add your first public job source</p>
+              <p className="mt-1">Examples: a company careers page, a Greenhouse board, or a Lever jobs page. Paste the page you would normally browse for open roles.</p>
+            </div>
           ) : null}
 
           {props.discoveryTargets.map((target, index) => {

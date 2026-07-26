@@ -48,6 +48,7 @@ import {
   ResumeImportBenchmarkCaseSchema,
   ResumeDocumentBundleSchema,
   ResumeImportFieldCandidateSchema,
+  ResumeImportProgressEventSchema,
   ResumeImportRunSchema,
   ResumeQualityBenchmarkReportSchema,
 } from "@unemployed/contracts";
@@ -291,7 +292,16 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
     },
   );
 
-  ipcMain.handle("job-finder:import-resume", async () => {
+  ipcMain.handle("job-finder:import-resume", async (event, payload: unknown) => {
+    const requestId = parseOptionalRequestId(payload);
+    const reportProgress = requestId
+      ? (progress: Parameters<typeof ResumeImportProgressEventSchema.parse>[0]) => {
+          event.sender.send(
+            `job-finder:resume-import-progress:${requestId}`,
+            ResumeImportProgressEventSchema.parse(progress),
+          );
+        }
+      : undefined;
     const selection = await dialog.showOpenDialog({
       properties: ["openFile"],
       filters: [
@@ -316,7 +326,9 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
       );
     }
 
-    return importResumeFromSourcePath(sourcePath);
+    return importResumeFromSourcePath(sourcePath, {
+      ...(reportProgress ? { onProgress: reportProgress } : {}),
+    });
   });
 
   ipcMain.handle(

@@ -319,7 +319,17 @@ async function run() {
       state: "visible",
       timeout: 15_000,
     });
-    await page.getByRole("option").first().click();
+    const firstAppJob = appJobs[0];
+    if (!firstAppJob) {
+      throw new Error(
+        "Live discovery returned no jobs, so the customer-visible evidence ledger could not be audited.",
+      );
+    }
+    const firstResult = page.locator(
+      `[data-job-result-id="${firstAppJob.id}"]`,
+    );
+    await firstResult.waitFor({ state: "visible", timeout: 10_000 });
+    await firstResult.click();
     const evidenceLedger = page.getByRole("region", {
       name: "Requirement evidence",
     });

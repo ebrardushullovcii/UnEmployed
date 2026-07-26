@@ -200,10 +200,18 @@ describe('SettingsEditableDefaults', () => {
       (button) => button.textContent?.includes('Use my original CV unchanged'),
     )
     expect(originalCvChoice?.getAttribute('aria-checked')).toBe('false')
+    expect(container.textContent).toContain('Saved default')
 
     act(() => originalCvChoice?.click())
 
     expect(originalCvChoice?.getAttribute('aria-checked')).toBe('true')
+    expect(container.textContent).toContain('Selected · save to apply')
+    expect(container.textContent).toContain('You have unsaved settings changes.')
+    expect(container.textContent).toContain('Save this preference before leaving Settings.')
+    const nearbySaveButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'Save CV preference',
+    )
+    expect(nearbySaveButton?.hasAttribute('disabled')).toBe(false)
     const saveButton = Array.from(container.querySelectorAll('button')).find(
       (button) => button.textContent?.trim() === 'Save settings',
     )
@@ -213,5 +221,46 @@ describe('SettingsEditableDefaults', () => {
       expect.objectContaining({ resumeApplicationMode: 'original_resume' }),
     )
     expect(container.textContent).toContain('preserves the imported file byte for byte')
+  })
+
+  it('shows original-CV mode as the saved default after persistence', () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+
+    act(() => {
+      root?.render(
+        <SettingsEditableDefaults
+          actionMessage="Settings saved. Your exact imported CV is now used for current and future shortlisted jobs."
+          availableResumeTemplates={[resumeTemplateFixtures.classicAts]}
+          isSavePending={false}
+          onSaveSettings={vi.fn()}
+          settings={{
+            resumeFormat: 'pdf',
+            resumeTemplateId: 'classic_ats',
+            fontPreset: 'inter_requisite',
+            appearanceTheme: 'system',
+            humanReviewRequired: true,
+            allowAutoSubmitOverride: false,
+            keepSessionAlive: false,
+            discoveryOnly: false,
+            resumeApplicationMode: 'original_resume',
+          }}
+        />,
+      )
+    })
+
+    const originalCvChoice = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.includes('Use my original CV unchanged'),
+    )
+    expect(originalCvChoice?.getAttribute('aria-checked')).toBe('true')
+    expect(container.textContent).toContain('Saved default · no rewriting')
+    expect(container.textContent).toContain('Original CV is the saved application default.')
+    expect(container.textContent).toContain('current and future shortlisted jobs')
+    expect(
+      Array.from(container.querySelectorAll('button')).find(
+        (button) => button.textContent?.trim() === 'Save CV preference',
+      )?.hasAttribute('disabled'),
+    ).toBe(true)
   })
 })

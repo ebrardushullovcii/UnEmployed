@@ -227,6 +227,9 @@ export function DiscoveryTargetFormFields(props: DiscoveryTargetFormFieldsProps)
             placeholder="https://jobs.example.com/search"
             value={startingUrl}
           />
+          <p className="text-(length:--text-small) leading-5 text-foreground-muted">
+            Paste the public page that lists this company or board's open jobs. For example: https://job-boards.greenhouse.io/company
+          </p>
         </div>
         <div className="grid h-full min-w-0 content-start gap-(--gap-field) lg:col-start-2 lg:row-span-2 lg:row-start-1">
           <FieldLabel htmlFor={instructionsId}>Source notes</FieldLabel>

@@ -43,6 +43,42 @@ function createDiscoveryOnlySeed() {
 }
 
 describe("createJobFinderWorkspaceService", () => {
+  test("refreshes saved-job match evidence even when discovery does not rediscover that posting", async () => {
+    const seed = createSeed();
+    seed.profile.workEligibility = {
+      ...seed.profile.workEligibility,
+      remoteEligible: null,
+    };
+    seed.searchPreferences.workModes = ["remote"];
+    const existingJob = seed.savedJobs[0]!;
+    seed.savedJobs[0] = SavedJobSchema.parse({
+      ...existingJob,
+      location: "Remote",
+      workMode: ["remote"],
+      matchAssessment: {
+        ...existingJob.matchAssessment,
+        reasons: ["stale assessment sentinel"],
+      },
+    });
+
+    const { workspaceService } = createWorkspaceServiceHarness({ seed });
+    const snapshot = await workspaceService.runDiscovery();
+    const refreshed = snapshot.discoveryJobs.find(
+      (job) => job.id === existingJob.id,
+    );
+    const workMode = refreshed?.matchAssessment.requirements.find(
+      (requirement) => requirement.category === "work_mode",
+    );
+
+    expect(refreshed?.matchAssessment.reasons).not.toContain(
+      "stale assessment sentinel",
+    );
+    expect(workMode).toMatchObject({
+      status: "unknown",
+      jobEvidence: "Remote",
+    });
+  });
+
   test("starts independent public provider inventories concurrently", async () => {
     const seed = createDiscoveryOnlySeed();
     seed.searchPreferences.targetRoles = ["Software Engineer"];

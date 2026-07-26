@@ -3,6 +3,7 @@ import { Button } from "@renderer/components/ui";
 import { formatStatusLabel } from "@renderer/features/job-finder/lib/job-finder-utils";
 import { StatusBadge } from "../../components/status-badge";
 import {
+  getCustomerFacingApplyText,
   getQueueRecoveryTone,
   getQueueStateExplanation,
   type QueueEntry,
@@ -41,6 +42,13 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
     visibleApplyResult,
   } = props;
   const isWaitingForSignIn = visibleApplyResult?.blockerReason === "auth_required";
+  const needsResumeAttachment = Boolean(
+    visibleApplyResult && /\b(?:resume|cv)\b/i.test([
+      visibleApplyResult.summary,
+      visibleApplyResult.detail,
+      visibleApplyResult.blockerSummary,
+    ].filter(Boolean).join(" ")),
+  );
 
   return (
     <>
@@ -51,6 +59,8 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
             <p className="text-(length:--text-small) leading-6 text-foreground-soft">
               {isWaitingForSignIn
                 ? "Job Finder is waiting while you sign in in the open browser. It never handles or stores your credentials. Return here after sign-in and retry this application."
+                : needsResumeAttachment
+                  ? "Your confirmed profile fields are still in the open application, but the approved CV was not attached. Retry below to approve that attachment. Job Finder will prepare the page and stop before the final submit control."
                 : "Start a fresh safe run for this job without leaving Applications. Each recovery action creates a new run and still stops before any final submit click."}
             </p>
           </div>
@@ -66,7 +76,11 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
             variant="secondary"
             disabled={isApplyPending}
           >
-            {isWaitingForSignIn ? "I'm signed in — retry application" : "Rerun apply copilot"}
+            {isWaitingForSignIn
+              ? "I'm signed in — retry application"
+              : needsResumeAttachment
+                ? "Approve and retry CV attachment"
+                : "Rerun apply copilot"}
           </Button>
           <Button
             onClick={() => onStartAutoApply(selectedRecordJobId)}
@@ -175,12 +189,12 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
                     </StatusBadge>
                   </div>
                   <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                    {entry.runResult?.summary ??
+                    {getCustomerFacingApplyText(entry.runResult?.summary) ??
                       "This job never started before the queue paused or was cancelled."}
                   </p>
                   {entry.runResult?.blockerSummary ? (
                     <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                      {entry.runResult.blockerSummary}
+                      {getCustomerFacingApplyText(entry.runResult.blockerSummary)}
                     </p>
                   ) : null}
                 </div>

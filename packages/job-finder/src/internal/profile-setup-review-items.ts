@@ -361,6 +361,73 @@ function hasDraftForTarget(
   );
 }
 
+function educationRecordFieldForScalarKey(key: string): string | null {
+  const normalizedKey = normalizeText(key).replace(/\s+/g, "");
+
+  switch (normalizedKey) {
+    case "institution":
+    case "school":
+    case "schoolname":
+      return "schoolName";
+    case "degree":
+      return "degree";
+    case "field":
+    case "fieldofstudy":
+      return "fieldOfStudy";
+    case "location":
+      return "location";
+    case "start":
+    case "startdate":
+      return "startDate";
+    case "end":
+    case "enddate":
+    case "graduationdate":
+      return "endDate";
+    case "summary":
+      return "summary";
+    default:
+      return null;
+  }
+}
+
+function isEducationScalarCoveredByRecord(
+  candidate: ResumeImportFieldCandidate,
+  allCandidates: readonly ResumeImportFieldCandidate[],
+): boolean {
+  if (candidate.target.section !== "education" || candidate.target.key === "record") {
+    return false;
+  }
+
+  const recordField = educationRecordFieldForScalarKey(candidate.target.key);
+  if (!recordField) {
+    return false;
+  }
+
+  return allCandidates.some((recordCandidate) => {
+    if (
+      recordCandidate.runId !== candidate.runId ||
+      recordCandidate.target.section !== "education" ||
+      recordCandidate.target.key !== "record" ||
+      !recordCandidate.value ||
+      typeof recordCandidate.value !== "object" ||
+      Array.isArray(recordCandidate.value)
+    ) {
+      return false;
+    }
+
+    if (
+      candidate.target.recordId &&
+      recordCandidate.target.recordId &&
+      candidate.target.recordId !== recordCandidate.target.recordId
+    ) {
+      return false;
+    }
+
+    const recordValue = recordCandidate.value[recordField];
+    return summarizeValue(recordValue) !== null;
+  });
+}
+
 function buildMissingFieldDrafts(
   profile: CandidateProfile,
   searchPreferences: JobSearchPreferences,
@@ -620,7 +687,8 @@ export function buildProfileSetupReviewItems(
     .filter(
       (candidate) =>
         (candidate.resolution === "needs_review" || candidate.resolution === "abstained") &&
-        shouldIncludeCandidateInSetupReview(candidate),
+        shouldIncludeCandidateInSetupReview(candidate) &&
+        !isEducationScalarCoveredByRecord(candidate, input.candidates),
     )
     .map((candidate) => toReviewDraft(candidate, input.documentBundle))
     .filter((draft): draft is DerivedReviewDraft => draft !== null);

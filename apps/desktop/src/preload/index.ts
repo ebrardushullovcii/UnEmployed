@@ -38,6 +38,7 @@ import type {
   ResumeImportBenchmarkCase,
   ResumeImportBenchmarkRequest,
   ResumeImportFieldCandidate,
+  ResumeImportProgressEvent,
   ResumeImportRun,
   ResumeDocumentBundle,
   JobFinderResumeWorkspace,
@@ -58,6 +59,7 @@ import type {
 import { SYSTEM_THEME_CHANGE_EVENT } from "../shared/system-theme";
 
 let activeAgentDiscoveryRequestId: string | null = null;
+let activeResumeImportRequestId: string | null = null;
 let activeSourceDebugRequestId: string | null = null;
 
 const testApiEnabled =
@@ -353,10 +355,34 @@ const desktopApi = {
       ipcRenderer.invoke("job-finder:undo-profile-revision", {
         revisionId,
       }) as Promise<JobFinderWorkspaceSnapshot>,
-    importResume: () =>
-      ipcRenderer.invoke(
-        "job-finder:import-resume",
-      ) as Promise<JobFinderWorkspaceSnapshot>,
+    importResume: (onProgress?: (event: ResumeImportProgressEvent) => void) => {
+      if (activeResumeImportRequestId) {
+        return Promise.reject(new Error("A resume import is already running."));
+      }
+
+      const requestId = `resume_import_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+      const progressChannel = `job-finder:resume-import-progress:${requestId}`;
+      activeResumeImportRequestId = requestId;
+      const progressHandler = onProgress
+        ? (_event: Electron.IpcRendererEvent, progress: ResumeImportProgressEvent) => {
+            onProgress(progress);
+          }
+        : null;
+
+      if (progressHandler) {
+        ipcRenderer.on(progressChannel, progressHandler);
+      }
+
+      return (ipcRenderer.invoke("job-finder:import-resume", { requestId }) as Promise<JobFinderWorkspaceSnapshot>)
+        .finally(() => {
+          if (progressHandler) {
+            ipcRenderer.off(progressChannel, progressHandler);
+          }
+          if (activeResumeImportRequestId === requestId) {
+            activeResumeImportRequestId = null;
+          }
+        });
+    },
     runDiscovery: () =>
       ipcRenderer.invoke(
         "job-finder:run-discovery",

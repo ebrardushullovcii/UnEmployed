@@ -19,7 +19,7 @@ import {
 export const appRouter = createHashRouter([
   {
     path: '/',
-    element: <Navigate replace to="/interview-helper" />
+    element: <Navigate replace to="/job-finder" />
   },
   {
     path: '/interview-helper',
@@ -81,6 +81,6 @@ export const appRouter = createHashRouter([
   },
   {
     path: '*',
-    element: <Navigate replace to="/interview-helper" />
+    element: <Navigate replace to="/job-finder" />
   }
 ])

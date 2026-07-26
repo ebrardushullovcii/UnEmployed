@@ -85,25 +85,174 @@ function clip(value: string, limit = 220): string {
   return value.length <= limit ? value : `${value.slice(0, limit - 1).trim()}…`;
 }
 
-function findEvidenceLine(
+function containsTechnologySignal(
+  value: string,
+  technology: (typeof technologySignals)[number],
+): boolean {
+  // Punctuation-heavy and ordinary-word technology names cannot safely use
+  // the generic normalized phrase matcher. Normalizing `C#` to `c` misses a
+  // real requirement, while normalizing `.NET` to `net` and `Go` to `go`
+  // turns ordinary prose ("net revenue", "go beyond") into skill gaps.
+  switch (technology.label) {
+    case "C#":
+      return /(?:^|[^\p{L}\p{N}_])(?:c#|c\s*sharp|csharp)(?=$|[^\p{L}\p{N}_])/iu.test(
+        value,
+      );
+    case ".NET":
+      return /(?:^|[^\p{L}\p{N}_])(?:\.net|dotnet)(?=$|[^\p{L}\p{N}_])/iu.test(
+        value,
+      );
+    case "Go": {
+      const trimmed = value.trim();
+      if (/^(?:go|golang)$/iu.test(trimmed) || /\bgolang\b/iu.test(value)) {
+        return true;
+      }
+
+      return (
+        /\b(?:experience|experienced|proficiency|proficient|knowledge|skills?|programming|develop(?:ing|ment)?|build(?:ing|s)?)\b[^.!?\n]{0,48}\bGo\b/u.test(
+          value,
+        ) ||
+        /\bGo\b\s*(?:[,/&|]|\band\b)\s*(?:Java|JavaScript|TypeScript|Python|Rust|C\+\+|Kotlin|Ruby|PHP|Elixir)\b/u.test(
+          value,
+        )
+      );
+    }
+    case "React":
+      return (
+        /^react$/iu.test(value.trim()) ||
+        /\bReact\b(?!\s+(?:Native|to|with|when|by)\b)/u.test(value)
+      );
+    default:
+      return containsPhrase(value, technology.aliases);
+  }
+}
+
+function isAlternativeTechnologyLine(line: string): boolean {
+  return (
+    /\b(?:one|1)\+?\s+(?:or more\s+)?[^.!?\n]{0,48}\b(?:languages?|frameworks?|technologies|stacks?|tools?)\b/iu.test(
+      line,
+    ) ||
+    /\b(?:any of|either|one of|such as|for example|e\.g\.)\b/iu.test(line) ||
+    /(?:,|\bor\b)\s*etc\.?\s*[).]?$/iu.test(line.trim())
+  );
+}
+
+function collectExplicitDomainEvidence(input: {
+  profile: CandidateProfile;
+  domainPattern: RegExp;
+  deliveryPattern: RegExp;
+}): ResumeRequirementEvidence[] {
+  const evidence: ResumeRequirementEvidence[] = [];
+  for (const experience of input.profile.experiences) {
+    const matched = [experience.summary, ...experience.achievements]
+      .filter((value): value is string => typeof value === "string")
+      .find(
+        (value) =>
+          input.domainPattern.test(value) && input.deliveryPattern.test(value),
+      );
+    if (matched) {
+      evidence.push({
+        sourceKind: "experience",
+        sourceId: experience.id,
+        label: [experience.title, experience.companyName]
+          .filter(Boolean)
+          .join(" at "),
+        detail: clip(matched),
+      });
+    }
+  }
+
+  for (const project of input.profile.projects) {
+    const matched = [project.summary, project.outcome]
+      .filter((value): value is string => typeof value === "string")
+      .find(
+        (value) =>
+          input.domainPattern.test(value) && input.deliveryPattern.test(value),
+      );
+    if (matched) {
+      evidence.push({
+        sourceKind: "project",
+        sourceId: project.id,
+        label: project.name,
+        detail: clip(matched),
+      });
+    }
+  }
+
+  return evidence.slice(0, 3);
+}
+
+function dedupeRequirementEvidence(
+  evidence: readonly ResumeRequirementEvidence[],
+): ResumeRequirementEvidence[] {
+  const seen = new Set<string>();
+  return evidence.filter((entry) => {
+    const key = [entry.sourceKind, entry.sourceId ?? "", entry.detail].join(
+      "|",
+    );
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function scoreProductionAiEvidenceLine(line: string): number {
+  return (
+    Number(/\b(?:shipped?|deployed?|launched?)\b/iu.test(line)) * 2 +
+    Number(/\bnot just prototypes?\b/iu.test(line)) * 2 +
+    Number(/\bproduction\b/iu.test(line))
+  );
+}
+
+function selectStrongestEvidenceLine(
   lines: readonly string[],
-  aliases: readonly string[],
+  pattern: RegExp,
 ): string | null {
-  return lines.find((line) => containsPhrase(line, aliases)) ?? null;
+  return (
+    lines
+      .filter((line) => pattern.test(line))
+      .sort((left, right) => {
+        const importanceRank = (line: string) =>
+          requiredMarkers.test(line)
+            ? 0
+            : preferredMarkers.test(line)
+              ? 1
+              : 2;
+        return importanceRank(left) - importanceRank(right);
+      })[0] ?? null
+  );
+}
+
+function parseCefrLevel(value: string): number | null {
+  const match = /\b([ABC])\s*([12])\b/iu.exec(value);
+  if (!match?.[1] || !match[2]) {
+    return null;
+  }
+  const ranks: Record<string, number> = {
+    A1: 1,
+    A2: 2,
+    B1: 3,
+    B2: 4,
+    C1: 5,
+    C2: 6,
+  };
+  return ranks[`${match[1].toUpperCase()}${match[2]}`] ?? null;
 }
 
 function inferImportance(input: {
   title: string;
-  aliases: readonly string[];
+  technology: (typeof technologySignals)[number];
   evidenceLine: string;
   minimumQualifications: readonly string[];
   preferredQualifications: readonly string[];
   evidenceLines: readonly string[];
 }): JobRequirementImportance {
   if (
-    containsPhrase(input.title, input.aliases) ||
+    containsTechnologySignal(input.title, input.technology) ||
     input.minimumQualifications.some((value) =>
-      containsPhrase(value, input.aliases),
+      containsTechnologySignal(value, input.technology),
     )
   ) {
     return "required";
@@ -111,7 +260,7 @@ function inferImportance(input: {
 
   if (
     input.preferredQualifications.some((value) =>
-      containsPhrase(value, input.aliases),
+      containsTechnologySignal(value, input.technology),
     ) ||
     preferredMarkers.test(input.evidenceLine)
   ) {
@@ -180,7 +329,7 @@ function collectProfileRoleEvidence(
 
 function collectProfileSkillEvidence(
   profile: CandidateProfile,
-  aliases: readonly string[],
+  technology: (typeof technologySignals)[number],
 ): ResumeRequirementEvidence[] {
   const directSkills = uniqueStrings([
     ...profile.skills,
@@ -191,7 +340,7 @@ function collectProfileSkillEvidence(
   ]);
   const evidence: ResumeRequirementEvidence[] = [];
   const directSkill = directSkills.find((skill) =>
-    containsPhrase(skill, aliases),
+    containsTechnologySignal(skill, technology),
   );
 
   if (directSkill) {
@@ -209,7 +358,9 @@ function collectProfileSkillEvidence(
       ...experience.achievements,
       experience.summary,
     ].filter((value): value is string => typeof value === "string");
-    const matched = values.find((value) => containsPhrase(value, aliases));
+    const matched = values.find((value) =>
+      containsTechnologySignal(value, technology),
+    );
     if (!matched) {
       continue;
     }
@@ -225,12 +376,12 @@ function collectProfileSkillEvidence(
   }
 
   for (const project of profile.projects) {
-    const values = [
-      ...project.skills,
-      project.summary,
-      project.outcome,
-    ].filter((value): value is string => typeof value === "string");
-    const matched = values.find((value) => containsPhrase(value, aliases));
+    const values = [...project.skills, project.summary, project.outcome].filter(
+      (value): value is string => typeof value === "string",
+    );
+    const matched = values.find((value) =>
+      containsTechnologySignal(value, technology),
+    );
     if (!matched) {
       continue;
     }
@@ -270,44 +421,122 @@ export function buildRequirementEvidenceAssessment(input: {
   const evidenceLines = splitJobEvidence(jobText);
   const requirements: JobRequirementAssessment[] = [];
 
-  const technologyRequirements = technologySignals.flatMap((technology) => {
-    const evidenceLine = findEvidenceLine(evidenceLines, technology.aliases);
+  const technologyMatches = technologySignals.flatMap((technology) => {
+    const matchingEvidenceLines = evidenceLines.filter((line) =>
+      containsTechnologySignal(line, technology),
+    );
+    const evidenceLine = [...matchingEvidenceLines].sort((left, right) => {
+      const importanceRank = { required: 0, preferred: 1, inferred: 2 };
+      const leftImportance = inferImportance({
+        title: posting.title,
+        technology,
+        evidenceLine: left,
+        minimumQualifications: posting.minimumQualifications,
+        preferredQualifications: posting.preferredQualifications,
+        evidenceLines,
+      });
+      const rightImportance = inferImportance({
+        title: posting.title,
+        technology,
+        evidenceLine: right,
+        minimumQualifications: posting.minimumQualifications,
+        preferredQualifications: posting.preferredQualifications,
+        evidenceLines,
+      });
+      return importanceRank[leftImportance] - importanceRank[rightImportance];
+    })[0];
     if (!evidenceLine) {
       return [];
     }
 
-    const importance = inferImportance({
-      title: posting.title,
-      aliases: technology.aliases,
-      evidenceLine,
-      minimumQualifications: posting.minimumQualifications,
-      preferredQualifications: posting.preferredQualifications,
-      evidenceLines,
-    });
-    const resumeEvidence = collectProfileSkillEvidence(
-      profile,
-      technology.aliases,
-    );
+    return [{ technology, evidenceLine }];
+  });
+  const alternativeTechnologyLines = uniqueStrings(
+    technologyMatches
+      .map((match) => match.evidenceLine)
+      .filter(
+        (line) =>
+          isAlternativeTechnologyLine(line) &&
+          technologyMatches.filter((match) => match.evidenceLine === line)
+            .length >= 2,
+      ),
+  );
+  const alternativeTechnologyRequirements = alternativeTechnologyLines.map(
+    (evidenceLine) => {
+      const alternatives = technologyMatches.filter(
+        (match) => match.evidenceLine === evidenceLine,
+      );
+      const resumeEvidence = dedupeRequirementEvidence(
+        alternatives.flatMap((match) =>
+          collectProfileSkillEvidence(profile, match.technology),
+        ),
+      );
+      const labels = alternatives.map((match) => match.technology.label);
 
-    return [
-      {
-        id: requirementId("skill", technology.label),
+      return {
+        id: requirementId("skill", `one of ${labels.join(" ")}`),
         category: "skill" as const,
-        label: technology.label,
-        importance,
-        status: resumeEvidence.length > 0 ? ("supported" as const) : ("missing" as const),
+        label: `One of: ${labels.join(", ")}`,
+        importance: inferImportance({
+          title: posting.title,
+          technology: alternatives[0]!.technology,
+          evidenceLine,
+          minimumQualifications: posting.minimumQualifications,
+          preferredQualifications: posting.preferredQualifications,
+          evidenceLines,
+        }),
+        status:
+          resumeEvidence.length > 0
+            ? ("supported" as const)
+            : ("missing" as const),
         jobEvidence: clip(evidenceLine),
         resumeEvidence,
         explanation:
           resumeEvidence.length > 0
-            ? `The resume contains explicit ${technology.label} evidence.`
-            : `No explicit ${technology.label} evidence was found in the imported resume.`,
-      },
-    ];
-  });
+            ? `The resume contains explicit evidence for at least one accepted technology (${labels.join(", ")}).`
+            : `No explicit evidence was found for any accepted technology (${labels.join(", ")}).`,
+      };
+    },
+  );
+  const technologyRequirements = technologyMatches.flatMap(
+    ({ technology, evidenceLine }) => {
+      if (alternativeTechnologyLines.includes(evidenceLine)) {
+        return [];
+      }
+
+      const importance = inferImportance({
+        title: posting.title,
+        technology,
+        evidenceLine,
+        minimumQualifications: posting.minimumQualifications,
+        preferredQualifications: posting.preferredQualifications,
+        evidenceLines,
+      });
+      const resumeEvidence = collectProfileSkillEvidence(profile, technology);
+
+      return [
+        {
+          id: requirementId("skill", technology.label),
+          category: "skill" as const,
+          label: technology.label,
+          importance,
+          status:
+            resumeEvidence.length > 0
+              ? ("supported" as const)
+              : ("missing" as const),
+          jobEvidence: clip(evidenceLine),
+          resumeEvidence,
+          explanation:
+            resumeEvidence.length > 0
+              ? `The resume contains explicit ${technology.label} evidence.`
+              : `No explicit ${technology.label} evidence was found in the imported resume.`,
+        },
+      ];
+    },
+  );
 
   requirements.push(
-    ...technologyRequirements
+    ...[...alternativeTechnologyRequirements, ...technologyRequirements]
       .sort((left, right) => {
         const importanceRank = { required: 0, preferred: 1, inferred: 2 };
         return (
@@ -316,6 +545,164 @@ export function buildRequirementEvidenceAssessment(input: {
       })
       .slice(0, 12),
   );
+
+  const productionAiLine = evidenceLines
+    .filter(
+      (line) =>
+        /\b(?:AI|artificial intelligence|LLMs?|large language models?|RAG|retrieval[- ]augmented generation|AI agents?)\b/iu.test(
+          line,
+        ) &&
+        /\b(?:hands[- ]on|production|shipped?|deployed?|launched?|real (?:AI )?use case|not just prototypes?)\b/iu.test(
+          line,
+        ),
+    )
+    .sort(
+      (left, right) =>
+        scoreProductionAiEvidenceLine(right) -
+        scoreProductionAiEvidenceLine(left),
+    )[0];
+  if (productionAiLine) {
+    const resumeEvidence = collectExplicitDomainEvidence({
+      profile,
+      domainPattern:
+        /\b(?:AI|artificial intelligence|LLMs?|large language models?|RAG|retrieval[- ]augmented generation|AI agents?|machine learning)\b/iu,
+      deliveryPattern:
+        /\b(?:production|shipped?|deployed?|launched?|released?|customers?|users?|live)\b/iu,
+    });
+    requirements.push({
+      id: requirementId("domain", "production AI feature delivery"),
+      category: "domain",
+      label: "Production AI feature delivery",
+      importance: requiredMarkers.test(productionAiLine)
+        ? "required"
+        : "inferred",
+      status: resumeEvidence.length > 0 ? "supported" : "missing",
+      jobEvidence: clip(productionAiLine),
+      resumeEvidence,
+      explanation:
+        resumeEvidence.length > 0
+          ? "The resume explicitly shows an AI or LLM feature shipped to production users."
+          : "The resume does not explicitly show an AI or LLM feature shipped to production; generic AI interest or prototypes are not treated as evidence.",
+    });
+  }
+
+  const productionScaleLine = evidenceLines.find(
+    (line) =>
+      /\b(?:high[- ]traffic|production applications?[^.!?]{0,40}(?:scale|scaling)|challenges? that come with scale|query optimization|performance bottlenecks?|careful migrations)\b/iu.test(
+        line,
+      ),
+  );
+  if (productionScaleLine) {
+    const resumeEvidence = collectExplicitDomainEvidence({
+      profile,
+      domainPattern:
+        /\b(?:high[- ]traffic|large[- ]scale|at scale|production scale|millions? of (?:users|requests|transactions)|thousands? of (?:requests|transactions) (?:per|a)|query optimization|performance bottlenecks?|zero[- ]downtime migrations?)\b/iu,
+      deliveryPattern:
+        /\b(?:production|shipped?|deployed?|launched?|scaled?|optimized?|handled?|served?|users?|requests?|transactions?|migrations?)\b/iu,
+    });
+    requirements.push({
+      id: requirementId("domain", "high traffic production scaling"),
+      category: "domain",
+      label: "High-traffic production scaling",
+      importance:
+        requiredMarkers.test(productionScaleLine) ||
+        /\b\d{1,2}\+?\s*years?\s+(?:of\s+)?experience\b/iu.test(
+          productionScaleLine,
+        )
+          ? "required"
+          : "inferred",
+      status: resumeEvidence.length > 0 ? "supported" : "missing",
+      jobEvidence: clip(productionScaleLine),
+      resumeEvidence,
+      explanation:
+        resumeEvidence.length > 0
+          ? "The resume explicitly shows production work at material traffic or scaling depth."
+          : "The resume does not explicitly show high-traffic production scaling; general performance work is not treated as proof of traffic scale.",
+    });
+  }
+
+  const experimentationLine = selectStrongestEvidenceLine(
+    evidenceLines,
+    /\b(?:experimentation|experiments?|A\/?B tests?)\b/iu,
+  );
+  if (experimentationLine) {
+    const resumeEvidence = collectProfileRoleEvidence(profile, [
+      "experimentation",
+      "experiment",
+      "experiments",
+      "A/B",
+      "A/B tests",
+      "A/B testing",
+    ]);
+    requirements.push({
+      id: requirementId("domain", "experimentation and measurement"),
+      category: "domain",
+      label: "Experimentation and measurement",
+      importance: requiredMarkers.test(experimentationLine)
+        ? "required"
+        : preferredMarkers.test(experimentationLine)
+          ? "preferred"
+          : "inferred",
+      status: resumeEvidence.length > 0 ? "supported" : "missing",
+      jobEvidence: clip(experimentationLine),
+      resumeEvidence,
+      explanation:
+        resumeEvidence.length > 0
+          ? "The resume explicitly shows experimentation or A/B testing experience."
+          : "The resume does not explicitly show designing, running, or measuring experiments.",
+    });
+  }
+
+  const englishProficiencyLine = selectStrongestEvidenceLine(
+    evidenceLines,
+    /\b(?:English[^.!?\n]{0,60}(?:CEFR\s+Level\s+)?[ABC][12]|(?:proficient|fluent|professional proficiency|native)[^.!?\n]{0,24}English)\b/iu,
+  );
+  if (englishProficiencyLine) {
+    const englishRecord = profile.spokenLanguages.find(
+      (language) => normalizeText(language.language) === "english",
+    );
+    const requiredLevel = parseCefrLevel(englishProficiencyLine);
+    const storedProficiency = englishRecord?.proficiency ?? "";
+    const storedLevel = parseCefrLevel(storedProficiency);
+    const storedNativeOrBilingual =
+      /\b(?:native|bilingual|mother tongue)\b/iu.test(storedProficiency);
+    const supported = Boolean(
+      englishRecord &&
+        (requiredLevel === null ||
+          storedNativeOrBilingual ||
+          (storedLevel !== null && storedLevel >= requiredLevel)),
+    );
+    const resumeEvidence = englishRecord
+      ? [
+          {
+            sourceKind: "profile" as const,
+            sourceId: profile.id,
+            label: "English proficiency",
+            detail: [englishRecord.language, englishRecord.proficiency]
+              .filter(Boolean)
+              .join(" — "),
+          },
+        ]
+      : [];
+    requirements.push({
+      id: requirementId("domain", "English proficiency"),
+      category: "domain",
+      label: requiredLevel === null ? "English proficiency" : "English proficiency at the stated CEFR level",
+      importance:
+        requiredMarkers.test(englishProficiencyLine) ||
+        /\byou (?:are|must|need to be)\b/iu.test(englishProficiencyLine)
+          ? "required"
+          : "inferred",
+      status: supported ? "supported" : "missing",
+      jobEvidence: clip(englishProficiencyLine),
+      resumeEvidence,
+      explanation: supported
+        ? "The saved English proficiency meets the listing's stated level."
+        : englishRecord
+          ? "English is present in the profile, but the saved proficiency does not meet the listing's stated level."
+          : "The profile does not contain explicit English proficiency evidence.",
+    });
+  }
 
   if (/\b(?:site reliability|sre)\b/iu.test(posting.title)) {
     const aliases = [
@@ -406,13 +793,23 @@ export function buildRequirementEvidenceAssessment(input: {
   }
 
   if (input.hasWorkModePreferences && posting.workMode.length > 0) {
+    const isRemotePosting = posting.workMode.includes("remote");
+    const workModeStatus = !input.matchesWorkMode
+      ? "conflict"
+      : isRemotePosting && profile.workEligibility.remoteEligible === false
+        ? "conflict"
+        : isRemotePosting && profile.workEligibility.remoteEligible === null
+          ? "unknown"
+          : "supported";
     requirements.push({
       id: requirementId("work_mode", posting.workMode.join(" ")),
       category: "work_mode",
       label: `Work mode: ${posting.workMode.join(", ")}`,
       importance: "required",
-      status: input.matchesWorkMode ? "supported" : "conflict",
-      jobEvidence: `${posting.location}; ${posting.workMode.join(", ")}`,
+      status: workModeStatus,
+      jobEvidence: uniqueStrings([posting.location, ...posting.workMode]).join(
+        "; ",
+      ),
       resumeEvidence: [
         {
           sourceKind: "profile",
@@ -426,9 +823,13 @@ export function buildRequirementEvidenceAssessment(input: {
                 : "The profile does not confirm remote-work eligibility.",
         },
       ],
-      explanation: input.matchesWorkMode
-        ? "The listing work mode matches the saved preference."
-        : "The listing work mode conflicts with the saved preference.",
+      explanation: !input.matchesWorkMode
+        ? "The listing work mode conflicts with the saved preference."
+        : isRemotePosting && profile.workEligibility.remoteEligible === null
+          ? "The listing matches the saved remote-work preference, but remote-work eligibility is not confirmed in the profile."
+          : isRemotePosting && profile.workEligibility.remoteEligible === false
+            ? "The listing is remote, but the profile does not confirm remote-work eligibility."
+            : "The listing work mode matches the saved preference.",
     });
   }
 
@@ -485,7 +886,8 @@ export function buildFitRecommendation(input: {
 } {
   const hardConflicts = input.requirements.filter(
     (requirement) =>
-      requirement.importance === "required" && requirement.status === "conflict",
+      requirement.importance === "required" &&
+      requirement.status === "conflict",
   );
   const missingRequired = input.requirements.filter(
     (requirement) =>
@@ -524,19 +926,22 @@ export function buildFitRecommendation(input: {
   if (input.score >= 86 && missingDetected.length === 0) {
     return {
       recommendation: "strong_fit",
-      rationale: "No hard conflicts or unsupported required requirements were detected.",
+      rationale:
+        "No hard conflicts or unsupported required requirements were detected.",
     };
   }
 
   if (input.score >= 72) {
     return {
       recommendation: "apply_with_original",
-      rationale: "The original resume has credible evidence for the detected requirements, with no hard blocker found.",
+      rationale:
+        "The original resume has credible evidence for the detected requirements, with no hard blocker found.",
     };
   }
 
   return {
     recommendation: "review_before_applying",
-    rationale: "The fit is plausible, but the evidence is not strong enough for an unqualified recommendation.",
+    rationale:
+      "The fit is plausible, but the evidence is not strong enough for an unqualified recommendation.",
   };
 }

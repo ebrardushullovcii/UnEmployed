@@ -3,6 +3,7 @@ import type {
   CandidateProfile,
   ResumeExtractionStatus,
   ResumeImportFieldCandidateSummary,
+  ResumeImportProgressEvent,
   ResumeImportRun
 } from '@unemployed/contracts'
 import { Sparkles, Upload } from 'lucide-react'
@@ -11,6 +12,7 @@ import { formatDateOnly, formatResumeAnalysisSummary, formatStatusLabel, getAsse
 import { getVisibleYearsExperience } from '@renderer/features/job-finder/lib/profile-resume-panel-utils'
 import { PreferenceList } from '../preference-list'
 import { StatusBadge } from '../status-badge'
+import { ResumeImportProgress } from './resume-import-progress'
 
 const PROFILE_PLACEHOLDER_HEADLINE = 'Import your resume to begin'
 const PROFILE_PLACEHOLDER_SUMMARY =
@@ -73,6 +75,7 @@ interface ProfileResumePanelProps {
   isAnalyzeProfilePending: boolean
   isImportResumePending: boolean
   latestResumeImportReviewCandidates: readonly ResumeImportFieldCandidateSummary[]
+  resumeImportProgress: ResumeImportProgressEvent | null
   latestResumeImportRun: ResumeImportRun | null
   onAnalyzeProfileFromResume: () => void
   onImportResume: () => void
@@ -163,6 +166,7 @@ export function ProfileResumePanel({
   isAnalyzeProfilePending,
   isImportResumePending,
   latestResumeImportReviewCandidates,
+  resumeImportProgress,
   latestResumeImportRun,
   onAnalyzeProfileFromResume,
   onImportResume,
@@ -289,6 +293,7 @@ export function ProfileResumePanel({
                 Refresh from resume
               </Button>
             </div>
+            <ResumeImportProgress isPending={isImportResumePending} progress={resumeImportProgress} />
             {importDisabledReason ? (
               <p className="text-sm leading-6 text-foreground-soft">{importDisabledReason}</p>
             ) : null}

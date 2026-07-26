@@ -99,6 +99,7 @@ export function JobFinderProfileRoute() {
       onUndoProfileRevision={context.onUndoProfileRevision}
       onVerifySourceInstructions={context.onVerifySourceInstructions}
       latestResumeImportReviewCandidates={context.workspace.latestResumeImportReviewCandidates}
+      resumeImportProgress={context.resumeImportProgress}
       latestResumeImportRun={context.workspace.latestResumeImportRun}
       profile={context.workspace.profile}
       profileCopilotMessages={context.workspace.profileCopilotMessages}
@@ -130,6 +131,7 @@ export function JobFinderProfileSetupRoute() {
       }
       profileCopilotBusy={context.profileCopilotBusy}
       latestResumeImportReviewCandidates={context.workspace.latestResumeImportReviewCandidates}
+      resumeImportProgress={context.resumeImportProgress}
       onApplyProfileCopilotPatchGroup={context.onApplyProfileCopilotPatchGroup}
       onApplyProfileSetupReviewAction={context.onApplyProfileSetupReviewAction}
       onContinueToProfile={context.onOpenProfile}

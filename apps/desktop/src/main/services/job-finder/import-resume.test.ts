@@ -8,6 +8,7 @@ import {
   JobFinderWorkspaceSnapshotSchema,
   ResumeImportVisionArtifactSchema,
   type ResumeDocumentBundle,
+  type ResumeImportProgressEvent,
   type ResumeSourceDocument,
 } from "@unemployed/contracts";
 import { createEmptyJobFinderRepositoryState } from "../../adapters/job-finder-initial-state";
@@ -221,6 +222,10 @@ describe("importResumeFromSourcePath", () => {
       getWorkspaceSnapshot: vi.fn(),
       saveProfile: vi.fn(),
     };
+    const progressEvents: ResumeImportProgressEvent[] = [];
+    const onProgress = (event: ResumeImportProgressEvent) => {
+      progressEvents.push(event);
+    };
 
     mockMkdir.mockResolvedValue(undefined);
     mockCopyFile.mockResolvedValue(undefined);
@@ -233,12 +238,18 @@ describe("importResumeFromSourcePath", () => {
     });
 
     try {
-      await importResumeFromSourcePath(filePath, { useVision: false });
+      await importResumeFromSourcePath(filePath, { useVision: false, onProgress });
 
       expect(mockGenerateResumeVisionImages).not.toHaveBeenCalled();
       expect(workspaceService.runResumeImport).toHaveBeenCalledWith(
         expect.objectContaining({ visionArtifact: null }),
       );
+      expect(progressEvents.map((event) => event.stage)).toEqual([
+        "saving_file",
+        "reading_document",
+        "building_profile",
+        "saving_results",
+      ]);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import type {
   CandidateProfile,
   EditableSourceInstructionArtifact,
@@ -7,6 +8,7 @@ import type {
   ProfileCopilotContext,
   ProfileSetupState,
   ResumeImportFieldCandidateSummary,
+  ResumeImportProgressEvent,
   ResumeImportRun,
   SourceDebugRunDetails,
   SourceDebugRunRecord,
@@ -17,6 +19,11 @@ import { buildComparableValueFingerprint } from '../lib/profile-editor-review-ca
 import { LockedScreenLayout } from '../components/locked-screen-layout'
 import { ProfileActiveSectionContent } from '../components/profile/profile-active-section-content'
 import { ProfileCopilotRail } from '../components/profile/profile-copilot-rail'
+import {
+  PROFILE_SECTION_SCROLL_AREA_ID,
+  focusProfileDeepLink,
+  type ProfileDeepLinkFocus,
+} from '../components/profile/profile-deep-link-focus'
 import { COPILOT_CONTENT_SAFE_OFFSET } from '../components/profile/profile-copilot-rail-layout'
 import { buildProfileSectionStarterQuestion } from '../components/profile/profile-copilot-prompts'
 import { ProfileResumePanel } from '../components/profile/profile-resume-panel'
@@ -74,6 +81,7 @@ export function ProfileScreen(props: {
   onVerifySourceInstructions: (targetId: string, instructionId: string) => void
   latestResumeImportReviewCandidates: readonly ResumeImportFieldCandidateSummary[]
   latestResumeImportRun: ResumeImportRun | null
+  resumeImportProgress: ResumeImportProgressEvent | null
   profile: CandidateProfile
   profileCopilotMessages: readonly JobFinderWorkspaceSnapshot['profileCopilotMessages'][number][]
   profileRevisions: readonly JobFinderWorkspaceSnapshot['profileRevisions'][number][]
@@ -104,6 +112,7 @@ export function ProfileScreen(props: {
     onVerifySourceInstructions,
     latestResumeImportReviewCandidates,
     latestResumeImportRun,
+    resumeImportProgress,
     profile,
     profileCopilotMessages,
     profileRevisions,
@@ -114,7 +123,12 @@ export function ProfileScreen(props: {
     sourceInstructionArtifacts
   } = props
 
-  const [activeSection, setActiveSection] = useState<ProfileSection>('basics')
+  const [searchParams] = useSearchParams()
+  const requestedSection = searchParams.get('section')
+  const requestedFocus = searchParams.get('focus')
+  const [activeSection, setActiveSection] = useState<ProfileSection>(
+    requestedSection === 'preferences' ? 'preferences' : 'basics',
+  )
   const {
     backgroundArrays,
     draftSearchPreferencesResult,
@@ -137,6 +151,34 @@ export function ProfileScreen(props: {
     onProfileSurfaceDirtyChange(hasUserDraftChanges)
     return () => onProfileSurfaceDirtyChange(false)
   }, [hasUserDraftChanges, onProfileSurfaceDirtyChange])
+
+  useEffect(() => {
+    if (requestedSection !== 'preferences') {
+      return
+    }
+
+    if (requestedFocus !== 'job-sources' && requestedFocus !== 'target-roles') {
+      setActiveSection('preferences')
+      return
+    }
+
+    if (activeSection !== 'preferences') {
+      setActiveSection('preferences')
+      return
+    }
+
+    let focusFrame = 0
+    const renderFrame = window.requestAnimationFrame(() => {
+      focusFrame = window.requestAnimationFrame(() => {
+        focusProfileDeepLink(requestedFocus as ProfileDeepLinkFocus)
+      })
+    })
+
+    return () => {
+      window.cancelAnimationFrame(renderFrame)
+      window.cancelAnimationFrame(focusFrame)
+    }
+  }, [activeSection, requestedFocus, requestedSection])
 
   const activeSectionPanelId = 'profile-section-panel'
   const pendingSetupItems = profileSetupState.reviewItems.filter((item) => item.status === 'pending')
@@ -247,6 +289,7 @@ export function ProfileScreen(props: {
             isImportResumePending={pendingActions.importResume}
             latestResumeImportReviewCandidates={latestResumeImportReviewCandidates}
             latestResumeImportRun={latestResumeImportRun}
+            resumeImportProgress={resumeImportProgress}
             onAnalyzeProfileFromResume={onAnalyzeProfileFromResume}
             onImportResume={onImportResume}
             profile={overviewProfile}
@@ -285,7 +328,7 @@ export function ProfileScreen(props: {
           />
 
           <div className="surface-panel-shell relative flex min-h-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border-active-soft)">
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="min-h-0 flex-1 overflow-y-auto" id={PROFILE_SECTION_SCROLL_AREA_ID}>
               <div aria-labelledby={`${activeSection}-tab`} className="relative z-0 p-4 sm:p-5" id={activeSectionPanelId} role="tabpanel">
                 <ProfileActiveSectionContent
                   activeSection={activeSection}
@@ -326,7 +369,7 @@ export function ProfileScreen(props: {
       <ProfileCopilotRail
         busy={pendingActions.profileCopilotBusy}
         actionsDisabledReason={hasUserDraftChanges ? unsavedProfileCopilotActionsMessage : null}
-        collapsedMinBottomOffset={20}
+        collapsedMinBottomOffset={COPILOT_CONTENT_SAFE_OFFSET}
         context={profileCopilotContext}
         emptyStateDescription="Ask for a tighter headline, a stronger summary, or a structured profile edit for this section."
         emptyStateTitle="No profile copilot requests yet"

@@ -14,6 +14,7 @@ import type {
   ProfileCopilotContext,
   ProfileSetupReviewActionOptions,
   ProfileSetupStep,
+  ResumeImportProgressEvent,
   ResumeAssistantMessage,
   ResumeDraft,
   ResumeDraftPatch,
@@ -29,6 +30,7 @@ export interface JobFinderPageContext {
   isPending: (scope: PendingActionScope) => boolean
   isAnyPending: (scopes: readonly PendingActionScope[]) => boolean
   profileCopilotBusy: boolean
+  resumeImportProgress: ResumeImportProgressEvent | null
   liveDiscoveryEvents: readonly DiscoveryActivityEvent[]
   onAnalyzeProfileFromResume: () => void
   onApproveApplyRun: (runId: string) => void

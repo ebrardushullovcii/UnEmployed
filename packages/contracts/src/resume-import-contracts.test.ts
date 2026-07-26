@@ -3,11 +3,26 @@ import { describe, expect, test } from "vitest";
 import {
   ResumeDocumentBundleSchema,
   ResumeImportFieldCandidateSchema,
+  ResumeImportProgressEventSchema,
   ResumeImportVisionArtifactSchema,
   ResumeImportRunSchema,
 } from "./index";
 
 describe("contracts resume import schemas", () => {
+  test("parses customer-facing import progress without accepting unknown stages", () => {
+    expect(ResumeImportProgressEventSchema.parse({
+      stage: "reading_document",
+      message: "Reading resume text, sections, and page layout.",
+      occurredAt: "2026-07-16T10:00:00.000Z",
+    }).stage).toBe("reading_document");
+
+    expect(() => ResumeImportProgressEventSchema.parse({
+      stage: "guessing",
+      message: "Working.",
+      occurredAt: "2026-07-16T10:00:00.000Z",
+    })).toThrow();
+  });
+
   test("parses a document bundle, import run, and field candidate", () => {
     const run = ResumeImportRunSchema.parse({
       id: "resume_import_run_1",

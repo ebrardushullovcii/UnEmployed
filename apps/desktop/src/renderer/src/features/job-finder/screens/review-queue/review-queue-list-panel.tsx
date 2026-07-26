@@ -108,6 +108,11 @@ export function ReviewQueueListPanel({
                   <span className="block w-full text-[0.8rem] text-foreground-muted">
                     {item.company} • {item.location}
                   </span>
+                  <span className="label-mono-xs text-primary">
+                    {item.resumeApplicationMode === "original_resume"
+                      ? "Original CV unchanged"
+                      : "Job-specific tailored CV"}
+                  </span>
                   {!queueReady ? (
                     <span className="block w-full text-[0.76rem] leading-5 text-muted-foreground">
                       Queue staging needs an approved ready PDF for this job.

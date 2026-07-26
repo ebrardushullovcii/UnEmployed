@@ -21,6 +21,7 @@ import {
 } from "./matching-requirements";
 export {
   buildApplicationRecords,
+  compareDiscoveryJobs,
   buildDiscoveryJobs,
   buildReviewQueue,
 } from "./matching-review-queue";
@@ -138,9 +139,11 @@ const europeanLocationRegionPatterns: Record<
 function inferBroadLocationRegions(value: string): Set<BroadLocationRegion> {
   const normalized = normalizeText(value);
   return new Set(
-    (Object.entries(broadLocationRegionPatterns) as Array<
-      [BroadLocationRegion, readonly RegExp[]]
-    >).flatMap(([region, patterns]) =>
+    (
+      Object.entries(broadLocationRegionPatterns) as Array<
+        [BroadLocationRegion, readonly RegExp[]]
+      >
+    ).flatMap(([region, patterns]) =>
       patterns.some((pattern) => pattern.test(normalized)) ? [region] : [],
     ),
   );
@@ -151,9 +154,11 @@ function inferEuropeanLocationRegions(
 ): Set<EuropeanLocationRegion> {
   const normalized = normalizeText(value);
   return new Set(
-    (Object.entries(europeanLocationRegionPatterns) as Array<
-      [EuropeanLocationRegion, readonly RegExp[]]
-    >).flatMap(([region, patterns]) =>
+    (
+      Object.entries(europeanLocationRegionPatterns) as Array<
+        [EuropeanLocationRegion, readonly RegExp[]]
+      >
+    ).flatMap(([region, patterns]) =>
       patterns.some((pattern) => pattern.test(normalized)) ? [region] : [],
     ),
   );
@@ -175,7 +180,9 @@ export function getBroadLocationCompatibility(
   if (candidateRegions.has("europe") && desiredRegions.has("europe")) {
     const candidateEuropeanRegions = inferEuropeanLocationRegions(candidate);
     const desiredEuropeanRegions = new Set(
-      desiredValues.flatMap((value) => [...inferEuropeanLocationRegions(value)]),
+      desiredValues.flatMap((value) => [
+        ...inferEuropeanLocationRegions(value),
+      ]),
     );
 
     if (candidateEuropeanRegions.size > 0) {
@@ -725,7 +732,9 @@ export function matchesTitlePreference(
               phraseMatchTokensEqual(candidateToken, desiredToken),
             ),
           );
-        return matchedCount >= 2 && matchRatio >= 2 / 3 && hasSpecificTokenMatch;
+        return (
+          matchedCount >= 2 && matchRatio >= 2 / 3 && hasSpecificTokenMatch
+        );
       }
 
       return matchedCount >= 3 && matchRatio >= 0.6;
@@ -891,6 +900,20 @@ export function createMatchAssessment(
     hasLocationPreferences: searchPreferences.locations.length > 0,
     hasWorkModePreferences: searchPreferences.workModes.length > 0,
   });
+  const missingCoreRequirements = requirements.filter(
+    (requirement) =>
+      requirement.importance === "required" &&
+      requirement.status === "missing" &&
+      (requirement.category === "skill" ||
+        requirement.category === "domain" ||
+        requirement.category === "experience" ||
+        requirement.category === "work_authorization"),
+  );
+  if (missingCoreRequirements.length >= 2) {
+    scoreCeiling = Math.min(scoreCeiling, 64);
+  } else if (missingCoreRequirements.length === 1) {
+    scoreCeiling = Math.min(scoreCeiling, 74);
+  }
 
   if (matchesRole) {
     score += 16;

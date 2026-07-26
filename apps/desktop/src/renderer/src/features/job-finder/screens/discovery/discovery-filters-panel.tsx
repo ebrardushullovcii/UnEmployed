@@ -179,7 +179,7 @@ export function DiscoveryFiltersPanel({
       </h2>
 
       <div className="surface-card-tint flex min-h-106 min-w-0 flex-1 flex-col overflow-hidden rounded-(--radius-panel) border border-(--surface-panel-border) xl:min-h-0">
-          <div className="grid min-w-0 gap-3 border-b border-(--surface-panel-border) px-4 py-4">
+        <div className="grid min-w-0 gap-3 border-b border-(--surface-panel-border) px-4 py-4">
             <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
               <StatusBadge tone={getSessionTone(displaySessionSnapshot)}>
                 {getBrowserStatusLabel(displaySessionSnapshot.status)}
@@ -204,6 +204,20 @@ export function DiscoveryFiltersPanel({
             sectionDetail={sessionDetail}
           />
         </div>
+
+        <DiscoveryFiltersFooter
+          actionMessage={actionMessage}
+          canRunDiscovery={canRunDiscovery}
+          isBrowserSessionPending={isBrowserSessionPending}
+          isBrowserSessionPendingForTarget={isBrowserSessionPendingForTarget}
+          isDiscoveryAllPending={isDiscoveryAllPending}
+          isReady={isReady}
+          onOpenBrowserSession={onOpenBrowserSession}
+          onOpenBrowserSessionForTarget={onOpenBrowserSessionForTarget}
+          onRunAgentDiscovery={onRunAgentDiscovery}
+          onViewProgress={onViewProgress}
+          primarySourceAccessPrompt={primarySourceAccessPrompt}
+        />
 
         <div className="grid min-h-0 min-w-0 flex-1 content-start gap-0 overflow-y-auto">
           <DiscoverySearchSections
@@ -230,19 +244,6 @@ export function DiscoveryFiltersPanel({
           ) : null}
         </div>
 
-        <DiscoveryFiltersFooter
-          actionMessage={actionMessage}
-          canRunDiscovery={canRunDiscovery}
-          isBrowserSessionPending={isBrowserSessionPending}
-          isBrowserSessionPendingForTarget={isBrowserSessionPendingForTarget}
-          isDiscoveryAllPending={isDiscoveryAllPending}
-          isReady={isReady}
-          onOpenBrowserSession={onOpenBrowserSession}
-          onOpenBrowserSessionForTarget={onOpenBrowserSessionForTarget}
-          onRunAgentDiscovery={onRunAgentDiscovery}
-          onViewProgress={onViewProgress}
-          primarySourceAccessPrompt={primarySourceAccessPrompt}
-        />
       </div>
     </section>
   );

@@ -383,6 +383,7 @@ export function useJobFinderPageController() {
         void navigate(path, options)
       },
       profileCopilotBusy,
+      resumeImportProgress: readyWorkspaceState.resumeImportProgress,
       profileCopilotPendingContextKey,
       profileCopilotRequestTokenRef,
       profileSetupState,
@@ -432,6 +433,7 @@ export function useJobFinderPageController() {
     navigate,
     canImportResume,
     profileCopilotBusy,
+    readyWorkspaceState,
     profileSetupState,
     profileCopilotPendingContextKey,
     importResumeGuardMessage,

@@ -8,6 +8,7 @@ import type {
   ProfileSetupState,
   ProfileSetupStep,
   ResumeImportFieldCandidateSummary,
+  ResumeImportProgressEvent,
 } from '@unemployed/contracts'
 import { LockedScreenLayout } from '../../locked-screen-layout'
 import { PageHeader } from '../../page-header'
@@ -26,6 +27,11 @@ import {
 } from './profile-setup-screen-sections'
 import { useProfileSetupForms } from './profile-setup-screen-hooks'
 import { useProfileSetupScreenActions } from './profile-setup-screen-actions'
+import {
+  PROFILE_SETUP_STEP_HEADING_ID,
+  resetProfileSetupStepView,
+} from './profile-setup-step-focus'
+import { formatProfileSetupStepLabel } from './profile-setup-steps'
 
 const setupScreenColumnsClassName = 'grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(20rem,0.95fr)]'
 const unsavedSetupCopilotMessage =
@@ -44,6 +50,7 @@ export function ProfileSetupScreen(props: {
   isReviewItemPending: (reviewItemId: string) => boolean
   profileCopilotBusy: boolean
   latestResumeImportReviewCandidates: readonly ResumeImportFieldCandidateSummary[]
+  resumeImportProgress: ResumeImportProgressEvent | null
   onApplyProfileCopilotPatchGroup: (patchGroupId: string) => void
   onApplyProfileSetupReviewAction: (
     reviewItemId: string,
@@ -81,6 +88,7 @@ export function ProfileSetupScreen(props: {
     isReviewItemPending,
     profileCopilotBusy,
     latestResumeImportReviewCandidates,
+    resumeImportProgress,
     onApplyProfileCopilotPatchGroup,
     onApplyProfileSetupReviewAction,
     onContinueToProfile,
@@ -123,6 +131,14 @@ export function ProfileSetupScreen(props: {
     return () => onProfileSurfaceDirtyChange(false)
   }, [hasUserDraftChanges, onProfileSurfaceDirtyChange])
 
+  useEffect(() => {
+    const frameId = window.requestAnimationFrame(() => {
+      resetProfileSetupStepView()
+    })
+
+    return () => window.cancelAnimationFrame(frameId)
+  }, [profileSetupState.currentStep])
+
   const setupCopilotContext = buildStepEditorContext(profileSetupState.currentStep)
   const {
     currentStepReviewItems,
@@ -151,25 +167,48 @@ export function ProfileSetupScreen(props: {
     (item) => item.status === 'pending',
   )
   const starterQuestion = buildCopilotStarterQuestion(pendingCurrentStepReviewItems)
+  const hasImportedResume = profile.baseResume.extractionStatus === 'ready'
+
+  function resumeCurrentStep() {
+    goToStep(profileSetupState.currentStep)
+
+    window.requestAnimationFrame(() => {
+      const target = document.getElementById(
+        pendingCurrentStepReviewItems.length > 0
+          ? 'profile-setup-review-queue'
+          : 'profile-setup-step-editor',
+      )
+      target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      target?.focus({ preventScroll: true })
+    })
+  }
 
   const readinessCards = useMemo(
     () => [
       {
         label: 'Discovery',
         value:
-          draftSearchPreferences.targetRoles.length > 0 || draftSearchPreferences.jobFamilies.length > 0
+          !hasImportedResume && profileSetupState.status === 'not_started'
+            ? 'Not provided yet'
+            : draftSearchPreferences.targetRoles.length > 0 || draftSearchPreferences.jobFamilies.length > 0
             ? 'Context captured'
             : 'Needs targeting details',
       },
       {
         label: 'Resume quality',
         value:
-          draftProfile.experiences.length > 0 ? 'Structured background available' : 'Needs stronger work history',
+          !hasImportedResume && profileSetupState.status === 'not_started'
+            ? 'Not analyzed yet'
+            : draftProfile.experiences.length > 0
+              ? 'Structured background available'
+              : 'Needs stronger work history',
       },
       {
         label: 'Apply readiness',
         value:
-          draftProfile.email?.trim() || draftProfile.phone?.trim()
+          !hasImportedResume && profileSetupState.status === 'not_started'
+            ? 'Not provided yet'
+            : draftProfile.email?.trim() || draftProfile.phone?.trim()
             ? 'Contact path ready'
             : 'Missing contact details',
       },
@@ -180,6 +219,8 @@ export function ProfileSetupScreen(props: {
       draftProfile.phone,
       draftSearchPreferences.jobFamilies.length,
       draftSearchPreferences.targetRoles.length,
+      hasImportedResume,
+      profileSetupState.status,
     ],
   )
 
@@ -201,9 +242,11 @@ export function ProfileSetupScreen(props: {
               importDisabledReason={importResumeGuardMessage}
               isImportResumePending={isImportResumePending}
               isProfileSetupPending={isProfileSetupPending}
+              resumeImportProgress={resumeImportProgress}
+              hasImportedResume={hasImportedResume}
               onImportResume={onImportResume}
               onOpenProfile={openProfile}
-              onResumeCurrentStep={() => goToStep(profileSetupState.currentStep)}
+              onResumeCurrentStep={resumeCurrentStep}
               profileSetupState={profileSetupState}
               readinessCards={readinessCards}
               reviewItemCount={pendingCurrentStepReviewItems.length}
@@ -213,7 +256,10 @@ export function ProfileSetupScreen(props: {
       )}
     >
       <div className={`${setupScreenColumnsClassName} min-h-0`}>
-        <div className="grid gap-6 min-h-0">
+        <div className="grid gap-6 min-h-0" id="profile-setup-step-editor" tabIndex={-1}>
+          <h2 className="sr-only" id={PROFILE_SETUP_STEP_HEADING_ID} tabIndex={-1}>
+            {formatProfileSetupStepLabel(profileSetupState.currentStep)} setup step
+          </h2>
           <ProfileSetupPathCard currentStep={profileSetupState.currentStep} onGoToStep={goToStep} profileSetupState={profileSetupState} />
 
             <ProfileSetupStepEditor
@@ -230,6 +276,7 @@ export function ProfileSetupScreen(props: {
               isImportResumePending={isImportResumePending}
               isProfileSetupPending={isProfileSetupPending}
               latestResumeImportReviewCandidates={latestResumeImportReviewCandidates}
+              resumeImportProgress={resumeImportProgress}
               onContinueToProfile={onContinueToProfile}
               onImportResume={onImportResume}
               onSaveCurrentStep={handleSaveCurrentStep}
@@ -257,7 +304,7 @@ export function ProfileSetupScreen(props: {
           <ProfileCopilotRail
             busy={profileCopilotBusy}
             actionsDisabledReason={hasUserDraftChanges ? unsavedSetupCopilotActionsMessage : null}
-            collapsedMinBottomOffset={20}
+            collapsedMinBottomOffset={setupCopilotMinBottomOffset}
             context={setupCopilotContext}
             emptyStateDescription="Ask why a field matters, request a tighter headline or summary, or propose a structured edit for this setup step."
             emptyStateTitle="No setup copilot requests yet"

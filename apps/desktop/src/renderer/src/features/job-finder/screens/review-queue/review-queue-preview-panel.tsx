@@ -112,8 +112,25 @@ export function ReviewQueuePreviewPanel({ displayedProgress, isGenerating: isSel
             <p className="rounded-(--radius-field) border border-primary/20 bg-primary/8 px-4 py-3 text-sm leading-6 text-foreground-soft">
               Apply Copilot will attach this exact imported file. Job Finder will not rewrite it, remove roles, or create a job-specific copy.
             </p>
+            <div className="rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) px-4 py-3 text-sm leading-6 text-(--warning-text)">
+              <strong className="block text-foreground">Check sensitive personal details before attaching</strong>
+              Original CVs can include a home address, date of birth, nationality, phone number, or other details you may not want to share with every employer. Review the preview below before starting Apply Copilot.
+            </div>
+            <dl className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/35 px-4 py-3 text-sm sm:grid-cols-2">
+              <div className="grid gap-1">
+                <dt className="label-mono-xs">File selected for attachment</dt>
+                <dd className="break-words font-medium text-foreground">{selectedItem.resumeReview.fileName}</dd>
+              </div>
+              <div className="grid gap-1">
+                <dt className="label-mono-xs">Imported</dt>
+                <dd className="text-foreground-soft">
+                  {originalResume?.uploadedAt ? new Date(originalResume.uploadedAt).toLocaleString() : 'Import date unavailable'}
+                </dd>
+              </div>
+            </dl>
             <div className="grid gap-2">
-              <span className="label-mono-xs">Extracted CV text</span>
+              <span className="label-mono-xs">Read-only extracted text preview</span>
+              <p className="text-sm leading-6 text-foreground-soft">This preview is only for review. The attachment remains the original imported file shown above.</p>
               {originalResume?.textContent ? (
                 <div className="max-h-[56vh] overflow-y-auto whitespace-pre-wrap rounded-(--radius-field) border border-(--surface-panel-border) bg-background/35 p-5 text-sm leading-7 text-foreground-soft">
                   {originalResume.textContent}

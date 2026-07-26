@@ -30,6 +30,49 @@ function buildRecordQuery(input: {
 }
 
 describe("createJobFinderWorkspaceService", () => {
+  test("persists original-CV mode and immediately updates current shortlisted jobs", async () => {
+    const { workspaceService, repository } = createWorkspaceServiceHarness();
+    const initialSnapshot = await workspaceService.getWorkspaceSnapshot();
+
+    expect(initialSnapshot.reviewQueue.every(
+      (item) => item.resumeApplicationMode === "tailored_per_job",
+    )).toBe(true);
+
+    const savedSnapshot = await workspaceService.saveSettings({
+      ...initialSnapshot.settings,
+      resumeApplicationMode: "original_resume",
+    });
+
+    expect(savedSnapshot.settings.resumeApplicationMode).toBe("original_resume");
+    expect((await repository.getSettings()).resumeApplicationMode).toBe(
+      "original_resume",
+    );
+    expect(savedSnapshot.reviewQueue).toHaveLength(initialSnapshot.reviewQueue.length);
+    const readyJob = savedSnapshot.reviewQueue.find(
+      (item) => item.jobId === "job_ready",
+    );
+    const generatingJob = savedSnapshot.reviewQueue.find(
+      (item) => item.jobId === "job_generating",
+    );
+
+    expect(readyJob).toMatchObject({
+      resumeApplicationMode: "original_resume",
+      assetStatus: "ready",
+      resumeReview: {
+        status: "original_resume",
+        fileName: "alex-vanguard.pdf",
+      },
+    });
+    expect(generatingJob).toMatchObject({
+      resumeApplicationMode: "original_resume",
+      assetStatus: "ready",
+      resumeReview: {
+        status: "original_resume",
+        fileName: "alex-vanguard.pdf",
+      },
+    });
+  });
+
   test("uses the original imported CV unchanged without generating a tailored resume", async () => {
     const seed = createSeed();
     seed.settings = {
@@ -73,6 +116,11 @@ describe("createJobFinderWorkspaceService", () => {
       exportArtifactId: null,
       fileName: "alex-vanguard.pdf",
       filePath: "/tmp/alex-vanguard.pdf",
+    });
+    expect(executionInput).toMatchObject({
+      mode: "prepare_only",
+      intermediateMutationsAuthorized: true,
+      submitAuthorized: false,
     });
     expect(snapshot.resumeDrafts).toHaveLength(0);
     expect(snapshot.resumeExportArtifacts).toHaveLength(0);

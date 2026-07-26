@@ -1,13 +1,14 @@
 import type { ApplicationAttempt } from "@unemployed/contracts";
 import { formatStatusLabel, getAttemptLabel, getAttemptTone } from "@renderer/features/job-finder/lib/job-finder-utils";
 import { StatusBadge } from "../../components/status-badge";
+import { getCustomerFacingApplyText } from "./applications-detail-panel-helpers";
 
 export function ApplicationsDetailPanelAttemptSection(props: {
   selectedAttempt: ApplicationAttempt | null;
 }) {
   const { selectedAttempt } = props;
-  const attemptSummary = selectedAttempt?.summary?.trim() || null;
-  const attemptDetail = selectedAttempt?.detail?.trim() || null;
+  const attemptSummary = getCustomerFacingApplyText(selectedAttempt?.summary);
+  const attemptDetail = getCustomerFacingApplyText(selectedAttempt?.detail);
 
   if (!selectedAttempt) {
     return (
@@ -43,11 +44,11 @@ export function ApplicationsDetailPanelAttemptSection(props: {
         <div className="grid gap-1 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3">
           <strong>{formatStatusLabel(selectedAttempt.blocker.code)}</strong>
           <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-            {selectedAttempt.blocker.summary}
+            {getCustomerFacingApplyText(selectedAttempt.blocker.summary)}
           </p>
           {selectedAttempt.blocker.detail ? (
             <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-              {selectedAttempt.blocker.detail}
+              {getCustomerFacingApplyText(selectedAttempt.blocker.detail)}
             </p>
           ) : null}
         </div>

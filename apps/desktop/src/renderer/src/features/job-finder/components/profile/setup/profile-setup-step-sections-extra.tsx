@@ -8,8 +8,10 @@ import { EmptyState } from '../../empty-state'
 import { formatStatusLabel } from '../../../lib/job-finder-utils'
 import type { ProfileEditorValues } from '../../../lib/profile-editor'
 import type { ProfileBackgroundArrays } from '../profile-field-array-types'
+import type { ProfileSetupReviewItemDisplay } from './profile-setup-screen-helpers'
 import { ProfileInput, ProfileTextarea } from '../profile-form-primitives'
 import { ProfileRecordCard } from '../profile-record-card'
+import { PreferredApplicationLinksField } from '../preferred-application-links-field'
 import type { RenderFooter } from './profile-setup-step-sections'
 
 export function ProfileSetupNarrativeStep(props: {
@@ -75,7 +77,7 @@ export function ProfileSetupNarrativeStep(props: {
               <ProfileRecordCard
                 id={`proof-record-${entry.id}`}
                 key={entry.fieldKey}
-                summary={props.profileForm.watch(`proofBank.${index}.heroMetric`) || 'Add the claim and strongest supporting detail.'}
+                summary={props.profileForm.watch(`proofBank.${index}.heroMetric`) || props.profileForm.watch(`proofBank.${index}.claim`) || props.profileForm.watch(`proofBank.${index}.supportingContext`) || 'Add the claim and strongest supporting detail.'}
                 title={props.profileForm.watch(`proofBank.${index}.title`)?.trim() || `Proof ${index + 1}`}
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -118,6 +120,11 @@ export function ProfileSetupAnswersStep(props: {
   const preferredEmailId = 'profile-setup-field-application-identity-preferred-email'
   const preferredPhoneId = 'profile-setup-field-application-identity-preferred-phone'
   const preferredLinksId = 'profile-setup-field-application-identity-preferred-links'
+  const professionalStory = props.profileForm.watch('narrative.professionalStory').trim()
+  const transitionSummary = props.profileForm.watch('narrative.careerTransitionSummary').trim()
+  const selfIntroduction = props.profileForm.watch('answerBank.selfIntroduction').trim()
+  const careerTransition = props.profileForm.watch('answerBank.careerTransition').trim()
+  const copiedFieldOptions = { shouldDirty: true, shouldTouch: true, shouldValidate: true } as const
 
   return (
     <Card className="rounded-(--radius-panel) border-border/40">
@@ -132,11 +139,28 @@ export function ProfileSetupAnswersStep(props: {
           <Field><FieldLabel htmlFor={availabilityAnswerId}>Availability</FieldLabel><ProfileTextarea id={availabilityAnswerId} rows={4} {...props.profileForm.register('answerBank.availability')} /></Field>
           <Field><FieldLabel htmlFor={visaAnswerId}>Visa sponsorship</FieldLabel><ProfileTextarea id={visaAnswerId} rows={4} {...props.profileForm.register('answerBank.visaSponsorship')} /></Field>
           <Field><FieldLabel htmlFor={relocationId}>Relocation</FieldLabel><ProfileTextarea id={relocationId} rows={4} {...props.profileForm.register('answerBank.relocation')} /></Field>
-          <Field><FieldLabel htmlFor={selfIntroductionId}>Short self-introduction</FieldLabel><ProfileTextarea id={selfIntroductionId} rows={4} {...props.profileForm.register('answerBank.selfIntroduction')} /></Field>
-          <Field className="md:col-span-2"><FieldLabel htmlFor={careerTransitionId}>Career transition explanation</FieldLabel><ProfileTextarea id={careerTransitionId} rows={4} {...props.profileForm.register('answerBank.careerTransition')} /></Field>
+          <Field>
+            <div className="flex items-center justify-between gap-3">
+              <FieldLabel htmlFor={selfIntroductionId}>Short self-introduction</FieldLabel>
+              {!selfIntroduction && professionalStory ? (
+                <Button onClick={() => props.profileForm.setValue('answerBank.selfIntroduction', professionalStory, copiedFieldOptions)} size="compact" type="button" variant="ghost">Use professional story</Button>
+              ) : null}
+            </div>
+            <ProfileTextarea id={selfIntroductionId} rows={4} {...props.profileForm.register('answerBank.selfIntroduction')} />
+            <p className="text-xs leading-5 text-foreground-muted">Keep this consistent with your saved professional story; edit it into a concise spoken introduction.</p>
+          </Field>
+          <Field className="md:col-span-2">
+            <div className="flex items-center justify-between gap-3">
+              <FieldLabel htmlFor={careerTransitionId}>Career transition explanation</FieldLabel>
+              {!careerTransition && transitionSummary ? (
+                <Button onClick={() => props.profileForm.setValue('answerBank.careerTransition', transitionSummary, copiedFieldOptions)} size="compact" type="button" variant="ghost">Use transition summary</Button>
+              ) : null}
+            </div>
+            <ProfileTextarea id={careerTransitionId} rows={4} {...props.profileForm.register('answerBank.careerTransition')} />
+          </Field>
           <Field><FieldLabel htmlFor={preferredEmailId}>Preferred application email</FieldLabel><ProfileInput id={preferredEmailId} {...props.profileForm.register('applicationIdentity.preferredEmail')} /></Field>
           <Field><FieldLabel htmlFor={preferredPhoneId}>Preferred application phone</FieldLabel><ProfileInput id={preferredPhoneId} {...props.profileForm.register('applicationIdentity.preferredPhone')} /></Field>
-          <Field className="md:col-span-2"><FieldLabel htmlFor={preferredLinksId}>Preferred public link IDs</FieldLabel><ProfileTextarea id={preferredLinksId} rows={4} {...props.profileForm.register('applicationIdentity.preferredLinkIds')} /></Field>
+          <PreferredApplicationLinksField fieldId={preferredLinksId} profileForm={props.profileForm} />
         </div>
 
         <div className="grid gap-4">
@@ -198,11 +222,12 @@ export function ProfileSetupAnswersStep(props: {
 
 export function ProfileSetupReadyCheckStep(props: {
   applyStatus: 'ready' | 'needs_review' | 'missing'
-  blockingPendingItemsCount: number
+  blockingPendingItems: readonly ProfileSetupReviewItemDisplay[]
   canFinishSetup: boolean
   discoveryStatus: 'ready' | 'needs_review' | 'missing'
   getReadinessTone: (status: 'ready' | 'needs_review' | 'missing') => 'default' | 'outline' | 'destructive'
   narrativeStatus: 'ready' | 'needs_review' | 'missing'
+  onGoToStep: (step: ProfileSetupStep) => void
   onSaveAndFinish: () => void
   renderFooter: RenderFooter
 }) {
@@ -217,9 +242,9 @@ export function ProfileSetupReadyCheckStep(props: {
       <CardContent className="grid gap-4 pt-6">
         <div className="grid gap-3 md:grid-cols-3">
           {[
-            { label: 'Discovery', status: props.discoveryStatus, description: props.discoveryStatus === 'ready' ? 'Roles, locations, and eligibility are ready for targeted search.' : props.discoveryStatus === 'needs_review' ? 'Some targeting context exists, but discovery can still drift.' : 'Discovery is still missing roles or practical constraints.' },
+            { label: 'Discovery', status: props.discoveryStatus, description: props.discoveryStatus === 'ready' ? 'Roles, locations, and eligibility are ready for targeted search.' : props.discoveryStatus === 'needs_review' ? 'Review the pending role, location, or eligibility items listed below before relying on search results.' : 'Add a target role plus your location, work-mode, or eligibility constraints.' },
             { label: 'Resume quality', status: props.narrativeStatus, description: props.narrativeStatus === 'ready' ? 'Narrative and proof exist for stronger summaries and bullets.' : props.narrativeStatus === 'needs_review' ? 'There is useful background, but the story still needs sharpening.' : 'The app still lacks enough story or proof to produce strong output.' },
-            { label: 'Apply readiness', status: props.applyStatus, description: props.applyStatus === 'ready' ? 'Contact, eligibility, and reusable answers are ready for application defaults.' : props.applyStatus === 'needs_review' ? 'Some apply defaults exist, but repeated screeners will still need extra input.' : 'Applications still miss key contact, eligibility, or answer defaults.' },
+            { label: 'Apply readiness', status: props.applyStatus, description: props.applyStatus === 'ready' ? 'Contact, eligibility, and reusable answers are ready for application defaults.' : props.applyStatus === 'needs_review' ? 'Review the pending contact, eligibility, or reusable-answer items listed below.' : 'Add a contact method and the application defaults you want forms to reuse.' },
           ].map((card) => (
             <div className="rounded-(--radius-field) border border-border/30 bg-background/60 p-4" key={card.label}>
               <div className="flex items-center justify-between gap-2">
@@ -231,9 +256,29 @@ export function ProfileSetupReadyCheckStep(props: {
           ))}
         </div>
 
-        {props.blockingPendingItemsCount > 0 ? (
-          <div className="rounded-(--radius-field) border border-destructive/30 bg-destructive/5 p-4 text-sm leading-6 text-foreground-soft">
-            {props.blockingPendingItemsCount} blocking review item{props.blockingPendingItemsCount === 1 ? '' : 's'} still {props.blockingPendingItemsCount === 1 ? 'needs' : 'need'} attention before setup can finish.
+        {props.blockingPendingItems.length > 0 ? (
+          <div className="grid gap-3 rounded-(--radius-field) border border-destructive/30 bg-destructive/5 p-4">
+            <div>
+              <p className="text-sm font-semibold text-foreground">
+                {props.blockingPendingItems.length} item{props.blockingPendingItems.length === 1 ? '' : 's'} to resolve
+              </p>
+              <p className="mt-1 text-sm leading-6 text-foreground-soft">
+                Each item below links to the exact setup step where it can be confirmed or corrected.
+              </p>
+            </div>
+            <div className="grid gap-2">
+              {props.blockingPendingItems.map((item) => (
+                <div className="flex flex-col gap-3 rounded-(--radius-field) border border-border/35 bg-background/70 p-3 sm:flex-row sm:items-center sm:justify-between" key={item.id}>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-foreground">{item.label}</p>
+                    <p className="mt-1 text-sm leading-6 text-foreground-soft">{item.reason}</p>
+                  </div>
+                  <Button onClick={() => props.onGoToStep(item.step)} size="compact" type="button" variant="secondary">
+                    Review {formatStatusLabel(item.step)}
+                  </Button>
+                </div>
+              ))}
+            </div>
           </div>
         ) : null}
 

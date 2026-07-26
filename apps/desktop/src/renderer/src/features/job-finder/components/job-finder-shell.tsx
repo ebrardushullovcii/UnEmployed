@@ -170,23 +170,25 @@ export function JobFinderShell({ children, onNavigate, platform, workspace }: Jo
               {suiteModules.map((moduleName, index) => (
                 <div key={moduleName} className="flex items-center gap-6" role="listitem">
                   {index > 0 ? <span aria-hidden="true" className="h-4 w-px bg-border/50" /> : null}
-                  <span
+                  <button
                     aria-current={moduleName === 'job-finder' ? 'page' : undefined}
+                    aria-label={moduleName === 'interview-helper' ? 'Open Interview Helper' : 'Job Finder'}
                     onClick={() => {
                       if (moduleName === 'interview-helper') {
                         void navigate('/interview-helper')
                       }
                     }}
                     className={cn(
-                      'h-auto rounded-none border-0 bg-transparent px-0 py-0 text-[14px] font-semibold tracking-(--tracking-badge) shadow-none sm:text-[15px]',
+                      'h-auto rounded-sm border-0 bg-transparent px-0 py-0 text-[14px] font-semibold tracking-(--tracking-badge) shadow-none outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:text-[15px]',
                       moduleName === 'interview-helper' ? 'cursor-pointer hover:text-foreground' : '',
                       moduleName === 'job-finder'
                         ? 'text-(--text-headline)'
                         : 'text-muted-foreground'
                     )}
+                    type="button"
                   >
                     {formatStatusLabel(moduleName)}
-                  </span>
+                  </button>
                 </div>
               ))}
             </div>
@@ -231,19 +233,20 @@ export function JobFinderShell({ children, onNavigate, platform, workspace }: Jo
             ) : null}
           </div>
 
-          <nav className="col-start-2 row-start-2 hidden min-w-0 items-center justify-center lg:flex" style={noDragRegionStyle}>
-            <div className="inline-flex max-w-full items-center gap-1 rounded-full border border-(--surface-panel-border) bg-(--surface-panel) p-1">
+          <nav aria-label="Job Finder sections" className="col-start-2 row-start-2 flex min-w-0 items-center justify-start overflow-x-auto px-1 lg:justify-center lg:overflow-visible" style={noDragRegionStyle}>
+            <div className="inline-flex max-w-full shrink-0 items-center gap-1 rounded-full border border-(--surface-panel-border) bg-(--surface-panel) p-1">
               {primaryScreens.map((screen) => (
                 <button
                   aria-current={activeScreen === screen.id ? 'page' : undefined}
                   key={screen.id}
                   className={cn(
-                    'inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-[0.76rem] font-medium text-muted-foreground transition-colors hover:text-foreground xl:px-4 xl:text-(length:--text-small)',
+                    'inline-flex min-h-9 items-center gap-2 rounded-full px-2.5 py-2 text-[0.72rem] font-medium text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:px-3.5 sm:text-[0.76rem] xl:px-4 xl:text-(length:--text-small)',
                     activeScreen === screen.id ? 'bg-secondary text-foreground' : ''
                   )}
                   onClick={() => handleScreenChange(screen.id)}
                   type="button"
                 >
+                  <screen.icon aria-hidden="true" className="size-3.5 lg:hidden" />
                   <span>{screen.label}</span>
                   {screen.count !== null ? (
                     <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-(--input) px-1.5 text-[0.65rem] text-foreground">
@@ -256,7 +259,7 @@ export function JobFinderShell({ children, onNavigate, platform, workspace }: Jo
               <button
                 aria-current={activeScreen === 'settings' ? 'page' : undefined}
                 className={cn(
-                  'inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-[0.76rem] font-medium transition-colors xl:px-4 xl:text-(length:--text-small)',
+                  'inline-flex min-h-9 items-center gap-2 rounded-full px-2.5 py-2 text-[0.72rem] font-medium transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:px-3.5 sm:text-[0.76rem] xl:px-4 xl:text-(length:--text-small)',
                   activeScreen === 'settings'
                     ? 'bg-secondary text-foreground'
                     : 'text-muted-foreground hover:text-foreground'

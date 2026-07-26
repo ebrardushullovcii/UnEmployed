@@ -8,6 +8,28 @@ import {
 
 const ProbabilitySchema = z.number().min(0).max(1);
 
+export const resumeImportProgressStageValues = [
+  "saving_file",
+  "reading_document",
+  "building_profile",
+  "saving_results",
+] as const;
+export const ResumeImportProgressStageSchema = z.enum(
+  resumeImportProgressStageValues,
+);
+export type ResumeImportProgressStage = z.infer<
+  typeof ResumeImportProgressStageSchema
+>;
+
+export const ResumeImportProgressEventSchema = z.object({
+  stage: ResumeImportProgressStageSchema,
+  message: NonEmptyStringSchema,
+  occurredAt: IsoDateTimeSchema,
+});
+export type ResumeImportProgressEvent = z.infer<
+  typeof ResumeImportProgressEventSchema
+>;
+
 export const resumeDocumentFileKindValues = [
   "plain_text",
   "markdown",

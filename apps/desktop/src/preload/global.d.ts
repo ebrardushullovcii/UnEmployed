@@ -35,6 +35,7 @@ import type {
   ResumeImportBenchmarkCase,
   ResumeImportBenchmarkRequest,
   ResumeImportFieldCandidate,
+  ResumeImportProgressEvent,
   ResumeImportRun,
   ResumeDocumentBundle,
   JobFinderPerformanceSnapshot,
@@ -170,7 +171,9 @@ declare global {
         undoProfileRevision: (
           revisionId: string,
         ) => Promise<JobFinderWorkspaceSnapshot>;
-        importResume: () => Promise<JobFinderWorkspaceSnapshot>;
+        importResume: (
+          onProgress?: (event: ResumeImportProgressEvent) => void,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
         runDiscovery: () => Promise<JobFinderWorkspaceSnapshot>;
         runAgentDiscovery: (
           onActivity?: (event: DiscoveryActivityEvent) => void,

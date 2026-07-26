@@ -533,7 +533,7 @@ async function captureEssentialsCopilotYearsExperienceUpdate(window) {
 }
 
 async function captureBackgroundEditJump(window) {
-  const openCurrentStep = window.getByRole('button', { name: /Open current step|Review current step/i })
+  const openCurrentStep = window.getByRole('button', { name: /Start setup|Open current step|Review current step/i })
   if (await openCurrentStep.isVisible().catch(() => false)) {
     await openCurrentStep.click()
   }

@@ -33,6 +33,63 @@ const assetStatusPriority: Record<AssetStatus, number> = {
   not_started: 4,
 };
 
+const recommendationPriority: Record<
+  SavedJob["matchAssessment"]["recommendation"],
+  number
+> = {
+  strong_fit: 0,
+  apply_with_original: 1,
+  review_before_applying: 2,
+  skip: 3,
+};
+
+function toSortableTime(value: string | null | undefined): number {
+  if (!value) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
+}
+
+export function compareDiscoveryJobs(left: SavedJob, right: SavedJob): number {
+  const scoreDelta = right.matchAssessment.score - left.matchAssessment.score;
+  if (scoreDelta !== 0) {
+    return scoreDelta;
+  }
+
+  const recommendationDelta =
+    recommendationPriority[left.matchAssessment.recommendation] -
+    recommendationPriority[right.matchAssessment.recommendation];
+  if (recommendationDelta !== 0) {
+    return recommendationDelta;
+  }
+
+  const detailDelta =
+    Number(right.detailQuality === "detail_enriched") -
+    Number(left.detailQuality === "detail_enriched");
+  if (detailDelta !== 0) {
+    return detailDelta;
+  }
+
+  const recencyDelta =
+    toSortableTime(
+      right.postedAt ?? right.lastVerifiedActiveAt ?? right.discoveredAt,
+    ) -
+    toSortableTime(
+      left.postedAt ?? left.lastVerifiedActiveAt ?? left.discoveredAt,
+    );
+  if (recencyDelta !== 0) {
+    return recencyDelta;
+  }
+
+  return (
+    left.title.localeCompare(right.title) ||
+    left.company.localeCompare(right.company) ||
+    left.id.localeCompare(right.id)
+  );
+}
+
 function getLatestApprovedExport(
   current: ResumeExportArtifact | null,
   candidate: ResumeExportArtifact,
@@ -191,9 +248,7 @@ export function buildReviewQueue(
 export function buildDiscoveryJobs(savedJobs: readonly SavedJob[]): SavedJob[] {
   return [...savedJobs]
     .filter((job) => discoveryVisibleStatuses.has(job.status))
-    .sort(
-      (left, right) => right.matchAssessment.score - left.matchAssessment.score,
-    );
+    .sort(compareDiscoveryJobs);
 }
 
 export function buildApplicationRecords(

@@ -1,4 +1,5 @@
 import { app } from 'electron'
+import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 
 function getUserDataDirectory() {
@@ -19,4 +20,8 @@ export function getGeneratedResumeDocumentsDirectory() {
 
 export function getBrowserAgentProfileDirectory() {
   return path.join(getUserDataDirectory(), 'browser-agent', 'default')
+}
+
+export async function ensureJobFinderUserDataDirectory() {
+  await mkdir(getUserDataDirectory(), { recursive: true })
 }

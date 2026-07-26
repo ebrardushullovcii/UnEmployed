@@ -5,6 +5,7 @@ import type {
   JobFinderWorkspaceSnapshot,
   ProfileCopilotMessage,
   ProfileSetupState,
+  ResumeImportProgressEvent,
   ResumeAssistantMessage,
 } from '@unemployed/contracts'
 import type {
@@ -39,6 +40,7 @@ type BuildJobFinderPageContextArgs = {
   locationPathname: string
   navigate: (path: string, options?: { replace?: boolean; state?: unknown }) => void
   profileCopilotBusy: boolean
+  resumeImportProgress: ResumeImportProgressEvent | null
   profileCopilotPendingContextKey: string | null
   profileCopilotRequestTokenRef: MutableRefObject<number>
   requestApplyCopilotVisualCheckpoints: (request: {
@@ -102,6 +104,7 @@ export function buildJobFinderPageContext(
     locationPathname,
     navigate,
     profileCopilotBusy,
+    resumeImportProgress,
     profileCopilotPendingContextKey,
     profileCopilotRequestTokenRef,
     requestApplyCopilotVisualCheckpoints,
@@ -179,6 +182,7 @@ export function buildJobFinderPageContext(
     isAnyPending: isAnyPendingAction,
     isPending: isPendingAction,
     profileCopilotBusy,
+    resumeImportProgress,
     ...primaryActions,
     onProfileSurfaceDirtyChange: setProfileSurfaceDirty,
     profileCopilotPendingContextKey,
