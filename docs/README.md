@@ -30,6 +30,8 @@ Read `docs/ARCHITECTURE.md` before changing discovery or source-debug behavior.
 
 Current active plan: none.
 
+Current Job Finder product audit checklist: `docs/audits/JOB_FINDER_PRODUCT_DECISIONS_AND_AUDIT_CHECKLIST.md`.
+
 ## Durable Docs
 
 - `docs/GOALS.md`: durable product direction

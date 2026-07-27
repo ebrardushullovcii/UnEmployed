@@ -272,6 +272,29 @@ describe('resume workspace quality helpers', () => {
     ])
   })
 
+  test('sanitizeResumeDraft keeps a comma-rich summary supported by the profile', () => {
+    const { profile, job } = getSeedContext()
+    const supportedSummary =
+      'Frontend engineer focused on React, TypeScript, testing, performance, and mentoring.'
+    const groundedProfile = {
+      ...profile,
+      summary: supportedSummary,
+    }
+    const draft = updateSection(createBaseDraft(), 'section_summary', (section) => ({
+      ...section,
+      text: supportedSummary,
+    }))
+
+    const sanitized = sanitizeResumeDraft({
+      draft,
+      job,
+      profile: groundedProfile,
+    })
+
+    expect(getSection(sanitized, 'section_summary').text).toBe(supportedSummary)
+    expect(getSection(sanitized, 'section_summary').included).toBe(true)
+  })
+
   test('sanitizeResumeDraft removes copied job-description summary prose and copied section bullets', () => {
     const { profile, job } = getSeedContext()
     const copiedSummary = job.description
@@ -309,6 +332,33 @@ describe('resume workspace quality helpers', () => {
     expect(getSection(sanitized, 'section_experience').bullets).toEqual([])
     expect(experienceEntry.bullets.map((bullet) => bullet.text)).toEqual([
       'Improved workflow QA handoff across release reviews.',
+    ])
+  })
+
+  test('sanitizeResumeDraft removes summary sentences that repeat visible experience bullets', () => {
+    const { profile, job } = getSeedContext()
+    const draft = updateSection(createBaseDraft(), 'section_experience', (section) => ({
+      ...section,
+      entries: section.entries.map((entry) => ({
+        ...entry,
+        summary:
+          'Led design-system rollout across core surfaces. Reduced median load time from 4.2 seconds to 1.9 seconds. Mentored four engineers through accessibility reviews.',
+        bullets: createBullets('experience_summary_overlap', [
+          'Led design-system rollout across core surfaces.',
+          'Reduced median load time from 4.2 seconds to 1.9 seconds.',
+        ]),
+      })),
+    }))
+
+    const sanitized = sanitizeResumeDraft({ draft, job, profile })
+    const experienceEntry = getExperienceEntry(sanitized)
+
+    expect(experienceEntry.summary).toBe(
+      'Mentored four engineers through accessibility reviews.',
+    )
+    expect(experienceEntry.bullets.map((bullet) => bullet.text)).toEqual([
+      'Led design-system rollout across core surfaces.',
+      'Reduced median load time from 4.2 seconds to 1.9 seconds.',
     ])
   })
 

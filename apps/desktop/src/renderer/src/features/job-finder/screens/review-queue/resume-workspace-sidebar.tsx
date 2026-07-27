@@ -125,7 +125,7 @@ export function ResumeWorkspaceSidebar({
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-foreground-soft">
         <p>
-          {researchCount === 1 ? "Saved source" : "Saved sources"}:{" "}
+          {researchCount === 1 ? "Saved research note" : "Saved research notes"}:{" "}
           {researchCount}
         </p>
         <p>

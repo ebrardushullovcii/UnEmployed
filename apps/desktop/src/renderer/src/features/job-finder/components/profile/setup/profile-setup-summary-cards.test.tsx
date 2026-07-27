@@ -22,6 +22,8 @@ describe('ProfileSetupSummaryCards', () => {
 
   function renderSummary(hasImportedResume: boolean, reviewItemCount: number) {
     const onResumeCurrentStep = vi.fn()
+    const onImportResume = vi.fn()
+    const onStartManually = vi.fn()
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -35,9 +37,10 @@ describe('ProfileSetupSummaryCards', () => {
           isImportResumePending={false}
           isProfileSetupPending={false}
           resumeImportProgress={null}
-          onImportResume={vi.fn()}
+          onImportResume={onImportResume}
           onOpenProfile={vi.fn()}
           onResumeCurrentStep={onResumeCurrentStep}
+          onStartManually={onStartManually}
           profileSetupState={{
             status: hasImportedResume ? 'in_progress' : 'not_started',
             currentStep: hasImportedResume ? 'background' : 'import',
@@ -55,26 +58,27 @@ describe('ProfileSetupSummaryCards', () => {
       )
     })
 
-    return { onResumeCurrentStep }
+    return { onImportResume, onResumeCurrentStep, onStartManually }
   }
 
   it('uses truthful neutral language before any resume analysis', () => {
-    const { onResumeCurrentStep } = renderSummary(false, 0)
+    const { onImportResume, onResumeCurrentStep, onStartManually } = renderSummary(false, 0)
 
-    expect(container?.textContent).toContain('Build your job-search profile.')
-    expect(container?.textContent).toContain('Not analyzed yet')
+    expect(container?.textContent).toContain('Start with the résumé you already have.')
+    expect(container?.textContent).toContain('asks only about important gaps')
     expect(container?.textContent).not.toContain('in good shape')
     expect([...container!.querySelectorAll('button')].map((button) => button.textContent)).toEqual([
-      'Start setup',
-      'Open full Profile',
+      'Import my résuméPDF, DOCX, TXT, or Markdown · review before anything is approved',
+      'Enter details manuallyBegin with contact details and target roles; add the rest when it becomes useful.',
     ])
 
     act(() => {
-      ;[...container!.querySelectorAll('button')]
-        .find((button) => button.textContent === 'Start setup')
-        ?.click()
+      ;(container!.querySelectorAll('button')[0] as HTMLButtonElement).click()
+      ;(container!.querySelectorAll('button')[1] as HTMLButtonElement).click()
     })
-    expect(onResumeCurrentStep).toHaveBeenCalledTimes(1)
+    expect(onImportResume).toHaveBeenCalledTimes(1)
+    expect(onStartManually).toHaveBeenCalledTimes(1)
+    expect(onResumeCurrentStep).not.toHaveBeenCalled()
   })
 
   it('promotes review and demotes re-import after a successful import', () => {

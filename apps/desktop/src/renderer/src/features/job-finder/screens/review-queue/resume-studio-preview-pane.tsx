@@ -297,7 +297,23 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
         ref={scrollRegionRef}
       >
         <div className="grid min-h-full justify-items-center pb-4">
-        {props.previewStatus === "error" ? (
+        {props.isPending ? (
+          <div
+            aria-live="polite"
+            className="grid h-full min-h-80 place-items-center rounded-(--radius-field) border border-dashed border-(--surface-panel-border) bg-background/70 p-6 text-center"
+            role="status"
+          >
+            <div className="grid max-w-md gap-3">
+              <LoaderCircle className="mx-auto size-6 animate-spin text-primary" />
+              <h3 className="font-display text-base text-foreground">
+                Updating your resume
+              </h3>
+              <p className="text-sm leading-6 text-foreground-soft">
+                The refreshed preview will appear here when it is ready.
+              </p>
+            </div>
+          </div>
+        ) : props.previewStatus === "error" ? (
           <div className="grid h-full place-items-center rounded-(--radius-field) border border-dashed border-critical/35 bg-critical/10 p-6 text-center">
             <div className="grid max-w-md gap-3">
               <div className="mx-auto flex size-11 items-center justify-center rounded-full border border-critical/25 bg-critical/10 text-critical">

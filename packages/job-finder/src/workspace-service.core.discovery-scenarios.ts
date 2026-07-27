@@ -432,6 +432,10 @@ describe("createJobFinderWorkspaceService", () => {
         ...createDiscoveryOnlySeed().searchPreferences,
         targetRoles: ["Senior Full-Stack Software Engineer"],
         locations: ["Prishtina, Kosovo"],
+        discovery: {
+          ...createDiscoveryOnlySeed().searchPreferences.discovery,
+          collectOnlyHardCriteriaMatches: true,
+        },
       },
     };
     const browserRuntime: BrowserSessionRuntime = {
@@ -1096,6 +1100,7 @@ describe("createJobFinderWorkspaceService", () => {
 
   test("applies source budgets after title triage so relevant jobs later in a provider inventory survive", async () => {
     const seed = createDiscoveryOnlySeed();
+    seed.searchPreferences.discovery.collectOnlyHardCriteriaMatches = true;
     const browserRuntime: BrowserSessionRuntime = {
       ...createAgentBrowserRuntime([]),
       runAgentDiscovery(source) {

@@ -162,7 +162,8 @@ export function DiscoveryResultsPanel({
     browserSession.status === "blocked";
   const sessionWaitingOnRuntime =
     browserSession.status === "unknown" &&
-    browserSession.driver !== "catalog_seed";
+    browserSession.driver !== "catalog_seed" &&
+    recoveryActionPending;
   const baseButtonClasses =
     "grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) p-5 text-left transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30";
 

@@ -97,7 +97,7 @@ export function ReviewQueueScreen(props: {
           compact
           eyebrow="Shortlisted"
           title="Shortlisted jobs"
-          description={selectedItem?.resumeApplicationMode === 'original_resume' ? 'Review the original CV you imported, then decide job by job whether Apply Copilot should use that unchanged file.' : 'Finish the next step for each shortlisted job, approve the PDF you want, and start Apply Copilot when it is ready.'}
+          description={selectedItem?.resumeApplicationMode === 'original_resume' ? 'Review the original CV you imported, then choose whether Apply Copilot should use it unchanged.' : 'Review each saved job, approve its PDF, and start Apply Copilot when you are ready.'}
         />
       )}
     >

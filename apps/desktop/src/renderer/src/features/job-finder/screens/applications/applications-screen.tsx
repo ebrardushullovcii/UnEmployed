@@ -19,6 +19,7 @@ import {
 } from "./applications-screen-helpers";
 import { useApplicationsApplyRunDetails } from "./use-applications-apply-run-details";
 import { ApplicationsRecordsPanel } from "./applications-records-panel";
+import { StatusBadge } from "../../components/status-badge";
 
 export function ApplicationsScreen(props: {
   applicationAttempts: readonly ApplicationAttempt[];
@@ -87,6 +88,36 @@ export function ApplicationsScreen(props: {
       ) as Record<ApplicationsViewFilter, number>,
     [applicationRecords],
   );
+  const latestFinishedAutomaticRun = useMemo(
+    () =>
+      [...applyRuns]
+        .filter(
+          (run) =>
+            run.mode !== "copilot" &&
+            ["completed", "failed", "cancelled"].includes(run.state),
+        )
+        .sort(
+          (left, right) =>
+            new Date(right.updatedAt).getTime() -
+            new Date(left.updatedAt).getTime(),
+        )[0] ?? null,
+    [applyRuns],
+  );
+  const latestFinishedAutomaticResults = useMemo(
+    () =>
+      latestFinishedAutomaticRun
+        ? applyJobResults.filter(
+            (result) => result.runId === latestFinishedAutomaticRun.id,
+          )
+        : [],
+    [applyJobResults, latestFinishedAutomaticRun],
+  );
+  const latestRunAttentionCount = latestFinishedAutomaticResults.filter(
+    (result) => result.state === "blocked" || result.state === "failed",
+  ).length;
+  const latestRunSkippedCount = latestFinishedAutomaticResults.filter(
+    (result) => result.state === "skipped",
+  ).length;
   const filteredApplicationRecords = useMemo(
     () =>
       applicationRecords.filter((record) =>
@@ -262,11 +293,30 @@ export function ApplicationsScreen(props: {
       contentClassName="xl:overflow-hidden"
       topClassName="pb-(--gap-section) pt-8"
       topContent={
-        <PageHeader
-          eyebrow="Applications"
-          title="Applications"
-          description="Use this view to triage what needs attention, review the latest attempt, and keep each job moving forward."
-        />
+        <div className="grid gap-4">
+          <PageHeader
+            eyebrow="Applications"
+            title="Applications"
+            description="See what needs attention, review the latest attempt, and keep each application moving."
+          />
+          {latestFinishedAutomaticRun ? (
+            <section className="flex flex-wrap items-center justify-between gap-4 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) px-4 py-3">
+              <div className="min-w-0">
+                <p className="label-mono-xs">Latest automatic run</p>
+                <p className="mt-1 text-(length:--text-small) leading-6 text-foreground-soft">
+                  {latestFinishedAutomaticRun.totalJobs} job{latestFinishedAutomaticRun.totalJobs === 1 ? "" : "s"} · {latestRunAttentionCount} need attention · {latestRunSkippedCount} skipped
+                </p>
+              </div>
+              <StatusBadge tone={latestRunAttentionCount > 0 ? "critical" : latestFinishedAutomaticRun.state === "completed" ? "positive" : "muted"}>
+                {latestRunAttentionCount > 0
+                  ? `${latestRunAttentionCount} unusual ${latestRunAttentionCount === 1 ? "case" : "cases"}`
+                  : latestFinishedAutomaticRun.state === "completed"
+                    ? "No unusual cases"
+                    : latestFinishedAutomaticRun.state}
+              </StatusBadge>
+            </section>
+          ) : null}
+        </div>
       }
     >
       <div className="grid min-h-124 min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(22rem,0.95fr)_minmax(30rem,1.45fr)] xl:overflow-hidden">

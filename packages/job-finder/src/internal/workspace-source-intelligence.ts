@@ -1803,6 +1803,10 @@ export function applyDiscoveryTitleTriage(input: {
   const allowsPollutedTitleEvidence =
     posting.providerKey === null &&
     /\bdismiss\b.{0,160}\bjob\b/iu.test(postingEvidenceText);
+  const isGenericTalentPool =
+    /^(?:keep me in mind!?|general application|open application|join (?:our )?talent (?:pool|network)|talent (?:pool|network)|future opportunities|submit (?:your )?resume|expression of interest)$/iu.test(
+      posting.title.trim(),
+    );
 
   if (
     searchPreferences.companyBlacklist.some(
@@ -1812,6 +1816,31 @@ export function applyDiscoveryTitleTriage(input: {
     return {
       outcome: "skip_company" as const,
       reason: "Company is on the blacklist.",
+    };
+  }
+
+  if (
+    searchPreferences.excludedLocations.length > 0 &&
+    matchesLocationPreference(posting.location, searchPreferences.excludedLocations)
+  ) {
+    return {
+      outcome: "skip_location" as const,
+      reason: "Location is explicitly excluded.",
+    };
+  }
+
+  if (isGenericTalentPool) {
+    return {
+      outcome: "skip_title" as const,
+      reason:
+        "This is a general talent-pool invitation rather than a specific open role.",
+    };
+  }
+
+  if (searchPreferences.discovery.collectOnlyHardCriteriaMatches !== true) {
+    return {
+      outcome: "pass" as const,
+      reason: null,
     };
   }
 

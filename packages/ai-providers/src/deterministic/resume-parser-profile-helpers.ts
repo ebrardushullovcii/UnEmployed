@@ -163,7 +163,7 @@ export function inferEducationEntries(resumeText: string) {
 
   const directEducationLineIndex = candidatePool.findIndex(
     (line) =>
-      /degree|bachelor|master|phd/i.test(line) &&
+      /degree|associate|bachelor|master|phd/i.test(line) &&
       /(college|university|school|institute|kolegji)/i.test(line) &&
       !isResumeSectionHeading(line),
   );
@@ -172,11 +172,11 @@ export function inferEducationEntries(resumeText: string) {
       /(college|university|school|institute|kolegji)/i.test(line) &&
       !isResumeSectionHeading(line) &&
       [candidatePool[index - 1], candidatePool[index + 1], candidatePool[index + 2]]
-        .some((nearbyLine) => /degree|bachelor|master|phd/i.test(nearbyLine ?? "")),
+        .some((nearbyLine) => /degree|associate|bachelor|master|phd/i.test(nearbyLine ?? "")),
   );
   const degreeOnlyLineIndex = candidatePool.findIndex(
     (line, index) =>
-      /degree|bachelor|master|phd/i.test(line) &&
+      /degree|associate|bachelor|master|phd/i.test(line) &&
       !isResumeSectionHeading(line) &&
       [candidatePool[index - 2], candidatePool[index - 1], candidatePool[index + 1]]
         .some((nearbyLine) => /(college|university|school|institute|kolegji)/i.test(nearbyLine ?? "")),
@@ -230,13 +230,13 @@ export function inferEducationEntries(resumeText: string) {
       degree = right ?? null;
     } else if (!leftHasSchool && rightHasSchool) {
       degree = left ?? null;
-      schoolName = right ?? null;
+      schoolName = right?.replace(/,\s*(?:19|20)\d{2}\s*$/, "") ?? null;
     }
   }
 
   if (!degree) {
     const degreeLine = nearbyEducationLines.find((line) =>
-      /degree|bachelor|master|phd/i.test(line) &&
+      /degree|associate|bachelor|master|phd/i.test(line) &&
       !/(college|university|school|institute|kolegji)/i.test(line),
     );
     degree = degreeLine ?? null;
@@ -244,7 +244,7 @@ export function inferEducationEntries(resumeText: string) {
 
   const schoolKeywordIndex = (educationLineForParsing || educationLine).search(/\b(?:College|University|School|Institute|Kolegji)\b/i);
 
-  if (!schoolName && schoolKeywordIndex !== -1 && /degree|bachelor|master|phd/i.test((educationLineForParsing || educationLine).slice(0, schoolKeywordIndex))) {
+  if (!schoolName && schoolKeywordIndex !== -1 && /degree|associate|bachelor|master|phd/i.test((educationLineForParsing || educationLine).slice(0, schoolKeywordIndex))) {
     schoolName = cleanLine((educationLineForParsing || educationLine).slice(schoolKeywordIndex));
     const detailParts = cleanLine((educationLineForParsing || educationLine).slice(0, schoolKeywordIndex)).replace(/^[,\s–—-]+|[,\s–—-]+$/g, "");
 
@@ -267,7 +267,9 @@ export function inferEducationEntries(resumeText: string) {
   }
 
   if (degree) {
-    const degreeWithFieldMatch = degree.match(/^(.*?degree)(?:\s+in\s+|,\s+)(.+)$/i);
+    const degreeWithFieldMatch = degree.match(
+      /^(.*?(?:degree|associate of (?:applied science|arts|science)))(?:\s+in\s+|,\s+)(.+)$/i,
+    );
 
     if (degreeWithFieldMatch) {
       degree = cleanLine(degreeWithFieldMatch[1] ?? degree);
@@ -285,6 +287,9 @@ export function inferEducationEntries(resumeText: string) {
     .map((line) => cleanLine(line ?? ""))
     .find((line) => dateRangePattern.test(line)) ?? null;
   const dateMatch = dateLine?.match(dateRangePattern) ?? null;
+  const graduationYearMatch = dateMatch
+    ? null
+    : educationLine.match(/(?:,\s*|\b)((?:19|20)\d{2})\s*$/);
   const locationLine = [candidatePool[educationLineIndex - 1], candidatePool[educationLineIndex + 1]]
     .map((line) => cleanLine(line ?? ""))
     .find((line) =>
@@ -300,7 +305,9 @@ export function inferEducationEntries(resumeText: string) {
       fieldOfStudy: fieldOfStudy || null,
       location: normalizeLocationLabel(locationLine ?? null),
       startDate: dateMatch?.[1] ? cleanLine(dateMatch[1]) : null,
-      endDate: dateMatch?.[2] ? cleanLine(dateMatch[2]) : null,
+      endDate: dateMatch?.[2]
+        ? cleanLine(dateMatch[2])
+        : graduationYearMatch?.[1] ?? null,
       summary: null,
     },
   ].filter((entry) => entry.schoolName || entry.degree || entry.fieldOfStudy);

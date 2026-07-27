@@ -221,7 +221,10 @@ export function areEquivalentEducationRecords(
   return (
     (strongSchool && strongDegree && (strongStart || strongEnd || fieldCompatible)) ||
     (strongSchool && strongStart && degreeCompatible && fieldCompatible) ||
-    (strongSchool && degreeCompatible && fieldCompatible && (strongDegree || strongField))
+    (strongSchool &&
+      degreeCompatible &&
+      fieldCompatible &&
+      (strongDegree || strongField || strongStart || strongEnd))
   );
 }
 

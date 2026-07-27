@@ -63,10 +63,9 @@ describe('ApplicationsScreen', () => {
     )
 
     expect(screen.getByText('Start your first application')).toBeTruthy()
-    expect(screen.getByText('Keep all application follow-ups in one place')).toBeTruthy()
+    expect(screen.getByText('Application details will appear here')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Go to Shortlisted' }).getAttribute('href')).toBe('#/job-finder/review-queue')
-    expect(screen.getByRole('link', { name: 'Open Shortlisted' }).getAttribute('href')).toBe('#/job-finder/review-queue')
-    expect(screen.getAllByRole('link', { name: 'Find jobs' })[0]?.getAttribute('href')).toBe('#/job-finder/discovery')
+    expect(screen.getByRole('link', { name: 'Find jobs' }).getAttribute('href')).toBe('#/job-finder/discovery')
   })
 
   it('loads details for a newly selected historical apply run', async () => {

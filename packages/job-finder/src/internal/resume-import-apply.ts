@@ -16,7 +16,7 @@ import {
   mergeProjectRecords,
   parseLocationParts,
 } from "./profile-merge";
-import { toStringArray } from "./resume-import-common";
+import { toCandidateListValues, toStringArray } from "./resume-import-common";
 import {
   candidateScore,
   isListTarget,
@@ -178,13 +178,13 @@ function buildResolvedSelection(
         case "targetRoles":
           selection.scalarFields.targetRoles = uniqueStrings([
             ...(selection.scalarFields.targetRoles ?? []),
-            ...toStringArray(candidate.value),
+            ...toCandidateListValues(candidate),
           ]);
           break;
         case "locations":
           selection.scalarFields.locations = uniqueStrings([
             ...(selection.scalarFields.locations ?? []),
-            ...toStringArray(candidate.value),
+            ...toCandidateListValues(candidate),
           ]);
           break;
         case "skills":

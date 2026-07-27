@@ -329,4 +329,148 @@ describe("resume import reconciliation", () => {
       resolution: "auto_applied",
     });
   });
+
+  test("normalizes JSON-encoded education records and removes redundant inferred fields", () => {
+    const baseSeed = createSeed();
+    const seed = {
+      ...baseSeed,
+      profile: {
+        ...baseSeed.profile,
+        id: "candidate_fresh_start",
+        firstName: "New",
+        lastName: "Candidate",
+        fullName: "New Candidate",
+        headline: "Import your resume to begin",
+        summary: "Import a resume or paste resume text to build your profile, targeting, and tailored documents.",
+        currentLocation: "Set your preferred location",
+        education: [],
+      },
+    };
+    const evidenceText = "Bachelor of Science in Computer Science — Oregon State University, 2018";
+    const educationCandidate = ResumeImportFieldCandidateSchema.parse({
+      runId: "resume_import_run_json_education",
+      ...createStageCandidate({
+        target: {
+          section: "education",
+          key: "record",
+          recordId: "education_1",
+        },
+        label: "Education",
+        value: JSON.stringify({
+          schoolName: "Oregon State University",
+          degree: "Bachelor of Science",
+          fieldOfStudy: "Computer Science",
+          location: "Oregon State University",
+          startDate: null,
+          endDate: "2018",
+          summary: evidenceText,
+        }),
+        sourceBlockIds: ["block_education"],
+        confidence: 0.98,
+        overall: 0.86,
+        recommendation: "needs_review",
+      }),
+      id: "candidate_json_education_record",
+      sourceKind: "model_background",
+      evidenceText,
+      resolution: "needs_review",
+      createdAt: "2026-04-10T10:00:00.000Z",
+      resolvedAt: null,
+    });
+
+    const reconciled = reconcileCandidates(seed.profile, seed.searchPreferences, [educationCandidate]);
+
+    expect(reconciled[0]).toMatchObject({
+      id: "candidate_json_education_record",
+      resolution: "auto_applied",
+      value: {
+        schoolName: "Oregon State University",
+        degree: "Bachelor of Science",
+        fieldOfStudy: "Computer Science",
+        location: null,
+        startDate: null,
+        endDate: "2018",
+        summary: null,
+      },
+    });
+  });
+
+  test("rejects a raw education line already represented by a grounded structured record", () => {
+    const baseSeed = createSeed();
+    const seed = {
+      ...baseSeed,
+      profile: {
+        ...baseSeed.profile,
+        id: "candidate_fresh_start",
+        firstName: "New",
+        lastName: "Candidate",
+        fullName: "New Candidate",
+        headline: "Import your resume to begin",
+        summary: "Import a resume or paste resume text to build your profile, targeting, and tailored documents.",
+        currentLocation: "Set your preferred location",
+        education: [],
+      },
+    };
+    const evidenceText = "Bachelor of Science in Computer Science — Oregon State University, 2018";
+    const target = {
+      section: "education" as const,
+      key: "record",
+      recordId: "education_1",
+    };
+    const rawCandidate = ResumeImportFieldCandidateSchema.parse({
+      runId: "resume_import_run_duplicate_education",
+      ...createStageCandidate({
+        target,
+        label: "Education",
+        value: evidenceText,
+        sourceBlockIds: ["block_education"],
+        confidence: 0.98,
+        overall: 0.86,
+        recommendation: "needs_review",
+      }),
+      id: "candidate_raw_education_record",
+      sourceKind: "model_background",
+      evidenceText,
+      resolution: "needs_review",
+      createdAt: "2026-04-10T10:00:00.000Z",
+      resolvedAt: null,
+    });
+    const structuredCandidate = ResumeImportFieldCandidateSchema.parse({
+      runId: "resume_import_run_duplicate_education",
+      ...createStageCandidate({
+        target,
+        label: "Oregon State University",
+        value: {
+          schoolName: "Oregon State University",
+          degree: "Bachelor of Science in Computer Science",
+          fieldOfStudy: null,
+          location: null,
+          startDate: null,
+          endDate: "2018",
+          summary: null,
+        },
+        sourceBlockIds: ["block_education"],
+        confidence: 0.8,
+        overall: 0.75,
+        recommendation: "needs_review",
+      }),
+      id: "candidate_structured_education_record",
+      sourceKind: "model_background",
+      evidenceText,
+      resolution: "needs_review",
+      createdAt: "2026-04-10T10:00:00.000Z",
+      resolvedAt: null,
+      notes: ["deterministic_stage_fallback"],
+    });
+
+    const reconciled = reconcileCandidates(
+      seed.profile,
+      seed.searchPreferences,
+      [rawCandidate, structuredCandidate],
+    );
+
+    expect(reconciled.find((candidate) => candidate.id === rawCandidate.id)?.resolution).toBe("rejected");
+    expect(reconciled.find((candidate) => candidate.id === structuredCandidate.id)?.resolution).toBe("auto_applied");
+    expect(reconciled.some((candidate) => candidate.resolution === "needs_review")).toBe(false);
+  });
 });

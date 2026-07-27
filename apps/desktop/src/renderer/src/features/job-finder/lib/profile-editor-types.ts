@@ -100,6 +100,7 @@ export interface ProfileEditorValues {
 export interface SearchPreferencesEditorValues {
   companyBlacklist: string
   companyWhitelist: string
+  collectOnlyHardCriteriaMatches: boolean
   employmentTypes: string
   excludedLocations: string
   jobFamilies: string

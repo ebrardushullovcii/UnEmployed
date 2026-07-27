@@ -216,6 +216,7 @@ export function ApplicationsDetailPanel({
             visibleApplyRunId={visibleApplyRunId}
           />
           <ApplicationsDetailPanelRecoverySections
+            approvalScopeEntries={selectedQueueEntries.map(({ jobId, label }) => ({ jobId, label }))}
             applyRunHistory={applyRunHistory}
             canRestageAutoRun={canRestageAutoRun}
             canRestageQueueRun={canRestageQueueRun}

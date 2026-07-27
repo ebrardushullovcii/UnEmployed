@@ -132,10 +132,91 @@ function createSearchPreferences(overrides: Partial<JobSearchPreferences> = {}):
     discovery: {
       targets: [],
       historyLimit: 5,
+      collectOnlyHardCriteriaMatches: true,
     },
     ...overrides,
   };
 }
+
+test("keeps jobs outside soft preferences visible unless strict collection is enabled", () => {
+  const seed = createSeed();
+  const posting = createPosting({
+    title: "Product Designer",
+    location: "Toronto, Canada",
+    workMode: ["onsite"],
+  });
+  const broadPreferences = createSearchPreferences({
+    targetRoles: ["Senior Software Engineer"],
+    locations: ["Berlin, Germany"],
+    workModes: ["remote"],
+    discovery: {
+      targets: [],
+      historyLimit: 5,
+      collectOnlyHardCriteriaMatches: false,
+    },
+  });
+
+  expect(
+    applyDiscoveryTitleTriage({
+      posting,
+      profile: seed.profile,
+      searchPreferences: broadPreferences,
+    }),
+  ).toEqual({ outcome: "pass", reason: null });
+});
+
+test("skips generic talent-pool invitations even when broad discovery is enabled", () => {
+  const seed = createSeed();
+  const posting = createPosting({
+    title: "Keep me in mind!",
+  });
+  const broadPreferences = createSearchPreferences({
+    targetRoles: ["Marketing Coordinator"],
+    discovery: {
+      targets: [],
+      historyLimit: 5,
+      collectOnlyHardCriteriaMatches: false,
+    },
+  });
+
+  expect(
+    applyDiscoveryTitleTriage({
+      posting,
+      profile: seed.profile,
+      searchPreferences: broadPreferences,
+    }),
+  ).toEqual({
+    outcome: "skip_title",
+    reason:
+      "This is a general talent-pool invitation rather than a specific open role.",
+  });
+});
+
+test("always skips an explicitly excluded location", () => {
+  const seed = createSeed();
+  const posting = createPosting({
+    location: "Toronto, Canada",
+  });
+  const searchPreferences = createSearchPreferences({
+    excludedLocations: ["Toronto, Canada"],
+    discovery: {
+      targets: [],
+      historyLimit: 5,
+      collectOnlyHardCriteriaMatches: false,
+    },
+  });
+
+  expect(
+    applyDiscoveryTitleTriage({
+      posting,
+      profile: seed.profile,
+      searchPreferences,
+    }),
+  ).toEqual({
+    outcome: "skip_location",
+    reason: "Location is explicitly excluded.",
+  });
+});
 
 function createPosting(
   overrides: Partial<ReturnType<typeof JobPostingSchema.parse>> = {},

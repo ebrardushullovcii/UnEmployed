@@ -54,11 +54,61 @@ export function ProfileSetupSummaryCards(props: {
   onImportResume: () => void
   onOpenProfile: () => void
   onResumeCurrentStep: () => void
+  onStartManually: () => void
   profileSetupState: ProfileSetupState
   readinessCards: ReadonlyArray<{ label: string; value: string }>
   reviewItemCount: number
 }) {
   const hasPendingReviewItems = props.reviewItemCount > 0
+  const isPristine = props.profileSetupState.status === 'not_started' && !props.hasImportedResume
+
+  if (isPristine) {
+    return (
+      <Card className="overflow-hidden rounded-(--radius-panel) border-border/40 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--surface-panel)_90%,transparent),color-mix(in_srgb,var(--surface-panel-raised)_86%,transparent))]">
+        <CardHeader className="gap-3 border-b border-border/30 pb-5">
+          <Badge className="w-fit" variant="outline">First step</Badge>
+          <CardTitle>Start with the résumé you already have.</CardTitle>
+          <CardDescription className="max-w-2xl">
+            Importing is the fastest path: Job Finder extracts your experience, then asks only about important gaps or uncertain details. Your file stays in this local workspace until you choose to use it for an application.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-5 pt-6">
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(15rem,0.62fr)]">
+            <button
+              className="group rounded-(--radius-field) border border-foreground/20 bg-foreground p-5 text-left text-background transition-transform hover:-translate-y-0.5"
+              disabled={props.isImportResumePending || Boolean(props.importDisabledReason)}
+              onClick={props.onImportResume}
+              type="button"
+            >
+              <span className="block text-base font-semibold">Import my résumé</span>
+              <span className="mt-2 block text-sm leading-6 text-background/70">PDF, DOCX, TXT, or Markdown · review before anything is approved</span>
+            </button>
+            <button
+              className="group rounded-(--radius-field) border border-border/40 bg-background/55 p-5 text-left transition-colors hover:border-border hover:bg-secondary/35"
+              disabled={props.isProfileSetupPending}
+              onClick={props.onStartManually}
+              type="button"
+            >
+              <span className="block text-base font-semibold text-foreground">Enter details manually</span>
+              <span className="mt-2 block text-sm leading-6 text-foreground-soft">Begin with contact details and target roles; add the rest when it becomes useful.</span>
+            </button>
+          </div>
+          {props.importDisabledReason ? (
+            <p className="text-sm leading-6 text-foreground-soft">{props.importDisabledReason}</p>
+          ) : null}
+          {props.actionMessage ? (
+            <div className="rounded-(--radius-field) border border-border/25 bg-background/70 p-4 text-sm text-foreground-soft" role="status">
+              {props.actionMessage}
+            </div>
+          ) : null}
+          <ResumeImportProgress isPending={props.isImportResumePending} progress={props.resumeImportProgress} />
+          <p className="text-xs leading-5 text-muted-foreground">
+            Nothing is sent to an employer from setup. You will review job fit and choose an original or tailored résumé before a job can become eligible for application.
+          </p>
+        </CardContent>
+      </Card>
+    )
+  }
 
   return (
     <>
@@ -73,12 +123,12 @@ export function ProfileSetupSummaryCards(props: {
           <CardTitle>
             {props.profileSetupState.status === 'not_started'
               ? 'Build your job-search profile.'
-              : 'Finish the key profile details before you move on.'}
+              : 'Finish the essentials.'}
           </CardTitle>
           <CardDescription>
             {props.profileSetupState.status === 'not_started'
               ? 'Import a resume or start manually. Job Finder will show specific review items after it has something to evaluate.'
-              : 'Review imported suggestions, fill the missing details, and keep every edit in sync with your full profile.'}
+              : 'Review any flagged details, then continue.'}
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-5 pt-6">
@@ -117,22 +167,18 @@ export function ProfileSetupSummaryCards(props: {
 
       <Card className="rounded-(--radius-panel) border-border/40">
         <CardHeader className="gap-2 border-b border-border/30 pb-5">
-          <CardTitle>What to do now</CardTitle>
-          <CardDescription>
-            Pick up where you left off, or reopen the current step to resolve anything the import still needs from you.
-          </CardDescription>
+          <CardTitle>Current step</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 pt-6">
           <div>
-            <p className="text-(length:--text-tiny) uppercase tracking-[0.2em] text-muted-foreground">Current setup step</p>
-            <p className="mt-2 text-xl font-semibold text-foreground">{formatProfileSetupStepLabel(props.profileSetupState.currentStep)}</p>
+            <p className="text-xl font-semibold text-foreground">{formatProfileSetupStepLabel(props.profileSetupState.currentStep)}</p>
           </div>
           <div className="rounded-(--radius-field) border border-border/30 bg-background/60 p-4 text-sm text-foreground-soft">
             {hasPendingReviewItems
               ? `${props.reviewItemCount} review item${props.reviewItemCount === 1 ? '' : 's'} still ${props.reviewItemCount === 1 ? 'needs' : 'need'} attention in this step before the setup feels trustworthy.`
               : props.profileSetupState.status === 'not_started'
                 ? 'Start by importing a resume or opening the current step to enter your details manually.'
-              : 'This step is in good shape right now. Save any edits here, then continue when you are ready.'}
+              : 'No review items here. Continue when you are ready.'}
           </div>
           {props.actionMessage ? (
             <div className="rounded-(--radius-field) border border-border/25 bg-background/70 p-4 text-sm text-foreground-soft" role="status">
@@ -155,7 +201,7 @@ export function ProfileSetupPathCard(props: {
         <CardHeader className="gap-2 border-b border-border/30 pb-5">
           <CardTitle>Setup path</CardTitle>
           <CardDescription>
-            Move between stages when needed. Review items persist across stages so nothing gets lost.
+            Return to any step when needed. Review items stay saved.
           </CardDescription>
         </CardHeader>
       <CardContent className="grid gap-3 pt-6">

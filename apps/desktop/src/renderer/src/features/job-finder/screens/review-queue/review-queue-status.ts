@@ -171,7 +171,7 @@ export function getApplyReadinessStatus(params: {
     }
 
     return {
-      label: browserSession.status === 'unknown' ? 'Waiting for browser' : 'Apply path may be manual',
+      label: browserSession.status === 'unknown' ? 'Open browser' : 'Apply path may be manual',
       tone: 'active'
     }
   }
@@ -185,7 +185,7 @@ export function getApplyReadinessStatus(params: {
 
   if (browserSession.status === 'unknown') {
     return {
-      label: 'Waiting for browser',
+      label: 'Open browser',
       tone: 'active'
     }
   }

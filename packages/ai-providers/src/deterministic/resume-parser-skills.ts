@@ -12,8 +12,15 @@ import {
 } from "./utils";
 
 function inferKnownPhrases(text: string, phrases: readonly string[]): string[] {
-  const lowerText = text.toLowerCase();
-  return uniqueStrings(phrases.filter((phrase) => lowerText.includes(phrase.toLowerCase())));
+  return uniqueStrings(phrases.filter((phrase) => containsPhrase(text, phrase)));
+}
+
+function containsPhrase(text: string, phrase: string): boolean {
+  const escapedPhrase = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(
+    `(?:^|[^A-Za-z0-9])${escapedPhrase}(?=$|[^A-Za-z0-9])`,
+    "i",
+  ).test(text);
 }
 
 export function inferSkills(
@@ -23,7 +30,7 @@ export function inferSkills(
   const sectionLines = findSectionBodyLinesByAliases(splitLines(resumeText), skillSectionAliases);
   const sectionText = sectionLines.join("\n");
   const matchedKnownSkills = uniqueStrings(
-    knownSkillPhrases.filter((skill) => sectionText.toLowerCase().includes(skill.toLowerCase())),
+    knownSkillPhrases.filter((skill) => containsPhrase(sectionText, skill)),
   );
   const nonNestedMatchedSkills = matchedKnownSkills.filter(
     (skill) => !matchedKnownSkills.some((other) => other !== skill && other.toLowerCase().includes(skill.toLowerCase())),
@@ -34,7 +41,7 @@ export function inferSkills(
     .map(cleanLine)
     .filter((entry) => entry.length >= 2 && entry.length <= 28)
     .filter((entry) => {
-      const overlappingKnownSkills = knownSkillPhrases.filter((skill) => entry.toLowerCase().includes(skill.toLowerCase()));
+      const overlappingKnownSkills = knownSkillPhrases.filter((skill) => containsPhrase(entry, skill));
       if (overlappingKnownSkills.length > 1) {
         return false;
       }
@@ -46,8 +53,7 @@ export function inferSkills(
     return sectionSkills;
   }
 
-  const lowerText = resumeText.toLowerCase();
-  const extractedSkills = knownSkillPhrases.filter((skill) => lowerText.includes(skill.toLowerCase()));
+  const extractedSkills = knownSkillPhrases.filter((skill) => containsPhrase(resumeText, skill));
   const nonNestedExtracted = extractedSkills.filter(
     (skill) => !extractedSkills.some((other) => other !== skill && other.toLowerCase().includes(skill.toLowerCase())),
   );

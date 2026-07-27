@@ -137,6 +137,34 @@ describe("buildDeterministicResumeProfileExtraction", () => {
     expect(extraction.summary).toBeNull();
   });
 
+  test("does not infer a collaborator's profession as an experience skill", () => {
+    const extraction = buildDeterministicResumeProfileExtraction(
+      {
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: [
+          "Casey Rowan",
+          "Senior Frontend Engineer",
+          "EXPERIENCE",
+          "Cedar Ledger — Frontend Engineer",
+          "June 2018 - February 2021",
+          "- Built account-management workflows with React, GraphQL, and Node.js.",
+          "- Partnered with product designers to improve form completion and error recovery.",
+          "SKILLS",
+          "React, TypeScript, GraphQL, Node.js",
+        ].join("\n"),
+      },
+      "deterministic",
+      "Test provider",
+      { preserveExistingValues: false },
+    );
+
+    expect(extraction.experiences[0]?.skills).toEqual(
+      expect.arrayContaining(["React", "GraphQL", "Node.js"]),
+    );
+    expect(extraction.experiences[0]?.skills).not.toContain("Product Design");
+  });
+
   test("derives years of experience from single-digit slash month ranges", () => {
     const extraction = buildDeterministicResumeProfileExtraction(
       {
@@ -485,6 +513,29 @@ describe("buildDeterministicResumeProfileExtraction", () => {
       degree: "BACHELOR'S DEGREE",
       fieldOfStudy: "COMPUTER SCIENCE",
       location: "Prishtina, Kosovo",
+    });
+  });
+
+  test("parses an associate degree before a school name on one line", () => {
+    const extraction = buildDeterministicResumeProfileExtraction(
+      {
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: [
+          "EDUCATION",
+          "Associate of Applied Science in Business Administration — Columbus State Community College, 2021",
+        ].join("\n"),
+      },
+      "deterministic",
+      "Test provider",
+      { preserveExistingValues: false },
+    );
+
+    expect(extraction.education[0]).toMatchObject({
+      schoolName: "Columbus State Community College",
+      degree: "Associate of Applied Science",
+      fieldOfStudy: "Business Administration",
+      endDate: "2021",
     });
   });
 

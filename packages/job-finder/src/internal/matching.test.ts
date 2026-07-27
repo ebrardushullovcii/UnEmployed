@@ -212,6 +212,56 @@ describe("matching helpers", () => {
     );
   });
 
+  test("keeps unrelated role families out of a candidate's high-confidence matches", () => {
+    const seed = createSeed();
+    const preferences = {
+      ...seed.searchPreferences,
+      targetRoles: ["Senior Frontend Engineer"],
+      locations: [],
+      workModes: [],
+      minimumSalaryUsd: null,
+      companyWhitelist: [],
+    };
+    const basePosting = {
+      ...seed.savedJobs[0]!,
+      description: "Partner across teams and deliver measurable business outcomes.",
+      keySkills: [],
+      keywordSignals: [],
+    };
+
+    const peopleRole = createMatchAssessment(seed.profile, preferences, {
+      ...basePosting,
+      title: "Senior Total Rewards Partner",
+    });
+    const dataRole = createMatchAssessment(seed.profile, preferences, {
+      ...basePosting,
+      title: "Senior Data Engineer",
+    });
+    const productRole = createMatchAssessment(seed.profile, preferences, {
+      ...basePosting,
+      title: "Product Manager, Billing Platform",
+    });
+    const adjacentEngineeringRole = createMatchAssessment(
+      seed.profile,
+      preferences,
+      {
+        ...basePosting,
+        title: "Senior Forward Deployed Engineer",
+      },
+    );
+
+    expect(peopleRole.score).toBeLessThanOrEqual(46);
+    expect(dataRole.score).toBeLessThanOrEqual(46);
+    expect(productRole.score).toBeLessThanOrEqual(50);
+    expect(productRole.gaps).toContain(
+      "The title does not show a clear connection to the current target role families.",
+    );
+    expect(adjacentEngineeringRole.score).toBeGreaterThan(peopleRole.score);
+    expect(peopleRole.gaps).toContain(
+      "Role family is outside the current target roles, so this is unlikely to be a useful match.",
+    );
+  });
+
   test("matches linkedin noisy dismiss-title strings without letting adjacent frontend roles through", () => {
     expect(
       matchesTitlePreference(
@@ -341,7 +391,7 @@ describe("matching helpers", () => {
 
     expect(assessment.score).toBeLessThan(70);
     expect(assessment.gaps).toContain(
-      "The title signals a staff-or-leadership scope not yet explicit in the current engineering profile.",
+      "The title signals a staff-or-leadership scope not yet explicit in the current profile.",
     );
   });
 

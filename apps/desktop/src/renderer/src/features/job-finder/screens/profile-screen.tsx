@@ -24,7 +24,7 @@ import {
   focusProfileDeepLink,
   type ProfileDeepLinkFocus,
 } from '../components/profile/profile-deep-link-focus'
-import { COPILOT_CONTENT_SAFE_OFFSET } from '../components/profile/profile-copilot-rail-layout'
+import { COPILOT_BOTTOM_OFFSET } from '../components/profile/profile-copilot-rail-layout'
 import { buildProfileSectionStarterQuestion } from '../components/profile/profile-copilot-prompts'
 import { ProfileResumePanel } from '../components/profile/profile-resume-panel'
 import { ProfileSaveFooter } from '../components/profile/profile-save-footer'
@@ -124,6 +124,7 @@ export function ProfileScreen(props: {
   } = props
 
   const [searchParams] = useSearchParams()
+  const [isCopilotOpen, setIsCopilotOpen] = useState(false)
   const requestedSection = searchParams.get('section')
   const requestedFocus = searchParams.get('focus')
   const [activeSection, setActiveSection] = useState<ProfileSection>(
@@ -274,13 +275,14 @@ export function ProfileScreen(props: {
   return (
     <LockedScreenLayout
       contentClassName="xl:overflow-hidden"
+      reserveRightRail={isCopilotOpen}
       topClassName="grid gap-(--gap-section) pb-(--gap-section) pt-8"
         topContent={(
           <>
             <PageHeader
               eyebrow="Profile"
               title="Your profile"
-              description="Import your resume, lock in the essentials first, then fill in optional details only where they help your search and applications."
+              description="Import your resume, confirm the essentials, and add optional details only when they help."
             />
 
           <ProfileResumePanel
@@ -301,8 +303,8 @@ export function ProfileScreen(props: {
                 <p className="text-(length:--text-tiny) uppercase tracking-[0.18em] text-muted-foreground">Setup still in progress</p>
                 <p className="text-sm text-foreground-soft">
                   {pendingSetupItems.length > 0
-                    ? `${pendingSetupItems.length} setup review item${pendingSetupItems.length === 1 ? '' : 's'} ${pendingSetupItems.length === 1 ? 'is' : 'are'} still open. Resume setup from ${profileSetupState.currentStep.replace('_', ' ')}.`
-                    : `Your guided setup is still resumable from ${profileSetupState.currentStep.replace('_', ' ')}.`}
+                    ? `${pendingSetupItems.length} setup item${pendingSetupItems.length === 1 ? '' : 's'} still need${pendingSetupItems.length === 1 ? 's' : ''} review. Continue from ${profileSetupState.currentStep.replace('_', ' ')}.`
+                    : `Continue setup from ${profileSetupState.currentStep.replace('_', ' ')}.`}
                 </p>
               </div>
               <Button
@@ -369,21 +371,23 @@ export function ProfileScreen(props: {
       <ProfileCopilotRail
         busy={pendingActions.profileCopilotBusy}
         actionsDisabledReason={hasUserDraftChanges ? unsavedProfileCopilotActionsMessage : null}
-        collapsedMinBottomOffset={COPILOT_CONTENT_SAFE_OFFSET}
+        collapsedMinBottomOffset={COPILOT_BOTTOM_OFFSET}
         context={profileCopilotContext}
-        emptyStateDescription="Ask for a tighter headline, a stronger summary, or a structured profile edit for this section."
-        emptyStateTitle="No profile copilot requests yet"
+        emptyStateDescription="Ask for a tighter headline, stronger summary, or another specific change."
+        emptyStateTitle="No requests yet"
         messages={visibleProfileCopilotMessages}
         onApplyPatchGroup={onApplyProfileCopilotPatchGroup}
         onRejectPatchGroup={onRejectProfileCopilotPatchGroup}
         onSendMessage={onSendProfileCopilotMessage}
+        onOpenChange={setIsCopilotOpen}
         onUndoRevision={onUndoProfileRevision}
         pendingContextKey={profileCopilotPendingContextKey}
         placeholder={'Example: update my headline to "Principal systems designer focused on workflow platforms"'}
         revisions={profileRevisions}
         sendDisabledReason={hasUserDraftChanges ? unsavedProfileCopilotMessage : null}
         starterQuestion={starterQuestion}
-        minBottomOffset={COPILOT_CONTENT_SAFE_OFFSET}
+        minBottomOffset={COPILOT_BOTTOM_OFFSET}
+        reserveContentSpace
       />
     </LockedScreenLayout>
   )

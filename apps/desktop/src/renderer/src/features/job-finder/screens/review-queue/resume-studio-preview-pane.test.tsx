@@ -92,6 +92,27 @@ describe('ResumeStudioPreviewPane', () => {
     expect(screen.getByText('Preview rendering failed in desktop test mode.')).toBeTruthy()
   })
 
+  it('replaces the iframe with a progress state while the workspace is busy', () => {
+    render(
+      <ResumeStudioPreviewPane
+        isDirty={false}
+        isPending
+        onRetry={vi.fn()}
+        onSelectTarget={vi.fn()}
+        preview={preview}
+        previewError={null}
+        previewStatus="ready"
+        selectedEntryId={null}
+        selectedSectionId={null}
+        selectedTargetId={null}
+        templateLabel="Chronology Classic"
+      />,
+    )
+
+    expect(screen.getByRole('status').textContent).toContain('Updating your resume')
+    expect(screen.queryByTitle('Live resume preview')).toBeNull()
+  })
+
   it('forwards preview iframe clicks to the editor targeting callback', async () => {
     const onSelectTarget = vi.fn()
     const rendered = render(

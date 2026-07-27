@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type {
   CandidateProfile,
   JobFinderWorkspaceSnapshot,
@@ -13,7 +13,7 @@ import type {
 import { LockedScreenLayout } from '../../locked-screen-layout'
 import { PageHeader } from '../../page-header'
 import { ProfileCopilotRail } from '../profile-copilot-rail'
-import { COPILOT_CONTENT_SAFE_OFFSET } from '../profile-copilot-rail-layout'
+import { COPILOT_BOTTOM_OFFSET } from '../profile-copilot-rail-layout'
 import { buildCopilotStarterQuestion } from '../profile-copilot-prompts'
 import { ProfileSetupStepEditor } from './profile-setup-step-editor'
 import {
@@ -40,8 +40,6 @@ const unsavedSetupCopilotActionsMessage =
   'Save this step before applying, rejecting, or undoing copilot changes so your current setup draft stays intact.'
 const unsavedSetupReviewActionsMessage =
   'Save this step before confirming, dismissing, or clearing review items so your current setup draft stays intact.'
-const setupCopilotMinBottomOffset = COPILOT_CONTENT_SAFE_OFFSET
-
 export function ProfileSetupScreen(props: {
   actionState: { message: string | null }
   importResumeGuardMessage: string | null
@@ -106,6 +104,7 @@ export function ProfileSetupScreen(props: {
     profileSetupState,
     searchPreferences,
   } = props
+  const [isCopilotOpen, setIsCopilotOpen] = useState(false)
 
   const {
     backgroundArrays,
@@ -168,6 +167,7 @@ export function ProfileSetupScreen(props: {
   )
   const starterQuestion = buildCopilotStarterQuestion(pendingCurrentStepReviewItems)
   const hasImportedResume = profile.baseResume.extractionStatus === 'ready'
+  const isPristineSetup = profileSetupState.status === 'not_started' && !hasImportedResume
 
   function resumeCurrentStep() {
     goToStep(profileSetupState.currentStep)
@@ -227,6 +227,7 @@ export function ProfileSetupScreen(props: {
   return (
     <LockedScreenLayout
       contentClassName="pb-8 xl:pb-10"
+      reserveRightRail={isCopilotOpen}
       topClassName="grid gap-6 pb-8 pt-8"
       topContent={(
         <>
@@ -247,6 +248,7 @@ export function ProfileSetupScreen(props: {
               onImportResume={onImportResume}
               onOpenProfile={openProfile}
               onResumeCurrentStep={resumeCurrentStep}
+              onStartManually={() => goToStep('essentials')}
               profileSetupState={profileSetupState}
               readinessCards={readinessCards}
               reviewItemCount={pendingCurrentStepReviewItems.length}
@@ -255,7 +257,7 @@ export function ProfileSetupScreen(props: {
         </>
       )}
     >
-      <div className={`${setupScreenColumnsClassName} min-h-0`}>
+      {isPristineSetup ? null : <div className={`${setupScreenColumnsClassName} min-h-0`}>
         <div className="grid gap-6 min-h-0" id="profile-setup-step-editor" tabIndex={-1}>
           <h2 className="sr-only" id={PROFILE_SETUP_STEP_HEADING_ID} tabIndex={-1}>
             {formatProfileSetupStepLabel(profileSetupState.currentStep)} setup step
@@ -304,10 +306,10 @@ export function ProfileSetupScreen(props: {
           <ProfileCopilotRail
             busy={profileCopilotBusy}
             actionsDisabledReason={hasUserDraftChanges ? unsavedSetupCopilotActionsMessage : null}
-            collapsedMinBottomOffset={setupCopilotMinBottomOffset}
+            collapsedMinBottomOffset={COPILOT_BOTTOM_OFFSET}
             context={setupCopilotContext}
-            emptyStateDescription="Ask why a field matters, request a tighter headline or summary, or propose a structured edit for this setup step."
-            emptyStateTitle="No setup copilot requests yet"
+            emptyStateDescription="Ask why a field matters or request a specific change for this step."
+            emptyStateTitle="No requests yet"
             messages={profileCopilotMessages.filter((message) => {
               if (message.context.surface !== 'setup') {
                 return false
@@ -318,6 +320,7 @@ export function ProfileSetupScreen(props: {
             onApplyPatchGroup={onApplyProfileCopilotPatchGroup}
             onRejectPatchGroup={onRejectProfileCopilotPatchGroup}
             onSendMessage={onSendProfileCopilotMessage}
+            onOpenChange={setIsCopilotOpen}
             onUndoRevision={onUndoProfileRevision}
             pendingContextKey={profileCopilotPendingContextKey}
             placeholder={buildSetupCopilotPlaceholder(profileSetupState.currentStep)}
@@ -325,10 +328,11 @@ export function ProfileSetupScreen(props: {
             sendDisabledReason={hasUserDraftChanges ? unsavedSetupCopilotMessage : null}
             starterQuestion={starterQuestion}
             title="Profile Copilot"
-            minBottomOffset={setupCopilotMinBottomOffset}
+            minBottomOffset={COPILOT_BOTTOM_OFFSET}
+            reserveContentSpace
           />
         </div>
-      </div>
+      </div>}
     </LockedScreenLayout>
   )
 }

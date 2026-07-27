@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   ClipboardCheck,
   Compass,
@@ -64,6 +64,7 @@ export function JobFinderShell({ children, onNavigate, platform, workspace }: Jo
   const isMac = platform === 'darwin'
   const location = useLocation()
   const navigate = useNavigate()
+  const mainRef = useRef<HTMLElement | null>(null)
   const dragRegionStyle = { WebkitAppRegion: 'drag' } as CSSProperties
   const noDragRegionStyle = { WebkitAppRegion: 'no-drag' } as CSSProperties
   const [windowControlsState, setWindowControlsState] = useState<DesktopWindowControlsState>({
@@ -89,6 +90,19 @@ export function JobFinderShell({ children, onNavigate, platform, workspace }: Jo
   )
 
   const primaryScreens = screenDefinitions.filter((screen) => screen.id !== 'settings')
+
+  useLayoutEffect(() => {
+    const main = mainRef.current
+    main?.scrollTo({ top: 0 })
+
+    const frame = window.requestAnimationFrame(() => {
+      main?.scrollTo({ top: 0 })
+    })
+
+    return () => {
+      window.cancelAnimationFrame(frame)
+    }
+  }, [location.pathname])
 
   useEffect(() => {
     let cancelled = false
@@ -278,13 +292,22 @@ export function JobFinderShell({ children, onNavigate, platform, workspace }: Jo
       </header>
 
       <div className="flex h-full flex-col pt-[6.75rem]">
-        <main className={cn(
-          'flex-1 overflow-x-hidden',
-          usesLockedScreenLayout
-            ? 'overflow-hidden px-2 pb-4 pt-0 sm:px-4'
-            : 'screen-scroll-area overflow-y-auto px-4 pb-12 pt-8 sm:px-6'
-        )}>
-          <div className={cn('mx-auto w-full max-w-472 min-w-0', usesLockedScreenLayout ? 'h-full min-h-full' : 'min-h-full')}>
+        <main
+          className={cn(
+            'flex-1 overflow-x-hidden',
+            usesLockedScreenLayout
+              ? 'overflow-hidden px-2 pb-4 pt-0 sm:px-4'
+              : 'screen-scroll-area overflow-y-auto px-4 pb-12 pt-8 sm:px-6'
+          )}
+          ref={mainRef}
+        >
+          <div
+            className={cn(
+              'mx-auto w-full max-w-472 min-w-0',
+              usesLockedScreenLayout ? 'h-full min-h-full' : 'min-h-full'
+            )}
+            key={location.pathname}
+          >
             {children}
           </div>
         </main>

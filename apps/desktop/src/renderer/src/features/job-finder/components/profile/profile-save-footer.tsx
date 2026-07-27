@@ -21,8 +21,8 @@ export function ProfileSaveFooter({
         <div className="grid gap-2">
           <p className="text-(length:--text-description) leading-6 text-foreground-muted">
             {hasUnsavedChanges
-              ? 'You have unsaved changes. Save your profile, job preferences, and source setup before leaving this page.'
-              : 'Save your profile, job preferences, and source setup from one place.'}
+              ? 'Save your changes before leaving this page.'
+              : 'Your profile and job-search settings are up to date.'}
           </p>
           {validationMessage ? (
             <p

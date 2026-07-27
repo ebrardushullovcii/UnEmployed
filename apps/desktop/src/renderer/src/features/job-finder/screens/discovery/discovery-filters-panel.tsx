@@ -50,7 +50,10 @@ type SectionValue =
       label: string;
     };
 
-function getBrowserStatusLabel(status: BrowserSessionState["status"]): string {
+function getBrowserStatusLabel(
+  status: BrowserSessionState["status"],
+  isPending: boolean,
+): string {
   switch (status) {
     case "ready":
       return "Ready";
@@ -59,7 +62,7 @@ function getBrowserStatusLabel(status: BrowserSessionState["status"]): string {
     case "blocked":
       return "Blocked";
     default:
-      return "Starting";
+      return isPending ? "Starting" : "Not open";
   }
 }
 
@@ -182,7 +185,10 @@ export function DiscoveryFiltersPanel({
         <div className="grid min-w-0 gap-3 border-b border-(--surface-panel-border) px-4 py-4">
             <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
               <StatusBadge tone={getSessionTone(displaySessionSnapshot)}>
-                {getBrowserStatusLabel(displaySessionSnapshot.status)}
+                {getBrowserStatusLabel(
+                  displaySessionSnapshot.status,
+                  isBrowserSessionPending,
+                )}
               </StatusBadge>
                 <span className="rounded-full border border-(--surface-panel-border) px-2.5 py-1 text-(length:--text-count) uppercase tracking-(--tracking-label) text-foreground-muted">
                   {isBrowserSessionVisible ? "Browser" : "Search"}

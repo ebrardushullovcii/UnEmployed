@@ -374,6 +374,7 @@ async function captureApplicationsRecovery() {
     const rerunCopilotButton = window.getByRole("button", {
       name: "Rerun apply copilot",
     });
+    await rerunCopilotButton.scrollIntoViewIfNeeded();
     await rerunCopilotButton.waitFor({ timeout: 10000 });
     await rerunCopilotButton.click();
     const rerunCheckpointDialog = window.getByRole("dialog");

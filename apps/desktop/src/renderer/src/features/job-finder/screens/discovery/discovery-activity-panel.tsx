@@ -241,7 +241,7 @@ export function DiscoveryHistoryModal(props: {
             <p className="text-[0.9rem] leading-6 text-foreground-soft">
               {selectedRunIsLive
                 ? 'Follow the current search here while new activity arrives.'
-                : 'Review what happened during earlier searches without leaving this screen.'}
+                : 'See what happened in each earlier search.'}
             </p>
           </div>
           <Button aria-label="Close" className="size-10" onClick={props.onClose} size="icon" type="button" variant="ghost">

@@ -108,8 +108,14 @@ export function ResumeWorkspaceStudioShell(
           ) : null}
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/45 px-3 py-1.5 text-(length:--text-small) leading-5 text-foreground-soft">
-          <span>{props.studioStatusMessage}</span>
+        <div
+          aria-live="polite"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/45 px-3 py-1.5 text-(length:--text-small) leading-5 text-foreground-soft"
+          role="status"
+        >
+          <span>
+            {props.isWorkspacePending ? 'Working on your resume…' : props.studioStatusMessage}
+          </span>
           {props.approvalStateLabel ? (
             <Badge variant="outline">{props.approvalStateLabel}</Badge>
           ) : null}
@@ -231,8 +237,14 @@ export function ResumeWorkspaceStudioShell(
                 ) : null}
               </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/45 px-3 py-1.5 text-(length:--text-small) leading-5 text-foreground-soft">
-                <span>{props.studioStatusMessage}</span>
+              <div
+                aria-live="polite"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/45 px-3 py-1.5 text-(length:--text-small) leading-5 text-foreground-soft"
+                role="status"
+              >
+                <span>
+                  {props.isWorkspacePending ? 'Working on your resume…' : props.studioStatusMessage}
+                </span>
                 {props.approvalStateLabel ? (
                   <Badge variant="outline">{props.approvalStateLabel}</Badge>
                 ) : null}

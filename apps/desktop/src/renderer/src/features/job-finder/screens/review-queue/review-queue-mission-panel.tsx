@@ -88,7 +88,7 @@ export function ReviewQueueMissionPanel({
       <div className="flex flex-wrap items-start justify-between gap-3 px-6 pb-2 pt-6">
         <h3 className="font-display text-(length:--text-small) font-bold uppercase tracking-(--tracking-caps) text-primary">Apply copilot readiness</h3>
       </div>
-      <div className="grid min-h-0 min-w-0 flex-1 content-start gap-4 overflow-x-hidden overflow-y-auto px-6 pb-6 pt-4">
+      <div className="grid min-h-0 min-w-0 flex-1 content-start gap-4 overflow-x-hidden overflow-y-auto px-6 pb-48 pt-4">
         {readinessDescription ? (
           <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
             <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-2">
@@ -235,18 +235,6 @@ export function ReviewQueueMissionPanel({
                 </div>
               </div>
 
-              {selectedItem.resumeApplicationMode !== 'original_resume' ? (
-                <Button
-                  className="h-auto w-full justify-start px-0 text-left text-sm font-medium normal-case tracking-normal text-foreground-soft hover:text-foreground"
-                  onClick={() => onEditResumeWorkspace(selectedItem.jobId)}
-                  size="sm"
-                  type="button"
-                  variant="ghost"
-                >
-                  <Pencil aria-hidden="true" className="size-4" focusable="false" />
-                  Open resume workspace
-                </Button>
-              ) : null}
             </div>
           </>
         ) : selectedItem ? (
@@ -263,7 +251,7 @@ export function ReviewQueueMissionPanel({
       </div>
       {selectedItem && selectedJob ? (
         <div
-          className="grid shrink-0 gap-2 border-t border-(--surface-panel-border) bg-(--surface-panel) px-6 py-4"
+          className="absolute inset-x-0 bottom-0 z-10 grid gap-2 border-t border-(--surface-panel-border) bg-(--surface-panel)/95 px-6 py-4 backdrop-blur-sm"
           data-testid="apply-copilot-footer"
         >
           {actionMessage ? (
@@ -293,6 +281,17 @@ export function ReviewQueueMissionPanel({
           >
             {primaryActionLabel}
           </Button>
+          {selectedItem.resumeApplicationMode !== 'original_resume' ? (
+            <Button
+              className="h-10 w-full justify-start px-4 text-sm font-medium normal-case tracking-normal"
+              onClick={() => onEditResumeWorkspace(selectedItem.jobId)}
+              type="button"
+              variant="secondary"
+            >
+              <Pencil aria-hidden="true" className="size-4" focusable="false" />
+              Open resume workspace
+            </Button>
+          ) : null}
         </div>
       ) : null}
     </section>

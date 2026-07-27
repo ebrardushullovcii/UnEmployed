@@ -50,4 +50,36 @@ describe('ResumeImportProgress', () => {
     expect(container.textContent).toContain('1m 01s elapsed')
     expect(container.textContent).toContain('Larger or image-heavy resumes can take a couple of minutes')
   })
+
+  it('starts elapsed processing time only after a file is selected', () => {
+    vi.useFakeTimers()
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+
+    act(() => {
+      root?.render(<ResumeImportProgress isPending progress={null} />)
+    })
+
+    expect(container.textContent).toContain('Choose a resume file')
+    expect(container.textContent).toContain('Waiting for selection')
+
+    act(() => {
+      vi.advanceTimersByTime(61_000)
+      root?.render(
+        <ResumeImportProgress
+          isPending
+          progress={{
+            stage: 'reading_document',
+            message: 'Reading resume text, sections, and page layout.',
+            occurredAt: '2026-07-16T10:00:00.000Z',
+          }}
+        />,
+      )
+    })
+
+    expect(container.textContent).toContain('Reading your resume')
+    expect(container.textContent).toContain('0s elapsed')
+    expect(container.textContent).not.toContain('1m 01s elapsed')
+  })
 })

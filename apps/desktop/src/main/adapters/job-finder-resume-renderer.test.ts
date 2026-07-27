@@ -211,10 +211,10 @@ describe('job finder resume renderer', () => {
     expect(html).not.toContain('https://alex.example.com')
     expect(html).toContain('<h3>Summary</h3>')
     expect(html).toContain('<h3>Experience</h3>')
-    expect(html).toContain('<h3>Technical Skills</h3>')
+    expect(html).toContain('<h3>Skills</h3>')
     expect(html).toContain('<strong>Core:</strong> <span>Figma</span>, <span>Design Systems</span>')
     expect(html).toContain('<strong>Additional:</strong> <span>React</span>, <span>Playwright</span>')
-    expect(html.indexOf('<h3>Technical Skills</h3>')).toBeLessThan(html.indexOf('<h3>Experience</h3>'))
+    expect(html.indexOf('<h3>Skills</h3>')).toBeLessThan(html.indexOf('<h3>Experience</h3>'))
     expect(html).toContain('<h3>Languages</h3>')
     expect(html).not.toContain('<h3>Core Skills</h3>')
     expect(html).not.toContain('<h3>Additional Skills</h3>')
@@ -282,6 +282,30 @@ describe('job finder resume renderer', () => {
     expect(html).toContain('Workflow OS — Design lead')
     expect(html).toContain('data-resume-target-id="section:section_skills:bullet:skill_1"')
     expect(html).toContain('data-resume-target-id="section:section_languages:bullet:lang_1"')
+  })
+
+  test('renders a single graduation year instead of a duplicate year range', () => {
+    const graduationYearDocument: ResumeRenderDocument = {
+      ...credentialHeavyRenderDocument,
+      sections: credentialHeavyRenderDocument.sections.map((section) =>
+        section.id === 'section_education'
+          ? {
+              ...section,
+              entries: section.entries.map((entry) => ({
+                ...entry,
+                dateRange: '2021 – 2021',
+                startDate: '2021',
+                endDate: '2021',
+              })),
+            }
+          : section,
+      ),
+    }
+
+    const html = renderTemplate('classic_ats', graduationYearDocument)
+
+    expect(html).toContain('>2021<')
+    expect(html).not.toContain('2021 – 2021')
   })
 
   test('omits blank headline markup when the profile headline is missing', () => {

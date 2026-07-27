@@ -17,6 +17,7 @@ import { ResumeImportProgress } from './resume-import-progress'
 const PROFILE_PLACEHOLDER_HEADLINE = 'Import your resume to begin'
 const PROFILE_PLACEHOLDER_SUMMARY =
   'Import a resume or paste resume text to build your profile, targeting, and tailored documents.'
+const RESUME_PLACEHOLDER_FILE_NAME = 'No resume imported yet'
 
 function isPlaceholderValue(value: string | null | undefined, placeholder: string) {
   return value?.trim().toLowerCase() === placeholder.toLowerCase()
@@ -138,8 +139,8 @@ function getResumePanelCopy(input: {
 
   if (resumeTextReadyToAnalyze) {
     return {
-      headline: 'Your saved resume can refresh this profile any time',
-      description: 'Use the saved resume text to refresh profile suggestions after each update, then review the details in the tabs below.'
+      headline: 'Your resume is ready to reuse',
+      description: 'Refresh profile suggestions after you update the file, then review the changes below.'
     }
   }
 
@@ -157,7 +158,7 @@ function getResumePanelCopy(input: {
 
   return {
     headline: 'Import your resume to fill in your profile faster',
-    description: 'Job Finder uses the saved text from your resume to suggest profile details you can review and tighten.'
+    description: 'Job Finder suggests profile details from the imported text. You choose what to keep.'
   }
 }
 
@@ -175,17 +176,25 @@ export function ProfileResumePanel({
   const resumeAnalysisSummary = formatResumeAnalysisSummary(profile)
   const resumeTextReadyToAnalyze = Boolean(profile.baseResume.textContent?.trim())
   const rawFileName = profile.baseResume.fileName.trim()
-  const hasImportedResume = rawFileName.length > 0
-  const resumeFileName = hasImportedResume ? rawFileName : 'No resume imported yet'
+  const hasImportedResume =
+    rawFileName.length > 0 &&
+    rawFileName.toLowerCase() !== RESUME_PLACEHOLDER_FILE_NAME.toLowerCase()
+  const resumeFileName = hasImportedResume
+    ? rawFileName
+    : RESUME_PLACEHOLDER_FILE_NAME
   const { headline: panelHeadline, description: panelDescription } = getResumePanelCopy({
     extractionStatus: profile.baseResume.extractionStatus,
     hasImportedResume,
     resumeTextReadyToAnalyze
   })
-  const uploadedLabel = profile.baseResume.uploadedAt
+  const uploadedLabel = hasImportedResume && profile.baseResume.uploadedAt
     ? `Imported ${formatDateOnly(profile.baseResume.uploadedAt)}`
     : 'Import your resume to fill in this profile faster.'
   const extractionStatusLabel = (() => {
+    if (!hasImportedResume) {
+      return 'Not imported'
+    }
+
     if (latestResumeImportRun) {
       return formatStatusLabel(latestResumeImportRun.status)
     }
@@ -200,13 +209,18 @@ export function ProfileResumePanel({
     return 'Not imported'
   })()
   const displayName = profile.preferredDisplayName?.trim() || profile.fullName.trim() || 'Name not set yet'
-  const importedIdentityStatus = getImportedIdentityStatus({
-    headline: profile.headline,
-    latestResumeImportReviewCandidates,
-    summary: profile.summary,
-  })
+  const importedIdentityStatus = hasImportedResume
+    ? getImportedIdentityStatus({
+        headline: profile.headline,
+        latestResumeImportReviewCandidates,
+        summary: profile.summary,
+      })
+    : null
   const headline =
-    importedIdentityStatus?.headline &&
+    !hasImportedResume &&
+    isPlaceholderValue(profile.headline, PROFILE_PLACEHOLDER_HEADLINE)
+      ? 'Headline not set yet'
+      : importedIdentityStatus?.headline &&
     importedIdentityStatus?.headlinePending &&
     isPlaceholderValue(profile.headline, PROFILE_PLACEHOLDER_HEADLINE)
       ? importedIdentityStatus.headline
@@ -252,7 +266,7 @@ export function ProfileResumePanel({
               </div>
             </div>
 
-            <StatusBadge tone={getAssetTone(extractionStatusToAssetStatus[profile.baseResume.extractionStatus])}>
+            <StatusBadge tone={getAssetTone(hasImportedResume ? extractionStatusToAssetStatus[profile.baseResume.extractionStatus] : 'not_started')}>
               {extractionStatusLabel}
             </StatusBadge>
           </div>
@@ -271,7 +285,9 @@ export function ProfileResumePanel({
                 </span>
               ) : (
                 <span className="text-(length:--text-description) leading-6 text-foreground-muted">
-                  Refresh your profile suggestions any time you want to pull in changes from the saved resume text.
+                  {hasImportedResume
+                    ? 'Refresh your profile suggestions any time you want to pull in changes from the saved resume text.'
+                    : 'Import a résumé for faster suggestions, or continue entering profile details manually.'}
                 </span>
               )}
             </div>
@@ -326,9 +342,13 @@ export function ProfileResumePanel({
 
         <aside className="grid gap-3 self-start rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-overlay-strong) p-4">
           <div className="grid gap-1">
-            <p className="text-(length:--text-eyebrow) font-medium uppercase tracking-(--tracking-mono) text-foreground-muted">Imported details</p>
+            <p className="text-(length:--text-eyebrow) font-medium uppercase tracking-(--tracking-mono) text-foreground-muted">
+              {hasImportedResume ? 'Imported details' : 'Profile details'}
+            </p>
             <p className="text-(length:--text-description) leading-6 text-foreground-muted">
-              These details came from your resume. Use the tabs to confirm them and fix anything that needs a closer look.
+              {hasImportedResume
+                ? 'These details came from your resume. Use the tabs to confirm them and fix anything that needs a closer look.'
+                : 'These are the details currently saved in your profile. Use the tabs to add or update them.'}
             </p>
           </div>
 

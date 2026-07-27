@@ -491,11 +491,17 @@ describe('profile editor application identity defaults', () => {
     })
 
     const values = createSearchPreferencesEditorValues(searchPreferences)
+    expect(values.collectOnlyHardCriteriaMatches).toBe(false)
+
     values.targetRoles = 'Principal Product Designer'
+    values.collectOnlyHardCriteriaMatches = true
 
     const draftSearchPreferences = buildSearchPreferencesPayload(searchPreferences, values).payload
 
     expect(draftSearchPreferences).toBeDefined()
+    expect(
+      draftSearchPreferences?.discovery.collectOnlyHardCriteriaMatches,
+    ).toBe(true)
     expect(hasSearchPreferencesDraftChanges(searchPreferences, draftSearchPreferences)).toBe(true)
   })
 })

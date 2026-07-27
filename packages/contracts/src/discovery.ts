@@ -73,6 +73,7 @@ export type JobDiscoveryTarget = z.infer<typeof JobDiscoveryTargetSchema>;
 export const JobDiscoveryPreferencesSchema = z.object({
   targets: z.array(JobDiscoveryTargetSchema).default([]),
   historyLimit: z.number().int().min(1).max(10).default(5),
+  collectOnlyHardCriteriaMatches: z.boolean().optional(),
 });
 export type JobDiscoveryPreferences = z.infer<
   typeof JobDiscoveryPreferencesSchema

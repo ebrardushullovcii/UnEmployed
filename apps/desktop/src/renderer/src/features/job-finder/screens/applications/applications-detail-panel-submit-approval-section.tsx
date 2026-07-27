@@ -8,6 +8,7 @@ import { StatusBadge } from "../../components/status-badge";
 import { getApprovalTone } from "./applications-detail-panel-helpers";
 
 export function ApplicationsDetailPanelSubmitApprovalSection(props: {
+  approvalScopeEntries: readonly { jobId: string; label: string }[];
   isApplyRunPending: (runId: string) => boolean;
   isSelectedRunPending: boolean;
   onApproveApplyRun: (runId: string) => void;
@@ -16,6 +17,7 @@ export function ApplicationsDetailPanelSubmitApprovalSection(props: {
   selectedApplyRunDetails: ApplyRunDetails | null;
 }) {
   const {
+    approvalScopeEntries,
     isApplyRunPending,
     isSelectedRunPending,
     onApproveApplyRun,
@@ -34,10 +36,9 @@ export function ApplicationsDetailPanelSubmitApprovalSection(props: {
     <section className="surface-card-tint grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="grid gap-1">
-          <h3 className="label-mono-xs text-primary">Submit approval</h3>
+          <h3 className="label-mono-xs text-primary">Automatic application authorization</h3>
           <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-            This run records explicit approval for later submit-enabled execution,
-            but the current safe build still stops before any final submit click.
+            Approve this exact run once. Jobs in its scope may then proceed automatically with their already approved résumé choices; no separate confirmation is required for each job.
           </p>
         </div>
         <StatusBadge tone={getApprovalTone(submitApproval.status)}>
@@ -54,6 +55,13 @@ export function ApplicationsDetailPanelSubmitApprovalSection(props: {
           <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">
             Run mode: {formatStatusLabel(submitApproval.mode)}
           </p>
+          {approvalScopeEntries.length > 0 ? (
+            <ul className="mt-3 grid gap-1 text-(length:--text-small) leading-6 text-foreground-soft">
+              {approvalScopeEntries.map((entry) => (
+                <li key={entry.jobId}>{entry.label}</li>
+              ))}
+            </ul>
+          ) : null}
         </div>
         <div className="rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3">
           <p className="label-mono-xs">Recorded</p>
@@ -77,6 +85,9 @@ export function ApplicationsDetailPanelSubmitApprovalSection(props: {
           {submitApproval.detail}
         </p>
       ) : null}
+      <div className="rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) px-3 py-3 text-(length:--text-small) leading-6 text-foreground-soft">
+        Authorization applies only to these jobs and their current approved résumé artifacts. Changing a job or résumé requires fresh approval. You can revoke or cancel before execution reaches an irreversible final action. This audit build still pauses before final submission.
+      </div>
       <div className="flex flex-wrap gap-2">
         {submitApproval.status === "pending" &&
         selectedApplyRunDetails.run.state === "awaiting_submit_approval" ? (
@@ -87,7 +98,9 @@ export function ApplicationsDetailPanelSubmitApprovalSection(props: {
             variant="secondary"
             disabled={isApplyRunPending(submitApproval.runId)}
           >
-            Record submit approval
+            {submitApproval.jobIds.length === 1
+              ? "Approve automatic application"
+              : `Approve automatic applications for ${submitApproval.jobIds.length} jobs`}
           </Button>
         ) : null}
         {submitApproval.status === "approved" &&

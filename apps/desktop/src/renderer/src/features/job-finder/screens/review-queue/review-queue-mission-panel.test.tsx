@@ -81,6 +81,7 @@ describe('ReviewQueueMissionPanel', () => {
 
     const footer = screen.getByTestId('apply-copilot-footer')
     expect(footer.parentElement?.lastElementChild).toBe(footer)
+    expect(footer.className).toContain('absolute')
     fireEvent.click(screen.getByRole('button', { name: 'Start apply copilot' }))
     expect(onStartApplyCopilot).toHaveBeenCalledWith('job_circle')
   })

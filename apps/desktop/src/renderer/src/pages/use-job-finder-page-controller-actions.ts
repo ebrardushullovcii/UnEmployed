@@ -564,7 +564,10 @@ export function createPrimaryPageActions(
       void runAction(
         actions.importResume,
         () => undefined,
-        "Resume imported from your device.",
+        (result) =>
+          result.profile.baseResume.id === workspace.profile.baseResume.id
+            ? "No resume selected. Your profile was not changed."
+            : `${result.profile.baseResume.fileName} was imported. Review the extracted details before approving them.`,
         {
           scope: jobFinderPendingActions.profileImport(),
         },

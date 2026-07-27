@@ -49,7 +49,8 @@ export function ProfileCopilotTranscript(props: {
   messages: readonly ProfileCopilotMessage[]
   onApplyPatchGroup: (patchGroupId: string) => void
   onRejectPatchGroup: (patchGroupId: string) => void
-  onUseStarterQuestion: () => void
+  onUsePrompt: (prompt: string) => void
+  suggestedPrompts?: readonly string[] | undefined
   starterQuestion?: string | null | undefined
   transcriptRef: React.RefObject<HTMLDivElement | null>
 }) {
@@ -151,10 +152,14 @@ export function ProfileCopilotTranscript(props: {
               </div>
               <p className="font-display text-sm text-foreground">{props.emptyStateTitle}</p>
               <p className="text-sm leading-6 text-foreground-soft">{props.emptyStateDescription}</p>
-              {props.starterQuestion ? (
-                <Button className="justify-self-center" onClick={props.onUseStarterQuestion} size="sm" type="button" variant="secondary">
-                  Use starter question
-                </Button>
+              {(props.suggestedPrompts?.length ?? 0) > 0 ? (
+                <div className="flex flex-wrap justify-center gap-2">
+                  {props.suggestedPrompts?.map((prompt) => (
+                    <Button key={prompt} onClick={() => props.onUsePrompt(prompt)} size="sm" type="button" variant="secondary">
+                      {prompt}
+                    </Button>
+                  ))}
+                </div>
               ) : null}
             </div>
           </div>
@@ -237,11 +242,12 @@ export function ProfileCopilotComposer(props: {
   placeholder: string
   sendDisabledReason?: string | null | undefined
   starterQuestion?: string | null | undefined
+  movementHint?: string | undefined
 }) {
   return (
     <div className="grid gap-3">
       <div className="grid min-w-0 gap-2">
-        <FieldLabel htmlFor={props.composerId}>Ask for a structured profile edit</FieldLabel>
+        <FieldLabel htmlFor={props.composerId}>Ask for an edit</FieldLabel>
         <Textarea
           className="min-w-0"
           id={props.composerId}
@@ -257,8 +263,8 @@ export function ProfileCopilotComposer(props: {
           {props.sendDisabledReason
             ? props.sendDisabledReason
             : props.isPendingHere
-            ? 'Copilot is thinking. You can keep typing or drag the bubble while it works.'
-            : 'Press Enter to send. Shift+Enter adds a new line. Drag the bubble to move it.'}
+            ? 'Working on your request… You can keep typing.'
+            : `Press Enter to send. Shift+Enter adds a new line. ${props.movementHint ?? 'Drag the bubble to move it.'}`}
         </p>
         <Button
           className="min-w-28 px-4"
@@ -290,7 +296,7 @@ export function ProfileCopilotCollapsedBubble(props: {
     <Button
       aria-expanded={props.isOpen}
       aria-haspopup="dialog"
-      className="pointer-events-auto h-auto min-h-14 rounded-full px-4 py-3 shadow-[0_18px_48px_rgba(0,0,0,0.4)]"
+      className="pointer-events-auto h-auto min-h-14 touch-none select-none rounded-full px-4 py-3 shadow-[0_18px_48px_rgba(0,0,0,0.4)] cursor-grab active:cursor-grabbing"
       onClick={props.onClick}
       onKeyDown={props.onKeyDown}
       onPointerDown={props.onPointerDown}

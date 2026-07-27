@@ -41,6 +41,20 @@ export function toStringArray(value: unknown): string[] {
   return value.flatMap((entry) => (typeof entry === "string" ? splitListString(entry.trim()) : [])).filter(Boolean);
 }
 
+export function toCandidateListValues(
+  candidate: Pick<ResumeImportFieldCandidate, "target" | "value">,
+): string[] {
+  if (
+    typeof candidate.value === "string" &&
+    (candidate.target.key === "locations" || candidate.target.key === "targetRoles")
+  ) {
+    const trimmed = candidate.value.trim();
+    return trimmed ? [trimmed] : [];
+  }
+
+  return toStringArray(candidate.value);
+}
+
 export function toNarrativeStringArray(value: unknown): string[] {
   const entries =
     typeof value === "string"

@@ -25,6 +25,68 @@ describe('ProfileResumePanel', () => {
     vi.clearAllMocks()
   })
 
+  it('keeps the untouched workspace in a truthful not-imported state', () => {
+    const profile = CandidateProfileSchema.parse({
+      id: 'candidate_fresh_start',
+      firstName: 'New',
+      lastName: 'Candidate',
+      fullName: 'New Candidate',
+      headline: 'Import your resume to begin',
+      summary:
+        'Import a resume or paste resume text to build your profile, targeting, and tailored documents.',
+      currentLocation: 'Set your preferred location',
+      yearsExperience: 0,
+      baseResume: {
+        id: 'resume_fresh_start',
+        fileName: 'No resume imported yet',
+        uploadedAt: new Date(0).toISOString(),
+        textContent: null,
+        extractionStatus: 'needs_text',
+      },
+      workEligibility: {},
+      professionalSummary: {},
+      targetRoles: [],
+      locations: [],
+      skills: [],
+      experiences: [],
+      education: [],
+      certifications: [],
+      links: [],
+      projects: [],
+      spokenLanguages: [],
+    })
+
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+
+    act(() => {
+      root?.render(
+        <ProfileResumePanel
+          importDisabledReason={null}
+          isAnalyzeProfilePending={false}
+          isImportResumePending={false}
+          latestResumeImportReviewCandidates={[]}
+          resumeImportProgress={null}
+          latestResumeImportRun={null}
+          onAnalyzeProfileFromResume={vi.fn()}
+          onImportResume={vi.fn()}
+          profile={profile}
+        />,
+      )
+    })
+
+    expect(container?.textContent).toContain(
+      'Import your resume to fill in your profile faster',
+    )
+    expect(container?.textContent).toContain('Not imported')
+    expect(container?.textContent).toContain('Profile details')
+    expect(container?.textContent).not.toContain('Imported 01 Jan 1970')
+    expect(container?.textContent).not.toContain(
+      'This resume needs cleaner text',
+    )
+  })
+
   it('disables resume import and refresh while a draft would be overwritten', () => {
     const profile = CandidateProfileSchema.parse({
       id: 'candidate_1',

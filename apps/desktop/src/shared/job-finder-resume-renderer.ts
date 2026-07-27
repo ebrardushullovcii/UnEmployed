@@ -151,7 +151,11 @@ function normalizeDisplayDateRange(value: string | null | undefined): string | n
     .filter(Boolean)
 
   if (parts.length >= 2) {
-    return `${formatDateSegment(parts[0]) ?? parts[0]} – ${formatDateSegment(parts.at(-1)) ?? parts.at(-1)}`
+    const rawStart = parts[0] ?? trimmed
+    const rawEnd = parts.at(-1) ?? trimmed
+    const start = formatDateSegment(rawStart) ?? rawStart
+    const end = formatDateSegment(rawEnd) ?? rawEnd
+    return start === end ? start : `${start} – ${end}`
   }
 
   return formatDateSegment(trimmed) ?? trimmed
@@ -172,7 +176,7 @@ function formatEntryDateRange(input: {
   const end = input.isCurrent ? 'Present' : formatDateSegment(input.endDate)
 
   if (start && end) {
-    return `${start} – ${end}`
+    return start === end ? start : `${start} – ${end}`
   }
 
   return start ?? end ?? null
@@ -867,7 +871,7 @@ function renderTechnicalSkillsInlineSection(
   className?: string,
 ): string {
   return renderInlineSection({
-    title: 'Technical Skills',
+    title: 'Skills',
     mode: context.mode,
     groups: context.skillGroups,
     ...(className ? { className } : {}),

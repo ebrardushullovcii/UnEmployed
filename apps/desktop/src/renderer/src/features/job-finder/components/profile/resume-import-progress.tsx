@@ -24,9 +24,10 @@ export function ResumeImportProgress(props: {
   progress: ResumeImportProgressEvent | null
 }) {
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  const hasProcessingStarted = props.progress !== null
 
   useEffect(() => {
-    if (!props.isPending) {
+    if (!props.isPending || !hasProcessingStarted) {
       setElapsedSeconds(0)
       return
     }
@@ -36,7 +37,7 @@ export function ResumeImportProgress(props: {
     updateElapsed()
     const timer = window.setInterval(updateElapsed, 1_000)
     return () => window.clearInterval(timer)
-  }, [props.isPending])
+  }, [hasProcessingStarted, props.isPending])
 
   if (!props.isPending) {
     return null
@@ -59,7 +60,7 @@ export function ResumeImportProgress(props: {
           <strong className="text-sm font-semibold text-foreground">{stageLabel}</strong>
         </div>
         <span className="shrink-0 text-xs tabular-nums text-foreground-muted">
-          {formatElapsed(elapsedSeconds)}
+          {hasProcessingStarted ? formatElapsed(elapsedSeconds) : 'Waiting for selection'}
         </span>
       </div>
       <p className="text-sm leading-6 text-foreground-soft">{message}</p>

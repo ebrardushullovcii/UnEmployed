@@ -330,7 +330,7 @@ describe("DiscoveryFiltersPanel", () => {
       },
     ];
 
-    const { getByRole, queryByRole, getByText } = render(
+    const { getByRole, queryByRole, getByText, queryByText } = render(
       <MemoryRouter>
         <DiscoveryFiltersPanel
           activeRun={null}
@@ -366,8 +366,11 @@ describe("DiscoveryFiltersPanel", () => {
       ),
     ).toBeTruthy();
     expect(
-      getByText("The browser will reopen automatically on the next run."),
-    ).toBeTruthy();
+      queryByText(
+        "Open the browser only when a source needs sign-in or a warm browser session.",
+      ),
+    ).toBeNull();
+    expect(getByText("Not open")).toBeTruthy();
     expect(queryByRole("button", { name: "Sign in to GreenHouse" })).toBeNull();
 
     fireEvent.click(getByRole("button", { name: "Open browser" }));

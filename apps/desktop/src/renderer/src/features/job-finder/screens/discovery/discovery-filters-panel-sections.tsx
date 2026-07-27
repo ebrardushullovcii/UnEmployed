@@ -128,9 +128,9 @@ export function DiscoverySessionSummary(props: {
               Some sources work without sign-in, but the browser can improve coverage.
             </div>
           ) : null}
-          {!needsLogin && !isBlocked && !isReady ? (
+          {!sectionDetail && !needsLogin && !isBlocked && !isReady ? (
             <p className="text-(length:--text-description) leading-6 text-foreground-soft">
-              The browser will reopen automatically on the next run.
+              Open the browser only when a source needs sign-in or a warm browser session.
             </p>
           ) : null}
         </div>

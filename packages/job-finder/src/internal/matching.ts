@@ -65,6 +65,130 @@ const titleTechnologySpecializations = [
   "android",
 ] as const;
 
+type RoleFamily =
+  | "engineering"
+  | "data"
+  | "support"
+  | "marketing"
+  | "sales"
+  | "people"
+  | "finance"
+  | "design"
+  | "operations"
+  | "healthcare";
+
+const roleFamilyPatterns: Record<RoleFamily, readonly RegExp[]> = {
+  engineering: [
+    /\bengineer(?:ing)?\b/,
+    /\bdeveloper\b/,
+    /\bsoftware\b/,
+    /\bfrontend\b/,
+    /\bbackend\b/,
+    /\bfull\s*stack\b/,
+    /\bdevops\b/,
+    /\bsite reliability\b/,
+    /\bplatform engineer(?:ing)?\b/,
+    /\barchitect\b/,
+  ],
+  data: [
+    /\bdata (?:engineer|scientist|analyst)\b/,
+    /\banalytics?\b/,
+    /\bbusiness intelligence\b/,
+    /\bmachine learning\b/,
+  ],
+  support: [
+    /\bcustomer (?:support|service|success|experience)\b/,
+    /\btechnical support\b/,
+    /\bsupport specialist\b/,
+    /\bhelp ?desk\b/,
+    /\bclient services?\b/,
+  ],
+  marketing: [
+    /\bmarketing\b/,
+    /\bcontent\b/,
+    /\bcopywriter\b/,
+    /\bcommunications?\b/,
+    /\bseo\b/,
+    /\bbrand\b/,
+    /\bgrowth\b/,
+  ],
+  sales: [
+    /\bsales\b/,
+    /\baccount executive\b/,
+    /\bbusiness development\b/,
+    /\b(?:sales|business) development representative\b/,
+  ],
+  people: [
+    /\bhuman resources?\b/,
+    /\bhr\b/,
+    /\bpeople (?:operations|partner|business)\b/,
+    /\brecruit(?:er|ing|ment)\b/,
+    /\btalent (?:acquisition|partner)\b/,
+    /\btotal rewards?\b/,
+    /\bcompensation\b/,
+  ],
+  finance: [
+    /\bfinance\b/,
+    /\bfinancial\b/,
+    /\baccountant\b/,
+    /\baccounting\b/,
+    /\bcontroller\b/,
+    /\bpayroll\b/,
+  ],
+  design: [
+    /\bdesigner\b/,
+    /\bproduct design\b/,
+    /\bux\b/,
+    /\bui design\b/,
+  ],
+  operations: [
+    /\boperations?\b/,
+    /\bproject coordinator\b/,
+    /\bprogram coordinator\b/,
+    /\badministrative\b/,
+    /\boffice manager\b/,
+  ],
+  healthcare: [
+    /\bnurs(?:e|ing)\b/,
+    /\bphysician\b/,
+    /\btherap(?:ist|y)\b/,
+    /\bclinical\b/,
+    /\bmedical\b/,
+  ],
+};
+
+function collectRoleFamilies(value: string): Set<RoleFamily> {
+  const normalized = normalizeText(value);
+  return new Set(
+    (Object.entries(roleFamilyPatterns) as Array<
+      [RoleFamily, readonly RegExp[]]
+    >).flatMap(([family, patterns]) =>
+      family === "engineering" &&
+      /\b(?:data|analytics|machine learning|ml|ai) engineer\b/.test(normalized)
+        ? []
+        : patterns.some((pattern) => pattern.test(normalized))
+          ? [family]
+          : [],
+    ),
+  );
+}
+
+function hasRoleFamilyMismatch(
+  candidateTitle: string,
+  targetRoles: readonly string[],
+): boolean {
+  const candidateFamilies = collectRoleFamilies(candidateTitle);
+  const targetFamilies = new Set(
+    targetRoles.flatMap((role) => [...collectRoleFamilies(role)]),
+  );
+
+  return (
+    candidateFamilies.size > 0 &&
+    targetFamilies.size > 0 &&
+    ![...candidateFamilies].some((family) => targetFamilies.has(family))
+  );
+}
+
 const locationNoiseTokens = new Set([
   "remote",
   "hybrid",
@@ -839,6 +963,15 @@ export function createMatchAssessment(
     posting.title,
     searchPreferences.targetRoles,
   );
+  const roleFamilyMismatch = hasRoleFamilyMismatch(
+    posting.title,
+    searchPreferences.targetRoles,
+  );
+  const roleFamilyUnclear =
+    searchPreferences.targetRoles.some(
+      (role) => collectRoleFamilies(role).size > 0,
+    ) &&
+    collectRoleFamilies(posting.title).size === 0;
   const matchesLocation = matchesLocationPreference(
     posting.location,
     searchPreferences.locations,
@@ -918,6 +1051,18 @@ export function createMatchAssessment(
   if (matchesRole) {
     score += 16;
     reasons.push("Role title aligns closely with the current target roles.");
+  } else if (roleFamilyMismatch) {
+    score -= 28;
+    scoreCeiling = Math.min(scoreCeiling, 46);
+    gaps.push(
+      "Role family is outside the current target roles, so this is unlikely to be a useful match.",
+    );
+  } else if (roleFamilyUnclear) {
+    score -= 22;
+    scoreCeiling = Math.min(scoreCeiling, 50);
+    gaps.push(
+      "The title does not show a clear connection to the current target role families.",
+    );
   } else {
     score -= 12;
     gaps.push(
@@ -961,7 +1106,7 @@ export function createMatchAssessment(
   if (postingRequestsElevatedSeniority && !profileShowsElevatedSeniority) {
     score -= 8;
     gaps.push(
-      "The title signals a staff-or-leadership scope not yet explicit in the current engineering profile.",
+      "The title signals a staff-or-leadership scope not yet explicit in the current profile.",
     );
   }
 

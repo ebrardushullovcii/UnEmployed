@@ -1,4 +1,5 @@
 import type { JobDiscoveryTarget, SavedJob } from '@unemployed/contracts'
+import { useState } from 'react'
 import { Button } from '@renderer/components/ui/button'
 import { EmptyState } from '../../components/empty-state'
 import { PreferenceList } from '../../components/preference-list'
@@ -71,6 +72,12 @@ export function DiscoveryDetailPanel({
   onQueueJob,
   selectedJob,
 }: DiscoveryDetailPanelProps) {
+  const [copiedListingJobId, setCopiedListingJobId] = useState<string | null>(
+    null,
+  )
+  const [listingCopyFailedJobId, setListingCopyFailedJobId] = useState<
+    string | null
+  >(null)
   const discoveryTargetLabels = new Map(
     discoveryTargets.map((target) => [target.id, target.label]),
   )
@@ -99,8 +106,9 @@ export function DiscoveryDetailPanel({
       </div>
 
       {selectedJob ? (
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6 pt-5">
-          <div className="grid min-h-full content-start gap-6">
+        <>
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-44 pt-5">
+            <div className="grid min-h-full content-start gap-6">
             <div className="grid gap-3">
               <h2 className="text-(length:--text-section-title) font-semibold tracking-[-0.03em] text-(--text-headline)">
                 {selectedJob.title}
@@ -118,6 +126,10 @@ export function DiscoveryDetailPanel({
                 <strong className="mt-2 block text-(length:--text-section-title) text-(--text-headline)">
                   {selectedJob.matchAssessment.score}%
                 </strong>
+                <p className="mt-2 text-(length:--text-small) leading-5 text-foreground-soft">
+                  Estimated from the listing requirements and evidence in your
+                  approved profile. Unknown details do not count as evidence.
+                </p>
               </div>
               <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4">
                 <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
@@ -188,6 +200,20 @@ export function DiscoveryDetailPanel({
                   </strong>
                 </div>
               ) : null}
+              <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4 sm:col-span-2">
+                <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
+                  Original listing
+                </span>
+                <strong className="mt-2 block break-all text-(length:--text-small) text-(--text-headline)">
+                  {selectedJob.canonicalUrl}
+                </strong>
+                {listingCopyFailedJobId === selectedJob.id ? (
+                  <p className="mt-2 text-(length:--text-small) leading-5 text-destructive">
+                    The link could not be copied. Select the URL above and copy
+                    it manually.
+                  </p>
+                ) : null}
+              </div>
             </div>
 
             <MatchEvidenceMatrix assessment={selectedJob.matchAssessment} />
@@ -328,28 +354,54 @@ export function DiscoveryDetailPanel({
               </div>
             ) : null}
 
-            <div className="sticky bottom-0 z-10 -mx-2 grid gap-2.5 border-t border-(--surface-panel-border) bg-(--surface-panel)/95 px-2 py-3 backdrop-blur-sm sm:grid-cols-2">
-              <Button
-                className="h-11 w-full"
-                disabled={isSelectedJobPending || isAlreadyShortlisted}
-                onClick={() => onQueueJob(selectedJob.id)}
-                type="button"
-                variant="primary"
-              >
-                {isAlreadyShortlisted ? 'Already shortlisted' : 'Shortlist job'}
-              </Button>
-              <Button
-                className="h-11 w-full"
-                disabled={isSelectedJobPending}
-                onClick={() => onDismissJob(selectedJob.id)}
-                type="button"
-                variant="secondary"
-              >
-                Hide result
-              </Button>
             </div>
           </div>
-        </div>
+
+          <div
+            className="absolute inset-x-0 bottom-0 z-10 grid min-w-0 gap-2 border-t border-(--surface-panel-border) bg-(--surface-panel)/95 px-6 py-3 backdrop-blur-sm"
+            data-testid="discovery-detail-actions"
+          >
+            <Button
+              className="h-10 w-full"
+              disabled={isSelectedJobPending || isAlreadyShortlisted}
+              onClick={() => onQueueJob(selectedJob.id)}
+              type="button"
+              variant="primary"
+            >
+              {isAlreadyShortlisted ? 'Already shortlisted' : 'Shortlist job'}
+            </Button>
+            <Button
+              className="h-10 w-full"
+              disabled={isSelectedJobPending}
+              onClick={() => onDismissJob(selectedJob.id)}
+              type="button"
+              variant="secondary"
+            >
+              Hide result
+            </Button>
+            <Button
+              className="h-10 w-full"
+              onClick={() => {
+                void navigator.clipboard
+                  .writeText(selectedJob.canonicalUrl)
+                  .then(() => {
+                    setCopiedListingJobId(selectedJob.id)
+                    setListingCopyFailedJobId(null)
+                  })
+                  .catch(() => {
+                    setCopiedListingJobId(null)
+                    setListingCopyFailedJobId(selectedJob.id)
+                  })
+              }}
+              type="button"
+              variant="ghost"
+            >
+              {copiedListingJobId === selectedJob.id
+                ? 'Listing link copied'
+                : 'Copy original listing link'}
+            </Button>
+          </div>
+        </>
       ) : (
         <EmptyState
           className="min-h-80"

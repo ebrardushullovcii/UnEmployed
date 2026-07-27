@@ -8,6 +8,7 @@ import { ApplicationsDetailPanelRunHistorySection } from "./applications-detail-
 import { ApplicationsDetailPanelSubmitApprovalSection } from "./applications-detail-panel-submit-approval-section";
 
 export function ApplicationsDetailPanelRecoverySections(props: {
+  approvalScopeEntries: readonly { jobId: string; label: string }[];
   applyRunHistory: Array<{
     result: JobFinderWorkspaceSnapshot["applyJobResults"][number];
     run: JobFinderWorkspaceSnapshot["applyRuns"][number] | null;
@@ -35,6 +36,7 @@ export function ApplicationsDetailPanelRecoverySections(props: {
   visibleApplyResult: JobFinderWorkspaceSnapshot["applyJobResults"][number] | null;
 }) {
   const {
+    approvalScopeEntries,
     applyRunHistory,
     canRestageAutoRun,
     canRestageQueueRun,
@@ -83,6 +85,7 @@ export function ApplicationsDetailPanelRecoverySections(props: {
         selectedApplyRunId={selectedApplyRunId}
       />
       <ApplicationsDetailPanelSubmitApprovalSection
+        approvalScopeEntries={approvalScopeEntries}
         isApplyRunPending={isApplyRunPending}
         isSelectedRunPending={isSelectedRunPending}
         onApproveApplyRun={onApproveApplyRun}

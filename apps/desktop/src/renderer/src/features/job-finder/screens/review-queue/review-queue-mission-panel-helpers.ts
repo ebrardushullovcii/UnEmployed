@@ -103,6 +103,8 @@ function getBrowserActionMessage(browserSession: BrowserSessionState) {
       return 'Sign in to the browser before you start apply copilot.'
     case 'blocked':
       return 'Resolve the browser issue before you start apply copilot.'
+    case 'unknown':
+      return 'Open the browser from Find jobs before you start apply copilot.'
     default:
       return 'Wait for the browser to finish starting before you start apply copilot.'
   }
@@ -285,7 +287,7 @@ export function buildMissionPanelState(input: {
     },
     {
       label: 'Browser ready',
-      state: browserSession.status === 'ready' ? 'complete' : browserSession.status === 'unknown' ? 'in_progress' : 'blocked',
+      state: browserSession.status === 'ready' ? 'complete' : 'blocked',
       description: browserSession.status === 'ready'
         ? 'The browser is ready for supported apply-copilot steps.'
         : browserActionMessage ?? 'Open or refresh the browser before continuing.',

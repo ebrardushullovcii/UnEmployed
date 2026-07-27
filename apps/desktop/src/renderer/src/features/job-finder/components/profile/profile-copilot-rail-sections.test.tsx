@@ -56,7 +56,7 @@ describe('ProfileCopilotComposer', () => {
     expect(textarea).not.toBeNull()
     expect(textarea?.disabled).toBe(false)
     expect(textarea?.value).toBe('Draft next request while Copilot works.')
-    expect(container?.textContent).toContain('Copilot is thinking. You can keep typing or drag the bubble while it works.')
+    expect(container?.textContent).toContain('Working on your request… You can keep typing.')
     expect(button?.textContent).toContain('Thinking...')
     expect(button?.hasAttribute('disabled')).toBe(true)
   })
@@ -120,7 +120,8 @@ describe('ProfileCopilotTranscript', () => {
       ],
       onApplyPatchGroup: vi.fn(),
       onRejectPatchGroup: vi.fn(),
-      onUseStarterQuestion: vi.fn(),
+      onUsePrompt: vi.fn(),
+      suggestedPrompts: [],
       starterQuestion: null,
       transcriptRef: createRef<HTMLDivElement>(),
     }

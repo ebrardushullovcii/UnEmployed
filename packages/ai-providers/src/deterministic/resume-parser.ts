@@ -293,6 +293,23 @@ function extractLocationFromHeaderLine(
     candidate = candidate.replace(new RegExp(`^${escapedName}\\s+`, "i"), "");
   }
 
+  const delimitedSegments = candidate
+    .split(/\s*[|·]\s*/)
+    .map((segment) => cleanLine(segment))
+    .filter(Boolean)
+    .reverse();
+
+  for (const segment of delimitedSegments) {
+    const segmentMatch = segment.match(
+      /([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+)*,\s*(?:[A-Z]{2}(?:\s+\d{5}(?:-\d{4})?)?|[A-Za-z][A-Za-z\s.'-]+))$/,
+    );
+    const segmentLocation = normalizeLocationLabel(segmentMatch?.[1] ?? segment);
+
+    if (isLikelyHeaderLocation(segmentLocation)) {
+      return segmentLocation;
+    }
+  }
+
   candidate = trimTrailingContactFragments(candidate);
   const match = candidate.match(
     /([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+)*,\s*(?:[A-Z]{2}(?:\s+\d{5}(?:-\d{4})?)?|[A-Za-z][A-Za-z\s.'-]+))$/,

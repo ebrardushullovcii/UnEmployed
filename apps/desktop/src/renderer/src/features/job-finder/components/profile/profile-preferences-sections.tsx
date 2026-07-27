@@ -121,7 +121,7 @@ export function ProfilePreferencesTargetingSection(props: {
                 <FieldLabel htmlFor={tailoringModeId}>Default resume tailoring style</FieldLabel>
                 <FormSelect
                   onValueChange={field.onChange}
-                  options={[
+                options={[
                     { label: 'Light touch', value: 'conservative' },
                     { label: 'Balanced', value: 'balanced' },
                     { label: 'Strong rewrite', value: 'aggressive' }
@@ -138,6 +138,29 @@ export function ProfilePreferencesTargetingSection(props: {
           <div className="grid min-w-0 content-start gap-(--gap-field) h-full"><FieldLabel htmlFor={minimumSalaryId}>Minimum salary (USD)</FieldLabel><ProfileInput id={minimumSalaryId} min="0" step="1" type="number" {...register('minimumSalaryUsd')} /></div>
           <div className="grid min-w-0 content-start gap-(--gap-field) h-full"><FieldLabel htmlFor={targetSalaryId}>Target salary (USD)</FieldLabel><ProfileInput id={targetSalaryId} min="0" step="1" type="number" {...register('targetSalaryUsd')} /></div>
         </div>
+      </article>
+
+      <article className="surface-card-tint grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
+        <div>
+          <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">How broadly should Job Finder collect?</h3>
+          <p className="mt-1 text-[0.9rem] leading-6 text-foreground-soft">
+            By default, Job Finder keeps jobs visible and explains where they miss your preferences. Turn on strict collection only when your target roles, preferred locations, and work modes are true deal-breakers.
+          </p>
+        </div>
+        <Controller
+          control={control}
+          name="collectOnlyHardCriteriaMatches"
+          render={({ field }) => (
+            <CheckboxField
+              checked={field.value}
+              label="Collect only jobs that meet my hard role, location, and work-mode criteria"
+              onCheckedChange={field.onChange}
+            />
+          )}
+        />
+        <p className="text-xs leading-5 text-muted-foreground">
+          Strict collection can reduce application volume and may hide adjacent roles. Explicitly excluded companies and locations are always skipped.
+        </p>
       </article>
 
       <ProfileOptionalSection

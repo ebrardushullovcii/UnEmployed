@@ -237,6 +237,8 @@ export function createSearchPreferencesEditorValues(
   return {
     companyBlacklist: joinListInput(searchPreferences.companyBlacklist),
     companyWhitelist: joinListInput(searchPreferences.companyWhitelist),
+    collectOnlyHardCriteriaMatches:
+      searchPreferences.discovery.collectOnlyHardCriteriaMatches ?? false,
     employmentTypes: joinListInput(searchPreferences.employmentTypes),
     excludedLocations: joinListInput(searchPreferences.excludedLocations),
     jobFamilies: joinListInput(searchPreferences.jobFamilies),
@@ -559,6 +561,7 @@ export function buildSearchPreferencesPayload(
     companyWhitelist: parseListInput(values.companyWhitelist),
     discovery: {
       ...searchPreferences.discovery,
+      collectOnlyHardCriteriaMatches: values.collectOnlyHardCriteriaMatches,
       targets: toDiscoveryTargets(values.discoveryTargets)
     }
   }

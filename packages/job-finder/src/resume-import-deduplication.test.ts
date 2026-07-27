@@ -1315,6 +1315,37 @@ describe("resume import deduplication", () => {
     expect(merged[0]?.degree).toBe("Bachelor of Science (B.S.)");
   });
 
+  test("mergeEducationRecords dedupes a combined degree and field against split fields", () => {
+    const merged = mergeEducationRecords([], [
+      {
+        schoolName: "Oregon State University",
+        degree: "Bachelor of Science",
+        fieldOfStudy: "Computer Science",
+        location: null,
+        startDate: null,
+        endDate: "2018",
+        summary: null,
+      },
+      {
+        schoolName: "Oregon State University",
+        degree: "Bachelor of Science in Computer Science",
+        fieldOfStudy: null,
+        location: null,
+        startDate: null,
+        endDate: "2018",
+        summary: null,
+      },
+    ]);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toMatchObject({
+      schoolName: "Oregon State University",
+      degree: "Bachelor of Science in Computer Science",
+      fieldOfStudy: "Computer Science",
+      endDate: "2018",
+    });
+  });
+
   test("mergeExperienceRecords dedupes equivalent records across full slash and iso date formats", () => {
     const merged = mergeExperienceRecords([], [
       {

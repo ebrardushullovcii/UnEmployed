@@ -1,6 +1,10 @@
 import { describe, expect, test } from "vitest";
 
-import { toNarrativeStringArray, toStringArray } from "./resume-import-common";
+import {
+  toCandidateListValues,
+  toNarrativeStringArray,
+  toStringArray,
+} from "./resume-import-common";
 
 describe("resume import common helpers", () => {
   test("drops trailing comma punctuation when splitting list strings", () => {
@@ -18,6 +22,29 @@ describe("resume import common helpers", () => {
       "Built a real-time order platform with React, Next.js, TailwindCSS, and WebSockets.",
       "Improved POS, kitchen, and delivery workflows by removing manual handoffs.",
     ]);
+  });
+
+  test("preserves commas inside scalar role and location candidates", () => {
+    expect(
+      toCandidateListValues({
+        target: {
+          section: "search_preferences",
+          key: "locations",
+          recordId: null,
+        },
+        value: "Portland, Oregon",
+      }),
+    ).toEqual(["Portland, Oregon"]);
+    expect(
+      toCandidateListValues({
+        target: {
+          section: "search_preferences",
+          key: "targetRoles",
+          recordId: null,
+        },
+        value: "Director, Product",
+      }),
+    ).toEqual(["Director, Product"]);
   });
 
   test("splits explicit narrative lines without keeping bullet markers", () => {

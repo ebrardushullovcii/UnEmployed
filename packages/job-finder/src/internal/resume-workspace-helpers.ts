@@ -346,6 +346,27 @@ function hasVisibleEntryContent(input: {
   );
 }
 
+function removeBulletDuplicatesFromSummary(
+  summary: string,
+  bullets: readonly { included: boolean; text: string }[],
+): string | null {
+  const visibleBulletLines = new Set(
+    bullets
+      .filter((bullet) => bullet.included)
+      .map((bullet) => normalizeText(bullet.text))
+      .filter(Boolean),
+  );
+  const sentences = summary
+    .split(/(?<=[.!?])\s+(?=[A-Z])/u)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+  const uniqueSentences = sentences.filter(
+    (sentence) => !visibleBulletLines.has(normalizeText(sentence)),
+  );
+
+  return uniqueSentences.length > 0 ? uniqueSentences.join(" ") : null;
+}
+
 export function sanitizeResumeDraft(input: {
   draft: ResumeDraft;
   job: SavedJob;
@@ -374,7 +395,10 @@ export function sanitizeResumeDraft(input: {
       if (isJobDescriptionBleed(section.text, jobPhraseBank, profileSupportBank)) {
         return null;
       }
-      if (looksLikeKeywordStuffing(section.text)) {
+      if (
+        looksLikeKeywordStuffing(section.text) &&
+        !isSupportedByProfile(section.text, profileSupportBank)
+      ) {
         return null;
       }
       seenLines.add(normalizedSectionText);
@@ -434,19 +458,22 @@ export function sanitizeResumeDraft(input: {
           return entry;
         }
 
+        const deduplicatedSummary = entry.summary
+          ? removeBulletDuplicatesFromSummary(entry.summary, entry.bullets)
+          : null;
         const nextSummary = (() => {
-          if (!entry.summary?.trim()) {
+          if (!deduplicatedSummary?.trim()) {
             return null;
           }
-          const normalized = normalizeText(entry.summary);
+          const normalized = normalizeText(deduplicatedSummary);
           if (seenLines.has(normalized)) {
             return null;
           }
-          if (isJobDescriptionBleed(entry.summary, jobPhraseBank, profileSupportBank)) {
+          if (isJobDescriptionBleed(deduplicatedSummary, jobPhraseBank, profileSupportBank)) {
             return null;
           }
           seenLines.add(normalized);
-          return entry.summary;
+          return deduplicatedSummary;
         })();
 
         const nextBullets = sanitizeBullets(entry.bullets, nextSummary);

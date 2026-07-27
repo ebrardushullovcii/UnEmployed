@@ -11,6 +11,7 @@ import {
   areEquivalentRecordCandidates,
   isObject,
   stringifyCandidateTarget,
+  toCandidateListValues,
   toNarrativeStringArray,
   toStringArray,
 } from "./resume-import-common";
@@ -199,13 +200,26 @@ export function shouldPreferCandidateOverExistingValue(
 }
 
 function normalizeRecordCandidateValue(candidate: ResumeImportFieldCandidate): ResumeImportFieldCandidate["value"] {
-  if (!isObject(candidate.value)) {
+  const parsedValue = (() => {
+    if (typeof candidate.value !== "string") {
+      return candidate.value;
+    }
+
+    try {
+      const parsed: unknown = JSON.parse(candidate.value);
+      return isObject(parsed) ? parsed : candidate.value;
+    } catch {
+      return candidate.value;
+    }
+  })();
+
+  if (!isObject(parsedValue)) {
     return candidate.value;
   }
 
   switch (candidate.target.section) {
     case "experience": {
-      const value = candidate.value;
+      const value = parsedValue;
       return {
         companyName: typeof value.companyName === "string" ? value.companyName : null,
         companyUrl: typeof value.companyUrl === "string" ? value.companyUrl : null,
@@ -225,19 +239,30 @@ function normalizeRecordCandidateValue(candidate: ResumeImportFieldCandidate): R
       };
     }
     case "education": {
-      const value = candidate.value;
+      const value = parsedValue;
+      const schoolName = typeof value.schoolName === "string" ? value.schoolName : null;
+      const rawLocation = typeof value.location === "string" ? value.location : null;
+      const rawSummary = typeof value.summary === "string" ? value.summary : null;
       return {
-        schoolName: typeof value.schoolName === "string" ? value.schoolName : null,
+        schoolName,
         degree: typeof value.degree === "string" ? value.degree : null,
         fieldOfStudy: typeof value.fieldOfStudy === "string" ? value.fieldOfStudy : null,
-        location: typeof value.location === "string" ? value.location : null,
+        location:
+          rawLocation && schoolName && normalizeText(rawLocation) === normalizeText(schoolName)
+            ? null
+            : rawLocation,
         startDate: typeof value.startDate === "string" ? value.startDate : null,
         endDate: typeof value.endDate === "string" ? value.endDate : null,
-        summary: typeof value.summary === "string" ? value.summary : null,
+        summary:
+          rawSummary &&
+          candidate.evidenceText &&
+          normalizeText(rawSummary) === normalizeText(candidate.evidenceText)
+            ? null
+            : rawSummary,
       };
     }
     case "certification": {
-      const value = candidate.value;
+      const value = parsedValue;
       return {
         name: typeof value.name === "string" ? value.name : null,
         issuer: typeof value.issuer === "string" ? value.issuer : null,
@@ -247,7 +272,7 @@ function normalizeRecordCandidateValue(candidate: ResumeImportFieldCandidate): R
       };
     }
     case "link": {
-      const value = candidate.value;
+      const value = parsedValue;
       return {
         label: typeof value.label === "string" ? value.label : null,
         url: typeof value.url === "string" ? value.url : null,
@@ -255,7 +280,7 @@ function normalizeRecordCandidateValue(candidate: ResumeImportFieldCandidate): R
       };
     }
     case "project": {
-      const value = candidate.value;
+      const value = parsedValue;
       return {
         name: typeof value.name === "string" ? value.name : null,
         projectType: typeof value.projectType === "string" ? value.projectType : null,
@@ -269,7 +294,7 @@ function normalizeRecordCandidateValue(candidate: ResumeImportFieldCandidate): R
       };
     }
     case "language": {
-      const value = candidate.value;
+      const value = parsedValue;
       return {
         language: typeof value.language === "string" ? value.language : null,
         proficiency: typeof value.proficiency === "string" ? value.proficiency : null,
@@ -278,7 +303,7 @@ function normalizeRecordCandidateValue(candidate: ResumeImportFieldCandidate): R
       };
     }
     case "proof_point": {
-      const value = candidate.value;
+      const value = parsedValue;
       return {
         title: typeof value.title === "string" ? value.title : null,
         claim: typeof value.claim === "string" ? value.claim : null,
@@ -292,6 +317,49 @@ function normalizeRecordCandidateValue(candidate: ResumeImportFieldCandidate): R
     default:
       return candidate.value;
   }
+}
+
+function normalizeRecordCandidateForReconciliation(
+  candidate: ResumeImportFieldCandidate,
+): ResumeImportFieldCandidate {
+  if (!isRecordTarget(candidate)) {
+    return candidate;
+  }
+
+  const value = normalizeRecordCandidateValue(candidate);
+  if (value === candidate.value) {
+    return candidate;
+  }
+
+  return ResumeImportFieldCandidateSchema.parse({
+    ...candidate,
+    value,
+    valuePreview: buildValuePreview(value),
+  });
+}
+
+function isRedundantUnstructuredRecordCandidate(
+  candidate: ResumeImportFieldCandidate,
+  candidates: readonly ResumeImportFieldCandidate[],
+): boolean {
+  if (!isRecordTarget(candidate) || typeof candidate.value !== "string") {
+    return false;
+  }
+
+  const evidence = normalizeText(candidate.evidenceText ?? candidate.value);
+  if (!evidence) {
+    return false;
+  }
+
+  return candidates.some(
+    (other) =>
+      other.id !== candidate.id &&
+      other.target.section === candidate.target.section &&
+      other.target.key === candidate.target.key &&
+      isObject(other.value) &&
+      hasSufficientEvidence(other) &&
+      normalizeText(other.evidenceText ?? "") === evidence,
+  );
 }
 
 function isAutoApplyLiteralField(candidate: ResumeImportFieldCandidate): boolean {
@@ -710,7 +778,7 @@ function shouldMergeListCandidate(candidate: ResumeImportFieldCandidate): boolea
     return false;
   }
 
-  const values = toStringArray(candidate.value);
+  const values = toCandidateListValues(candidate);
   if (values.length === 0) {
     return false;
   }
@@ -1030,8 +1098,26 @@ export function reconcileCandidates(
   candidates: readonly ResumeImportFieldCandidate[],
 ): ResumeImportFieldCandidate[] {
   const resolved: ResumeImportFieldCandidate[] = [];
+  const normalizedCandidates = candidates.map(normalizeRecordCandidateForReconciliation);
+  const candidatesForGrouping: ResumeImportFieldCandidate[] = [];
 
-  for (const group of groupCandidatesForReconciliation(candidates)) {
+  for (const candidate of normalizedCandidates) {
+    if (isRedundantUnstructuredRecordCandidate(candidate, normalizedCandidates)) {
+      resolved.push(
+        applyCandidateResolution(
+          profile,
+          searchPreferences,
+          candidate,
+          "rejected",
+        ),
+      );
+      continue;
+    }
+
+    candidatesForGrouping.push(candidate);
+  }
+
+  for (const group of groupCandidatesForReconciliation(candidatesForGrouping)) {
     const sorted = [...group].sort((left, right) => candidateScore(right) - candidateScore(left));
 
     if (sorted.length === 0) {
