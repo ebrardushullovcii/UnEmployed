@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import {
+  createDeterministicInterviewCueCardProvider,
+  createDeterministicInterviewSummaryProvider,
   createInterviewHelperProvidersFromEnvironment,
   createLocalCommandInterviewTranscriptionProvider,
   createOpenAiCompatibleInterviewCueCardProvider,
@@ -63,6 +65,24 @@ function createCueRequest(): InterviewCueCardRequest {
 }
 
 describe("Interview Helper AI providers", () => {
+  test("keeps deterministic cue counts and repeated topics de-duplicated", async () => {
+    const cue =
+      await createDeterministicInterviewCueCardProvider().generateCueCard(
+        createCueRequest(),
+      );
+    const summary =
+      await createDeterministicInterviewSummaryProvider().summarize({
+        previousSummary:
+          "Latest interviewer topic: How would you reduce frontend load time? 1 cue card generated.",
+        transcriptSegments: createCueRequest().transcriptSegments,
+        cueCards: [cue, cue],
+      });
+
+    expect(summary).toBe(
+      "Latest interviewer topic: How would you reduce frontend load time? 2 cue cards generated.",
+    );
+  });
+
   test("uses configured OpenAI-compatible cue-card output when available", async () => {
     const restoreFetch = mockJsonFetch({
       choices: [

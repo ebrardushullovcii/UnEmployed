@@ -1,15 +1,21 @@
 import type {
+  ResumeCoverageClaimChange,
+  ResumeCoverageComparison,
+  ResumeCoverageRoleComparison,
   ResumeDraft,
   ResumeDraftPatch,
   WorkHistoryReviewSuggestion,
 } from "@unemployed/contracts";
+import { ResumeCoverageComparisonPanel } from "./resume-coverage-comparison-panel";
 import { ResumeIdentityEditor } from "./resume-identity-editor";
 import { ResumeSectionEditor } from "./resume-section-editor";
+import { createResumeDraftPatch } from "./resume-section-editor-helpers";
 
 type ResumeDraftSection = ResumeDraft["sections"][number];
 
 interface ResumeWorkspaceEditorPanelProps {
   actionMessage: string | null;
+  coverageComparison: ResumeCoverageComparison | null;
   draft: ResumeDraft;
   hasUnsavedChanges: boolean;
   isWorkspacePending: boolean;
@@ -41,6 +47,57 @@ export function ResumeWorkspaceEditorPanel(
     ? "Live preview already shows these unsaved edits. Save before export or approval."
     : "Click the live page to jump to the matching structured field.";
 
+  const restoreClaim = (
+    role: ResumeCoverageRoleComparison,
+    claim: ResumeCoverageClaimChange,
+  ) => {
+    if (!role.sectionId || !role.entryId) {
+      return;
+    }
+    const sectionId = role.sectionId;
+    const entryId = role.entryId;
+
+    props.runWithSavedDraft(
+      () =>
+        props.onApplyPatch(
+          createResumeDraftPatch({
+            entryId,
+            idPrefix: `restore_${claim.field}`,
+            newText: claim.text,
+            operation:
+              claim.field === "summary"
+                ? "replace_entry_summary"
+                : "insert_bullet",
+            sectionId,
+          }),
+          `Restored original ${claim.field} for ${role.title}.`,
+        ),
+      "Saved your draft before restoring the original content.",
+    );
+  };
+
+  const restoreRole = (role: ResumeCoverageRoleComparison) => {
+    if (!role.sectionId || !role.entryId) {
+      return;
+    }
+    const sectionId = role.sectionId;
+    const entryId = role.entryId;
+    props.runWithSavedDraft(
+      () =>
+        props.onApplyPatch(
+          createResumeDraftPatch({
+            entryId,
+            idPrefix: "restore_role",
+            newIncluded: true,
+            operation: "toggle_include",
+            sectionId,
+          }),
+          `Restored ${role.title} to the resume.`,
+        ),
+      "Saved your draft before restoring the role.",
+    );
+  };
+
   return (
     <section className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:overflow-visible">
       <div
@@ -61,6 +118,12 @@ export function ResumeWorkspaceEditorPanel(
             {helperMessage}
           </p>
         </div>
+        <ResumeCoverageComparisonPanel
+          comparison={props.coverageComparison}
+          disabled={props.isWorkspacePending}
+          onRestoreClaim={restoreClaim}
+          onRestoreRole={restoreRole}
+        />
         <ResumeIdentityEditor
           disabled={props.isWorkspacePending}
           identity={props.draft.identity}

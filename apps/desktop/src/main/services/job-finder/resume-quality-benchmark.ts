@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import {
   createDeterministicJobFinderAiClient,
+  createJobFinderAiClientFromEnvironment,
   type JobFinderAiClient,
   type TailoredResumeDraft,
   TailoredResumeDraftSchema,
@@ -22,6 +23,7 @@ import {
   type ResumeQualityBenchmarkCase,
   type ResumeQualityBenchmarkCaseResult,
   type ResumeQualityBenchmarkMetrics,
+  type ResumeQualityGenerationDiagnostics,
   type ResumeQualityBenchmarkReport,
   type ResumeQualityBenchmarkRequest,
   type ResumeTemplateDefinition,
@@ -272,6 +274,79 @@ export function calculateWorkHistoryRepresentationRate(input: {
   return representedIds.length / canonicalIds.size
 }
 
+export function calculateVisibleWorkHistoryCoverageRate(input: {
+  profileExperienceIds: readonly string[]
+  draftExperienceEntries: readonly Pick<ResumeDraftEntry, 'included' | 'profileRecordId'>[]
+}): number {
+  const canonicalIds = new Set(input.profileExperienceIds)
+  if (canonicalIds.size === 0) {
+    return 1
+  }
+
+  const visibleIds = new Set(
+    input.draftExperienceEntries
+      .filter(
+        (entry) =>
+          entry.included &&
+          entry.profileRecordId !== null &&
+          canonicalIds.has(entry.profileRecordId),
+      )
+      .map((entry) => entry.profileRecordId)
+      .filter((profileRecordId): profileRecordId is string => profileRecordId !== null),
+  )
+
+  return visibleIds.size / canonicalIds.size
+}
+
+const nearDuplicateBulletStopWords = new Set([
+  'a',
+  'an',
+  'and',
+  'as',
+  'at',
+  'by',
+  'for',
+  'from',
+  'in',
+  'of',
+  'on',
+  'the',
+  'to',
+  'with',
+])
+
+function meaningfulBenchmarkLineTokens(value: string): Set<string> {
+  return new Set(
+    normalizeText(value)
+      .split(' ')
+      .filter((token) => token.length > 1 && !nearDuplicateBulletStopWords.has(token)),
+  )
+}
+
+function areNearDuplicateBenchmarkLines(left: string, right: string): boolean {
+  const leftTokens = meaningfulBenchmarkLineTokens(left)
+  const rightTokens = meaningfulBenchmarkLineTokens(right)
+  const smallestSize = Math.min(leftTokens.size, rightTokens.size)
+  if (smallestSize < 4) {
+    return false
+  }
+
+  const sharedCount = [...leftTokens].filter((token) => rightTokens.has(token)).length
+  return sharedCount / smallestSize >= 0.8
+}
+
+function hasRepeatedBenchmarkProse(value: string): boolean {
+  if (/\b([a-z][a-z0-9'-]{2,})\s+\1\b/i.test(value)) {
+    return true
+  }
+
+  const clauses = value
+    .split(/[.!?;]+/)
+    .map((clause) => normalizeText(clause))
+    .filter((clause) => clause.split(' ').filter(Boolean).length >= 3)
+  return new Set(clauses).size !== clauses.length
+}
+
 export function isSuspiciousExperienceBulletFragment(value: string): boolean {
   const trimmed = value.trim()
   const tokens = normalizeText(trimmed).split(' ').filter(Boolean)
@@ -284,7 +359,7 @@ export function isSuspiciousExperienceBulletFragment(value: string): boolean {
   const firstLetter = trimmed.match(/[A-Za-z]/)?.[0] ?? null
   const startsWithLowercase = Boolean(firstLetter && firstLetter === firstLetter.toLowerCase())
 
-  if (startsWithLowercase || /[,;:]$/.test(trimmed)) {
+  if (startsWithLowercase || /[,;:]$/.test(trimmed) || hasRepeatedBenchmarkProse(trimmed)) {
     return true
   }
 
@@ -296,7 +371,14 @@ export function isSuspiciousExperienceBulletFragment(value: string): boolean {
 }
 
 export function calculateFragmentFreeExperienceBulletRate(bullets: readonly string[]): number {
-  return successfulRate(bullets.map((bullet) => !isSuspiciousExperienceBulletFragment(bullet)))
+  const seenBullets: string[] = []
+  return successfulRate(
+    bullets.map((bullet) => {
+      const isRepeated = seenBullets.some((seenBullet) => areNearDuplicateBenchmarkLines(seenBullet, bullet))
+      seenBullets.push(bullet)
+      return !isRepeated && !isSuspiciousExperienceBulletFragment(bullet)
+    }),
+  )
 }
 
 export function isProfessionalExperienceSummary(
@@ -316,6 +398,10 @@ export function isProfessionalExperienceSummary(
     /\b(?:career\s+(?:change|pivot|transition)|decid(?:ed|ing)\s+to|passion|pivot(?:ed|ing)?\s+(?:back\s+)?to|return(?:ed|ing)?\s+to|seeking\s+(?:a|my)\s+next)\b/i.test(
       trimmed,
     )
+  const hasTeenLikeFiller =
+    /\b(?:did (?:a lot|lots)|helped (?:out|with) (?:different|many|some|various|a lot of|lots of)|worked on (?:different|many|some|various|a lot of|lots of)|lots of (?:stuff|things)|various tasks|really (?:good|great)|super (?:good|great))\b/i.test(
+      trimmed,
+    ) || hasRepeatedBenchmarkProse(trimmed)
   const isKnownLocationOnly = Boolean(normalizedLocation && normalized === normalizedLocation)
   const isCompactWorkModeLocation = tokens.length <= 5 && /^(?:remote|hybrid|onsite|on\s+site)\b/i.test(trimmed)
   const isCompactCommaLocation = tokens.length <= 5 && trimmed.includes(',') && !/[.!?]$/.test(trimmed)
@@ -324,6 +410,7 @@ export function isProfessionalExperienceSummary(
   return !(
     hasFirstPersonVoice ||
     hasCareerChangeMeta ||
+    hasTeenLikeFiller ||
     isKnownLocationOnly ||
     isCompactWorkModeLocation ||
     isCompactCommaLocation ||
@@ -345,6 +432,7 @@ export function passesResumeQualityAcceptance(metrics: ResumeQualityBenchmarkMet
   return (
     metrics.groundedVisibleSkillRate === 1 &&
     metrics.workHistoryRepresentationRate === 1 &&
+    metrics.visibleWorkHistoryCoverageRate === 1 &&
     metrics.fragmentFreeExperienceBulletRate === 1 &&
     metrics.professionalExperienceSummaryRate === 1 &&
     metrics.bleedFreeCaseRate === 1 &&
@@ -352,7 +440,8 @@ export function passesResumeQualityAcceptance(metrics: ResumeQualityBenchmarkMet
     metrics.duplicateIssueFreeRate === 1 &&
     metrics.thinOutputFreeRate === 1 &&
     metrics.pageTargetPassRate === 1 &&
-    metrics.atsRenderPassRate === 1
+    metrics.atsRenderPassRate === 1 &&
+    metrics.issueFreeCaseRate === 1
   )
 }
 
@@ -1175,6 +1264,12 @@ const realFixtureQualityTargets: Record<
     seniority?: string | null
   }
 > = {
+  resume_import_comprehensive_txt: {
+    title: 'Senior Product Engineer',
+    company: 'Reliable Workflow Systems',
+    keySkills: ['TypeScript', 'React', 'Accessibility', 'AWS'],
+    summary: 'Build reliable, accessible workflow software for operations teams.',
+  },
   aaron_murphy_pdf: {
     title: 'Staff Software Engineer',
     company: 'Northstar Platform',
@@ -1477,7 +1572,7 @@ const defaultResumeQualityBenchmarkCases: ResumeQualityBenchmarkFixture[] = [
       return TailoredResumeDraftSchema.parse({
         label: 'Tailored Resume',
         summary: 'Designer exploring the next role.',
-        experienceHighlights: ['Basic collaboration support.'],
+        experienceHighlights: ['Basic resume text.'],
         coreSkills: ['Figma'],
         targetedKeywords: ['Figma'],
         experienceEntries: [],
@@ -1486,7 +1581,7 @@ const defaultResumeQualityBenchmarkCases: ResumeQualityBenchmarkFixture[] = [
         certificationEntries: [],
         additionalSkills: [],
         languages: [],
-        fullText: 'Designer exploring the next role.\n\nBasic collaboration support.\n\nCore skills: Figma',
+        fullText: 'Designer exploring the next role.\n\nBasic resume text.\n\nCore skills: Figma',
         compatibilityScore: 55,
         notes: ['Benchmark thin-profile case forces minimal grounded output.'],
       })
@@ -1543,26 +1638,48 @@ function resolveBenchmarkFixtures(request: ResumeQualityBenchmarkRequest): Resum
   return fixtures
 }
 
-function buildBenchmarkAiClient(fixture: ResumeQualityBenchmarkFixture): JobFinderAiClient {
-  const baseClient = createDeterministicJobFinderAiClient(
-    `Resume quality benchmark deterministic runtime for ${fixture.definition.label}.`,
-  )
+function buildGenerationDiagnostics(
+  quality: TailoredResumeDraft['generationQuality'],
+): ResumeQualityGenerationDiagnostics | null {
+  if (!quality) {
+    return null
+  }
 
-  if (!fixture.overrideDraft) {
-    return baseClient
+  const proposed = quality.proposedRewriteCount
+  return {
+    ...quality,
+    acceptedRewriteRate: proposed > 0 ? quality.acceptedRewriteCount / proposed : 0,
+    fallbackRate: proposed > 0 ? quality.rejectedRewriteCount / proposed : 0,
+  }
+}
+
+function buildBenchmarkAiClient(input: {
+  fixture: ResumeQualityBenchmarkFixture
+  useConfiguredAi: boolean
+  onDraft: (draft: TailoredResumeDraft) => void
+}): JobFinderAiClient {
+  const baseClient = input.useConfiguredAi
+    ? createJobFinderAiClientFromEnvironment(process.env)
+    : createDeterministicJobFinderAiClient(
+        `Resume quality benchmark deterministic runtime for ${input.fixture.definition.label}.`,
+      )
+
+  const createDraft = async (
+    createInput: Parameters<JobFinderAiClient['createResumeDraft']>[0],
+  ) => {
+    const baseDraft = await baseClient.createResumeDraft(createInput)
+    const validatedJob = JobPostingSchema.parse(createInput.job)
+    const result =
+      !input.useConfiguredAi && input.fixture.overrideDraft
+        ? input.fixture.overrideDraft({ baseDraft, job: validatedJob })
+        : baseDraft
+    input.onDraft(result)
+    return result
   }
 
   return {
     ...baseClient,
-    async createResumeDraft(input) {
-      const baseDraft = await baseClient.createResumeDraft(input)
-      const validatedJob = JobPostingSchema.parse(input.job)
-
-      return fixture.overrideDraft!({
-        baseDraft,
-        job: validatedJob,
-      })
-    },
+    createResumeDraft: createDraft,
   }
 }
 
@@ -1645,6 +1762,10 @@ function scoreCaseMetrics(input: {
       draftExperienceEntries: allExperienceEntries,
       tailoringMode: input.tailoringMode,
     }),
+    visibleWorkHistoryCoverageRate: calculateVisibleWorkHistoryCoverageRate({
+      profileExperienceIds: input.profile.experiences.map((experience) => experience.id),
+      draftExperienceEntries: allExperienceEntries,
+    }),
     fragmentFreeExperienceBulletRate: calculateFragmentFreeExperienceBulletRate(includedExperienceBullets),
     professionalExperienceSummaryRate: calculateProfessionalExperienceSummaryRate(experienceEntries),
     bleedFreeCaseRate: hasBleedIssue ? 0 : 1,
@@ -1661,6 +1782,9 @@ function aggregateMetrics(results: readonly ResumeQualityBenchmarkCaseResult[]):
   return {
     groundedVisibleSkillRate: average(results.map((result) => result.metrics.groundedVisibleSkillRate)),
     workHistoryRepresentationRate: average(results.map((result) => result.metrics.workHistoryRepresentationRate)),
+    visibleWorkHistoryCoverageRate: average(
+      results.map((result) => result.metrics.visibleWorkHistoryCoverageRate),
+    ),
     fragmentFreeExperienceBulletRate: average(results.map((result) => result.metrics.fragmentFreeExperienceBulletRate)),
     professionalExperienceSummaryRate: average(
       results.map((result) => result.metrics.professionalExperienceSummaryRate),
@@ -1738,7 +1862,16 @@ export async function runDesktopResumeQualityBenchmark(
           let workspaceService: ReturnType<typeof createJobFinderWorkspaceService> | null = null
           const state = await resolveFixtureState(fixture, templateId)
           await repository.reset(state)
-          const aiClient = buildBenchmarkAiClient(fixture)
+          const generationCapture: { draft: TailoredResumeDraft | null } = {
+            draft: null,
+          }
+          const aiClient = buildBenchmarkAiClient({
+            fixture,
+            useConfiguredAi: request.useConfiguredAi,
+            onDraft: (value) => {
+              generationCapture.draft = value
+            },
+          })
           const documentManager = createLocalJobFinderDocumentManager({
             outputDirectory: path.join(tempRoot, fixture.definition.id, templateId),
           })
@@ -1756,7 +1889,9 @@ export async function runDesktopResumeQualityBenchmark(
               throw new Error(`Resume quality benchmark case '${fixture.definition.id}' is missing a saved job.`)
             }
 
+            const generationStartedAt = performance.now()
             await workspaceService.generateResume(jobId)
+            const generationDurationMs = performance.now() - generationStartedAt
             const workspace = await workspaceService.getResumeWorkspace(jobId)
             const asset = workspace.tailoredAsset
 
@@ -1783,6 +1918,7 @@ export async function runDesktopResumeQualityBenchmark(
             const issueCategories = Array.from(
               new Set((workspace.validation?.issues ?? []).map((issue) => issue.category)),
             )
+
             const passed = passesResumeQualityAcceptance(metrics)
 
             const templateName = asset.templateName?.trim() ?? ''
@@ -1799,6 +1935,10 @@ export async function runDesktopResumeQualityBenchmark(
               visibleSkills: collectVisibleSkills(workspace.draft),
               issueCategories,
               issueCount: workspace.validation?.issues.length ?? 0,
+              generationDurationMs,
+              generationDiagnostics: buildGenerationDiagnostics(
+                generationCapture.draft?.generationQuality,
+              ),
               metrics,
               htmlArtifactRelativePath,
               notes,
@@ -1818,13 +1958,21 @@ export async function runDesktopResumeQualityBenchmark(
   return ResumeQualityBenchmarkReportSchema.parse({
     benchmarkVersion: request.benchmarkVersion,
     generatedAt: new Date().toISOString(),
+    providerMode: request.useConfiguredAi ? 'configured' : 'deterministic',
     templates,
     persistedArtifactsDirectory: request.persistArtifactsDirectory,
     cases: results,
     aggregate: aggregateMetrics(results),
-    notes: availableTemplates
-      .filter((template) => !isResumeTemplateBenchmarkEligible(template))
-      .map((template) => `Skipped non-benchmark-eligible template: ${template.label} (${template.id}).`),
+    notes: [
+      ...(request.useConfiguredAi
+        ? [
+            'Configured provider benchmark: the current environment model generated each draft; deterministic claim validation and rendering still enforced safety.',
+          ]
+        : []),
+      ...availableTemplates
+        .filter((template) => !isResumeTemplateBenchmarkEligible(template))
+        .map((template) => `Skipped non-benchmark-eligible template: ${template.label} (${template.id}).`),
+    ],
   })
 }
 

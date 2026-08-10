@@ -13,6 +13,8 @@ function candidate(input: {
   key: string;
   label: string;
   recordId?: string | null;
+  evidenceText?: string | null;
+  section?: ResumeImportFieldCandidate["target"]["section"];
   resolution?: ResumeImportFieldCandidate["resolution"];
   value: ResumeImportFieldCandidate["value"];
 }): ResumeImportFieldCandidate {
@@ -20,7 +22,7 @@ function candidate(input: {
     id: input.id,
     runId: "resume_import_education",
     target: {
-      section: "education",
+      section: input.section ?? "education",
       key: input.key,
       recordId: input.recordId ?? null,
     },
@@ -28,6 +30,7 @@ function candidate(input: {
     sourceKind: "model_background",
     value: input.value,
     confidence: 0.9,
+    evidenceText: input.evidenceText ?? null,
     resolution: input.resolution ?? "needs_review",
     createdAt,
   });
@@ -91,5 +94,88 @@ describe("buildProfileSetupReviewItems", () => {
     });
 
     expect(items.map((item) => item.label)).toContain("Field of study");
+  });
+
+  test("omits saved suggestions and resolves an older pending item once its value is saved", () => {
+    const seed = createSeed();
+    const locationCandidate = candidate({
+      id: "saved_location",
+      section: "location",
+      key: "currentLocation",
+      label: "Location",
+      value: "Paris, France",
+    });
+    const initialItems = buildProfileSetupReviewItems({
+      currentState: null,
+      documentBundle: null,
+      now: createdAt,
+      profile: seed.profile,
+      candidates: [locationCandidate],
+      searchPreferences: seed.searchPreferences,
+    });
+
+    expect(initialItems.find((item) => item.sourceCandidateId === locationCandidate.id)?.status).toBe("pending");
+
+    const unchangedItems = buildProfileSetupReviewItems({
+      currentState: { ...seed.profileSetupState, reviewItems: initialItems },
+      documentBundle: null,
+      now: "2026-07-16T10:30:00.000Z",
+      profile: seed.profile,
+      candidates: [locationCandidate],
+      searchPreferences: seed.searchPreferences,
+    });
+
+    expect(unchangedItems.find((item) => item.sourceCandidateId === locationCandidate.id)).toMatchObject({
+      status: "pending",
+      resolvedAt: null,
+    });
+
+    const savedProfile = { ...seed.profile, currentLocation: "Paris, France" };
+    const refreshedItems = buildProfileSetupReviewItems({
+      currentState: { ...seed.profileSetupState, reviewItems: initialItems },
+      documentBundle: null,
+      now: "2026-07-16T11:00:00.000Z",
+      profile: savedProfile,
+      candidates: [locationCandidate],
+      searchPreferences: seed.searchPreferences,
+    });
+
+    expect(refreshedItems.find((item) => item.sourceCandidateId === locationCandidate.id)).toMatchObject({
+      status: "confirmed",
+      resolvedAt: "2026-07-16T11:00:00.000Z",
+    });
+    expect(
+      buildProfileSetupReviewItems({
+        currentState: null,
+        documentBundle: null,
+        now: createdAt,
+        profile: savedProfile,
+        candidates: [locationCandidate],
+        searchPreferences: seed.searchPreferences,
+      }).filter((item) => item.sourceCandidateId === locationCandidate.id),
+    ).toHaveLength(0);
+  });
+
+  test("deduplicates repeated evidence lines in review snippets", () => {
+    const seed = createSeed();
+    const evidence = "Bachelor of Science in Computer Science";
+    const items = buildProfileSetupReviewItems({
+      currentState: null,
+      documentBundle: null,
+      now: createdAt,
+      profile: seed.profile,
+      candidates: [
+        candidate({
+          id: "education_degree_evidence",
+          key: "degree",
+          label: "Degree",
+          value: evidence,
+          evidenceText: `${evidence}\n  bachelor   of science in computer science  `,
+        }),
+      ],
+      searchPreferences: seed.searchPreferences,
+    });
+
+    expect(items.find((item) => item.sourceCandidateId === "education_degree_evidence")?.sourceSnippet).toBe(evidence);
   });
 });

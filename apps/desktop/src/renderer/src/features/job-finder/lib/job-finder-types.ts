@@ -3,8 +3,11 @@ import type {
   CandidateAnswerKind,
   CandidateLinkKind,
   CandidateProfile,
+  ClearApplicationAnswerCommandInput,
   DiscoveryActivityEvent,
+  DiscoveryFeedbackReason,
   EditableSourceInstructionArtifact,
+  JobFinderApplicationPacketExportResult,
   JobFinderApplyConsentActionInput,
   JobFinderApplyCopilotActionInput,
   JobFinderApplyQueueActionInput,
@@ -20,12 +23,16 @@ import type {
   ProfileSetupReviewActionOptions,
   ProfileSetupState,
   ResumeAssistantMessage,
+  ResumeApplicationMode,
   ResumeDraft,
   ResumeDraftPatch,
+  ResumeTimelineRepairAction,
+  SaveApplicationAnswerCommandInput,
   SourceDebugProgressEvent,
   SourceDebugRunDetails,
   SourceInstructionStatus,
   WorkMode,
+  UserActionCommandInput,
 } from "@unemployed/contracts";
 
 export type JobFinderScreen =
@@ -33,6 +40,7 @@ export type JobFinderScreen =
   | "discovery"
   | "review-queue"
   | "applications"
+  | "actions"
   | "settings";
 
 export interface JobFinderShellActions {
@@ -41,6 +49,9 @@ export interface JobFinderShellActions {
     input?: JobFinderOpenBrowserSessionInput,
   ) => Promise<JobFinderWorkspaceSnapshot>;
   checkBrowserSession: () => Promise<JobFinderWorkspaceSnapshot>;
+  performUserAction: (
+    command: UserActionCommandInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
   refreshWorkspace: () => Promise<JobFinderWorkspaceSnapshot>;
   resetWorkspace: () => Promise<JobFinderWorkspaceSnapshot>;
   runAgentDiscovery: (
@@ -52,7 +63,20 @@ export interface JobFinderShellActions {
     onProgress?: (event: SourceDebugProgressEvent) => void,
   ) => Promise<JobFinderWorkspaceSnapshot>;
   getSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>;
-  getApplyRunDetails: (runId: string, jobId: string) => Promise<ApplyRunDetails>;
+  getApplyRunDetails: (
+    runId: string,
+    jobId: string,
+  ) => Promise<ApplyRunDetails>;
+  saveApplicationAnswer: (
+    command: SaveApplicationAnswerCommandInput,
+  ) => Promise<ApplyRunDetails>;
+  clearApplicationAnswer: (
+    command: ClearApplicationAnswerCommandInput,
+  ) => Promise<ApplyRunDetails>;
+  exportApplicationPacket: (
+    runId: string,
+    jobId: string,
+  ) => Promise<JobFinderApplicationPacketExportResult>;
   saveSourceInstructionArtifact: (
     targetId: string,
     artifact: EditableSourceInstructionArtifact,
@@ -87,6 +111,11 @@ export interface JobFinderShellActions {
     action: ProfileSetupReviewAction,
     options?: ProfileSetupReviewActionOptions,
   ) => Promise<JobFinderWorkspaceSnapshot>;
+  applyResumeTimelineRepairAction: (
+    runId: string,
+    proposalId: string,
+    action: ResumeTimelineRepairAction,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
   sendProfileCopilotMessage: (
     content: string,
     context?: ProfileCopilotContext,
@@ -101,8 +130,18 @@ export interface JobFinderShellActions {
     revisionId: string,
   ) => Promise<JobFinderWorkspaceSnapshot>;
   queueJobForReview: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
+  setJobResumeApplicationMode: (
+    jobId: string,
+    resumeApplicationMode: ResumeApplicationMode,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
   removeJobFromReview: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
-  dismissDiscoveryJob: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
+  dismissDiscoveryJob: (
+    jobId: string,
+    reasons: readonly DiscoveryFeedbackReason[],
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  restoreDismissedDiscoveryJob: (
+    jobId: string,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
   getResumeWorkspace: (jobId: string) => Promise<JobFinderResumeWorkspace>;
   previewResumeDraft: (draft: ResumeDraft) => Promise<JobFinderResumePreview>;
   saveResumeDraft: (draft: ResumeDraft) => Promise<JobFinderWorkspaceSnapshot>;
@@ -110,6 +149,10 @@ export interface JobFinderShellActions {
   regenerateResumeSection: (
     jobId: string,
     sectionId: string,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  restoreResumeDraftRevision: (
+    jobId: string,
+    revisionId: string,
   ) => Promise<JobFinderWorkspaceSnapshot>;
   exportResumePdf: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
   approveResume: (
@@ -128,6 +171,12 @@ export interface JobFinderShellActions {
     jobId: string,
     content: string,
   ) => Promise<readonly ResumeAssistantMessage[]>;
+  resolveResumeAssistantProposal: (
+    jobId: string,
+    proposalId: string,
+    action: "accept" | "reject",
+    patchIds: readonly string[],
+  ) => Promise<readonly ResumeAssistantMessage[]>;
   generateResume: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
   startApplyCopilotRun: (
     jobId: string,
@@ -138,15 +187,17 @@ export interface JobFinderShellActions {
   ) => Promise<JobFinderWorkspaceSnapshot>;
   startAutoApplyRun: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
   startAutoApplyQueueRun: (
-    jobIds: JobFinderApplyQueueActionInput['jobIds'],
+    jobIds: JobFinderApplyQueueActionInput["jobIds"],
   ) => Promise<JobFinderWorkspaceSnapshot>;
   approveApplyRun: (runId: string) => Promise<JobFinderWorkspaceSnapshot>;
   cancelApplyRun: (runId: string) => Promise<JobFinderWorkspaceSnapshot>;
   resolveApplyConsentRequest: (
     requestId: string,
-    action: JobFinderApplyConsentActionInput['action'],
+    action: JobFinderApplyConsentActionInput["action"],
   ) => Promise<JobFinderWorkspaceSnapshot>;
-  revokeApplyRunApproval: (runId: string) => Promise<JobFinderWorkspaceSnapshot>;
+  revokeApplyRunApproval: (
+    runId: string,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
   approveApply: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
 }
 

@@ -1,10 +1,11 @@
-import { Navigate, createHashRouter } from 'react-router-dom'
+import { Navigate, createHashRouter } from "react-router-dom";
 import {
   InterviewAnswerOverlayRoute,
   InterviewHelperPage,
   InterviewTranscriptOverlayRoute,
-} from '../features/interview-helper/interview-helper-page'
+} from "../features/interview-helper/interview-helper-page";
 import {
+  JobFinderActionsRoute,
   JobFinderApplicationsRoute,
   JobFinderDiscoveryRoute,
   JobFinderPage,
@@ -13,74 +14,79 @@ import {
   JobFinderRouteErrorBoundary,
   JobFinderResumeWorkspaceRoute,
   JobFinderReviewQueueRoute,
-  JobFinderSettingsRoute
-} from '../pages/job-finder-page'
+  JobFinderSettingsRoute,
+} from "../pages/job-finder-page";
 
 export const appRouter = createHashRouter([
   {
-    path: '/',
-    element: <Navigate replace to="/job-finder" />
+    path: "/",
+    element: <Navigate replace to="/job-finder" />,
   },
   {
-    path: '/interview-helper',
-    element: <InterviewHelperPage />
+    path: "/interview-helper",
+    element: <InterviewHelperPage />,
   },
   {
-    path: '/interview-helper/overlay/answer',
-    element: <InterviewAnswerOverlayRoute />
+    path: "/interview-helper/overlay/answer",
+    element: <InterviewAnswerOverlayRoute />,
   },
   {
-    path: '/interview-helper/overlay/transcript',
-    element: <InterviewTranscriptOverlayRoute />
+    path: "/interview-helper/overlay/transcript",
+    element: <InterviewTranscriptOverlayRoute />,
   },
   {
-    path: '/job-finder',
+    path: "/job-finder",
     errorElement: <JobFinderRouteErrorBoundary scope="app" />,
     element: <JobFinderPage />,
     children: [
       {
         index: true,
-        element: <Navigate replace to="profile" />
+        element: <Navigate replace to="profile" />,
       },
       {
-        path: 'profile',
+        path: "profile",
         errorElement: <JobFinderRouteErrorBoundary scope="route" />,
-        element: <JobFinderProfileRoute />
+        element: <JobFinderProfileRoute />,
       },
       {
-        path: 'profile/setup',
+        path: "profile/setup",
         errorElement: <JobFinderRouteErrorBoundary scope="route" />,
-        element: <JobFinderProfileSetupRoute />
+        element: <JobFinderProfileSetupRoute />,
       },
       {
-        path: 'discovery',
+        path: "discovery",
         errorElement: <JobFinderRouteErrorBoundary scope="route" />,
-        element: <JobFinderDiscoveryRoute />
+        element: <JobFinderDiscoveryRoute />,
       },
       {
-        path: 'review-queue',
+        path: "review-queue",
         errorElement: <JobFinderRouteErrorBoundary scope="route" />,
-        element: <JobFinderReviewQueueRoute />
+        element: <JobFinderReviewQueueRoute />,
       },
       {
-        path: 'review-queue/:jobId/resume',
+        path: "review-queue/:jobId/resume",
         errorElement: <JobFinderRouteErrorBoundary scope="route" />,
-        element: <JobFinderResumeWorkspaceRoute />
+        element: <JobFinderResumeWorkspaceRoute />,
       },
       {
-        path: 'applications',
+        path: "actions",
         errorElement: <JobFinderRouteErrorBoundary scope="route" />,
-        element: <JobFinderApplicationsRoute />
+        element: <JobFinderActionsRoute />,
       },
       {
-        path: 'settings',
+        path: "applications",
         errorElement: <JobFinderRouteErrorBoundary scope="route" />,
-        element: <JobFinderSettingsRoute />
-      }
-    ]
+        element: <JobFinderApplicationsRoute />,
+      },
+      {
+        path: "settings",
+        errorElement: <JobFinderRouteErrorBoundary scope="route" />,
+        element: <JobFinderSettingsRoute />,
+      },
+    ],
   },
   {
-    path: '*',
-    element: <Navigate replace to="/job-finder" />
-  }
-])
+    path: "*",
+    element: <Navigate replace to="/job-finder" />,
+  },
+]);

@@ -30,24 +30,30 @@ function buildRecordQuery(input: {
 }
 
 describe("createJobFinderWorkspaceService", () => {
-  test("persists original-CV mode and immediately updates current shortlisted jobs", async () => {
+  test("keeps current job choices when the default changes and updates only the selected job", async () => {
     const { workspaceService, repository } = createWorkspaceServiceHarness();
     const initialSnapshot = await workspaceService.getWorkspaceSnapshot();
 
-    expect(initialSnapshot.reviewQueue.every(
-      (item) => item.resumeApplicationMode === "tailored_per_job",
-    )).toBe(true);
+    expect(
+      initialSnapshot.reviewQueue.every(
+        (item) => item.resumeApplicationMode === "tailored_per_job",
+      ),
+    ).toBe(true);
 
     const savedSnapshot = await workspaceService.saveSettings({
       ...initialSnapshot.settings,
       resumeApplicationMode: "original_resume",
     });
 
-    expect(savedSnapshot.settings.resumeApplicationMode).toBe("original_resume");
+    expect(savedSnapshot.settings.resumeApplicationMode).toBe(
+      "original_resume",
+    );
     expect((await repository.getSettings()).resumeApplicationMode).toBe(
       "original_resume",
     );
-    expect(savedSnapshot.reviewQueue).toHaveLength(initialSnapshot.reviewQueue.length);
+    expect(savedSnapshot.reviewQueue).toHaveLength(
+      initialSnapshot.reviewQueue.length,
+    );
     const readyJob = savedSnapshot.reviewQueue.find(
       (item) => item.jobId === "job_ready",
     );
@@ -55,7 +61,22 @@ describe("createJobFinderWorkspaceService", () => {
       (item) => item.jobId === "job_generating",
     );
 
-    expect(readyJob).toMatchObject({
+    expect(readyJob?.resumeApplicationMode).toBe("tailored_per_job");
+    expect(generatingJob?.resumeApplicationMode).toBe("tailored_per_job");
+
+    const selectedSnapshot =
+      await workspaceService.setJobResumeApplicationMode(
+        "job_ready",
+        "original_resume",
+      );
+    const selectedReadyJob = selectedSnapshot.reviewQueue.find(
+      (item) => item.jobId === "job_ready",
+    );
+    const untouchedGeneratingJob = selectedSnapshot.reviewQueue.find(
+      (item) => item.jobId === "job_generating",
+    );
+
+    expect(selectedReadyJob).toMatchObject({
       resumeApplicationMode: "original_resume",
       assetStatus: "ready",
       resumeReview: {
@@ -63,13 +84,35 @@ describe("createJobFinderWorkspaceService", () => {
         fileName: "alex-vanguard.pdf",
       },
     });
-    expect(generatingJob).toMatchObject({
+    expect(untouchedGeneratingJob?.resumeApplicationMode).toBe(
+      "tailored_per_job",
+    );
+  });
+
+  test("captures the saved CV default when a job is newly shortlisted", async () => {
+    const seed = createSeed();
+    seed.settings = {
+      ...seed.settings,
       resumeApplicationMode: "original_resume",
-      assetStatus: "ready",
-      resumeReview: {
-        status: "original_resume",
-        fileName: "alex-vanguard.pdf",
-      },
+    };
+    seed.savedJobs = seed.savedJobs.map((job) =>
+      job.id === "job_ready"
+        ? SavedJobSchema.parse({
+            ...job,
+            status: "discovered",
+            resumeApplicationMode: null,
+          })
+        : job,
+    );
+    const { workspaceService } = createWorkspaceServiceHarness({ seed });
+
+    const snapshot = await workspaceService.queueJobForReview("job_ready");
+
+    expect(
+      snapshot.reviewQueue.find((item) => item.jobId === "job_ready"),
+    ).toMatchObject({
+      resumeApplicationMode: "original_resume",
+      resumeReview: { status: "original_resume" },
     });
   });
 
@@ -120,6 +163,7 @@ describe("createJobFinderWorkspaceService", () => {
     expect(executionInput).toMatchObject({
       mode: "prepare_only",
       intermediateMutationsAuthorized: true,
+      accountCreationAuthorized: false,
       submitAuthorized: false,
     });
     expect(snapshot.resumeDrafts).toHaveLength(0);
@@ -153,7 +197,8 @@ describe("createJobFinderWorkspaceService", () => {
     const { workspaceService } = createWorkspaceServiceHarness();
 
     await workspaceService.generateResume("job_ready");
-    const exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    const exportedSnapshot =
+      await workspaceService.exportResumePdf("job_ready");
     const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
       (artifact) => artifact.jobId === "job_ready",
     );
@@ -166,9 +211,13 @@ describe("createJobFinderWorkspaceService", () => {
       (asset) => asset.jobId === "job_ready",
     );
 
-    expect(snapshot.discoveryJobs.some((job) => job.id === "job_ready")).toBe(true);
+    expect(snapshot.discoveryJobs.some((job) => job.id === "job_ready")).toBe(
+      true,
+    );
     expect(
-      snapshot.applicationRecords.some((record) => record.jobId === "job_ready"),
+      snapshot.applicationRecords.some(
+        (record) => record.jobId === "job_ready",
+      ),
     ).toBe(true);
     expect(snapshot.applicationAttempts[0]?.state).toBe("paused");
     expect(snapshot.applicationAttempts[0]?.outcome).toBeNull();
@@ -176,12 +225,16 @@ describe("createJobFinderWorkspaceService", () => {
       "paused",
     );
     expect(snapshot.applicationAttempts[0]?.questions[0]?.kind).toBe("resume");
-    expect(snapshot.applicationAttempts[0]?.consentDecisions.length).toBeGreaterThan(0);
+    expect(
+      snapshot.applicationAttempts[0]?.consentDecisions.length,
+    ).toBeGreaterThan(0);
     expect(snapshot.applicationAttempts[0]?.replay.lastUrl).toContain("/apply");
     expect(snapshot.applicationRecords[0]?.status).toBe("approved");
     expect(snapshot.applicationRecords[0]?.lastAttemptState).toBe("paused");
     expect(snapshot.applicationRecords[0]?.questionSummary.total).toBe(1);
-    expect(snapshot.applicationRecords[0]?.replaySummary.lastUrl).toContain("/apply");
+    expect(snapshot.applicationRecords[0]?.replaySummary.lastUrl).toContain(
+      "/apply",
+    );
     expect(tailoredAsset?.storagePath).toBe("/tmp/generated-classic_ats.pdf");
     expect(tailoredAsset?.notes).toEqual(
       expect.arrayContaining([
@@ -236,7 +289,8 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.applicationRecords[0]).toMatchObject({
       jobId: "job_ready",
       lastActionLabel: "Apply copilot blocked before launch.",
-      nextActionLabel: "Export and approve a tailored resume before retrying apply copilot.",
+      nextActionLabel:
+        "Export and approve a tailored resume before retrying apply copilot.",
       latestBlocker: {
         code: "missing_resume",
       },
@@ -251,7 +305,8 @@ describe("createJobFinderWorkspaceService", () => {
     const { workspaceService } = createWorkspaceServiceHarness();
 
     await workspaceService.generateResume("job_ready");
-    const exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    const exportedSnapshot =
+      await workspaceService.exportResumePdf("job_ready");
     const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
       (artifact) => artifact.jobId === "job_ready",
     );
@@ -279,7 +334,9 @@ describe("createJobFinderWorkspaceService", () => {
     expect(applicationAttempt).toMatchObject({
       state: "paused",
       outcome: null,
-      nextActionLabel: expect.stringMatching(/submit manually when ready/i) as string,
+      nextActionLabel: expect.stringMatching(
+        /submit manually when ready/i,
+      ) as string,
     });
     expect(applicationAttempt?.visualEvidence).toEqual([]);
     expect(applicationAttempt?.visualObservationSets).toEqual([]);
@@ -288,10 +345,14 @@ describe("createJobFinderWorkspaceService", () => {
     expect(applyResult?.visualCheckpoints).toEqual([]);
     expect(
       applicationAttempt?.questions.every(
-        (question) => !('visualContext' in question),
+        (question) => !("visualContext" in question),
       ),
     ).toBe(true);
-    expect(applicationAttempt?.checkpoints.every((checkpoint) => checkpoint.visualEvidence.length === 0)).toBe(true);
+    expect(
+      applicationAttempt?.checkpoints.every(
+        (checkpoint) => checkpoint.visualEvidence.length === 0,
+      ),
+    ).toBe(true);
     expect(applicationRecord).toMatchObject({
       lastAttemptState: "paused",
       questionSummary: expect.objectContaining({ total: 1, answered: 1 }) as {
@@ -323,9 +384,7 @@ describe("createJobFinderWorkspaceService", () => {
       (record) => record.id === applicationRecord!.id,
     );
     const savedJobs = await repository.listSavedJobs();
-    const interviewedJob = savedJobs.find(
-      (job) => job.id === "job_ready",
-    );
+    const interviewedJob = savedJobs.find((job) => job.id === "job_ready");
 
     expect(interviewedRecord).toMatchObject({
       status: "interview",
@@ -339,9 +398,7 @@ describe("createJobFinderWorkspaceService", () => {
       title: "Interview marked complete",
       emphasis: "positive",
     });
-    expect(interviewedEvent?.detail).toContain(
-      "platform reliability example",
-    );
+    expect(interviewedEvent?.detail).toContain("platform reliability example");
     expect(interviewedJob?.status).toBe("interview");
 
     const notedSnapshot =
@@ -385,7 +442,8 @@ describe("createJobFinderWorkspaceService", () => {
     });
 
     await workspaceService.generateResume("job_ready");
-    const exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    const exportedSnapshot =
+      await workspaceService.exportResumePdf("job_ready");
     const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
       (artifact) => artifact.jobId === "job_ready",
     );
@@ -399,6 +457,9 @@ describe("createJobFinderWorkspaceService", () => {
     const applyRun = snapshot.applyRuns[0];
     const applyResult = snapshot.applyJobResults[0];
     const applicationAttempt = snapshot.applicationAttempts[0];
+    const applicationRecord = snapshot.applicationRecords.find(
+      (record) => record.jobId === "job_ready",
+    );
 
     expect(applyRun?.visualCheckpointsEnabled).toBe(true);
     expect(applicationAttempt?.visualEvidence[0]?.summary).toMatch(
@@ -420,9 +481,14 @@ describe("createJobFinderWorkspaceService", () => {
       expect.arrayContaining([
         expect.objectContaining({
           kind: "resume",
-          submittedAnswer: "/tmp/generated-classic_ats.pdf",
+          submittedAnswer: "generated-classic_ats.pdf",
         }),
       ]),
+    );
+    expect(JSON.stringify(applicationAttempt)).not.toContain("/tmp/");
+    expect(JSON.stringify(applicationRecord)).not.toContain("/tmp/");
+    expect(JSON.stringify(applicationRecord)).toContain(
+      "generated-classic_ats.pdf",
     );
     expect(applicationAttempt?.checkpoints.at(-1)).toEqual(
       expect.objectContaining({
@@ -435,44 +501,46 @@ describe("createJobFinderWorkspaceService", () => {
 
   test("captures apply copilot answer, artifact, checkpoint, and consent records for review-ready questions", async () => {
     const seed = createSeed();
-    seed.savedJobs.push(SavedJobSchema.parse({
-      source: "target_site",
-      sourceJobId: "linkedin_pause_case",
-      discoveryMethod: "catalog_seed",
-      canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_pause_case",
-      id: "job_pause_case",
-      title: "Principal UX Engineer",
-      company: "Void Industries",
-      location: "Remote",
-      workMode: ["remote"],
-      applyPath: "easy_apply",
-      easyApplyEligible: true,
-      postedAt: "2026-03-20T09:30:00.000Z",
-      postedAtText: null,
-      discoveredAt: "2026-03-20T10:04:00.000Z",
-      salaryText: "$185k - $210k",
-      summary: "Lead UI platform work.",
-      description:
-        "Lead UI platform work. Additional work authorization details are required during apply.",
-      keySkills: ["React", "Design Systems"],
-      responsibilities: ["Lead UI platform architecture."],
-      minimumQualifications: ["Deep React experience."],
-      preferredQualifications: ["Accessibility leadership experience."],
-      seniority: "Principal",
-      employmentType: "Full-time",
-      department: "Engineering",
-      team: "UI Platform",
-      employerWebsiteUrl: "https://void.example.com",
-      employerDomain: "void.example.com",
-      benefits: ["Remote-first collaboration"],
-      status: "approved",
-      matchAssessment: {
-        score: 91,
-        reasons: ["Strong UI platform overlap"],
-        gaps: [],
-      },
-      provenance: [],
-    }));
+    seed.savedJobs.push(
+      SavedJobSchema.parse({
+        source: "target_site",
+        sourceJobId: "linkedin_pause_case",
+        discoveryMethod: "catalog_seed",
+        canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_pause_case",
+        id: "job_pause_case",
+        title: "Principal UX Engineer",
+        company: "Void Industries",
+        location: "Remote",
+        workMode: ["remote"],
+        applyPath: "easy_apply",
+        easyApplyEligible: true,
+        postedAt: "2026-03-20T09:30:00.000Z",
+        postedAtText: null,
+        discoveredAt: "2026-03-20T10:04:00.000Z",
+        salaryText: "$185k - $210k",
+        summary: "Lead UI platform work.",
+        description:
+          "Lead UI platform work. Additional work authorization details are required during apply.",
+        keySkills: ["React", "Design Systems"],
+        responsibilities: ["Lead UI platform architecture."],
+        minimumQualifications: ["Deep React experience."],
+        preferredQualifications: ["Accessibility leadership experience."],
+        seniority: "Principal",
+        employmentType: "Full-time",
+        department: "Engineering",
+        team: "UI Platform",
+        employerWebsiteUrl: "https://void.example.com",
+        employerDomain: "void.example.com",
+        benefits: ["Remote-first collaboration"],
+        status: "approved",
+        matchAssessment: {
+          score: 91,
+          reasons: ["Strong UI platform overlap"],
+          gaps: [],
+        },
+        provenance: [],
+      }),
+    );
     seed.tailoredAssets.push({
       id: "asset_pause_case",
       jobId: "job_pause_case",
@@ -517,9 +585,12 @@ describe("createJobFinderWorkspaceService", () => {
       isApproved: true,
     });
 
-    const { workspaceService, repository } = createWorkspaceServiceHarness({ seed });
+    const { workspaceService, repository } = createWorkspaceServiceHarness({
+      seed,
+    });
 
-    const snapshot = await workspaceService.startApplyCopilotRun("job_pause_case");
+    const snapshot =
+      await workspaceService.startApplyCopilotRun("job_pause_case");
     const runId = snapshot.applyRuns[0]?.id;
     const resultId = snapshot.applyJobResults[0]?.id;
     const recordQuery = buildRecordQuery({
@@ -527,21 +598,14 @@ describe("createJobFinderWorkspaceService", () => {
       runId,
       resultId,
     });
-    const questions = await repository.listApplicationQuestionRecords(
-      recordQuery,
-    );
-    const answers = await repository.listApplicationAnswerRecords(
-      recordQuery,
-    );
-    const artifacts = await repository.listApplicationArtifactRefs(
-      recordQuery,
-    );
-    const checkpoints = await repository.listApplicationReplayCheckpoints(
-      recordQuery,
-    );
-    const consentRequests = await repository.listApplicationConsentRequests(
-      recordQuery,
-    );
+    const questions =
+      await repository.listApplicationQuestionRecords(recordQuery);
+    const answers = await repository.listApplicationAnswerRecords(recordQuery);
+    const artifacts = await repository.listApplicationArtifactRefs(recordQuery);
+    const checkpoints =
+      await repository.listApplicationReplayCheckpoints(recordQuery);
+    const consentRequests =
+      await repository.listApplicationConsentRequests(recordQuery);
 
     expect(snapshot.applyRuns[0]?.state).toBe("paused_for_user_review");
     expect(snapshot.applyJobResults[0]).toMatchObject({
@@ -553,7 +617,9 @@ describe("createJobFinderWorkspaceService", () => {
     expect(questions.map((question) => question.kind)).toEqual(
       expect.arrayContaining(["resume", "work_authorization"]),
     );
-    expect(questions.every((question) => question.visualContext === null)).toBe(true);
+    expect(questions.every((question) => question.visualContext === null)).toBe(
+      true,
+    );
     expect(answers).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -563,13 +629,17 @@ describe("createJobFinderWorkspaceService", () => {
       ]),
     );
     expect(artifacts.length).toBeGreaterThan(0);
-    expect(artifacts.every((artifact) => artifact.visualEvidence === null)).toBe(true);
-    expect(checkpoints.some((checkpoint) => checkpoint.jobState === "awaiting_review")).toBe(
-      true,
-    );
-    expect(checkpoints.every((checkpoint) => checkpoint.visualEvidence.length === 0)).toBe(
-      true,
-    );
+    expect(
+      artifacts.every((artifact) => artifact.visualEvidence === null),
+    ).toBe(true);
+    expect(
+      checkpoints.some(
+        (checkpoint) => checkpoint.jobState === "awaiting_review",
+      ),
+    ).toBe(true);
+    expect(
+      checkpoints.every((checkpoint) => checkpoint.visualEvidence.length === 0),
+    ).toBe(true);
     expect(consentRequests).toEqual([]);
     expect(snapshot.applicationAttempts[0]?.state).toBe("paused");
     expect(snapshot.applicationAttempts[0]?.questions).toEqual(
@@ -584,7 +654,8 @@ describe("createJobFinderWorkspaceService", () => {
     const { workspaceService } = createWorkspaceServiceHarness();
 
     await workspaceService.generateResume("job_ready");
-    const exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    const exportedSnapshot =
+      await workspaceService.exportResumePdf("job_ready");
     const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
       (artifact) => artifact.jobId === "job_ready",
     );
@@ -601,7 +672,10 @@ describe("createJobFinderWorkspaceService", () => {
       return;
     }
 
-    const details = await workspaceService.getApplyRunDetails(runId, "job_ready");
+    const details = await workspaceService.getApplyRunDetails(
+      runId,
+      "job_ready",
+    );
 
     expect(details.run.id).toBe(runId);
     expect(details.run.mode).toBe("copilot");
@@ -638,7 +712,9 @@ describe("createJobFinderWorkspaceService", () => {
       "apply_checkpoint",
     );
     expect(
-      details.checkpoints.some((checkpoint) => checkpoint.visualEvidence.length > 0),
+      details.checkpoints.some(
+        (checkpoint) => checkpoint.visualEvidence.length > 0,
+      ),
     ).toBe(true);
   });
 
@@ -646,16 +722,20 @@ describe("createJobFinderWorkspaceService", () => {
     const { workspaceService } = createWorkspaceServiceHarness();
 
     await workspaceService.generateResume("job_ready");
-    const exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    const exportedSnapshot =
+      await workspaceService.exportResumePdf("job_ready");
     const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
       (artifact) => artifact.jobId === "job_ready",
     );
     expect(approvedExport).toBeTruthy();
 
     await workspaceService.approveResume("job_ready", approvedExport!.id);
-    const initialSnapshot = await workspaceService.startApplyCopilotRun("job_ready", {
-      visualCheckpointsEnabled: true,
-    });
+    const initialSnapshot = await workspaceService.startApplyCopilotRun(
+      "job_ready",
+      {
+        visualCheckpointsEnabled: true,
+      },
+    );
     const initialRunId = initialSnapshot.applyRuns[0]?.id;
 
     expect(initialRunId).toBeTruthy();
@@ -667,19 +747,28 @@ describe("createJobFinderWorkspaceService", () => {
       await workspaceService.startAutoApplyRun("job_ready");
     expect(
       stagedAutoSnapshot.applyJobResults.some(
-        (result) =>
-          result.jobId === "job_ready" && result.state === "planned",
+        (result) => result.jobId === "job_ready" && result.state === "planned",
       ),
     ).toBe(true);
 
-    const retrySnapshot = await workspaceService.startApplyCopilotRun("job_ready");
+    const retrySnapshot =
+      await workspaceService.startApplyCopilotRun("job_ready");
     const latestRun = retrySnapshot.applyRuns[0];
-    const details = await workspaceService.getApplyRunDetails(latestRun!.id, "job_ready");
+    const details = await workspaceService.getApplyRunDetails(
+      latestRun!.id,
+      "job_ready",
+    );
 
     expect(latestRun?.id).not.toBe(initialRunId);
-    expect(details.checkpoints.some((checkpoint) => checkpoint.label === "Resumed from retained apply context")).toBe(true);
+    expect(
+      details.checkpoints.some(
+        (checkpoint) =>
+          checkpoint.label === "Resumed from retained apply context",
+      ),
+    ).toBe(true);
     const resumedCheckpoint = details.checkpoints.find(
-      (checkpoint) => checkpoint.label === "Resumed from retained apply context",
+      (checkpoint) =>
+        checkpoint.label === "Resumed from retained apply context",
     );
 
     expect(resumedCheckpoint).toMatchObject({
@@ -700,7 +789,8 @@ describe("createJobFinderWorkspaceService", () => {
     const { workspaceService } = createWorkspaceServiceHarness();
 
     await workspaceService.generateResume("job_ready");
-    const exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    const exportedSnapshot =
+      await workspaceService.exportResumePdf("job_ready");
     const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
       (artifact) => artifact.jobId === "job_ready",
     );
@@ -717,19 +807,23 @@ describe("createJobFinderWorkspaceService", () => {
 
     await expect(
       workspaceService.getApplyRunDetails(runId, "job_generating"),
-    ).rejects.toThrow(`Apply run '${runId}' does not include job 'job_generating'.`);
+    ).rejects.toThrow(
+      `Apply run '${runId}' does not include job 'job_generating'.`,
+    );
   });
 
   test("captures research artifacts and returns grounded assistant resume feedback", async () => {
     const { workspaceService } = createWorkspaceServiceHarness();
 
     await workspaceService.generateResume("job_ready");
-    const beforeWorkspace = await workspaceService.getResumeWorkspace("job_ready");
+    const beforeWorkspace =
+      await workspaceService.getResumeWorkspace("job_ready");
     const messages = await workspaceService.sendResumeAssistantMessage(
       "job_ready",
       "Shorten the summary and tighten one experience bullet for ATS readability.",
     );
-    const afterWorkspace = await workspaceService.getResumeWorkspace("job_ready");
+    const afterWorkspace =
+      await workspaceService.getResumeWorkspace("job_ready");
     const assistantPatchedMessage = messages.find(
       (message) => message.role === "assistant" && message.patches.length > 0,
     );
@@ -737,12 +831,17 @@ describe("createJobFinderWorkspaceService", () => {
     expect(beforeWorkspace.research.length).toBeGreaterThan(0);
     expect(messages.some((message) => message.role === "assistant")).toBe(true);
     if (assistantPatchedMessage) {
-      expect(afterWorkspace.draft.updatedAt).not.toBe(beforeWorkspace.draft.updatedAt);
+      expect(afterWorkspace.draft).toEqual(beforeWorkspace.draft);
+      expect(assistantPatchedMessage).toMatchObject({
+        proposalStatus: "pending",
+        baseDraftUpdatedAt: beforeWorkspace.draft.updatedAt,
+      });
     } else {
       expect(
         messages.some(
           (message) =>
-            message.role === "assistant" && /no changes were applied/i.test(message.content),
+            message.role === "assistant" &&
+            /no changes were applied/i.test(message.content),
         ),
       ).toBe(true);
     }
@@ -751,9 +850,11 @@ describe("createJobFinderWorkspaceService", () => {
         .find((section) => section.kind === "experience")
         ?.entries.some((entry) => entry.bullets.length > 0),
     ).toBe(true);
-    expect(afterWorkspace.assistantMessages.some((message) => message.role === "assistant")).toBe(
-      true,
-    );
+    expect(
+      afterWorkspace.assistantMessages.some(
+        (message) => message.role === "assistant",
+      ),
+    ).toBe(true);
   });
 
   test("sanitizes duplicate and copied job-description resume content before persistence", async () => {
@@ -761,7 +862,9 @@ describe("createJobFinderWorkspaceService", () => {
 
     await workspaceService.generateResume("job_ready");
     const workspace = await workspaceService.getResumeWorkspace("job_ready");
-    const experienceSection = workspace.draft.sections.find((section) => section.kind === "experience");
+    const experienceSection = workspace.draft.sections.find(
+      (section) => section.kind === "experience",
+    );
 
     expect(experienceSection).toBeTruthy();
 
@@ -799,7 +902,8 @@ describe("createJobFinderWorkspaceService", () => {
       }),
     });
 
-    const refreshedWorkspace = await workspaceService.getResumeWorkspace("job_ready");
+    const refreshedWorkspace =
+      await workspaceService.getResumeWorkspace("job_ready");
     const refreshedExperienceSection = refreshedWorkspace.draft.sections.find(
       (section) => section.kind === "experience",
     );
@@ -822,15 +926,17 @@ describe("createJobFinderWorkspaceService", () => {
             experienceHighlights: ["Built resilient workflow tooling."],
             coreSkills: ["Figma", "Signal Systems", "Design Systems"],
             targetedKeywords: ["Design Systems", "Workflow platform"],
-            experienceEntries: input.profile.experiences.slice(0, 1).map((experience) => ({
-              title: experience.title,
-              employer: experience.companyName,
-              location: experience.location,
-              dateRange: "2020-01 – Present",
-              summary: experience.summary,
-              bullets: experience.achievements,
-              profileRecordId: experience.id,
-            })),
+            experienceEntries: input.profile.experiences
+              .slice(0, 1)
+              .map((experience) => ({
+                title: experience.title,
+                employer: experience.companyName,
+                location: experience.location,
+                dateRange: "2020-01 – Present",
+                summary: experience.summary,
+                bullets: experience.achievements,
+                profileRecordId: experience.id,
+              })),
             projectEntries: [],
             educationEntries: [],
             certificationEntries: [],
@@ -849,9 +955,15 @@ describe("createJobFinderWorkspaceService", () => {
     const workspace = await workspaceService.getResumeWorkspace("job_ready");
     const skillBullets = workspace.draft.sections
       .filter((section) => section.kind === "skills")
-      .flatMap((section) => section.bullets.filter((bullet) => bullet.included).map((bullet) => bullet.text));
+      .flatMap((section) =>
+        section.bullets
+          .filter((bullet) => bullet.included)
+          .map((bullet) => bullet.text),
+      );
 
-    expect(skillBullets).toEqual(expect.arrayContaining(["Figma", "Design Systems"]));
+    expect(skillBullets).toEqual(
+      expect.arrayContaining(["Figma", "Design Systems"]),
+    );
     expect(skillBullets).not.toContain("Signal Systems");
     expect(skillBullets).not.toContain("Remote-first collaboration");
   });
@@ -908,16 +1020,24 @@ describe("createJobFinderWorkspaceService", () => {
     });
 
     await workspaceService.generateResume("job_ready");
-    const beforeWorkspace = await workspaceService.getResumeWorkspace("job_ready");
+    const beforeWorkspace =
+      await workspaceService.getResumeWorkspace("job_ready");
     const messages = await workspaceService.sendResumeAssistantMessage(
       "job_ready",
       "Apply these edits.",
     );
-    const afterWorkspace = await workspaceService.getResumeWorkspace("job_ready");
+    const afterWorkspace =
+      await workspaceService.getResumeWorkspace("job_ready");
 
-    expect(afterWorkspace.draft.updatedAt).toBe(beforeWorkspace.draft.updatedAt);
-    const assistantMessages = messages.filter((message) => message.role === "assistant");
-    expect(assistantMessages.at(-1)?.content).toMatch(/No assistant changes were applied/i);
+    expect(afterWorkspace.draft.updatedAt).toBe(
+      beforeWorkspace.draft.updatedAt,
+    );
+    const assistantMessages = messages.filter(
+      (message) => message.role === "assistant",
+    );
+    expect(assistantMessages.at(-1)?.content).toMatch(
+      /No assistant changes were applied/i,
+    );
   });
 
   test("resume workspace exposes shared profile narrative and proof summaries", async () => {
@@ -927,8 +1047,12 @@ describe("createJobFinderWorkspaceService", () => {
     const workspace = await workspaceService.getResumeWorkspace("job_ready");
 
     expect(workspace.sharedProfile.narrativeSummary).toMatch(/design systems/i);
-    expect(workspace.sharedProfile.selfIntroduction).toMatch(/systems-focused product designer/i);
-    expect(workspace.sharedProfile.highlightedProofs[0]?.title).toBe("Design-system rollout");
+    expect(workspace.sharedProfile.selfIntroduction).toMatch(
+      /systems-focused product designer/i,
+    );
+    expect(workspace.sharedProfile.highlightedProofs[0]?.title).toBe(
+      "Design-system rollout",
+    );
   });
 
   test("previews an unsaved draft without persisting intermediate changes", async () => {
@@ -956,8 +1080,12 @@ describe("createJobFinderWorkspaceService", () => {
     expect(preview.html).toContain("Preview-only edit.");
     expect(preview.html).toContain("data-resume-section-id");
     expect(preview.revisionKey.startsWith(revisionPrefix)).toBe(true);
-    expect(preview.revisionKey.slice(revisionPrefix.length).length).toBeGreaterThan(0);
-    expect(persistedDraft?.sections[0]?.text).toBe(workspace.draft.sections[0]?.text ?? null);
+    expect(
+      preview.revisionKey.slice(revisionPrefix.length).length,
+    ).toBeGreaterThan(0);
+    expect(persistedDraft?.sections[0]?.text).toBe(
+      workspace.draft.sections[0]?.text ?? null,
+    );
     expect(persistedDraft?.updatedAt).toBe(workspace.draft.updatedAt);
   });
 
@@ -965,7 +1093,8 @@ describe("createJobFinderWorkspaceService", () => {
     const { workspaceService } = createWorkspaceServiceHarness();
 
     await workspaceService.generateResume("job_ready");
-    const exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    const exportedSnapshot =
+      await workspaceService.exportResumePdf("job_ready");
     const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
       (artifact) => artifact.jobId === "job_ready",
     );
@@ -977,7 +1106,11 @@ describe("createJobFinderWorkspaceService", () => {
     const preview = await workspaceService.previewResumeDraft(workspace.draft);
 
     expect(
-      preview.warnings.some((warning) => /Unsaved changes differ from the last approved export/i.test(warning.message)),
+      preview.warnings.some((warning) =>
+        /Unsaved changes differ from the last approved export/i.test(
+          warning.message,
+        ),
+      ),
     ).toBe(false);
   });
 
@@ -985,7 +1118,8 @@ describe("createJobFinderWorkspaceService", () => {
     const { workspaceService } = createWorkspaceServiceHarness();
 
     await workspaceService.generateResume("job_ready");
-    const exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    const exportedSnapshot =
+      await workspaceService.exportResumePdf("job_ready");
     const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
       (artifact) => artifact.jobId === "job_ready",
     );
@@ -1007,7 +1141,11 @@ describe("createJobFinderWorkspaceService", () => {
     });
 
     expect(
-      preview.warnings.some((warning) => /Unsaved changes differ from the last approved export/i.test(warning.message)),
+      preview.warnings.some((warning) =>
+        /Unsaved changes differ from the last approved export/i.test(
+          warning.message,
+        ),
+      ),
     ).toBe(true);
   });
 
@@ -1061,7 +1199,11 @@ describe("createJobFinderWorkspaceService", () => {
             warnings: [],
           });
         },
-        renderResumeArtifact(input: Parameters<JobFinderDocumentManager["renderResumeArtifact"]>[0]) {
+        renderResumeArtifact(
+          input: Parameters<
+            JobFinderDocumentManager["renderResumeArtifact"]
+          >[0],
+        ) {
           return Promise.resolve({
             fileName: `generated-${input.templateId}.pdf`,
             storagePath: `/tmp/generated-${input.templateId}.pdf`,
@@ -1076,7 +1218,8 @@ describe("createJobFinderWorkspaceService", () => {
     });
 
     await workspaceService.generateResume("job_ready");
-    const exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    const exportedSnapshot =
+      await workspaceService.exportResumePdf("job_ready");
     const exportedArtifact = exportedSnapshot.resumeExportArtifacts.find(
       (artifact) => artifact.jobId === "job_ready",
     );
@@ -1090,7 +1233,8 @@ describe("createJobFinderWorkspaceService", () => {
     const { workspaceService } = createWorkspaceServiceHarness();
 
     await workspaceService.generateResume("job_ready");
-    const exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    const exportedSnapshot =
+      await workspaceService.exportResumePdf("job_ready");
     const exportedArtifact = exportedSnapshot.resumeExportArtifacts.find(
       (artifact) => artifact.jobId === "job_ready",
     );
@@ -1159,7 +1303,9 @@ describe("createJobFinderWorkspaceService", () => {
                 classification: "suggested_hidden" as const,
                 careerFamilyFit: "weak" as const,
                 reasons: ["weak career-family fit"],
-                reviewGuidance: ["Hidden by default for review: this role has a weaker career-family fit for the target job."],
+                reviewGuidance: [
+                  "Hidden by default for review: this role has a weaker career-family fit for the target job.",
+                ],
                 coversMeaningfulGap: false,
               },
             ],
@@ -1169,7 +1315,8 @@ describe("createJobFinderWorkspaceService", () => {
     });
 
     await workspaceService.generateResume("job_ready");
-    const generatedWorkspace = await workspaceService.getResumeWorkspace("job_ready");
+    const generatedWorkspace =
+      await workspaceService.getResumeWorkspace("job_ready");
     const suggestion = generatedWorkspace.workHistoryReviewSuggestions.find(
       (entry) => entry.profileRecordId === hiddenExperience.id,
     );
@@ -1188,7 +1335,9 @@ describe("createJobFinderWorkspaceService", () => {
     );
 
     if (!suggestion?.sectionId || !suggestedEntry) {
-      throw new Error("Expected hidden work-history suggestion to reference a draft entry in its section.");
+      throw new Error(
+        "Expected hidden work-history suggestion to reference a draft entry in its section.",
+      );
     }
 
     await workspaceService.applyResumePatch({
@@ -1210,16 +1359,19 @@ describe("createJobFinderWorkspaceService", () => {
       conflictReason: null,
     });
 
-    const patchedWorkspace = await workspaceService.getResumeWorkspace("job_ready");
-    const patchedSuggestion = patchedWorkspace.workHistoryReviewSuggestions.find(
-      (entry) => entry.profileRecordId === hiddenExperience.id,
-    );
+    const patchedWorkspace =
+      await workspaceService.getResumeWorkspace("job_ready");
+    const patchedSuggestion =
+      patchedWorkspace.workHistoryReviewSuggestions.find(
+        (entry) => entry.profileRecordId === hiddenExperience.id,
+      );
 
     expect(patchedSuggestion?.message).toContain("weaker career-family fit");
     expect(patchedSuggestion?.action).toBe("keep_compact");
 
     await workspaceService.saveResumeDraft(patchedWorkspace.draft);
-    const savedWorkspace = await workspaceService.getResumeWorkspace("job_ready");
+    const savedWorkspace =
+      await workspaceService.getResumeWorkspace("job_ready");
     const savedSuggestion = savedWorkspace.workHistoryReviewSuggestions.find(
       (entry) => entry.profileRecordId === hiddenExperience.id,
     );
@@ -1283,7 +1435,8 @@ describe("createJobFinderWorkspaceService", () => {
           }
 
           return Promise.resolve({
-            content: "Shortened one experience bullet without changing role order.",
+            content:
+              "Shortened one experience bullet without changing role order.",
             patches: [
               {
                 id: "assistant_patch_shorten_older_role_bullet",
@@ -1301,7 +1454,7 @@ describe("createJobFinderWorkspaceService", () => {
                 newBullets: [
                   {
                     ...targetBullet,
-                    text: "Maintained legacy systems.",
+                    text: "Maintained legacy services.",
                   },
                   ...targetEntry.bullets.slice(1),
                 ],
@@ -1315,7 +1468,11 @@ describe("createJobFinderWorkspaceService", () => {
       },
       documentManager: {
         ...documentManager,
-        renderResumeArtifact(input: Parameters<JobFinderDocumentManager["renderResumeArtifact"]>[0]) {
+        renderResumeArtifact(
+          input: Parameters<
+            JobFinderDocumentManager["renderResumeArtifact"]
+          >[0],
+        ) {
           renderedEntryOrders.push(
             input.renderDocument.sections
               .find((section) => section.kind === "experience")
@@ -1327,9 +1484,13 @@ describe("createJobFinderWorkspaceService", () => {
     });
 
     await workspaceService.generateResume("job_ready");
-    const generatedWorkspace = await workspaceService.getResumeWorkspace("job_ready");
-    const experienceSection = generatedWorkspace.draft.sections.find((section) => section.kind === "experience");
-    const chronologicalIds = experienceSection?.entries.map((entry) => entry.id) ?? [];
+    const generatedWorkspace =
+      await workspaceService.getResumeWorkspace("job_ready");
+    const experienceSection = generatedWorkspace.draft.sections.find(
+      (section) => section.kind === "experience",
+    );
+    const chronologicalIds =
+      experienceSection?.entries.map((entry) => entry.id) ?? [];
 
     expect(chronologicalIds).toEqual([
       "experience_current_role",
@@ -1356,8 +1517,13 @@ describe("createJobFinderWorkspaceService", () => {
       origin: "user",
       conflictReason: null,
     });
-    const hiddenWorkspace = await workspaceService.getResumeWorkspace("job_ready");
-    expect(hiddenWorkspace.draft.sections.find((section) => section.kind === "experience")?.entries.map((entry) => entry.id)).toEqual(chronologicalIds);
+    const hiddenWorkspace =
+      await workspaceService.getResumeWorkspace("job_ready");
+    expect(
+      hiddenWorkspace.draft.sections
+        .find((section) => section.kind === "experience")
+        ?.entries.map((entry) => entry.id),
+    ).toEqual(chronologicalIds);
 
     await workspaceService.applyResumePatch({
       id: "patch_show_middle_role",
@@ -1377,8 +1543,13 @@ describe("createJobFinderWorkspaceService", () => {
       origin: "user",
       conflictReason: null,
     });
-    const shownWorkspace = await workspaceService.getResumeWorkspace("job_ready");
-    expect(shownWorkspace.draft.sections.find((section) => section.kind === "experience")?.entries.map((entry) => entry.id)).toEqual(chronologicalIds);
+    const shownWorkspace =
+      await workspaceService.getResumeWorkspace("job_ready");
+    expect(
+      shownWorkspace.draft.sections
+        .find((section) => section.kind === "experience")
+        ?.entries.map((entry) => entry.id),
+    ).toEqual(chronologicalIds);
 
     await workspaceService.applyResumePatch({
       id: "patch_move_older_to_top",
@@ -1398,8 +1569,11 @@ describe("createJobFinderWorkspaceService", () => {
       origin: "user",
       conflictReason: null,
     });
-    const manuallyOrderedWorkspace = await workspaceService.getResumeWorkspace("job_ready");
-    const manualSection = manuallyOrderedWorkspace.draft.sections.find((section) => section.kind === "experience");
+    const manuallyOrderedWorkspace =
+      await workspaceService.getResumeWorkspace("job_ready");
+    const manualSection = manuallyOrderedWorkspace.draft.sections.find(
+      (section) => section.kind === "experience",
+    );
 
     expect(manualSection?.entryOrderMode).toBe("manual");
     expect(manualSection?.entries.map((entry) => entry.id)).toEqual([
@@ -1417,11 +1591,16 @@ describe("createJobFinderWorkspaceService", () => {
         (message) => message.role === "assistant" && message.patches.length > 0,
       ),
     ).toBe(true);
-    const assistantWorkspace = await workspaceService.getResumeWorkspace("job_ready");
+    const assistantWorkspace =
+      await workspaceService.getResumeWorkspace("job_ready");
     const assistantExperienceSection = assistantWorkspace.draft.sections.find(
       (section) => section.kind === "experience",
     );
-    expect(assistantWorkspace.draft.sections.find((section) => section.kind === "experience")?.entries.map((entry) => entry.id)).toEqual([
+    expect(
+      assistantWorkspace.draft.sections
+        .find((section) => section.kind === "experience")
+        ?.entries.map((entry) => entry.id),
+    ).toEqual([
       "experience_older_role",
       "experience_current_role",
       "experience_middle_role",
@@ -1430,11 +1609,16 @@ describe("createJobFinderWorkspaceService", () => {
       assistantExperienceSection?.entries.find(
         (entry) => entry.id === "experience_older_role",
       )?.bullets[0]?.text,
-    ).toBe("Maintained legacy systems.");
+    ).toBe("Maintained legacy services.");
 
     await workspaceService.saveResumeDraft(assistantWorkspace.draft);
-    const savedWorkspace = await workspaceService.getResumeWorkspace("job_ready");
-    expect(savedWorkspace.draft.sections.find((section) => section.kind === "experience")?.entries.map((entry) => entry.id)).toEqual([
+    const savedWorkspace =
+      await workspaceService.getResumeWorkspace("job_ready");
+    expect(
+      savedWorkspace.draft.sections
+        .find((section) => section.kind === "experience")
+        ?.entries.map((entry) => entry.id),
+    ).toEqual([
       "experience_older_role",
       "experience_current_role",
       "experience_middle_role",
@@ -1465,18 +1649,24 @@ describe("createJobFinderWorkspaceService", () => {
       origin: "user",
       conflictReason: null,
     });
-    const resetWorkspace = await workspaceService.getResumeWorkspace("job_ready");
-    const resetSection = resetWorkspace.draft.sections.find((section) => section.kind === "experience");
+    const resetWorkspace =
+      await workspaceService.getResumeWorkspace("job_ready");
+    const resetSection = resetWorkspace.draft.sections.find(
+      (section) => section.kind === "experience",
+    );
 
     expect(resetSection?.entryOrderMode).toBe("chronology");
-    expect(resetSection?.entries.map((entry) => entry.id)).toEqual(chronologicalIds);
+    expect(resetSection?.entries.map((entry) => entry.id)).toEqual(
+      chronologicalIds,
+    );
   });
 
   test("clears previous approved export flags after the approved draft changes", async () => {
     const { workspaceService } = createWorkspaceServiceHarness();
 
     await workspaceService.generateResume("job_ready");
-    const exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    const exportedSnapshot =
+      await workspaceService.exportResumePdf("job_ready");
     const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
       (artifact) => artifact.jobId === "job_ready",
     );
@@ -1495,53 +1685,58 @@ describe("createJobFinderWorkspaceService", () => {
       ),
     });
 
-    const staleWorkspace = await workspaceService.getResumeWorkspace("job_ready");
+    const staleWorkspace =
+      await workspaceService.getResumeWorkspace("job_ready");
 
     expect(staleWorkspace.draft.status).toBe("stale");
     expect(staleWorkspace.draft.approvedExportId).toBeNull();
-    expect(staleWorkspace.exports.some((artifact) => artifact.isApproved)).toBe(false);
+    expect(staleWorkspace.exports.some((artifact) => artifact.isApproved)).toBe(
+      false,
+    );
   });
 
   test("pauses unsupported Easy Apply branches instead of submitting blindly", async () => {
     const seed = createSeed();
-    seed.savedJobs.push(SavedJobSchema.parse({
-      source: "target_site",
-      sourceJobId: "linkedin_pause_case",
-      discoveryMethod: "catalog_seed",
-      canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_pause_case",
-      id: "job_pause_case",
-      title: "Principal UX Engineer",
-      company: "Void Industries",
-      location: "Remote",
-      workMode: ["remote"],
-      applyPath: "easy_apply",
-      easyApplyEligible: true,
-      postedAt: "2026-03-20T09:30:00.000Z",
-      postedAtText: null,
-      discoveredAt: "2026-03-20T10:04:00.000Z",
-      salaryText: "$185k - $210k",
-      summary: "Lead UI platform work.",
-      description:
-        "Lead UI platform work. Additional work authorization details are required during apply.",
-      keySkills: ["React", "Design Systems"],
-      responsibilities: ["Lead UI platform architecture."],
-      minimumQualifications: ["Deep React experience."],
-      preferredQualifications: ["Accessibility leadership experience."],
-      seniority: "Principal",
-      employmentType: "Full-time",
-      department: "Engineering",
-      team: "UI Platform",
-      employerWebsiteUrl: "https://void.example.com",
-      employerDomain: "void.example.com",
-      benefits: ["Remote-first collaboration"],
-      status: "approved",
-      matchAssessment: {
-        score: 91,
-        reasons: ["Strong UI platform overlap"],
-        gaps: [],
-      },
-      provenance: [],
-    }));
+    seed.savedJobs.push(
+      SavedJobSchema.parse({
+        source: "target_site",
+        sourceJobId: "linkedin_pause_case",
+        discoveryMethod: "catalog_seed",
+        canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_pause_case",
+        id: "job_pause_case",
+        title: "Principal UX Engineer",
+        company: "Void Industries",
+        location: "Remote",
+        workMode: ["remote"],
+        applyPath: "easy_apply",
+        easyApplyEligible: true,
+        postedAt: "2026-03-20T09:30:00.000Z",
+        postedAtText: null,
+        discoveredAt: "2026-03-20T10:04:00.000Z",
+        salaryText: "$185k - $210k",
+        summary: "Lead UI platform work.",
+        description:
+          "Lead UI platform work. Additional work authorization details are required during apply.",
+        keySkills: ["React", "Design Systems"],
+        responsibilities: ["Lead UI platform architecture."],
+        minimumQualifications: ["Deep React experience."],
+        preferredQualifications: ["Accessibility leadership experience."],
+        seniority: "Principal",
+        employmentType: "Full-time",
+        department: "Engineering",
+        team: "UI Platform",
+        employerWebsiteUrl: "https://void.example.com",
+        employerDomain: "void.example.com",
+        benefits: ["Remote-first collaboration"],
+        status: "approved",
+        matchAssessment: {
+          score: 91,
+          reasons: ["Strong UI platform overlap"],
+          gaps: [],
+        },
+        provenance: [],
+      }),
+    );
     seed.tailoredAssets.push({
       id: "asset_pause_case",
       jobId: "job_pause_case",
@@ -1595,21 +1790,30 @@ describe("createJobFinderWorkspaceService", () => {
 
     expect(applicationRecord?.lastAttemptState).toBe("paused");
     expect(applicationRecord?.status).toBe("approved");
-    expect(snapshot.applicationAttempts.some((attempt) => attempt.state === "paused")).toBe(
-      true,
-    );
-    expect(snapshot.applicationAttempts.find((attempt) => attempt.state === "paused")?.blocker?.code).toBe(
+    expect(
+      snapshot.applicationAttempts.some(
+        (attempt) => attempt.state === "paused",
+      ),
+    ).toBe(true);
+    expect(
+      snapshot.applicationAttempts.find((attempt) => attempt.state === "paused")
+        ?.blocker?.code,
+    ).toBe("requires_manual_review");
+    expect(
+      snapshot.applicationAttempts.find((attempt) => attempt.state === "paused")
+        ?.questions.length,
+    ).toBeGreaterThan(0);
+    expect(applicationRecord?.latestBlocker?.code).toBe(
       "requires_manual_review",
     );
-    expect(snapshot.applicationAttempts.find((attempt) => attempt.state === "paused")?.questions.length).toBeGreaterThan(0);
-    expect(applicationRecord?.latestBlocker?.code).toBe("requires_manual_review");
   });
 
   test("stales approved resume drafts when profile changes affect resume inputs", async () => {
     const { workspaceService } = createWorkspaceServiceHarness();
 
     await workspaceService.generateResume("job_ready");
-    const exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    const exportedSnapshot =
+      await workspaceService.exportResumePdf("job_ready");
     const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
       (artifact) => artifact.jobId === "job_ready",
     );
@@ -1624,15 +1828,20 @@ describe("createJobFinderWorkspaceService", () => {
     const workspace = await workspaceService.getResumeWorkspace("job_ready");
 
     expect(workspace.draft.status).toBe("stale");
-    expect(workspace.draft.staleReason).toMatch(/profile details changed after approval/i);
-    expect(workspace.exports.some((artifact) => artifact.isApproved)).toBe(false);
+    expect(workspace.draft.staleReason).toMatch(
+      /profile details changed after approval/i,
+    );
+    expect(workspace.exports.some((artifact) => artifact.isApproved)).toBe(
+      false,
+    );
   });
 
   test("stages a single-job auto apply run with pending submit approval", async () => {
     const { repository, workspaceService } = createWorkspaceServiceHarness();
 
     await workspaceService.generateResume("job_ready");
-    const exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    const exportedSnapshot =
+      await workspaceService.exportResumePdf("job_ready");
     const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
       (artifact) => artifact.jobId === "job_ready",
     );
@@ -1663,7 +1872,9 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.applicationAttempts).toHaveLength(0);
     expect(snapshot.applicationRecords[0]).toMatchObject({
       jobId: "job_ready",
-      nextActionLabel: expect.stringMatching(/pending submit approval/i) as string,
+      nextActionLabel: expect.stringMatching(
+        /pending submit approval/i,
+      ) as string,
     });
   });
 
@@ -1671,20 +1882,25 @@ describe("createJobFinderWorkspaceService", () => {
     const { repository, workspaceService } = createWorkspaceServiceHarness();
 
     await workspaceService.generateResume("job_ready");
-    const exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    const exportedSnapshot =
+      await workspaceService.exportResumePdf("job_ready");
     const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
       (artifact) => artifact.jobId === "job_ready",
     );
 
     await workspaceService.approveResume("job_ready", approvedExport!.id);
 
-    const startedSnapshot = await workspaceService.startAutoApplyRun("job_ready");
+    const startedSnapshot =
+      await workspaceService.startAutoApplyRun("job_ready");
     const runId = startedSnapshot.applyRuns[0]?.id;
     expect(runId).toBeTruthy();
 
     const approvedSnapshot = await workspaceService.approveApplyRun(runId!);
     const approval = (await repository.listApplySubmitApprovals())[0];
-    const details = await workspaceService.getApplyRunDetails(runId!, "job_ready");
+    const details = await workspaceService.getApplyRunDetails(
+      runId!,
+      "job_ready",
+    );
 
     expect(approvedSnapshot.applyRuns[0]).toMatchObject({
       id: runId,
@@ -1709,7 +1925,8 @@ describe("createJobFinderWorkspaceService", () => {
         id: "job_queue_first",
         sourceJobId: "linkedin_queue_first",
         canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_queue_first",
-        applicationUrl: "https://www.linkedin.com/jobs/view/linkedin_queue_first/apply",
+        applicationUrl:
+          "https://www.linkedin.com/jobs/view/linkedin_queue_first/apply",
         title: "Staff Product Designer",
         company: "Queue Labs",
         status: "ready_for_review",
@@ -1718,8 +1935,10 @@ describe("createJobFinderWorkspaceService", () => {
         ...seed.savedJobs[0]!,
         id: "job_queue_second",
         sourceJobId: "linkedin_queue_second",
-        canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_queue_second",
-        applicationUrl: "https://www.linkedin.com/jobs/view/linkedin_queue_second/apply",
+        canonicalUrl:
+          "https://www.linkedin.com/jobs/view/linkedin_queue_second",
+        applicationUrl:
+          "https://www.linkedin.com/jobs/view/linkedin_queue_second/apply",
         title: "Senior Product Designer",
         company: "Queue Labs",
         status: "ready_for_review",
@@ -1834,8 +2053,14 @@ describe("createJobFinderWorkspaceService", () => {
     });
     expect(approvedSnapshot.applyJobResults).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ jobId: "job_queue_first", state: "awaiting_review" }),
-        expect.objectContaining({ jobId: "job_queue_second", state: "awaiting_review" }),
+        expect.objectContaining({
+          jobId: "job_queue_first",
+          state: "awaiting_review",
+        }),
+        expect.objectContaining({
+          jobId: "job_queue_second",
+          state: "awaiting_review",
+        }),
       ]),
     );
     expect(openSessionCalls).toBe(1);
@@ -1846,43 +2071,54 @@ describe("createJobFinderWorkspaceService", () => {
     const { repository, workspaceService } = createWorkspaceServiceHarness();
 
     await workspaceService.generateResume("job_ready");
-    const exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    const exportedSnapshot =
+      await workspaceService.exportResumePdf("job_ready");
     const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
       (artifact) => artifact.jobId === "job_ready",
     );
 
     await workspaceService.approveResume("job_ready", approvedExport!.id);
 
-    const startedSnapshot = await workspaceService.startAutoApplyRun("job_ready");
+    const startedSnapshot =
+      await workspaceService.startAutoApplyRun("job_ready");
     const runId = startedSnapshot.applyRuns[0]?.id;
     expect(runId).toBeTruthy();
 
     await workspaceService.approveApplyRun(runId!);
-    const revokedSnapshot = await workspaceService.revokeApplyRunApproval(runId!);
+    const revokedSnapshot = await workspaceService.revokeApplyRunApproval(
+      runId!,
+    );
 
     const approvals = await repository.listApplySubmitApprovals();
-    const pendingApproval = approvals.find((approval) => approval.status === 'pending')
-    const revokedApproval = approvals.find((approval) => approval.status === 'revoked')
+    const pendingApproval = approvals.find(
+      (approval) => approval.status === "pending",
+    );
+    const revokedApproval = approvals.find(
+      (approval) => approval.status === "revoked",
+    );
 
     expect(revokedSnapshot.applyRuns[0]).toMatchObject({
       id: runId,
-      state: 'awaiting_submit_approval',
+      state: "awaiting_submit_approval",
     });
     expect(approvals).toHaveLength(2);
     expect(pendingApproval).toMatchObject({
       runId,
-      status: 'pending',
+      status: "pending",
     });
     expect(revokedApproval).toMatchObject({
       runId,
-      status: 'revoked',
+      status: "revoked",
     });
     expect(revokedSnapshot.applicationRecords[0]).toMatchObject({
-      jobId: 'job_ready',
-      lastActionLabel: 'Submit approval revoked for this automatic apply run.',
-      nextActionLabel: 'Re-approve this run before any later submit-enabled execution.',
+      jobId: "job_ready",
+      lastActionLabel: "Submit approval revoked for this automatic apply run.",
+      nextActionLabel:
+        "Re-approve this run before any later submit-enabled execution.",
     });
-    expect(revokedSnapshot.applyRuns[0]?.submitApprovalId).toBe(pendingApproval?.id);
+    expect(revokedSnapshot.applyRuns[0]?.submitApprovalId).toBe(
+      pendingApproval?.id,
+    );
     expect(revokedApproval?.revokedAt).toBeTruthy();
   });
 
@@ -1893,7 +2129,8 @@ describe("createJobFinderWorkspaceService", () => {
         ...seed.savedJobs[0]!,
         id: "job_consent_queue",
         sourceJobId: "linkedin_consent_queue",
-        canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_consent_queue",
+        canonicalUrl:
+          "https://www.linkedin.com/jobs/view/linkedin_consent_queue",
         applicationUrl:
           "https://www.linkedin.com/jobs/view/linkedin_consent_queue/apply",
         title: "Staff Product Designer",
@@ -1970,7 +2207,9 @@ describe("createJobFinderWorkspaceService", () => {
       },
     ];
 
-    const { repository, workspaceService } = createWorkspaceServiceHarness({ seed });
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed,
+    });
 
     const snapshot = await workspaceService.startAutoApplyQueueRun([
       "job_consent_queue",
@@ -1986,7 +2225,10 @@ describe("createJobFinderWorkspaceService", () => {
     });
     expect(snapshot.applyJobResults).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ jobId: "job_consent_queue", state: "planned" }),
+        expect.objectContaining({
+          jobId: "job_consent_queue",
+          state: "planned",
+        }),
         expect.objectContaining({ jobId: "job_ready", state: "planned" }),
       ]),
     );
@@ -1997,14 +2239,15 @@ describe("createJobFinderWorkspaceService", () => {
     });
   });
 
-  test("approved queue run pauses for consent and keeps later jobs pending", async () => {
+  test("approved queue run isolates a consent blocker and prepares later jobs", async () => {
     const seed = createSeed();
     seed.savedJobs = [
       {
         ...seed.savedJobs[0]!,
         id: "job_consent_queue",
         sourceJobId: "linkedin_consent_queue",
-        canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_consent_queue",
+        canonicalUrl:
+          "https://www.linkedin.com/jobs/view/linkedin_consent_queue",
         applicationUrl:
           "https://www.linkedin.com/jobs/view/linkedin_consent_queue/apply",
         title: "Staff Product Designer",
@@ -2081,7 +2324,9 @@ describe("createJobFinderWorkspaceService", () => {
       },
     ];
 
-    const { repository, workspaceService } = createWorkspaceServiceHarness({ seed });
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed,
+    });
 
     const startedSnapshot = await workspaceService.startAutoApplyQueueRun([
       "job_consent_queue",
@@ -2103,8 +2348,14 @@ describe("createJobFinderWorkspaceService", () => {
     });
     expect(snapshot.applyJobResults).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ jobId: "job_consent_queue", state: "blocked" }),
-        expect.objectContaining({ jobId: "job_ready", state: "planned" }),
+        expect.objectContaining({
+          jobId: "job_consent_queue",
+          state: "blocked",
+        }),
+        expect.objectContaining({
+          jobId: "job_ready",
+          state: "awaiting_review",
+        }),
       ]),
     );
     expect(consentRequests[0]).toMatchObject({
@@ -2119,7 +2370,8 @@ describe("createJobFinderWorkspaceService", () => {
         ...seed.savedJobs[0]!,
         id: "job_consent_queue",
         sourceJobId: "linkedin_consent_queue",
-        canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_consent_queue",
+        canonicalUrl:
+          "https://www.linkedin.com/jobs/view/linkedin_consent_queue",
         applicationUrl:
           "https://www.linkedin.com/jobs/view/linkedin_consent_queue/apply",
         title: "Staff Product Designer",
@@ -2196,7 +2448,9 @@ describe("createJobFinderWorkspaceService", () => {
       },
     ];
 
-    const { repository, workspaceService } = createWorkspaceServiceHarness({ seed });
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed,
+    });
 
     const startedSnapshot = await workspaceService.startAutoApplyQueueRun([
       "job_consent_queue",
@@ -2231,12 +2485,20 @@ describe("createJobFinderWorkspaceService", () => {
     });
     expect(snapshot.applyJobResults).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ jobId: "job_consent_queue", state: "skipped" }),
-        expect.objectContaining({ jobId: "job_ready", state: "awaiting_review" }),
+        expect.objectContaining({
+          jobId: "job_consent_queue",
+          state: "skipped",
+        }),
+        expect.objectContaining({
+          jobId: "job_ready",
+          state: "awaiting_review",
+        }),
       ]),
     );
     expect(
-      snapshot.applicationRecords.find((record) => record.jobId === "job_consent_queue"),
+      snapshot.applicationRecords.find(
+        (record) => record.jobId === "job_consent_queue",
+      ),
     ).toMatchObject({
       status: "ready_for_review",
       lastAttemptState: "paused",
@@ -2258,7 +2520,8 @@ describe("createJobFinderWorkspaceService", () => {
         ...seed.savedJobs[0]!,
         id: "job_consent_queue",
         sourceJobId: "linkedin_consent_queue",
-        canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_consent_queue",
+        canonicalUrl:
+          "https://www.linkedin.com/jobs/view/linkedin_consent_queue",
         applicationUrl:
           "https://www.linkedin.com/jobs/view/linkedin_consent_queue/apply",
         title: "Staff Product Designer",
@@ -2335,7 +2598,9 @@ describe("createJobFinderWorkspaceService", () => {
       },
     ];
 
-    const { repository, workspaceService } = createWorkspaceServiceHarness({ seed });
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed,
+    });
 
     const startedSnapshot = await workspaceService.startAutoApplyQueueRun([
       "job_consent_queue",
@@ -2364,7 +2629,9 @@ describe("createJobFinderWorkspaceService", () => {
     ).find((request) => request.id === pendingConsentRequest!.id);
 
     expect(
-      snapshot.applicationRecords.find((record) => record.jobId === "job_consent_queue"),
+      snapshot.applicationRecords.find(
+        (record) => record.jobId === "job_consent_queue",
+      ),
     ).toMatchObject({
       status: "ready_for_review",
       lastAttemptState: "paused",
@@ -2412,9 +2679,13 @@ describe("createJobFinderWorkspaceService", () => {
       },
     ];
 
-    const { repository, workspaceService } = createWorkspaceServiceHarness({ seed });
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed,
+    });
 
-    const startedSnapshot = await workspaceService.startAutoApplyQueueRun(["job_ready"]);
+    const startedSnapshot = await workspaceService.startAutoApplyQueueRun([
+      "job_ready",
+    ]);
     const runId = startedSnapshot.applyRuns[0]?.id;
     expect(runId).toBeTruthy();
 
@@ -2435,7 +2706,8 @@ describe("createJobFinderWorkspaceService", () => {
     const { workspaceService } = createWorkspaceServiceHarness();
 
     await workspaceService.generateResume("job_ready");
-    const exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    const exportedSnapshot =
+      await workspaceService.exportResumePdf("job_ready");
     const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
       (artifact) => artifact.jobId === "job_ready",
     );
@@ -2451,8 +2723,12 @@ describe("createJobFinderWorkspaceService", () => {
     const workspace = await workspaceService.getResumeWorkspace("job_ready");
 
     expect(workspace.draft.status).toBe("stale");
-    expect(workspace.draft.staleReason).toMatch(/resume settings changed after approval/i);
-    expect(workspace.exports.some((artifact) => artifact.isApproved)).toBe(false);
+    expect(workspace.draft.staleReason).toMatch(
+      /resume settings changed after approval/i,
+    );
+    expect(workspace.exports.some((artifact) => artifact.isApproved)).toBe(
+      false,
+    );
   });
 
   test("accepts Modern Editorial as a supported default theme", async () => {
@@ -2641,7 +2917,9 @@ describe("createJobFinderWorkspaceService", () => {
     });
     exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
     approvedExport = exportedSnapshot.resumeExportArtifacts.find(
-      (artifact) => artifact.jobId === "job_ready" && artifact.templateId === "modern_split",
+      (artifact) =>
+        artifact.jobId === "job_ready" &&
+        artifact.templateId === "modern_split",
     );
 
     await expect(
@@ -2775,7 +3053,8 @@ describe("createJobFinderWorkspaceService", () => {
               source: "target_site",
               sourceJobId: "linkedin_signal_ready",
               discoveryMethod: "catalog_seed",
-              canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_signal_ready",
+              canonicalUrl:
+                "https://www.linkedin.com/jobs/view/linkedin_signal_ready",
               title: "Senior Product Designer",
               company: "Signal Systems",
               location: "Remote",
@@ -2790,8 +3069,12 @@ describe("createJobFinderWorkspaceService", () => {
               description:
                 "Own the design system and workflow platform for AI operations.",
               keySkills: ["Figma", "Design Systems", "AI Operations"],
-              responsibilities: ["Own the design system roadmap for AI operations."],
-              minimumQualifications: ["Strong product design systems experience."],
+              responsibilities: [
+                "Own the design system roadmap for AI operations.",
+              ],
+              minimumQualifications: [
+                "Strong product design systems experience.",
+              ],
               preferredQualifications: [
                 "Workflow-platform and AI operations background.",
               ],
@@ -2813,7 +3096,8 @@ describe("createJobFinderWorkspaceService", () => {
     });
 
     await workspaceService.generateResume("job_ready");
-    const exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    const exportedSnapshot =
+      await workspaceService.exportResumePdf("job_ready");
     const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
       (artifact) => artifact.jobId === "job_ready",
     );
@@ -2822,7 +3106,9 @@ describe("createJobFinderWorkspaceService", () => {
 
     useChangedDiscovery = true;
     const snapshot = await workspaceService.runDiscovery();
-    const reviewItem = snapshot.reviewQueue.find((item) => item.jobId === "job_ready");
+    const reviewItem = snapshot.reviewQueue.find(
+      (item) => item.jobId === "job_ready",
+    );
 
     expect(reviewItem?.resumeReview.status).toBe("stale");
   });
@@ -2840,9 +3126,9 @@ describe("createJobFinderWorkspaceService", () => {
       ),
     });
 
-    await expect(workspaceService.regenerateResumeDraft("job_ready")).rejects.toThrow(
-      /unlock pinned resume sections or bullets/i,
-    );
+    await expect(
+      workspaceService.regenerateResumeDraft("job_ready"),
+    ).rejects.toThrow(/unlock pinned resume sections or bullets/i);
   });
 
   test("full-draft regeneration rebuilds an existing stale draft from profile-backed dates and descriptions", async () => {
@@ -2871,7 +3157,8 @@ describe("createJobFinderWorkspaceService", () => {
               startDate: null,
               endDate: null,
               isCurrent: false,
-              summary: "Senior systems designer — Signal Systems | London, UK | Present",
+              summary:
+                "Senior systems designer — Signal Systems | London, UK | Present",
               bullets: [],
               origin: "ai_generated",
               locked: false,
@@ -2929,7 +3216,8 @@ describe("createJobFinderWorkspaceService", () => {
     });
 
     await workspaceService.regenerateResumeDraft("job_ready");
-    const regeneratedDraft = await repository.getResumeDraftByJobId("job_ready");
+    const regeneratedDraft =
+      await repository.getResumeDraftByJobId("job_ready");
     const regeneratedExperience = regeneratedDraft?.sections
       .find((section) => section.kind === "experience")
       ?.entries.find((entry) => entry.profileRecordId === "experience_1");
@@ -2977,6 +3265,131 @@ describe("createJobFinderWorkspaceService", () => {
     ).rejects.toThrow(/unlock the .* section before regenerating it/i);
   });
 
+  test("blocks original-CV apply when the saved file bytes changed", async () => {
+    const expectedSha256 = "a".repeat(64);
+    const seed = createSeed();
+    seed.settings = {
+      ...seed.settings,
+      resumeApplicationMode: "original_resume",
+    };
+    seed.profile = {
+      ...seed.profile,
+      baseResume: { ...seed.profile.baseResume, sha256: expectedSha256 },
+    };
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      exportFileVerifier: {
+        exists: () => Promise.resolve(true),
+        sha256: () => Promise.resolve("b".repeat(64)),
+      },
+    });
+
+    await expect(
+      workspaceService.startApplyCopilotRun("job_ready"),
+    ).rejects.toThrow(/changed after it was saved/i);
+    expect(
+      (await workspaceService.getWorkspaceSnapshot()).applicationAttempts,
+    ).toHaveLength(0);
+  });
+
+  test("requires re-import when a legacy original CV has no saved digest", async () => {
+    const seed = createSeed();
+    seed.settings = {
+      ...seed.settings,
+      resumeApplicationMode: "original_resume",
+    };
+    seed.profile = {
+      ...seed.profile,
+      baseResume: { ...seed.profile.baseResume, sha256: undefined },
+    };
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      exportFileVerifier: {
+        exists: () => Promise.resolve(true),
+        sha256: () => Promise.resolve("a".repeat(64)),
+      },
+    });
+
+    await expect(
+      workspaceService.startApplyCopilotRun("job_ready"),
+    ).rejects.toThrow(/no saved SHA-256 integrity record.*re-import/i);
+  });
+
+  test("rejects approval when rendered resume bytes changed after export", async () => {
+    const expectedSha256 = "a".repeat(64);
+    const baseDocumentManager = createDocumentManager();
+    const documentManager = {
+      ...baseDocumentManager,
+      async renderResumeArtifact(
+        input: Parameters<JobFinderDocumentManager["renderResumeArtifact"]>[0],
+      ) {
+        return {
+          ...(await baseDocumentManager.renderResumeArtifact(input)),
+          sha256: expectedSha256,
+        };
+      },
+    };
+    const { workspaceService } = createWorkspaceServiceHarness({
+      documentManager,
+      exportFileVerifier: {
+        exists: () => Promise.resolve(true),
+        sha256: () => Promise.resolve("b".repeat(64)),
+      },
+    });
+
+    await workspaceService.generateResume("job_ready");
+    const exported = await workspaceService.exportResumePdf("job_ready");
+    const artifact = exported.resumeExportArtifacts.find(
+      (entry) => entry.jobId === "job_ready",
+    );
+
+    await expect(
+      workspaceService.approveResume("job_ready", artifact!.id),
+    ).rejects.toThrow(/changed after it was saved/i);
+    expect(
+      (await workspaceService.getResumeWorkspace("job_ready")).draft.status,
+    ).not.toBe("approved");
+  });
+
+  test("blocks tailored apply when approved resume bytes change later", async () => {
+    const expectedSha256 = "a".repeat(64);
+    let currentSha256 = expectedSha256;
+    const baseDocumentManager = createDocumentManager();
+    const documentManager = {
+      ...baseDocumentManager,
+      async renderResumeArtifact(
+        input: Parameters<JobFinderDocumentManager["renderResumeArtifact"]>[0],
+      ) {
+        return {
+          ...(await baseDocumentManager.renderResumeArtifact(input)),
+          sha256: expectedSha256,
+        };
+      },
+    };
+    const { workspaceService } = createWorkspaceServiceHarness({
+      documentManager,
+      exportFileVerifier: {
+        exists: () => Promise.resolve(true),
+        sha256: () => Promise.resolve(currentSha256),
+      },
+    });
+
+    await workspaceService.generateResume("job_ready");
+    const exported = await workspaceService.exportResumePdf("job_ready");
+    const artifact = exported.resumeExportArtifacts.find(
+      (entry) => entry.jobId === "job_ready",
+    );
+    await workspaceService.approveResume("job_ready", artifact!.id);
+    currentSha256 = "b".repeat(64);
+
+    await expect(
+      workspaceService.startApplyCopilotRun("job_ready"),
+    ).rejects.toThrow(/changed after it was saved/i);
+    expect(
+      (await workspaceService.getWorkspaceSnapshot()).applicationAttempts,
+    ).toHaveLength(0);
+  });
+
   test("rejects apply approval when the approved export file is missing on disk", async () => {
     const { workspaceService } = createWorkspaceServiceHarness({
       exportFileVerifier: {
@@ -2985,16 +3398,15 @@ describe("createJobFinderWorkspaceService", () => {
     });
 
     await workspaceService.generateResume("job_ready");
-    const exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    const exportedSnapshot =
+      await workspaceService.exportResumePdf("job_ready");
     const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
       (artifact) => artifact.jobId === "job_ready",
     );
 
-    await workspaceService.approveResume("job_ready", approvedExport!.id);
-
-    await expect(workspaceService.approveApply("job_ready")).rejects.toThrow(
-      /missing on disk/i,
-    );
+    await expect(
+      workspaceService.approveResume("job_ready", approvedExport!.id),
+    ).rejects.toThrow(/missing on disk/i);
   });
 
   test("dismissing a job is durable while prepare-only apply does not record a false applied status", async () => {
@@ -3075,20 +3487,21 @@ describe("createJobFinderWorkspaceService", () => {
       },
     });
 
-    await workspaceService.dismissDiscoveryJob("pending_job_1");
+    await workspaceService.dismissDiscoveryJob({ jobId: "pending_job_1", reasons: ["other"] });
     let discoveryState = await repository.getDiscoveryState();
     expect(discoveryState.discoveryLedger).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           canonicalUrl: "https://example.com/jobs/pending-job-1",
           latestStatus: "skipped",
-          skipReason: "Dismissed from discovery results.",
+          skipReason: "Not interested: other.",
         }),
       ]),
     );
 
     await workspaceService.generateResume("job_ready");
-    const exportedSnapshot = await workspaceService.exportResumePdf("job_ready");
+    const exportedSnapshot =
+      await workspaceService.exportResumePdf("job_ready");
     const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
       (artifact) => artifact.jobId === "job_ready",
     );
@@ -3109,5 +3522,106 @@ describe("createJobFinderWorkspaceService", () => {
         (entry) => entry.latestStatus === "applied",
       ),
     ).toBe(false);
+  });
+
+  test("persists generated claim blockers and refuses export before rendering", async () => {
+    const documentManager = createDocumentManager();
+    const renderResumeArtifact = vi.fn(
+      (
+        input: Parameters<JobFinderDocumentManager["renderResumeArtifact"]>[0],
+      ) => documentManager.renderResumeArtifact(input),
+    );
+    const { workspaceService, repository } = createWorkspaceServiceHarness({
+      documentManager: {
+        ...documentManager,
+        renderResumeArtifact,
+      },
+    });
+
+    await workspaceService.generateResume("job_ready");
+    const workspace = await workspaceService.getResumeWorkspace("job_ready");
+    await workspaceService.saveResumeDraft({
+      ...workspace.draft,
+      sections: workspace.draft.sections.map((section) =>
+        section.kind === "experience" && section.entries[0]
+          ? {
+              ...section,
+              entries: section.entries.map((entry, index) =>
+                index === 0
+                  ? {
+                      ...entry,
+                      bullets: [
+                        ...entry.bullets,
+                        {
+                          id: "unsupported_generated_claim",
+                          text: "Architected a quantum operating model for global logistics teams.",
+                          origin: "ai_generated" as const,
+                          locked: false,
+                          included: true,
+                          sourceRefs: [],
+                          updatedAt: "2026-07-30T12:00:00.000Z",
+                        },
+                      ],
+                    }
+                  : entry,
+              ),
+            }
+          : section,
+      ),
+    });
+
+    const exportsBefore = await repository.listResumeExportArtifacts({
+      jobId: "job_ready",
+    });
+    renderResumeArtifact.mockClear();
+    await expect(workspaceService.exportResumePdf("job_ready")).rejects.toThrow(
+      /blocking candidate-claim validation issues/i,
+    );
+    expect(renderResumeArtifact).not.toHaveBeenCalled();
+    expect(
+      await repository.listResumeExportArtifacts({ jobId: "job_ready" }),
+    ).toEqual(exportsBefore);
+
+    const validation = (
+      await repository.listResumeValidationResults(workspace.draft.id)
+    )[0];
+    expect(validation?.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          severity: "error",
+          category: "unsupported_claim",
+          sectionId: "section_experience",
+          bulletId: "unsupported_generated_claim",
+        }),
+      ]),
+    );
+  });
+
+  test("rejects approval when the persisted claim assessment hash is stale", async () => {
+    const { workspaceService, repository } = createWorkspaceServiceHarness();
+    await workspaceService.generateResume("job_ready");
+    const exportedSnapshot =
+      await workspaceService.exportResumePdf("job_ready");
+    const exportedArtifact = exportedSnapshot.resumeExportArtifacts.find(
+      (artifact) => artifact.jobId === "job_ready",
+    );
+    const workspace = await workspaceService.getResumeWorkspace("job_ready");
+    const validation = (
+      await repository.listResumeValidationResults(workspace.draft.id)
+    )[0];
+    if (!validation || !exportedArtifact) {
+      throw new Error("Expected an exported resume and validation result.");
+    }
+    await repository.upsertResumeValidationResult(
+      ResumeValidationResultSchema.parse({
+        ...validation,
+        draftContentHash: "fnv1a32:00000000",
+        validatedAt: "2099-07-30T12:00:00.000Z",
+      }),
+    );
+
+    await expect(
+      workspaceService.approveResume("job_ready", exportedArtifact.id),
+    ).rejects.toThrow(/current claim-grounding assessment/i);
   });
 });

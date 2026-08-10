@@ -1,31 +1,30 @@
-import { useId } from 'react'
-import type { ApplicationRecord } from '@unemployed/contracts'
-import { Badge } from '@renderer/components/ui/badge'
-import { Button } from '@renderer/components/ui/button'
+import { useId } from "react";
+import type { ApplicationRecord } from "@unemployed/contracts";
+import { Badge } from "@renderer/components/ui/badge";
+import { Button } from "@renderer/components/ui/button";
+import { cn } from "@renderer/lib/utils";
+import { EmptyState } from "../../components/empty-state";
+import { StatusBadge } from "../../components/status-badge";
+import { JOB_FINDER_ROUTE_HREFS } from "../../lib/job-finder-route-hrefs";
+import { getAttemptLabel, getAttemptTone } from "../../lib/job-finder-utils";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow
-} from '@renderer/components/ui/table'
-import { cn } from '@renderer/lib/utils'
-import { EmptyState } from '../../components/empty-state'
-import { StatusBadge } from '../../components/status-badge'
-import { JOB_FINDER_ROUTE_HREFS } from '../../lib/job-finder-route-hrefs'
-import { getAttemptLabel, getAttemptTone } from '../../lib/job-finder-utils'
-import { APPLICATION_FILTER_LABELS, APPLICATION_FILTERS, type ApplicationsViewFilter } from './applications-filters'
-import { getApplicationLatestActivityLabel, getApplicationStagePresentation } from './applications-status'
+  APPLICATION_FILTER_LABELS,
+  APPLICATION_FILTERS,
+  type ApplicationsViewFilter,
+} from "./applications-filters";
+import {
+  getApplicationLatestActivityLabel,
+  getApplicationStagePresentation,
+} from "./applications-status";
 
 interface ApplicationsRecordsPanelProps {
-  activeFilter: ApplicationsViewFilter
-  applicationRecords: readonly ApplicationRecord[]
-  filterCounts: Record<ApplicationsViewFilter, number>
-  hasAnyApplications: boolean
-  onFilterChange: (filter: ApplicationsViewFilter) => void
-  onSelectRecord: (recordId: string) => void
-  selectedRecord: ApplicationRecord | null
+  activeFilter: ApplicationsViewFilter;
+  applicationRecords: readonly ApplicationRecord[];
+  filterCounts: Record<ApplicationsViewFilter, number>;
+  hasAnyApplications: boolean;
+  onFilterChange: (filter: ApplicationsViewFilter) => void;
+  onSelectRecord: (recordId: string) => void;
+  selectedRecord: ApplicationRecord | null;
 }
 
 export function ApplicationsRecordsPanel({
@@ -35,21 +34,31 @@ export function ApplicationsRecordsPanel({
   hasAnyApplications,
   onFilterChange,
   onSelectRecord,
-  selectedRecord
+  selectedRecord,
 }: ApplicationsRecordsPanelProps) {
-  const recordCount = applicationRecords.length
-  const filterGroupId = useId()
+  const recordCount = applicationRecords.length;
+  const filterGroupId = useId();
 
   return (
-    <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
+    <section className="surface-panel-shell @container/tracker relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-(--surface-panel-border) px-8 py-5">
         <div className="flex flex-wrap items-center gap-4">
-          <h2 className="font-display text-lg font-bold uppercase tracking-(--tracking-heading) text-primary">Application tracker</h2>
-          <Badge variant="section">{recordCount} {recordCount === 1 ? 'application' : 'applications'}</Badge>
+          <h2 className="font-display text-lg font-bold uppercase tracking-(--tracking-heading) text-primary">
+            Application tracker
+          </h2>
+          <Badge variant="section">
+            {recordCount} {recordCount === 1 ? "application" : "applications"}
+          </Badge>
         </div>
 
-        <div aria-labelledby={filterGroupId} className="flex flex-wrap gap-2" role="group">
-          <span className="sr-only" id={filterGroupId}>Application filters</span>
+        <div
+          aria-labelledby={filterGroupId}
+          className="flex flex-wrap gap-2"
+          role="group"
+        >
+          <span className="sr-only" id={filterGroupId}>
+            Application filters
+          </span>
           {APPLICATION_FILTERS.map((filterOption) => (
             <Button
               aria-pressed={activeFilter === filterOption}
@@ -58,7 +67,7 @@ export function ApplicationsRecordsPanel({
               onClick={() => onFilterChange(filterOption)}
               size="sm"
               type="button"
-              variant={activeFilter === filterOption ? 'secondary' : 'ghost'}
+              variant={activeFilter === filterOption ? "secondary" : "ghost"}
             >
               {APPLICATION_FILTER_LABELS[filterOption]}
               <span className="label-mono-xs rounded-full border border-current/15 px-1.5 py-0.5 leading-none">
@@ -83,7 +92,9 @@ export function ApplicationsRecordsPanel({
               />
               <div className="flex flex-wrap items-center justify-center gap-3">
                 <Button asChild size="sm" type="button" variant="primary">
-                  <a href={JOB_FINDER_ROUTE_HREFS.reviewQueue}>Go to Shortlisted</a>
+                  <a href={JOB_FINDER_ROUTE_HREFS.reviewQueue}>
+                    Go to Shortlisted
+                  </a>
                 </Button>
                 <Button asChild size="sm" type="button" variant="ghost">
                   <a href={JOB_FINDER_ROUTE_HREFS.discovery}>Find jobs</a>
@@ -93,49 +104,72 @@ export function ApplicationsRecordsPanel({
           )}
         </div>
       ) : (
-        <div className="min-h-0 flex-1 overflow-auto">
-          <Table>
-            <TableHeader>
-              <TableRow className="border-(--surface-panel-border) hover:bg-transparent">
-                <TableHead className="label-mono-xs px-4 uppercase tracking-(--tracking-mono) text-muted-foreground">Job</TableHead>
-                <TableHead className="label-mono-xs px-4 uppercase tracking-(--tracking-mono) text-muted-foreground">Latest activity</TableHead>
-                <TableHead className="label-mono-xs px-4 uppercase tracking-(--tracking-mono) text-muted-foreground">Stage</TableHead>
-                <TableHead className="label-mono-xs px-4 uppercase tracking-(--tracking-mono) text-muted-foreground">Apply attempt</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {applicationRecords.map((record) => {
-                const stage = getApplicationStagePresentation(record)
+        <ul
+          className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
+          aria-label="Applications"
+        >
+          {applicationRecords.map((record) => {
+            const stage = getApplicationStagePresentation(record);
 
-                return (
-                  <TableRow
-                    key={record.id}
-                    className={cn(
-                      'border-(--surface-panel-border) text-[0.85rem] tracking-normal hover:bg-(--surface-panel-raised)',
-                      selectedRecord?.id === record.id ? 'border-l-2 border-l-primary bg-(--surface-panel-raised)' : ''
-                    )}
-                  >
-                    <TableCell className="px-4 py-4 align-top">
-                      <button
-                        aria-current={selectedRecord?.id === record.id ? 'true' : undefined}
-                        className="grid w-full gap-1 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30"
-                        onClick={() => onSelectRecord(record.id)}
-                        type="button"
-                      >
-                        <strong className="font-display text-[1rem] font-semibold tracking-[-0.015em] text-foreground">{record.title}</strong>
-                        <span className="text-[0.8rem] text-muted-foreground">{record.company}</span>
-                      </button>
-                    </TableCell>
-                    <TableCell className="px-4 py-4 text-[0.8rem] text-foreground-soft break-words whitespace-normal">{getApplicationLatestActivityLabel(record)}</TableCell>
-                    <TableCell className="px-4 py-4"><StatusBadge tone={stage.tone}>{stage.label}</StatusBadge></TableCell>
-                    <TableCell className="px-4 py-4"><StatusBadge tone={getAttemptTone(record.lastAttemptState)}>{getAttemptLabel(record.lastAttemptState)}</StatusBadge></TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
-        </div>
+            return (
+              <li
+                key={record.id}
+                className={cn(
+                  "relative border-b border-(--surface-panel-border) text-[0.85rem] tracking-normal transition-colors last:border-b-0 hover:bg-(--surface-panel-raised)",
+                  selectedRecord?.id === record.id
+                    ? "border-l-2 border-l-primary bg-(--surface-panel-raised)"
+                    : "",
+                )}
+              >
+                <button
+                  aria-current={
+                    selectedRecord?.id === record.id ? "true" : undefined
+                  }
+                  aria-label={`View details for ${record.title} at ${record.company}`}
+                  className="absolute inset-0 z-10 rounded-[inherit] text-left outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/30"
+                  onClick={() => onSelectRecord(record.id)}
+                  type="button"
+                />
+                <div className="grid min-w-0 grid-cols-2 gap-x-4 gap-y-3 px-4 py-4 @[42rem]/tracker:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_auto_auto]">
+                  <div className="col-span-2 grid min-w-0 gap-1 @[42rem]/tracker:col-span-1">
+                    <span className="label-mono-xs text-muted-foreground">
+                      Job
+                    </span>
+                    <strong className="font-display min-w-0 break-words text-[1rem] font-semibold tracking-[-0.015em] text-foreground">
+                      {record.title}
+                    </strong>
+                    <span className="min-w-0 break-words text-[0.8rem] text-muted-foreground">
+                      {record.company}
+                    </span>
+                  </div>
+                  <div className="col-span-2 grid min-w-0 content-start gap-1 @[42rem]/tracker:col-span-1">
+                    <span className="label-mono-xs text-muted-foreground">
+                      Latest activity
+                    </span>
+                    <span className="min-w-0 break-words text-[0.8rem] text-foreground-soft">
+                      {getApplicationLatestActivityLabel(record)}
+                    </span>
+                  </div>
+                  <div className="grid min-w-0 content-start justify-items-start gap-1">
+                    <span className="label-mono-xs text-muted-foreground">
+                      Stage
+                    </span>
+                    <StatusBadge tone={stage.tone}>{stage.label}</StatusBadge>
+                  </div>
+                  <div className="grid min-w-0 content-start justify-items-start gap-1">
+                    <span className="label-mono-xs text-muted-foreground">
+                      Apply attempt
+                    </span>
+                    <StatusBadge tone={getAttemptTone(record.lastAttemptState)}>
+                      {getAttemptLabel(record.lastAttemptState)}
+                    </StatusBadge>
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
       )}
     </section>
-  )
+  );
 }

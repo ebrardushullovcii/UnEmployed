@@ -1,4 +1,3 @@
-import type { Page } from 'playwright'
 import type { JobPosting } from '@unemployed/contracts'
 import type { AgentMessage, ToolCall } from '../types'
 import type { getToolDefinitions } from '../tools'
@@ -47,6 +46,7 @@ export interface JobExtractor {
       Pick<
         JobPosting,
         | 'postedAtText'
+        | 'providerUpdatedAt'
         | 'responsibilities'
         | 'minimumQualifications'
         | 'preferredQualifications'

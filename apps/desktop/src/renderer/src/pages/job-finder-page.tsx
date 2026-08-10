@@ -7,12 +7,14 @@ import { useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Outlet } from "react-router-dom";
 import { WorkspaceStateScreen } from "./job-finder-page-routes";
+import { jobFinderPendingActions } from "./job-finder-pending-actions";
 import {
   type ApplyCopilotVisualCheckpointRequest,
   useJobFinderPageController,
 } from "./use-job-finder-page-controller";
 
 export {
+  JobFinderActionsRoute,
   JobFinderApplicationsRoute,
   JobFinderDiscoveryRoute,
   JobFinderProfileRoute,
@@ -77,7 +79,10 @@ function ApplyCopilotVisualCheckpointDialog(props: {
             <X className="size-4" />
           </Button>
         </div>
-        <p className="text-(length:--text-item) leading-6 text-foreground-soft" id={descriptionId}>
+        <p
+          className="text-(length:--text-item) leading-6 text-foreground-soft"
+          id={descriptionId}
+        >
           Optional visual checkpoints analyze temporary screenshots of the
           application page to help classify visible blockers. Screenshots are
           sensitive and temporary by default.
@@ -106,13 +111,15 @@ export function JobFinderPage() {
     applyCopilotVisualCheckpointRequest,
     cancelApplyCopilotVisualCheckpointRequest,
     context,
+    dismissSavedStatus,
     navigateFromShell,
     platform,
+    retryLastSave,
+    saveState,
     resolveApplyCopilotVisualCheckpointRequest,
     workspace,
     workspaceState,
-  } =
-    useJobFinderPageController();
+  } = useJobFinderPageController();
 
   if (!context || !workspace || !platform) {
     if (workspaceState.status === "loading") {
@@ -127,6 +134,14 @@ export function JobFinderPage() {
 
     return (
       <WorkspaceStateScreen
+        {...(workspaceState.status === "error"
+          ? {
+              action: {
+                label: "Retry opening Job Finder",
+                onClick: workspaceState.retry,
+              },
+            }
+          : {})}
         kicker="Workspace error"
         message={
           workspaceState.status === "error"
@@ -140,10 +155,28 @@ export function JobFinderPage() {
   }
 
   return (
-    <ThemeProvider preference={appearanceTheme || 'system'}>
+    <ThemeProvider preference={appearanceTheme || "system"}>
       <JobFinderShell
+        isDiscoveryPending={context.isAnyPending([
+          jobFinderPendingActions.discoveryAll(),
+          ...workspace.searchPreferences.discovery.targets.map((target) =>
+            jobFinderPendingActions.discoveryTarget(target.id),
+          ),
+        ])}
+        isResumeImportPending={context.isPending(
+          jobFinderPendingActions.profileImport(),
+        )}
+        liveDiscoveryEvents={context.liveDiscoveryEvents}
+        onCancelApplyRun={(runId) => {
+          void context.onCancelApplyRun(runId);
+        }}
+        onCancelDiscovery={() => window.unemployed.jobFinder.cancelAgentDiscovery()}
+        onDismissSavedStatus={dismissSavedStatus}
         onNavigate={navigateFromShell}
+        onRetrySave={retryLastSave}
         platform={platform}
+        resumeImportProgress={context.resumeImportProgress}
+        saveState={saveState}
         workspace={workspace}
       >
         <Outlet context={context} />

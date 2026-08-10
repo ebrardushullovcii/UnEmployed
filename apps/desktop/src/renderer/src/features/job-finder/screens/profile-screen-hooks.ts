@@ -65,7 +65,7 @@ export function useProfileScreenForms(input: {
       'proofBank',
     ],
   })
-  const [targetRoles, jobFamilies, seniorityLevels, employmentTypes, locations, excludedLocations, targetIndustries, targetCompanyStages, companyWhitelist, companyBlacklist, workModes, tailoringMode, minimumSalaryUsd, targetSalaryUsd, salaryCurrency, discoveryTargets] = useWatch({
+  const [targetRoles, jobFamilies, seniorityLevels, employmentTypes, locations, excludedLocations, targetIndustries, targetCompanyStages, companyWhitelist, companyBlacklist, workModes, tailoringMode, minimumSalaryUsd, targetSalaryUsd, salaryCurrency, compensationInterval, discoveryTargets] = useWatch({
     control: preferencesForm.control,
     name: [
       'targetRoles',
@@ -83,6 +83,7 @@ export function useProfileScreenForms(input: {
       'minimumSalaryUsd',
       'targetSalaryUsd',
       'salaryCurrency',
+      'compensationInterval',
       'discoveryTargets',
     ],
   })
@@ -113,6 +114,7 @@ export function useProfileScreenForms(input: {
     [
       companyBlacklist,
       companyWhitelist,
+      compensationInterval,
       currentSearchPreferencesBaseline,
       discoveryTargets,
       employmentTypes,

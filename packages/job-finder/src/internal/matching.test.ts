@@ -74,6 +74,72 @@ describe("matching helpers", () => {
     ]);
   });
 
+  test("orders a lower-scoring strong fit ahead of a higher-scoring skip", () => {
+    const seed = createSeed();
+    const base = seed.savedJobs[0]!;
+    const jobs = buildDiscoveryJobs([
+      {
+        ...base,
+        id: "hard_skip_94",
+        sourceJobId: "hard_skip_94",
+        matchAssessment: {
+          ...base.matchAssessment,
+          score: 94,
+          recommendation: "skip",
+        },
+      },
+      {
+        ...base,
+        id: "strong_fit_86",
+        sourceJobId: "strong_fit_86",
+        matchAssessment: {
+          ...base.matchAssessment,
+          score: 86,
+          recommendation: "strong_fit",
+        },
+      },
+    ]);
+
+    expect(jobs.map((job) => job.id)).toEqual([
+      "strong_fit_86",
+      "hard_skip_94",
+    ]);
+  });
+
+  test("does not let a preferred hard skip consume a constrained discovery budget", () => {
+    const seed = createSeed();
+    const preferredSkipUrl = "https://example.com/jobs/preferred-skip";
+    const strongFitUrl = "https://example.com/jobs/strong-fit";
+    const selected = selectDiscoveryBudgetPostings({
+      postings: [
+        {
+          ...seed.savedJobs[0]!,
+          sourceJobId: "preferred_skip_94",
+          canonicalUrl: preferredSkipUrl,
+        },
+        {
+          ...seed.savedJobs[0]!,
+          sourceJobId: "strong_fit_86",
+          canonicalUrl: strongFitUrl,
+        },
+      ],
+      profile: seed.profile,
+      searchPreferences: seed.searchPreferences,
+      preferredCanonicalUrls: [preferredSkipUrl],
+      assessPosting: (posting) => ({
+        ...seed.savedJobs[0]!.matchAssessment,
+        score: posting.sourceJobId === "preferred_skip_94" ? 94 : 86,
+        recommendation:
+          posting.sourceJobId === "preferred_skip_94" ? "skip" : "strong_fit",
+      }),
+      limit: 1,
+    });
+
+    expect(selected.map((posting) => posting.sourceJobId)).toEqual([
+      "strong_fit_86",
+    ]);
+  });
+
   test("uses a limited source budget for distinct role options instead of duplicate titles", () => {
     const seed = createSeed();
     const basePosting = seed.savedJobs[0]!;
@@ -224,7 +290,8 @@ describe("matching helpers", () => {
     };
     const basePosting = {
       ...seed.savedJobs[0]!,
-      description: "Partner across teams and deliver measurable business outcomes.",
+      description:
+        "Partner across teams and deliver measurable business outcomes.",
       keySkills: [],
       keywordSignals: [],
     };
@@ -252,14 +319,303 @@ describe("matching helpers", () => {
 
     expect(peopleRole.score).toBeLessThanOrEqual(46);
     expect(dataRole.score).toBeLessThanOrEqual(46);
-    expect(productRole.score).toBeLessThanOrEqual(50);
+    expect(productRole.score).toBeLessThanOrEqual(39);
+    expect(productRole.recommendation).toBe("skip");
     expect(productRole.gaps).toContain(
-      "The title does not show a clear connection to the current target role families.",
+      "Role family is outside the current target roles, so this is unlikely to be a useful match.",
     );
     expect(adjacentEngineeringRole.score).toBeGreaterThan(peopleRole.score);
     expect(peopleRole.gaps).toContain(
       "Role family is outside the current target roles, so this is unlikely to be a useful match.",
     );
+  });
+
+  test("hides common live-board occupational mismatches from frontend candidates", () => {
+    const seed = createSeed();
+    const preferences = {
+      ...seed.searchPreferences,
+      targetRoles: [
+        "Senior Frontend Engineer",
+        "Frontend Engineer",
+        "Software Engineer",
+      ],
+      locations: ["Remote", "United States"],
+      workModes: ["remote" as const],
+      minimumSalaryUsd: null,
+      companyWhitelist: [],
+    };
+    const basePosting = {
+      ...seed.savedJobs[0]!,
+      company: "Example employer",
+      location: "Remote - United States",
+      workMode: ["remote" as const],
+      description: "Own this function and partner with teams across the company.",
+      keySkills: [],
+      keywordSignals: [],
+      responsibilities: [],
+      minimumQualifications: [],
+      preferredQualifications: [],
+    };
+    const unrelatedTitles = [
+      "Mobility Specialist - AMER",
+      "Billing Specialist",
+      "Procurement Analyst",
+      "Lifecycle Specialist: Time & Attendance",
+      "EDD Analyst",
+      "GTM Strategy Principal",
+      "Senior Product Manager, Remote Build",
+      "Account Manager, DACH Market",
+    ];
+
+    for (const title of unrelatedTitles) {
+      const assessment = createMatchAssessment(seed.profile, preferences, {
+        ...basePosting,
+        sourceJobId: `live_mismatch_${title}`,
+        title,
+      });
+
+      expect(assessment, title).toMatchObject({
+        recommendation: "skip",
+        recommendationRationale:
+          "The listing belongs to a different occupational role.",
+        dimensions: {
+          roleSuitability: {
+            state: "conflict",
+          },
+        },
+      });
+    }
+  });
+
+  test("hides explicit non-target occupational disciplines for engineering and support searches", () => {
+    const seed = createSeed();
+    const basePosting = {
+      ...seed.savedJobs[0]!,
+      company: "Example employer",
+      location: "Remote",
+      workMode: ["remote" as const],
+      description: "Own this discipline and partner across the company.",
+      keySkills: [],
+      keywordSignals: [],
+      responsibilities: [],
+      minimumQualifications: [],
+      preferredQualifications: [],
+    };
+    const unrelatedTitles = [
+      "Lifecycle Senior Specialist (OHS): Contract Management",
+      "Lifecycle Specialist, Employee Relations & Transitions - LATAM",
+      "Tecnico en prevención de riesgos laborales (Health & Safety Officer)",
+    ];
+    const targetRoleSets = [
+      ["Senior Frontend Engineer", "Software Engineer"],
+      ["Customer Support Specialist", "Technical Support Specialist"],
+    ];
+
+    for (const targetRoles of targetRoleSets) {
+      for (const title of unrelatedTitles) {
+        const assessment = createMatchAssessment(
+          seed.profile,
+          {
+            ...seed.searchPreferences,
+            targetRoles,
+            locations: [],
+            workModes: [],
+          },
+          {
+            ...basePosting,
+            sourceJobId: `occupational_conflict_${title}`,
+            title,
+          },
+        );
+
+        expect(assessment, `${targetRoles[0]} -> ${title}`).toMatchObject({
+          recommendation: "skip",
+          recommendationRationale:
+            "The listing belongs to a different occupational role.",
+          dimensions: {
+            roleSuitability: {
+              state: "conflict",
+            },
+          },
+        });
+      }
+    }
+  });
+
+  test("preserves adjacent engineering and career-change recall", () => {
+    const seed = createSeed();
+    const basePosting = {
+      ...seed.savedJobs[0]!,
+      location: "Remote",
+      workMode: ["remote" as const],
+      description: "Partner across teams and deliver measurable outcomes.",
+      keySkills: [],
+      keywordSignals: [],
+      responsibilities: [],
+      minimumQualifications: [],
+      preferredQualifications: [],
+    };
+    const engineeringPreferences = {
+      ...seed.searchPreferences,
+      targetRoles: ["Senior Frontend Engineer", "Software Engineer"],
+      locations: [],
+      workModes: [],
+    };
+    const careerChangePreferences = {
+      ...seed.searchPreferences,
+      targetRoles: [
+        "Marketing Coordinator",
+        "Marketing Assistant",
+        "Project Coordinator",
+      ],
+      locations: [],
+      workModes: [],
+    };
+
+    const forwardDeployed = createMatchAssessment(
+      seed.profile,
+      engineeringPreferences,
+      {
+        ...basePosting,
+        sourceJobId: "adjacent_forward_deployed",
+        title: "Senior Forward Deployed Engineer",
+      },
+    );
+    const productMarketing = createMatchAssessment(
+      seed.profile,
+      careerChangePreferences,
+      {
+        ...basePosting,
+        sourceJobId: "adjacent_product_marketing",
+        title: "Senior Product Marketing Manager",
+      },
+    );
+    const programCoordinator = createMatchAssessment(
+      seed.profile,
+      careerChangePreferences,
+      {
+        ...basePosting,
+        sourceJobId: "adjacent_program_coordinator",
+        title: "Program Coordinator",
+      },
+    );
+    const customerSupport = createMatchAssessment(
+      seed.profile,
+      {
+        ...seed.searchPreferences,
+        targetRoles: ["Customer Support Specialist"],
+        locations: [],
+        workModes: [],
+      },
+      {
+        ...basePosting,
+        sourceJobId: "target_customer_support",
+        title: "Customer Support Specialist, Health & Safety Software",
+      },
+    );
+    const softwareEngineer = createMatchAssessment(
+      seed.profile,
+      engineeringPreferences,
+      {
+        ...basePosting,
+        sourceJobId: "target_software_engineer",
+        title: "Software Engineer, Employee Lifecycle Platform",
+      },
+    );
+    const frontendEngineer = createMatchAssessment(
+      seed.profile,
+      engineeringPreferences,
+      {
+        ...basePosting,
+        sourceJobId: "target_frontend_engineer",
+        title: "Senior Frontend Engineer",
+      },
+    );
+
+    expect(forwardDeployed.recommendation).not.toBe("skip");
+    expect(productMarketing.recommendation).not.toBe("skip");
+    expect(programCoordinator.recommendation).not.toBe("skip");
+    expect(customerSupport.recommendation).not.toBe("skip");
+    expect(softwareEngineer.recommendation).not.toBe("skip");
+    expect(frontendEngineer.recommendation).not.toBe("skip");
+  });
+
+  test("spends a constrained source budget on credible role matches before remote occupational mismatches", () => {
+    const seed = createSeed();
+    const preferences = {
+      ...seed.searchPreferences,
+      targetRoles: [
+        "Senior Frontend Engineer",
+        "Frontend Engineer",
+        "Software Engineer",
+      ],
+      locations: ["Remote", "United States"],
+      workModes: ["remote" as const],
+      minimumSalaryUsd: null,
+      companyWhitelist: [],
+    };
+    const basePosting = {
+      ...seed.savedJobs[0]!,
+      company: "Example employer",
+      description: "Build and operate customer-facing software.",
+      keySkills: [],
+      keywordSignals: [],
+      responsibilities: [],
+      minimumQualifications: [],
+      preferredQualifications: [],
+    };
+    const selected = selectDiscoveryBudgetPostings({
+      postings: [
+        {
+          ...basePosting,
+          sourceJobId: "remote_billing",
+          canonicalUrl: "https://example.com/jobs/remote-billing",
+          title: "Billing Specialist",
+          location: "Remote - United States",
+          workMode: ["remote"],
+        },
+        {
+          ...basePosting,
+          sourceJobId: "remote_mobility",
+          canonicalUrl: "https://example.com/jobs/remote-mobility",
+          title: "Mobility Specialist - AMER",
+          location: "Remote - United States",
+          workMode: ["remote"],
+        },
+        {
+          ...basePosting,
+          sourceJobId: "remote_procurement",
+          canonicalUrl: "https://example.com/jobs/remote-procurement",
+          title: "Procurement Analyst",
+          location: "Remote - United States",
+          workMode: ["remote"],
+        },
+        {
+          ...basePosting,
+          sourceJobId: "credible_frontend",
+          canonicalUrl: "https://example.com/jobs/credible-frontend",
+          title: "Front End / Fullstack Engineer - Messaging Team",
+          location: "Paris, France",
+          workMode: ["onsite"],
+        },
+        {
+          ...basePosting,
+          sourceJobId: "credible_software",
+          canonicalUrl: "https://example.com/jobs/credible-software",
+          title: "Software Engineer - Outbound Campaigns",
+          location: "Paris, France",
+          workMode: ["onsite"],
+        },
+      ],
+      profile: seed.profile,
+      searchPreferences: preferences,
+      limit: 2,
+    });
+
+    expect(selected.map((posting) => posting.sourceJobId)).toEqual([
+      "credible_frontend",
+      "credible_software",
+    ]);
   });
 
   test("matches linkedin noisy dismiss-title strings without letting adjacent frontend roles through", () => {
@@ -322,7 +678,7 @@ describe("matching helpers", () => {
     ).toBe(false);
   });
 
-  test("scores profile skills found in a rich provider description even when structured skill fields are empty", () => {
+  test("uses narrative overlap without manufacturing structured requirements", () => {
     const seed = createSeed();
     const posting = {
       ...seed.savedJobs[0]!,
@@ -330,26 +686,56 @@ describe("matching helpers", () => {
       description:
         "Build a desktop product with TypeScript, React, Electron, and WebSockets.",
       keySkills: [],
+      minimumQualifications: [],
+      preferredQualifications: [],
+      responsibilities: [],
       keywordSignals: [],
       easyApplyEligible: false,
     };
+    const baseProfile = {
+      ...seed.profile,
+      headline: "Senior Software Engineer",
+      skillGroups: {
+        coreSkills: [],
+        tools: [],
+        languagesAndFrameworks: [],
+        softSkills: [],
+        highlightedSkills: [],
+      },
+      experiences: [],
+      projects: [],
+    };
+    const preferences = {
+      ...seed.searchPreferences,
+      targetRoles: ["Senior Software Engineer"],
+      locations: [],
+      workModes: [],
+      minimumSalaryUsd: null,
+      companyWhitelist: [],
+    };
     const assessment = createMatchAssessment(
       {
-        ...seed.profile,
+        ...baseProfile,
         skills: ["TypeScript", "React", "Electron"],
       },
-      {
-        ...seed.searchPreferences,
-        targetRoles: ["Senior Software Engineer"],
-        locations: [],
-        workModes: [],
-        minimumSalaryUsd: null,
-        companyWhitelist: [],
-      },
+      preferences,
+      posting,
+    );
+    const withoutMatchingSkills = createMatchAssessment(
+      { ...baseProfile, skills: [] },
+      preferences,
       posting,
     );
 
-    expect(assessment.score).toBe(76);
+    expect(assessment.score).toBeGreaterThan(withoutMatchingSkills.score);
+    expect(assessment.score).toBeLessThanOrEqual(71);
+    expect(assessment.recommendation).toBe("review_before_applying");
+    expect(assessment.dimensions.evidenceConfidence.level).toBe("unavailable");
+    expect(
+      assessment.requirements.some(({ label }) =>
+        ["TypeScript", "React", "Electron"].includes(label),
+      ),
+    ).toBe(false);
     expect(assessment.reasons).not.toContain(
       "Location fits the saved search preferences.",
     );
@@ -359,6 +745,217 @@ describe("matching helpers", () => {
     expect(assessment.gaps).not.toContain(
       "The listing emphasizes skills that are not yet prominent in the current profile.",
     );
+  });
+
+  test("keeps unknown compensation neutral when the user has a minimum salary", () => {
+    const seed = createSeed();
+    const posting = {
+      ...seed.savedJobs[0]!,
+      salaryText: null,
+      easyApplyEligible: false,
+    };
+    const preferences = {
+      ...seed.searchPreferences,
+      minimumSalaryUsd: null,
+    };
+
+    const withoutMinimum = createMatchAssessment(
+      seed.profile,
+      preferences,
+      posting,
+    );
+    const withMinimum = createMatchAssessment(
+      seed.profile,
+      {
+        ...preferences,
+        minimumSalaryUsd: 120_000,
+      },
+      posting,
+    );
+
+    expect(withMinimum.score).toBe(withoutMinimum.score);
+    expect(withMinimum.recommendation).toBe(withoutMinimum.recommendation);
+    expect(withMinimum.requirements).toEqual(withoutMinimum.requirements);
+    expect(withMinimum.gaps).not.toContain(
+      "Compensation looks below the saved salary target.",
+    );
+  });
+
+  test("caps an explicitly below-minimum listing below strong or original-ready recommendations", () => {
+    const seed = createSeed();
+    const preferences = {
+      ...seed.searchPreferences,
+      minimumSalaryUsd: 120_000,
+      locations: [],
+      workModes: [],
+    };
+    const basePosting = {
+      ...seed.savedJobs[0]!,
+      easyApplyEligible: false,
+      location: "London, United Kingdom",
+      workMode: ["onsite" as const],
+    };
+
+    const meetsMinimum = createMatchAssessment(seed.profile, preferences, {
+      ...basePosting,
+      salaryText: "$130k-$150k/year",
+    });
+    const belowMinimum = createMatchAssessment(seed.profile, preferences, {
+      ...basePosting,
+      salaryText: "$90k-$100k/year",
+    });
+
+    expect(meetsMinimum.scorerVersion).toBe(4);
+    expect(meetsMinimum.compensationFit.state).toBe("meets_minimum");
+    expect(belowMinimum.compensationFit.state).toBe("below_minimum");
+    expect(belowMinimum.score).toBeLessThan(meetsMinimum.score);
+    expect(belowMinimum.score).toBeLessThanOrEqual(71);
+    expect(belowMinimum.recommendation).toBe("review_before_applying");
+    expect(belowMinimum.recommendationRationale).toContain(
+      "below the saved salary minimum",
+    );
+  });
+
+  test("keeps foreign or unspecified currencies incomparable with a USD minimum", () => {
+    const seed = createSeed();
+    const preferences = {
+      ...seed.searchPreferences,
+      minimumSalaryUsd: 120_000,
+    };
+    const basePosting = {
+      ...seed.savedJobs[0]!,
+      easyApplyEligible: false,
+    };
+    const unknown = createMatchAssessment(seed.profile, preferences, {
+      ...basePosting,
+      salaryText: null,
+    });
+    const eur = createMatchAssessment(seed.profile, preferences, {
+      ...basePosting,
+      salaryText: "EUR 140k/year",
+    });
+    const unspecified = createMatchAssessment(seed.profile, preferences, {
+      ...basePosting,
+      salaryText: "140k/year",
+    });
+
+    expect(eur.compensationFit.state).toBe("currency_incomparable");
+    expect(unspecified.compensationFit.state).toBe("currency_incomparable");
+    expect(eur.score).toBe(unknown.score);
+    expect(unspecified.score).toBe(unknown.score);
+  });
+
+  test("gives comparable above-minimum pay only the bounded preference effect", () => {
+    const seed = createSeed();
+    const posting = {
+      ...seed.savedJobs[0]!,
+      salaryText: "$130k/year",
+      easyApplyEligible: false,
+    };
+    const withoutMinimum = createMatchAssessment(
+      seed.profile,
+      { ...seed.searchPreferences, minimumSalaryUsd: null },
+      posting,
+    );
+    const withMinimum = createMatchAssessment(
+      seed.profile,
+      { ...seed.searchPreferences, minimumSalaryUsd: 120_000 },
+      posting,
+    );
+
+    expect(withMinimum.compensationFit.state).toBe("meets_minimum");
+    expect(withMinimum.score - withoutMinimum.score).toBeLessThanOrEqual(6);
+  });
+  test("keeps Easy Apply metadata out of suitability assessment", () => {
+    const seed = createSeed();
+    const basePosting = {
+      ...seed.savedJobs[0]!,
+      salaryText: null,
+      easyApplyEligible: false,
+    };
+
+    const withoutEasyApply = createMatchAssessment(
+      seed.profile,
+      seed.searchPreferences,
+      basePosting,
+    );
+    const withEasyApply = createMatchAssessment(
+      seed.profile,
+      seed.searchPreferences,
+      {
+        ...basePosting,
+        easyApplyEligible: true,
+      },
+    );
+
+    expect(withEasyApply.score).toBe(withoutEasyApply.score);
+    expect(withEasyApply.recommendation).toBe(withoutEasyApply.recommendation);
+    expect(withEasyApply.requirements).toEqual(withoutEasyApply.requirements);
+    expect(withEasyApply.reasons).toEqual(withoutEasyApply.reasons);
+    expect(withEasyApply.gaps).toEqual(withoutEasyApply.gaps);
+    expect(withoutEasyApply.dimensions.applicationEffort.level).toBe("unknown");
+    expect(withEasyApply.dimensions.applicationEffort.level).toBe("low");
+  });
+
+  test("separates sales-engineering work from harmless sales-domain wording", () => {
+    const seed = createSeed();
+    const preferences = {
+      ...seed.searchPreferences,
+      targetRoles: ["Senior Software Engineer"],
+      locations: [],
+      workModes: [],
+    };
+    const basePosting = {
+      ...seed.savedJobs[0]!,
+      summary: null,
+      responsibilities: [],
+      minimumQualifications: [],
+      preferredQualifications: [],
+      keySkills: [],
+      keywordSignals: [],
+    };
+
+    const quotaCarrying = createMatchAssessment(seed.profile, preferences, {
+      ...basePosting,
+      sourceJobId: "quota-solutions-engineer",
+      title: "Senior Solutions Engineer",
+      description:
+        "Own a sales quota while delivering technical solutions to enterprise buyers.",
+    });
+    const salesCycle = createMatchAssessment(seed.profile, preferences, {
+      ...basePosting,
+      sourceJobId: "sales-cycle-solutions-engineer",
+      title: "Senior Solutions Engineer",
+      description:
+        "Deliver technical demos to prospects and partner with account executives on proofs of concept.",
+    });
+    const salesPlatform = createMatchAssessment(seed.profile, preferences, {
+      ...basePosting,
+      sourceJobId: "sales-platform-software-engineer",
+      title: "Software Engineer, Sales Platform",
+      description:
+        "Build quota-enforcement and billing code for the internal sales platform.",
+    });
+    const internalSolutions = createMatchAssessment(seed.profile, preferences, {
+      ...basePosting,
+      sourceJobId: "internal-solutions-engineer",
+      title: "Senior Solutions Engineer",
+      description:
+        "Build internal product demos and tools for Customer Success. Prototype backend services for the research database.",
+    });
+
+    expect(quotaCarrying).toMatchObject({
+      recommendation: "skip",
+      recommendationRationale:
+        "The listing belongs to a different occupational role.",
+    });
+    expect(salesCycle).toMatchObject({
+      recommendation: "skip",
+      recommendationRationale:
+        "The listing belongs to a different occupational role.",
+    });
+    expect(salesPlatform.recommendation).not.toBe("skip");
+    expect(internalSolutions.recommendation).not.toBe("skip");
   });
 
   test("penalizes explicit location and staff-scope mismatches instead of only withholding bonuses", () => {
@@ -641,9 +1238,15 @@ describe("matching helpers", () => {
       {
         ...seed.savedJobs[0]!,
         title: "Senior Backend Engineer",
+        detailQuality: "detail_enriched",
+        location: "London, United Kingdom",
+        workMode: ["onsite"],
         description:
           "Experience with 1+ backend programming language (Elixir, Python, Go, Java, Node.js, etc.).",
         keySkills: [],
+        minimumQualifications: [],
+        preferredQualifications: [],
+        responsibilities: [],
         keywordSignals: [],
       },
     );
@@ -760,12 +1363,16 @@ describe("matching helpers", () => {
       importance: "required",
       status: "missing",
     });
-    expect(productionAi?.jobEvidence).toContain("shipped at least one real AI use case");
+    expect(productionAi?.jobEvidence).toContain(
+      "shipped at least one real AI use case",
+    );
     expect(productionScale).toMatchObject({
       importance: "required",
       status: "missing",
     });
-    expect(productionScale?.jobEvidence).toContain("high-traffic production applications");
+    expect(productionScale?.jobEvidence).toContain(
+      "high-traffic production applications",
+    );
     expect(experimentation).toMatchObject({
       importance: "required",
       status: "supported",
@@ -803,9 +1410,17 @@ describe("matching helpers", () => {
       {
         ...seed.savedJobs[0]!,
         title: "Senior Backend Engineer",
-        description:
-          "Our services use Node.js and AWS. The wider platform includes Elixir, Phoenix, Kubernetes, and PostgreSQL.",
+        detailQuality: "detail_enriched",
+        location: "London, United Kingdom",
+        workMode: ["onsite"],
+        description: "Build and operate reliable backend services.",
         keySkills: [],
+        minimumQualifications: [],
+        preferredQualifications: [],
+        responsibilities: [
+          "Build and operate services with Node.js and AWS.",
+          "Extend Elixir, Phoenix, Kubernetes, and PostgreSQL components.",
+        ],
         keywordSignals: [],
       },
     );
@@ -832,8 +1447,16 @@ describe("matching helpers", () => {
       {
         ...seed.savedJobs[0]!,
         title: "Senior Backend Engineer",
-        description: "Our services use Node.js, AWS, and PostgreSQL.",
+        detailQuality: "detail_enriched",
+        location: "London, United Kingdom",
+        workMode: ["onsite"],
+        description: "Build and operate reliable backend services.",
         keySkills: [],
+        minimumQualifications: [],
+        preferredQualifications: [],
+        responsibilities: [
+          "Build and operate services with Node.js, AWS, and PostgreSQL.",
+        ],
         keywordSignals: [],
       },
     );
@@ -880,5 +1503,207 @@ describe("matching helpers", () => {
     });
     expect(workMode?.explanation).toContain("eligibility is not confirmed");
     expect(assessment.recommendation).toBe("review_before_applying");
+  });
+
+  test("normalizes postal abbreviations across multi-location listings", () => {
+    const listingLocation =
+      "San Francisco, CA, New York, NY, Portland, OR, or Remote within Canada or United States";
+
+    expect(
+      matchesLocationPreference(listingLocation, ["Portland, Oregon"]),
+    ).toBe(true);
+    expect(
+      matchesLocationPreference(listingLocation, ["Portland, Maine"]),
+    ).toBe(false);
+    expect(
+      matchesLocationPreference("Toronto, ON or Remote within Canada", [
+        "Toronto, Ontario",
+      ]),
+    ).toBe(true);
+  });
+
+  test("hard-skips explicit non-engineering occupations while preserving ambiguous engineering roles", () => {
+    const seed = createSeed();
+    const profile = {
+      ...seed.profile,
+      headline: "Senior Frontend Engineer",
+      skills: ["React", "TypeScript"],
+      skillGroups: {
+        coreSkills: ["React", "TypeScript"],
+        tools: [],
+        languagesAndFrameworks: ["React", "TypeScript"],
+        softSkills: [],
+        highlightedSkills: ["React", "TypeScript"],
+      },
+      experiences: seed.profile.experiences.map((experience, index) => ({
+        ...experience,
+        title: index === 0 ? "Senior Frontend Engineer" : experience.title,
+        summary: null,
+        achievements: [],
+        skills: ["React", "TypeScript"],
+      })),
+      projects: [],
+    };
+    const preferences = {
+      ...seed.searchPreferences,
+      targetRoles: ["Senior Frontend Engineer"],
+      locations: [],
+      workModes: [],
+    };
+    const basePosting = {
+      ...seed.savedJobs[0]!,
+      location: "Remote",
+      workMode: ["remote" as const],
+      summary: null,
+      description: "Lead work in this occupational discipline.",
+      keySkills: [],
+      keywordSignals: [],
+      responsibilities: [],
+      minimumQualifications: [],
+      preferredQualifications: [],
+      screeningHints: {
+        ...seed.savedJobs[0]!.screeningHints,
+        remoteGeographies: [],
+        requiresSecurityClearance: null,
+      },
+    };
+    const unrelatedTitles = [
+      "Senior Risk Strategist - Card Fraud",
+      "Chief Audit Officer",
+      "Counsel, Product & Regulatory - Payments & AML",
+      "Deputy CISO",
+    ];
+    const ambiguousEngineeringTitles = [
+      "Senior Platform Engineer",
+      "Senior Security Engineer",
+      "Software Engineer, Risk Platform",
+    ];
+
+    for (const title of unrelatedTitles) {
+      expect(
+        createMatchAssessment(profile, preferences, {
+          ...basePosting,
+          sourceJobId: `unrelated_${title}`,
+          title,
+        }),
+      ).toMatchObject({
+        recommendation: "skip",
+        recommendationRationale:
+          "The listing belongs to a different occupational role.",
+      });
+    }
+
+    for (const title of ambiguousEngineeringTitles) {
+      expect(
+        createMatchAssessment(profile, preferences, {
+          ...basePosting,
+          sourceJobId: `engineering_${title}`,
+          title,
+        }).recommendation,
+      ).not.toBe("skip");
+    }
+  });
+
+  test("keeps a live-style frontend listing grounded across bullet, location, and eligibility evidence", () => {
+    const seed = createSeed();
+    const profile = {
+      ...seed.profile,
+      headline: "Senior Frontend Engineer",
+      currentLocation: "Portland, Oregon",
+      currentCity: "Portland",
+      currentRegion: "Oregon",
+      currentCountry: null,
+      yearsExperience: 8,
+      skills: ["React", "TypeScript", "Storybook", "Accessibility"],
+      skillGroups: {
+        coreSkills: ["React", "TypeScript", "Storybook", "Accessibility"],
+        tools: ["Storybook"],
+        languagesAndFrameworks: ["React", "TypeScript"],
+        softSkills: [],
+        highlightedSkills: ["React", "TypeScript", "Accessibility"],
+      },
+      workEligibility: {
+        ...seed.profile.workEligibility,
+        authorizedWorkCountries: ["United States"],
+        requiresVisaSponsorship: false,
+        remoteEligible: true,
+      },
+      experiences: [
+        {
+          ...seed.profile.experiences[0]!,
+          id: "experience_casey_frontend",
+          title: "Senior Frontend Engineer",
+          companyName: "Northstar Parcel Software",
+          location: "Portland, Oregon",
+          summary: null,
+          achievements: [
+            "Built an accessible component library with Storybook and automated axe checks.",
+          ],
+          skills: ["React", "TypeScript"],
+        },
+      ],
+      projects: [],
+    };
+    const assessment = createMatchAssessment(
+      profile,
+      {
+        ...seed.searchPreferences,
+        targetRoles: ["Senior Frontend Engineer"],
+        locations: ["Portland, Oregon"],
+        workModes: ["remote"],
+      },
+      {
+        ...seed.savedJobs[0]!,
+        sourceJobId: "live_style_frontend_design_systems",
+        title: "Senior Frontend Engineer - Design Systems",
+        location:
+          "San Francisco, CA, New York, NY, Portland, OR, or Remote within Canada or United States",
+        workMode: ["remote"],
+        description:
+          "Build shared frontend foundations with React and TypeScript.",
+        keySkills: ["React", "TypeScript"],
+        minimumQualifications: [
+          "Experience building or maintaining a design system or shared component library.",
+          "Hands-on fluency at the intersection of AI and software development, including production AI feature delivery.",
+        ],
+        preferredQualifications: [],
+        responsibilities: [],
+        keywordSignals: [],
+        screeningHints: {
+          ...seed.savedJobs[0]!.screeningHints,
+          remoteGeographies: ["United States", "Canada"],
+          requiresSecurityClearance: null,
+        },
+      },
+    );
+    const requirementStatus = new Map(
+      assessment.requirements.map((requirement) => [
+        requirement.label,
+        requirement.status,
+      ]),
+    );
+
+    expect(requirementStatus.get("Design systems")).toBe("supported");
+    expect(requirementStatus.get("Remote geography eligibility")).toBe(
+      "supported",
+    );
+    expect(
+      assessment.requirements.find(
+        (requirement) => requirement.category === "location",
+      ),
+    ).toMatchObject({ status: "supported" });
+    expect(requirementStatus.get("Production AI feature delivery")).toBe(
+      "missing",
+    );
+    expect(assessment.gaps).not.toContain(
+      "Location falls outside the preferred search areas.",
+    );
+    expect(assessment.recommendation).toBe("review_before_applying");
+    expect(assessment.recommendationRationale).not.toContain(
+      "Design systems is not yet supported",
+    );
+    expect(assessment.recommendationRationale).not.toContain(
+      "Remote geography eligibility is not yet supported",
+    );
   });
 });

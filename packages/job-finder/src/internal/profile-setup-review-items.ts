@@ -207,6 +207,22 @@ function normalizeComparableSummary(value: string | null): string | null {
   return value ? normalizeText(value) : null;
 }
 
+function isReviewDraftAlreadySatisfied(input: {
+  draft: DerivedReviewDraft;
+  profile: CandidateProfile;
+  searchPreferences: JobSearchPreferences;
+}): boolean {
+  if (!hasCurrentTargetValue(input.profile, input.searchPreferences, input.draft.target)) {
+    return false;
+  }
+
+  const currentSummary = normalizeComparableSummary(
+    summarizeValue(getCurrentTargetValue(input.profile, input.searchPreferences, input.draft.target)),
+  );
+  const proposedSummary = normalizeComparableSummary(input.draft.proposedValue ?? null);
+  return Boolean(currentSummary && proposedSummary && currentSummary === proposedSummary);
+}
+
 export function resolvePendingReviewItemsAfterExplicitSave(input: {
   currentProfile: CandidateProfile;
   currentSearchPreferences: JobSearchPreferences;
@@ -295,7 +311,12 @@ function resolvePendingItemIfSatisfied(input: {
     });
   }
 
-  if (sourceCandidateId) {
+  if (
+    sourceCandidateId &&
+    (!proposedSummary ||
+      !currentSummary ||
+      normalizeText(proposedSummary) !== normalizeText(currentSummary))
+  ) {
     return ProfileReviewItemSchema.parse({
       ...input.item,
       step: input.draft.step,
@@ -691,7 +712,15 @@ export function buildProfileSetupReviewItems(
         !isEducationScalarCoveredByRecord(candidate, input.candidates),
     )
     .map((candidate) => toReviewDraft(candidate, input.documentBundle))
-    .filter((draft): draft is DerivedReviewDraft => draft !== null);
+    .filter((draft): draft is DerivedReviewDraft => draft !== null)
+    .filter(
+      (draft) =>
+        !isReviewDraftAlreadySatisfied({
+          draft,
+          profile: input.profile,
+          searchPreferences: input.searchPreferences,
+        }),
+    );
   const missingFieldDrafts =
     readiness.started || unresolvedCandidateDrafts.length > 0
       ? buildMissingFieldDrafts(

@@ -9,11 +9,15 @@ import {
   ApplyJobResultSchema,
   SourceDebugEvidenceRefSchema,
   ApplyRunSchema,
+  ResumeDraftRevisionSchema,
+  ResumeDraftSchema,
+  ResumeValidationResultSchema,
   SourceInstructionArtifactSchema,
 } from "@unemployed/contracts";
 
 import { createFileJobFinderRepository } from "./index";
 import { createSeed } from "./test-fixtures";
+import { MAX_RESUME_DRAFT_REVISIONS_PER_DRAFT } from "./resume-draft-revision-retention";
 import {
   cleanupTempDirectoryWithRetry,
   createResumeImportArtifactsFixture,
@@ -22,6 +26,46 @@ import {
   type FileRepository,
 } from "./file-repository.test-support";
 
+function createPersistedRetentionDraft(id: string, updatedAt: string) {
+  return ResumeDraftSchema.parse({
+    id,
+    jobId: `job_${id}`,
+    status: "needs_review",
+    templateId: "classic_ats",
+    identity: null,
+    sections: [],
+    targetPageCount: 2,
+    generationMethod: "manual",
+    approvedAt: null,
+    approvedExportId: null,
+    staleReason: null,
+    createdAt: "2026-07-30T10:00:00.000Z",
+    updatedAt,
+  });
+}
+
+function createPersistedRetentionRevision(draftId: string, index: number) {
+  const suffix = String(index).padStart(3, "0");
+  return ResumeDraftRevisionSchema.parse({
+    id: `${draftId}_revision_${suffix}`,
+    draftId,
+    parentRevisionId:
+      index === 0
+        ? null
+        : `${draftId}_revision_${String(index - 1).padStart(3, "0")}`,
+    actor: "user",
+    mutationKind: "manual_save",
+    snapshotDraft: null,
+    snapshotIdentity: null,
+    snapshotSections: [],
+    beforeHash: null,
+    afterHash: null,
+    diff: null,
+    restoredFromRevisionId: null,
+    createdAt: new Date(Date.UTC(2026, 6, 30, 10, 0, index)).toISOString(),
+    reason: `Revision ${index}`,
+  });
+}
 describe("createFileJobFinderRepository", () => {
   test("deletes only source instruction artifacts for the requested target in file storage", async () => {
     const temp = await createTempRepository("unemployed-db-artifacts-");
@@ -87,6 +131,99 @@ describe("createFileJobFinderRepository", () => {
     }
   });
 
+  test("claims one resumption owner and CAS-protects apply results across sqlite repositories", async () => {
+    const temp = await createTempRepository("unemployed-db-resumption-cas-");
+    let firstRepository: FileRepository | null = null;
+    let secondRepository: FileRepository | null = null;
+
+    try {
+      firstRepository = await temp.createRepository();
+      secondRepository = await temp.createRepository();
+      const attempt = {
+        id: "application_user_action_resume_request_1_r3",
+        jobId: "job_1",
+        state: "in_progress" as const,
+        summary: "Claimed exact verified resumption",
+        detail: "One service owns this prepare-only retry.",
+        startedAt: "2026-07-30T10:00:00.000Z",
+        updatedAt: "2026-07-30T10:00:00.000Z",
+        completedAt: null,
+        outcome: null,
+        questions: [],
+        blocker: null,
+        consentDecisions: [],
+        replay: {
+          sourceInstructionArtifactId: null,
+          sourceDebugEvidenceRefIds: [],
+          lastUrl: null,
+          checkpointUrls: [],
+        },
+        nextActionLabel: "Wait for the exact retry",
+        checkpoints: [],
+        userActionResumption: {
+          requestId: "request_1",
+          requestRevision: 3,
+          verificationEventId: "verification:request_1:r2",
+          runId: "run_1",
+          jobId: "job_1",
+          resultId: "result_1",
+          replayCheckpointId: "checkpoint_1",
+        },
+      };
+
+      const claims = await Promise.all([
+        firstRepository.claimApplicationAttempt(attempt),
+        secondRepository.claimApplicationAttempt(attempt),
+      ]);
+      expect(claims.filter(Boolean)).toHaveLength(1);
+
+      const baseline = ApplyJobResultSchema.parse({
+        id: "result_1",
+        runId: "run_1",
+        jobId: "job_1",
+        queuePosition: 0,
+        state: "blocked",
+        summary: "Authentication required",
+        detail: "Waiting for verified browser access.",
+        startedAt: "2026-07-30T09:59:00.000Z",
+        updatedAt: "2026-07-30T10:00:00.000Z",
+        completedAt: null,
+        blockerReason: "auth_required",
+        latestCheckpointId: "checkpoint_1",
+      });
+      await firstRepository.upsertApplyJobResult(baseline);
+      const firstUpdate = ApplyJobResultSchema.parse({
+        ...baseline,
+        summary: "First owner result",
+        updatedAt: "2026-07-30T10:01:00.000Z",
+      });
+      const secondUpdate = ApplyJobResultSchema.parse({
+        ...baseline,
+        summary: "Second owner result",
+        updatedAt: "2026-07-30T10:02:00.000Z",
+      });
+      const swaps = await Promise.all([
+        firstRepository.compareAndSwapApplyJobResult({
+          expected: baseline,
+          result: firstUpdate,
+        }),
+        secondRepository.compareAndSwapApplyJobResult({
+          expected: baseline,
+          result: secondUpdate,
+        }),
+      ]);
+
+      expect(swaps.filter(Boolean)).toHaveLength(1);
+      const persisted = (await firstRepository.listApplyJobResults())[0];
+      expect(["First owner result", "Second owner result"]).toContain(
+        persisted?.summary,
+      );
+    } finally {
+      if (secondRepository) await secondRepository.close();
+      if (firstRepository) await firstRepository.close();
+      await temp.cleanup();
+    }
+  });
   test("persists repository state to a local sqlite file", async () => {
     const temp = await createTempRepository("unemployed-db-");
     let firstRepository: FileRepository | null = null;
@@ -510,6 +647,10 @@ describe("createFileJobFinderRepository", () => {
         searchPreferences: {
           ...seed.searchPreferences,
           targetSalaryUsd: 220000,
+          compensation: {
+            ...seed.searchPreferences.compensation,
+            maximum: 220000,
+          },
         },
         profileSetupState: {
           ...seed.profileSetupState,
@@ -887,6 +1028,45 @@ describe("createFileJobFinderRepository", () => {
           resolution: "needs_review",
         }),
       ).resolves.toEqual([expect.objectContaining({ id: "candidate_2" })]);
+
+      const persistedRun =
+        await repository.getLatestResumeImportRun("resume_1");
+      if (!persistedRun) {
+        throw new Error(
+          "Expected the resume import run fixture to be persisted.",
+        );
+      }
+      const bundlesBeforeTimingUpdate =
+        await repository.listResumeImportDocumentBundles({
+          runId: persistedRun.id,
+        });
+      const candidatesBeforeTimingUpdate =
+        await repository.listResumeImportFieldCandidates({
+          runId: persistedRun.id,
+        });
+
+      await repository.upsertResumeImportRun({
+        ...persistedRun,
+        timing: {
+          totalMs: 1_500,
+          textBranchMs: 900,
+          literalExtractionMs: 25,
+          reconciliationMs: 300,
+          finalizationMs: 275,
+          textStages: [],
+        },
+      });
+
+      await expect(
+        repository.listResumeImportDocumentBundles({ runId: persistedRun.id }),
+      ).resolves.toEqual(bundlesBeforeTimingUpdate);
+      await expect(
+        repository.listResumeImportFieldCandidates({ runId: persistedRun.id }),
+      ).resolves.toEqual(candidatesBeforeTimingUpdate);
+      const runAfterTimingUpdate =
+        await repository.getLatestResumeImportRun("resume_1");
+      expect(runAfterTimingUpdate?.timing?.totalMs).toBe(1_500);
+      expect(runAfterTimingUpdate?.timing?.finalizationMs).toBe(275);
     } finally {
       if (repository) {
         await repository.close();
@@ -1308,7 +1488,9 @@ describe("createFileJobFinderRepository", () => {
 
       const database = new DatabaseSync(temp.filePath);
       try {
-        database.exec("DROP INDEX IF EXISTS apply_job_results_run_job_unique_idx");
+        database.exec(
+          "DROP INDEX IF EXISTS apply_job_results_run_job_unique_idx",
+        );
         database
           .prepare(
             `INSERT INTO apply_job_results (
@@ -1330,7 +1512,9 @@ describe("createFileJobFinderRepository", () => {
             survivorResult.state,
             JSON.stringify(survivorResult),
           );
-        database.prepare("DELETE FROM schema_migrations WHERE version >= ?").run(4);
+        database
+          .prepare("DELETE FROM schema_migrations WHERE version >= ?")
+          .run(4);
       } finally {
         database.close();
       }
@@ -1354,4 +1538,284 @@ describe("createFileJobFinderRepository", () => {
       await cleanupTempDirectoryWithRetry(temp.tempDirectory);
     }
   }, 15000);
+  test("retains the newest 100 revisions per draft across direct and atomic writes after restart", async () => {
+    const temp = await createTempRepository(
+      "unemployed-db-revision-retention-",
+    );
+    let repository: FileRepository | null = null;
+
+    try {
+      repository = await temp.createRepository();
+      const draft = createPersistedRetentionDraft(
+        "resume_draft_retained",
+        "2026-07-30T10:00:00.000Z",
+      );
+      await repository.upsertResumeDraft(draft);
+      await repository.upsertResumeDraftRevision(
+        createPersistedRetentionRevision("resume_draft_other", 0),
+      );
+
+      for (
+        let index = 0;
+        index <= MAX_RESUME_DRAFT_REVISIONS_PER_DRAFT;
+        index += 1
+      ) {
+        await repository.upsertResumeDraftRevision(
+          createPersistedRetentionRevision(draft.id, index),
+        );
+      }
+
+      const directlyRetained = await repository.listResumeDraftRevisions(
+        draft.id,
+      );
+      expect(directlyRetained).toHaveLength(
+        MAX_RESUME_DRAFT_REVISIONS_PER_DRAFT,
+      );
+      expect(directlyRetained[0]?.id).toBe(`${draft.id}_revision_100`);
+      expect(directlyRetained.at(-1)?.id).toBe(`${draft.id}_revision_001`);
+
+      const nextDraft = ResumeDraftSchema.parse({
+        ...draft,
+        updatedAt: "2026-07-30T10:02:00.000Z",
+      });
+      await repository.applyResumePatchWithRevision({
+        expectedDraftUpdatedAt: draft.updatedAt,
+        draft: nextDraft,
+        revision: createPersistedRetentionRevision(draft.id, 101),
+        validation: ResumeValidationResultSchema.parse({
+          id: "validation_retained_101",
+          draftId: draft.id,
+          issues: [],
+          draftContentHash: null,
+          claimAssessments: [],
+          pageCount: null,
+          validatedAt: nextDraft.updatedAt,
+        }),
+      });
+
+      await repository.close();
+      repository = await temp.createRepository();
+
+      const reopened = await repository.listResumeDraftRevisions(draft.id);
+      expect(reopened).toHaveLength(MAX_RESUME_DRAFT_REVISIONS_PER_DRAFT);
+      expect(reopened[0]?.id).toBe(`${draft.id}_revision_101`);
+      expect(reopened.at(-1)?.id).toBe(`${draft.id}_revision_002`);
+      await expect(
+        repository.listResumeDraftRevisions("resume_draft_other"),
+      ).resolves.toHaveLength(1);
+    } finally {
+      await repository?.close();
+      await cleanupTempDirectoryWithRetry(temp.tempDirectory);
+    }
+  }, 30000);
+
+  test("persists an exact restored draft and cleared approval readiness after restart", async () => {
+    const temp = await createTempRepository("unemployed-db-revision-restore-");
+    let repository: FileRepository | null = null;
+
+    try {
+      repository = await temp.createRepository();
+      const approvedDraft = ResumeDraftSchema.parse({
+        ...createPersistedRetentionDraft(
+          "resume_draft_restore",
+          "2026-07-30T10:05:00.000Z",
+        ),
+        status: "approved",
+        templateId: "compact_exec",
+        approvedAt: "2026-07-30T10:05:00.000Z",
+        approvedExportId: "resume_export_restore",
+      });
+      const restoredDraft = ResumeDraftSchema.parse({
+        ...approvedDraft,
+        status: "needs_review",
+        templateId: "classic_ats",
+        approvedAt: null,
+        approvedExportId: null,
+        updatedAt: "2026-07-30T10:06:00.000Z",
+      });
+      const sourceRevision = ResumeDraftRevisionSchema.parse({
+        ...createPersistedRetentionRevision(approvedDraft.id, 0),
+        snapshotDraft: restoredDraft,
+        snapshotIdentity: restoredDraft.identity,
+        snapshotSections: restoredDraft.sections,
+        reason: "Known-good earlier draft",
+      });
+      const restoreRevision = ResumeDraftRevisionSchema.parse({
+        ...createPersistedRetentionRevision(approvedDraft.id, 1),
+        parentRevisionId: sourceRevision.id,
+        mutationKind: "restore",
+        snapshotDraft: approvedDraft,
+        snapshotIdentity: approvedDraft.identity,
+        snapshotSections: approvedDraft.sections,
+        restoredFromRevisionId: sourceRevision.id,
+        reason: "Restored known-good earlier draft",
+      });
+
+      await repository.approveResumeExport({
+        draft: approvedDraft,
+        exportArtifact: {
+          id: "resume_export_restore",
+          draftId: approvedDraft.id,
+          jobId: approvedDraft.jobId,
+          format: "pdf",
+          filePath: "/tmp/approved-restore.pdf",
+          pageCount: 2,
+          templateId: approvedDraft.templateId,
+          exportedAt: approvedDraft.updatedAt,
+          isApproved: true,
+        },
+      });
+      await repository.upsertResumeDraftRevision(sourceRevision);
+      await repository.applyResumePatchWithRevision({
+        expectedDraftUpdatedAt: approvedDraft.updatedAt,
+        draft: restoredDraft,
+        revision: restoreRevision,
+        validation: ResumeValidationResultSchema.parse({
+          id: "validation_restore",
+          draftId: approvedDraft.id,
+          issues: [],
+          draftContentHash: null,
+          claimAssessments: [],
+          pageCount: 2,
+          validatedAt: restoredDraft.updatedAt,
+        }),
+      });
+
+      await repository.close();
+      repository = await temp.createRepository();
+
+      await expect(
+        repository.getResumeDraftByJobId(approvedDraft.jobId),
+      ).resolves.toEqual(restoredDraft);
+      const revisions = await repository.listResumeDraftRevisions(
+        approvedDraft.id,
+      );
+      expect(revisions[0]).toEqual(
+        expect.objectContaining({
+          id: restoreRevision.id,
+          parentRevisionId: sourceRevision.id,
+          restoredFromRevisionId: sourceRevision.id,
+          mutationKind: "restore",
+        }),
+      );
+      await expect(
+        repository.listResumeExportArtifacts({ jobId: approvedDraft.jobId }),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          id: "resume_export_restore",
+          isApproved: false,
+        }),
+      ]);
+    } finally {
+      await repository?.close();
+      await cleanupTempDirectoryWithRetry(temp.tempDirectory);
+    }
+  }, 15000);
+  test("persists resume revision chains across restart and rejects stale atomic commits", async () => {
+    const temp = await createTempRepository("unemployed-db-resume-revisions-");
+    let repository: FileRepository | null = null;
+
+    try {
+      repository = await temp.createRepository();
+      const initialDraft = ResumeDraftSchema.parse({
+        id: "resume_draft_versioned",
+        jobId: "job_versioned",
+        status: "needs_review",
+        templateId: "classic_ats",
+        identity: null,
+        sections: [],
+        targetPageCount: 2,
+        generationMethod: "ai",
+        approvedAt: null,
+        approvedExportId: null,
+        staleReason: null,
+        createdAt: "2026-07-30T10:00:00.000Z",
+        updatedAt: "2026-07-30T10:00:00.000Z",
+      });
+      const nextDraft = ResumeDraftSchema.parse({
+        ...initialDraft,
+        templateId: "compact_exec",
+        updatedAt: "2026-07-30T10:01:00.000Z",
+      });
+      const revision = ResumeDraftRevisionSchema.parse({
+        id: "resume_revision_versioned_1",
+        draftId: initialDraft.id,
+        parentRevisionId: null,
+        actor: "user",
+        mutationKind: "manual_save",
+        snapshotDraft: initialDraft,
+        snapshotIdentity: initialDraft.identity,
+        snapshotSections: initialDraft.sections,
+        beforeHash: "before_hash",
+        afterHash: "after_hash",
+        diff: {
+          templateChanged: true,
+          identityChanged: false,
+          sectionOrderChanged: false,
+          addedSectionIds: [],
+          removedSectionIds: [],
+          changedSectionIds: [],
+        },
+        restoredFromRevisionId: null,
+        createdAt: nextDraft.updatedAt,
+        reason: "Changed resume template",
+      });
+      const validation = ResumeValidationResultSchema.parse({
+        id: "resume_validation_versioned_1",
+        draftId: initialDraft.id,
+        issues: [],
+        draftContentHash: "claim_hash",
+        claimAssessments: [],
+        pageCount: null,
+        validatedAt: nextDraft.updatedAt,
+      });
+
+      await repository.upsertResumeDraft(initialDraft);
+      await repository.applyResumePatchWithRevision({
+        expectedDraftUpdatedAt: initialDraft.updatedAt,
+        draft: nextDraft,
+        revision,
+        validation,
+      });
+      await repository.close();
+      repository = await temp.createRepository();
+
+      expect(await repository.getResumeDraftByJobId(nextDraft.jobId)).toEqual(
+        nextDraft,
+      );
+      expect(
+        await repository.listResumeDraftRevisions(initialDraft.id),
+      ).toEqual([revision]);
+
+      await expect(
+        Promise.resolve().then(() =>
+          repository!.applyResumePatchWithRevision({
+            expectedDraftUpdatedAt: initialDraft.updatedAt,
+            draft: {
+              ...nextDraft,
+              templateId: "modern_split",
+              updatedAt: "2026-07-30T10:02:00.000Z",
+            },
+            revision: {
+              ...revision,
+              id: "resume_revision_stale",
+              parentRevisionId: revision.id,
+              createdAt: "2026-07-30T10:02:00.000Z",
+            },
+            validation: {
+              ...validation,
+              id: "resume_validation_stale",
+              validatedAt: "2026-07-30T10:02:00.000Z",
+            },
+          }),
+        ),
+      ).rejects.toThrow(/changed before this edit could be saved/i);
+      expect(
+        await repository.listResumeDraftRevisions(initialDraft.id),
+      ).toEqual([revision]);
+    } finally {
+      await repository?.close();
+      await cleanupTempDirectoryWithRetry(temp.tempDirectory);
+    }
+  });
 });

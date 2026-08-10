@@ -24,29 +24,31 @@ import {
   SourceDebugWorkerAttemptSchema,
   SourceInstructionArtifactSchema,
   TailoredAssetSchema,
-} from '@unemployed/contracts'
-import { DatabaseSync } from 'node:sqlite'
+} from "@unemployed/contracts";
+import { DatabaseSync } from "node:sqlite";
 
-import { createFileRepositoryResumeMethods } from './file-repository-resume-methods'
+import { createFileRepositoryResumeMethods } from "./file-repository-resume-methods";
+import { createFileRepositoryUserActionMethods } from "./file-repository-user-action-methods";
 import {
   APPLY_COLLECTION_ORDER_BY_SQL,
+  APPLY_INDEXED_COLLECTION_CONFIGS,
   buildOptionalSqlFilters,
-} from './apply-collection-support'
+} from "./apply-collection-support";
 import {
   createFileRepositoryContext,
   runImmediateTransaction,
   syncApprovedResumeExportsForJob,
-} from './file-repository-support'
+} from "./file-repository-support";
 import {
   repairLegacyCommaSplitAchievements,
   secureDatabaseFile,
   runMigrations,
-} from './internal/migrations'
+} from "./internal/migrations";
 import {
   normalizeLegacyDiscoveryState,
   normalizeLegacySourceDebugRunRecord,
   readLegacySeed,
-} from './internal/legacy'
+} from "./internal/legacy";
 import {
   bootstrapState,
   cloneValue,
@@ -57,19 +59,24 @@ import {
   replaceCollection,
   saveSingletonValue,
   writeState,
-} from './internal/state'
-import type { FileJobFinderRepositoryOptions, JobFinderRepository } from './repository-types'
+} from "./internal/state";
+import type {
+  FileJobFinderRepositoryOptions,
+  JobFinderRepository,
+} from "./repository-types";
 
 export async function createFileJobFinderRepository(
   options: FileJobFinderRepositoryOptions,
 ): Promise<JobFinderRepository> {
-  const normalizedSeed = JobFinderRepositoryStateSchema.parse(cloneValue(options.seed))
-  const database = new DatabaseSync(options.filePath)
+  const normalizedSeed = JobFinderRepositoryStateSchema.parse(
+    cloneValue(options.seed),
+  );
+  const database = new DatabaseSync(options.filePath);
 
-  runMigrations(database)
+  runMigrations(database);
 
   if (!hasPersistedState(database)) {
-    const legacySeed = await readLegacySeed(options.filePath, normalizedSeed)
+    const legacySeed = await readLegacySeed(options.filePath, normalizedSeed);
     const bootstrapSeed = legacySeed
       ? JobFinderRepositoryStateSchema.parse({
           ...legacySeed,
@@ -97,101 +104,114 @@ export async function createFileJobFinderRepository(
             },
           })),
         })
-      : normalizedSeed
-    bootstrapState(database, bootstrapSeed)
-    await secureDatabaseFile(options.filePath)
+      : normalizedSeed;
+    bootstrapState(database, bootstrapSeed);
+    await secureDatabaseFile(options.filePath);
   }
 
   const context = createFileRepositoryContext({
     database,
     filePath: options.filePath,
     normalizedSeed,
-  })
+  });
 
   function listApplyCollection<TValue>(input: {
     tableName:
-      | 'apply_runs'
-      | 'apply_job_results'
-      | 'apply_submit_approvals'
-      | 'application_question_records'
-      | 'application_answer_records'
-      | 'application_artifact_refs'
-      | 'application_replay_checkpoints'
-      | 'application_consent_requests'
-    schema: { parse: (value: unknown) => TValue }
-    orderBySql: string
-    filters?: ReadonlyArray<readonly [columnName: string, value: string | undefined]>
+      | "apply_runs"
+      | "apply_job_results"
+      | "apply_submit_approvals"
+      | "application_question_records"
+      | "application_answer_records"
+      | "application_artifact_refs"
+      | "application_replay_checkpoints"
+      | "application_consent_requests";
+    schema: { parse: (value: unknown) => TValue };
+    orderBySql: string;
+    filters?: ReadonlyArray<
+      readonly [columnName: string, value: string | undefined]
+    >;
   }): TValue[] {
     return listCollectionValues(database, input.tableName, input.schema, {
       ...buildOptionalSqlFilters(input.filters ?? []),
       orderBySql: input.orderBySql,
-    })
+    });
   }
 
   return {
     ...createFileRepositoryResumeMethods(context),
+    ...createFileRepositoryUserActionMethods(context),
     close() {
-      database.close()
-      return Promise.resolve()
+      database.close();
+      return Promise.resolve();
     },
     reset(nextSeed) {
-      const nextState = JobFinderRepositoryStateSchema.parse(cloneValue(nextSeed))
-      writeState(database, nextState)
-      return secureDatabaseFile(options.filePath)
+      const nextState = JobFinderRepositoryStateSchema.parse(
+        cloneValue(nextSeed),
+      );
+      writeState(database, nextState);
+      return secureDatabaseFile(options.filePath);
     },
     getProfile() {
       return Promise.resolve(
         cloneValue(
-          getSingletonValue(database, 'profile', CandidateProfileSchema) ??
+          getSingletonValue(database, "profile", CandidateProfileSchema) ??
             normalizedSeed.profile,
         ),
-      )
+      );
     },
     saveProfile(profile) {
       return context.persist((state) => {
-        state.profile = CandidateProfileSchema.parse(cloneValue(profile))
-      })
+        state.profile = CandidateProfileSchema.parse(cloneValue(profile));
+      });
     },
     getSearchPreferences() {
       return Promise.resolve(
         cloneValue(
-          getSingletonValue(database, 'search_preferences', JobSearchPreferencesSchema) ??
-            normalizedSeed.searchPreferences,
+          getSingletonValue(
+            database,
+            "search_preferences",
+            JobSearchPreferencesSchema,
+          ) ?? normalizedSeed.searchPreferences,
         ),
-      )
+      );
     },
     getProfileSetupState() {
       return Promise.resolve(
         cloneValue(
-          getSingletonValue(database, 'profile_setup_state', ProfileSetupStateSchema) ??
-            normalizedSeed.profileSetupState,
+          getSingletonValue(
+            database,
+            "profile_setup_state",
+            ProfileSetupStateSchema,
+          ) ?? normalizedSeed.profileSetupState,
         ),
-      )
+      );
     },
     saveSearchPreferences(searchPreferences) {
       return context.persist((state) => {
         state.searchPreferences = JobSearchPreferencesSchema.parse(
           cloneValue(searchPreferences),
-        )
-      })
+        );
+      });
     },
     saveProfileSetupState(profileSetupState) {
       return context.persist((state) => {
         state.profileSetupState = ProfileSetupStateSchema.parse(
           cloneValue(profileSetupState),
-        )
-      })
+        );
+      });
     },
     saveProfileAndSearchPreferences(profile, searchPreferences) {
-      const normalizedProfile = CandidateProfileSchema.parse(cloneValue(profile))
+      const normalizedProfile = CandidateProfileSchema.parse(
+        cloneValue(profile),
+      );
       const normalizedSearchPreferences = JobSearchPreferencesSchema.parse(
         cloneValue(searchPreferences),
-      )
+      );
 
       return context.persist((state) => {
-        state.profile = normalizedProfile
-        state.searchPreferences = normalizedSearchPreferences
-      })
+        state.profile = normalizedProfile;
+        state.searchPreferences = normalizedSearchPreferences;
+      });
     },
     commitProfileCopilotState({
       profile,
@@ -200,59 +220,79 @@ export async function createFileJobFinderRepository(
       messages,
       revisions,
     }) {
-      const normalizedProfile = CandidateProfileSchema.parse(cloneValue(profile))
+      const normalizedProfile = CandidateProfileSchema.parse(
+        cloneValue(profile),
+      );
       const normalizedSearchPreferences = JobSearchPreferencesSchema.parse(
         cloneValue(searchPreferences),
-      )
+      );
       const normalizedProfileSetupState = ProfileSetupStateSchema.parse(
         cloneValue(profileSetupState),
-      )
+      );
       const normalizedMessages = ProfileCopilotMessageSchema.array().parse(
         cloneValue(messages ?? []),
-      )
+      );
       const normalizedRevisions = ProfileRevisionSchema.array().parse(
         cloneValue(revisions ?? []),
-      )
+      );
 
       runImmediateTransaction(database, () => {
-        saveSingletonValue(database, 'profile', normalizedProfile)
-        saveSingletonValue(database, 'search_preferences', normalizedSearchPreferences)
-        saveSingletonValue(database, 'profile_setup_state', normalizedProfileSetupState)
+        saveSingletonValue(database, "profile", normalizedProfile);
+        saveSingletonValue(
+          database,
+          "search_preferences",
+          normalizedSearchPreferences,
+        );
+        saveSingletonValue(
+          database,
+          "profile_setup_state",
+          normalizedProfileSetupState,
+        );
 
         for (const message of normalizedMessages) {
-          context.writePersistedValue('profile_copilot_messages', message)
+          context.writePersistedValue("profile_copilot_messages", message);
         }
 
         for (const revision of normalizedRevisions) {
-          context.writePersistedValue('profile_revisions', revision)
+          context.writePersistedValue("profile_revisions", revision);
         }
-      })
+      });
 
-      return secureDatabaseFile(options.filePath)
+      return secureDatabaseFile(options.filePath);
     },
     listSavedJobs() {
-      return Promise.resolve(cloneValue(listValues(database, 'saved_jobs', SavedJobSchema)))
+      return Promise.resolve(
+        cloneValue(listValues(database, "saved_jobs", SavedJobSchema)),
+      );
     },
     replaceSavedJobs(savedJobs) {
-      const normalizedJobs = SavedJobSchema.array().parse(cloneValue([...savedJobs]))
+      const normalizedJobs = SavedJobSchema.array().parse(
+        cloneValue([...savedJobs]),
+      );
       runImmediateTransaction(database, () => {
-        replaceCollection(database, 'saved_jobs', normalizedJobs)
-      })
+        replaceCollection(database, "saved_jobs", normalizedJobs);
+      });
 
-      return secureDatabaseFile(options.filePath)
+      return secureDatabaseFile(options.filePath);
     },
     replaceSavedJobsAndDiscoveryState({ savedJobs, discoveryState }) {
-      const normalizedJobs = SavedJobSchema.array().parse(cloneValue([...savedJobs]))
+      const normalizedJobs = SavedJobSchema.array().parse(
+        cloneValue([...savedJobs]),
+      );
       const normalizedDiscoveryState = JobFinderDiscoveryStateSchema.parse(
         cloneValue(discoveryState),
-      )
+      );
 
       runImmediateTransaction(database, () => {
-        replaceCollection(database, 'saved_jobs', normalizedJobs)
-        saveSingletonValue(database, 'discovery_state', normalizedDiscoveryState)
-      })
+        replaceCollection(database, "saved_jobs", normalizedJobs);
+        saveSingletonValue(
+          database,
+          "discovery_state",
+          normalizedDiscoveryState,
+        );
+      });
 
-      return secureDatabaseFile(options.filePath)
+      return secureDatabaseFile(options.filePath);
     },
     replaceSavedJobsAndClearResumeApproval({
       savedJobs,
@@ -260,7 +300,9 @@ export async function createFileJobFinderRepository(
       staleReason,
       tailoredAsset,
     }) {
-      const normalizedJobs = SavedJobSchema.array().parse(cloneValue([...savedJobs]))
+      const normalizedJobs = SavedJobSchema.array().parse(
+        cloneValue([...savedJobs]),
+      );
       const normalizedDraft = ResumeDraftSchema.parse(
         cloneValue({
           ...draft,
@@ -268,234 +310,354 @@ export async function createFileJobFinderRepository(
           approvedAt: null,
           approvedExportId: null,
         }),
-      )
+      );
       const normalizedAsset = tailoredAsset
         ? TailoredAssetSchema.parse(cloneValue(tailoredAsset))
-        : null
+        : null;
 
       if (normalizedAsset && normalizedAsset.jobId !== normalizedDraft.jobId) {
-        throw new Error('Tailored asset job does not match the provided draft.')
+        throw new Error(
+          "Tailored asset job does not match the provided draft.",
+        );
       }
 
       runImmediateTransaction(database, () => {
-        replaceCollection(database, 'saved_jobs', normalizedJobs)
-        syncApprovedResumeExportsForJob(database, normalizedDraft.jobId, null)
-        context.writePersistedValue('resume_drafts', normalizedDraft)
+        replaceCollection(database, "saved_jobs", normalizedJobs);
+        syncApprovedResumeExportsForJob(database, normalizedDraft.jobId, null);
+        context.writePersistedValue("resume_drafts", normalizedDraft);
 
         if (normalizedAsset) {
-          context.writePersistedValue('tailored_assets', normalizedAsset)
+          context.writePersistedValue("tailored_assets", normalizedAsset);
         }
-      })
+      });
 
-      return secureDatabaseFile(options.filePath)
+      return secureDatabaseFile(options.filePath);
     },
     listApplyRuns(options) {
       return Promise.resolve(
         cloneValue(
           listApplyCollection({
-            tableName: 'apply_runs',
+            tableName: "apply_runs",
             schema: ApplyRunSchema,
             orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.apply_runs,
-            filters: options?.id ? [['id', options.id]] : [],
+            filters: options?.id ? [["id", options.id]] : [],
           }),
         ),
-      )
+      );
     },
     upsertApplyRun(run) {
-      const normalizedRun = ApplyRunSchema.parse(cloneValue(run))
-      return context.upsertPersistedValue('apply_runs', normalizedRun)
+      const normalizedRun = ApplyRunSchema.parse(cloneValue(run));
+      return context.upsertPersistedValue("apply_runs", normalizedRun);
     },
     listApplyJobResults(options) {
       return Promise.resolve(
         cloneValue(
           listApplyCollection({
-            tableName: 'apply_job_results',
+            tableName: "apply_job_results",
             schema: ApplyJobResultSchema,
             orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.apply_job_results,
             filters: [
-              ...(options?.runId ? [['run_id', options.runId] as const] : []),
-              ...(options?.jobId ? [['job_id', options.jobId] as const] : []),
+              ...(options?.runId ? [["run_id", options.runId] as const] : []),
+              ...(options?.jobId ? [["job_id", options.jobId] as const] : []),
             ],
           }),
         ),
-      )
+      );
     },
     upsertApplyJobResult(result) {
-      const normalizedResult = ApplyJobResultSchema.parse(cloneValue(result))
-      return context.upsertPersistedValue('apply_job_results', normalizedResult)
+      const normalizedResult = ApplyJobResultSchema.parse(cloneValue(result));
+      return context.upsertPersistedValue(
+        "apply_job_results",
+        normalizedResult,
+      );
+    },
+    compareAndSwapApplyJobResult(input) {
+      const expected = ApplyJobResultSchema.parse(cloneValue(input.expected));
+      const nextResult = ApplyJobResultSchema.parse(cloneValue(input.result));
+      if (nextResult.id !== expected.id) {
+        throw new Error("Apply result CAS cannot change the result identity.");
+      }
+      const columns =
+        APPLY_INDEXED_COLLECTION_CONFIGS.apply_job_results.getColumns(
+          nextResult,
+        );
+      const update = database
+        .prepare(
+          `UPDATE apply_job_results
+           SET run_id = ?, job_id = ?, queue_position = ?, updated_at = ?, state = ?, value = ?
+           WHERE id = ? AND value = ?`,
+        )
+        .run(
+          ...columns,
+          JSON.stringify(nextResult),
+          expected.id,
+          JSON.stringify(expected),
+        );
+      return Promise.resolve(update.changes === 1);
     },
     listApplySubmitApprovals(options) {
       return Promise.resolve(
         cloneValue(
           listApplyCollection({
-            tableName: 'apply_submit_approvals',
+            tableName: "apply_submit_approvals",
             schema: ApplySubmitApprovalSchema,
             orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.apply_submit_approvals,
             filters: [
-              ...(options?.id ? [['id', options.id] as const] : []),
-              ...(options?.runId ? [['run_id', options.runId] as const] : []),
+              ...(options?.id ? [["id", options.id] as const] : []),
+              ...(options?.runId ? [["run_id", options.runId] as const] : []),
             ],
           }),
         ),
-      )
+      );
     },
     upsertApplySubmitApproval(approval) {
-      const normalizedApproval = ApplySubmitApprovalSchema.parse(cloneValue(approval))
-      return context.upsertPersistedValue('apply_submit_approvals', normalizedApproval)
+      const normalizedApproval = ApplySubmitApprovalSchema.parse(
+        cloneValue(approval),
+      );
+      return context.upsertPersistedValue(
+        "apply_submit_approvals",
+        normalizedApproval,
+      );
     },
     listApplicationQuestionRecords(options) {
       return Promise.resolve(
         cloneValue(
           listApplyCollection({
-            tableName: 'application_question_records',
+            tableName: "application_question_records",
             schema: ApplicationQuestionRecordSchema,
-            orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_question_records,
+            orderBySql:
+              APPLY_COLLECTION_ORDER_BY_SQL.application_question_records,
             filters: [
-              ...(options?.runId ? [['run_id', options.runId] as const] : []),
-              ...(options?.jobId ? [['job_id', options.jobId] as const] : []),
-              ...(options?.resultId ? [['result_id', options.resultId] as const] : []),
+              ...(options?.runId ? [["run_id", options.runId] as const] : []),
+              ...(options?.jobId ? [["job_id", options.jobId] as const] : []),
+              ...(options?.resultId
+                ? [["result_id", options.resultId] as const]
+                : []),
             ],
           }),
         ),
-      )
+      );
     },
     upsertApplicationQuestionRecord(record) {
-      const normalizedRecord = ApplicationQuestionRecordSchema.parse(cloneValue(record))
-      return context.upsertPersistedValue('application_question_records', normalizedRecord)
+      const normalizedRecord = ApplicationQuestionRecordSchema.parse(
+        cloneValue(record),
+      );
+      return context.upsertPersistedValue(
+        "application_question_records",
+        normalizedRecord,
+      );
     },
     listApplicationAnswerRecords(options) {
       return Promise.resolve(
         cloneValue(
           listApplyCollection({
-            tableName: 'application_answer_records',
+            tableName: "application_answer_records",
             schema: ApplicationAnswerRecordSchema,
-            orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_answer_records,
+            orderBySql:
+              APPLY_COLLECTION_ORDER_BY_SQL.application_answer_records,
             filters: [
-              ...(options?.runId ? [['run_id', options.runId] as const] : []),
-              ...(options?.jobId ? [['job_id', options.jobId] as const] : []),
-              ...(options?.resultId ? [['result_id', options.resultId] as const] : []),
-              ...(options?.questionId ? [['question_id', options.questionId] as const] : []),
+              ...(options?.runId ? [["run_id", options.runId] as const] : []),
+              ...(options?.jobId ? [["job_id", options.jobId] as const] : []),
+              ...(options?.resultId
+                ? [["result_id", options.resultId] as const]
+                : []),
+              ...(options?.questionId
+                ? [["question_id", options.questionId] as const]
+                : []),
             ],
           }),
         ),
-      )
+      );
     },
     upsertApplicationAnswerRecord(record) {
-      const normalizedRecord = ApplicationAnswerRecordSchema.parse(cloneValue(record))
-      return context.upsertPersistedValue('application_answer_records', normalizedRecord)
+      const normalizedRecord = ApplicationAnswerRecordSchema.parse(
+        cloneValue(record),
+      );
+      return context.upsertPersistedValue(
+        "application_answer_records",
+        normalizedRecord,
+      );
     },
     listApplicationArtifactRefs(options) {
       return Promise.resolve(
         cloneValue(
           listApplyCollection({
-            tableName: 'application_artifact_refs',
+            tableName: "application_artifact_refs",
             schema: ApplicationArtifactRefSchema,
             orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_artifact_refs,
             filters: [
-              ...(options?.runId ? [['run_id', options.runId] as const] : []),
-              ...(options?.jobId ? [['job_id', options.jobId] as const] : []),
-              ...(options?.resultId ? [['result_id', options.resultId] as const] : []),
+              ...(options?.runId ? [["run_id", options.runId] as const] : []),
+              ...(options?.jobId ? [["job_id", options.jobId] as const] : []),
+              ...(options?.resultId
+                ? [["result_id", options.resultId] as const]
+                : []),
             ],
           }),
         ),
-      )
+      );
     },
     upsertApplicationArtifactRef(ref) {
-      const normalizedRef = ApplicationArtifactRefSchema.parse(cloneValue(ref))
-      return context.upsertPersistedValue('application_artifact_refs', normalizedRef)
+      const normalizedRef = ApplicationArtifactRefSchema.parse(cloneValue(ref));
+      return context.upsertPersistedValue(
+        "application_artifact_refs",
+        normalizedRef,
+      );
     },
     listApplicationReplayCheckpoints(options) {
       return Promise.resolve(
         cloneValue(
           listApplyCollection({
-            tableName: 'application_replay_checkpoints',
+            tableName: "application_replay_checkpoints",
             schema: ApplicationReplayCheckpointSchema,
-            orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_replay_checkpoints,
+            orderBySql:
+              APPLY_COLLECTION_ORDER_BY_SQL.application_replay_checkpoints,
             filters: [
-              ...(options?.runId ? [['run_id', options.runId] as const] : []),
-              ...(options?.jobId ? [['job_id', options.jobId] as const] : []),
-              ...(options?.resultId ? [['result_id', options.resultId] as const] : []),
+              ...(options?.runId ? [["run_id", options.runId] as const] : []),
+              ...(options?.jobId ? [["job_id", options.jobId] as const] : []),
+              ...(options?.resultId
+                ? [["result_id", options.resultId] as const]
+                : []),
             ],
           }),
         ),
-      )
+      );
     },
     upsertApplicationReplayCheckpoint(checkpoint) {
-      const normalizedCheckpoint = ApplicationReplayCheckpointSchema.parse(cloneValue(checkpoint))
-      return context.upsertPersistedValue('application_replay_checkpoints', normalizedCheckpoint)
+      const normalizedCheckpoint = ApplicationReplayCheckpointSchema.parse(
+        cloneValue(checkpoint),
+      );
+      return context.upsertPersistedValue(
+        "application_replay_checkpoints",
+        normalizedCheckpoint,
+      );
     },
     listApplicationConsentRequests(options) {
       return Promise.resolve(
         cloneValue(
           listApplyCollection({
-            tableName: 'application_consent_requests',
+            tableName: "application_consent_requests",
             schema: ApplicationConsentRequestSchema,
-            orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_consent_requests,
+            orderBySql:
+              APPLY_COLLECTION_ORDER_BY_SQL.application_consent_requests,
             filters: [
-              ...(options?.runId ? [['run_id', options.runId] as const] : []),
-              ...(options?.jobId ? [['job_id', options.jobId] as const] : []),
-              ...(options?.resultId ? [['result_id', options.resultId] as const] : []),
+              ...(options?.runId ? [["run_id", options.runId] as const] : []),
+              ...(options?.jobId ? [["job_id", options.jobId] as const] : []),
+              ...(options?.resultId
+                ? [["result_id", options.resultId] as const]
+                : []),
             ],
           }),
         ),
-      )
+      );
     },
     upsertApplicationConsentRequest(request) {
-      const normalizedRequest = ApplicationConsentRequestSchema.parse(cloneValue(request))
-      return context.upsertPersistedValue('application_consent_requests', normalizedRequest)
+      const normalizedRequest = ApplicationConsentRequestSchema.parse(
+        cloneValue(request),
+      );
+      return context.upsertPersistedValue(
+        "application_consent_requests",
+        normalizedRequest,
+      );
     },
     listApplicationRecords() {
       return Promise.resolve(
-        cloneValue(listValues(database, 'application_records', ApplicationRecordSchema)),
-      )
+        cloneValue(
+          listValues(database, "application_records", ApplicationRecordSchema),
+        ),
+      );
     },
     upsertApplicationRecord(applicationRecord) {
-      const normalizedRecord = ApplicationRecordSchema.parse(cloneValue(applicationRecord))
-      return context.upsertPersistedValue('application_records', normalizedRecord)
+      const normalizedRecord = ApplicationRecordSchema.parse(
+        cloneValue(applicationRecord),
+      );
+      return context.upsertPersistedValue(
+        "application_records",
+        normalizedRecord,
+      );
     },
     listApplicationAttempts() {
       return Promise.resolve(
-        cloneValue(listValues(database, 'application_attempts', ApplicationAttemptSchema)),
-      )
+        cloneValue(
+          listValues(
+            database,
+            "application_attempts",
+            ApplicationAttemptSchema,
+          ),
+        ),
+      );
     },
     upsertApplicationAttempt(applicationAttempt) {
-      const normalizedAttempt = ApplicationAttemptSchema.parse(cloneValue(applicationAttempt))
-      return context.upsertPersistedValue('application_attempts', normalizedAttempt)
+      const normalizedAttempt = ApplicationAttemptSchema.parse(
+        cloneValue(applicationAttempt),
+      );
+      return context.upsertPersistedValue(
+        "application_attempts",
+        normalizedAttempt,
+      );
+    },
+    claimApplicationAttempt(applicationAttempt) {
+      const normalizedAttempt = ApplicationAttemptSchema.parse(
+        cloneValue(applicationAttempt),
+      );
+      const insert = database
+        .prepare(
+          "INSERT OR IGNORE INTO application_attempts (id, value) VALUES (?, ?)",
+        )
+        .run(normalizedAttempt.id, JSON.stringify(normalizedAttempt));
+      return Promise.resolve(insert.changes === 1);
     },
     listSourceDebugRuns() {
       return Promise.resolve(
         cloneValue(
-          listValues(database, 'source_debug_runs', {
+          listValues(database, "source_debug_runs", {
             parse: normalizeLegacySourceDebugRunRecord,
           }),
         ),
-      )
+      );
     },
     upsertSourceDebugRun(run) {
-      const normalizedRun = SourceDebugRunRecordSchema.parse(cloneValue(run))
-      return context.upsertPersistedValue('source_debug_runs', normalizedRun)
+      const normalizedRun = SourceDebugRunRecordSchema.parse(cloneValue(run));
+      return context.upsertPersistedValue("source_debug_runs", normalizedRun);
     },
     listSourceDebugAttempts() {
       return Promise.resolve(
         cloneValue(
-          listValues(database, 'source_debug_attempts', SourceDebugWorkerAttemptSchema),
+          listValues(
+            database,
+            "source_debug_attempts",
+            SourceDebugWorkerAttemptSchema,
+          ),
         ),
-      )
+      );
     },
     upsertSourceDebugAttempt(attempt) {
-      const normalizedAttempt = SourceDebugWorkerAttemptSchema.parse(cloneValue(attempt))
-      return context.upsertPersistedValue('source_debug_attempts', normalizedAttempt)
+      const normalizedAttempt = SourceDebugWorkerAttemptSchema.parse(
+        cloneValue(attempt),
+      );
+      return context.upsertPersistedValue(
+        "source_debug_attempts",
+        normalizedAttempt,
+      );
     },
     listSourceInstructionArtifacts() {
       return Promise.resolve(
         cloneValue(
-          listValues(database, 'source_instruction_artifacts', SourceInstructionArtifactSchema),
+          listValues(
+            database,
+            "source_instruction_artifacts",
+            SourceInstructionArtifactSchema,
+          ),
         ),
-      )
+      );
     },
     upsertSourceInstructionArtifact(artifact) {
-      const normalizedArtifact = SourceInstructionArtifactSchema.parse(cloneValue(artifact))
-      return context.upsertPersistedValue('source_instruction_artifacts', normalizedArtifact)
+      const normalizedArtifact = SourceInstructionArtifactSchema.parse(
+        cloneValue(artifact),
+      );
+      return context.upsertPersistedValue(
+        "source_instruction_artifacts",
+        normalizedArtifact,
+      );
     },
     deleteSourceInstructionArtifactsForTarget(targetId) {
       runImmediateTransaction(database, () => {
@@ -503,67 +665,83 @@ export async function createFileJobFinderRepository(
           .prepare(
             "DELETE FROM source_instruction_artifacts WHERE json_extract(value, '$.targetId') = ?",
           )
-          .run(targetId)
-      })
+          .run(targetId);
+      });
 
-      return secureDatabaseFile(options.filePath)
+      return secureDatabaseFile(options.filePath);
     },
     listSourceDebugEvidenceRefs() {
       return Promise.resolve(
         cloneValue(
-          listValues(database, 'source_debug_evidence_refs', SourceDebugEvidenceRefSchema),
+          listValues(
+            database,
+            "source_debug_evidence_refs",
+            SourceDebugEvidenceRefSchema,
+          ),
         ),
-      )
+      );
     },
     upsertSourceDebugEvidenceRef(evidenceRef) {
-      const normalizedEvidenceRef = SourceDebugEvidenceRefSchema.parse(cloneValue(evidenceRef))
-      return context.upsertPersistedValue('source_debug_evidence_refs', normalizedEvidenceRef)
+      const normalizedEvidenceRef = SourceDebugEvidenceRefSchema.parse(
+        cloneValue(evidenceRef),
+      );
+      return context.upsertPersistedValue(
+        "source_debug_evidence_refs",
+        normalizedEvidenceRef,
+      );
     },
     upsertSourceDebugEvidenceRefs(evidenceRefs) {
       const normalizedEvidenceRefs = SourceDebugEvidenceRefSchema.array().parse(
         cloneValue([...evidenceRefs]),
-      )
+      );
 
       runImmediateTransaction(database, () => {
         for (const normalizedEvidenceRef of normalizedEvidenceRefs) {
-          context.writePersistedValue('source_debug_evidence_refs', normalizedEvidenceRef)
+          context.writePersistedValue(
+            "source_debug_evidence_refs",
+            normalizedEvidenceRef,
+          );
         }
-      })
+      });
 
-      return secureDatabaseFile(options.filePath)
+      return secureDatabaseFile(options.filePath);
     },
     getSettings() {
       return Promise.resolve(
         cloneValue(
-          getSingletonValue(database, 'settings', JobFinderSettingsSchema) ??
+          getSingletonValue(database, "settings", JobFinderSettingsSchema) ??
             normalizedSeed.settings,
         ),
-      )
+      );
     },
     saveSettings(settings) {
       return context.persist((state) => {
-        state.settings = JobFinderSettingsSchema.parse(cloneValue(settings))
-      })
+        state.settings = JobFinderSettingsSchema.parse(cloneValue(settings));
+      });
     },
     getDiscoveryState() {
       return Promise.resolve(
         cloneValue(
-          getSingletonValue(database, 'discovery_state', {
+          getSingletonValue(database, "discovery_state", {
             parse: normalizeLegacyDiscoveryState,
           }) ?? normalizedSeed.discovery,
         ),
-      )
+      );
     },
     saveDiscoveryState(discoveryState) {
       const normalizedDiscoveryState = JobFinderDiscoveryStateSchema.parse(
         cloneValue(discoveryState),
-      )
+      );
 
       runImmediateTransaction(database, () => {
-        saveSingletonValue(database, 'discovery_state', normalizedDiscoveryState)
-      })
+        saveSingletonValue(
+          database,
+          "discovery_state",
+          normalizedDiscoveryState,
+        );
+      });
 
-      return secureDatabaseFile(options.filePath)
+      return secureDatabaseFile(options.filePath);
     },
-  }
+  };
 }

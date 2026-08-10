@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import type { JobFinderAiClient } from '@unemployed/ai-providers'
 import { describe, expect, test, vi } from 'vitest'
 import {
+  bringPageToFrontBestEffort,
   buildChromeExecutableCandidates,
   findRunningChromeDebugPortInCommandLines,
   isHttpUrlLike,
@@ -14,7 +15,7 @@ import {
   parseRunningChromeDebugSession,
   readDevToolsActivePort,
   selectLiveHttpPage,
-  validateJobPostings,
+  validateJobPostings
 } from './playwright-browser-runtime-utils'
 import { createAgentChatWithToolsBridge } from './playwright-browser-runtime'
 
@@ -25,7 +26,7 @@ const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(process, 'pla
 function withPlatform(platform: NodeJS.Platform, run: () => void): void {
   Object.defineProperty(process, 'platform', {
     configurable: true,
-    value: platform,
+    value: platform
   })
 
   try {
@@ -38,8 +39,41 @@ function withPlatform(platform: NodeJS.Platform, run: () => void): void {
 }
 
 describe('playwright browser runtime utils', () => {
+  test('does not block browser startup when Chrome never settles bringToFront', async () => {
+    const bringToFront = vi.fn(() => new Promise<void>(() => undefined))
+
+    await expect(bringPageToFrontBestEffort({ bringToFront }, 1)).resolves.toBeUndefined()
+    expect(bringToFront).toHaveBeenCalledTimes(1)
+  })
   test('returns an empty array for non-array job posting input', () => {
     expect(validateJobPostings('not-an-array', 'unit-test')).toEqual([])
+  })
+
+  test('preserves provider freshness through runtime validation', () => {
+    const providerUpdatedAt = '2026-07-12T11:00:00.000Z'
+    const jobs = validateJobPostings(
+      [
+        {
+          source: 'target_site',
+          sourceJobId: 'job_provider_freshness',
+          canonicalUrl: 'https://example.com/jobs/provider-freshness',
+          title: 'Platform Engineer',
+          company: 'Acme',
+          location: 'Remote',
+          workMode: ['remote'],
+          applyPath: 'unknown',
+          easyApplyEligible: false,
+          providerUpdatedAt,
+          discoveredAt: '2026-07-12T11:05:00.000Z',
+          salaryText: null,
+          description: 'Build provider integrations.'
+        }
+      ],
+      'provider-freshness-test'
+    )
+
+    expect(jobs).toHaveLength(1)
+    expect(jobs[0]?.providerUpdatedAt).toBe(providerUpdatedAt)
   })
 
   test('omits the LOCALAPPDATA chrome candidate when the env var is unavailable', () => {
@@ -91,28 +125,24 @@ describe('playwright browser runtime utils', () => {
   test('parses running Chrome debug sessions from command lines', () => {
     expect(
       parseRunningChromeDebugSession(
-        '"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9333 --user-data-dir="C:\\Users\\ebrar\\AppData\\Roaming\\@unemployed\\desktop\\browser-agent\\default" --new-window about:blank',
-      ),
+        '"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9333 --user-data-dir="C:\\Users\\ebrar\\AppData\\Roaming\\@unemployed\\desktop\\browser-agent\\default" --new-window about:blank'
+      )
     ).toEqual({
       debugPort: 9333,
-      userDataDir: 'C:\\Users\\ebrar\\AppData\\Roaming\\@unemployed\\desktop\\browser-agent\\default',
+      userDataDir: 'C:\\Users\\ebrar\\AppData\\Roaming\\@unemployed\\desktop\\browser-agent\\default'
     })
 
     expect(
       parseRunningChromeDebugSession(
-        '"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --user-data-dir=/Users/example/browser-agent/default --remote-debugging-port 9444',
-      ),
+        '"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --user-data-dir=/Users/example/browser-agent/default --remote-debugging-port 9444'
+      )
     ).toEqual({
       debugPort: 9444,
-      userDataDir: '/Users/example/browser-agent/default',
+      userDataDir: '/Users/example/browser-agent/default'
     })
 
     expect(parseRunningChromeDebugSession('"chrome.exe" --user-data-dir="C:\\temp\\profile"')).toBeNull()
-    expect(
-      parseRunningChromeDebugSession(
-        '"chrome.exe" --remote-debugging-port=70000 --user-data-dir="C:\\temp\\profile"',
-      ),
-    ).toBeNull()
+    expect(parseRunningChromeDebugSession('"chrome.exe" --remote-debugging-port=70000 --user-data-dir="C:\\temp\\profile"')).toBeNull()
   })
 
   test('finds a running Chrome debug port for the same user data dir from command lines', () => {
@@ -120,19 +150,17 @@ describe('playwright browser runtime utils', () => {
       findRunningChromeDebugPortInCommandLines(
         [
           '"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9333 --user-data-dir="C:\\Users\\ebrar\\AppData\\Roaming\\@unemployed\\desktop\\browser-agent\\default"',
-          '"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9555 --user-data-dir="C:\\Users\\ebrar\\AppData\\Local\\Temp\\other-profile"',
+          '"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --remote-debugging-port=9555 --user-data-dir="C:\\Users\\ebrar\\AppData\\Local\\Temp\\other-profile"'
         ],
-        'C:\\Users\\ebrar\\AppData\\Roaming\\@unemployed\\desktop\\browser-agent\\default',
-      ),
+        'C:\\Users\\ebrar\\AppData\\Roaming\\@unemployed\\desktop\\browser-agent\\default'
+      )
     ).toBe(9333)
 
     expect(
       findRunningChromeDebugPortInCommandLines(
-        [
-          '"chrome.exe" --remote-debugging-port=9555 --user-data-dir="C:\\Users\\ebrar\\AppData\\Local\\Temp\\other-profile"',
-        ],
-        'C:\\Users\\ebrar\\AppData\\Roaming\\@unemployed\\desktop\\browser-agent\\default',
-      ),
+        ['"chrome.exe" --remote-debugging-port=9555 --user-data-dir="C:\\Users\\ebrar\\AppData\\Local\\Temp\\other-profile"'],
+        'C:\\Users\\ebrar\\AppData\\Roaming\\@unemployed\\desktop\\browser-agent\\default'
+      )
     ).toBeNull()
   })
 
@@ -148,20 +176,20 @@ describe('playwright browser runtime utils', () => {
     expect(
       isLikelyStalePage({
         isClosed: () => true,
-        url: () => 'https://example.com/jobs',
-      } as StalePageLike),
+        url: () => 'https://example.com/jobs'
+      } as StalePageLike)
     ).toBe(true)
     expect(
       isLikelyStalePage({
         isClosed: () => false,
-        url: () => 'about:blank',
-      } as StalePageLike),
+        url: () => 'about:blank'
+      } as StalePageLike)
     ).toBe(true)
     expect(
       isLikelyStalePage({
         isClosed: () => false,
-        url: () => 'https://example.com/jobs',
-      } as StalePageLike),
+        url: () => 'https://example.com/jobs'
+      } as StalePageLike)
     ).toBe(false)
   })
 
@@ -170,18 +198,18 @@ describe('playwright browser runtime utils', () => {
       {
         id: 'blank',
         isClosed: () => false,
-        url: () => 'about:blank',
+        url: () => 'about:blank'
       },
       {
         id: 'closed',
         isClosed: () => true,
-        url: () => 'https://example.com/jobs/closed',
+        url: () => 'https://example.com/jobs/closed'
       },
       {
         id: 'live',
         isClosed: () => false,
-        url: () => 'https://example.com/jobs/live',
-      },
+        url: () => 'https://example.com/jobs/live'
+      }
     ] as const
 
     expect(selectLiveHttpPage(pages)).toBe(pages[2])
@@ -194,9 +222,9 @@ describe('playwright browser runtime utils', () => {
         options: {
           startingUrls: ['https://kosovajob.com/'],
           navigationHostnames: ['kosovajob.com'],
-          relevantUrlSubstrings: ['jobs', 'search'],
-        },
-      }),
+          relevantUrlSubstrings: ['jobs', 'search']
+        }
+      })
     ).toBe(false)
 
     expect(
@@ -205,9 +233,9 @@ describe('playwright browser runtime utils', () => {
         options: {
           startingUrls: ['https://kosovajob.com/'],
           navigationHostnames: ['kosovajob.com'],
-          relevantUrlSubstrings: ['jobs', 'search'],
-        },
-      }),
+          relevantUrlSubstrings: ['jobs', 'search']
+        }
+      })
     ).toBe(false)
   })
 
@@ -218,9 +246,9 @@ describe('playwright browser runtime utils', () => {
         options: {
           startingUrls: ['https://www.linkedin.com/jobs/search/?keywords=frontend'],
           navigationHostnames: ['www.linkedin.com'],
-          relevantUrlSubstrings: ['jobs/search'],
-        },
-      }),
+          relevantUrlSubstrings: ['jobs/search']
+        }
+      })
     ).toBe(true)
   })
 
@@ -260,8 +288,8 @@ describe('playwright browser runtime utils', () => {
     const chatWithTools = vi.fn<ChatWithTools>(() =>
       Promise.resolve({
         content: 'ok',
-        toolCalls: [],
-      }),
+        toolCalls: []
+      })
     )
     const bridge = createAgentChatWithToolsBridge(chatWithTools)
     const messages = [{ role: 'user' as const, content: 'hello' }]

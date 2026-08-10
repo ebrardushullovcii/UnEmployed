@@ -14,6 +14,14 @@ export const ResumeSourceDocumentSchema = z.object({
   fileName: NonEmptyStringSchema,
   uploadedAt: IsoDateTimeSchema,
   storagePath: NonEmptyStringSchema.nullable().default(null),
+  sha256: z
+    .string()
+    .regex(
+      /^[a-f0-9]{64}$/i,
+      "Resume SHA-256 must be 64 hexadecimal characters.",
+    )
+    .nullable()
+    .optional(),
   textContent: NonEmptyStringSchema.nullable().default(null),
   textUpdatedAt: IsoDateTimeSchema.nullable().default(null),
   extractionStatus: ResumeExtractionStatusSchema.default("not_started"),

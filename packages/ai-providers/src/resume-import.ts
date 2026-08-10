@@ -28,6 +28,14 @@ export const ResumeImportExtractionStageSchema = z.enum(
 export type ResumeImportExtractionStage = z.infer<
   typeof ResumeImportExtractionStageSchema
 >;
+export const ResumeImportStageExtractionTimingSchema = z.object({
+  durationMs: z.number().int().min(0),
+  primaryProviderMs: z.number().int().min(0).nullable().default(null),
+  deterministicFallbackMs: z.number().int().min(0).nullable().default(null),
+});
+export type ResumeImportStageExtractionTiming = z.infer<
+  typeof ResumeImportStageExtractionTimingSchema
+>;
 
 export const ResumeImportStageExtractionResultSchema = z.object({
   stage: ResumeImportExtractionStageSchema,
@@ -35,6 +43,7 @@ export const ResumeImportStageExtractionResultSchema = z.object({
   analysisProviderLabel: NonEmptyStringSchema,
   candidates: z.array(ResumeImportFieldCandidateDraftSchema).default([]),
   notes: z.array(NonEmptyStringSchema).default([]),
+  timing: ResumeImportStageExtractionTimingSchema.nullable().optional(),
 });
 export type ResumeImportStageExtractionResult = z.infer<
   typeof ResumeImportStageExtractionResultSchema
@@ -53,11 +62,20 @@ const stageSectionHints: Record<
 > = {
   identity_summary: ["identity", "summary", "contact"],
   experience: ["experience"],
-  background: ["skills", "education", "certifications", "projects", "languages"],
+  background: [
+    "skills",
+    "education",
+    "certifications",
+    "projects",
+    "languages",
+  ],
   shared_memory: ["summary", "experience", "projects", "skills", "contact"],
 };
 
-function matchesAnyPattern(value: string, patterns: readonly RegExp[]): boolean {
+function matchesAnyPattern(
+  value: string,
+  patterns: readonly RegExp[],
+): boolean {
   return patterns.some((pattern) => pattern.test(value));
 }
 
@@ -96,7 +114,9 @@ function sliceHeadingRange(
   return blocks.slice(startIndex, stopIndex === -1 ? undefined : stopIndex);
 }
 
-function dedupeBlocks(blocks: readonly ResumeDocumentBlock[]): ResumeDocumentBlock[] {
+function dedupeBlocks(
+  blocks: readonly ResumeDocumentBlock[],
+): ResumeDocumentBlock[] {
   const seen = new Set<string>();
 
   return blocks.filter((block) => {
@@ -117,7 +137,9 @@ function sortBlocksForStructuredExtraction(
       return left.pageNumber - right.pageNumber;
     }
 
-    const topDelta = (left.bbox?.top ?? left.readingOrder) - (right.bbox?.top ?? right.readingOrder);
+    const topDelta =
+      (left.bbox?.top ?? left.readingOrder) -
+      (right.bbox?.top ?? right.readingOrder);
     if (Math.abs(topDelta) > 1) {
       return topDelta;
     }
@@ -139,8 +161,20 @@ const stageTargetSections: Record<
 > = {
   identity_summary: ["identity", "contact", "location", "search_preferences"],
   experience: ["experience"],
-  background: ["education", "certification", "link", "project", "language", "skill"],
-  shared_memory: ["narrative", "proof_point", "answer_bank", "application_identity"],
+  background: [
+    "education",
+    "certification",
+    "link",
+    "project",
+    "language",
+    "skill",
+  ],
+  shared_memory: [
+    "narrative",
+    "proof_point",
+    "answer_bank",
+    "application_identity",
+  ],
 };
 
 export function buildValuePreview(value: unknown): string | null {
@@ -181,7 +215,11 @@ export function selectBlocksForResumeImportStage(
   const experienceBlocks = sliceHeadingRange(
     blocks,
     [/^work experience$/i, /^experience$/i],
-    [/^education(?: and training)?$/i, /^language skills$/i, /^certifications?$/i],
+    [
+      /^education(?: and training)?$/i,
+      /^language skills$/i,
+      /^certifications?$/i,
+    ],
   );
   const skillsBlocks = sliceHeadingRange(
     blocks,
@@ -198,8 +236,15 @@ export function selectBlocksForResumeImportStage(
     [/^language skills$/i],
     [/^certifications?$/i],
   );
-  const preSkillsCutoff = findHeadingIndex(blocks, 0, [/^skills$/i, /^work experience$/i, /^experience$/i]);
-  const introBlocks = blocks.slice(0, preSkillsCutoff === -1 ? Math.min(blocks.length, 16) : preSkillsCutoff);
+  const preSkillsCutoff = findHeadingIndex(blocks, 0, [
+    /^skills$/i,
+    /^work experience$/i,
+    /^experience$/i,
+  ]);
+  const introBlocks = blocks.slice(
+    0,
+    preSkillsCutoff === -1 ? Math.min(blocks.length, 16) : preSkillsCutoff,
+  );
 
   if (stage === "identity_summary") {
     const selected = dedupeBlocks([
@@ -240,7 +285,9 @@ export function selectBlocksForResumeImportStage(
   }
 
   const preferredHints = new Set(stageSectionHints[stage]);
-  const preferredBlocks = blocks.filter((block) => preferredHints.has(block.sectionHint));
+  const preferredBlocks = blocks.filter((block) =>
+    preferredHints.has(block.sectionHint),
+  );
 
   if (preferredBlocks.length > 0) {
     return preferredBlocks;
@@ -253,7 +300,9 @@ export function sanitizeStageCandidates(
   input: ExtractResumeImportStageInput,
   output: ResumeImportStageExtractionResult,
 ): ResumeImportStageExtractionResult {
-  const validBlockIds = new Set(input.documentBundle.blocks.map((block) => block.id));
+  const validBlockIds = new Set(
+    input.documentBundle.blocks.map((block) => block.id),
+  );
   const validSections = new Set(stageTargetSections[input.stage]);
 
   const candidates = output.candidates.flatMap((candidate) => {
@@ -264,8 +313,11 @@ export function sanitizeStageCandidates(
     return [
       ResumeImportFieldCandidateDraftSchema.parse({
         ...candidate,
-        valuePreview: candidate.valuePreview ?? buildValuePreview(candidate.value),
-        sourceBlockIds: candidate.sourceBlockIds.filter((id) => validBlockIds.has(id)),
+        valuePreview:
+          candidate.valuePreview ?? buildValuePreview(candidate.value),
+        sourceBlockIds: candidate.sourceBlockIds.filter((id) =>
+          validBlockIds.has(id),
+        ),
         confidenceBreakdown:
           candidate.confidenceBreakdown ??
           buildCandidateConfidenceBreakdown({

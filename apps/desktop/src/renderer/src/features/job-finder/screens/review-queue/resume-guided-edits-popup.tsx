@@ -1,39 +1,65 @@
-import { MessageSquare, Minimize2, Sparkles } from "lucide-react";
+import {
+  GripHorizontal,
+  Maximize2,
+  MessageSquare,
+  Minimize2,
+  Sparkles,
+  X,
+} from "lucide-react";
+import { createPortal } from "react-dom";
 import {
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
   type MouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import type { ResumeAssistantMessage } from "@unemployed/contracts";
+import type {
+  ResumeAssistantMessage,
+  ResumeDraft,
+} from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
 import { FieldLabel } from "@renderer/components/ui/field";
 import { ScrollArea } from "@renderer/components/ui/scroll-area";
 import { Textarea } from "@renderer/components/ui/textarea";
 import { cn } from "@renderer/lib/cn";
 import {
+  COPILOT_BOTTOM_OFFSET,
   COPILOT_NAV_SAFE_OFFSET,
   clampCopilotPosition,
+  getDefaultCopilotPosition,
   getCopilotPanelDimensions,
 } from "../../components/profile/profile-copilot-rail-layout";
 import { ThinkingDots } from "../../components/profile/profile-copilot-rail-sections";
 import { formatTimestamp } from "./resume-workspace-utils";
+import { ResumeAssistantProposalCard } from "./resume-assistant-proposal-card";
 
 export function ResumeGuidedEditsPopup(props: {
   assistantMessages: readonly ResumeAssistantMessage[];
   assistantPending: boolean;
+  draft?: ResumeDraft | null;
   isWorkspacePending: boolean;
   onSendAssistantMessage: (content: string) => void;
+  onResolveProposal?: (
+    proposalId: string,
+    action: "accept" | "reject",
+    patchIds: readonly string[],
+  ) => void;
 }) {
   const [input, setInput] = useState("");
   const [isOpen, setIsOpen] = useState(false);
-  const [position, setPosition] = useState({ x: 20, y: 20 });
+  const [isMaximized, setIsMaximized] = useState(false);
+  const [safeTopOffset, setSafeTopOffset] = useState(COPILOT_NAV_SAFE_OFFSET);
+  const [position, setPosition] = useState(() => getDefaultCopilotPosition());
+  const [hasCustomPosition, setHasCustomPosition] = useState(false);
   const composerId = useId();
   const panelId = useId();
   const titleId = useId();
+  const popupRootRef = useRef<HTMLDivElement | null>(null);
+  const wasOpenRef = useRef(false);
   const transcriptViewportRef = useRef<HTMLDivElement | null>(null);
   const dragStateRef = useRef<{
     pointerId: number;
@@ -42,15 +68,47 @@ export function ResumeGuidedEditsPopup(props: {
     startX: number;
     startY: number;
     moved: boolean;
+    suppressClickOnFinish: boolean;
   } | null>(null);
   const suppressNextBubbleClickRef = useRef(false);
-  const panelDimensions = getCopilotPanelDimensions(20);
+  const panelDimensions = getCopilotPanelDimensions(safeTopOffset);
 
-  useEffect(() => {
-    if (props.assistantMessages.length > 0 || props.assistantPending) {
-      setIsOpen(true);
+  useLayoutEffect(() => {
+    const shellHeader = document.querySelector<HTMLElement>(
+      "[data-job-finder-shell-header]",
+    );
+    const workspaceTopActions = document.querySelector<HTMLElement>(
+      "[data-resume-workspace-top-actions]",
+    );
+    const safeTopSources = [shellHeader, workspaceTopActions].filter(
+      (element): element is HTMLElement => element !== null,
+    );
+
+    if (safeTopSources.length === 0) {
+      return;
     }
-  }, [props.assistantMessages.length, props.assistantPending]);
+
+    const updateSafeTopOffset = () => {
+      setSafeTopOffset(
+        Math.max(
+          COPILOT_NAV_SAFE_OFFSET,
+          ...safeTopSources.map((element) =>
+            Math.ceil(element.getBoundingClientRect().bottom + 16),
+          ),
+        ),
+      );
+    };
+    const observer = new ResizeObserver(updateSafeTopOffset);
+
+    updateSafeTopOffset();
+    safeTopSources.forEach((element) => observer.observe(element));
+    window.addEventListener("resize", updateSafeTopOffset);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateSafeTopOffset);
+    };
+  }, []);
 
   useEffect(() => {
     setPosition((current) =>
@@ -58,11 +116,11 @@ export function ResumeGuidedEditsPopup(props: {
         x: current.x,
         y: current.y,
         isOpen,
-        minBottomOffset: 20,
-        containerMinBottomOffset: 20,
+        minBottomOffset: COPILOT_BOTTOM_OFFSET,
+        minTopOffset: safeTopOffset,
       }),
     );
-  }, [isOpen]);
+  }, [isOpen, safeTopOffset]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -75,15 +133,49 @@ export function ResumeGuidedEditsPopup(props: {
           x: current.x,
           y: current.y,
           isOpen,
-          minBottomOffset: 20,
-          containerMinBottomOffset: 20,
+          minBottomOffset: COPILOT_BOTTOM_OFFSET,
+          minTopOffset: safeTopOffset,
         }),
       );
     };
 
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
+  }, [isOpen, safeTopOffset]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented || event.key !== "Escape") {
+        return;
+      }
+
+      setIsMaximized(false);
+      setIsOpen(false);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen]);
+
+  useEffect(() => {
+    const wasOpen = wasOpenRef.current;
+    wasOpenRef.current = isOpen;
+
+    if (isOpen && !wasOpen) {
+      document.getElementById(composerId)?.focus();
+      return;
+    }
+
+    if (!isOpen && wasOpen) {
+      popupRootRef.current
+        ?.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')
+        ?.focus();
+    }
+  }, [composerId, isOpen]);
 
   useEffect(() => {
     const transcriptViewport = transcriptViewportRef.current;
@@ -121,58 +213,95 @@ export function ResumeGuidedEditsPopup(props: {
   }
 
   function toggleOpen() {
-    setIsOpen((current) => !current);
-  }
-
-  function handleBubblePointerDown(
-    event: ReactPointerEvent<HTMLButtonElement>,
-  ) {
-    if (!event.isPrimary || event.button !== 0) {
+    if (isOpen) {
+      setIsMaximized(false);
+      setPosition((current) =>
+        clampCopilotPosition({
+          ...current,
+          isOpen: false,
+          minBottomOffset: COPILOT_BOTTOM_OFFSET,
+          minTopOffset: safeTopOffset,
+        }),
+      );
+      setIsOpen(false);
       return;
     }
+
+    setPosition((current) =>
+      clampCopilotPosition({
+        ...current,
+        isOpen: true,
+        minBottomOffset: COPILOT_BOTTOM_OFFSET,
+        minTopOffset: safeTopOffset,
+      }),
+    );
+    setIsOpen(true);
+  }
+
+  function toggleMaximized() {
+    setIsMaximized((current) => !current);
+  }
+
+  function beginDrag(event: ReactPointerEvent<HTMLElement>) {
+    if (event.isPrimary === false || event.button !== 0 || isMaximized) {
+      return;
+    }
+
+    const target = event.target as HTMLElement;
+    const interactiveTarget = target.closest<HTMLElement>(
+      "button, textarea, input, a, [role='button']",
+    );
+    if (interactiveTarget && interactiveTarget !== event.currentTarget) {
+      return;
+    }
+
+    const renderedBounds = event.currentTarget.getBoundingClientRect();
+    const useRenderedAnchor = !isOpen && !hasCustomPosition;
 
     dragStateRef.current = {
       pointerId: event.pointerId,
       originX: event.clientX,
       originY: event.clientY,
-      startX: position.x,
-      startY: position.y,
+      startX: useRenderedAnchor ? renderedBounds.left : position.x,
+      startY: useRenderedAnchor ? renderedBounds.top : position.y,
       moved: false,
+      suppressClickOnFinish: event.currentTarget instanceof HTMLButtonElement,
     };
 
-    event.currentTarget.setPointerCapture(event.pointerId);
+    if (typeof event.currentTarget.setPointerCapture === "function") {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
   }
 
-  function handleBubblePointerMove(
-    event: ReactPointerEvent<HTMLButtonElement>,
-  ) {
+  function updateDrag(event: ReactPointerEvent<HTMLElement>) {
     const dragState = dragStateRef.current;
 
     if (!dragState || dragState.pointerId !== event.pointerId) {
       return;
     }
 
-    const deltaX = dragState.originX - event.clientX;
-    const deltaY = dragState.originY - event.clientY;
+    const deltaX = event.clientX - dragState.originX;
+    const deltaY = event.clientY - dragState.originY;
 
     if (!dragState.moved && Math.abs(deltaX) + Math.abs(deltaY) < 6) {
       return;
     }
 
     dragState.moved = true;
+    setHasCustomPosition(true);
     setPosition(
       clampCopilotPosition({
         x: dragState.startX + deltaX,
         y: dragState.startY + deltaY,
         isOpen,
-        minBottomOffset: 20,
-        containerMinBottomOffset: 20,
+        minBottomOffset: COPILOT_BOTTOM_OFFSET,
+        minTopOffset: safeTopOffset,
       }),
     );
   }
 
-  function handleBubblePointerUp(event: ReactPointerEvent<HTMLButtonElement>) {
-    if (!event.isPrimary || event.button !== 0) {
+  function finishDrag(event: ReactPointerEvent<HTMLElement>) {
+    if (event.isPrimary === false || event.button !== 0) {
       return;
     }
 
@@ -182,27 +311,39 @@ export function ResumeGuidedEditsPopup(props: {
       return;
     }
 
-    event.currentTarget.releasePointerCapture(event.pointerId);
+    if (
+      typeof event.currentTarget.hasPointerCapture === "function" &&
+      event.currentTarget.hasPointerCapture(event.pointerId)
+    ) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
     dragStateRef.current = null;
-    suppressNextBubbleClickRef.current = dragState.moved;
+    if (dragState.suppressClickOnFinish) {
+      suppressNextBubbleClickRef.current = dragState.moved;
+    }
 
     if (!dragState.moved) {
       event.preventDefault();
     }
   }
 
-  function handleBubblePointerCancel(
-    event: ReactPointerEvent<HTMLButtonElement>,
-  ) {
+  function cancelDrag(event: ReactPointerEvent<HTMLElement>) {
     const dragState = dragStateRef.current;
 
     if (!dragState || dragState.pointerId !== event.pointerId) {
       return;
     }
 
-    event.currentTarget.releasePointerCapture(event.pointerId);
+    if (
+      typeof event.currentTarget.hasPointerCapture === "function" &&
+      event.currentTarget.hasPointerCapture(event.pointerId)
+    ) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
     dragStateRef.current = null;
-    suppressNextBubbleClickRef.current = dragState.moved;
+    if (dragState.suppressClickOnFinish) {
+      suppressNextBubbleClickRef.current = dragState.moved;
+    }
   }
 
   function handleBubbleClick(event: MouseEvent<HTMLButtonElement>) {
@@ -218,40 +359,68 @@ export function ResumeGuidedEditsPopup(props: {
     toggleOpen();
   }
 
-  function handleBubbleKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
-    if (event.key !== "Enter" && event.key !== " ") {
-      return;
-    }
-
-    event.preventDefault();
-    suppressNextBubbleClickRef.current = true;
-    toggleOpen();
+  if (typeof document === "undefined") {
+    return null;
   }
 
-  return (
+  return createPortal(
     <div
-      className="pointer-events-none fixed z-60 hidden max-w-[min(30rem,calc(100vw-2rem))] flex-col items-end gap-3 xl:flex"
+      className="pointer-events-none fixed z-60 hidden max-w-[min(30rem,calc(100vw-2rem))] flex-col items-start gap-3 xl:flex"
       data-resume-guided-edits-open={isOpen ? "true" : "false"}
-      style={{
-        bottom: `${Math.max(position.y, 20)}px`,
-        right: `${position.x}px`,
-      }}
+      ref={popupRootRef}
+      style={
+        isOpen && isMaximized
+          ? {
+              left: `${COPILOT_BOTTOM_OFFSET}px`,
+              top: `${safeTopOffset}px`,
+            }
+          : !isOpen && !hasCustomPosition
+            ? {
+                bottom: `${COPILOT_BOTTOM_OFFSET}px`,
+                left: `${COPILOT_BOTTOM_OFFSET}px`,
+              }
+            : {
+                top: `${position.y}px`,
+                left: `${position.x}px`,
+              }
+      }
     >
       {isOpen ? (
         <aside
           aria-labelledby={titleId}
-          className="pointer-events-auto surface-panel-shell flex min-w-0 flex-col overflow-hidden rounded-(--radius-panel) border border-(--guided-edits-panel-border) bg-(--guided-edits-panel-bg) shadow-(--guided-edits-panel-shadow) backdrop-blur"
+          className="pointer-events-auto surface-popover-solid flex min-w-0 flex-col overflow-hidden rounded-(--radius-panel) border border-(--guided-edits-panel-border) bg-(--guided-edits-panel-bg) shadow-(--guided-edits-panel-shadow)"
+          data-resume-guided-edits-maximized={isMaximized ? "true" : "false"}
           id={panelId}
           role="dialog"
           style={{
-            width: `${panelDimensions.expandedWidth}px`,
-            height: `${panelDimensions.expandedHeight}px`,
+            width: isMaximized
+              ? `calc(100vw - ${COPILOT_BOTTOM_OFFSET * 2}px)`
+              : `${panelDimensions.expandedWidth}px`,
+            height: isMaximized
+              ? `calc(100vh - ${safeTopOffset + COPILOT_BOTTOM_OFFSET}px)`
+              : `${panelDimensions.expandedHeight}px`,
             maxWidth: "calc(100vw - 2rem)",
-            maxHeight: `calc(100vh - ${COPILOT_NAV_SAFE_OFFSET}px)`,
+            maxHeight: `calc(100vh - ${safeTopOffset + COPILOT_BOTTOM_OFFSET}px)`,
           }}
         >
-          <header className="flex items-center justify-between gap-3 border-b border-border/30 px-5 py-4">
+          <header
+            aria-label="Drag guided edits"
+            className={cn(
+              "flex touch-none select-none items-center justify-between gap-3 border-b border-border/30 px-5 py-4",
+              isMaximized
+                ? "cursor-default"
+                : "cursor-grab active:cursor-grabbing",
+            )}
+            onPointerCancel={cancelDrag}
+            onPointerDown={beginDrag}
+            onPointerMove={updateDrag}
+            onPointerUp={finishDrag}
+          >
             <div className="flex min-w-0 items-center gap-3">
+              <GripHorizontal
+                aria-hidden="true"
+                className="size-4 shrink-0 text-muted-foreground"
+              />
               <div className="flex size-9 items-center justify-center rounded-full border border-primary/20 bg-primary/10 text-primary">
                 <MessageSquare className="size-4" />
               </div>
@@ -267,17 +436,38 @@ export function ResumeGuidedEditsPopup(props: {
                 </p>
               </div>
             </div>
-            <Button
-              aria-controls={panelId}
-              aria-expanded={isOpen}
-              aria-label="Minimize guided edits"
-              onClick={toggleOpen}
-              size="icon-xs"
-              type="button"
-              variant="ghost"
-            >
-              <Minimize2 className="size-3.5" />
-            </Button>
+            <div className="ml-auto flex shrink-0 items-center gap-1">
+              <Button
+                aria-label={
+                  isMaximized ? "Restore guided edits" : "Maximize guided edits"
+                }
+                onClick={toggleMaximized}
+                size="icon-xs"
+                title={
+                  isMaximized ? "Restore guided edits" : "Maximize guided edits"
+                }
+                type="button"
+                variant="ghost"
+              >
+                {isMaximized ? (
+                  <Minimize2 className="size-3.5" />
+                ) : (
+                  <Maximize2 className="size-3.5" />
+                )}
+              </Button>
+              <Button
+                aria-controls={panelId}
+                aria-expanded={isOpen}
+                aria-label="Minimize guided edits"
+                onClick={toggleOpen}
+                size="icon-xs"
+                title="Minimize guided edits"
+                type="button"
+                variant="ghost"
+              >
+                <X className="size-3.5" />
+              </Button>
+            </div>
           </header>
 
           <div className="flex min-h-0 flex-1 flex-col">
@@ -323,6 +513,17 @@ export function ResumeGuidedEditsPopup(props: {
                           <p className="whitespace-pre-wrap break-words">
                             {message.content}
                           </p>
+                          {isAssistant &&
+                          props.draft &&
+                          props.onResolveProposal &&
+                          message.proposalStatus !== "none" ? (
+                            <ResumeAssistantProposalCard
+                              draft={props.draft}
+                              isPending={props.isWorkspacePending}
+                              message={message}
+                              onResolve={props.onResolveProposal}
+                            />
+                          ) : null}
                         </div>
                       </article>
                     );
@@ -382,7 +583,7 @@ export function ResumeGuidedEditsPopup(props: {
                   <p className="text-(length:--text-tiny) text-muted-foreground">
                     {props.assistantPending
                       ? "Assistant is thinking. You can keep typing or move this chat while it works."
-                      : "Press Enter to send. Shift+Enter adds a new line. Drag the bubble to move it."}
+                      : "Press Enter to send. Shift+Enter adds a new line. Drag the panel header to move it."}
                   </p>
                   <Button
                     className="min-w-28 px-4"
@@ -403,46 +604,43 @@ export function ResumeGuidedEditsPopup(props: {
         </aside>
       ) : null}
 
-      <Button
-        aria-label={isOpen ? "Minimize guided edits" : "Open guided edits"}
-        aria-expanded={isOpen}
-        aria-haspopup="dialog"
-        className="pointer-events-auto h-auto min-h-14 rounded-full px-4 py-3 shadow-(--guided-edits-bubble-shadow)"
-        onClick={handleBubbleClick}
-        onKeyDown={handleBubbleKeyDown}
-        onPointerCancel={handleBubblePointerCancel}
-        onPointerDown={handleBubblePointerDown}
-        onPointerMove={handleBubblePointerMove}
-        onPointerUp={handleBubblePointerUp}
-        type="button"
-        variant={
-          props.assistantMessages.length > 0 || props.assistantPending
-            ? "primary"
-            : "secondary"
-        }
-      >
-        <span className="flex size-9 items-center justify-center rounded-full border border-current/15 bg-background/15">
-          <MessageSquare className="size-4" />
-        </span>
-        <span className="grid text-left leading-tight">
-          <span className="text-sm font-semibold normal-case tracking-normal">
-            Guided edits
-          </span>
-          <span className="text-xs font-medium normal-case tracking-normal text-primary-foreground/80">
-            {props.assistantPending
-              ? "Replying now"
+      {!isOpen ? (
+        <Button
+          aria-label={
+            props.assistantPending
+              ? "Open guided edits, reply in progress"
               : props.assistantMessages.length > 0
-                ? "Continue this thread"
-                : "Ask for an edit"}
+                ? "Open guided edits, continue thread"
+                : "Open guided edits"
+          }
+          aria-expanded={false}
+          aria-haspopup="dialog"
+          className="pointer-events-auto relative size-12 shrink-0 rounded-full p-0 shadow-(--guided-edits-bubble-shadow)"
+          onClick={handleBubbleClick}
+          onPointerCancel={cancelDrag}
+          onPointerDown={beginDrag}
+          onPointerMove={updateDrag}
+          onPointerUp={finishDrag}
+          title="Open guided edits"
+          type="button"
+          variant={
+            props.assistantMessages.length > 0 || props.assistantPending
+              ? "primary"
+              : "secondary"
+          }
+        >
+          <span className="flex size-9 items-center justify-center rounded-full border border-current/15 bg-background/15">
+            <MessageSquare className="size-4" />
           </span>
-        </span>
-        {props.assistantPending ? (
-          <ThinkingDots
-            className="rounded-full border border-current/15 bg-background/10 px-2 py-1 text-primary-foreground/85"
-            label="Thinking"
-          />
-        ) : null}
-      </Button>
-    </div>
+          {props.assistantPending || props.assistantMessages.length > 0 ? (
+            <span
+              aria-hidden="true"
+              className="absolute right-0.5 top-0.5 size-2.5 rounded-full border-2 border-background bg-primary"
+            />
+          ) : null}
+        </Button>
+      ) : null}
+    </div>,
+    document.body,
   );
 }

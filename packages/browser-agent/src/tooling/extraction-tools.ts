@@ -20,6 +20,7 @@ interface StructuredDataJobCandidate {
   summary?: string | null;
   postedAt?: string | null;
   postedAtText?: string | null;
+  providerUpdatedAt?: string | null;
   salaryText?: string | null;
   workMode?: string[] | null;
   applyPath?: "easy_apply" | "external_redirect" | "unknown" | null;
@@ -78,6 +79,7 @@ const StructuredDataCandidateSchema = z.object({
   summary: z.string().optional().nullable(),
   postedAt: z.string().optional().nullable(),
   postedAtText: z.string().optional().nullable(),
+  providerUpdatedAt: z.string().optional().nullable(),
   salaryText: z.string().optional().nullable(),
   workMode: z.array(z.string()).optional().nullable(),
   applyPath: z
@@ -808,6 +810,8 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                 typeof value === "string"
                   ? value.replace(/\s+/g, " ").trim()
                   : "";
+              const isUnknownArray = (value: unknown): value is unknown[] =>
+                Array.isArray(value);
               const uniqueStrings = (values: readonly string[]): string[] => {
                 const seen = new Set<string>();
                 return values.flatMap((value) => {
@@ -834,14 +838,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                       normalizedHostname.endsWith(`.${hostSuffix}`),
                   );
                 }) ?? null;
-              const findSearchSurfaceRouteRuleForUrl = (value: string) => {
-                try {
-                  const parsed = new URL(value, window.location.href);
-                  return findSearchSurfaceRouteRuleForHostname(parsed.hostname);
-                } catch {
-                  return null;
-                }
-              };
+
               const isSearchSurfaceResultPath = (
                 rule: NonNullable<
                   ReturnType<typeof findSearchSurfaceRouteRuleForHostname>
@@ -1054,6 +1051,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                   summary: toText(candidate.responsibilities) || null,
                   postedAt: toText(candidate.datePosted) || null,
                   postedAtText: toText(candidate.datePosted) || null,
+                  providerUpdatedAt: toText(candidate.dateModified) || null,
                   salaryText:
                     toText(candidate.baseSalary) ||
                     toText(candidate.salaryCurrency) ||
@@ -1082,22 +1080,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
               };
 
               const cardCandidates: RawSearchResultCardCandidate[] = [];
-              const isSearchSurfaceRoute = (value: string): boolean => {
-                try {
-                  const parsed = new URL(value, window.location.href);
-                  const routeRule = findSearchSurfaceRouteRuleForHostname(
-                    parsed.hostname,
-                  );
-                  if (!routeRule) {
-                    return false;
-                  }
 
-                  const pathname = parsed.pathname.toLowerCase();
-                  return isSearchSurfaceResultPath(routeRule, pathname);
-                } catch {
-                  return false;
-                }
-              };
               const looksLikeSearchSurfaceResultCard = (
                 element: HTMLElement,
               ): boolean => {
@@ -1584,7 +1567,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
               ).flatMap((scriptText) => {
                 try {
                   const payload = JSON.parse(scriptText) as unknown;
-                  const queue = Array.isArray(payload)
+                  const queue = isUnknownArray(payload)
                     ? [...payload]
                     : [payload];
                   const jobs: StructuredDataJobCandidate[] = [];
@@ -1594,7 +1577,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                       continue;
                     }
 
-                    if (Array.isArray(current)) {
+                    if (isUnknownArray(current)) {
                       queue.push(...current);
                       continue;
                     }
@@ -1606,7 +1589,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                     }
 
                     const graphValues = record["@graph"];
-                    if (Array.isArray(graphValues)) {
+                    if (isUnknownArray(graphValues)) {
                       queue.push(...graphValues);
                     }
                   }

@@ -75,7 +75,7 @@ export function useProfileSetupForms(input: {
       'proofBank',
     ],
   })
-  const [targetRoles, jobFamilies, seniorityLevels, employmentTypes, locations, excludedLocations, targetIndustries, targetCompanyStages, companyWhitelist, companyBlacklist, workModes, tailoringMode, minimumSalaryUsd, targetSalaryUsd, salaryCurrency, collectOnlyHardCriteriaMatches, discoveryTargets] = useWatch({
+  const [targetRoles, jobFamilies, seniorityLevels, employmentTypes, locations, excludedLocations, targetIndustries, targetCompanyStages, companyWhitelist, companyBlacklist, workModes, tailoringMode, minimumSalaryUsd, targetSalaryUsd, salaryCurrency, compensationInterval, collectOnlyHardCriteriaMatches, discoveryTargets] = useWatch({
     control: preferencesForm.control,
     name: [
       'targetRoles',
@@ -93,6 +93,7 @@ export function useProfileSetupForms(input: {
       'minimumSalaryUsd',
       'targetSalaryUsd',
       'salaryCurrency',
+      'compensationInterval',
       'collectOnlyHardCriteriaMatches',
       'discoveryTargets',
     ],
@@ -125,6 +126,7 @@ export function useProfileSetupForms(input: {
       companyBlacklist,
       collectOnlyHardCriteriaMatches,
       companyWhitelist,
+      compensationInterval,
       currentSearchPreferencesBaseline,
       discoveryTargets,
       employmentTypes,

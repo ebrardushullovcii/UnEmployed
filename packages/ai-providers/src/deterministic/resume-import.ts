@@ -32,7 +32,9 @@ function escapeRegExp(value: string): string {
  * escaped if this helper changes.
  */
 function containsWholePhrase(haystack: string, needle: string): boolean {
-  return new RegExp(`(^|\\W)${escapeRegExp(needle)}(?=\\W|$)`, "i").test(haystack);
+  return new RegExp(`(^|\\W)${escapeRegExp(needle)}(?=\\W|$)`, "i").test(
+    haystack,
+  );
 }
 
 function getExperienceSectionText(resumeText: string): string {
@@ -49,9 +51,9 @@ function getExperienceSectionText(resumeText: string): string {
     return "";
   }
 
-  const endOffset = lines.slice(startIndex + 1).findIndex((line) =>
-    followingSectionHeadingPattern.test(line.trim()),
-  );
+  const endOffset = lines
+    .slice(startIndex + 1)
+    .findIndex((line) => followingSectionHeadingPattern.test(line.trim()));
   const endIndex = endOffset < 0 ? lines.length : startIndex + 1 + endOffset;
 
   return lines.slice(startIndex + 1, endIndex).join("\n");
@@ -123,7 +125,9 @@ function buildYearsExperienceEvidenceCandidates(
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
-  const datedExperienceLines = lines.filter((line) => dateRangePattern.test(line));
+  const datedExperienceLines = lines.filter((line) =>
+    dateRangePattern.test(line),
+  );
 
   return {
     evidenceCandidates: datedExperienceLines.slice(0, 6),
@@ -142,7 +146,8 @@ function buildRelaxedEvidenceCandidates(value: string): string[] {
 
   const withoutPlus = normalized.replace(
     /\b(\d+)\+\s+(years?|yrs?)\b/gi,
-    (_match, count: string) => `${count} ${Number(count) === 1 ? "year" : "years"}`,
+    (_match, count: string) =>
+      `${count} ${Number(count) === 1 ? "year" : "years"}`,
   );
   if (withoutPlus && withoutPlus !== normalized) {
     candidates.add(withoutPlus);
@@ -168,7 +173,9 @@ function buildRelaxedEvidenceCandidates(value: string): string[] {
   return [...candidates].filter((entry) => entry.length > 0);
 }
 
-function buildOrderedEvidenceCandidates(candidates: readonly string[]): string[] {
+function buildOrderedEvidenceCandidates(
+  candidates: readonly string[],
+): string[] {
   const orderedCandidates: string[] = [];
   const seen = new Set<string>();
 
@@ -178,7 +185,9 @@ function buildOrderedEvidenceCandidates(candidates: readonly string[]): string[]
       continue;
     }
 
-    for (const relaxedCandidate of buildRelaxedEvidenceCandidates(trimmedCandidate)) {
+    for (const relaxedCandidate of buildRelaxedEvidenceCandidates(
+      trimmedCandidate,
+    )) {
       if (seen.has(relaxedCandidate)) {
         continue;
       }
@@ -191,7 +200,10 @@ function buildOrderedEvidenceCandidates(candidates: readonly string[]): string[]
   return orderedCandidates;
 }
 
-function findEvidence(bundle: ResumeDocumentBundle, candidates: readonly string[]) {
+function findEvidence(
+  bundle: ResumeDocumentBundle,
+  candidates: readonly string[],
+) {
   const nonEmptyCandidates = candidates
     .map((candidate) => candidate.trim())
     .filter((candidate) => candidate.length > 0);
@@ -232,8 +244,14 @@ function findEvidence(bundle: ResumeDocumentBundle, candidates: readonly string[
     }
 
     // If we couldn't extract a focused snippet, return a truncated version of the block.
-    const truncated = blockText.length > 400 ? `${blockText.slice(0, 400).trim()}...` : blockText.trim();
-    return { sourceBlockIds: [block.id], evidenceText: truncated || (nonEmptyCandidates[0] ?? null) };
+    const truncated =
+      blockText.length > 400
+        ? `${blockText.slice(0, 400).trim()}...`
+        : blockText.trim();
+    return {
+      sourceBlockIds: [block.id],
+      evidenceText: truncated || (nonEmptyCandidates[0] ?? null),
+    };
   }
 
   return {
@@ -242,6 +260,34 @@ function findEvidence(bundle: ResumeDocumentBundle, candidates: readonly string[
   };
 }
 
+function findAllEvidence(
+  bundle: ResumeDocumentBundle,
+  candidates: readonly string[],
+) {
+  const matches = candidates
+    .map((candidate) => findEvidence(bundle, [candidate]))
+    .filter(
+      (match) =>
+        match.sourceBlockIds.length > 0 && Boolean(match.evidenceText?.trim()),
+    );
+  const sourceBlockIds = [
+    ...new Set(matches.flatMap((match) => match.sourceBlockIds)),
+  ];
+  const evidenceText = [
+    ...new Set(
+      matches.flatMap((match) =>
+        match.evidenceText?.trim() ? [match.evidenceText.trim()] : [],
+      ),
+    ),
+  ]
+    .join(" | ")
+    .slice(0, 1_500);
+
+  return {
+    sourceBlockIds,
+    evidenceText: evidenceText || null,
+  };
+}
 function createCandidate(
   bundle: ResumeDocumentBundle,
   input: {
@@ -251,10 +297,13 @@ function createCandidate(
     normalizedValue?: unknown;
     confidence: number;
     evidenceCandidates: readonly string[];
+    collectAllEvidence?: boolean;
     notes?: readonly string[];
   },
 ): ResumeImportFieldCandidateDraft {
-  const evidence = findEvidence(bundle, input.evidenceCandidates);
+  const evidence = input.collectAllEvidence
+    ? findAllEvidence(bundle, input.evidenceCandidates)
+    : findEvidence(bundle, input.evidenceCandidates);
 
   return ResumeImportFieldCandidateDraftSchema.parse({
     target: input.target,
@@ -287,10 +336,14 @@ function getRecordStringValue(
 }
 
 function toResumeText(bundle: ResumeDocumentBundle): string {
-  return bundle.fullText ?? bundle.blocks.map((block) => block.text).join("\n\n");
+  return (
+    bundle.fullText ?? bundle.blocks.map((block) => block.text).join("\n\n")
+  );
 }
 
-function toExperienceOnlyBundle(bundle: ResumeDocumentBundle): ResumeDocumentBundle {
+function toExperienceOnlyBundle(
+  bundle: ResumeDocumentBundle,
+): ResumeDocumentBundle {
   const resumeText = toResumeText(bundle);
   const experienceText = getExperienceSectionText(resumeText);
   const normalizedExperienceText = normalizeText(experienceText);
@@ -329,7 +382,10 @@ export function buildDeterministicResumeImportStageExtraction(
     { preserveExistingValues: false },
   );
   const candidates: ResumeImportFieldCandidateDraft[] = [];
-  const existingProfileValues = input.existingProfile as Record<string, unknown>;
+  const existingProfileValues = input.existingProfile as Record<
+    string,
+    unknown
+  >;
   const existingSearchPreferenceValues =
     input.existingSearchPreferences as Record<string, unknown>;
 
@@ -341,6 +397,7 @@ export function buildDeterministicResumeImportStageExtraction(
     evidenceCandidates: readonly string[],
     options?: {
       evidenceBundle?: ResumeDocumentBundle;
+      collectAllEvidence?: boolean;
       normalizedValue?: unknown;
       notes?: readonly string[];
     },
@@ -372,7 +429,10 @@ export function buildDeterministicResumeImportStageExtraction(
       }
 
       if (target.section === "search_preferences") {
-        const existing = getRecordStringValue(existingSearchPreferenceValues, key);
+        const existing = getRecordStringValue(
+          existingSearchPreferenceValues,
+          key,
+        );
         if (existing && existing === value) {
           return;
         }
@@ -386,6 +446,7 @@ export function buildDeterministicResumeImportStageExtraction(
         value,
         confidence,
         evidenceCandidates,
+        ...(options?.collectAllEvidence ? { collectAllEvidence: true } : {}),
         normalizedValue: options?.normalizedValue,
         notes: options?.notes ?? [],
       }),
@@ -394,15 +455,59 @@ export function buildDeterministicResumeImportStageExtraction(
 
   if (input.stage === "identity_summary") {
     const yearsExperience = extraction.yearsExperience;
-    const experienceEvidenceBundle = toExperienceOnlyBundle(input.documentBundle);
+    const experienceEvidenceBundle = toExperienceOnlyBundle(
+      input.documentBundle,
+    );
 
-    add({ section: "identity", key: "fullName", recordId: null }, "Full name", extraction.fullName, 0.96, [extraction.fullName ?? ""]);
-    add({ section: "identity", key: "firstName", recordId: null }, "First name", extraction.firstName, 0.92, [extraction.firstName ?? "", extraction.fullName ?? ""]);
-    add({ section: "identity", key: "middleName", recordId: null }, "Middle name", extraction.middleName, 0.85, [extraction.middleName ?? "", extraction.fullName ?? ""]);
-    add({ section: "identity", key: "lastName", recordId: null }, "Last name", extraction.lastName, 0.92, [extraction.lastName ?? "", extraction.fullName ?? ""]);
-    add({ section: "identity", key: "headline", recordId: null }, "Headline", extraction.headline, 0.84, [extraction.headline ?? ""]);
-    add({ section: "identity", key: "summary", recordId: null }, "Summary", extraction.summary, 0.8, [extraction.summary ?? ""]);
-    add({ section: "location", key: "currentLocation", recordId: null }, "Current location", extraction.currentLocation, 0.9, [extraction.currentLocation ?? ""]);
+    add(
+      { section: "identity", key: "fullName", recordId: null },
+      "Full name",
+      extraction.fullName,
+      0.96,
+      [extraction.fullName ?? ""],
+    );
+    add(
+      { section: "identity", key: "firstName", recordId: null },
+      "First name",
+      extraction.firstName,
+      0.92,
+      [extraction.firstName ?? "", extraction.fullName ?? ""],
+    );
+    add(
+      { section: "identity", key: "middleName", recordId: null },
+      "Middle name",
+      extraction.middleName,
+      0.85,
+      [extraction.middleName ?? "", extraction.fullName ?? ""],
+    );
+    add(
+      { section: "identity", key: "lastName", recordId: null },
+      "Last name",
+      extraction.lastName,
+      0.92,
+      [extraction.lastName ?? "", extraction.fullName ?? ""],
+    );
+    add(
+      { section: "identity", key: "headline", recordId: null },
+      "Headline",
+      extraction.headline,
+      0.84,
+      [extraction.headline ?? ""],
+    );
+    add(
+      { section: "identity", key: "summary", recordId: null },
+      "Summary",
+      extraction.summary,
+      0.8,
+      [extraction.summary ?? ""],
+    );
+    add(
+      { section: "location", key: "currentLocation", recordId: null },
+      "Current location",
+      extraction.currentLocation,
+      0.9,
+      [extraction.currentLocation ?? ""],
+    );
     add(
       { section: "location", key: "timeZone", recordId: null },
       "Time zone",
@@ -437,15 +542,69 @@ export function buildDeterministicResumeImportStageExtraction(
         },
       );
     }
-    add({ section: "contact", key: "email", recordId: null }, "Email", extraction.email, 0.98, [extraction.email ?? ""]);
-    add({ section: "contact", key: "phone", recordId: null }, "Phone", extraction.phone, 0.94, [extraction.phone ?? ""]);
-    add({ section: "contact", key: "portfolioUrl", recordId: null }, "Portfolio URL", extraction.portfolioUrl, 0.9, [extraction.portfolioUrl ?? ""]);
-    add({ section: "contact", key: "linkedinUrl", recordId: null }, "LinkedIn URL", extraction.linkedinUrl, 0.96, [extraction.linkedinUrl ?? ""]);
-    add({ section: "contact", key: "githubUrl", recordId: null }, "GitHub URL", extraction.githubUrl, 0.96, [extraction.githubUrl ?? ""]);
-    add({ section: "contact", key: "personalWebsiteUrl", recordId: null }, "Personal website", extraction.personalWebsiteUrl, 0.88, [extraction.personalWebsiteUrl ?? ""]);
-    add({ section: "search_preferences", key: "targetRoles", recordId: null }, "Target roles", extraction.targetRoles, 0.72, extraction.targetRoles);
-    add({ section: "search_preferences", key: "locations", recordId: null }, "Preferred locations", extraction.preferredLocations, 0.72, extraction.preferredLocations);
-    add({ section: "search_preferences", key: "salaryCurrency", recordId: null }, "Salary currency", extraction.salaryCurrency, 0.6, [extraction.currentLocation ?? ""]);
+    add(
+      { section: "contact", key: "email", recordId: null },
+      "Email",
+      extraction.email,
+      0.98,
+      [extraction.email ?? ""],
+    );
+    add(
+      { section: "contact", key: "phone", recordId: null },
+      "Phone",
+      extraction.phone,
+      0.94,
+      [extraction.phone ?? ""],
+    );
+    add(
+      { section: "contact", key: "portfolioUrl", recordId: null },
+      "Portfolio URL",
+      extraction.portfolioUrl,
+      0.9,
+      [extraction.portfolioUrl ?? ""],
+    );
+    add(
+      { section: "contact", key: "linkedinUrl", recordId: null },
+      "LinkedIn URL",
+      extraction.linkedinUrl,
+      0.96,
+      [extraction.linkedinUrl ?? ""],
+    );
+    add(
+      { section: "contact", key: "githubUrl", recordId: null },
+      "GitHub URL",
+      extraction.githubUrl,
+      0.96,
+      [extraction.githubUrl ?? ""],
+    );
+    add(
+      { section: "contact", key: "personalWebsiteUrl", recordId: null },
+      "Personal website",
+      extraction.personalWebsiteUrl,
+      0.88,
+      [extraction.personalWebsiteUrl ?? ""],
+    );
+    add(
+      { section: "search_preferences", key: "targetRoles", recordId: null },
+      "Target roles",
+      extraction.targetRoles,
+      0.72,
+      extraction.targetRoles,
+    );
+    add(
+      { section: "search_preferences", key: "locations", recordId: null },
+      "Preferred locations",
+      extraction.preferredLocations,
+      0.72,
+      extraction.preferredLocations,
+    );
+    add(
+      { section: "search_preferences", key: "salaryCurrency", recordId: null },
+      "Salary currency",
+      extraction.salaryCurrency,
+      0.6,
+      [extraction.currentLocation ?? ""],
+    );
   }
 
   if (input.stage === "experience") {
@@ -472,33 +631,132 @@ export function buildDeterministicResumeImportStageExtraction(
   }
 
   if (input.stage === "background") {
-    add({ section: "skill", key: "skills", recordId: null }, "Skills", extraction.skills, 0.78, extraction.skills);
-    add({ section: "skill", key: "skillGroups.coreSkills", recordId: null }, "Core skills", extraction.skillGroups.coreSkills, 0.78, extraction.skillGroups.coreSkills);
-    add({ section: "skill", key: "skillGroups.tools", recordId: null }, "Tools", extraction.skillGroups.tools, 0.76, extraction.skillGroups.tools);
-    add({ section: "skill", key: "skillGroups.languagesAndFrameworks", recordId: null }, "Languages and frameworks", extraction.skillGroups.languagesAndFrameworks, 0.76, extraction.skillGroups.languagesAndFrameworks);
-    add({ section: "skill", key: "skillGroups.softSkills", recordId: null }, "Soft skills", extraction.skillGroups.softSkills, 0.74, extraction.skillGroups.softSkills);
-    add({ section: "skill", key: "skillGroups.highlightedSkills", recordId: null }, "Highlighted skills", extraction.skillGroups.highlightedSkills, 0.74, extraction.skillGroups.highlightedSkills);
+    add(
+      { section: "skill", key: "skills", recordId: null },
+      "Skills",
+      extraction.skills,
+      0.78,
+      extraction.skills,
+    );
+    add(
+      { section: "skill", key: "skillGroups.coreSkills", recordId: null },
+      "Core skills",
+      extraction.skillGroups.coreSkills,
+      0.78,
+      extraction.skillGroups.coreSkills,
+    );
+    add(
+      { section: "skill", key: "skillGroups.tools", recordId: null },
+      "Tools",
+      extraction.skillGroups.tools,
+      0.76,
+      extraction.skillGroups.tools,
+    );
+    add(
+      {
+        section: "skill",
+        key: "skillGroups.languagesAndFrameworks",
+        recordId: null,
+      },
+      "Languages and frameworks",
+      extraction.skillGroups.languagesAndFrameworks,
+      0.76,
+      extraction.skillGroups.languagesAndFrameworks,
+    );
+    add(
+      { section: "skill", key: "skillGroups.softSkills", recordId: null },
+      "Soft skills",
+      extraction.skillGroups.softSkills,
+      0.74,
+      extraction.skillGroups.softSkills,
+    );
+    add(
+      {
+        section: "skill",
+        key: "skillGroups.highlightedSkills",
+        recordId: null,
+      },
+      "Highlighted skills",
+      extraction.skillGroups.highlightedSkills,
+      0.74,
+      extraction.skillGroups.highlightedSkills,
+    );
 
     extraction.education.forEach((entry, index) => {
-      add({ section: "education", key: "record", recordId: `education_${index + 1}` }, entry.schoolName ?? `Education ${index + 1}`, entry, entry.schoolName ? 0.8 : 0.56, [entry.schoolName ?? "", entry.degree ?? "", entry.fieldOfStudy ?? ""]);
+      add(
+        {
+          section: "education",
+          key: "record",
+          recordId: `education_${index + 1}`,
+        },
+        entry.schoolName ?? `Education ${index + 1}`,
+        entry,
+        entry.schoolName ? 0.8 : 0.56,
+        [entry.schoolName ?? "", entry.degree ?? "", entry.fieldOfStudy ?? ""],
+        { collectAllEvidence: true },
+      );
     });
     extraction.certifications.forEach((entry, index) => {
-      add({ section: "certification", key: "record", recordId: `certification_${index + 1}` }, entry.name ?? `Certification ${index + 1}`, entry, entry.name ? 0.76 : 0.54, [entry.name ?? "", entry.issuer ?? ""]);
+      add(
+        {
+          section: "certification",
+          key: "record",
+          recordId: `certification_${index + 1}`,
+        },
+        entry.name ?? `Certification ${index + 1}`,
+        entry,
+        entry.name ? 0.76 : 0.54,
+        [entry.name ?? "", entry.issuer ?? ""],
+      );
     });
     extraction.links.forEach((entry, index) => {
-      add({ section: "link", key: "record", recordId: `link_${index + 1}` }, entry.label ?? entry.url ?? `Link ${index + 1}`, entry, entry.url ? 0.94 : 0.5, [entry.url ?? "", entry.label ?? ""]);
+      add(
+        { section: "link", key: "record", recordId: `link_${index + 1}` },
+        entry.label ?? entry.url ?? `Link ${index + 1}`,
+        entry,
+        entry.url ? 0.94 : 0.5,
+        [entry.url ?? "", entry.label ?? ""],
+      );
     });
     extraction.projects.forEach((entry, index) => {
-      add({ section: "project", key: "record", recordId: `project_${index + 1}` }, entry.name ?? `Project ${index + 1}`, entry, entry.name ? 0.7 : 0.5, [entry.name ?? "", entry.summary ?? "", ...(entry.skills ?? [])]);
+      add(
+        { section: "project", key: "record", recordId: `project_${index + 1}` },
+        entry.name ?? `Project ${index + 1}`,
+        entry,
+        entry.name ? 0.7 : 0.5,
+        [entry.name ?? "", entry.summary ?? "", ...(entry.skills ?? [])],
+      );
     });
     extraction.spokenLanguages.forEach((entry, index) => {
-      add({ section: "language", key: "record", recordId: `language_${index + 1}` }, entry.language ?? `Language ${index + 1}`, entry, entry.language ? 0.86 : 0.5, [entry.language ?? "", entry.proficiency ?? ""]);
+      add(
+        {
+          section: "language",
+          key: "record",
+          recordId: `language_${index + 1}`,
+        },
+        entry.language ?? `Language ${index + 1}`,
+        entry,
+        entry.language ? 0.86 : 0.5,
+        [entry.language ?? "", entry.proficiency ?? ""],
+      );
     });
   }
 
   if (input.stage === "shared_memory") {
-    add({ section: "narrative", key: "professionalStory", recordId: null }, "Professional story", extraction.summary, 0.46, [extraction.summary ?? ""]);
-    add({ section: "answer_bank", key: "selfIntroduction", recordId: null }, "Self introduction", extraction.summary, 0.44, [extraction.summary ?? ""]);
+    add(
+      { section: "narrative", key: "professionalStory", recordId: null },
+      "Professional story",
+      extraction.summary,
+      0.46,
+      [extraction.summary ?? ""],
+    );
+    add(
+      { section: "answer_bank", key: "selfIntroduction", recordId: null },
+      "Self introduction",
+      extraction.summary,
+      0.44,
+      [extraction.summary ?? ""],
+    );
 
     extraction.experiences.slice(0, 3).forEach((entry, index) => {
       const strongestAchievement = entry.achievements[0] ?? entry.summary;

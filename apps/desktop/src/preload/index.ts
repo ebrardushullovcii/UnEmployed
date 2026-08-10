@@ -1,14 +1,31 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
+  ApplicationDocumentExportResult,
+  ApplicationDocumentListResult,
+  ApplicationDocumentRevision,
+  ApproveApplicationDocumentInput,
   ApplyRunDetails,
+  CandidateAssetDeleteInput,
+  CandidateAssetDeleteResult,
+  CandidateAssetImportInput,
+  CandidateAssetImportResult,
+  CandidateAssetListInput,
+  CandidateAssetListResult,
+  CandidateAssetRestoreInput,
+  CandidateAssetRestoreResult,
   CandidateProfile,
+  ClearApplicationAnswerCommandInput,
+  EditApplicationDocumentInput,
+  ExportApplicationDocumentInput,
   DesktopPlatformPing,
   EditableSourceInstructionArtifact,
   DesktopWindowControlsState,
   DiscoveryActivityEvent,
+  DiscoveryFeedbackReason,
   InterviewExportFormat,
   InterviewExportResult,
   JobFinderInterviewFollowUpInput,
+  ListApplicationDocumentsInput,
   InterviewHotkeyAction,
   InterviewOverlayMoveInput,
   InterviewAudioTranscriptionInput,
@@ -24,22 +41,28 @@ import type {
   SaveInterviewSetupInput,
   SendInterviewChatMessageInput,
   UpdateInterviewOverlayPreferenceInput,
+  JobFinderApplicationPacketExportResult,
+  JobFinderDiagnosticExportResult,
   JobFinderApplyConsentActionInput,
   JobFinderApplyCopilotActionInput,
   JobFinderApplyQueueActionInput,
   JobFinderOpenBrowserSessionInput,
   ProfileCopilotContext,
   ProfileSetupReviewActionOptions,
+  ProposeApplicationDocumentInput,
   JobFinderPerformanceSnapshot,
   JobFinderResumePreview,
   ResumeQualityBenchmarkReport,
   ResumeQualityBenchmarkRequest,
+  SaveApplicationAnswerCommandInput,
   ResumeImportBenchmarkReport,
   ResumeImportBenchmarkCase,
   ResumeImportBenchmarkRequest,
   ResumeImportFieldCandidate,
   ResumeImportProgressEvent,
   ResumeImportRun,
+  ResumeApplicationMode,
+  ResumeTimelineRepairAction,
   ResumeDocumentBundle,
   JobFinderResumeWorkspace,
   JobFinderRepositoryState,
@@ -54,7 +77,11 @@ import type {
   SourceDebugRunDetails,
   SaveJobFinderWorkspaceInput,
   JobFinderWorkspaceSnapshot,
+  JobFinderWorkspaceEntityMutationInput,
+  JobFinderWorkspaceSyncResult,
   JobSearchPreferences,
+  WorkspaceRevision,
+  UserActionCommandInput,
 } from "@unemployed/contracts";
 import { SYSTEM_THEME_CHANGE_EVENT } from "../shared/system-theme";
 
@@ -280,10 +307,64 @@ const desktopApi = {
       ) as Promise<JobFinderWorkspaceSnapshot>,
   },
   jobFinder: {
+    listApplicationDocuments: (input: ListApplicationDocumentsInput) =>
+      ipcRenderer.invoke(
+        "job-finder:list-application-documents",
+        input,
+      ) as Promise<ApplicationDocumentListResult>,
+    proposeApplicationDocument: (input: ProposeApplicationDocumentInput) =>
+      ipcRenderer.invoke(
+        "job-finder:propose-application-document",
+        input,
+      ) as Promise<ApplicationDocumentRevision>,
+    approveApplicationDocument: (input: ApproveApplicationDocumentInput) =>
+      ipcRenderer.invoke(
+        "job-finder:approve-application-document",
+        input,
+      ) as Promise<ApplicationDocumentRevision>,
+    editApplicationDocument: (input: EditApplicationDocumentInput) =>
+      ipcRenderer.invoke(
+        "job-finder:edit-application-document",
+        input,
+      ) as Promise<ApplicationDocumentRevision>,
+    exportApplicationDocument: (input: ExportApplicationDocumentInput) =>
+      ipcRenderer.invoke(
+        "job-finder:export-application-document",
+        input,
+      ) as Promise<ApplicationDocumentExportResult>,
+    listCandidateAssets: (input: CandidateAssetListInput = { includeDeleted: false }) =>
+      ipcRenderer.invoke(
+        "job-finder:candidate-assets:list",
+        input,
+      ) as Promise<CandidateAssetListResult>,
+    importCandidateAsset: (input: CandidateAssetImportInput) =>
+      ipcRenderer.invoke(
+        "job-finder:candidate-assets:import",
+        input,
+      ) as Promise<CandidateAssetImportResult>,
+    deleteCandidateAsset: (input: CandidateAssetDeleteInput) =>
+      ipcRenderer.invoke(
+        "job-finder:candidate-assets:delete",
+        input,
+      ) as Promise<CandidateAssetDeleteResult>,
+    restoreCandidateAsset: (input: CandidateAssetRestoreInput) =>
+      ipcRenderer.invoke(
+        "job-finder:candidate-assets:restore",
+        input,
+      ) as Promise<CandidateAssetRestoreResult>,
     getWorkspace: () =>
       ipcRenderer.invoke(
         "job-finder:get-workspace",
       ) as Promise<JobFinderWorkspaceSnapshot>,
+    syncWorkspace: (baseRevision: WorkspaceRevision | null) =>
+      ipcRenderer.invoke("job-finder:sync-workspace", {
+        baseRevision,
+      }) as Promise<JobFinderWorkspaceSyncResult>,
+    mutateWorkspaceEntities: (input: JobFinderWorkspaceEntityMutationInput) =>
+      ipcRenderer.invoke(
+        "job-finder:mutate-workspace-entities",
+        input,
+      ) as Promise<JobFinderWorkspaceSyncResult>,
     openBrowserSession: (input?: JobFinderOpenBrowserSessionInput) =>
       ipcRenderer.invoke(
         "job-finder:open-browser-session",
@@ -292,6 +373,11 @@ const desktopApi = {
     checkBrowserSession: () =>
       ipcRenderer.invoke(
         "job-finder:check-browser-session",
+      ) as Promise<JobFinderWorkspaceSnapshot>,
+    performUserAction: (command: UserActionCommandInput) =>
+      ipcRenderer.invoke(
+        "job-finder:perform-user-action",
+        command,
       ) as Promise<JobFinderWorkspaceSnapshot>,
     saveProfile: (profile: CandidateProfile) =>
       ipcRenderer.invoke(
@@ -335,6 +421,16 @@ const desktopApi = {
         action,
         options,
       }) as Promise<JobFinderWorkspaceSnapshot>,
+    applyResumeTimelineRepairAction: (
+      runId: string,
+      proposalId: string,
+      action: ResumeTimelineRepairAction,
+    ) =>
+      ipcRenderer.invoke("job-finder:apply-resume-timeline-repair-action", {
+        runId,
+        proposalId,
+        action,
+      }) as Promise<JobFinderWorkspaceSnapshot>,
     sendProfileCopilotMessage: (
       content: string,
       context?: ProfileCopilotContext,
@@ -364,7 +460,10 @@ const desktopApi = {
       const progressChannel = `job-finder:resume-import-progress:${requestId}`;
       activeResumeImportRequestId = requestId;
       const progressHandler = onProgress
-        ? (_event: Electron.IpcRendererEvent, progress: ResumeImportProgressEvent) => {
+        ? (
+            _event: Electron.IpcRendererEvent,
+            progress: ResumeImportProgressEvent,
+          ) => {
             onProgress(progress);
           }
         : null;
@@ -373,15 +472,18 @@ const desktopApi = {
         ipcRenderer.on(progressChannel, progressHandler);
       }
 
-      return (ipcRenderer.invoke("job-finder:import-resume", { requestId }) as Promise<JobFinderWorkspaceSnapshot>)
-        .finally(() => {
-          if (progressHandler) {
-            ipcRenderer.off(progressChannel, progressHandler);
-          }
-          if (activeResumeImportRequestId === requestId) {
-            activeResumeImportRequestId = null;
-          }
-        });
+      return (
+        ipcRenderer.invoke("job-finder:import-resume", {
+          requestId,
+        }) as Promise<JobFinderWorkspaceSnapshot>
+      ).finally(() => {
+        if (progressHandler) {
+          ipcRenderer.off(progressChannel, progressHandler);
+        }
+        if (activeResumeImportRequestId === requestId) {
+          activeResumeImportRequestId = null;
+        }
+      });
     },
     runDiscovery: () =>
       ipcRenderer.invoke(
@@ -488,6 +590,29 @@ const desktopApi = {
         runId,
         jobId,
       }) as Promise<ApplyRunDetails>,
+    saveApplicationAnswer: (command: SaveApplicationAnswerCommandInput) =>
+      ipcRenderer.invoke(
+        "job-finder:save-application-answer",
+        command,
+      ) as Promise<ApplyRunDetails>,
+    clearApplicationAnswer: (command: ClearApplicationAnswerCommandInput) =>
+      ipcRenderer.invoke(
+        "job-finder:clear-application-answer",
+        command,
+      ) as Promise<ApplyRunDetails>,
+    exportDiagnostics: () =>
+      ipcRenderer.invoke(
+        "job-finder:export-diagnostics",
+      ) as Promise<JobFinderDiagnosticExportResult>,
+    getPerformanceSnapshot: () =>
+      ipcRenderer.invoke(
+        "job-finder:get-performance-snapshot",
+      ) as Promise<JobFinderPerformanceSnapshot>,
+    exportApplicationPacket: (runId: string, jobId: string) =>
+      ipcRenderer.invoke("job-finder:export-application-packet", {
+        runId,
+        jobId,
+      }) as Promise<JobFinderApplicationPacketExportResult>,
     saveSourceInstructionArtifact: (
       targetId: string,
       artifact: EditableSourceInstructionArtifact,
@@ -527,12 +652,28 @@ const desktopApi = {
       ipcRenderer.invoke("job-finder:queue-job-for-review", {
         jobId,
       }) as Promise<JobFinderWorkspaceSnapshot>,
+    setJobResumeApplicationMode: (
+      jobId: string,
+      resumeApplicationMode: ResumeApplicationMode,
+    ) =>
+      ipcRenderer.invoke("job-finder:set-job-resume-application-mode", {
+        jobId,
+        resumeApplicationMode,
+      }) as Promise<JobFinderWorkspaceSnapshot>,
     removeJobFromReview: (jobId: string) =>
       ipcRenderer.invoke("job-finder:remove-job-from-review", {
         jobId,
       }) as Promise<JobFinderWorkspaceSnapshot>,
-    dismissDiscoveryJob: (jobId: string) =>
+    dismissDiscoveryJob: (
+      jobId: string,
+      reasons: readonly DiscoveryFeedbackReason[],
+    ) =>
       ipcRenderer.invoke("job-finder:dismiss-discovery-job", {
+        jobId,
+        reasons,
+      }) as Promise<JobFinderWorkspaceSnapshot>,
+    restoreDismissedDiscoveryJob: (jobId: string) =>
+      ipcRenderer.invoke("job-finder:restore-dismissed-discovery-job", {
         jobId,
       }) as Promise<JobFinderWorkspaceSnapshot>,
     getResumeWorkspace: (jobId: string) =>
@@ -546,6 +687,11 @@ const desktopApi = {
     saveResumeDraft: (draft: ResumeDraft) =>
       ipcRenderer.invoke("job-finder:save-resume-draft", {
         draft,
+      }) as Promise<JobFinderWorkspaceSnapshot>,
+    restoreResumeDraftRevision: (jobId: string, revisionId: string) =>
+      ipcRenderer.invoke("job-finder:restore-resume-draft-revision", {
+        jobId,
+        revisionId,
       }) as Promise<JobFinderWorkspaceSnapshot>,
     regenerateResumeDraft: (jobId: string) =>
       ipcRenderer.invoke("job-finder:regenerate-resume-draft", {
@@ -585,6 +731,18 @@ const desktopApi = {
       ipcRenderer.invoke("job-finder:send-resume-assistant-message", {
         jobId,
         content,
+      }) as Promise<readonly ResumeAssistantMessage[]>,
+    resolveResumeAssistantProposal: (
+      jobId: string,
+      proposalId: string,
+      action: "accept" | "reject",
+      patchIds: readonly string[],
+    ) =>
+      ipcRenderer.invoke("job-finder:resolve-resume-assistant-proposal", {
+        jobId,
+        proposalId,
+        action,
+        patchIds,
       }) as Promise<readonly ResumeAssistantMessage[]>,
     generateResume: (jobId: string) =>
       ipcRenderer.invoke("job-finder:generate-resume", {

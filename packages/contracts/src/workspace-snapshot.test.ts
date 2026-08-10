@@ -8,6 +8,7 @@ import {
   JobFinderApplyRunDetailsQuerySchema,
   JobFinderAgentDiscoveryActionInputSchema,
   JobFinderOpenBrowserSessionInputSchema,
+  JobFinderJobResumeApplicationModeInputSchema,
   ApplyJobResultSchema,
   ApplicationAttemptSchema,
   JobFinderWorkspaceSnapshotSchema,
@@ -15,6 +16,18 @@ import {
 import { createApplyRunFixture, createSubmittedAttempt } from "./test-fixtures";
 
 describe("contracts workspace snapshot schema", () => {
+  test("parses a per-job CV mode selection", () => {
+    expect(
+      JobFinderJobResumeApplicationModeInputSchema.parse({
+        jobId: "job-1",
+        resumeApplicationMode: "original_resume",
+      }),
+    ).toEqual({
+      jobId: "job-1",
+      resumeApplicationMode: "original_resume",
+    });
+  });
+
   test("parses a job finder workspace snapshot", () => {
     const attempt = ApplicationAttemptSchema.parse(createSubmittedAttempt());
     const applyRun = ApplyRunSchema.parse(createApplyRunFixture());

@@ -269,18 +269,9 @@ function buildExperienceText(
 function hasUsableWorkHistory(
   experience: CandidateProfile["experiences"][number],
 ): boolean {
-  const hasRoleIdentity = Boolean(
+  return Boolean(
     experience.title?.trim() && experience.companyName?.trim(),
   );
-  const hasHistoryContext = Boolean(
-    experience.isCurrent ||
-      experience.startDate?.trim() ||
-      experience.endDate?.trim() ||
-      experience.summary?.trim() ||
-      experience.achievements.some((achievement) => achievement.trim()),
-  );
-
-  return hasRoleIdentity && hasHistoryContext;
 }
 
 function hasSkillPhraseOverlap(input: {
@@ -543,17 +534,11 @@ export function deriveResumeCoveragePlan(input: {
   const strongFit = scored.filter(
     (entry) => entry.careerFamilyFit === "strong",
   );
-  const defaultIncluded = scored.filter((entry) => {
-    if (entry.careerFamilyFit === "strong") {
-      return true;
-    }
-
-    return (
-      input.searchPreferences.tailoringMode !== "conservative" &&
-      entry.careerFamilyFit === "weak" &&
-      entry.hasGroundedTechnicalEvidence
-    );
-  });
+  const defaultIncluded = scored.filter(
+    (entry) =>
+      entry.careerFamilyFit === "strong" ||
+      hasUsableWorkHistory(entry.experience),
+  );
   const strongRankById = new Map(
     strongFit.map((entry, index) => [entry.experience.id, index]),
   );
@@ -586,38 +571,29 @@ export function deriveResumeCoveragePlan(input: {
       reasons.push("older strong career-family fit");
     } else if (coversGap) {
       reasons.push("gap coverage for a meaningful 6+ month work-history gap");
-      classification =
-        input.searchPreferences.tailoringMode === "conservative"
-          ? "suggested_hidden"
-          : "compact";
+      classification = hasUsableWorkHistory(entry.experience)
+        ? "compact"
+        : "suggested_hidden";
     } else if (
       entry.careerFamilyFit === "weak" &&
       entry.hasGroundedTechnicalEvidence
     ) {
       reasons.push("weak career-family fit with grounded technical evidence");
-      if (input.searchPreferences.tailoringMode !== "conservative") {
-        classification = "compact";
-      } else {
-        classification = "suggested_hidden";
-      }
+      classification = hasUsableWorkHistory(entry.experience)
+        ? "compact"
+        : "suggested_hidden";
     } else if (entry.careerFamilyFit === "weak") {
       reasons.push(
         "weak career-family fit without enough role-specific evidence",
       );
-      classification =
-        input.searchPreferences.tailoringMode !== "conservative" &&
-        hasUsableWorkHistory(entry.experience)
-          ? "compact"
-          : input.searchPreferences.tailoringMode !== "conservative"
-            ? "suggested_hidden"
-            : "omitted";
+      classification = hasUsableWorkHistory(entry.experience)
+        ? "compact"
+        : "omitted";
     } else {
       reasons.push("no meaningful career-family fit or gap-coverage value");
-      classification =
-        input.searchPreferences.tailoringMode !== "conservative" &&
-        hasUsableWorkHistory(entry.experience)
-          ? "compact"
-          : "omitted";
+      classification = hasUsableWorkHistory(entry.experience)
+        ? "compact"
+        : "omitted";
     }
 
     if (coversGap) {

@@ -1,4 +1,8 @@
-import { ApplyRunSchema, type ApplicationAttempt, type ApplyRun } from "./index";
+import {
+  ApplyRunSchema,
+  type ApplicationAttempt,
+  type ApplyRun,
+} from "./index";
 
 export const sourceDebugVersionInfo = {
   promptProfileVersion: "source-debug-v1",
@@ -31,6 +35,7 @@ export function createSubmittedAttempt(): ApplicationAttempt {
     visualObservationSets: [],
     visualCheckpoints: [],
     nextActionLabel: "Monitor inbox",
+    executionTimings: [],
     checkpoints: [
       {
         id: "checkpoint_1",

@@ -9,12 +9,17 @@ release/
 playwright-report/
 test-results/
 tmp/
+/.tmp/
+/.tmp-*.patch
+/.codex-tmp/
 *.log
 .env
 .env.*
 !.env.example
 apps/desktop/dist/
 apps/desktop/out/
+apps/desktop/out-current/
+apps/desktop/.tmp/
 apps/desktop/.vite/
 apps/desktop/test-artifacts/
 apps/desktop/.computer-audit/

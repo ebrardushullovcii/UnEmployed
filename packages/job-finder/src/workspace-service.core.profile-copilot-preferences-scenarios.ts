@@ -333,6 +333,42 @@ describe("createJobFinderWorkspaceService – profile copilot preferences and ex
     );
   });
 
+  test("profile copilot proposes a typed monthly range and location without guessing currency", async () => {
+    const { workspaceService } = createWorkspaceServiceHarness();
+
+    const proposedSnapshot = await workspaceService.sendProfileCopilotMessage(
+      "look for jobs around 3-4k a month around New York",
+      {
+        surface: "profile",
+        section: "preferences",
+      },
+    );
+    const patchGroup = proposedSnapshot.profileCopilotMessages
+      .flatMap((message) => message.patchGroups)
+      .find((group) => group.summary.includes("monthly compensation range"));
+
+    expect(patchGroup).toEqual(
+      expect.objectContaining({ applyMode: "needs_review" }),
+    );
+    expect(proposedSnapshot.searchPreferences.locations).not.toEqual(["New York"]);
+    expect(proposedSnapshot.searchPreferences.compensation.currency).not.toBeNull();
+
+    const appliedSnapshot = await workspaceService.applyProfileCopilotPatchGroup(
+      patchGroup!.id,
+    );
+
+    expect(appliedSnapshot.searchPreferences.locations).toEqual(["New York"]);
+    expect(appliedSnapshot.searchPreferences.compensation).toEqual({
+      minimum: 3_000,
+      maximum: 4_000,
+      interval: "month",
+      currency: null,
+      currencyStatus: "needs_clarification",
+    });
+    expect(appliedSnapshot.searchPreferences.minimumSalaryUsd).toBeNull();
+    expect(appliedSnapshot.searchPreferences.targetSalaryUsd).toBeNull();
+  });
+
   test("profile copilot can auto-apply newly supported bounded field updates", async () => {
     const { workspaceService } = createWorkspaceServiceHarness({
       seed: {
@@ -463,6 +499,12 @@ describe("createJobFinderWorkspaceService – profile copilot preferences and ex
       },
     );
     expect(salaryCurrencySnapshot.searchPreferences.salaryCurrency).toBe("EUR");
+    expect(salaryCurrencySnapshot.searchPreferences.compensation).toEqual(
+      expect.objectContaining({
+        currency: "EUR",
+        currencyStatus: "explicit",
+      }),
+    );
 
     const tailoringModeSnapshot = await workspaceService.sendProfileCopilotMessage(
       "set my tailoring mode to aggressive",

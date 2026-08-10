@@ -4,7 +4,7 @@ import type {
   ResumeDocumentBundle,
   ResumeImportFieldCandidate,
 } from "@unemployed/contracts";
-import { uniqueStrings } from "./shared";
+import { normalizeText } from "./shared";
 
 export type DerivedReviewDraft = {
   step: ProfileReviewItem["step"];
@@ -77,15 +77,34 @@ export function summarizeValue(value: unknown): string | null {
   return null;
 }
 
+function uniqueEvidenceFragments(values: readonly string[]): string[] {
+  const seen = new Set<string>();
+
+  return values.flatMap((value) => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return [];
+    }
+
+    const key = normalizeText(trimmed) || trimmed.toLowerCase();
+    if (seen.has(key)) {
+      return [];
+    }
+
+    seen.add(key);
+    return [trimmed];
+  });
+}
+
 function getSourceSnippet(
   candidate: ResumeImportFieldCandidate,
   documentBundle: ResumeDocumentBundle | null,
 ): string | null {
   if (candidate.evidenceText && candidate.evidenceText.trim().length > 0) {
-    return candidate.evidenceText.trim();
+    return uniqueEvidenceFragments(candidate.evidenceText.split(/\r?\n/)).join(" ").slice(0, 400) || null;
   }
 
-  const blockTexts = uniqueStrings(
+  const blockTexts = uniqueEvidenceFragments(
     candidate.sourceBlockIds
       .map((blockId) => documentBundle?.blocks.find((block) => block.id === blockId)?.text ?? null)
       .filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0),

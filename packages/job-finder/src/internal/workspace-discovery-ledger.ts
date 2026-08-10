@@ -1,179 +1,390 @@
 import {
   DiscoveryLedgerEntrySchema,
   type DiscoveryLedgerEntry,
+  type DiscoveryListingFingerprints,
   type DiscoveryTitleTriageOutcome,
   type JobDiscoveryCollectionMethod,
   type JobPosting,
   type SavedJob,
   type SavedJobDiscoveryProvenance,
 } from "@unemployed/contracts";
-import { createUniqueId, normalizeText } from "./shared";
+import { createUniqueId } from "./shared";
+import {
+  createJobIdentityIndex,
+  normalizeJobIdentityUrl,
+  type JobIdentityInput,
+} from "./job-identity";
 
-function normalizeLedgerUrl(value: string): string {
-  try {
-    const parsed = new URL(value);
-    parsed.hash = "";
-    return parsed.toString();
-  } catch {
-    return value.trim();
+const normalizeLedgerUrl = normalizeJobIdentityUrl;
+
+type DiscoveryFingerprintPosting = Pick<
+  JobPosting,
+  | "applicationUrl"
+  | "title"
+  | "company"
+  | "location"
+  | "workMode"
+  | "applyPath"
+  | "easyApplyEligible"
+  | "postedAt"
+  | "postedAtText"
+  | "providerUpdatedAt"
+  | "salaryText"
+  | "employmentType"
+  | "department"
+  | "team"
+  | "detailQuality"
+  | "summary"
+  | "description"
+  | "keySkills"
+  | "responsibilities"
+  | "minimumQualifications"
+  | "preferredQualifications"
+  | "seniority"
+  | "screeningHints"
+  | "benefits"
+>;
+
+function selectLatestProviderUpdatedAt(
+  incoming: string | null,
+  existing: string | null | undefined,
+): string | null {
+  if (!incoming) {
+    return existing ?? null;
   }
+  if (!existing) {
+    return incoming;
+  }
+  return Date.parse(incoming) >= Date.parse(existing) ? incoming : existing;
 }
 
-function buildLedgerKeys(input: {
+function normalizeFingerprintText(value: string | null): string | null {
+  return value?.trim().replace(/\s+/gu, " ").toLowerCase() || null;
+}
+
+function normalizeFingerprintList(values: readonly string[]): string[] {
+  return values
+    .map((value) => normalizeFingerprintText(value))
+    .filter((value): value is string => value !== null)
+    .sort();
+}
+
+function createVersionOneFingerprint(value: unknown): string {
+  const serialized = JSON.stringify(value);
+  let hash = 0xcbf29ce484222325n;
+  for (let index = 0; index < serialized.length; index += 1) {
+    hash ^= BigInt(serialized.charCodeAt(index));
+    hash = BigInt.asUintN(64, hash * 0x100000001b3n);
+  }
+  return `v1_${hash.toString(16).padStart(16, "0")}`;
+}
+
+export function createDiscoveryListingFingerprints(
+  posting: DiscoveryFingerprintPosting,
+): DiscoveryListingFingerprints {
+  const card = createVersionOneFingerprint({
+    applicationUrl: normalizeFingerprintText(posting.applicationUrl),
+    title: normalizeFingerprintText(posting.title),
+    company: normalizeFingerprintText(posting.company),
+    location: normalizeFingerprintText(posting.location),
+    workMode: [...posting.workMode].sort(),
+    applyPath: posting.applyPath,
+    easyApplyEligible: posting.easyApplyEligible,
+    postedAt: posting.postedAt,
+    postedAtText: normalizeFingerprintText(posting.postedAtText),
+    providerUpdatedAt: posting.providerUpdatedAt,
+    salaryText: normalizeFingerprintText(posting.salaryText),
+    employmentType: normalizeFingerprintText(posting.employmentType),
+    department: normalizeFingerprintText(posting.department),
+    team: normalizeFingerprintText(posting.team),
+  });
+  const hasDetailEvidence =
+    posting.detailQuality !== "card_only" ||
+    posting.responsibilities.length > 0 ||
+    posting.minimumQualifications.length > 0 ||
+    posting.preferredQualifications.length > 0;
+  const detail = hasDetailEvidence
+    ? createVersionOneFingerprint({
+        summary: normalizeFingerprintText(posting.summary),
+        description: normalizeFingerprintText(posting.description),
+        keySkills: normalizeFingerprintList(posting.keySkills),
+        responsibilities: normalizeFingerprintList(posting.responsibilities),
+        minimumQualifications: normalizeFingerprintList(
+          posting.minimumQualifications,
+        ),
+        preferredQualifications: normalizeFingerprintList(
+          posting.preferredQualifications,
+        ),
+        seniority: normalizeFingerprintText(posting.seniority),
+        screeningHints: posting.screeningHints,
+        benefits: normalizeFingerprintList(posting.benefits),
+      })
+    : null;
+
+  return {
+    version: 1,
+    card,
+    detail,
+    material: createVersionOneFingerprint({ card, detail }),
+  };
+}
+
+export type DiscoveryFreshnessClassification =
+  | "new"
+  | "unchanged"
+  | "changed"
+  | "reactivated";
+
+export type DiscoveryFreshnessDigest = {
+  total: number;
+  counts: Record<DiscoveryFreshnessClassification, number>;
+  digest: string;
+};
+
+type DiscoveryLedgerIdentity = JobIdentityInput & {
   canonicalUrl: string;
   source: string;
   sourceJobId: string | null;
   providerKey: string | null;
   providerBoardToken: string | null;
   providerIdentifier: string | null;
-}) {
+};
+
+export type DiscoveryLedgerIndex = {
+  find(posting: DiscoveryLedgerIdentity): DiscoveryLedgerEntry | null;
+  add(entry: DiscoveryLedgerEntry): void;
+  replace(
+    previous: DiscoveryLedgerEntry,
+    next: DiscoveryLedgerEntry,
+  ): void;
+};
+
+export function createDiscoveryLedgerIndex(
+  ledger: readonly DiscoveryLedgerEntry[],
+): DiscoveryLedgerIndex {
+  const identityIndex = createJobIdentityIndex(ledger, (entry) => entry);
+
   return {
-    canonicalUrl: normalizeLedgerUrl(input.canonicalUrl),
-    sourceJobIdKey: input.sourceJobId
-      ? normalizeText([input.source, input.sourceJobId].join(":"))
-      : null,
-    providerPostingKey:
-      input.sourceJobId && input.providerKey && (input.providerIdentifier || input.providerBoardToken)
-        ? normalizeText(
-            `${input.providerKey}:${input.providerBoardToken ?? ""}:${input.providerIdentifier ?? ""}:${input.sourceJobId}`,
-          )
-        : null,
+    find(posting) {
+      return identityIndex.find(posting);
+    },
+    add(entry) {
+      identityIndex.add(entry);
+    },
+    replace(previous, next) {
+      identityIndex.replace(previous, next);
+    },
+  };
+}
+export function classifyDiscoveryPostingFreshness(input: {
+  ledgerEntry: DiscoveryLedgerEntry | null;
+  posting: DiscoveryFingerprintPosting;
+}): {
+  classification: DiscoveryFreshnessClassification;
+  incomingFingerprints: DiscoveryListingFingerprints;
+} {
+  const incomingFingerprints = createDiscoveryListingFingerprints(
+    input.posting,
+  );
+  if (!input.ledgerEntry) {
+    return { classification: "new", incomingFingerprints };
+  }
+  if (input.ledgerEntry.latestStatus === "inactive") {
+    return { classification: "reactivated", incomingFingerprints };
+  }
+  if (!input.ledgerEntry.fingerprints) {
+    return { classification: "changed", incomingFingerprints };
+  }
+
+  const unchanged =
+    input.posting.detailQuality === "card_only"
+      ? input.ledgerEntry.fingerprints.card === incomingFingerprints.card
+      : input.ledgerEntry.fingerprints.material ===
+        incomingFingerprints.material;
+  return {
+    classification: unchanged ? "unchanged" : "changed",
+    incomingFingerprints,
+  };
+}
+export function createDiscoveryFreshnessDigest(input: {
+  ledger: readonly DiscoveryLedgerEntry[];
+  postings: readonly (DiscoveryFingerprintPosting & DiscoveryLedgerIdentity)[];
+}): DiscoveryFreshnessDigest {
+  const ledgerIndex = createDiscoveryLedgerIndex(input.ledger);
+  const counts: Record<DiscoveryFreshnessClassification, number> = {
+    new: 0,
+    unchanged: 0,
+    changed: 0,
+    reactivated: 0,
+  };
+  const classifiedPostings = input.postings.map((posting) => {
+    const existingEntry = ledgerIndex.find(posting);
+    const { classification, incomingFingerprints } =
+      classifyDiscoveryPostingFreshness({
+        ledgerEntry: existingEntry,
+        posting,
+      });
+
+    counts[classification] += 1;
+    return {
+      classification,
+      identity: normalizeLedgerUrl(posting.canonicalUrl),
+      fingerprint:
+        posting.detailQuality === "card_only"
+          ? incomingFingerprints.card
+          : incomingFingerprints.material,
+    };
+  });
+
+  classifiedPostings.sort((left, right) => {
+    const leftKey = `${left.identity}\u0000${left.classification}\u0000${left.fingerprint}`;
+    const rightKey = `${right.identity}\u0000${right.classification}\u0000${right.fingerprint}`;
+    return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+  });
+
+  return {
+    total: input.postings.length,
+    counts,
+    digest: createVersionOneFingerprint({
+      counts,
+      postings: classifiedPostings,
+    }),
   };
 }
 
-function matchesLedgerEntry(
-  entry: DiscoveryLedgerEntry,
-  input: {
-    canonicalUrl: string;
-    source: string;
-    sourceJobId: string | null;
-    providerKey: string | null;
-    providerBoardToken: string | null;
-    providerIdentifier: string | null;
-  },
-): boolean {
-  const left = buildLedgerKeys({
-    canonicalUrl: entry.canonicalUrl,
-    source: entry.source,
-    sourceJobId: entry.sourceJobId,
-    providerKey: entry.providerKey,
-    providerBoardToken: entry.providerBoardToken,
-    providerIdentifier: entry.providerIdentifier,
-  });
-  const right = buildLedgerKeys(input);
-
-  return (
-    left.canonicalUrl === right.canonicalUrl ||
-    (left.sourceJobIdKey !== null && left.sourceJobIdKey === right.sourceJobIdKey) ||
-    (left.providerPostingKey !== null &&
-      left.providerPostingKey === right.providerPostingKey)
-  );
+export function formatDiscoveryFreshnessDigest(
+  freshness: DiscoveryFreshnessDigest,
+): string {
+  return `Freshness: ${freshness.counts.new} new, ${freshness.counts.unchanged} unchanged, ${freshness.counts.changed} changed, ${freshness.counts.reactivated} reactivated. Digest ${freshness.digest}.`;
 }
+
 
 export function findDiscoveryLedgerEntry(
   ledger: readonly DiscoveryLedgerEntry[],
-  posting: Pick<
-    JobPosting,
-    | "source"
-    | "canonicalUrl"
-    | "sourceJobId"
-    | "providerKey"
-    | "providerBoardToken"
-    | "providerIdentifier"
-  >,
+  posting: DiscoveryLedgerIdentity,
 ): DiscoveryLedgerEntry | null {
-  return (
-    ledger.find((entry) =>
-      matchesLedgerEntry(entry, {
-        canonicalUrl: posting.canonicalUrl,
-        source: posting.source,
-        sourceJobId: posting.sourceJobId,
-        providerKey: posting.providerKey,
-        providerBoardToken: posting.providerBoardToken,
-        providerIdentifier: posting.providerIdentifier,
-      }),
-    ) ?? null
-  );
+  return createDiscoveryLedgerIndex(ledger).find(posting);
 }
 
 function upsertLedgerEntry(
   ledger: readonly DiscoveryLedgerEntry[],
+  existingEntry: DiscoveryLedgerEntry | null,
   nextEntry: DiscoveryLedgerEntry,
 ): DiscoveryLedgerEntry[] {
-  const nextLedger = ledger.filter(
-    (entry) =>
-      !matchesLedgerEntry(entry, {
-        canonicalUrl: nextEntry.canonicalUrl,
-        source: nextEntry.source,
-        sourceJobId: nextEntry.sourceJobId,
-        providerKey: nextEntry.providerKey,
-        providerBoardToken: nextEntry.providerBoardToken,
-        providerIdentifier: nextEntry.providerIdentifier,
-      }),
-  );
+  const nextLedger = existingEntry
+    ? ledger.filter((entry) => entry !== existingEntry)
+    : [...ledger];
 
   return [...nextLedger, nextEntry];
 }
 
 export function recordDiscoveredPostingInLedger(input: {
   ledger: readonly DiscoveryLedgerEntry[];
-  posting: Pick<
-    JobPosting,
-    | "canonicalUrl"
-    | "source"
-    | "sourceJobId"
-    | "providerKey"
-    | "providerBoardToken"
-    | "providerIdentifier"
-    | "title"
-    | "company"
-    | "collectionMethod"
-    | "detailQuality"
-    | "titleTriageOutcome"
-  >;
+  index?: DiscoveryLedgerIndex;
+  posting: DiscoveryFingerprintPosting &
+    Pick<
+      JobPosting,
+      | "canonicalUrl"
+      | "source"
+      | "sourceJobId"
+      | "providerKey"
+      | "providerBoardToken"
+      | "providerIdentifier"
+      | "collectionMethod"
+      | "titleTriageOutcome"
+    >;
   targetId: string;
   seenAt: string;
   status: DiscoveryLedgerEntry["latestStatus"];
   skipReason?: string | null;
 }): DiscoveryLedgerEntry[] {
-  const existingEntry = findDiscoveryLedgerEntry(input.ledger, input.posting);
-
-  return upsertLedgerEntry(
-    input.ledger,
-    DiscoveryLedgerEntrySchema.parse({
-      id: existingEntry?.id ?? createUniqueId("discovery_ledger"),
-      canonicalUrl: normalizeLedgerUrl(input.posting.canonicalUrl),
-      source: input.posting.source,
-      sourceJobId: input.posting.sourceJobId,
-      providerKey: input.posting.providerKey,
-      providerBoardToken: input.posting.providerBoardToken,
-      providerIdentifier: input.posting.providerIdentifier,
-      title: input.posting.title,
-      company: input.posting.company,
-      targetId: input.targetId,
-      collectionMethod: input.posting.collectionMethod,
-      detailQuality: input.posting.detailQuality,
-      firstSeenAt: existingEntry?.firstSeenAt ?? input.seenAt,
-      lastSeenAt: input.seenAt,
-      lastAppliedAt:
-        input.status === "applied"
-          ? input.seenAt
-          : existingEntry?.lastAppliedAt ?? null,
-      lastEnrichedAt:
-        input.status === "enriched"
-          ? input.seenAt
-          : existingEntry?.lastEnrichedAt ?? null,
-      inactiveAt: input.status === "inactive" ? input.seenAt : null,
-      latestStatus: input.status,
-      titleTriageOutcome: input.posting.titleTriageOutcome,
-      skipReason:
-        input.status === "seen" ||
-        input.status === "enriched" ||
-        input.status === "applied"
-          ? null
-          : input.skipReason ?? existingEntry?.skipReason ?? null,
-    }),
+  const existingEntry = input.index
+    ? input.index.find(input.posting)
+    : findDiscoveryLedgerEntry(input.ledger, input.posting);
+  const incomingFingerprints = createDiscoveryListingFingerprints(
+    input.posting,
   );
+  const preservesEnrichedDetail =
+    existingEntry?.detailQuality === "detail_enriched" &&
+    input.posting.detailQuality !== "detail_enriched" &&
+    existingEntry.fingerprints?.version === incomingFingerprints.version &&
+    existingEntry.fingerprints.card === incomingFingerprints.card;
+  const detailQuality = preservesEnrichedDetail
+    ? "detail_enriched"
+    : input.posting.detailQuality;
+  const unchangedEnrichedMaterial =
+    existingEntry?.fingerprints?.version === incomingFingerprints.version &&
+    existingEntry.fingerprints.material === incomingFingerprints.material;
+  const refreshedEnrichedAt =
+    input.status === "seen"
+      ? preservesEnrichedDetail
+        ? (existingEntry?.lastEnrichedAt ?? null)
+        : null
+      : input.status !== "enriched"
+        ? (existingEntry?.lastEnrichedAt ?? null)
+        : input.posting.detailQuality === "detail_enriched"
+          ? unchangedEnrichedMaterial
+            ? (existingEntry?.lastEnrichedAt ?? input.seenAt)
+            : input.seenAt
+          : preservesEnrichedDetail
+            ? (existingEntry?.lastEnrichedAt ?? null)
+            : null;
+  const fingerprints =
+    preservesEnrichedDetail || unchangedEnrichedMaterial
+      ? (existingEntry?.fingerprints ?? incomingFingerprints)
+      : incomingFingerprints;
+
+  const nextEntry = DiscoveryLedgerEntrySchema.parse({
+    id: existingEntry?.id ?? createUniqueId("discovery_ledger"),
+    canonicalUrl: normalizeLedgerUrl(input.posting.canonicalUrl),
+    applicationUrl:
+      input.posting.applicationUrl ?? existingEntry?.applicationUrl ?? null,
+    source: input.posting.source,
+    sourceJobId: input.posting.sourceJobId,
+    providerKey: input.posting.providerKey,
+    providerBoardToken: input.posting.providerBoardToken,
+    providerIdentifier: input.posting.providerIdentifier,
+    providerUpdatedAt: selectLatestProviderUpdatedAt(
+      input.posting.providerUpdatedAt,
+      existingEntry?.providerUpdatedAt,
+    ),
+    title: input.posting.title,
+    company: input.posting.company,
+    location: input.posting.location,
+    postedAt: input.posting.postedAt ?? existingEntry?.postedAt ?? null,
+    postedAtText:
+      input.posting.postedAtText ?? existingEntry?.postedAtText ?? null,
+    targetId: input.targetId,
+    collectionMethod: input.posting.collectionMethod,
+    detailQuality,
+    fingerprints,
+    firstSeenAt: existingEntry?.firstSeenAt ?? input.seenAt,
+    lastSeenAt: input.seenAt,
+    lastAppliedAt:
+      input.status === "applied"
+        ? input.seenAt
+        : (existingEntry?.lastAppliedAt ?? null),
+    lastEnrichedAt: refreshedEnrichedAt,
+    inactiveAt: input.status === "inactive" ? input.seenAt : null,
+    latestStatus: input.status,
+    titleTriageOutcome: input.posting.titleTriageOutcome,
+    skipReason:
+      input.status === "seen" ||
+      input.status === "enriched" ||
+      input.status === "applied"
+        ? null
+        : (input.skipReason ?? existingEntry?.skipReason ?? null),
+  });
+
+  if (input.index) {
+    if (existingEntry) {
+      input.index.replace(existingEntry, nextEntry);
+    } else {
+      input.index.add(nextEntry);
+    }
+  }
+
+  return upsertLedgerEntry(input.ledger, existingEntry, nextEntry);
 }
 
 export function markSavedJobStatusInLedger(input: {
@@ -202,6 +413,7 @@ export function markSavedJobStatusInLedger(input: {
   return recordDiscoveredPostingInLedger({
     ledger: input.ledger,
     posting: {
+      ...input.job,
       canonicalUrl: input.job.canonicalUrl,
       source: input.job.source,
       sourceJobId: input.job.sourceJobId,
@@ -211,7 +423,8 @@ export function markSavedJobStatusInLedger(input: {
       title: input.job.title,
       company: input.job.company,
       collectionMethod:
-        input.job.provenance[input.job.provenance.length - 1]?.collectionMethod ??
+        input.job.provenance[input.job.provenance.length - 1]
+          ?.collectionMethod ??
         existingEntry?.collectionMethod ??
         input.job.collectionMethod,
       detailQuality: input.job.detailQuality,
@@ -226,7 +439,7 @@ export function markSavedJobStatusInLedger(input: {
 
 export function shouldSkipPostingFromLedger(input: {
   ledgerEntry: DiscoveryLedgerEntry | null;
-  posting: Pick<JobPosting, "title" | "company">;
+  posting: DiscoveryFingerprintPosting;
   triageOutcome: DiscoveryTitleTriageOutcome;
 }): {
   skip: boolean;
@@ -252,7 +465,8 @@ export function shouldSkipPostingFromLedger(input: {
   if (input.ledgerEntry.latestStatus === "skipped") {
     return {
       skip: true,
-      reason: input.ledgerEntry.skipReason ?? "Previously skipped intentionally.",
+      reason:
+        input.ledgerEntry.skipReason ?? "Previously skipped intentionally.",
       outcome: "skip_handled",
     };
   }
@@ -261,11 +475,29 @@ export function shouldSkipPostingFromLedger(input: {
     input.ledgerEntry.latestStatus === "enriched" &&
     input.ledgerEntry.detailQuality === "detail_enriched"
   ) {
-    return {
-      skip: true,
-      reason: "Already retained from an earlier run.",
-      outcome: "skip_existing",
-    };
+    const previousFingerprints = input.ledgerEntry.fingerprints;
+    if (!previousFingerprints) {
+      return {
+        skip: false,
+        reason: "Legacy discovery history needs one safe refresh.",
+        outcome: input.triageOutcome,
+      };
+    }
+
+    const incomingFingerprints = createDiscoveryListingFingerprints(
+      input.posting,
+    );
+    const unchanged =
+      input.posting.detailQuality === "card_only"
+        ? previousFingerprints.card === incomingFingerprints.card
+        : previousFingerprints.material === incomingFingerprints.material;
+    if (unchanged) {
+      return {
+        skip: true,
+        reason: "Already retained from an earlier unchanged run.",
+        outcome: "skip_existing",
+      };
+    }
   }
 
   return {
@@ -286,7 +518,9 @@ export function applyInactiveLedgerMarks(input: {
     return [...input.ledger];
   }
 
-  const seenSet = new Set(input.seenCanonicalUrls.map((value) => normalizeLedgerUrl(value)));
+  const seenSet = new Set(
+    input.seenCanonicalUrls.map((value) => normalizeLedgerUrl(value)),
+  );
 
   return input.ledger.map((entry) => {
     if (entry.targetId !== input.targetId) {

@@ -229,6 +229,11 @@ export function ProfileSetupReadyCheckStep(props: {
   narrativeStatus: 'ready' | 'needs_review' | 'missing'
   onGoToStep: (step: ProfileSetupStep) => void
   onSaveAndFinish: () => void
+  readinessBlockers?: readonly {
+    label: string
+    reason: string
+    step: ProfileSetupStep
+  }[]
   renderFooter: RenderFooter
 }) {
   return (
@@ -242,7 +247,7 @@ export function ProfileSetupReadyCheckStep(props: {
       <CardContent className="grid gap-4 pt-6">
         <div className="grid gap-3 md:grid-cols-3">
           {[
-            { label: 'Discovery', status: props.discoveryStatus, description: props.discoveryStatus === 'ready' ? 'Roles, locations, and eligibility are ready for targeted search.' : props.discoveryStatus === 'needs_review' ? 'Review the pending role, location, or eligibility items listed below before relying on search results.' : 'Add a target role plus your location, work-mode, or eligibility constraints.' },
+            { label: 'Discovery', status: props.discoveryStatus, description: props.discoveryStatus === 'ready' ? 'Roles, constraints, and at least one valid job source are ready for targeted search.' : props.discoveryStatus === 'needs_review' ? 'Review the pending targeting or source items listed below before relying on search results.' : 'Add a target role, real constraints, and at least one valid job source.' },
             { label: 'Resume quality', status: props.narrativeStatus, description: props.narrativeStatus === 'ready' ? 'Narrative and proof exist for stronger summaries and bullets.' : props.narrativeStatus === 'needs_review' ? 'There is useful background, but the story still needs sharpening.' : 'The app still lacks enough story or proof to produce strong output.' },
             { label: 'Apply readiness', status: props.applyStatus, description: props.applyStatus === 'ready' ? 'Contact, eligibility, and reusable answers are ready for application defaults.' : props.applyStatus === 'needs_review' ? 'Review the pending contact, eligibility, or reusable-answer items listed below.' : 'Add a contact method and the application defaults you want forms to reuse.' },
           ].map((card) => (
@@ -255,6 +260,32 @@ export function ProfileSetupReadyCheckStep(props: {
             </div>
           ))}
         </div>
+
+        {(props.readinessBlockers?.length ?? 0) > 0 ? (
+          <div className="grid gap-3 rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) p-4">
+            <div>
+              <p className="text-sm font-semibold text-foreground">
+                Finish these before continuing
+              </p>
+              <p className="mt-1 text-sm leading-6 text-foreground-soft">
+                Each action opens the setup step that owns the missing information.
+              </p>
+            </div>
+            <div className="grid gap-2">
+              {(props.readinessBlockers ?? []).map((blocker) => (
+                <div className="flex flex-col gap-3 rounded-(--radius-field) border border-border/35 bg-background/75 p-3 sm:flex-row sm:items-center sm:justify-between" key={`${blocker.step}-${blocker.label}`}>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-foreground">{blocker.label}</p>
+                    <p className="mt-1 text-sm leading-6 text-foreground-soft">{blocker.reason}</p>
+                  </div>
+                  <Button onClick={() => props.onGoToStep(blocker.step)} size="compact" type="button" variant="secondary">
+                    Open {formatStatusLabel(blocker.step)}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {props.blockingPendingItems.length > 0 ? (
           <div className="grid gap-3 rounded-(--radius-field) border border-destructive/30 bg-destructive/5 p-4">
@@ -282,7 +313,7 @@ export function ProfileSetupReadyCheckStep(props: {
           </div>
         ) : null}
 
-        {props.renderFooter({ primaryDisabled: !props.canFinishSetup, primaryLabel: props.canFinishSetup ? 'Finish setup and open Profile' : 'Resolve blocking items to finish', onPrimary: props.canFinishSetup ? props.onSaveAndFinish : null })}
+        {props.renderFooter({ primaryDisabled: !props.canFinishSetup, primaryLabel: props.canFinishSetup ? 'Finish setup and open Profile' : 'Complete the items above to finish', onPrimary: props.canFinishSetup ? props.onSaveAndFinish : null })}
       </CardContent>
     </Card>
   )

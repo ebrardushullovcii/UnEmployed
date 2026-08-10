@@ -113,6 +113,44 @@ export function normalizeSearchPreferences(
   });
 }
 
+export function invalidateChangedSourceGuidance(
+  currentSearchPreferences: JobSearchPreferences,
+  nextSearchPreferences: JobSearchPreferences,
+): JobSearchPreferences {
+  const currentTargetsById = new Map(
+    currentSearchPreferences.discovery.targets.map((target) => [
+      target.id,
+      target,
+    ]),
+  );
+
+  return JobSearchPreferencesSchema.parse({
+    ...nextSearchPreferences,
+    discovery: {
+      ...nextSearchPreferences.discovery,
+      targets: nextSearchPreferences.discovery.targets.map((target) => {
+        const currentTarget = currentTargetsById.get(target.id);
+        if (
+          !currentTarget ||
+          currentTarget.startingUrl.trim() === target.startingUrl.trim()
+        ) {
+          return target;
+        }
+
+        return {
+          ...target,
+          instructionStatus: "missing",
+          validatedInstructionId: null,
+          draftInstructionId: null,
+          lastDebugRunId: null,
+          lastVerifiedAt: null,
+          staleReason:
+            "Starting page URL changed. Check this source again before reusing saved guidance.",
+        };
+      }),
+    },
+  });
+}
 export function normalizeJobFinderSettings(
   settings: JobFinderSettings,
   availableResumeTemplates: readonly ResumeTemplateDefinition[],

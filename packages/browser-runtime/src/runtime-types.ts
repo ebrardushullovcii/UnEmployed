@@ -7,6 +7,8 @@ import type {
   BrowserVisualSnapshotRef,
   BrowserVisualSnapshotRequest,
   BrowserSessionState,
+  BrowserSourceAccessProbeInput,
+  BrowserSourceAccessProbeResult,
   CandidateProfile,
   DiscoveryRunResult,
   JobFinderSettings,
@@ -14,6 +16,7 @@ import type {
   JobSearchPreferences,
   JobSource,
   ApplicationResumeArtifact,
+  ApplicationQuestionKind,
   SourceDebugPhase,
   SharedAgentCompactionPolicy,
   SavedJob,
@@ -35,8 +38,37 @@ export interface ExecuteEasyApplyInput {
 
 export type ApplicationExecutionMode = "prepare_only" | "submit_when_ready";
 
+/**
+ * Main-process-only attachment resolved from an exact user-approved asset.
+ * The byte loader retains filesystem authority in the owning adapter and must
+ * revalidate availability plus integrity every time browser-runtime invokes it.
+ * Neither the loader nor a file path may cross preload/renderer or persistence.
+ */
+export interface ApplicationAttachmentArtifact {
+  assetId: string;
+  questionId: string;
+  prompt: string;
+  questionKind: ApplicationQuestionKind;
+  fileName: string;
+  mime: string;
+  sha256: string;
+  loadVerifiedBytes: () => Promise<Uint8Array>;
+}
+
 export interface ExecuteApplicationFlowInput extends ExecuteEasyApplyInput {
+  applicationAttachments?: readonly ApplicationAttachmentArtifact[];
   mode: ApplicationExecutionMode;
+  /**
+   * Stable logical execution key for a retry that may be recovered after a
+   * process restart. Runtimes may use it to deduplicate safe intermediate
+   * work; it never grants submit permission.
+   */
+  idempotencyKey?: string;
+  /**
+   * Explicit account-creation authorization. Omitted values are false and
+   * the current production flow never creates accounts automatically.
+   */
+  accountCreationAuthorized?: boolean;
   /**
    * Explicit customer permission for non-final ATS writes such as attaching
    * the selected resume, draft creation, autosave, or a verified non-final
@@ -77,6 +109,10 @@ export interface BrowserSessionRuntime {
     options?: OpenBrowserSessionOptions,
   ): Promise<BrowserSessionState>;
   closeSession(source: JobSource): Promise<BrowserSessionState>;
+  inspectSourceAccess?(
+    source: JobSource,
+    input: BrowserSourceAccessProbeInput,
+  ): Promise<BrowserSourceAccessProbeResult>;
   runDiscovery(
     source: JobSource,
     searchPreferences: JobSearchPreferences,

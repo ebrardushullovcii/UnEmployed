@@ -1,4 +1,7 @@
-import type { NormalizedCompensation } from "@unemployed/contracts";
+import type {
+  CompensationFitAssessment,
+  NormalizedCompensation,
+} from "@unemployed/contracts";
 
 function readPeriodUnit(
   salaryText: string,
@@ -16,7 +19,7 @@ function readPeriodUnit(
 }
 
 function isCompactRangeSeparator(text: string): boolean {
-  return /^\s*[-–—/]\s*$/.test(text);
+  return /^\s*[-–—/]\s*[$€£]?\s*$/.test(text);
 }
 
 const knownCompensationPeriods = new Set(["yr", "year", "years", "annual", "annum", "mo", "month", "months", "wk", "week", "weeks", "day", "days", "hr", "hrs", "hour", "hours"]);
@@ -232,15 +235,95 @@ export function parseNormalizedCompensation(
   const maxAmount = parsedValues.at(-1) ?? minAmount;
   const interval = detectCompensationInterval(salaryText);
   const multiplier = interval ? (annualCompensationMultipliers[interval] ?? 1) : null;
+  const currency = detectCurrencyCode(salaryText);
+  const hasComparableUsdEvidence = currency === "USD" && multiplier !== null;
 
   return {
-    currency: detectCurrencyCode(salaryText),
+    currency,
     interval,
     minAmount,
     maxAmount,
     minAnnualUsd:
-      multiplier && minAmount !== null ? Math.round(minAmount * multiplier) : null,
+      hasComparableUsdEvidence && minAmount !== null
+        ? Math.round(minAmount * multiplier)
+        : null,
     maxAnnualUsd:
-      multiplier && maxAmount !== null ? Math.round(maxAmount * multiplier) : null,
+      hasComparableUsdEvidence && maxAmount !== null
+        ? Math.round(maxAmount * multiplier)
+        : null,
+  };
+}
+
+export function evaluateCompensationFit(
+  salaryText: string | null,
+  minimumSalaryUsd: number | null,
+): CompensationFitAssessment {
+  if (minimumSalaryUsd === null) {
+    return {
+      state: "not_requested",
+      confidence: "unavailable",
+      minimumSalaryUsd: null,
+      listingMinimumAnnualUsd: null,
+      listingCurrency: null,
+      explanation: "No minimum salary preference is configured.",
+    };
+  }
+
+  const normalized = parseNormalizedCompensation(salaryText);
+  if (normalized.minAmount === null) {
+    return {
+      state: "unknown",
+      confidence: salaryText ? "low" : "unavailable",
+      minimumSalaryUsd,
+      listingMinimumAnnualUsd: null,
+      listingCurrency: normalized.currency,
+      explanation: salaryText
+        ? "The listing compensation could not be normalized safely."
+        : "The listing does not provide compensation evidence.",
+    };
+  }
+
+  if (normalized.currency !== "USD") {
+    return {
+      state: "currency_incomparable",
+      confidence: "high",
+      minimumSalaryUsd,
+      listingMinimumAnnualUsd: null,
+      listingCurrency: normalized.currency,
+      explanation: normalized.currency
+        ? `The listing uses ${normalized.currency}; no exchange-rate assumption was made against the USD minimum.`
+        : "The listing currency is unspecified, so it was not compared with the USD minimum.",
+    };
+  }
+
+  if (normalized.minAnnualUsd === null) {
+    return {
+      state: "unknown",
+      confidence: "low",
+      minimumSalaryUsd,
+      listingMinimumAnnualUsd: null,
+      listingCurrency: normalized.currency,
+      explanation: "The listing compensation interval could not be normalized safely.",
+    };
+  }
+
+  if (normalized.minAnnualUsd >= minimumSalaryUsd) {
+    return {
+      state: "meets_minimum",
+      confidence: "high",
+      minimumSalaryUsd,
+      listingMinimumAnnualUsd: normalized.minAnnualUsd,
+      listingCurrency: normalized.currency,
+      explanation: "The listing minimum meets or exceeds the saved USD minimum.",
+    };
+  }
+
+  return {
+    state: "below_minimum",
+    confidence: "high",
+    minimumSalaryUsd,
+    listingMinimumAnnualUsd: normalized.minAnnualUsd,
+    listingCurrency: normalized.currency,
+    explanation: "The listing minimum is below the saved USD minimum.",
   };
 }

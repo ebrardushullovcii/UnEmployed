@@ -22,6 +22,7 @@ import type {
   ExecuteEasyApplyInput,
   StubBrowserSessionRuntimeSeed,
 } from './runtime-types'
+import { createInconclusiveSourceAccessProbeResult } from './source-access-probe'
 import {
   buildDiscoveryQuerySummary,
   buildSessionBlockedResult,
@@ -364,6 +365,7 @@ function executeCatalogApplicationFlow(
   const now = new Date().toISOString()
   const { job, resumeArtifact } = input
   const resumeFilePath = resumeArtifact.filePath
+  const resumeFileName = resumeArtifact.fileName
   const resumeLabel =
     resumeArtifact.source === 'original_upload'
       ? 'Original resume selected by the user'
@@ -434,7 +436,7 @@ function executeCatalogApplicationFlow(
     suggestedAnswers: [
       {
         id: `suggested_answer_${job.id}_resume_upload`,
-        text: resumeFilePath,
+        text: resumeFileName,
         sourceKind: 'resume',
         sourceId: resumeArtifact.id,
         confidenceLabel: 'user-approved resume',
@@ -444,12 +446,12 @@ function executeCatalogApplicationFlow(
             sourceKind: 'resume',
             sourceId: resumeArtifact.id,
             label: resumeLabel,
-            snippet: resumeFilePath,
+            snippet: resumeFileName,
           },
         ],
       },
     ],
-    submittedAnswer: resumeFilePath,
+    submittedAnswer: resumeFileName,
     status: 'submitted',
   }
   const capturedQuestions = [resumeQuestion, ...questions]
@@ -560,7 +562,7 @@ function executeCatalogApplicationFlow(
           id: `checkpoint_${job.id}_resume_attached`,
           at: now,
           label: 'Attached selected resume',
-          detail: `Attached the selected application resume from ${resumeFilePath}.`,
+          detail: `Attached the selected application resume '${resumeFileName}'.`,
           state: 'in_progress',
         },
         {
@@ -643,7 +645,7 @@ function executeCatalogApplicationFlow(
           id: `checkpoint_${job.id}_resume_attached`,
           at: now,
           label: 'Attached selected resume',
-          detail: `Attached the selected application resume from ${resumeFilePath}.`,
+          detail: `Attached the selected application resume '${resumeFileName}'.`,
           state: 'in_progress',
         },
         {
@@ -716,7 +718,7 @@ function executeCatalogApplicationFlow(
           id: `checkpoint_${job.id}_resume_attached`,
           at: now,
           label: 'Attached selected resume',
-          detail: `Attached the selected application resume from ${resumeFilePath}.`,
+          detail: `Attached the selected application resume '${resumeFileName}'.`,
           state: 'in_progress',
         },
         {
@@ -731,43 +733,60 @@ function executeCatalogApplicationFlow(
   }
 
   return ApplyExecutionResultSchema.parse({
-    state: 'submitted',
-    summary: 'Application submitted through supported Easy Apply path',
-    detail: `${job.title} at ${job.company} was submitted using the deterministic catalog runtime.`,
-    submittedAt: now,
-    outcome: 'submitted',
+    state: 'paused',
+    summary: 'Apply copilot paused before final submit',
+    detail:
+      'The selected application resume is attached and grounded profile answers are prepared. The copilot stopped before the final submit step.',
+    submittedAt: null,
+    outcome: null,
     questions: capturedQuestions,
     blocker: null,
     consentDecisions: [
       {
         id: `consent_${job.id}_resume_use`,
         kind: 'resume_use',
-        label: 'Use approved resume for this application',
+        label: 'Use the selected resume for this apply flow',
         status: 'approved',
         decidedAt: now,
-        detail: 'Approved by the deterministic catalog runtime for seeded tests.',
+        detail: `${resumeLabel} (${resumeArtifact.id}) stayed selected for this copilot run.`,
+      },
+      {
+        id: `consent_${job.id}_autofill_profile`,
+        kind: 'autofill_profile',
+        label: 'Use saved profile details where the form requests them',
+        status: 'approved',
+        decidedAt: now,
+        detail: 'Grounded profile fields were prepared without needing extra review.',
       },
     ],
     replay,
     visualEvidence: visualDiagnostics.visualEvidence,
     visualObservationSets: visualDiagnostics.visualObservationSets,
     visualCheckpoints: visualDiagnostics.visualCheckpoints,
-    nextActionLabel: null,
+    nextActionLabel: 'Review the prepared application and submit manually when ready',
     checkpoints: [
       ...(recoveryCheckpoint ? [recoveryCheckpoint] : []),
       {
-        id: `checkpoint_${job.id}_started`,
+        id: `checkpoint_${job.id}_open_listing`,
         at: now,
-        label: 'Application started',
-        detail: 'The supported Easy Apply path was opened.',
+        label: 'Opened Easy Apply',
+        detail:
+          'The catalog runtime validated the listing and started the Easy Apply flow.',
         state: 'in_progress',
       },
       {
-        id: `checkpoint_${job.id}_submitted`,
+        id: `checkpoint_${job.id}_resume_attached`,
         at: now,
-        label: 'Submission confirmed',
-        detail: 'The supported Easy Apply path completed successfully.',
-        state: 'submitted',
+        label: 'Attached selected resume',
+        detail: `Attached the selected application resume '${resumeFileName}'.`,
+        state: 'in_progress',
+      },
+      {
+        id: `checkpoint_${job.id}_prepared_for_review`,
+        at: now,
+        label: 'Prepared application for final review',
+        detail: 'The supported path reached the review step and paused before final submit.',
+        state: 'paused',
       },
     ],
   })
@@ -842,6 +861,10 @@ export function createCatalogBrowserSessionRuntime(
       sessions.set(source, closedState)
       return Promise.resolve(closedState)
     },
+    inspectSourceAccess(source, input) {
+      void source
+      return Promise.resolve(createInconclusiveSourceAccessProbeResult(input))
+    },
     runDiscovery(source, searchPreferences) {
       const session = getSession(source)
 
@@ -878,7 +901,7 @@ export function createCatalogBrowserSessionRuntime(
 
       return Promise.resolve(executeCatalogApplicationFlow({
         ...input,
-        mode: 'submit_when_ready',
+        mode: 'prepare_only',
       }))
     },
     executeApplicationFlow(source, input: ExecuteApplicationFlowInput) {
@@ -888,7 +911,10 @@ export function createCatalogBrowserSessionRuntime(
         return Promise.reject(buildSessionBlockedResult(session))
       }
 
-      return Promise.resolve(executeCatalogApplicationFlow(input))
+      return Promise.resolve(executeCatalogApplicationFlow({
+        ...input,
+        mode: 'prepare_only',
+      }))
     },
     captureVisualSnapshot(source, request) {
       const normalizedRequest = BrowserVisualSnapshotRequestSchema.parse(request)

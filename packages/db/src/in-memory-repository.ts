@@ -32,6 +32,8 @@ import {
   SourceDebugWorkerAttemptSchema,
   SourceInstructionArtifactSchema,
   TailoredAssetSchema,
+  UserActionEventSchema,
+  UserActionRequestSchema,
 } from "@unemployed/contracts";
 
 import { cloneValue } from "./internal/state";
@@ -47,6 +49,17 @@ import {
   sortApplySubmitApprovals,
 } from "./apply-collection-support";
 import {
+  areSameUserActionEvents,
+  areSameUserActionRequests,
+  assertUserActionTransitionCurrent,
+  createPersistedUserActionCreatedEvent,
+  matchesUserActionEventQuery,
+  matchesUserActionRequestQuery,
+  normalizeUserActionTransition,
+  sortUserActionEvents,
+  sortUserActionRequests,
+} from "./user-action-repository-support";
+import {
   clearApprovedResumeExportsForJob,
   replaceArtifactsForRun,
   resolveApprovedExportId,
@@ -59,6 +72,7 @@ import {
   sortValidationResults,
   upsertById,
 } from "./in-memory-repository-utils";
+import { retainResumeDraftRevisions } from "./resume-draft-revision-retention";
 import type {
   JobFinderRepository,
   JobFinderRepositorySeed,
@@ -87,8 +101,10 @@ export function createInMemoryJobFinderRepository(
       state.resumeDraftRevisions = normalizedSeed.resumeDraftRevisions;
       state.resumeExportArtifacts = normalizedSeed.resumeExportArtifacts;
       state.resumeImportRuns = normalizedSeed.resumeImportRuns;
-      state.resumeImportDocumentBundles = normalizedSeed.resumeImportDocumentBundles;
-      state.resumeImportFieldCandidates = normalizedSeed.resumeImportFieldCandidates;
+      state.resumeImportDocumentBundles =
+        normalizedSeed.resumeImportDocumentBundles;
+      state.resumeImportFieldCandidates =
+        normalizedSeed.resumeImportFieldCandidates;
       state.resumeResearchArtifacts = normalizedSeed.resumeResearchArtifacts;
       state.resumeValidationResults = normalizedSeed.resumeValidationResults;
       state.resumeAssistantMessages = normalizedSeed.resumeAssistantMessages;
@@ -97,16 +113,22 @@ export function createInMemoryJobFinderRepository(
       state.applyRuns = normalizedSeed.applyRuns;
       state.applyJobResults = normalizedSeed.applyJobResults;
       state.applySubmitApprovals = normalizedSeed.applySubmitApprovals;
-      state.applicationQuestionRecords = normalizedSeed.applicationQuestionRecords;
+      state.applicationQuestionRecords =
+        normalizedSeed.applicationQuestionRecords;
       state.applicationAnswerRecords = normalizedSeed.applicationAnswerRecords;
       state.applicationArtifactRefs = normalizedSeed.applicationArtifactRefs;
-      state.applicationReplayCheckpoints = normalizedSeed.applicationReplayCheckpoints;
-      state.applicationConsentRequests = normalizedSeed.applicationConsentRequests;
+      state.applicationReplayCheckpoints =
+        normalizedSeed.applicationReplayCheckpoints;
+      state.applicationConsentRequests =
+        normalizedSeed.applicationConsentRequests;
+      state.userActionRequests = normalizedSeed.userActionRequests;
+      state.userActionEvents = normalizedSeed.userActionEvents;
       state.applicationRecords = normalizedSeed.applicationRecords;
       state.applicationAttempts = normalizedSeed.applicationAttempts;
       state.sourceDebugRuns = normalizedSeed.sourceDebugRuns;
       state.sourceDebugAttempts = normalizedSeed.sourceDebugAttempts;
-      state.sourceInstructionArtifacts = normalizedSeed.sourceInstructionArtifacts;
+      state.sourceInstructionArtifacts =
+        normalizedSeed.sourceInstructionArtifacts;
       state.sourceDebugEvidenceRefs = normalizedSeed.sourceDebugEvidenceRefs;
       state.settings = normalizedSeed.settings;
       state.discovery = normalizedSeed.discovery;
@@ -187,11 +209,15 @@ export function createInMemoryJobFinderRepository(
       return Promise.resolve(cloneValue(state.savedJobs));
     },
     replaceSavedJobs(savedJobs) {
-      state.savedJobs = SavedJobSchema.array().parse(cloneValue([...savedJobs]));
+      state.savedJobs = SavedJobSchema.array().parse(
+        cloneValue([...savedJobs]),
+      );
       return Promise.resolve();
     },
     replaceSavedJobsAndDiscoveryState({ savedJobs, discoveryState }) {
-      state.savedJobs = SavedJobSchema.array().parse(cloneValue([...savedJobs]));
+      state.savedJobs = SavedJobSchema.array().parse(
+        cloneValue([...savedJobs]),
+      );
       state.discovery = JobFinderDiscoveryStateSchema.parse(
         cloneValue(discoveryState),
       );
@@ -203,7 +229,9 @@ export function createInMemoryJobFinderRepository(
       staleReason,
       tailoredAsset,
     }) {
-      const normalizedJobs = SavedJobSchema.array().parse(cloneValue([...savedJobs]));
+      const normalizedJobs = SavedJobSchema.array().parse(
+        cloneValue([...savedJobs]),
+      );
       const normalizedDraft = ResumeDraftSchema.parse(
         cloneValue({
           ...draft,
@@ -217,7 +245,9 @@ export function createInMemoryJobFinderRepository(
         : null;
 
       if (normalizedAsset && normalizedAsset.jobId !== normalizedDraft.jobId) {
-        throw new Error("Tailored asset job does not match the provided draft.");
+        throw new Error(
+          "Tailored asset job does not match the provided draft.",
+        );
       }
 
       state.savedJobs = normalizedJobs;
@@ -227,7 +257,10 @@ export function createInMemoryJobFinderRepository(
         normalizedDraft.jobId,
       );
       if (normalizedAsset) {
-        state.tailoredAssets = upsertById(state.tailoredAssets, normalizedAsset);
+        state.tailoredAssets = upsertById(
+          state.tailoredAssets,
+          normalizedAsset,
+        );
       }
       return Promise.resolve();
     },
@@ -235,7 +268,9 @@ export function createInMemoryJobFinderRepository(
       return Promise.resolve(cloneValue(state.tailoredAssets));
     },
     upsertTailoredAsset(tailoredAsset) {
-      const normalizedAsset = TailoredAssetSchema.parse(cloneValue(tailoredAsset));
+      const normalizedAsset = TailoredAssetSchema.parse(
+        cloneValue(tailoredAsset),
+      );
       state.tailoredAssets = upsertById(state.tailoredAssets, normalizedAsset);
       return Promise.resolve();
     },
@@ -255,7 +290,9 @@ export function createInMemoryJobFinderRepository(
     },
     listResumeDraftRevisions(draftId) {
       const values = draftId
-        ? state.resumeDraftRevisions.filter((entry) => entry.draftId === draftId)
+        ? state.resumeDraftRevisions.filter(
+            (entry) => entry.draftId === draftId,
+          )
         : state.resumeDraftRevisions;
       return Promise.resolve(sortNewestFirst(cloneValue(values)));
     },
@@ -263,9 +300,9 @@ export function createInMemoryJobFinderRepository(
       const normalizedRevision = ResumeDraftRevisionSchema.parse(
         cloneValue(revision),
       );
-      state.resumeDraftRevisions = upsertById(
-        state.resumeDraftRevisions,
-        normalizedRevision,
+      state.resumeDraftRevisions = retainResumeDraftRevisions(
+        upsertById(state.resumeDraftRevisions, normalizedRevision),
+        normalizedRevision.draftId,
       );
       return Promise.resolve();
     },
@@ -337,6 +374,14 @@ export function createInMemoryJobFinderRepository(
       });
       return values[0] ?? null;
     },
+    upsertResumeImportRun(run) {
+      const normalizedRun = ResumeImportRunSchema.parse(cloneValue(run));
+      state.resumeImportRuns = upsertById(
+        state.resumeImportRuns,
+        normalizedRun,
+      );
+      return Promise.resolve();
+    },
     listResumeImportDocumentBundles(options) {
       const values = state.resumeImportDocumentBundles.filter((entry) => {
         if (options?.runId && entry.runId !== options.runId) {
@@ -383,23 +428,31 @@ export function createInMemoryJobFinderRepository(
       const normalizedBundles = ResumeDocumentBundleSchema.array().parse(
         cloneValue([...documentBundles]),
       );
-      const normalizedCandidates = ResumeImportFieldCandidateSchema.array().parse(
-        cloneValue([...fieldCandidates]),
-      );
+      const normalizedCandidates =
+        ResumeImportFieldCandidateSchema.array().parse(
+          cloneValue([...fieldCandidates]),
+        );
 
       for (const bundle of normalizedBundles) {
         if (bundle.runId !== normalizedRun.id) {
-          throw new Error("Resume document bundle does not belong to the provided import run.");
+          throw new Error(
+            "Resume document bundle does not belong to the provided import run.",
+          );
         }
       }
 
       for (const candidate of normalizedCandidates) {
         if (candidate.runId !== normalizedRun.id) {
-          throw new Error("Resume import candidate does not belong to the provided import run.");
+          throw new Error(
+            "Resume import candidate does not belong to the provided import run.",
+          );
         }
       }
 
-      state.resumeImportRuns = upsertById(state.resumeImportRuns, normalizedRun);
+      state.resumeImportRuns = upsertById(
+        state.resumeImportRuns,
+        normalizedRun,
+      );
       const nextArtifacts = replaceArtifactsForRun(
         state.resumeImportDocumentBundles,
         state.resumeImportFieldCandidates,
@@ -418,7 +471,9 @@ export function createInMemoryJobFinderRepository(
       documentBundles,
       fieldCandidates,
     }) {
-      const normalizedProfile = CandidateProfileSchema.parse(cloneValue(profile));
+      const normalizedProfile = CandidateProfileSchema.parse(
+        cloneValue(profile),
+      );
       const normalizedSearchPreferences = JobSearchPreferencesSchema.parse(
         cloneValue(searchPreferences),
       );
@@ -426,25 +481,33 @@ export function createInMemoryJobFinderRepository(
       const normalizedBundles = ResumeDocumentBundleSchema.array().parse(
         cloneValue([...documentBundles]),
       );
-      const normalizedCandidates = ResumeImportFieldCandidateSchema.array().parse(
-        cloneValue([...fieldCandidates]),
-      );
+      const normalizedCandidates =
+        ResumeImportFieldCandidateSchema.array().parse(
+          cloneValue([...fieldCandidates]),
+        );
 
       for (const bundle of normalizedBundles) {
         if (bundle.runId !== normalizedRun.id) {
-          throw new Error("Resume document bundle does not belong to the provided import run.");
+          throw new Error(
+            "Resume document bundle does not belong to the provided import run.",
+          );
         }
       }
 
       for (const candidate of normalizedCandidates) {
         if (candidate.runId !== normalizedRun.id) {
-          throw new Error("Resume import candidate does not belong to the provided import run.");
+          throw new Error(
+            "Resume import candidate does not belong to the provided import run.",
+          );
         }
       }
 
       state.profile = normalizedProfile;
       state.searchPreferences = normalizedSearchPreferences;
-      state.resumeImportRuns = upsertById(state.resumeImportRuns, normalizedRun);
+      state.resumeImportRuns = upsertById(
+        state.resumeImportRuns,
+        normalizedRun,
+      );
       const nextArtifacts = replaceArtifactsForRun(
         state.resumeImportDocumentBundles,
         state.resumeImportFieldCandidates,
@@ -458,7 +521,9 @@ export function createInMemoryJobFinderRepository(
     },
     listResumeValidationResults(draftId) {
       const values = draftId
-        ? state.resumeValidationResults.filter((entry) => entry.draftId === draftId)
+        ? state.resumeValidationResults.filter(
+            (entry) => entry.draftId === draftId,
+          )
         : state.resumeValidationResults;
       return Promise.resolve(sortValidationResults(cloneValue(values)));
     },
@@ -489,7 +554,9 @@ export function createInMemoryJobFinderRepository(
       return Promise.resolve();
     },
     listProfileCopilotMessages() {
-      return Promise.resolve(sortMessages(cloneValue(state.profileCopilotMessages)));
+      return Promise.resolve(
+        sortMessages(cloneValue(state.profileCopilotMessages)),
+      );
     },
     upsertProfileCopilotMessage(message) {
       const normalizedMessage = ProfileCopilotMessageSchema.parse(
@@ -502,7 +569,9 @@ export function createInMemoryJobFinderRepository(
       return Promise.resolve();
     },
     listProfileRevisions() {
-      return Promise.resolve(sortNewestFirst(cloneValue(state.profileRevisions)));
+      return Promise.resolve(
+        sortNewestFirst(cloneValue(state.profileRevisions)),
+      );
     },
     upsertProfileRevision(revision) {
       const normalizedRevision = ProfileRevisionSchema.parse(
@@ -519,9 +588,7 @@ export function createInMemoryJobFinderRepository(
         matchesOptionalStringFilters(run, [["id", options?.id]]),
       );
 
-      return Promise.resolve(
-        sortApplyRuns(cloneValue(values)),
-      );
+      return Promise.resolve(sortApplyRuns(cloneValue(values)));
     },
     upsertApplyRun(run) {
       const normalizedRun = ApplyRunSchema.parse(cloneValue(run));
@@ -536,15 +603,14 @@ export function createInMemoryJobFinderRepository(
         ]),
       );
 
-      return Promise.resolve(
-        sortApplyJobResults(cloneValue(values)),
-      );
+      return Promise.resolve(sortApplyJobResults(cloneValue(values)));
     },
     upsertApplyJobResult(result) {
       const normalizedResult = ApplyJobResultSchema.parse(cloneValue(result));
       const existingResult = state.applyJobResults.find(
         (entry) =>
-          entry.runId === normalizedResult.runId && entry.jobId === normalizedResult.jobId,
+          entry.runId === normalizedResult.runId &&
+          entry.jobId === normalizedResult.jobId,
       );
       const nextResult = ApplyJobResultSchema.parse({
         ...normalizedResult,
@@ -554,12 +620,31 @@ export function createInMemoryJobFinderRepository(
       state.applyJobResults = [
         ...state.applyJobResults.filter(
           (entry) =>
-            entry.runId !== normalizedResult.runId || entry.jobId !== normalizedResult.jobId,
+            entry.runId !== normalizedResult.runId ||
+            entry.jobId !== normalizedResult.jobId,
         ),
         nextResult,
       ];
 
       return Promise.resolve();
+    },
+    compareAndSwapApplyJobResult(input) {
+      const expected = ApplyJobResultSchema.parse(cloneValue(input.expected));
+      const nextResult = ApplyJobResultSchema.parse(cloneValue(input.result));
+      const current = state.applyJobResults.find(
+        (entry) => entry.id === expected.id,
+      );
+      if (!current || JSON.stringify(current) !== JSON.stringify(expected)) {
+        return Promise.resolve(false);
+      }
+      if (nextResult.id !== expected.id) {
+        throw new Error("Apply result CAS cannot change the result identity.");
+      }
+
+      state.applyJobResults = state.applyJobResults.map((entry) =>
+        entry.id === expected.id ? nextResult : entry,
+      );
+      return Promise.resolve(true);
     },
     listApplySubmitApprovals(options) {
       const values = state.applySubmitApprovals.filter((approval) =>
@@ -569,12 +654,12 @@ export function createInMemoryJobFinderRepository(
         ]),
       );
 
-      return Promise.resolve(
-        sortApplySubmitApprovals(cloneValue(values)),
-      );
+      return Promise.resolve(sortApplySubmitApprovals(cloneValue(values)));
     },
     upsertApplySubmitApproval(approval) {
-      const normalizedApproval = ApplySubmitApprovalSchema.parse(cloneValue(approval));
+      const normalizedApproval = ApplySubmitApprovalSchema.parse(
+        cloneValue(approval),
+      );
       state.applySubmitApprovals = upsertById(
         state.applySubmitApprovals,
         normalizedApproval,
@@ -595,7 +680,9 @@ export function createInMemoryJobFinderRepository(
       );
     },
     upsertApplicationQuestionRecord(record) {
-      const normalizedRecord = ApplicationQuestionRecordSchema.parse(cloneValue(record));
+      const normalizedRecord = ApplicationQuestionRecordSchema.parse(
+        cloneValue(record),
+      );
       state.applicationQuestionRecords = upsertById(
         state.applicationQuestionRecords,
         normalizedRecord,
@@ -612,12 +699,12 @@ export function createInMemoryJobFinderRepository(
         ]),
       );
 
-      return Promise.resolve(
-        sortApplicationAnswerRecords(cloneValue(values)),
-      );
+      return Promise.resolve(sortApplicationAnswerRecords(cloneValue(values)));
     },
     upsertApplicationAnswerRecord(record) {
-      const normalizedRecord = ApplicationAnswerRecordSchema.parse(cloneValue(record));
+      const normalizedRecord = ApplicationAnswerRecordSchema.parse(
+        cloneValue(record),
+      );
       state.applicationAnswerRecords = upsertById(
         state.applicationAnswerRecords,
         normalizedRecord,
@@ -633,13 +720,14 @@ export function createInMemoryJobFinderRepository(
         ]),
       );
 
-      return Promise.resolve(
-        sortApplicationArtifactRefs(cloneValue(values)),
-      );
+      return Promise.resolve(sortApplicationArtifactRefs(cloneValue(values)));
     },
     upsertApplicationArtifactRef(ref) {
       const normalizedRef = ApplicationArtifactRefSchema.parse(cloneValue(ref));
-      state.applicationArtifactRefs = upsertById(state.applicationArtifactRefs, normalizedRef);
+      state.applicationArtifactRefs = upsertById(
+        state.applicationArtifactRefs,
+        normalizedRef,
+      );
       return Promise.resolve();
     },
     listApplicationReplayCheckpoints(options) {
@@ -679,12 +767,170 @@ export function createInMemoryJobFinderRepository(
       );
     },
     upsertApplicationConsentRequest(request) {
-      const normalizedRequest = ApplicationConsentRequestSchema.parse(cloneValue(request));
+      const normalizedRequest = ApplicationConsentRequestSchema.parse(
+        cloneValue(request),
+      );
       state.applicationConsentRequests = upsertById(
         state.applicationConsentRequests,
         normalizedRequest,
       );
       return Promise.resolve();
+    },
+    listUserActionRequests(query) {
+      const requests = state.userActionRequests.filter((request) =>
+        matchesUserActionRequestQuery(request, query),
+      );
+      return Promise.resolve(sortUserActionRequests(cloneValue(requests)));
+    },
+    getUserActionRequest(id) {
+      const request = state.userActionRequests.find((entry) => entry.id === id);
+      return Promise.resolve(request ? cloneValue(request) : null);
+    },
+    createUserActionRequest(request) {
+      const normalizedRequest = UserActionRequestSchema.parse(
+        cloneValue(request),
+      );
+      const existingById = state.userActionRequests.find(
+        (entry) => entry.id === normalizedRequest.id,
+      );
+      const existingByDedupeKey = state.userActionRequests.find(
+        (entry) => entry.dedupeKey === normalizedRequest.dedupeKey,
+      );
+
+      if (
+        existingById &&
+        !areSameUserActionRequests(existingById, normalizedRequest)
+      ) {
+        throw new Error(
+          `User action request id '${normalizedRequest.id}' already exists with different data.`,
+        );
+      }
+
+      const existing = existingById ?? existingByDedupeKey;
+      if (existing) {
+        let createdEvent = state.userActionEvents.find(
+          (event) =>
+            event.requestId === existing.id && event.operation === "created",
+        );
+        if (!createdEvent) {
+          createdEvent = createPersistedUserActionCreatedEvent(existing);
+          state.userActionEvents = [...state.userActionEvents, createdEvent];
+        }
+        return Promise.resolve(
+          cloneValue({
+            status: "existing" as const,
+            request: existing,
+            event: createdEvent,
+          }),
+        );
+      }
+
+      const createdEvent =
+        createPersistedUserActionCreatedEvent(normalizedRequest);
+      const eventCollision = state.userActionEvents.find(
+        (event) => event.id === createdEvent.id,
+      );
+      if (
+        eventCollision &&
+        !areSameUserActionEvents(eventCollision, createdEvent)
+      ) {
+        throw new Error(
+          `User action event id '${createdEvent.id}' already exists with different data.`,
+        );
+      }
+
+      state.userActionRequests = [
+        ...state.userActionRequests,
+        normalizedRequest,
+      ];
+      state.userActionEvents = eventCollision
+        ? state.userActionEvents
+        : [...state.userActionEvents, createdEvent];
+
+      return Promise.resolve(
+        cloneValue({
+          status: "created" as const,
+          request: normalizedRequest,
+          event: createdEvent,
+        }),
+      );
+    },
+    listUserActionEvents(query) {
+      const events = state.userActionEvents.filter((event) =>
+        matchesUserActionEventQuery(event, query),
+      );
+      return Promise.resolve(sortUserActionEvents(cloneValue(events)));
+    },
+    commitUserActionTransition(input) {
+      const transition = normalizeUserActionTransition(input);
+      const existingEvent = state.userActionEvents.find(
+        (event) => event.id === transition.event.id,
+      );
+
+      if (existingEvent) {
+        if (!areSameUserActionEvents(existingEvent, transition.event)) {
+          throw new Error(
+            `User action event id '${transition.event.id}' already exists with different data.`,
+          );
+        }
+        const currentRequest = state.userActionRequests.find(
+          (request) => request.id === transition.request.id,
+        );
+        if (!currentRequest) {
+          throw new Error(
+            `User action request '${transition.request.id}' does not exist.`,
+          );
+        }
+        return Promise.resolve(
+          cloneValue({
+            status: "duplicate" as const,
+            request: currentRequest,
+            event: existingEvent,
+          }),
+        );
+      }
+
+      const currentRequest = state.userActionRequests.find(
+        (request) => request.id === transition.request.id,
+      );
+      if (!currentRequest) {
+        throw new Error(
+          `User action request '${transition.request.id}' does not exist.`,
+        );
+      }
+      if (currentRequest.revision !== transition.event.previousRevision) {
+        return Promise.resolve(
+          cloneValue({
+            status: "stale" as const,
+            request: currentRequest,
+            event: null,
+          }),
+        );
+      }
+
+      assertUserActionTransitionCurrent(
+        currentRequest,
+        transition.request,
+        transition.event,
+      );
+      state.userActionRequests = [
+        ...state.userActionRequests.filter(
+          (request) => request.id !== transition.request.id,
+        ),
+        transition.request,
+      ];
+      state.userActionEvents = [
+        ...state.userActionEvents,
+        UserActionEventSchema.parse(cloneValue(transition.event)),
+      ];
+
+      return Promise.resolve(
+        cloneValue({
+          status: "applied" as const,
+          request: transition.request,
+          event: transition.event,
+        }),
+      );
     },
     saveResumeDraftWithValidation({ draft, validation, tailoredAsset }) {
       const parsedDraft = ResumeDraftSchema.parse(
@@ -699,14 +945,19 @@ export function createInMemoryJobFinderRepository(
       );
       const normalizedDraft = {
         ...parsedDraft,
-        approvedExportId: resolveApprovedExportId(state.resumeExportArtifacts, parsedDraft),
+        approvedExportId: resolveApprovedExportId(
+          state.resumeExportArtifacts,
+          parsedDraft,
+        ),
       };
       if (!normalizedDraft.approvedExportId) {
         normalizedDraft.approvedAt = null;
       }
 
       if (normalizedValidation.draftId !== normalizedDraft.id) {
-        throw new Error("Resume validation result does not belong to the provided draft.");
+        throw new Error(
+          "Resume validation result does not belong to the provided draft.",
+        );
       }
 
       const nextResumeDrafts = upsertById(state.resumeDrafts, normalizedDraft);
@@ -714,7 +965,8 @@ export function createInMemoryJobFinderRepository(
         state.resumeExportArtifacts,
         normalizedDraft.jobId,
       ).map((artifact) =>
-        artifact.jobId === normalizedDraft.jobId && artifact.id === normalizedDraft.approvedExportId
+        artifact.jobId === normalizedDraft.jobId &&
+        artifact.id === normalizedDraft.approvedExportId
           ? { ...artifact, isApproved: true }
           : artifact,
       );
@@ -724,9 +976,13 @@ export function createInMemoryJobFinderRepository(
       );
       const nextTailoredAssets = tailoredAsset
         ? (() => {
-            const normalizedAsset = TailoredAssetSchema.parse(cloneValue(tailoredAsset));
+            const normalizedAsset = TailoredAssetSchema.parse(
+              cloneValue(tailoredAsset),
+            );
             if (normalizedAsset.jobId !== normalizedDraft.jobId) {
-              throw new Error("Tailored asset job does not match the provided draft.");
+              throw new Error(
+                "Tailored asset job does not match the provided draft.",
+              );
             }
             return upsertById(state.tailoredAssets, normalizedAsset);
           })()
@@ -738,7 +994,13 @@ export function createInMemoryJobFinderRepository(
       state.tailoredAssets = nextTailoredAssets;
       return Promise.resolve();
     },
-    applyResumePatchWithRevision({ draft, revision, validation, tailoredAsset }) {
+    applyResumePatchWithRevision({
+      expectedDraftUpdatedAt,
+      draft,
+      revision,
+      validation,
+      tailoredAsset,
+    }) {
       const parsedDraft = ResumeDraftSchema.parse(
         cloneValue(
           draft.approvedExportId
@@ -754,18 +1016,37 @@ export function createInMemoryJobFinderRepository(
       );
       const normalizedDraft = {
         ...parsedDraft,
-        approvedExportId: resolveApprovedExportId(state.resumeExportArtifacts, parsedDraft),
+        approvedExportId: resolveApprovedExportId(
+          state.resumeExportArtifacts,
+          parsedDraft,
+        ),
       };
       if (!normalizedDraft.approvedExportId) {
         normalizedDraft.approvedAt = null;
       }
 
+      const persistedDraft = state.resumeDrafts.find(
+        (entry) => entry.id === normalizedDraft.id,
+      );
+      if (
+        !persistedDraft ||
+        persistedDraft.updatedAt !== expectedDraftUpdatedAt
+      ) {
+        throw new Error(
+          "Resume draft changed before this edit could be saved. Reload the workspace and try again.",
+        );
+      }
+
       if (normalizedRevision.draftId !== normalizedDraft.id) {
-        throw new Error("Resume revision does not belong to the provided draft.");
+        throw new Error(
+          "Resume revision does not belong to the provided draft.",
+        );
       }
 
       if (normalizedValidation.draftId !== normalizedDraft.id) {
-        throw new Error("Resume validation result does not belong to the provided draft.");
+        throw new Error(
+          "Resume validation result does not belong to the provided draft.",
+        );
       }
 
       const nextResumeDrafts = upsertById(state.resumeDrafts, normalizedDraft);
@@ -773,13 +1054,14 @@ export function createInMemoryJobFinderRepository(
         state.resumeExportArtifacts,
         normalizedDraft.jobId,
       ).map((artifact) =>
-        artifact.jobId === normalizedDraft.jobId && artifact.id === normalizedDraft.approvedExportId
+        artifact.jobId === normalizedDraft.jobId &&
+        artifact.id === normalizedDraft.approvedExportId
           ? { ...artifact, isApproved: true }
           : artifact,
       );
-      const nextResumeDraftRevisions = upsertById(
-        state.resumeDraftRevisions,
-        normalizedRevision,
+      const nextResumeDraftRevisions = retainResumeDraftRevisions(
+        upsertById(state.resumeDraftRevisions, normalizedRevision),
+        normalizedRevision.draftId,
       );
       const nextResumeValidationResults = upsertById(
         state.resumeValidationResults,
@@ -787,9 +1069,13 @@ export function createInMemoryJobFinderRepository(
       );
       const nextTailoredAssets = tailoredAsset
         ? (() => {
-            const normalizedAsset = TailoredAssetSchema.parse(cloneValue(tailoredAsset));
+            const normalizedAsset = TailoredAssetSchema.parse(
+              cloneValue(tailoredAsset),
+            );
             if (normalizedAsset.jobId !== normalizedDraft.jobId) {
-              throw new Error("Tailored asset job does not match the provided draft.");
+              throw new Error(
+                "Tailored asset job does not match the provided draft.",
+              );
             }
             return upsertById(state.tailoredAssets, normalizedAsset);
           })()
@@ -816,24 +1102,35 @@ export function createInMemoryJobFinderRepository(
       );
 
       if (normalizedArtifact.draftId !== normalizedDraft.id) {
-        throw new Error("Approved export does not belong to the provided resume draft.");
+        throw new Error(
+          "Approved export does not belong to the provided resume draft.",
+        );
       }
 
       if (normalizedArtifact.jobId !== normalizedDraft.jobId) {
-        throw new Error("Approved export job does not match the provided resume draft.");
+        throw new Error(
+          "Approved export job does not match the provided resume draft.",
+        );
       }
 
       const normalizedValidation = validation
         ? ResumeValidationResultSchema.parse(cloneValue(validation))
         : null;
-      if (normalizedValidation && normalizedValidation.draftId !== normalizedDraft.id) {
-        throw new Error("Resume validation result does not belong to the provided draft.");
+      if (
+        normalizedValidation &&
+        normalizedValidation.draftId !== normalizedDraft.id
+      ) {
+        throw new Error(
+          "Resume validation result does not belong to the provided draft.",
+        );
       }
       const normalizedAsset = tailoredAsset
         ? TailoredAssetSchema.parse(cloneValue(tailoredAsset))
         : null;
       if (normalizedAsset && normalizedAsset.jobId !== normalizedDraft.jobId) {
-        throw new Error("Tailored asset job does not match the provided draft.");
+        throw new Error(
+          "Tailored asset job does not match the provided draft.",
+        );
       }
 
       const nextResumeDrafts = upsertById(state.resumeDrafts, normalizedDraft);
@@ -841,7 +1138,8 @@ export function createInMemoryJobFinderRepository(
         state.resumeExportArtifacts,
         normalizedArtifact,
       ).map((entry) =>
-        entry.jobId === normalizedArtifact.jobId && entry.id !== normalizedArtifact.id
+        entry.jobId === normalizedArtifact.jobId &&
+        entry.id !== normalizedArtifact.id
           ? { ...entry, isApproved: false }
           : entry,
       );
@@ -864,14 +1162,16 @@ export function createInMemoryJobFinderRepository(
           ...draft,
           staleReason,
           approvedAt: null,
-            approvedExportId: null,
+          approvedExportId: null,
         }),
       );
       const normalizedAsset = tailoredAsset
         ? TailoredAssetSchema.parse(cloneValue(tailoredAsset))
         : null;
       if (normalizedAsset && normalizedAsset.jobId !== normalizedDraft.jobId) {
-        throw new Error("Tailored asset job does not match the provided draft.");
+        throw new Error(
+          "Tailored asset job does not match the provided draft.",
+        );
       }
 
       const nextResumeDrafts = upsertById(state.resumeDrafts, normalizedDraft);
@@ -914,6 +1214,23 @@ export function createInMemoryJobFinderRepository(
       );
       return Promise.resolve();
     },
+    claimApplicationAttempt(applicationAttempt) {
+      const normalizedAttempt = ApplicationAttemptSchema.parse(
+        cloneValue(applicationAttempt),
+      );
+      if (
+        state.applicationAttempts.some(
+          (attempt) => attempt.id === normalizedAttempt.id,
+        )
+      ) {
+        return Promise.resolve(false);
+      }
+      state.applicationAttempts = [
+        ...state.applicationAttempts,
+        normalizedAttempt,
+      ];
+      return Promise.resolve(true);
+    },
     listSourceDebugRuns() {
       return Promise.resolve(cloneValue(state.sourceDebugRuns));
     },
@@ -949,9 +1266,10 @@ export function createInMemoryJobFinderRepository(
       return Promise.resolve();
     },
     deleteSourceInstructionArtifactsForTarget(targetId) {
-      state.sourceInstructionArtifacts = state.sourceInstructionArtifacts.filter(
-        (artifact) => artifact.targetId !== targetId,
-      );
+      state.sourceInstructionArtifacts =
+        state.sourceInstructionArtifacts.filter(
+          (artifact) => artifact.targetId !== targetId,
+        );
       return Promise.resolve();
     },
     listSourceDebugEvidenceRefs() {

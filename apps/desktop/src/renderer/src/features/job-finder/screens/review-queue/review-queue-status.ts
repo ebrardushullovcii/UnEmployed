@@ -171,7 +171,7 @@ export function getApplyReadinessStatus(params: {
     }
 
     return {
-      label: browserSession.status === 'unknown' ? 'Open browser' : 'Apply path may be manual',
+      label: browserSession.status === 'unknown' ? 'Browser not open' : 'Live form check',
       tone: 'active'
     }
   }
@@ -185,7 +185,7 @@ export function getApplyReadinessStatus(params: {
 
   if (browserSession.status === 'unknown') {
     return {
-      label: 'Open browser',
+      label: 'Browser not open',
       tone: 'active'
     }
   }

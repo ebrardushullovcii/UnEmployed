@@ -1,82 +1,93 @@
-import { useEffect, useMemo, useState } from 'react'
-import type {
-  CandidateProfile,
-  JobFinderWorkspaceSnapshot,
-  JobSearchPreferences,
-  ProfileCopilotContext,
-  ProfileSetupReviewActionOptions,
-  ProfileSetupState,
-  ProfileSetupStep,
-  ResumeImportFieldCandidateSummary,
-  ResumeImportProgressEvent,
-} from '@unemployed/contracts'
-import { LockedScreenLayout } from '../../locked-screen-layout'
-import { PageHeader } from '../../page-header'
-import { ProfileCopilotRail } from '../profile-copilot-rail'
-import { COPILOT_BOTTOM_OFFSET } from '../profile-copilot-rail-layout'
-import { buildCopilotStarterQuestion } from '../profile-copilot-prompts'
-import { ProfileSetupStepEditor } from './profile-setup-step-editor'
+import { useEffect, useMemo } from "react";
+import {
+  type CandidateProfile,
+  type JobFinderWorkspaceSnapshot,
+  type JobSearchPreferences,
+  type ProfileCopilotContext,
+  type ProfileSetupReviewActionOptions,
+  type ProfileSetupState,
+  type ProfileSetupStep,
+  type ResumeImportFieldCandidateSummary,
+  type ResumeImportProgressEvent,
+  isRunnableJobDiscoveryTarget,
+} from "@unemployed/contracts";
+import { LockedScreenLayout } from "../../locked-screen-layout";
+import { PageHeader } from "../../page-header";
+import { ProfileCopilotRail } from "../profile-copilot-rail";
+import { COPILOT_BOTTOM_OFFSET } from "../profile-copilot-rail-layout";
+import { buildCopilotStarterQuestion } from "../profile-copilot-prompts";
+import { ProfileSetupStepEditor } from "./profile-setup-step-editor";
 import {
   buildSetupCopilotPlaceholder,
+  isBlockingPendingReviewItem,
+  isOptionalPendingReviewItem,
   buildStepEditorContext,
-} from './profile-setup-screen-helpers'
+} from "./profile-setup-screen-helpers";
 import {
   ProfileSetupPathCard,
   ProfileSetupReviewQueueCard,
   ProfileSetupSummaryCards,
-} from './profile-setup-screen-sections'
-import { useProfileSetupForms } from './profile-setup-screen-hooks'
-import { useProfileSetupScreenActions } from './profile-setup-screen-actions'
+} from "./profile-setup-screen-sections";
+import { useProfileSetupForms } from "./profile-setup-screen-hooks";
+import {
+  getProfileSetupScrollBehavior,
+  useProfileSetupScreenActions,
+} from "./profile-setup-screen-actions";
 import {
   PROFILE_SETUP_STEP_HEADING_ID,
-  resetProfileSetupStepView,
-} from './profile-setup-step-focus'
-import { formatProfileSetupStepLabel } from './profile-setup-steps'
+  focusProfileSetupStepHeading,
+} from "./profile-setup-step-focus";
+import { formatProfileSetupStepLabel } from "./profile-setup-steps";
 
-const setupScreenColumnsClassName = 'grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(20rem,0.95fr)]'
+const setupScreenColumnsClassName =
+  "grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(20rem,0.95fr)]";
 const unsavedSetupCopilotMessage =
-  'Save this step before asking Profile Copilot to edit it so your current setup draft does not get overwritten.'
+  "Save this step before asking Profile Copilot to edit it so your current setup draft does not get overwritten.";
 const unsavedSetupCopilotActionsMessage =
-  'Save this step before applying, rejecting, or undoing copilot changes so your current setup draft stays intact.'
+  "Save this step before applying, rejecting, or undoing copilot changes so your current setup draft stays intact.";
 const unsavedSetupReviewActionsMessage =
-  'Save this step before confirming, dismissing, or clearing review items so your current setup draft stays intact.'
+  "Save this step before confirming, dismissing, or clearing review items so your current setup draft stays intact.";
 export function ProfileSetupScreen(props: {
-  actionState: { message: string | null }
-  importResumeGuardMessage: string | null
-  isImportResumePending: boolean
-  isProfileSetupPending: boolean
-  isReviewItemPending: (reviewItemId: string) => boolean
-  profileCopilotBusy: boolean
-  latestResumeImportReviewCandidates: readonly ResumeImportFieldCandidateSummary[]
-  resumeImportProgress: ResumeImportProgressEvent | null
-  onApplyProfileCopilotPatchGroup: (patchGroupId: string) => void
+  actionState: { message: string | null };
+  importResumeGuardMessage: string | null;
+  isImportResumePending: boolean;
+  isProfileSetupPending: boolean;
+  isReviewItemPending: (reviewItemId: string) => boolean;
+  profileCopilotBusy: boolean;
+  latestResumeImportReviewCandidates: readonly ResumeImportFieldCandidateSummary[];
+  resumeImportProgress: ResumeImportProgressEvent | null;
+  onApplyProfileCopilotPatchGroup: (patchGroupId: string) => void;
   onApplyProfileSetupReviewAction: (
     reviewItemId: string,
-    action: 'confirm' | 'dismiss' | 'clear_value',
+    action: "confirm" | "dismiss" | "clear_value",
     options?: ProfileSetupReviewActionOptions,
-  ) => void
-  onContinueToProfile: () => void
-  onImportResume: () => void
-  onProfileSurfaceDirtyChange: (dirty: boolean) => void
-  profileCopilotPendingContextKey: string | null
-  onRejectProfileCopilotPatchGroup: (patchGroupId: string) => void
-  onResumeSetup: (step: ProfileSetupStep) => void
+  ) => void;
+  onContinueToProfile: () => void;
+  onImportResume: () => void;
+  onProfileSurfaceDirtyChange: (dirty: boolean) => void;
+  profileCopilotPendingContextKey: string | null;
+  onRejectProfileCopilotPatchGroup: (patchGroupId: string) => void;
+  onResumeSetup: (step: ProfileSetupStep) => void;
   onSaveSetupStep: (
     profile: CandidateProfile,
     searchPreferences: JobSearchPreferences,
     nextStep: ProfileSetupStep,
-    options?: { message?: string; openProfile?: boolean; stayOnCurrentStep?: boolean },
-  ) => void
+    options?: {
+      message?: string;
+      openProfile?: boolean;
+      stayOnCurrentStep?: boolean;
+    },
+  ) => void;
   onSendProfileCopilotMessage: (
     content: string,
     context?: ProfileCopilotContext,
-  ) => void
-  onUndoProfileRevision: (revisionId: string) => void
-  profile: CandidateProfile
-  profileCopilotMessages: readonly JobFinderWorkspaceSnapshot['profileCopilotMessages'][number][]
-  profileRevisions: readonly JobFinderWorkspaceSnapshot['profileRevisions'][number][]
-  profileSetupState: ProfileSetupState
-  searchPreferences: JobSearchPreferences
+  ) => void;
+  onUndoProfileRevision: (revisionId: string) => void;
+  profile: CandidateProfile;
+  profileCopilotMessages: readonly JobFinderWorkspaceSnapshot["profileCopilotMessages"][number][];
+  profileRevisions: readonly JobFinderWorkspaceSnapshot["profileRevisions"][number][];
+  profileSetupState: ProfileSetupState;
+  searchPreferences: JobSearchPreferences;
 }) {
   const {
     actionState,
@@ -103,8 +114,7 @@ export function ProfileSetupScreen(props: {
     profileRevisions,
     profileSetupState,
     searchPreferences,
-  } = props
-  const [isCopilotOpen, setIsCopilotOpen] = useState(false)
+  } = props;
 
   const {
     backgroundArrays,
@@ -123,22 +133,24 @@ export function ProfileSetupScreen(props: {
     profile,
     profileSetupState,
     searchPreferences,
-  })
+  });
 
   useEffect(() => {
-    onProfileSurfaceDirtyChange(hasUserDraftChanges)
-    return () => onProfileSurfaceDirtyChange(false)
-  }, [hasUserDraftChanges, onProfileSurfaceDirtyChange])
+    onProfileSurfaceDirtyChange(hasUserDraftChanges);
+    return () => onProfileSurfaceDirtyChange(false);
+  }, [hasUserDraftChanges, onProfileSurfaceDirtyChange]);
 
   useEffect(() => {
     const frameId = window.requestAnimationFrame(() => {
-      resetProfileSetupStepView()
-    })
+      focusProfileSetupStepHeading();
+    });
 
-    return () => window.cancelAnimationFrame(frameId)
-  }, [profileSetupState.currentStep])
+    return () => window.cancelAnimationFrame(frameId);
+  }, [profileSetupState.currentStep]);
 
-  const setupCopilotContext = buildStepEditorContext(profileSetupState.currentStep)
+  const setupCopilotContext = buildStepEditorContext(
+    profileSetupState.currentStep,
+  );
   const {
     currentStepReviewItems,
     focusedReviewItemId,
@@ -160,76 +172,101 @@ export function ProfileSetupScreen(props: {
     profileSetupCurrentStep: profileSetupState.currentStep,
     searchPreferences,
     setValidationMessage,
-  })
+  });
 
   const pendingCurrentStepReviewItems = currentStepReviewItems.filter(
-    (item) => item.status === 'pending',
-  )
-  const starterQuestion = buildCopilotStarterQuestion(pendingCurrentStepReviewItems)
-  const hasImportedResume = profile.baseResume.extractionStatus === 'ready'
-  const isPristineSetup = profileSetupState.status === 'not_started' && !hasImportedResume
+    (item) => item.status === "pending",
+  );
+  const blockingCurrentStepReviewItems = pendingCurrentStepReviewItems.filter(
+    isBlockingPendingReviewItem,
+  );
+  const optionalCurrentStepReviewItems = pendingCurrentStepReviewItems.filter(
+    isOptionalPendingReviewItem,
+  );
+  const starterQuestion = buildCopilotStarterQuestion(
+    pendingCurrentStepReviewItems,
+  );
+  const hasImportedResume = profile.baseResume.extractionStatus === "ready";
+  const isPristineSetup =
+    profileSetupState.status === "not_started" && !hasImportedResume;
+  const setupMutationPending = isProfileSetupPending || isImportResumePending;
+  const setupActionsDisabledReason = isImportResumePending
+    ? "Resume import is updating this workspace. Wait for it to finish before editing or reviewing profile details."
+    : null;
 
   function resumeCurrentStep() {
-    goToStep(profileSetupState.currentStep)
+    goToStep(profileSetupState.currentStep);
 
     window.requestAnimationFrame(() => {
       const target = document.getElementById(
-        pendingCurrentStepReviewItems.length > 0
-          ? 'profile-setup-review-queue'
-          : 'profile-setup-step-editor',
-      )
-      target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      target?.focus({ preventScroll: true })
-    })
+        blockingCurrentStepReviewItems.length > 0
+          ? "profile-setup-review-queue"
+          : "profile-setup-step-editor",
+      );
+      target?.scrollIntoView({
+        behavior: getProfileSetupScrollBehavior(),
+        block: "start",
+      });
+      target?.focus({ preventScroll: true });
+    });
   }
 
-  const readinessCards = useMemo(
-    () => [
+  const readinessCards = useMemo(() => {
+    const hasSearchTarget =
+      draftSearchPreferences.targetRoles.length > 0 ||
+      draftSearchPreferences.jobFamilies.length > 0;
+    const hasDiscoverySource = draftSearchPreferences.discovery.targets.some(
+      isRunnableJobDiscoveryTarget,
+    );
+
+    return [
       {
-        label: 'Discovery',
+        label: "Discovery",
         value:
-          !hasImportedResume && profileSetupState.status === 'not_started'
-            ? 'Not provided yet'
-            : draftSearchPreferences.targetRoles.length > 0 || draftSearchPreferences.jobFamilies.length > 0
-            ? 'Context captured'
-            : 'Needs targeting details',
+          !hasImportedResume && profileSetupState.status === "not_started"
+            ? "Not provided yet"
+            : hasSearchTarget && hasDiscoverySource
+              ? "Ready to search"
+              : !hasSearchTarget
+                ? "Needs a target role"
+                : "Needs a job source",
       },
       {
-        label: 'Resume quality',
+        label: "Resume quality",
         value:
-          !hasImportedResume && profileSetupState.status === 'not_started'
-            ? 'Not analyzed yet'
+          !hasImportedResume && profileSetupState.status === "not_started"
+            ? "Not analyzed yet"
             : draftProfile.experiences.length > 0
-              ? 'Structured background available'
-              : 'Needs stronger work history',
+              ? "Structured background available"
+              : "Needs stronger work history",
       },
       {
-        label: 'Apply readiness',
+        label: "Apply readiness",
         value:
-          !hasImportedResume && profileSetupState.status === 'not_started'
-            ? 'Not provided yet'
+          !hasImportedResume && profileSetupState.status === "not_started"
+            ? "Not provided yet"
             : draftProfile.email?.trim() || draftProfile.phone?.trim()
-            ? 'Contact path ready'
-            : 'Missing contact details',
+              ? "Contact path ready"
+              : "Missing contact details",
       },
-    ],
-    [
-      draftProfile.email,
-      draftProfile.experiences.length,
-      draftProfile.phone,
-      draftSearchPreferences.jobFamilies.length,
-      draftSearchPreferences.targetRoles.length,
-      hasImportedResume,
-      profileSetupState.status,
-    ],
-  )
+    ];
+  }, [
+    draftProfile.email,
+    draftProfile.experiences.length,
+    draftProfile.phone,
+    draftSearchPreferences.discovery.targets,
+    draftSearchPreferences.jobFamilies.length,
+    draftSearchPreferences.targetRoles.length,
+    hasImportedResume,
+    profileSetupState.status,
+  ]);
 
   return (
     <LockedScreenLayout
       contentClassName="pb-8 xl:pb-10"
-      reserveRightRail={isCopilotOpen}
+      lockTopContent={!isPristineSetup}
       topClassName="grid gap-6 pb-8 pt-8"
-      topContent={(
+      topContent={
         <>
           <PageHeader
             eyebrow="Profile setup"
@@ -248,91 +285,127 @@ export function ProfileSetupScreen(props: {
               onImportResume={onImportResume}
               onOpenProfile={openProfile}
               onResumeCurrentStep={resumeCurrentStep}
-              onStartManually={() => goToStep('essentials')}
+              onStartManually={() => goToStep("essentials")}
               profileSetupState={profileSetupState}
               readinessCards={readinessCards}
-              reviewItemCount={pendingCurrentStepReviewItems.length}
+              reviewItemCount={blockingCurrentStepReviewItems.length}
+              optionalReviewItemCount={optionalCurrentStepReviewItems.length}
             />
           </div>
         </>
-      )}
+      }
     >
-      {isPristineSetup ? null : <div className={`${setupScreenColumnsClassName} min-h-0`}>
-        <div className="grid gap-6 min-h-0" id="profile-setup-step-editor" tabIndex={-1}>
-          <h2 className="sr-only" id={PROFILE_SETUP_STEP_HEADING_ID} tabIndex={-1}>
-            {formatProfileSetupStepLabel(profileSetupState.currentStep)} setup step
-          </h2>
-          <ProfileSetupPathCard currentStep={profileSetupState.currentStep} onGoToStep={goToStep} profileSetupState={profileSetupState} />
-
-            <ProfileSetupStepEditor
-              backgroundArrays={backgroundArrays}
-              currentStepReviewItems={currentStepReviewItems}
+      {isPristineSetup ? null : (
+        <div className={`${setupScreenColumnsClassName} min-h-0`}>
+          <div
+            className="grid gap-6 min-h-0"
+            id="profile-setup-step-editor"
+            tabIndex={-1}
+          >
+            <h2
+              className="sr-only"
+              id={PROFILE_SETUP_STEP_HEADING_ID}
+              tabIndex={-1}
+            >
+              {formatProfileSetupStepLabel(profileSetupState.currentStep)} setup
+              step
+            </h2>
+            <ProfileSetupPathCard
               currentStep={profileSetupState.currentStep}
-              experienceArray={experienceArray}
-              draftProfile={draftProfile}
-              draftSearchPreferences={draftSearchPreferences}
-              focusedReviewItemId={focusedReviewItemId}
-              focusedReviewRequestKey={focusedReviewRequestKey}
-              hasUnsavedChanges={hasUnsavedChanges}
-              importDisabledReason={importResumeGuardMessage ?? null}
-              isImportResumePending={isImportResumePending}
-              isProfileSetupPending={isProfileSetupPending}
-              latestResumeImportReviewCandidates={latestResumeImportReviewCandidates}
-              resumeImportProgress={resumeImportProgress}
-              onContinueToProfile={onContinueToProfile}
-              onImportResume={onImportResume}
-              onSaveCurrentStep={handleSaveCurrentStep}
-              onSaveAndFinish={() => handleSaveStep('ready_check', { openProfile: true })}
-              onSaveAndGoToStep={(step) => handleSaveStep(step)}
-              profile={profile}
-              profileForm={profileForm}
-              profileSetupReviewItems={draftAwareReviewItems}
-              preferencesForm={preferencesForm}
-              searchPreferences={searchPreferences}
-              validationMessage={validationMessage}
+              disabled={setupMutationPending}
+              onGoToStep={goToStep}
+              profileSetupState={profileSetupState}
             />
-        </div>
 
-        <div className="flex h-full min-h-0 flex-col gap-6 pb-24 xl:pb-28">
-          <ProfileSetupReviewQueueCard
-            actionsDisabledReason={hasUserDraftChanges ? unsavedSetupReviewActionsMessage : null}
-            isReviewItemPending={isReviewItemPending}
-            items={currentStepReviewItems}
-            latestResumeImportReviewCandidates={latestResumeImportReviewCandidates}
-            onApplyReviewAction={onApplyProfileSetupReviewAction}
-            onEditReviewItem={handleEditReviewItem}
-          />
+            <fieldset
+              className="m-0 min-w-0 border-0 p-0 disabled:opacity-80"
+              disabled={setupMutationPending}
+            >
+              <ProfileSetupStepEditor
+                backgroundArrays={backgroundArrays}
+                currentStepReviewItems={currentStepReviewItems}
+                currentStep={profileSetupState.currentStep}
+                experienceArray={experienceArray}
+                draftProfile={draftProfile}
+                draftSearchPreferences={draftSearchPreferences}
+                focusedReviewItemId={focusedReviewItemId}
+                focusedReviewRequestKey={focusedReviewRequestKey}
+                hasUnsavedChanges={hasUnsavedChanges}
+                importDisabledReason={importResumeGuardMessage ?? null}
+                isImportResumePending={isImportResumePending}
+                isProfileSetupPending={setupMutationPending}
+                latestResumeImportReviewCandidates={
+                  latestResumeImportReviewCandidates
+                }
+                resumeImportProgress={resumeImportProgress}
+                onContinueToProfile={onContinueToProfile}
+                onImportResume={onImportResume}
+                onSaveCurrentStep={handleSaveCurrentStep}
+                onSaveAndFinish={() =>
+                  handleSaveStep("ready_check", { openProfile: true })
+                }
+                onSaveAndGoToStep={(step) => handleSaveStep(step)}
+                profile={profile}
+                profileForm={profileForm}
+                profileSetupReviewItems={draftAwareReviewItems}
+                preferencesForm={preferencesForm}
+                searchPreferences={searchPreferences}
+                validationMessage={validationMessage}
+              />
+            </fieldset>
+          </div>
 
-          <ProfileCopilotRail
-            busy={profileCopilotBusy}
-            actionsDisabledReason={hasUserDraftChanges ? unsavedSetupCopilotActionsMessage : null}
-            collapsedMinBottomOffset={COPILOT_BOTTOM_OFFSET}
-            context={setupCopilotContext}
-            emptyStateDescription="Ask why a field matters or request a specific change for this step."
-            emptyStateTitle="No requests yet"
-            messages={profileCopilotMessages.filter((message) => {
-              if (message.context.surface !== 'setup') {
-                return false
+          <div className="flex h-full min-h-0 flex-col gap-6 pb-24 xl:pb-28">
+            <ProfileSetupReviewQueueCard
+              actionsDisabledReason={
+                setupActionsDisabledReason ??
+                (hasUserDraftChanges ? unsavedSetupReviewActionsMessage : null)
               }
+              isReviewItemPending={isReviewItemPending}
+              items={currentStepReviewItems}
+              latestResumeImportReviewCandidates={
+                latestResumeImportReviewCandidates
+              }
+              onApplyReviewAction={onApplyProfileSetupReviewAction}
+              onEditReviewItem={handleEditReviewItem}
+            />
 
-              return message.context.step === profileSetupState.currentStep
-            })}
-            onApplyPatchGroup={onApplyProfileCopilotPatchGroup}
-            onRejectPatchGroup={onRejectProfileCopilotPatchGroup}
-            onSendMessage={onSendProfileCopilotMessage}
-            onOpenChange={setIsCopilotOpen}
-            onUndoRevision={onUndoProfileRevision}
-            pendingContextKey={profileCopilotPendingContextKey}
-            placeholder={buildSetupCopilotPlaceholder(profileSetupState.currentStep)}
-            revisions={profileRevisions}
-            sendDisabledReason={hasUserDraftChanges ? unsavedSetupCopilotMessage : null}
-            starterQuestion={starterQuestion}
-            title="Profile Copilot"
-            minBottomOffset={COPILOT_BOTTOM_OFFSET}
-            reserveContentSpace
-          />
+            <ProfileCopilotRail
+              busy={profileCopilotBusy}
+              actionsDisabledReason={
+                setupActionsDisabledReason ??
+                (hasUserDraftChanges ? unsavedSetupCopilotActionsMessage : null)
+              }
+              context={setupCopilotContext}
+              emptyStateDescription="Ask why a field matters or request a specific change for this step. You review every proposal before anything is applied."
+              emptyStateTitle="No requests yet"
+              messages={profileCopilotMessages.filter((message) => {
+                if (message.context.surface !== "setup") {
+                  return false;
+                }
+
+                return message.context.step === profileSetupState.currentStep;
+              })}
+              onApplyPatchGroup={onApplyProfileCopilotPatchGroup}
+              onRejectPatchGroup={onRejectProfileCopilotPatchGroup}
+              onSendMessage={onSendProfileCopilotMessage}
+              onUndoRevision={onUndoProfileRevision}
+              pendingContextKey={profileCopilotPendingContextKey}
+              placeholder={buildSetupCopilotPlaceholder(
+                profileSetupState.currentStep,
+              )}
+              revisions={profileRevisions}
+              sendDisabledReason={
+                setupActionsDisabledReason ??
+                (hasUserDraftChanges ? unsavedSetupCopilotMessage : null)
+              }
+              starterQuestion={starterQuestion}
+              title="Profile Copilot"
+              minBottomOffset={COPILOT_BOTTOM_OFFSET}
+            />
+          </div>
         </div>
-      </div>}
+      )}
     </LockedScreenLayout>
-  )
+  );
 }

@@ -112,6 +112,11 @@ async function loadQueueDemo(window) {
 
 async function stageSelectedQueue(window) {
   const stageButton = window.getByRole('button', { name: /Stage queue for/i })
+  if (!(await stageButton.isVisible())) {
+    const moreActions = window.locator('summary').filter({ hasText: /^More actions$/ })
+    await moreActions.waitFor({ timeout: 10000 })
+    await moreActions.click()
+  }
   await stageButton.waitFor({ timeout: 10000 })
   await stageButton.click()
 
@@ -127,7 +132,7 @@ async function stageSelectedQueue(window) {
 }
 
 async function approveCurrentRun(window) {
-  const approveButton = window.getByRole('button', { name: 'Record submit approval' })
+  const approveButton = window.getByRole('button', { name: /^Approve safe preparation/ })
   await approveButton.waitFor({ timeout: 10000 })
   await approveButton.click()
 }

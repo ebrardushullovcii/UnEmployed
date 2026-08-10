@@ -90,6 +90,7 @@ async function listChromeProcessCommandLines(): Promise<string[]> {
         {
           windowsHide: true,
           maxBuffer: 5 * 1024 * 1024,
+          timeout: 3_000,
         },
       );
 
@@ -215,6 +216,25 @@ export function validateJobPostings(
   });
 }
 
+export async function bringPageToFrontBestEffort(
+  page: Pick<Page, "bringToFront">,
+  timeoutMs = 1_000,
+): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    await Promise.race([
+      page.bringToFront().catch(() => undefined),
+      new Promise<void>((resolve) => {
+        timeout = setTimeout(resolve, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
 export async function pathExists(filePath: string): Promise<boolean> {
   try {
     await access(filePath, constants.F_OK);

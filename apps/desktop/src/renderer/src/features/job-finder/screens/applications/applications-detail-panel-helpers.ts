@@ -133,7 +133,7 @@ export function getQueueStateExplanation(
   }
 
   if (input.runState === "awaiting_submit_approval") {
-    return "This queue is staged but has not started yet. Record submit approval to let the safe fill-only queue begin, or restage a narrower queue if the job list changed.";
+    return "This queue is staged but has not started yet. Approve safe preparation to let the fill-only queue begin, or restage a narrower queue if the job list changed. Final submission remains disabled.";
   }
 
   if (input.runState === "cancelled") {

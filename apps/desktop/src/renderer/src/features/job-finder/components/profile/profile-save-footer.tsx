@@ -46,7 +46,7 @@ export function ProfileSaveFooter({
           ) : null}
         </div>
 
-        <Button className="w-full sm:w-auto sm:shrink-0" pending={isSavePending} onClick={onSave} type="button" variant="primary">
+        <Button className="w-full sm:w-auto sm:shrink-0" disabled={!hasUnsavedChanges} pending={isSavePending} onClick={onSave} type="button" variant="primary">
           Save changes
         </Button>
       </div>

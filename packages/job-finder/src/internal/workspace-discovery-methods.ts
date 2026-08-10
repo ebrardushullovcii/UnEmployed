@@ -21,6 +21,12 @@ import {
   updateTargetExecution,
 } from "./discovery-state";
 import { createMatchAssessment, mergeDiscoveredPostings } from "./matching";
+import { createMatchAssessmentSession } from "./match-assessment-session";
+import {
+  compareMatchRecommendationPriority,
+  compareMatchRoleSuitabilityPriority,
+  compareMatchScores,
+} from "./match-assessment-ranking";
 import {
   buildDiscoveryInstructionGuidance,
   enrichSearchPreferencesFromProfile,
@@ -32,8 +38,10 @@ import { collectResumeAffectingChangedJobIds } from "./resume-workspace-stalenes
 import { DEFAULT_ROLE, discoveryAdapters } from "./workspace-defaults";
 import {
   applyInactiveLedgerMarks,
+  createDiscoveryFreshnessDigest,
+  createDiscoveryLedgerIndex,
   createDiscoveryProvenance,
-  findDiscoveryLedgerEntry,
+  formatDiscoveryFreshnessDigest,
   mergePendingJobs,
   mergeSavedJobs,
   overlayTouchedPendingJobs,
@@ -41,6 +49,7 @@ import {
   recordDiscoveredPostingInLedger,
   shouldSkipPostingFromLedger,
 } from "./workspace-service-helpers";
+import { createDiscoveryRefreshDecision } from "./workspace-discovery-refresh-schedule";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
 import type {
   DiscoveryTargetPipelineOptions,
@@ -74,12 +83,107 @@ type SettledPublicProviderJobsResult =
   | { result: PublicProviderJobsResult; error: null }
   | { result: null; error: unknown };
 
+async function* iterateDiscoveryTargetsByReadiness(input: {
+  targets: readonly JobDiscoveryTarget[];
+  prefetchedPublicApiResults: ReadonlyMap<
+    string,
+    Promise<SettledPublicProviderJobsResult>
+  >;
+  signal: AbortSignal;
+}): AsyncGenerator<JobDiscoveryTarget> {
+  const readyApiTargets: JobDiscoveryTarget[] = [];
+  const pendingApiTargetIds = new Set<string>();
+  const serialTargets: JobDiscoveryTarget[] = [];
+  let notifyReady: (() => void) | null = null;
+
+  for (const target of input.targets) {
+    const request = input.prefetchedPublicApiResults.get(target.id);
+    if (!request) {
+      serialTargets.push(target);
+      continue;
+    }
+
+    pendingApiTargetIds.add(target.id);
+    void request.then(() => {
+      if (!pendingApiTargetIds.has(target.id)) {
+        return;
+      }
+
+      readyApiTargets.push(target);
+      const notify = notifyReady;
+      notifyReady = null;
+      notify?.();
+    });
+  }
+
+  let serialTargetIndex = 0;
+  while (
+    pendingApiTargetIds.size > 0 ||
+    serialTargetIndex < serialTargets.length
+  ) {
+    if (input.signal.aborted) {
+      throw new DOMException("Aborted", "AbortError");
+    }
+
+    // Give already-settled inventory promises a microtask turn to enter the
+    // ready queue before a serial browser target claims the shared session.
+    await Promise.resolve();
+
+    const readyApiTarget = readyApiTargets.shift();
+    if (readyApiTarget) {
+      pendingApiTargetIds.delete(readyApiTarget.id);
+      yield readyApiTarget;
+      continue;
+    }
+
+    const serialTarget = serialTargets[serialTargetIndex];
+    if (serialTarget) {
+      serialTargetIndex += 1;
+      yield serialTarget;
+      continue;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      let finished = false;
+      const cleanup = () => {
+        input.signal.removeEventListener("abort", onAbort);
+      };
+      const finishReady = () => {
+        if (finished) {
+          return;
+        }
+        finished = true;
+        cleanup();
+        resolve();
+      };
+      const onAbort = () => {
+        if (finished) {
+          return;
+        }
+        finished = true;
+        cleanup();
+        reject(new DOMException("Aborted", "AbortError"));
+      };
+
+      notifyReady = finishReady;
+      input.signal.addEventListener("abort", onAbort, { once: true });
+      if (readyApiTargets.length > 0) {
+        notifyReady = null;
+        finishReady();
+      }
+    });
+  }
+}
+
 export function selectDiscoveryBudgetPostings(input: {
   postings: readonly JobPosting[];
   profile: CandidateProfile;
   searchPreferences: JobSearchPreferences;
   limit: number;
   preferredCanonicalUrls?: readonly string[];
+  assessPosting?: (
+    posting: JobPosting,
+  ) => ReturnType<typeof createMatchAssessment>;
 }): JobPosting[] {
   const normalizeCanonicalUrl = (value: string): string => {
     try {
@@ -101,19 +205,19 @@ export function selectDiscoveryBudgetPostings(input: {
       preferred: preferredCanonicalUrls.has(
         normalizeCanonicalUrl(posting.canonicalUrl),
       ),
-      score: createMatchAssessment(
-        input.profile,
-        input.searchPreferences,
-        posting,
-      ).score,
+      assessment:
+        input.assessPosting?.(posting) ??
+        createMatchAssessment(input.profile, input.searchPreferences, posting),
       postedAt: posting.postedAt
         ? new Date(posting.postedAt).getTime()
         : Number.NEGATIVE_INFINITY,
     }))
     .sort(
       (left, right) =>
+        compareMatchRecommendationPriority(left.assessment, right.assessment) ||
         Number(right.preferred) - Number(left.preferred) ||
-        right.score - left.score ||
+        compareMatchRoleSuitabilityPriority(left.assessment, right.assessment) ||
+        compareMatchScores(left.assessment, right.assessment) ||
         right.postedAt - left.postedAt ||
         left.index - right.index,
     );
@@ -275,9 +379,15 @@ function createInitialRunRecord(input: {
       state: "planned",
       startedAt: null,
       completedAt: null,
+      requestedJobBudget: null,
+      jobsReviewed: 0,
       jobsFound: 0,
       jobsPersisted: 0,
       jobsStaged: 0,
+      jobsSkippedByLedger: 0,
+      jobsSkippedByTitleTriage: 0,
+      duplicatesMerged: 0,
+      invalidSkipped: 0,
       warning: null,
       compactionState: null,
       compactionUsedFallbackTrigger: false,
@@ -792,6 +902,11 @@ export function createWorkspaceDiscoveryMethods(
       searchPreferences,
       profile,
     );
+    const assessmentSession = createMatchAssessmentSession({
+      profile,
+      searchPreferences: enrichedPreferences,
+      calculate: createMatchAssessment,
+    });
     const selectedTargets = selectTargets(enrichedPreferences, options);
 
     if (selectedTargets.length === 0) {
@@ -804,22 +919,22 @@ export function createWorkspaceDiscoveryMethods(
       return ctx.getWorkspaceSnapshot();
     }
 
-    // Re-score the local inventory before consulting the discovery ledger. A
-    // ledger hit can legitimately skip an unchanged posting, but the user's
-    // profile or preferences may have changed since its last assessment.
-    // Keeping the stale assessment made shortlisted jobs contradict the
-    // current profile until the provider returned a materially changed post.
+    // Revalidate the local inventory before consulting the discovery ledger.
+    // Exact scorer, profile/preference, and posting fingerprints reuse a
+    // persisted assessment; any relevant change misses safely and recomputes.
     let workingSavedJobs = startingSavedJobs.map((job) => ({
       ...job,
-      matchAssessment: createMatchAssessment(profile, enrichedPreferences, job),
+      matchAssessment: assessmentSession.assessPersisted(
+        job,
+        job.matchAssessment,
+      ),
     }));
     let workingPendingJobs = startingDiscovery.pendingDiscoveryJobs.map(
       (job) => ({
         ...job,
-        matchAssessment: createMatchAssessment(
-          profile,
-          enrichedPreferences,
+        matchAssessment: assessmentSession.assessPersisted(
           job,
+          job.matchAssessment,
         ),
       }),
     );
@@ -901,10 +1016,10 @@ export function createWorkspaceDiscoveryMethods(
         throw error;
       });
 
-    // Public inventories are independent network reads. Start them together so
-    // a run with several API-backed sources waits for the slowest provider,
-    // rather than paying every provider's latency serially. Processing,
-    // scoring, persistence, and activity reporting remain ordered below.
+    // Public inventories are independent network reads. Start them together;
+    // the readiness iterator below then processes each API target in settlement
+    // order. Every target remains a deterministic, durable publication batch,
+    // while browser-backed targets retain exclusive serial session ownership.
     const prefetchedPublicApiResults = new Map<
       string,
       Promise<SettledPublicProviderJobsResult>
@@ -938,7 +1053,14 @@ export function createWorkspaceDiscoveryMethods(
     }
 
     try {
-      for (const [index, target] of targets.entries()) {
+      let executionIndex = 0;
+      for await (const target of iterateDiscoveryTargetsByReadiness({
+        targets,
+        prefetchedPublicApiResults,
+        signal: executionSignal,
+      })) {
+        const index = executionIndex;
+        executionIndex += 1;
         if (executionSignal.aborted) {
           throw new DOMException("Aborted", "AbortError");
         }
@@ -988,8 +1110,13 @@ export function createWorkspaceDiscoveryMethods(
 
         const discoveryBudget = resolveDiscoveryTargetBudget({
           targetsRemaining: targets.length - index,
-          validJobsFoundSoFar: activeRun.summary.validJobsFound,
+          validJobsFoundSoFar:
+            activeRun.summary.jobsPersisted + activeRun.summary.jobsStaged,
         });
+        activeRun = updateTargetExecution(activeRun, target.id, (entry) => ({
+          ...entry,
+          requestedJobBudget: discoveryBudget.targetJobCount,
+        }));
         let collected: Awaited<ReturnType<typeof collectTargetJobs>>;
         try {
           collected = await collectTargetJobs({
@@ -1025,9 +1152,15 @@ export function createWorkspaceDiscoveryMethods(
           const warning = `Discovery failed for ${target.label}: ${describeUnknownThrowable(error)}`;
           activeRun = completeTargetExecution(activeRun, target.id, failedAt, {
             state: "failed",
+            requestedJobBudget: discoveryBudget.targetJobCount,
+            jobsReviewed: 0,
             jobsFound: 0,
             jobsPersisted: 0,
             jobsStaged: 0,
+            jobsSkippedByLedger: 0,
+            jobsSkippedByTitleTriage: 0,
+            duplicatesMerged: 0,
+            invalidSkipped: 0,
             warning,
           });
           emitActivity(
@@ -1058,6 +1191,12 @@ export function createWorkspaceDiscoveryMethods(
           continue;
         }
         const collectedJobs = collected.result.jobs;
+        const freshnessDigest = createDiscoveryFreshnessDigest({
+          ledger: workingLedger,
+          postings: collectedJobs,
+        });
+        const freshnessSummary =
+          formatDiscoveryFreshnessDigest(freshnessDigest);
         const collectedProviderKey = getDiscoveryProviderKey({
           target,
           intelligence: collected.intelligence,
@@ -1087,8 +1226,8 @@ export function createWorkspaceDiscoveryMethods(
             collectionMethod: collected.collectionMethod,
             sourceIntelligenceProvider: collectedProviderKey,
             message: collected.result.warning
-              ? `Collected ${collectedJobs.length} candidate jobs from ${target.label}. Sample: ${formatDiscoveryPostingSamples(collectedJobs) ?? "none"}. ${collected.result.warning}`
-              : `Collected ${collectedJobs.length} candidate jobs from ${target.label}. Sample: ${formatDiscoveryPostingSamples(collectedJobs) ?? "none"}`,
+              ? `Collected ${collectedJobs.length} candidate jobs from ${target.label}. ${freshnessSummary} Sample: ${formatDiscoveryPostingSamples(collectedJobs) ?? "none"}. ${collected.result.warning}`
+              : `Collected ${collectedJobs.length} candidate jobs from ${target.label}. ${freshnessSummary} Sample: ${formatDiscoveryPostingSamples(collectedJobs) ?? "none"}`,
             url: target.startingUrl,
             jobsFound: collectedJobs.length,
             jobsPersisted: activeRun.summary.jobsPersisted,
@@ -1112,6 +1251,8 @@ export function createWorkspaceDiscoveryMethods(
         }> = [];
         const collectionSucceeded = collected.result.warning == null;
 
+        const knownJobIndex = createDiscoveryLedgerIndex(workingLedger);
+
         for (const rawPosting of collectedJobs) {
           const posting = JobPostingSchema.parse(rawPosting);
           const { posting: triagedPosting, triageReason } =
@@ -1131,6 +1272,7 @@ export function createWorkspaceDiscoveryMethods(
             }
             workingLedger = recordDiscoveredPostingInLedger({
               ledger: workingLedger,
+              index: knownJobIndex,
               posting: triagedPosting,
               targetId: target.id,
               seenAt: triagedPosting.discoveredAt,
@@ -1140,20 +1282,26 @@ export function createWorkspaceDiscoveryMethods(
             continue;
           }
 
-          const ledgerEntry = findDiscoveryLedgerEntry(
-            workingLedger,
-            triagedPosting,
-          );
+          const ledgerEntry = knownJobIndex.find(triagedPosting);
+          const refreshDecision = createDiscoveryRefreshDecision({
+            ledgerEntry,
+            posting: triagedPosting,
+            evaluatedAt: triagedPosting.discoveredAt,
+          });
           const ledgerDecision = shouldSkipPostingFromLedger({
             ledgerEntry,
             posting: triagedPosting,
             triageOutcome: triagedPosting.titleTriageOutcome,
           });
+          const canReuseKnownPosting =
+            ledgerDecision.skip &&
+            refreshDecision.disposition !== "refresh_now";
 
-          if (ledgerDecision.skip) {
+          if (canReuseKnownPosting) {
             skippedByLedger += 1;
             workingLedger = recordDiscoveredPostingInLedger({
               ledger: workingLedger,
+              index: knownJobIndex,
               posting: JobPostingSchema.parse({
                 ...triagedPosting,
                 titleTriageOutcome: ledgerDecision.outcome,
@@ -1168,6 +1316,7 @@ export function createWorkspaceDiscoveryMethods(
 
           workingLedger = recordDiscoveredPostingInLedger({
             ledger: workingLedger,
+            index: knownJobIndex,
             posting: triagedPosting,
             targetId: target.id,
             seenAt: triagedPosting.discoveredAt,
@@ -1194,6 +1343,7 @@ export function createWorkspaceDiscoveryMethods(
           for (const posting of rescuedPostings) {
             workingLedger = recordDiscoveredPostingInLedger({
               ledger: workingLedger,
+              index: knownJobIndex,
               posting,
               targetId: target.id,
               seenAt: posting.discoveredAt,
@@ -1231,6 +1381,7 @@ export function createWorkspaceDiscoveryMethods(
           searchPreferences: enrichedPreferences,
           limit: discoveryBudget.targetJobCount,
           preferredCanonicalUrls: [target.startingUrl],
+          assessPosting: assessmentSession.assess,
         });
         const fairShareSuffix =
           triagedPostings.length > budgetedPostings.length
@@ -1283,6 +1434,7 @@ export function createWorkspaceDiscoveryMethods(
               titleTriageOutcome: posting.titleTriageOutcome,
             }),
           executionSignal,
+          assessmentSession.assess,
         );
         const changedJobIds = collectResumeAffectingChangedJobIds(
           workingSavedJobs,
@@ -1308,7 +1460,7 @@ export function createWorkspaceDiscoveryMethods(
             workingPendingJobs,
             nextPendingJobs,
           );
-          jobsStaged = nextPendingJobs.length;
+          jobsStaged = mergeResult.newJobs.length;
           nextPendingJobs.forEach((job) => touchedPendingJobIds.add(job.id));
           workingSavedJobs.forEach((job) => touchedSavedJobIds.add(job.id));
         } else {
@@ -1322,6 +1474,7 @@ export function createWorkspaceDiscoveryMethods(
         for (const posting of budgetedPostings) {
           workingLedger = recordDiscoveredPostingInLedger({
             ledger: workingLedger,
+            index: knownJobIndex,
             posting,
             targetId: target.id,
             seenAt: new Date().toISOString(),
@@ -1330,6 +1483,15 @@ export function createWorkspaceDiscoveryMethods(
           });
         }
 
+        const inactiveLedgerEntryIdsBefore = new Set(
+          workingLedger
+            .filter(
+              (entry) =>
+                entry.targetId === target.id &&
+                entry.latestStatus === "inactive",
+            )
+            .map((entry) => entry.id),
+        );
         workingLedger = applyInactiveLedgerMarks({
           ledger: workingLedger,
           targetId: target.id,
@@ -1339,6 +1501,13 @@ export function createWorkspaceDiscoveryMethods(
             (options.allowInactiveMarking ?? options.scope === "run_all") &&
             collectionSucceeded,
         });
+
+        const newlyInactiveCount = workingLedger.filter(
+          (entry) =>
+            entry.targetId === target.id &&
+            entry.latestStatus === "inactive" &&
+            !inactiveLedgerEntryIdsBefore.has(entry.id),
+        ).length;
 
         emitActivity(
           createDiscoveryEvent({
@@ -1384,9 +1553,30 @@ export function createWorkspaceDiscoveryMethods(
           targetCompletedAt,
           {
             state: "completed",
+            requestedJobBudget: discoveryBudget.targetJobCount,
+            jobsReviewed: budgetedPostings.length,
             jobsFound: mergeResult.validatedCount,
             jobsPersisted,
             jobsStaged,
+            jobsSkippedByLedger: skippedByLedger,
+            jobsSkippedByTitleTriage: skippedByTitleTriage,
+            duplicatesMerged: mergeResult.duplicatesMerged,
+            invalidSkipped: mergeResult.invalidSkipped,
+            changeDigest: {
+              new: freshnessDigest.counts.new,
+              unchanged: freshnessDigest.counts.unchanged,
+              changed: freshnessDigest.counts.changed,
+              reactivated: freshnessDigest.counts.reactivated,
+              inactive: newlyInactiveCount,
+              known:
+                freshnessDigest.counts.unchanged +
+                freshnessDigest.counts.changed +
+                freshnessDigest.counts.reactivated,
+              skipped:
+                skippedByLedger +
+                skippedByTitleTriage +
+                mergeResult.invalidSkipped,
+            },
             warning: collected.result.warning,
           },
         );

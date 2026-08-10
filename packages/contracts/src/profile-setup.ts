@@ -1,7 +1,10 @@
 import { z } from "zod";
 
 import { IsoDateTimeSchema, NonEmptyStringSchema } from "./base";
-import type { JobSearchPreferences } from "./discovery";
+import {
+  isRunnableJobDiscoveryTarget,
+  type JobSearchPreferences,
+} from "./discovery";
 import type { CandidateProfile } from "./profile";
 
 export const profileSetupStepValues = [
@@ -126,6 +129,7 @@ export interface ProfileSetupReadiness {
   hasAnswerBank: boolean;
   hasContactPath: boolean;
   hasCoreIdentity: boolean;
+  hasDiscoverySource: boolean;
   hasEligibilityPreferences: boolean;
   hasMeaningfulBackground: boolean;
   hasNarrative: boolean;
@@ -297,6 +301,9 @@ export function evaluateProfileSetupReadiness(
       hasMeaningfulStringList(searchPreferences.jobFamilies) ||
       hasMeaningfulStringList(profile.targetRoles),
   );
+  const hasDiscoverySource = searchPreferences.discovery.targets.some(
+    isRunnableJobDiscoveryTarget,
+  );
   const hasEligibilityPreferences = Boolean(
     hasMeaningfulStringList(profile.workEligibility.authorizedWorkCountries) ||
       profile.workEligibility.requiresVisaSponsorship !== null ||
@@ -317,7 +324,8 @@ export function evaluateProfileSetupReadiness(
     hasContactPath &&
     hasMeaningfulBackground &&
     hasTargeting &&
-    hasEligibilityPreferences;
+    hasEligibilityPreferences &&
+    hasDiscoverySource;
   const started = Boolean(
     hasResumeText ||
       hasCoreIdentity ||
@@ -336,7 +344,11 @@ export function evaluateProfileSetupReadiness(
     recommendedStep = "essentials";
   } else if (!hasMeaningfulBackground) {
     recommendedStep = "background";
-  } else if (!hasTargeting || !hasEligibilityPreferences) {
+  } else if (
+    !hasTargeting ||
+    !hasEligibilityPreferences ||
+    !hasDiscoverySource
+  ) {
     recommendedStep = "targeting";
   } else if (!hasNarrative) {
     recommendedStep = "narrative";
@@ -349,6 +361,7 @@ export function evaluateProfileSetupReadiness(
     hasAnswerBank,
     hasContactPath,
     hasCoreIdentity,
+    hasDiscoverySource,
     hasEligibilityPreferences,
     hasMeaningfulBackground,
     hasNarrative,

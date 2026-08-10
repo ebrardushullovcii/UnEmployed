@@ -36,14 +36,28 @@ describe('applications status helpers', () => {
     expect(getApplicationNextStepLabel(record)).toBe('Review the prepared application.')
   })
 
-  it('keeps the ready-after-consent stage while showing the paused next action as latest activity', () => {
+  it('shows that a consented but paused application still needs action', () => {
     const record = createRecord({
       consentSummary: { status: 'approved', pendingCount: 0 },
       lastAttemptState: 'paused',
     })
 
     expect(getApplicationStagePresentation(record)).toEqual({
-      label: 'Ready after consent',
+      label: 'Needs action',
+      tone: 'active',
+    })
+    expect(getApplicationLatestActivityLabel(record)).toBe('Review the prepared application.')
+  })
+
+  it('shows that a paused application needs action even when no consent was required', () => {
+    const record = createRecord({
+      status: 'approved',
+      consentSummary: { status: 'none', pendingCount: 0 },
+      lastAttemptState: 'paused',
+    })
+
+    expect(getApplicationStagePresentation(record)).toEqual({
+      label: 'Needs action',
       tone: 'active',
     })
     expect(getApplicationLatestActivityLabel(record)).toBe('Review the prepared application.')

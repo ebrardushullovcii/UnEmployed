@@ -369,6 +369,41 @@ export function runMigrations(database: DatabaseSync): void {
     `);
   }
 
+  function ensureUserActionTables(): void {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS user_action_requests (
+        id TEXT PRIMARY KEY,
+        dedupe_key TEXT NOT NULL UNIQUE,
+        revision INTEGER NOT NULL CHECK (revision > 0),
+        kind TEXT NOT NULL,
+        state TEXT NOT NULL,
+        scope_type TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        value TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS user_action_requests_state_idx
+        ON user_action_requests(state, updated_at DESC, id ASC);
+
+      CREATE INDEX IF NOT EXISTS user_action_requests_scope_idx
+        ON user_action_requests(scope_type, updated_at DESC, id ASC);
+
+      CREATE TABLE IF NOT EXISTS user_action_events (
+        id TEXT PRIMARY KEY,
+        request_id TEXT NOT NULL,
+        operation TEXT NOT NULL,
+        previous_revision INTEGER NOT NULL CHECK (previous_revision >= 0),
+        resulting_revision INTEGER NOT NULL CHECK (resulting_revision > 0),
+        occurred_at TEXT NOT NULL,
+        value TEXT NOT NULL,
+        FOREIGN KEY (request_id) REFERENCES user_action_requests(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS user_action_events_request_idx
+        ON user_action_events(request_id, occurred_at ASC, id ASC);
+    `);
+  }
+
   function rewritePersistedResultId(input: {
     tableName: string;
     rowId: string;
@@ -542,6 +577,9 @@ export function runMigrations(database: DatabaseSync): void {
       !hasTable("application_artifact_refs") ||
       !hasTable("application_replay_checkpoints") ||
       !hasTable("application_consent_requests");
+    const userActionTablesMissing =
+      !hasTable("user_action_requests") ||
+      !hasTable("user_action_events");
     // Migration rows can be removed independently while reproducing or
     // repairing legacy databases. Do not let a later version hide a missing
     // earlier migration merely because MAX(version) is newer.
@@ -549,6 +587,7 @@ export function runMigrations(database: DatabaseSync): void {
     const needsApplyFoundationMigration = !appliedVersions.has(6);
     const needsApplyFoundationIndexMigration = !appliedVersions.has(7);
     const needsProfileAchievementRepairMigration = !appliedVersions.has(8);
+    const needsUserActionMigration = !appliedVersions.has(9);
 
     if (
       resumeImportTablesMissing ||
@@ -557,7 +596,9 @@ export function runMigrations(database: DatabaseSync): void {
       needsProfileCopilotMigration ||
       needsApplyFoundationMigration ||
       needsApplyFoundationIndexMigration ||
-      needsProfileAchievementRepairMigration
+      needsProfileAchievementRepairMigration ||
+      userActionTablesMissing ||
+      needsUserActionMigration
     ) {
       database.exec("BEGIN IMMEDIATE");
       try {
@@ -582,6 +623,10 @@ export function runMigrations(database: DatabaseSync): void {
           }
 
           ensureApplyFoundationTables();
+        }
+
+        if (userActionTablesMissing || needsUserActionMigration) {
+          ensureUserActionTables();
         }
 
         if (needsProfileCopilotMigration) {
@@ -615,6 +660,14 @@ export function runMigrations(database: DatabaseSync): void {
               "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
             )
             .run(8, "repair_legacy_profile_achievement_fragments");
+        }
+
+        if (needsUserActionMigration) {
+          database
+            .prepare(
+              "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
+            )
+            .run(9, "job_finder_user_actions");
         }
 
         database.exec("COMMIT");
@@ -804,6 +857,13 @@ export function runMigrations(database: DatabaseSync): void {
       database
         .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
         .run(8, "repair_legacy_profile_achievement_fragments");
+    }
+
+    if (currentVersion < 9) {
+      ensureUserActionTables();
+      database
+        .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+        .run(9, "job_finder_user_actions");
     }
 
     database.exec("COMMIT");

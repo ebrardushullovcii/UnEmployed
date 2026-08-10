@@ -13,20 +13,24 @@ import {
   SourceInstructionArtifactSchema,
 } from "@unemployed/contracts";
 
-export type SourceDebugPhaseMap<TValue> = Partial<Record<SourceDebugPhase, TValue>>;
+export type SourceDebugPhaseMap<TValue> = Partial<
+  Record<SourceDebugPhase, TValue>
+>;
 
-export function createSavedJob(input: typeof SavedJobSchema["_input"]): SavedJob {
+export function createSavedJob(
+  input: (typeof SavedJobSchema)["_input"],
+): SavedJob {
   return SavedJobSchema.parse(input);
 }
 
 export function createSavedJobDiscoveryProvenance(
-  input: typeof SavedJobDiscoveryProvenanceSchema["_input"],
+  input: (typeof SavedJobDiscoveryProvenanceSchema)["_input"],
 ): SavedJobDiscoveryProvenance {
   return SavedJobDiscoveryProvenanceSchema.parse(input);
 }
 
 export function createSourceInstructionArtifact(
-  input: typeof SourceInstructionArtifactSchema["_input"],
+  input: (typeof SourceInstructionArtifactSchema)["_input"],
 ): SourceInstructionArtifact {
   return SourceInstructionArtifactSchema.parse(input);
 }
@@ -96,7 +100,8 @@ export function createSeed(): JobFinderRepositorySeed {
           title: "Design-system rollout",
           claim:
             "Led design-system rollout across core product surfaces used by design and operations teams.",
-          heroMetric: "Adoption reached 80% of core product surfaces within two quarters.",
+          heroMetric:
+            "Adoption reached 80% of core product surfaces within two quarters.",
           supportingContext:
             "Worked across product, engineering, and operations to standardize component and content patterns.",
           roleFamilies: ["product design", "design systems", "platform"],
@@ -107,9 +112,12 @@ export function createSeed(): JobFinderRepositorySeed {
       answerBank: {
         workAuthorization:
           "Authorized to work in the United Kingdom and open to remote roles across Europe.",
-        visaSponsorship: "Do not currently require visa sponsorship for UK-based roles.",
-        relocation: "Open to relocation for the right platform or systems role.",
-        travel: "Open to occasional travel for workshops and planning meetings.",
+        visaSponsorship:
+          "Do not currently require visa sponsorship for UK-based roles.",
+        relocation:
+          "Open to relocation for the right platform or systems role.",
+        travel:
+          "Open to occasional travel for workshops and planning meetings.",
         noticePeriod: "Available after a 30-day notice period.",
         availability: "Available to interview now and start within 30 days.",
         salaryExpectations:
@@ -130,6 +138,7 @@ export function createSeed(): JobFinderRepositorySeed {
         fileName: "alex-vanguard.pdf",
         uploadedAt: "2026-03-20T10:00:00.000Z",
         storagePath: "/tmp/alex-vanguard.pdf",
+        sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         textContent:
           "Alex Vanguard\nSenior systems designer\nLondon, UK\nalex@example.com\n+44 7700 900123\nhttps://alex.example.com\nhttps://www.linkedin.com/in/alex-vanguard\n\n10 years of experience building resilient workflow tools with Figma, React, and design systems.",
         textUpdatedAt: "2026-03-20T10:00:00.000Z",
@@ -232,6 +241,13 @@ export function createSeed(): JobFinderRepositorySeed {
       minimumSalaryUsd: 170000,
       targetSalaryUsd: null,
       salaryCurrency: "USD",
+      compensation: {
+        minimum: 170000,
+        maximum: null,
+        interval: "year",
+        currency: "USD",
+        currencyStatus: "inherited",
+      },
       approvalMode: "review_before_submit",
       tailoringMode: "balanced",
       companyBlacklist: [],
@@ -461,6 +477,8 @@ export function createSeed(): JobFinderRepositorySeed {
     applicationConsentRequests: [],
     applicationRecords: [],
     applicationAttempts: [],
+    userActionRequests: [],
+    userActionEvents: [],
     sourceDebugRuns: [],
     sourceDebugAttempts: [],
     sourceInstructionArtifacts: [],

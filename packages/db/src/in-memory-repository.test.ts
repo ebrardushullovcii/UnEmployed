@@ -1,10 +1,57 @@
 import { describe, expect, test } from "vitest";
-import { SavedJobSchema } from "@unemployed/contracts";
 import {
-  createInMemoryJobFinderRepository,
-} from "./index";
+  ResumeDraftRevisionSchema,
+  ResumeDraftSchema,
+  ResumeValidationResultSchema,
+  SavedJobSchema,
+} from "@unemployed/contracts";
+import { createInMemoryJobFinderRepository } from "./index";
 import { createSeed } from "./test-fixtures";
+import { MAX_RESUME_DRAFT_REVISIONS_PER_DRAFT } from "./resume-draft-revision-retention";
 
+function createRetentionDraft(id: string, updatedAt: string) {
+  return ResumeDraftSchema.parse({
+    id,
+    jobId: `job_${id}`,
+    status: "needs_review",
+    templateId: "classic_ats",
+    identity: null,
+    sections: [],
+    targetPageCount: 2,
+    generationMethod: "manual",
+    approvedAt: null,
+    approvedExportId: null,
+    staleReason: null,
+    createdAt: "2026-07-30T10:00:00.000Z",
+    updatedAt,
+  });
+}
+
+function createRetentionRevision(draftId: string, index: number) {
+  const suffix = String(index).padStart(3, "0");
+  const createdAt = new Date(
+    Date.UTC(2026, 6, 30, 10, 0, index),
+  ).toISOString();
+  return ResumeDraftRevisionSchema.parse({
+    id: `${draftId}_revision_${suffix}`,
+    draftId,
+    parentRevisionId:
+      index === 0
+        ? null
+        : `${draftId}_revision_${String(index - 1).padStart(3, "0")}`,
+    actor: "user",
+    mutationKind: "manual_save",
+    snapshotDraft: null,
+    snapshotIdentity: null,
+    snapshotSections: [],
+    beforeHash: null,
+    afterHash: null,
+    diff: null,
+    restoredFromRevisionId: null,
+    createdAt,
+    reason: `Revision ${index}`,
+  });
+}
 describe("createInMemoryJobFinderRepository", () => {
   test("returns cloned values and supports asset and attempt upserts", async () => {
     const repository = createInMemoryJobFinderRepository(createSeed());
@@ -153,6 +200,14 @@ describe("createInMemoryJobFinderRepository", () => {
     await repository.upsertResumeDraftRevision({
       id: "revision_1",
       draftId: "resume_draft_new",
+      parentRevisionId: null,
+      actor: "user",
+      mutationKind: "manual_save",
+      snapshotDraft: null,
+      beforeHash: null,
+      afterHash: null,
+      diff: null,
+      restoredFromRevisionId: null,
       snapshotIdentity: null,
       snapshotSections: [],
       createdAt: "2026-03-20T10:06:30.000Z",
@@ -185,6 +240,9 @@ describe("createInMemoryJobFinderRepository", () => {
       id: "resume_validation_1",
       draftId: "resume_draft_new",
       issues: [],
+      draftContentHash: null,
+      claimAssessments: [],
+      coverageComparison: null,
       pageCount: 2,
       validatedAt: "2026-03-20T10:06:45.000Z",
     });
@@ -194,6 +252,11 @@ describe("createInMemoryJobFinderRepository", () => {
       role: "assistant",
       content: "Tightened the summary.",
       patches: [],
+      proposalStatus: "none",
+      baseDraftUpdatedAt: null,
+      resolvedPatchIds: [],
+      resolvedAt: null,
+      proposalError: null,
       createdAt: "2026-03-20T10:06:40.000Z",
     });
 
@@ -210,17 +273,77 @@ describe("createInMemoryJobFinderRepository", () => {
     await expect(
       repository.listResumeExportArtifacts({ jobId: "job_1" }),
     ).resolves.toEqual([expect.objectContaining({ id: "resume_export_1" })]);
-    await expect(repository.listResumeResearchArtifacts("job_1")).resolves.toEqual([
-      expect.objectContaining({ id: "resume_research_1" }),
-    ]);
+    await expect(
+      repository.listResumeResearchArtifacts("job_1"),
+    ).resolves.toEqual([expect.objectContaining({ id: "resume_research_1" })]);
     await expect(
       repository.listResumeValidationResults("resume_draft_new"),
-    ).resolves.toEqual([expect.objectContaining({ id: "resume_validation_1" })]);
-    await expect(repository.listResumeAssistantMessages("job_1")).resolves.toEqual([
+    ).resolves.toEqual([
+      expect.objectContaining({ id: "resume_validation_1" }),
+    ]);
+    await expect(
+      repository.listResumeAssistantMessages("job_1"),
+    ).resolves.toEqual([
       expect.objectContaining({ id: "assistant_message_1" }),
     ]);
   });
 
+  test("retains only the newest 100 revisions per draft for direct and atomic writes", async () => {
+    const repository = createInMemoryJobFinderRepository(createSeed());
+    const draft = createRetentionDraft(
+      "resume_draft_retained",
+      "2026-07-30T10:00:00.000Z",
+    );
+    await repository.upsertResumeDraft(draft);
+    await repository.upsertResumeDraftRevision(
+      createRetentionRevision("resume_draft_other", 0),
+    );
+
+    for (let index = 0; index <= MAX_RESUME_DRAFT_REVISIONS_PER_DRAFT; index += 1) {
+      await repository.upsertResumeDraftRevision(
+        createRetentionRevision(draft.id, index),
+      );
+    }
+
+    const directlyRetained = await repository.listResumeDraftRevisions(draft.id);
+    expect(directlyRetained).toHaveLength(
+      MAX_RESUME_DRAFT_REVISIONS_PER_DRAFT,
+    );
+    expect(directlyRetained[0]?.id).toBe(`${draft.id}_revision_100`);
+    expect(directlyRetained.at(-1)?.id).toBe(`${draft.id}_revision_001`);
+    await expect(
+      repository.listResumeDraftRevisions("resume_draft_other"),
+    ).resolves.toHaveLength(1);
+
+    const nextDraft = ResumeDraftSchema.parse({
+      ...draft,
+      updatedAt: "2026-07-30T10:02:00.000Z",
+    });
+    await repository.applyResumePatchWithRevision({
+      expectedDraftUpdatedAt: draft.updatedAt,
+      draft: nextDraft,
+      revision: createRetentionRevision(draft.id, 101),
+      validation: ResumeValidationResultSchema.parse({
+        id: "validation_retained_101",
+        draftId: draft.id,
+        issues: [],
+        draftContentHash: null,
+        claimAssessments: [],
+        pageCount: null,
+        validatedAt: nextDraft.updatedAt,
+      }),
+    });
+
+    const atomicallyRetained = await repository.listResumeDraftRevisions(draft.id);
+    expect(atomicallyRetained).toHaveLength(
+      MAX_RESUME_DRAFT_REVISIONS_PER_DRAFT,
+    );
+    expect(atomicallyRetained[0]?.id).toBe(`${draft.id}_revision_101`);
+    expect(atomicallyRetained.at(-1)?.id).toBe(`${draft.id}_revision_002`);
+    await expect(
+      repository.listResumeDraftRevisions("resume_draft_other"),
+    ).resolves.toHaveLength(1);
+  });
   test("stores apply foundation records with filtering support", async () => {
     const repository = createInMemoryJobFinderRepository(createSeed());
 
@@ -287,6 +410,13 @@ describe("createInMemoryJobFinderRepository", () => {
       questionId: "question_1",
       status: "filled",
       text: "Approved tailored resume selected",
+      value: {
+        type: "asset_ref",
+        assetId: "resume_export_1",
+      },
+      revision: 1,
+      saveScope: "application_once",
+      supersedesAnswerId: null,
       sourceKind: "resume",
       sourceId: "resume_export_1",
       confidenceLabel: "high",
@@ -341,7 +471,10 @@ describe("createInMemoryJobFinderRepository", () => {
       expect.objectContaining({ id: "apply_result_1" }),
     ]);
     await expect(
-      repository.listApplicationQuestionRecords({ runId: "apply_run_1", jobId: "job_1" }),
+      repository.listApplicationQuestionRecords({
+        runId: "apply_run_1",
+        jobId: "job_1",
+      }),
     ).resolves.toEqual([expect.objectContaining({ id: "question_1" })]);
     await expect(
       repository.listApplicationAnswerRecords({ questionId: "question_1" }),
@@ -456,6 +589,10 @@ describe("createInMemoryJobFinderRepository", () => {
       searchPreferences: {
         ...seed.searchPreferences,
         targetSalaryUsd: 220000,
+        compensation: {
+          ...seed.searchPreferences.compensation,
+          maximum: 220000,
+        },
       },
       profileSetupState: {
         ...seed.profileSetupState,
@@ -496,7 +633,10 @@ describe("createInMemoryJobFinderRepository", () => {
       expect.objectContaining({ targetSalaryUsd: 220000 }),
     );
     await expect(repository.getProfileSetupState()).resolves.toEqual(
-      expect.objectContaining({ status: "in_progress", currentStep: "essentials" }),
+      expect.objectContaining({
+        status: "in_progress",
+        currentStep: "essentials",
+      }),
     );
     await expect(repository.listProfileCopilotMessages()).resolves.toEqual([
       expect.objectContaining({ id: "profile_message_atomic" }),
@@ -552,6 +692,9 @@ describe("createInMemoryJobFinderRepository", () => {
         id: "resume_validation_1",
         draftId: "resume_draft_1",
         issues: [],
+        draftContentHash: null,
+        claimAssessments: [],
+        coverageComparison: null,
         pageCount: 2,
         validatedAt: "2026-03-20T10:06:50.000Z",
       },
@@ -574,16 +717,18 @@ describe("createInMemoryJobFinderRepository", () => {
       },
     });
 
-    const exports = await repository.listResumeExportArtifacts({ jobId: "job_1" });
+    const exports = await repository.listResumeExportArtifacts({
+      jobId: "job_1",
+    });
     const draft = await repository.getResumeDraftByJobId("job_1");
     const tailoredAssets = await repository.listTailoredAssets();
 
-    expect(exports.find((entry) => entry.id === "resume_export_new")?.isApproved).toBe(
-      true,
-    );
-    expect(exports.find((entry) => entry.id === "resume_export_old")?.isApproved).toBe(
-      false,
-    );
+    expect(
+      exports.find((entry) => entry.id === "resume_export_new")?.isApproved,
+    ).toBe(true);
+    expect(
+      exports.find((entry) => entry.id === "resume_export_old")?.isApproved,
+    ).toBe(false);
     expect(draft?.approvedExportId).toBe("resume_export_new");
     expect(tailoredAssets[0]?.storagePath).toBe("/tmp/new.pdf");
   });
@@ -623,6 +768,9 @@ describe("createInMemoryJobFinderRepository", () => {
         id: "resume_validation_1",
         draftId: "resume_draft_1",
         issues: [],
+        draftContentHash: null,
+        claimAssessments: [],
+        coverageComparison: null,
         pageCount: 2,
         validatedAt: "2026-03-20T10:08:00.000Z",
       },
@@ -645,11 +793,13 @@ describe("createInMemoryJobFinderRepository", () => {
       },
     });
 
-    const exports = await repository.listResumeExportArtifacts({ jobId: "job_1" });
+    const exports = await repository.listResumeExportArtifacts({
+      jobId: "job_1",
+    });
 
-    expect(exports.find((entry) => entry.id === "resume_export_old")?.isApproved).toBe(
-      false,
-    );
+    expect(
+      exports.find((entry) => entry.id === "resume_export_old")?.isApproved,
+    ).toBe(false);
   });
 
   test("finalizes resume import state atomically", async () => {
@@ -733,15 +883,28 @@ describe("createInMemoryJobFinderRepository", () => {
     await expect(repository.getSearchPreferences()).resolves.toEqual(
       expect.objectContaining({ targetRoles: ["Staff Product Designer"] }),
     );
-    await expect(repository.getLatestResumeImportRun(seed.profile.baseResume.id)).resolves.toEqual(
-      expect.objectContaining({ id: "resume_import_run_atomic", status: "applied" }),
+    await expect(
+      repository.getLatestResumeImportRun(seed.profile.baseResume.id),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        id: "resume_import_run_atomic",
+        status: "applied",
+      }),
     );
     await expect(
-      repository.listResumeImportDocumentBundles({ runId: "resume_import_run_atomic" }),
-    ).resolves.toEqual([expect.objectContaining({ id: "resume_bundle_atomic" })]);
+      repository.listResumeImportDocumentBundles({
+        runId: "resume_import_run_atomic",
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({ id: "resume_bundle_atomic" }),
+    ]);
     await expect(
-      repository.listResumeImportFieldCandidates({ runId: "resume_import_run_atomic" }),
-    ).resolves.toEqual([expect.objectContaining({ id: "resume_candidate_atomic" })]);
+      repository.listResumeImportFieldCandidates({
+        runId: "resume_import_run_atomic",
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({ id: "resume_candidate_atomic" }),
+    ]);
   });
 
   test("atomically replaces saved jobs while clearing resume approval", async () => {
@@ -855,7 +1018,8 @@ describe("createInMemoryJobFinderRepository", () => {
         generationMethod: "ai",
         approvedAt: null,
         approvedExportId: null,
-        staleReason: "Saved job details changed after approval and the resume needs a fresh review.",
+        staleReason:
+          "Saved job details changed after approval and the resume needs a fresh review.",
         createdAt: "2026-03-20T10:00:00.000Z",
         updatedAt: "2026-03-20T10:08:00.000Z",
       },
@@ -882,17 +1046,21 @@ describe("createInMemoryJobFinderRepository", () => {
 
     const refreshedJobs = await repository.listSavedJobs();
     const refreshedDraft = await repository.getResumeDraftByJobId("job_ready");
-    const exports = await repository.listResumeExportArtifacts({ jobId: "job_ready" });
+    const exports = await repository.listResumeExportArtifacts({
+      jobId: "job_ready",
+    });
     const assets = await repository.listTailoredAssets();
 
-    expect(refreshedJobs.find((job) => job.id === "job_ready")?.description).toMatch(
-      /Updated\./,
-    );
+    expect(
+      refreshedJobs.find((job) => job.id === "job_ready")?.description,
+    ).toMatch(/Updated\./);
     expect(refreshedDraft?.status).toBe("stale");
     expect(refreshedDraft?.approvedExportId).toBeNull();
-    expect(exports.find((entry) => entry.id === "resume_export_old")?.isApproved).toBe(
-      false,
-    );
-    expect(assets.find((asset) => asset.jobId === "job_ready")?.storagePath).toBeNull();
+    expect(
+      exports.find((entry) => entry.id === "resume_export_old")?.isApproved,
+    ).toBe(false);
+    expect(
+      assets.find((asset) => asset.jobId === "job_ready")?.storagePath,
+    ).toBeNull();
   });
 });

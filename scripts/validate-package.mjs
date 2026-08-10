@@ -6,6 +6,31 @@ const rootDir = path.resolve(import.meta.dirname, '..')
 const target = process.argv[2]
 const validationOrder = ['lint', 'typecheck', 'test']
 
+async function resolvePackageManagerCommand() {
+  const rootManifest = JSON.parse(await fs.readFile(path.join(rootDir, 'package.json'), 'utf8'))
+  const packageManager = rootManifest.packageManager
+
+  if (typeof packageManager !== 'string' || !packageManager.startsWith('pnpm@')) {
+    fail('Root package.json must pin pnpm through packageManager before package validation can run')
+  }
+
+  const corepackEntrypoint = path.join(
+    path.dirname(process.execPath),
+    'node_modules',
+    'corepack',
+    'dist',
+    'corepack.js'
+  )
+
+  try {
+    await fs.access(corepackEntrypoint)
+  } catch {
+    fail(`Corepack entrypoint not found beside Node.js: ${corepackEntrypoint}`)
+  }
+
+  return { corepackEntrypoint, packageManager }
+}
+
 function fail(message) {
   console.error(message)
   process.exit(1)
@@ -71,6 +96,7 @@ if (matches.length > 1) {
 
 const [pkg] = matches
 const scripts = validationOrder.filter((scriptName) => pkg.scripts[scriptName])
+const { corepackEntrypoint, packageManager } = await resolvePackageManagerCommand()
 
 if (scripts.length === 0) {
   fail(`Package ${pkg.name} has no validation scripts: ${validationOrder.join(', ')}`)
@@ -78,10 +104,14 @@ if (scripts.length === 0) {
 
 for (const scriptName of scripts) {
   console.log(`\n> ${pkg.name} ${scriptName}`)
-  const result = spawnSync('pnpm', ['--filter', pkg.name, 'run', scriptName], {
-    cwd: rootDir,
-    stdio: 'inherit'
-  })
+  const result = spawnSync(
+    process.execPath,
+    [corepackEntrypoint, packageManager, '--filter', pkg.name, 'run', scriptName],
+    {
+      cwd: rootDir,
+      stdio: 'inherit'
+    }
+  )
 
   if (result.error) {
     fail(result.error.message)

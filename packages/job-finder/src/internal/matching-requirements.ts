@@ -1,12 +1,13 @@
 import type {
   CandidateProfile,
   FitRecommendation,
-  JobPosting,
   JobRequirementAssessment,
   JobRequirementImportance,
   ResumeRequirementEvidence,
 } from "@unemployed/contracts";
 
+import type { MatchAssessmentPostingInput } from "./match-assessment-posting-input";
+import { buildEligibilityRequirementAssessments } from "./matching-eligibility";
 import { normalizeText, uniqueStrings } from "./shared";
 
 const technologySignals = [
@@ -38,9 +39,11 @@ const technologySignals = [
   { label: "Docker", aliases: ["docker"] },
   { label: "Kubernetes", aliases: ["kubernetes", "k8s"] },
   { label: "Terraform", aliases: ["terraform"] },
+  { label: "SQL", aliases: ["sql"] },
   { label: "PostgreSQL", aliases: ["postgresql", "postgres"] },
   { label: "MySQL", aliases: ["mysql"] },
   { label: "MongoDB", aliases: ["mongodb", "mongo db"] },
+  { label: "Salesforce", aliases: ["salesforce"] },
   { label: "Redis", aliases: ["redis"] },
   { label: "Kafka", aliases: ["kafka"] },
   { label: "GraphQL", aliases: ["graphql", "graph ql"] },
@@ -51,6 +54,114 @@ const technologySignals = [
 const preferredMarkers = /\b(?:nice to have|preferred|ideally|bonus|plus)\b/iu;
 const requiredMarkers =
   /\b(?:must|required|requirements|minimum|at least|you have|you bring|we expect|need to have|strong|solid hands-on|deep hands-on|proven|demonstrated|experience with|experience building)\b/iu;
+const explicitDescriptionRequirementMarkers =
+  /\b(?:must|required|minimum qualifications?|at least|you have|you bring|we expect|need to have|strong proficiency|solid hands-on|deep hands-on|proven experience|demonstrated (?:experience|ability)|experience with|experience building|proficien(?:cy|t) (?:in|with))\b/iu;
+
+type RequirementEvidenceSource =
+  | "title"
+  | "key_skill"
+  | "minimum_qualification"
+  | "preferred_qualification"
+  | "responsibility"
+  | "description";
+
+type RequirementEvidenceLine = {
+  text: string;
+  source: RequirementEvidenceSource;
+  sectionImportance: JobRequirementImportance | null;
+};
+
+type CapabilitySignal = {
+  label: string;
+  category: "skill" | "domain";
+  listingPattern: RegExp;
+  profilePattern: RegExp;
+  requiresDesignContext?: boolean;
+  skillEntryAliases?: readonly string[];
+};
+
+const capabilitySignals: readonly CapabilitySignal[] = [
+  {
+    label: "Customer onboarding",
+    category: "domain",
+    listingPattern:
+      /\b(?:(?:customer|client|merchant|partner)(?:s| accounts?)?\s+onboard(?:ing|ed)?|onboard(?:ing|ed)?\s+(?:new\s+)?(?:customer|client|merchant|partner)s?)\b/iu,
+    profilePattern:
+      /\b(?:(?:customer|client|merchant|partner)(?:s| accounts?)?\s+onboard(?:ing|ed)?|onboard(?:ing|ed)?\s+(?:new\s+)?(?:customer|client|merchant|partner)s?)\b/iu,
+  },
+  {
+    label: "Customer adoption",
+    category: "domain",
+    listingPattern:
+      /\b(?:(?:customer|client|product|platform|feature|user)\s+adoption|(?:drive|increase|improve|grow|accelerate|support)(?:s|d|ing)?\s+(?:customer|client|product|platform|feature|user)?\s*adoption)\b/iu,
+    profilePattern:
+      /\b(?:(?:customer|client|product|platform|feature|user)\s+adoption|(?:drove|drive|increased|improved|grew|accelerated|supported)\s+(?:customer|client|product|platform|feature|user)?\s*adoption)\b/iu,
+  },
+  {
+    label: "Renewals",
+    category: "domain",
+    listingPattern:
+      /\b(?:(?:customer|client|contract|account)\s+renewals?|renewal\s+(?:management|strategy|motion|process|pipeline|conversations?|forecasting)|manage(?:s|d|ment|ing)?\s+(?:customer|client|contract|account)?\s*renewals?)\b/iu,
+    profilePattern:
+      /\b(?:(?:customer|client|contract|account)\s+renewals?|renewal\s+(?:management|strategy|motion|process|pipeline|conversations?|forecasting)|manage(?:s|d|ment|ing)?\s+(?:customer|client|contract|account)?\s*renewals?)\b/iu,
+  },
+  {
+    label: "Quarterly business reviews (QBRs)",
+    category: "domain",
+    listingPattern:
+      /\b(?:QBRs?|quarterly business reviews?|executive business reviews?)\b/iu,
+    profilePattern:
+      /\b(?:QBRs?|quarterly business reviews?|executive business reviews?)\b/iu,
+  },
+  {
+    label: "Customer escalations",
+    category: "domain",
+    listingPattern:
+      /\b(?:(?:customer|client|account)\s+escalations?|escalation\s+management|manage(?:s|d|ment|ing)?\s+(?:customer|client|account)?\s*escalations?|escalated\s+(?:customer|client|account)\s+(?:issues?|cases?|concerns?))\b/iu,
+    profilePattern:
+      /\b(?:(?:customer|client|account)\s+escalations?|escalation\s+management|manage(?:s|d|ment|ing)?\s+(?:customer|client|account)?\s*escalations?|escalated\s+(?:customer|client|account)\s+(?:issues?|cases?|concerns?))\b/iu,
+  },
+  {
+    label: "User research",
+    category: "skill",
+    listingPattern:
+      /\b(?:user|ux|customer)\s+research\b|\buser interviews?\b|\busability (?:testing|tests?|research|studies)\b/iu,
+    profilePattern:
+      /\b(?:user|ux|customer)\s+research\b|\buser interviews?\b|\busability (?:testing|tests?|research|studies)\b/iu,
+  },
+  {
+    label: "Prototyping",
+    category: "skill",
+    listingPattern:
+      /\b(?:interactive|design|product|ux|ui|clickable|high[- ]fidelity|low[- ]fidelity)\s+prototypes?\b|\bprototyp(?:e|es|ed|ing)\s+(?:user flows?|interfaces?|interactions?|experiences?|designs?)\b/iu,
+    profilePattern:
+      /\b(?:interactive|design|product|ux|ui|clickable|high[- ]fidelity|low[- ]fidelity)\s+prototypes?\b|\bprototyp(?:e|es|ed|ing)\s+(?:user flows?|interfaces?|interactions?|experiences?|designs?)\b/iu,
+    requiresDesignContext: true,
+    skillEntryAliases: ["prototyping"],
+  },
+  {
+    label: "Design systems",
+    category: "skill",
+    listingPattern:
+      /\b(?:design systems?|component librar(?:y|ies)|design tokens?)\b/iu,
+    profilePattern:
+      /\b(?:design systems?|component librar(?:y|ies)|design tokens?)\b/iu,
+  },
+  {
+    label: "Figma",
+    category: "skill",
+    listingPattern: /\bFigma\b/iu,
+    profilePattern: /\bFigma\b/iu,
+  },
+  {
+    label: "Accessibility",
+    category: "skill",
+    listingPattern:
+      /\b(?:accessibility|a11y|WCAG(?:\s*2(?:\.\d)?)?|inclusive design)\b/iu,
+    profilePattern:
+      /\b(?:accessibility|a11y|WCAG(?:\s*2(?:\.\d)?)?|inclusive design)\b/iu,
+  },
+];
 
 function containsPhrase(value: string, phrases: readonly string[]): boolean {
   const normalizedValue = ` ${normalizeText(value)} `;
@@ -72,13 +183,110 @@ function decodeJobMarkup(value: string): string {
     .replace(/<[^>]+>/gu, " ");
 }
 
-function splitJobEvidence(value: string): string[] {
+function splitJobEvidence(value: string, minimumLength = 8): string[] {
   return uniqueStrings(
     decodeJobMarkup(value)
       .split(/\r?\n|(?<=[.!?])\s+(?=[A-Z0-9])/u)
       .map((part) => part.replace(/\s+/gu, " ").trim())
-      .filter((part) => part.length >= 8),
+      .filter(
+        (part) =>
+          part.length >= minimumLength && normalizeText(part).length > 0,
+      ),
   );
+}
+
+function getDescriptionSectionImportance(
+  lines: readonly string[],
+  index: number,
+): JobRequirementImportance | null {
+  for (
+    let previousIndex = index - 1;
+    previousIndex >= Math.max(0, index - 4);
+    previousIndex -= 1
+  ) {
+    const previousLine = lines[previousIndex]!;
+    if (previousLine.length > 100) {
+      break;
+    }
+    if (
+      /^(?:nice to have|preferred(?: qualifications?)?|bonus(?: qualifications?)?)[:：]?$/iu.test(
+        previousLine.trim(),
+      )
+    ) {
+      return "preferred";
+    }
+    if (
+      /^(?:requirements?|minimum qualifications?|qualifications?|what (?:you|we) (?:bring|expect|are looking for)|what you should bring|must have)[:：]?$/iu.test(
+        previousLine.trim(),
+      )
+    ) {
+      return "required";
+    }
+  }
+
+  return null;
+}
+
+function buildRequirementEvidenceLines(
+  posting: MatchAssessmentPostingInput,
+): RequirementEvidenceLine[] {
+  const descriptionLines = splitJobEvidence(posting.description);
+  const descriptionEvidence = descriptionLines.flatMap((text, index) => {
+    const sectionImportance = getDescriptionSectionImportance(
+      descriptionLines,
+      index,
+    );
+    if (
+      sectionImportance === null &&
+      !preferredMarkers.test(text) &&
+      !explicitDescriptionRequirementMarkers.test(text)
+    ) {
+      return [];
+    }
+
+    return [
+      {
+        text,
+        source: "description" as const,
+        sectionImportance,
+      },
+    ];
+  });
+  const structuredLines = (
+    [
+      ["minimum_qualification", posting.minimumQualifications],
+      ["preferred_qualification", posting.preferredQualifications],
+      ["key_skill", posting.keySkills],
+      ["responsibility", posting.responsibilities],
+    ] as const
+  ).flatMap(([source, values]) =>
+    values.flatMap((value) =>
+      splitJobEvidence(value, 1).map((text) => ({
+        text,
+        source,
+        sectionImportance: null,
+      })),
+    ),
+  );
+  const candidates: RequirementEvidenceLine[] = [
+    {
+      text: posting.title,
+      source: "title",
+      sectionImportance: "required",
+    },
+    ...structuredLines,
+    ...descriptionEvidence,
+  ];
+  const seen = new Set<string>();
+
+  return candidates.filter((line) => {
+    const key = `${line.source}|${normalizeText(line.text)}`;
+    if (!normalizeText(line.text) || seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
 }
 
 function clip(value: string, limit = 220): string {
@@ -88,6 +296,7 @@ function clip(value: string, limit = 220): string {
 function containsTechnologySignal(
   value: string,
   technology: (typeof technologySignals)[number],
+  context: "narrative" | "requirement_line" | "skill_entry" = "narrative",
 ): boolean {
   // Punctuation-heavy and ordinary-word technology names cannot safely use
   // the generic normalized phrase matcher. Normalizing `C#` to `c` misses a
@@ -112,9 +321,21 @@ function containsTechnologySignal(
         /\b(?:experience|experienced|proficiency|proficient|knowledge|skills?|programming|develop(?:ing|ment)?|build(?:ing|s)?)\b[^.!?\n]{0,48}\bGo\b/u.test(
           value,
         ) ||
-        /\bGo\b\s*(?:[,/&|]|\band\b)\s*(?:Java|JavaScript|TypeScript|Python|Rust|C\+\+|Kotlin|Ruby|PHP|Elixir)\b/u.test(
+        /\bGo\b\s*(?:[,/&|]|\band\b)\s*(?:Java|JavaScript|TypeScript|Python|Rust|C\+\+|Kotlin|Ruby|PHP|Elixir|Kubernetes)\b/u.test(
           value,
-        )
+        ) ||
+        (context !== "narrative" &&
+          /\bGo\b[^.!?\n]{0,48}\b(?:required|preferred|proficien(?:cy|t)|experience|programming|language|backend|services?|development)\b/u.test(
+            value,
+          )) ||
+        (context !== "narrative" &&
+          /\bGo\s+(?:(?:backend|platform|software|systems?)\s+)?(?:engineer|developer)\b/u.test(
+            value,
+          )) ||
+        (context !== "narrative" &&
+          /\b(?:experience|proficiency|proficient|knowledge|programming|language|backend|services?|development)\b[^.!?\n]{0,48}\bgo\b|\bgo\b[^.!?\n]{0,48}\b(?:programming|language|backend|services?|development)\b/iu.test(
+            value,
+          ))
       );
     }
     case "React":
@@ -215,11 +436,7 @@ function selectStrongestEvidenceLine(
       .filter((line) => pattern.test(line))
       .sort((left, right) => {
         const importanceRank = (line: string) =>
-          requiredMarkers.test(line)
-            ? 0
-            : preferredMarkers.test(line)
-              ? 1
-              : 2;
+          requiredMarkers.test(line) ? 0 : preferredMarkers.test(line) ? 1 : 2;
         return importanceRank(left) - importanceRank(right);
       })[0] ?? null
   );
@@ -242,55 +459,28 @@ function parseCefrLevel(value: string): number | null {
 }
 
 function inferImportance(input: {
-  title: string;
-  technology: (typeof technologySignals)[number];
-  evidenceLine: string;
-  minimumQualifications: readonly string[];
-  preferredQualifications: readonly string[];
-  evidenceLines: readonly string[];
+  evidenceLine: RequirementEvidenceLine;
 }): JobRequirementImportance {
   if (
-    containsTechnologySignal(input.title, input.technology) ||
-    input.minimumQualifications.some((value) =>
-      containsTechnologySignal(value, input.technology),
-    )
+    input.evidenceLine.source === "title" ||
+    input.evidenceLine.source === "minimum_qualification"
   ) {
     return "required";
   }
 
   if (
-    input.preferredQualifications.some((value) =>
-      containsTechnologySignal(value, input.technology),
-    ) ||
-    preferredMarkers.test(input.evidenceLine)
+    input.evidenceLine.source === "preferred_qualification" ||
+    preferredMarkers.test(input.evidenceLine.text)
   ) {
     return "preferred";
   }
 
-  if (requiredMarkers.test(input.evidenceLine)) {
+  if (explicitDescriptionRequirementMarkers.test(input.evidenceLine.text)) {
     return "required";
   }
 
-  const evidenceIndex = input.evidenceLines.indexOf(input.evidenceLine);
-  for (
-    let index = evidenceIndex - 1;
-    index >= Math.max(0, evidenceIndex - 4);
-    index -= 1
-  ) {
-    const previousLine = input.evidenceLines[index]!;
-    if (previousLine.length > 100) {
-      break;
-    }
-    if (preferredMarkers.test(previousLine)) {
-      return "preferred";
-    }
-    if (
-      /^(?:requirements?|minimum qualifications?|what (?:you|we) (?:bring|expect|are looking for)|what you should bring|must have)$/iu.test(
-        previousLine.trim(),
-      )
-    ) {
-      return "required";
-    }
+  if (input.evidenceLine.sectionImportance !== null) {
+    return input.evidenceLine.sectionImportance;
   }
 
   return "inferred";
@@ -340,7 +530,7 @@ function collectProfileSkillEvidence(
   ]);
   const evidence: ResumeRequirementEvidence[] = [];
   const directSkill = directSkills.find((skill) =>
-    containsTechnologySignal(skill, technology),
+    containsTechnologySignal(skill, technology, "skill_entry"),
   );
 
   if (directSkill) {
@@ -397,13 +587,141 @@ function collectProfileSkillEvidence(
   return evidence.slice(0, 3);
 }
 
+function matchesCapabilitySkillEntry(
+  value: string,
+  capability: CapabilitySignal,
+): boolean {
+  return (
+    capability.profilePattern.test(value) ||
+    (capability.skillEntryAliases?.some((alias) =>
+      containsPhrase(value, [alias]),
+    ) ??
+      false)
+  );
+}
+
+function collectProfileCapabilityEvidence(
+  profile: CandidateProfile,
+  capability: CapabilitySignal,
+): ResumeRequirementEvidence[] {
+  const directSkills = uniqueStrings([
+    ...profile.skills,
+    ...profile.skillGroups.coreSkills,
+    ...profile.skillGroups.tools,
+    ...profile.skillGroups.languagesAndFrameworks,
+    ...profile.skillGroups.highlightedSkills,
+  ]);
+  const evidence: ResumeRequirementEvidence[] = [];
+  const directSkill = directSkills.find((skill) =>
+    matchesCapabilitySkillEntry(skill, capability),
+  );
+  if (directSkill) {
+    evidence.push({
+      sourceKind: "profile_skill",
+      sourceId: null,
+      label: `Profile skill: ${directSkill}`,
+      detail: `${directSkill} is explicitly listed in the imported profile.`,
+    });
+  }
+
+  for (const experience of profile.experiences) {
+    const skill = experience.skills.find((value) =>
+      matchesCapabilitySkillEntry(value, capability),
+    );
+    const narrative = [
+      experience.title,
+      ...experience.achievements,
+      experience.summary,
+    ]
+      .filter((value): value is string => typeof value === "string")
+      .find((value) => capability.profilePattern.test(value));
+    const matched = skill ?? narrative;
+    if (!matched) {
+      continue;
+    }
+
+    evidence.push({
+      sourceKind: "experience",
+      sourceId: experience.id,
+      label: [experience.title, experience.companyName]
+        .filter(Boolean)
+        .join(" at "),
+      detail: clip(matched),
+    });
+  }
+
+  for (const project of profile.projects) {
+    const skill = project.skills.find((value) =>
+      matchesCapabilitySkillEntry(value, capability),
+    );
+    const narrative = [project.role, project.summary, project.outcome]
+      .filter((value): value is string => typeof value === "string")
+      .find((value) => capability.profilePattern.test(value));
+    const matched = skill ?? narrative;
+    if (!matched) {
+      continue;
+    }
+
+    evidence.push({
+      sourceKind: "project",
+      sourceId: project.id,
+      label: project.name,
+      detail: clip(matched),
+    });
+  }
+
+  return dedupeRequirementEvidence(evidence).slice(0, 3);
+}
+
+function hasDesignRequirementContext(
+  posting: MatchAssessmentPostingInput,
+): boolean {
+  const context = [
+    posting.title,
+    posting.department,
+    posting.team,
+    ...posting.keySkills,
+    ...posting.minimumQualifications,
+    ...posting.preferredQualifications,
+    ...posting.responsibilities,
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ");
+
+  return /\b(?:designer|product design|ux|ui design|user experience|interaction design|visual design|design systems?|figma|user research)\b/iu.test(
+    context,
+  );
+}
+
+function matchesCapabilityListingLine(
+  line: RequirementEvidenceLine,
+  capability: CapabilitySignal,
+  posting: MatchAssessmentPostingInput,
+): boolean {
+  if (
+    capability.requiresDesignContext === true &&
+    !hasDesignRequirementContext(posting)
+  ) {
+    return false;
+  }
+
+  return (
+    capability.listingPattern.test(line.text) ||
+    (line.source === "key_skill" &&
+      (capability.skillEntryAliases?.some((alias) =>
+        containsPhrase(line.text, [alias]),
+      ) ??
+        false))
+  );
+}
+
 function requirementId(category: string, label: string): string {
   return `requirement_${category}_${normalizeText(label).replaceAll(" ", "_")}`;
 }
 
 export function buildRequirementEvidenceAssessment(input: {
   profile: CandidateProfile;
-  posting: JobPosting;
+  posting: MatchAssessmentPostingInput;
   matchesLocation: boolean;
   matchesWorkMode: boolean;
   hasLocationPreferences: boolean;
@@ -419,32 +737,38 @@ export function buildRequirementEvidenceAssessment(input: {
     ...posting.responsibilities,
   ].join("\n");
   const evidenceLines = splitJobEvidence(jobText);
+  const requirementEvidenceLines = buildRequirementEvidenceLines(posting);
   const requirements: JobRequirementAssessment[] = [];
+  const importanceRank = { required: 0, preferred: 1, inferred: 2 } as const;
+  const sourceRank: Record<RequirementEvidenceSource, number> = {
+    title: 0,
+    minimum_qualification: 1,
+    preferred_qualification: 2,
+    key_skill: 3,
+    responsibility: 4,
+    description: 5,
+  };
+  const compareEvidenceLines = (
+    left: RequirementEvidenceLine,
+    right: RequirementEvidenceLine,
+  ) =>
+    importanceRank[inferImportance({ evidenceLine: left })] -
+      importanceRank[inferImportance({ evidenceLine: right })] ||
+    sourceRank[left.source] - sourceRank[right.source];
+  const evidenceLineKey = (line: RequirementEvidenceLine) =>
+    `${line.source}|${normalizeText(line.text)}`;
 
   const technologyMatches = technologySignals.flatMap((technology) => {
-    const matchingEvidenceLines = evidenceLines.filter((line) =>
-      containsTechnologySignal(line, technology),
+    const matchingEvidenceLines = requirementEvidenceLines.filter((line) =>
+      containsTechnologySignal(
+        line.text,
+        technology,
+        line.source === "key_skill" ? "skill_entry" : "requirement_line",
+      ),
     );
-    const evidenceLine = [...matchingEvidenceLines].sort((left, right) => {
-      const importanceRank = { required: 0, preferred: 1, inferred: 2 };
-      const leftImportance = inferImportance({
-        title: posting.title,
-        technology,
-        evidenceLine: left,
-        minimumQualifications: posting.minimumQualifications,
-        preferredQualifications: posting.preferredQualifications,
-        evidenceLines,
-      });
-      const rightImportance = inferImportance({
-        title: posting.title,
-        technology,
-        evidenceLine: right,
-        minimumQualifications: posting.minimumQualifications,
-        preferredQualifications: posting.preferredQualifications,
-        evidenceLines,
-      });
-      return importanceRank[leftImportance] - importanceRank[rightImportance];
-    })[0];
+    const evidenceLine = [...matchingEvidenceLines].sort(
+      compareEvidenceLines,
+    )[0];
     if (!evidenceLine) {
       return [];
     }
@@ -453,19 +777,26 @@ export function buildRequirementEvidenceAssessment(input: {
   });
   const alternativeTechnologyLines = uniqueStrings(
     technologyMatches
-      .map((match) => match.evidenceLine)
-      .filter(
-        (line) =>
-          isAlternativeTechnologyLine(line) &&
-          technologyMatches.filter((match) => match.evidenceLine === line)
-            .length >= 2,
-      ),
+      .map((match) => evidenceLineKey(match.evidenceLine))
+      .filter((lineKey) => {
+        const matchingLine = technologyMatches.find(
+          (match) => evidenceLineKey(match.evidenceLine) === lineKey,
+        )?.evidenceLine;
+        return Boolean(
+          matchingLine &&
+          isAlternativeTechnologyLine(matchingLine.text) &&
+          technologyMatches.filter(
+            (match) => evidenceLineKey(match.evidenceLine) === lineKey,
+          ).length >= 2,
+        );
+      }),
   );
   const alternativeTechnologyRequirements = alternativeTechnologyLines.map(
-    (evidenceLine) => {
+    (lineKey) => {
       const alternatives = technologyMatches.filter(
-        (match) => match.evidenceLine === evidenceLine,
+        (match) => evidenceLineKey(match.evidenceLine) === lineKey,
       );
+      const evidenceLine = alternatives[0]!.evidenceLine;
       const resumeEvidence = dedupeRequirementEvidence(
         alternatives.flatMap((match) =>
           collectProfileSkillEvidence(profile, match.technology),
@@ -477,19 +808,12 @@ export function buildRequirementEvidenceAssessment(input: {
         id: requirementId("skill", `one of ${labels.join(" ")}`),
         category: "skill" as const,
         label: `One of: ${labels.join(", ")}`,
-        importance: inferImportance({
-          title: posting.title,
-          technology: alternatives[0]!.technology,
-          evidenceLine,
-          minimumQualifications: posting.minimumQualifications,
-          preferredQualifications: posting.preferredQualifications,
-          evidenceLines,
-        }),
+        importance: inferImportance({ evidenceLine }),
         status:
           resumeEvidence.length > 0
             ? ("supported" as const)
             : ("missing" as const),
-        jobEvidence: clip(evidenceLine),
+        jobEvidence: clip(evidenceLine.text),
         resumeEvidence,
         explanation:
           resumeEvidence.length > 0
@@ -500,18 +824,11 @@ export function buildRequirementEvidenceAssessment(input: {
   );
   const technologyRequirements = technologyMatches.flatMap(
     ({ technology, evidenceLine }) => {
-      if (alternativeTechnologyLines.includes(evidenceLine)) {
+      if (alternativeTechnologyLines.includes(evidenceLineKey(evidenceLine))) {
         return [];
       }
 
-      const importance = inferImportance({
-        title: posting.title,
-        technology,
-        evidenceLine,
-        minimumQualifications: posting.minimumQualifications,
-        preferredQualifications: posting.preferredQualifications,
-        evidenceLines,
-      });
+      const importance = inferImportance({ evidenceLine });
       const resumeEvidence = collectProfileSkillEvidence(profile, technology);
 
       return [
@@ -524,7 +841,7 @@ export function buildRequirementEvidenceAssessment(input: {
             resumeEvidence.length > 0
               ? ("supported" as const)
               : ("missing" as const),
-          jobEvidence: clip(evidenceLine),
+          jobEvidence: clip(evidenceLine.text),
           resumeEvidence,
           explanation:
             resumeEvidence.length > 0
@@ -535,15 +852,51 @@ export function buildRequirementEvidenceAssessment(input: {
     },
   );
 
+  const capabilityRequirements = capabilitySignals.flatMap((capability) => {
+    const evidenceLine = requirementEvidenceLines
+      .filter((line) => line.source !== "title")
+      .filter((line) => matchesCapabilityListingLine(line, capability, posting))
+      .sort(compareEvidenceLines)[0];
+    if (!evidenceLine) {
+      return [];
+    }
+
+    const resumeEvidence = collectProfileCapabilityEvidence(
+      profile,
+      capability,
+    );
+    return [
+      {
+        id: requirementId(capability.category, capability.label),
+        category: capability.category,
+        label: capability.label,
+        importance: inferImportance({ evidenceLine }),
+        status:
+          resumeEvidence.length > 0
+            ? ("supported" as const)
+            : ("missing" as const),
+        jobEvidence: clip(evidenceLine.text),
+        resumeEvidence,
+        explanation:
+          resumeEvidence.length > 0
+            ? `The resume contains explicit ${capability.label.toLowerCase()} evidence.`
+            : `No explicit ${capability.label.toLowerCase()} evidence was found in the imported resume.`,
+      },
+    ];
+  });
+
   requirements.push(
     ...[...alternativeTechnologyRequirements, ...technologyRequirements]
       .sort((left, right) => {
-        const importanceRank = { required: 0, preferred: 1, inferred: 2 };
         return (
           importanceRank[left.importance] - importanceRank[right.importance]
         );
       })
       .slice(0, 12),
+    ...capabilityRequirements.sort(
+      (left, right) =>
+        importanceRank[left.importance] - importanceRank[right.importance],
+    ),
   );
 
   const productionAiLine = evidenceLines
@@ -586,11 +939,10 @@ export function buildRequirementEvidenceAssessment(input: {
     });
   }
 
-  const productionScaleLine = evidenceLines.find(
-    (line) =>
-      /\b(?:high[- ]traffic|production applications?[^.!?]{0,40}(?:scale|scaling)|challenges? that come with scale|query optimization|performance bottlenecks?|careful migrations)\b/iu.test(
-        line,
-      ),
+  const productionScaleLine = evidenceLines.find((line) =>
+    /\b(?:high[- ]traffic|production applications?[^.!?]{0,40}(?:scale|scaling)|challenges? that come with scale|query optimization|performance bottlenecks?|careful migrations)\b/iu.test(
+      line,
+    ),
   );
   if (productionScaleLine) {
     const resumeEvidence = collectExplicitDomainEvidence({
@@ -668,9 +1020,9 @@ export function buildRequirementEvidenceAssessment(input: {
       /\b(?:native|bilingual|mother tongue)\b/iu.test(storedProficiency);
     const supported = Boolean(
       englishRecord &&
-        (requiredLevel === null ||
-          storedNativeOrBilingual ||
-          (storedLevel !== null && storedLevel >= requiredLevel)),
+      (requiredLevel === null ||
+        storedNativeOrBilingual ||
+        (storedLevel !== null && storedLevel >= requiredLevel)),
     );
     const resumeEvidence = englishRecord
       ? [
@@ -687,7 +1039,10 @@ export function buildRequirementEvidenceAssessment(input: {
     requirements.push({
       id: requirementId("domain", "English proficiency"),
       category: "domain",
-      label: requiredLevel === null ? "English proficiency" : "English proficiency at the stated CEFR level",
+      label:
+        requiredLevel === null
+          ? "English proficiency"
+          : "English proficiency at the stated CEFR level",
       importance:
         requiredMarkers.test(englishProficiencyLine) ||
         /\byou (?:are|must|need to be)\b/iu.test(englishProficiencyLine)
@@ -762,6 +1117,10 @@ export function buildRequirementEvidenceAssessment(input: {
         : "The imported experience timeline is below the stated threshold.",
     });
   }
+
+  requirements.push(
+    ...buildEligibilityRequirementAssessments({ profile, posting }),
+  );
 
   if (input.hasLocationPreferences) {
     const locationStatus = input.matchesLocation

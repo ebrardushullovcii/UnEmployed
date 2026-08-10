@@ -15,7 +15,12 @@ import {
   toNarrativeStringArray,
   toStringArray,
 } from "./resume-import-common";
-import { scoreEducationRecordCompleteness, scoreExperienceRecordCompleteness } from "./resume-record-identity";
+import {
+  areEquivalentEducationRecords,
+  areEquivalentExperienceRecords,
+  scoreEducationRecordCompleteness,
+  scoreExperienceRecordCompleteness,
+} from "./resume-record-identity";
 export {
   normalizeSharedMemoryCandidates,
   promoteGroundedSharedMemoryCandidates,
@@ -173,6 +178,28 @@ function scalarValueConflictsWithWorkspace(
   return false;
 }
 
+function scalarValueMatchesWorkspace(
+  profile: CandidateProfile,
+  searchPreferences: JobSearchPreferences,
+  candidate: ResumeImportFieldCandidate,
+): boolean {
+  const currentValue = existingScalarValueForCandidate(profile, searchPreferences, candidate);
+
+  if (
+    currentValue === undefined ||
+    currentValue === null ||
+    isPlaceholderScalarValue(profile, candidate, currentValue)
+  ) {
+    return false;
+  }
+
+  if (typeof currentValue === "string" && typeof candidate.value === "string") {
+    return normalizeText(currentValue) === normalizeText(candidate.value);
+  }
+
+  return typeof currentValue === "number" && typeof candidate.value === "number" && currentValue === candidate.value;
+}
+
 export function shouldPreferCandidateOverExistingValue(
   profile: CandidateProfile,
   searchPreferences: JobSearchPreferences,
@@ -197,6 +224,63 @@ export function shouldPreferCandidateOverExistingValue(
   }
 
   return !scalarValueConflictsWithWorkspace(profile, searchPreferences, candidate);
+}
+
+type EducationCandidateFieldKind = "degree" | "fieldOfStudy" | "location";
+
+function educationEvidenceTokens(value: string): string[] {
+  const stopWords = new Set(["a", "an", "and", "at", "degree", "in", "of", "s", "the"]);
+  return normalizeText(value)
+    .split(/\s+/)
+    .map((token) => token === "bachelors" ? "bachelor" : token === "masters" ? "master" : token)
+    .filter((token) => token.length > 1 && !stopWords.has(token));
+}
+
+function normalizeSupportedEducationValue(
+  candidate: ResumeImportFieldCandidate,
+  value: unknown,
+  kind: EducationCandidateFieldKind,
+): string | null {
+  if (typeof value !== "string" || !value.trim()) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  const evidenceText = candidate.evidenceText?.trim();
+  if (evidenceText) {
+    const evidenceTokens = new Set(educationEvidenceTokens(evidenceText));
+    const valueTokens = educationEvidenceTokens(trimmed);
+    if (valueTokens.length === 0 || !valueTokens.every((token) => evidenceTokens.has(token))) {
+      return null;
+    }
+  }
+
+  const normalized = normalizeText(trimmed);
+  const compact = normalized.replace(/\s+/g, "");
+  const degreeMarker = /\b(?:associate|associates|bachelor|bachelors|master|masters|doctor|doctorate|phd|degree|diploma|certificate|bsc|bba|msc|mba|ba|bs|ma|ms)\b/;
+
+  if (kind === "degree") {
+    return degreeMarker.test(normalized) || ["ba", "bs", "ma", "ms"].some((prefix) => compact.startsWith(prefix))
+      ? trimmed
+      : null;
+  }
+
+  if (kind === "fieldOfStudy") {
+    const firstToken = normalized.split(/\s+/)[0] ?? "";
+    return degreeMarker.test(firstToken) ? null : trimmed;
+  }
+
+  const tokens = normalized.split(/\s+/).filter(Boolean);
+  if (
+    trimmed.length > 80 ||
+    tokens.length > 8 ||
+    /[@\d]|https?:\/\//i.test(trimmed) ||
+    /\b(?:bachelor|master|degree|computer|science|engineering|business|administration|technology|studies)\b/.test(normalized)
+  ) {
+    return null;
+  }
+
+  return trimmed;
 }
 
 function normalizeRecordCandidateValue(candidate: ResumeImportFieldCandidate): ResumeImportFieldCandidate["value"] {
@@ -241,16 +325,18 @@ function normalizeRecordCandidateValue(candidate: ResumeImportFieldCandidate): R
     case "education": {
       const value = parsedValue;
       const schoolName = typeof value.schoolName === "string" ? value.schoolName : null;
-      const rawLocation = typeof value.location === "string" ? value.location : null;
+      const degree = normalizeSupportedEducationValue(candidate, value.degree, "degree");
+      const fieldOfStudy = normalizeSupportedEducationValue(candidate, value.fieldOfStudy, "fieldOfStudy");
+      const location = normalizeSupportedEducationValue(candidate, value.location, "location");
       const rawSummary = typeof value.summary === "string" ? value.summary : null;
       return {
         schoolName,
-        degree: typeof value.degree === "string" ? value.degree : null,
-        fieldOfStudy: typeof value.fieldOfStudy === "string" ? value.fieldOfStudy : null,
+        degree,
+        fieldOfStudy,
         location:
-          rawLocation && schoolName && normalizeText(rawLocation) === normalizeText(schoolName)
+          location && schoolName && normalizeText(location) === normalizeText(schoolName)
             ? null
-            : rawLocation,
+            : location,
         startDate: typeof value.startDate === "string" ? value.startDate : null,
         endDate: typeof value.endDate === "string" ? value.endDate : null,
         summary:
@@ -581,6 +667,78 @@ export function isRecordTarget(candidate: ResumeImportFieldCandidate): boolean {
   );
 }
 
+function normalizedStringValuesMatch(left: readonly string[], right: readonly string[]): boolean {
+  const leftValues = new Set(left.map(normalizeText).filter(Boolean));
+  const rightValues = new Set(right.map(normalizeText).filter(Boolean));
+  return leftValues.size === rightValues.size && [...leftValues].every((value) => rightValues.has(value));
+}
+
+function listCandidateMatchesWorkspace(
+  profile: CandidateProfile,
+  searchPreferences: JobSearchPreferences,
+  candidate: ResumeImportFieldCandidate,
+): boolean {
+  const values = toCandidateListValues(candidate);
+  if (values.length === 0) {
+    return false;
+  }
+
+  switch (`${candidate.target.section}.${candidate.target.key}`) {
+    case "search_preferences.targetRoles":
+      return (
+        normalizedStringValuesMatch(values, profile.targetRoles) &&
+        normalizedStringValuesMatch(values, searchPreferences.targetRoles)
+      );
+    case "search_preferences.locations":
+      return (
+        normalizedStringValuesMatch(values, profile.locations) &&
+        normalizedStringValuesMatch(values, searchPreferences.locations)
+      );
+    case "skill.skills":
+    case "skill.record":
+      return normalizedStringValuesMatch(values, profile.skills);
+    case "skill.skillGroups.coreSkills":
+      return normalizedStringValuesMatch(values, profile.skillGroups.coreSkills);
+    case "skill.skillGroups.tools":
+      return normalizedStringValuesMatch(values, profile.skillGroups.tools);
+    case "skill.skillGroups.languagesAndFrameworks":
+      return normalizedStringValuesMatch(values, profile.skillGroups.languagesAndFrameworks);
+    case "skill.skillGroups.softSkills":
+      return normalizedStringValuesMatch(values, profile.skillGroups.softSkills);
+    case "skill.skillGroups.highlightedSkills":
+      return normalizedStringValuesMatch(values, profile.skillGroups.highlightedSkills);
+    default:
+      return false;
+  }
+}
+
+function recordCandidateMatchesWorkspace(
+  profile: CandidateProfile,
+  candidate: ResumeImportFieldCandidate,
+): boolean {
+  if (candidate.target.section === "experience") {
+    return profile.experiences.some((record) => areEquivalentExperienceRecords(record, candidate.value));
+  }
+
+  if (candidate.target.section === "education") {
+    return profile.education.some((record) => areEquivalentEducationRecords(record, candidate.value));
+  }
+
+  return false;
+}
+
+function candidateMatchesWorkspace(
+  profile: CandidateProfile,
+  searchPreferences: JobSearchPreferences,
+  candidate: ResumeImportFieldCandidate,
+): boolean {
+  return (
+    scalarValueMatchesWorkspace(profile, searchPreferences, candidate) ||
+    listCandidateMatchesWorkspace(profile, searchPreferences, candidate) ||
+    recordCandidateMatchesWorkspace(profile, candidate)
+  );
+}
+
 function shouldAutoApply(
   profile: CandidateProfile,
   searchPreferences: JobSearchPreferences,
@@ -876,6 +1034,10 @@ function resolutionReasonForCandidate(
         ? "composite_confidence_recommended_abstain"
         : "insufficient_confidence_or_evidence";
     case "rejected":
+      if (candidateMatchesWorkspace(profile, searchPreferences, candidate)) {
+        return "already_matches_workspace_value";
+      }
+
       return scalarValueConflictsWithWorkspace(profile, searchPreferences, candidate)
         ? "conflicts_with_existing_profile_value"
         : "lower_ranked_duplicate_candidate";
@@ -1102,6 +1264,11 @@ export function reconcileCandidates(
   const candidatesForGrouping: ResumeImportFieldCandidate[] = [];
 
   for (const candidate of normalizedCandidates) {
+    if (candidateMatchesWorkspace(profile, searchPreferences, candidate)) {
+      resolved.push(applyCandidateResolution(profile, searchPreferences, candidate, "rejected"));
+      continue;
+    }
+
     if (isRedundantUnstructuredRecordCandidate(candidate, normalizedCandidates)) {
       resolved.push(
         applyCandidateResolution(

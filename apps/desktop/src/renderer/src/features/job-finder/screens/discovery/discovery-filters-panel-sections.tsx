@@ -327,6 +327,8 @@ export function DiscoveryFiltersFooter(props: {
   onRunAgentDiscovery: (() => void) | undefined
   onViewProgress: () => void
   primarySourceAccessPrompt: SourceAccessPrompt | null
+  searchDisabledReason: string | null
+  searchSetupHref: string
 }) {
   const {
     actionMessage,
@@ -340,22 +342,35 @@ export function DiscoveryFiltersFooter(props: {
     onRunAgentDiscovery,
     onViewProgress,
     primarySourceAccessPrompt,
+    searchDisabledReason,
+    searchSetupHref,
   } = props
 
   return (
     <div className="grid gap-3 border-b border-(--surface-panel-border) px-4 py-4">
       {onRunAgentDiscovery ? (
-        <Button
-          className="h-auto min-h-12 w-full whitespace-normal px-4 py-3 text-center normal-case tracking-(--tracking-normal)"
-          disabled={!canRunDiscovery}
-          pending={isDiscoveryAllPending}
-          onClick={onRunAgentDiscovery}
-          size="sm"
-          type="button"
-          variant="primary"
-        >
-          Search jobs
-        </Button>
+        <div className="grid gap-2">
+          <Button
+            aria-describedby={searchDisabledReason ? 'discovery-search-disabled-reason' : undefined}
+            className="h-auto min-h-12 w-full whitespace-normal px-4 py-3 text-center normal-case tracking-(--tracking-normal)"
+            disabled={!canRunDiscovery}
+            pending={isDiscoveryAllPending}
+            onClick={onRunAgentDiscovery}
+            size="sm"
+            type="button"
+            variant="primary"
+          >
+            Search jobs
+          </Button>
+          {searchDisabledReason ? (
+            <p className="text-(length:--text-description) leading-6 text-(--warning-text)" id="discovery-search-disabled-reason" role="status">
+              {searchDisabledReason}{' '}
+              <Link className="font-medium underline underline-offset-4" to={searchSetupHref.slice(1)}>
+                Fix search setup
+              </Link>
+            </p>
+          ) : null}
+        </div>
       ) : null}
 
       <div className="grid gap-2">

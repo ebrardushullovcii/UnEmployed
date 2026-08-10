@@ -1,7 +1,76 @@
 import { describe, expect, test } from "vitest";
 
-import { buildDiscoveryInstructionGuidance } from "./workspace-helpers";
-import { createSourceInstructionArtifact } from "../workspace-service.test-fixtures";
+import {
+  buildDiscoveryInstructionGuidance,
+  invalidateChangedSourceGuidance,
+} from "./workspace-helpers";
+import {
+  createSeed,
+  createSourceInstructionArtifact,
+} from "../workspace-service.test-fixtures";
+
+function createPreferencesWithValidatedSource(startingUrl: string) {
+  const preferences = createSeed().searchPreferences;
+  preferences.discovery.targets = [
+    {
+      id: "target_company",
+      label: "Company careers",
+      startingUrl,
+      enabled: true,
+      adapterKind: "auto",
+      customInstructions: null,
+      instructionStatus: "validated",
+      validatedInstructionId: "instruction_validated",
+      draftInstructionId: "instruction_draft",
+      lastDebugRunId: "debug_run",
+      lastVerifiedAt: "2026-07-31T10:00:00.000Z",
+      staleReason: null,
+    },
+  ];
+  return preferences;
+}
+
+
+describe("workspace source guidance invalidation", () => {
+  test("clears guidance references when a saved source URL changes", () => {
+    const current = createPreferencesWithValidatedSource(
+      "https://example.com/jobs",
+    );
+    const next = createPreferencesWithValidatedSource(
+      "https://other.example/jobs",
+    );
+
+    expect(
+      invalidateChangedSourceGuidance(current, next).discovery.targets[0],
+    ).toMatchObject({
+      startingUrl: "https://other.example/jobs",
+      instructionStatus: "missing",
+      validatedInstructionId: null,
+      draftInstructionId: null,
+      lastDebugRunId: null,
+      lastVerifiedAt: null,
+      staleReason:
+        "Starting page URL changed. Check this source again before reusing saved guidance.",
+    });
+  });
+
+  test("preserves verified guidance when the source URL is unchanged", () => {
+    const current = createPreferencesWithValidatedSource(
+      "https://example.com/jobs",
+    );
+    const next = createPreferencesWithValidatedSource(
+      "https://example.com/jobs",
+    );
+
+    expect(
+      invalidateChangedSourceGuidance(current, next).discovery.targets[0],
+    ).toMatchObject({
+      instructionStatus: "validated",
+      validatedInstructionId: "instruction_validated",
+      lastDebugRunId: "debug_run",
+    });
+  });
+});
 
 describe("workspace discovery instruction guidance", () => {
   test("filters LinkedIn broad query examples while keeping detail/apply behavior", () => {

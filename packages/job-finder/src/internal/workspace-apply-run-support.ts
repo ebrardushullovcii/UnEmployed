@@ -1,22 +1,44 @@
 import {
   ApplicationAnswerRecordSchema,
   ApplicationRecordSchema,
+  ApplyExecutionResultSchema,
   ApplyJobResultSchema,
   ApplyRunSchema,
   ApplySubmitApprovalSchema,
   ApplicationArtifactRefSchema,
   ApplicationConsentRequestSchema,
+  ApplicationPrivacyReceiptSchema,
   ApplicationQuestionRecordSchema,
   ApplicationReplayCheckpointSchema,
   type ApplyExecutionResult,
   type ApplyJobResult,
   type ApplyRun,
+  type ApplicationPrivacyReceipt,
+  type ApplicationResumeArtifact,
   type BrowserVisualEvidenceSummary,
   type JobFinderWorkspaceSnapshot,
   type SavedJob,
 } from "@unemployed/contracts";
 
 import { createUniqueId } from "./shared";
+
+export function enforcePrepareOnlyExecutionResult(
+  input: ApplyExecutionResult,
+): ApplyExecutionResult {
+  const result = ApplyExecutionResultSchema.parse(input);
+
+  if (
+    result.state === "submitted" ||
+    result.submittedAt !== null ||
+    result.outcome === "submitted"
+  ) {
+    throw new Error(
+      "A prepare-only application flow reported a submitted outcome without final-submit authorization.",
+    );
+  }
+
+  return result;
+}
 
 export function buildMissingResumeCopilotArtifacts(input: {
   job: SavedJob;
@@ -72,7 +94,8 @@ export function buildMissingResumeCopilotArtifacts(input: {
     updatedAt: input.detectedAt,
     completedAt: input.detectedAt,
     blockerReason: "resume_missing",
-    blockerSummary: "An approved tailored resume is required before apply copilot can start.",
+    blockerSummary:
+      "An approved tailored resume is required before apply copilot can start.",
     latestQuestionCount: 1,
     latestAnswerCount: 0,
     pendingConsentRequestCount: 1,
@@ -104,7 +127,8 @@ export function buildMissingResumeCopilotArtifacts(input: {
     company: input.job.company,
     status: input.job.status,
     lastActionLabel: result.summary,
-    nextActionLabel: "Export and approve a tailored resume before retrying apply copilot.",
+    nextActionLabel:
+      "Export and approve a tailored resume before retrying apply copilot.",
     lastUpdatedAt: input.detectedAt,
     lastAttemptState: null,
     questionSummary: {
@@ -149,7 +173,8 @@ export function buildMissingResumeCopilotArtifacts(input: {
     createdAt: input.detectedAt,
     storagePath: null,
     url: canonicalApplyUrl,
-    textSnippet: "Apply copilot stayed local and non-submitting because no approved tailored resume export was available.",
+    textSnippet:
+      "Apply copilot stayed local and non-submitting because no approved tailored resume export was available.",
   });
 
   const checkpoint = ApplicationReplayCheckpointSchema.parse({
@@ -203,35 +228,43 @@ export function createEmptyApplyVisualState() {
 export function selectLatestApplyRunId(
   applyRuns: readonly JobFinderWorkspaceSnapshot["applyRuns"][number][],
 ) {
-  return applyRuns.reduce<JobFinderWorkspaceSnapshot["applyRuns"][number] | null>(
-    (latest, run) => {
-      if (!latest) {
-        return run;
-      }
+  return (
+    applyRuns.reduce<JobFinderWorkspaceSnapshot["applyRuns"][number] | null>(
+      (latest, run) => {
+        if (!latest) {
+          return run;
+        }
 
-      const latestTimestamp = Date.parse(latest.updatedAt);
-      const nextTimestamp = Date.parse(run.updatedAt);
+        const latestTimestamp = Date.parse(latest.updatedAt);
+        const nextTimestamp = Date.parse(run.updatedAt);
 
-      if (Number.isFinite(nextTimestamp) && !Number.isFinite(latestTimestamp)) {
-        return run;
-      }
+        if (
+          Number.isFinite(nextTimestamp) &&
+          !Number.isFinite(latestTimestamp)
+        ) {
+          return run;
+        }
 
-      if (!Number.isFinite(nextTimestamp)) {
+        if (!Number.isFinite(nextTimestamp)) {
+          return latest;
+        }
+
+        if (nextTimestamp > latestTimestamp) {
+          return run;
+        }
+
+        if (
+          nextTimestamp === latestTimestamp &&
+          run.id.localeCompare(latest.id) > 0
+        ) {
+          return run;
+        }
+
         return latest;
-      }
-
-      if (nextTimestamp > latestTimestamp) {
-        return run;
-      }
-
-      if (nextTimestamp === latestTimestamp && run.id.localeCompare(latest.id) > 0) {
-        return run;
-      }
-
-      return latest;
-    },
-    null,
-  )?.id ?? null;
+      },
+      null,
+    )?.id ?? null
+  );
 }
 
 export function buildSingleJobAutoApplyArtifacts(input: {
@@ -247,7 +280,8 @@ export function buildSingleJobAutoApplyArtifacts(input: {
 } {
   const runId = createUniqueId("apply_run");
   const resultId = createUniqueId("apply_result");
-  const approvalId = input.approvalId ?? createUniqueId("apply_submit_approval");
+  const approvalId =
+    input.approvalId ?? createUniqueId("apply_submit_approval");
 
   const run = ApplyRunSchema.parse({
     id: runId,
@@ -324,6 +358,8 @@ export function mapExecutionResultToApplyBlockerReason(
     case "missing_resume":
       return "resume_missing";
     case "requires_manual_review":
+    case "missing_candidate_answer":
+    case "unknown":
       return "required_human_input";
     case "site_login_required":
       return "auth_required";
@@ -341,7 +377,9 @@ export function mapExecutionResultToApplyBlockerReason(
 }
 
 export function mapExecutionResultToApplyJobState(input: {
-  consentRequests: readonly ReturnType<typeof ApplicationConsentRequestSchema.parse>[];
+  consentRequests: readonly ReturnType<
+    typeof ApplicationConsentRequestSchema.parse
+  >[];
   executionResult: ApplyExecutionResult;
 }): ApplyJobResult["state"] {
   if (input.executionResult.state === "submitted") {
@@ -364,7 +402,9 @@ export function mapExecutionResultToApplyJobState(input: {
 }
 
 export function mapExecutionResultToApplyRunState(input: {
-  consentRequests: readonly ReturnType<typeof ApplicationConsentRequestSchema.parse>[];
+  consentRequests: readonly ReturnType<
+    typeof ApplicationConsentRequestSchema.parse
+  >[];
   executionResult: ApplyExecutionResult;
 }): ApplyRun["state"] {
   if (input.executionResult.state === "submitted") {
@@ -386,10 +426,66 @@ export function mapExecutionResultToApplyRunState(input: {
   return "paused_for_user_review";
 }
 
+export function buildApplicationPrivacyReceipt(input: {
+  job: SavedJob;
+  resumeArtifact: ApplicationResumeArtifact;
+  executionResult: ApplyExecutionResult;
+  generatedAt: string;
+  runId: string;
+  resultId: string;
+}): ApplicationPrivacyReceipt {
+  const executionResult = enforcePrepareOnlyExecutionResult(
+    input.executionResult,
+  );
+  const destinationUrl = new URL(
+    input.job.applicationUrl ?? input.job.canonicalUrl,
+  );
+  const externalWrites = (executionResult.externalWrites ?? []).map(
+    (entry) => ({ ...entry, artifactRefId: null }),
+  );
+
+  return ApplicationPrivacyReceiptSchema.parse({
+    generatedAt: input.generatedAt,
+    lineage: {
+      runId: input.runId,
+      jobId: input.job.id,
+      resultId: input.resultId,
+    },
+    destination: {
+      origin: destinationUrl.origin,
+      safePath: destinationUrl.pathname || "/",
+    },
+    resume: {
+      source: input.resumeArtifact.source,
+      sourceDocumentId: input.resumeArtifact.sourceDocumentId,
+      exportArtifactId: input.resumeArtifact.exportArtifactId,
+      fileName: input.resumeArtifact.fileName,
+      sha256: input.resumeArtifact.sha256,
+    },
+    stayedLocal: [
+      "profile_data",
+      "resume_content",
+      "application_answers",
+      "job_listing_data",
+      "browser_evidence",
+      ...(input.resumeArtifact.source === "tailored_export"
+        ? (["generated_documents"] as const)
+        : []),
+    ],
+    modelUse: [],
+    externalWrites,
+    accountCreationAuthorized: false,
+    finalSubmitAuthorized: false,
+    finalSubmitOccurred: false,
+  });
+}
 export function buildApplyCopilotArtifacts(input: {
   job: SavedJob;
   executionResult: ApplyExecutionResult;
+  resumeArtifact: ApplicationResumeArtifact;
   detectedAt: string;
+  runId?: string;
+  resultId?: string;
   visualCheckpointsEnabled?: boolean;
 }): {
   run: ApplyRun;
@@ -400,14 +496,29 @@ export function buildApplyCopilotArtifacts(input: {
   checkpoints: ReturnType<typeof ApplicationReplayCheckpointSchema.parse>[];
   consentRequests: ReturnType<typeof ApplicationConsentRequestSchema.parse>[];
 } {
-  const runId = createUniqueId("apply_run");
-  const resultId = createUniqueId("apply_result");
+  const runId = input.runId ?? createUniqueId("apply_run");
+  const resultId = input.resultId ?? createUniqueId("apply_result");
   const canonicalApplyUrl = input.job.applicationUrl ?? input.job.canonicalUrl;
+  const replayableExecutionCheckpoints =
+    input.executionResult.checkpoints.length > 0
+      ? input.executionResult.checkpoints
+      : input.executionResult.blocker
+        ? [
+            {
+              id: `blocked_${createUniqueId("apply_checkpoint_source")}`,
+              at: input.detectedAt,
+              label: "Browser action required",
+              detail: `Job Finder stopped safely before final submit: ${input.executionResult.blocker.summary}`,
+              state: input.executionResult.state,
+              visualEvidence: input.executionResult.visualEvidence,
+            },
+          ]
+        : [];
   const persistedQuestionIdByExecutionId = new Map<string, string>();
   const persistedAnswerIdByExecutionId = new Map<string, string>();
   const checkpointArtifactIdsByExecutionId = new Map<string, string[]>();
   const executionQuestionIdByPersistedId = new Map<string, string>();
-  const lastCheckpointIndex = input.executionResult.checkpoints.length - 1;
+  const lastCheckpointIndex = replayableExecutionCheckpoints.length - 1;
   input.executionResult.questions.forEach((question) => {
     const persistedQuestionId = createUniqueId("apply_question");
     persistedQuestionIdByExecutionId.set(question.id, persistedQuestionId);
@@ -416,7 +527,10 @@ export function buildApplyCopilotArtifacts(input: {
 
   for (const question of input.executionResult.questions) {
     for (const answer of question.suggestedAnswers) {
-      persistedAnswerIdByExecutionId.set(answer.id, createUniqueId("apply_answer"));
+      persistedAnswerIdByExecutionId.set(
+        answer.id,
+        createUniqueId("apply_answer"),
+      );
     }
   }
 
@@ -424,18 +538,18 @@ export function buildApplyCopilotArtifacts(input: {
     checkpoint: ApplyExecutionResult["checkpoints"][number],
   ): ReturnType<typeof ApplicationReplayCheckpointSchema.parse>["jobState"] {
     switch (checkpoint.state) {
-      case 'submitted':
-        return 'submitted'
-      case 'failed':
-        return 'failed'
-      case 'paused':
-        return 'awaiting_review'
-      case 'unsupported':
-        return 'blocked'
+      case "submitted":
+        return "submitted";
+      case "failed":
+        return "failed";
+      case "paused":
+        return "awaiting_review";
+      case "unsupported":
+        return "blocked";
       default:
-        return checkpoint.label.toLowerCase().includes('question')
-          ? 'question_capture'
-          : 'filling'
+        return checkpoint.label.toLowerCase().includes("question")
+          ? "question_capture"
+          : "filling";
     }
   }
 
@@ -455,15 +569,18 @@ export function buildApplyCopilotArtifacts(input: {
   const answerRecords = input.executionResult.questions.flatMap((question) =>
     question.suggestedAnswers.map((answer) => {
       return ApplicationAnswerRecordSchema.parse({
-        id: persistedAnswerIdByExecutionId.get(answer.id) ?? createUniqueId("apply_answer"),
+        id:
+          persistedAnswerIdByExecutionId.get(answer.id) ??
+          createUniqueId("apply_answer"),
         runId,
         jobId: input.job.id,
         resultId,
-        questionId: persistedQuestionIdByExecutionId.get(question.id) ?? question.id,
+        questionId:
+          persistedQuestionIdByExecutionId.get(question.id) ?? question.id,
         status:
           question.submittedAnswer && question.submittedAnswer === answer.text
-            ? 'filled'
-            : 'suggested',
+            ? "filled"
+            : "suggested",
         text: answer.text,
         sourceKind: answer.sourceKind,
         sourceId: answer.sourceId,
@@ -478,14 +595,16 @@ export function buildApplyCopilotArtifacts(input: {
     }),
   );
   const questionRecords = input.executionResult.questions.map((question) => {
-    const persistedQuestionId = persistedQuestionIdByExecutionId.get(question.id) ?? question.id;
+    const persistedQuestionId =
+      persistedQuestionIdByExecutionId.get(question.id) ?? question.id;
     const matchingSuggestedAnswer = question.submittedAnswer
-      ? question.suggestedAnswers.find(
-          (suggestedAnswer) => suggestedAnswer.text === question.submittedAnswer,
-        ) ?? null
+      ? (question.suggestedAnswers.find(
+          (suggestedAnswer) =>
+            suggestedAnswer.text === question.submittedAnswer,
+        ) ?? null)
       : null;
     const selectedAnswerId = matchingSuggestedAnswer?.id
-      ? persistedAnswerIdByExecutionId.get(matchingSuggestedAnswer.id) ?? null
+      ? (persistedAnswerIdByExecutionId.get(matchingSuggestedAnswer.id) ?? null)
       : null;
 
     return ApplicationQuestionRecordSchema.parse({
@@ -495,6 +614,9 @@ export function buildApplyCopilotArtifacts(input: {
       resultId,
       prompt: question.prompt,
       kind: question.kind,
+      answerControlType:
+        question.answerControlType ??
+        (question.answerOptions.length > 0 ? "single_choice" : "text"),
       isRequired: question.isRequired,
       detectedAt: question.detectedAt,
       answerOptions: question.answerOptions,
@@ -510,8 +632,12 @@ export function buildApplyCopilotArtifacts(input: {
   const artifactRefs = [
     ...questionRecords
       .filter((record) => {
-        const executionQuestionId = executionQuestionIdByPersistedId.get(record.id);
-        return executionQuestionId ? blockerQuestionIds.includes(executionQuestionId) : false;
+        const executionQuestionId = executionQuestionIdByPersistedId.get(
+          record.id,
+        );
+        return executionQuestionId
+          ? blockerQuestionIds.includes(executionQuestionId)
+          : false;
       })
       .map((record) =>
         ApplicationArtifactRefSchema.parse({
@@ -520,7 +646,7 @@ export function buildApplyCopilotArtifacts(input: {
           jobId: input.job.id,
           resultId,
           questionId: record.id,
-          kind: 'field_snapshot',
+          kind: "field_snapshot",
           label: `Captured prompt: ${record.prompt}`,
           createdAt: input.detectedAt,
           storagePath: null,
@@ -529,10 +655,14 @@ export function buildApplyCopilotArtifacts(input: {
           visualEvidence: input.executionResult.visualEvidence[0] ?? null,
         }),
       ),
-    ...input.executionResult.checkpoints.map((checkpoint, checkpointIndex) => {
+    ...replayableExecutionCheckpoints.map((checkpoint, checkpointIndex) => {
       const artifactId = createUniqueId("apply_artifact");
-      const existingArtifactIds = checkpointArtifactIdsByExecutionId.get(checkpoint.id) ?? [];
-      checkpointArtifactIdsByExecutionId.set(checkpoint.id, [...existingArtifactIds, artifactId]);
+      const existingArtifactIds =
+        checkpointArtifactIdsByExecutionId.get(checkpoint.id) ?? [];
+      checkpointArtifactIdsByExecutionId.set(checkpoint.id, [
+        ...existingArtifactIds,
+        artifactId,
+      ]);
       const checkpointVisualEvidence = visualEvidenceForCheckpoint(
         checkpoint,
         checkpointIndex,
@@ -544,7 +674,7 @@ export function buildApplyCopilotArtifacts(input: {
         jobId: input.job.id,
         resultId,
         questionId: null,
-        kind: 'checkpoint',
+        kind: "checkpoint",
         label: checkpoint.label,
         createdAt: checkpoint.at,
         storagePath: null,
@@ -557,31 +687,34 @@ export function buildApplyCopilotArtifacts(input: {
   const visualReconciliations = input.executionResult.visualCheckpoints.flatMap(
     (checkpoint) => checkpoint.reconciliations,
   );
-  const checkpoints = input.executionResult.checkpoints.map((checkpoint, checkpointIndex) => {
-    const persistedCheckpointId = createUniqueId("apply_checkpoint");
-    const checkpointVisualEvidence = visualEvidenceForCheckpoint(
-      checkpoint,
-      checkpointIndex,
-    );
+  const checkpoints = replayableExecutionCheckpoints.map(
+    (checkpoint, checkpointIndex) => {
+      const persistedCheckpointId = createUniqueId("apply_checkpoint");
+      const checkpointVisualEvidence = visualEvidenceForCheckpoint(
+        checkpoint,
+        checkpointIndex,
+      );
 
-    return ApplicationReplayCheckpointSchema.parse({
-      id: persistedCheckpointId,
-      runId,
-      jobId: input.job.id,
-      resultId,
-      createdAt: checkpoint.at,
-      label: checkpoint.label,
-      detail: checkpoint.detail,
-      url: canonicalApplyUrl,
-      jobState: mapCheckpointStateToJobState(checkpoint),
-      artifactRefIds: checkpointArtifactIdsByExecutionId.get(checkpoint.id) ?? [],
-      visualEvidence: checkpointVisualEvidence,
-      visualReconciliations:
-        checkpointIndex === lastCheckpointIndex ? visualReconciliations : [],
-    });
-  });
+      return ApplicationReplayCheckpointSchema.parse({
+        id: persistedCheckpointId,
+        runId,
+        jobId: input.job.id,
+        resultId,
+        createdAt: checkpoint.at,
+        label: checkpoint.label,
+        detail: checkpoint.detail,
+        url: canonicalApplyUrl,
+        jobState: mapCheckpointStateToJobState(checkpoint),
+        artifactRefIds:
+          checkpointArtifactIdsByExecutionId.get(checkpoint.id) ?? [],
+        visualEvidence: checkpointVisualEvidence,
+        visualReconciliations:
+          checkpointIndex === lastCheckpointIndex ? visualReconciliations : [],
+      });
+    },
+  );
   const consentRequests = input.executionResult.consentDecisions
-    .filter((decision) => decision.status === 'requested')
+    .filter((decision) => decision.status === "requested")
     .map((decision) =>
       ApplicationConsentRequestSchema.parse({
         id: createUniqueId("apply_consent_request"),
@@ -589,15 +722,15 @@ export function buildApplyCopilotArtifacts(input: {
         jobId: input.job.id,
         resultId,
         kind:
-          decision.kind === 'resume_use'
-            ? 'resume_use'
-            : decision.kind === 'autofill_profile'
-              ? 'profile_autofill'
-              : 'manual_verification',
+          decision.kind === "resume_use"
+            ? "resume_use"
+            : decision.kind === "autofill_profile"
+              ? "profile_autofill"
+              : "manual_verification",
         linkedConsentKind: decision.kind,
         label: decision.label,
         detail: decision.detail,
-        status: 'pending',
+        status: "pending",
         requestedAt: input.detectedAt,
         decidedAt: null,
         expiresAt: null,
@@ -613,6 +746,14 @@ export function buildApplyCopilotArtifacts(input: {
     executionResult: input.executionResult,
   });
 
+  const privacyReceipt = buildApplicationPrivacyReceipt({
+    job: input.job,
+    resumeArtifact: input.resumeArtifact,
+    executionResult: input.executionResult,
+    generatedAt: input.detectedAt,
+    runId,
+    resultId,
+  });
   const result = ApplyJobResultSchema.parse({
     id: resultId,
     runId,
@@ -621,12 +762,12 @@ export function buildApplyCopilotArtifacts(input: {
     state: resultState,
     summary: input.executionResult.summary,
     detail: input.executionResult.detail,
-    startedAt: input.executionResult.checkpoints[0]?.at ?? input.detectedAt,
+    startedAt: replayableExecutionCheckpoints[0]?.at ?? input.detectedAt,
     updatedAt: input.detectedAt,
     completedAt:
-      input.executionResult.state === 'submitted' ||
-      input.executionResult.state === 'failed' ||
-      input.executionResult.state === 'unsupported'
+      input.executionResult.state === "submitted" ||
+      input.executionResult.state === "failed" ||
+      input.executionResult.state === "unsupported"
         ? input.detectedAt
         : null,
     blockerReason: mapExecutionResultToApplyBlockerReason(
@@ -640,11 +781,12 @@ export function buildApplyCopilotArtifacts(input: {
     pendingConsentRequestCount: consentRequests.length,
     artifactCount: artifactRefs.length,
     latestCheckpointId: checkpoints.at(-1)?.id ?? null,
+    privacyReceipt,
   });
 
   const run = ApplyRunSchema.parse({
     id: runId,
-    mode: 'copilot',
+    mode: "copilot",
     state: runState,
     jobIds: [input.job.id],
     currentJobId: input.job.id,
@@ -653,19 +795,19 @@ export function buildApplyCopilotArtifacts(input: {
     createdAt: input.detectedAt,
     updatedAt: input.detectedAt,
     completedAt:
-      input.executionResult.state === 'submitted' ||
-      input.executionResult.state === 'failed' ||
-      input.executionResult.state === 'unsupported'
+      input.executionResult.state === "submitted" ||
+      input.executionResult.state === "failed" ||
+      input.executionResult.state === "unsupported"
         ? input.detectedAt
         : null,
     summary: input.executionResult.summary,
     detail: input.executionResult.detail,
     totalJobs: 1,
-    pendingJobs: result.state === 'awaiting_review' ? 1 : 0,
-    submittedJobs: result.state === 'submitted' ? 1 : 0,
+    pendingJobs: result.state === "awaiting_review" ? 1 : 0,
+    submittedJobs: result.state === "submitted" ? 1 : 0,
     skippedJobs: 0,
-    blockedJobs: result.state === 'blocked' ? 1 : 0,
-    failedJobs: result.state === 'failed' ? 1 : 0,
+    blockedJobs: result.state === "blocked" ? 1 : 0,
+    failedJobs: result.state === "failed" ? 1 : 0,
   });
 
   return {

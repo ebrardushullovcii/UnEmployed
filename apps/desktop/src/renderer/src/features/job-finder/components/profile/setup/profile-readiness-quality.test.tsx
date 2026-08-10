@@ -62,17 +62,31 @@ describe('profile readiness quality', () => {
         narrativeStatus="ready"
         onGoToStep={onGoToStep}
         onSaveAndFinish={vi.fn()}
+        readinessBlockers={[
+          {
+            label: 'Add a job source',
+            reason: 'Include at least one valid public careers URL.',
+            step: 'targeting',
+          },
+        ]}
         renderFooter={() => null}
       />,
     )
 
     expect(container?.textContent).toContain('Contact details')
     expect(container?.textContent).toContain('Add an email address or phone number')
+    expect(container?.textContent).toContain('Add a job source')
     const reviewButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'Review Essentials')
     act(() => {
       reviewButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
     expect(onGoToStep).toHaveBeenCalledWith('essentials')
+
+    const sourceButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'Open Targeting')
+    act(() => {
+      sourceButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(onGoToStep).toHaveBeenCalledWith('targeting')
   })
 
   it('shows public-link labels and URLs instead of internal IDs', () => {

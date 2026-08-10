@@ -1,50 +1,67 @@
-export type ProfileDeepLinkFocus = 'job-sources' | 'target-roles'
+export type ProfileDeepLinkFocus = "job-sources" | "target-roles";
 
-export const PROFILE_SECTION_SCROLL_AREA_ID = 'profile-section-scroll-area'
+export const PROFILE_SECTION_SCROLL_AREA_ID = "profile-section-scroll-area";
 
-const profileFocusTargets: Record<ProfileDeepLinkFocus, { headingId: string; sectionId: string }> = {
-  'job-sources': {
-    headingId: 'profile-job-sources-heading',
-    sectionId: 'profile-job-sources',
+const profileFocusTargets: Record<
+  ProfileDeepLinkFocus,
+  { headingId: string; sectionId: string }
+> = {
+  "job-sources": {
+    headingId: "profile-job-sources-heading",
+    sectionId: "profile-job-sources",
   },
-  'target-roles': {
-    headingId: 'profile-target-roles-heading',
-    sectionId: 'profile-target-roles',
+  "target-roles": {
+    headingId: "profile-target-roles-heading",
+    sectionId: "profile-target-roles",
   },
-}
+};
 
 function resetScroll(element: HTMLElement, top: number) {
-  if (typeof element.scrollTo === 'function') {
-    element.scrollTo({ behavior: 'auto', left: 0, top })
-    return
+  if (typeof element.scrollTo === "function") {
+    element.scrollTo({ behavior: "auto", left: 0, top });
+    return;
   }
 
-  element.scrollTop = top
+  element.scrollTop = top;
+}
+
+export function resetProfileSectionScroll(
+  documentRef: Document = document,
+): boolean {
+  const sectionScroller = documentRef.getElementById(
+    PROFILE_SECTION_SCROLL_AREA_ID,
+  );
+
+  if (!(sectionScroller instanceof HTMLElement)) {
+    return false;
+  }
+
+  resetScroll(sectionScroller, 0);
+  return true;
 }
 
 export function focusProfileDeepLink(
   requestedFocus: ProfileDeepLinkFocus,
   documentRef: Document = document,
 ): boolean {
-  const target = profileFocusTargets[requestedFocus]
-  const heading = documentRef.getElementById(target.headingId)
-  const section = documentRef.getElementById(target.sectionId)
-  const sectionScroller = documentRef.getElementById(PROFILE_SECTION_SCROLL_AREA_ID)
+  const target = profileFocusTargets[requestedFocus];
+  const heading = documentRef.getElementById(target.headingId);
+  const section = documentRef.getElementById(target.sectionId);
+  const sectionScroller = documentRef.getElementById(
+    PROFILE_SECTION_SCROLL_AREA_ID,
+  );
 
   if (!heading || !section || !(sectionScroller instanceof HTMLElement)) {
-    return false
+    return false;
   }
 
-  const pageScroller = sectionScroller.closest('.screen-scroll-area')
-  if (pageScroller instanceof HTMLElement) {
-    resetScroll(pageScroller, 0)
-  }
+  sectionScroller.scrollIntoView({ behavior: "auto", block: "start" });
 
   const sectionTop =
     sectionScroller.scrollTop +
     section.getBoundingClientRect().top -
-    sectionScroller.getBoundingClientRect().top
-  resetScroll(sectionScroller, Math.max(0, sectionTop - 16))
-  heading.focus({ preventScroll: true })
-  return true
+    sectionScroller.getBoundingClientRect().top;
+  resetScroll(sectionScroller, Math.max(0, sectionTop - 16));
+  heading.focus({ preventScroll: true });
+  return true;
 }

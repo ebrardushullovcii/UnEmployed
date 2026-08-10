@@ -27,9 +27,15 @@ import {
   logFallbackError,
   summarizeError,
 } from "./openai-compatible-shared";
+import { buildGroundedResumeRewriteModelPayload } from "./resume-generation-grounding";
 import {
-  buildChatCompletionsUrl,
+  buildModelRequestBody,
+  buildModelUrl,
+  DEFAULT_MODEL_API_MODE,
+  DEFAULT_MODEL_REASONING_EFFORT,
+  parseModelApiMode,
   parseModelJsonResponse,
+  parseModelReasoningEffort,
   parseResponsePayload,
 } from "./openai-compatible-transport";
 import {
@@ -44,15 +50,37 @@ import {
   adjudicateOpenAiCompatibleResumeImportCandidates,
   extractOpenAiCompatibleResumeImportStage,
 } from "./openai-compatible-resume-import";
+import type { ResumeImportExtractionStage } from "./resume-import";
+import { supplementExperienceStageCandidates } from "./resume-import-stage-supplement";
 import { createBrowserVisualAnalysisProviderFromEnvironment } from "./browser-visual-analysis";
 
 const DEFAULT_MODEL_TIMEOUT_MS = 60_000;
 const DEFAULT_RESUME_EXTRACTION_TIMEOUT_MS = 120_000;
+const DEFAULT_RESUME_IMPORT_STAGE_TIMEOUT_MS: Record<
+  Exclude<ResumeImportExtractionStage, "shared_memory">,
+  number
+> = {
+  identity_summary: 25_000,
+  experience: 25_000,
+  background: 20_000,
+};
 const SEARCH_RESULTS_EXTRACTION_TIMEOUT_MS = 35_000;
 const SEARCH_RESULTS_EXTRACTION_PAGE_TEXT_LIMIT = 8_000;
 const JOB_DETAIL_EXTRACTION_PAGE_TEXT_LIMIT = 12_000;
 const SEARCH_RESULTS_MAX_MODEL_JOBS = 4;
 const DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS = 196_000;
+
+function buildResumeRewriteProposalPrompt(): string {
+  return [
+    "You propose only evidence-linked prose improvements for a tailored resume; the application deterministically owns the complete resume, identity metadata, chronology, coverage, skills, and rendering.",
+    "Return one JSON object containing only material improvements. Return {} when the cited evidence is already as clear and professional as you can safely make it.",
+    'Use this sparse shape: {"summary":{"text":"...","evidenceRefs":["..."]},"experienceEntries":[{"profileRecordId":"...","summary":{"text":"...","evidenceRefs":["..."]},"bullets":[{"text":"...","evidenceRefs":["..."]}]}],"projectEntries":[{"profileRecordId":"...","summary":{"text":"...","evidenceRefs":["..."]},"outcome":{"text":"...","evidenceRefs":["..."]},"bullets":[{"text":"...","evidenceRefs":["..."]}]}]}. Omit every unchanged or unused field and entry.',
+    "Every proposed text must cite exact IDs from groundingEvidence.items. Experience and project proposals may cite only items with the same profileRecordId.",
+    "Use only claims, numbers, technologies, scope, and outcomes stated in the cited evidence. Do not add dates, titles, employers, credentials, seniority, leadership, causality, metrics, or absolutes.",
+    "Prefer concise reordering and active-voice phrasing. Keep distinctive evidence terms and exact metrics unchanged; do not add target-company or job-posting language unless it already appears in the cited candidate evidence.",
+    "Do not return a full resume, identity metadata, skills lists, compatibility scores, labels, notes, explanations, or uncited text.",
+  ].join(" ");
+}
 
 function parseConfiguredTimeoutMs(
   value: string | undefined,
@@ -99,11 +127,28 @@ function normalizeTimeoutLikeError(error: unknown, timeoutMs: number): unknown {
   return error;
 }
 
+function resumeImportStageTimeoutMs(
+  stage: ResumeImportExtractionStage,
+  configuredResumeTimeoutMs?: number,
+  configuredRequestTimeoutMs?: number,
+): number {
+  return (
+    configuredResumeTimeoutMs ??
+    configuredRequestTimeoutMs ??
+    (stage === "shared_memory"
+      ? DEFAULT_RESUME_EXTRACTION_TIMEOUT_MS
+      : DEFAULT_RESUME_IMPORT_STAGE_TIMEOUT_MS[stage])
+  );
+}
+
 export function createOpenAiCompatibleJobFinderAiClient(
   options: OpenAiCompatibleJobFinderAiClientOptions,
 ): AgentCapableJobFinderAiClient {
-  const configuredOptions = OpenAiCompatibleJobFinderAiClientOptionsSchema.safeParse(options);
-  const validatedOptions = configuredOptions.success ? configuredOptions.data : null;
+  const configuredOptions =
+    OpenAiCompatibleJobFinderAiClientOptionsSchema.safeParse(options);
+  const validatedOptions = configuredOptions.success
+    ? configuredOptions.data
+    : null;
   const status = AgentProviderStatusSchema.parse({
     kind: "openai_compatible",
     ready: configuredOptions.success,
@@ -111,16 +156,16 @@ export function createOpenAiCompatibleJobFinderAiClient(
     model: validatedOptions?.model ?? null,
     baseUrl: validatedOptions?.baseUrl ?? null,
     modelContextWindowTokens: configuredOptions.success
-      ? (validatedOptions?.contextWindowTokens ?? DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS)
+      ? (validatedOptions?.contextWindowTokens ??
+        DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS)
       : null,
     reservedHeadroomTokens: null,
     requestTimeoutMs: configuredOptions.success
       ? (validatedOptions?.requestTimeoutMs ?? DEFAULT_MODEL_TIMEOUT_MS)
       : null,
-    detail:
-      configuredOptions.success
-        ? "The configured AI provider handles resume extraction and tailoring. Structured JSON outputs are validated locally before they affect Job Finder state."
-        : "The configured AI provider settings are invalid. Check the model and base URL before enabling model-backed resume extraction.",
+    detail: configuredOptions.success
+      ? "The configured AI provider handles resume extraction and tailoring. Structured JSON outputs are validated locally before they affect Job Finder state."
+      : "The configured AI provider settings are invalid. Check the model and base URL before enabling model-backed resume extraction.",
   });
 
   async function fetchModelJson(
@@ -146,7 +191,8 @@ export function createOpenAiCompatibleJobFinderAiClient(
     const compactedUserPayload = compactOpenAiCompatibleUserPayload({
       operation,
       modelContextWindowTokens:
-        validatedOptions.contextWindowTokens ?? DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS,
+        validatedOptions.contextWindowTokens ??
+        DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS,
       systemPrompt,
       userPayload,
     });
@@ -167,28 +213,35 @@ export function createOpenAiCompatibleJobFinderAiClient(
     }
 
     try {
-      const response = await fetch(buildChatCompletionsUrl(validatedOptions.baseUrl), {
-        method: "POST",
-        signal: controller.signal,
-        headers: {
-          Authorization: `Bearer ${validatedOptions.apiKey}`,
-          "Content-Type": "application/json",
+      const apiMode = validatedOptions.apiMode ?? "chat_completions";
+      const response = await fetch(
+        buildModelUrl(validatedOptions.baseUrl, apiMode),
+        {
+          method: "POST",
+          signal: controller.signal,
+          headers: {
+            Authorization: `Bearer ${validatedOptions.apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(
+            buildModelRequestBody({
+              apiMode,
+              model: validatedOptions.model,
+              reasoningEffort: validatedOptions.reasoningEffort,
+              jsonOutput: true,
+              messages: [
+                { role: "system", content: systemPrompt },
+                {
+                  role: "user",
+                  content: JSON.stringify(compactedUserPayload),
+                },
+              ],
+            }),
+          ),
         },
-        body: JSON.stringify({
-          model: validatedOptions.model,
-          temperature: 0.2,
-          response_format: { type: "json_object" },
-          messages: [
-            { role: "system", content: systemPrompt },
-            {
-              role: "user",
-              content: JSON.stringify(compactedUserPayload),
-            },
-          ],
-        }),
-      });
+      );
 
-      return parseModelJsonResponse(response);
+      return parseModelJsonResponse(response, apiMode);
     } catch (error) {
       if (options?.signal?.aborted) {
         throw new DOMException("Aborted", "AbortError");
@@ -271,15 +324,29 @@ export function createOpenAiCompatibleJobFinderAiClient(
       });
     },
     async extractResumeImportStage(input) {
-      return extractOpenAiCompatibleResumeImportStage({
+      const startedAtMs = performance.now();
+      const result = await extractOpenAiCompatibleResumeImportStage({
         stageInput: input,
         status,
         fetchModelJson,
-        timeoutMs:
-          validatedOptions?.resumeExtractionTimeoutMs ??
-          validatedOptions?.requestTimeoutMs ??
-          DEFAULT_RESUME_EXTRACTION_TIMEOUT_MS,
+        timeoutMs: resumeImportStageTimeoutMs(
+          input.stage,
+          validatedOptions?.resumeExtractionTimeoutMs,
+          validatedOptions?.requestTimeoutMs,
+        ),
       });
+      const durationMs = Math.max(
+        0,
+        Math.round(performance.now() - startedAtMs),
+      );
+      return {
+        ...result,
+        timing: {
+          durationMs,
+          primaryProviderMs: durationMs,
+          deterministicFallbackMs: null,
+        },
+      };
     },
     async adjudicateResumeImportCandidates(input) {
       return adjudicateOpenAiCompatibleResumeImportCandidates({
@@ -295,21 +362,8 @@ export function createOpenAiCompatibleJobFinderAiClient(
     async createResumeDraft(input) {
       const payload = await fetchModelJson(
         "createResumeDraft",
-        [
-          "You create a structured, grounded tailored resume draft for a job.",
-          "Return JSON only.",
-          "Use the provided evidence and research only to prioritize or reframe existing candidate facts.",
-          "Never invent candidate dates, titles, employers, metrics, or credentials.",
-          "Preserve profileRecordId for every experience entry you keep, copy the canonical dateRange from the matching profile record, keep work history in reverse chronological order, and do not drop fallback dev, dev-adjacent, or gap-coverage entries.",
-          "Do not put locations, employers, titles, or other metadata in dateRange; dateRange must only be a real date span like 'Jan 2020 – Present'.",
-          "Keep useful imported role summaries and achievements; rewrite for relevance only when the original meaning, metrics, and technologies remain grounded.",
-          "Compact older or weak-fit roles when needed, but never turn an unrelated role into a software role unless the profile record explicitly contains technical evidence.",
-          "Aim for a one-page, high-signal draft unless the candidate has unusually strong senior depth; prefer fewer sharper bullets over exhaustive job history.",
-          "Prioritize intentional proof: personal website, GitHub, shipped projects, AI/agent experience, and role-relevant writing or portfolio links when they are present in the profile.",
-          "Do not add photos, generic course lists, social links without clear professional value, or cover-letter-style AI filler phrases.",
-          "Keep the output ATS-friendly, concise, and specific to the target company and role.",
-        ].join(" "),
-        input,
+        buildResumeRewriteProposalPrompt(),
+        buildGroundedResumeRewriteModelPayload(input),
       );
       return completeTailoredResumeDraft(payload, input);
     },
@@ -320,6 +374,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
           "You are a resume editing assistant.",
           "Return JSON only with content and typed patches.",
           "Patches must make bounded edits to the supplied draft rather than rewriting the whole resume.",
+          "These patches are proposals only. Never claim they were applied; the user must explicitly approve them.",
           "Do not invent candidate facts.",
           "Avoid touching locked content by leaving it unchanged.",
         ].join(" "),
@@ -340,7 +395,8 @@ export function createOpenAiCompatibleJobFinderAiClient(
         ...normalizedPayload,
         patches: validatedPatches,
         content:
-          typeof normalizedPayload.content === "string" && normalizedPayload.content.trim().length > 0
+          typeof normalizedPayload.content === "string" &&
+          normalizedPayload.content.trim().length > 0
             ? normalizedPayload.content
             : "I could not turn that request into a safe grounded edit, so no changes were applied.",
       });
@@ -357,6 +413,11 @@ export function createOpenAiCompatibleJobFinderAiClient(
           "Do not invent candidate experience, credentials, dates, or metrics.",
           "Prefer no-op guidance over unsafe edits.",
           "If a change is broad, destructive, or ambiguous, mark the patch group applyMode as needs_review.",
+          "Interpret natural preference language semantically instead of copying surrounding prose into a field. Salary currency must be a three-letter ISO code such as EUR, never a sentence fragment.",
+          "A single request may update multiple bounded scalar fields. For salary requests, distinguish the lowest acceptable amount from the actual target amount and preserve both when explicitly stated.",
+          "Represent compensation ranges with replace_compensation_preferences_fields using minimum, maximum, interval (hour, day, week, month, or year), currency, and currencyStatus.",
+          "Set currencyStatus to explicit only when the user provides a currency code or unambiguous currency symbol, inherited only when reusing a previously explicit saved currency, and needs_clarification with currency null when the currency is genuinely ambiguous. Never silently assume USD from a location or from a bare dollar sign.",
+          "Natural requests such as 'look for jobs around 3-4k a month around New York' may produce both a preferred-location operation and a compensation operation. Preserve 3000-4000 as monthly values rather than converting the user-facing range to annual text.",
         ].join(" "),
         input,
       );
@@ -368,7 +429,8 @@ export function createOpenAiCompatibleJobFinderAiClient(
       return ProfileCopilotReplySchema.parse({
         ...normalizedPayload,
         content:
-          typeof normalizedPayload.content === "string" && normalizedPayload.content.trim().length > 0
+          typeof normalizedPayload.content === "string" &&
+          normalizedPayload.content.trim().length > 0
             ? normalizedPayload.content
             : "I could not turn that request into a safe structured profile change, so no profile edits were proposed.",
       });
@@ -376,21 +438,8 @@ export function createOpenAiCompatibleJobFinderAiClient(
     async tailorResume(input) {
       const payload = await fetchModelJson(
         "tailorResume",
-        [
-          "You tailor resumes for specific jobs.",
-          "Return JSON only.",
-          "Ground every section in the provided profile, resume text, and job posting.",
-          "Do not invent employers, achievements, dates, or credentials.",
-          "Preserve profileRecordId for experience entries, copy the canonical dateRange from the matching profile record, keep reverse chronological work-history order, and do not omit fallback dev, dev-adjacent, or gap-coverage entries.",
-          "Do not put locations, employers, titles, or other metadata in dateRange; dateRange must only be a real date span like 'Jan 2020 – Present'.",
-          "Keep useful imported role summaries and achievements; rewrite for relevance only when the original meaning, metrics, and technologies remain grounded.",
-          "Compact older or weak-fit roles when needed, but do not recast unrelated roles as technical roles without explicit stored evidence.",
-          "Aim for a one-page, high-signal draft unless the candidate has unusually strong senior depth; prefer fewer sharper bullets over exhaustive job history.",
-          "Prioritize intentional proof: personal website, GitHub, shipped projects, AI/agent experience, and role-relevant writing or portfolio links when they are present in the profile.",
-          "Do not add photos, generic course lists, social links without clear professional value, or cover-letter-style AI filler phrases.",
-          "Write concise ATS-friendly content that is specific to the target company and role.",
-        ].join(" "),
-        input,
+        buildResumeRewriteProposalPrompt(),
+        buildGroundedResumeRewriteModelPayload(input),
       );
       return completeTailoredResumeDraft(payload, {
         profile: input.profile,
@@ -444,13 +493,18 @@ export function createOpenAiCompatibleJobFinderAiClient(
           ? SEARCH_RESULTS_EXTRACTION_TIMEOUT_MS
           : DEFAULT_MODEL_TIMEOUT_MS;
 
-      const payload = await fetchModelJson("extractJobsFromPage", systemPrompt, {
-        pageUrl: input.pageUrl,
-        pageText: input.pageText.slice(0, pageTextLimit),
-      }, {
-        timeoutMs,
-        ...(input.signal ? { signal: input.signal } : {}),
-      });
+      const payload = await fetchModelJson(
+        "extractJobsFromPage",
+        systemPrompt,
+        {
+          pageUrl: input.pageUrl,
+          pageText: input.pageText.slice(0, pageTextLimit),
+        },
+        {
+          timeoutMs,
+          ...(input.signal ? { signal: input.signal } : {}),
+        },
+      );
 
       return normalizeExtractedJobs({
         payload,
@@ -460,11 +514,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
         effectiveMaxJobs,
       });
     },
-    async chatWithTools(
-      messages,
-      tools,
-      options?: ChatWithToolsOptions,
-    ) {
+    async chatWithTools(messages, tools, options?: ChatWithToolsOptions) {
       if (!validatedOptions) {
         throw new Error(
           "The configured AI provider settings are invalid. Check the model and base URL before making model requests.",
@@ -494,52 +544,56 @@ export function createOpenAiCompatibleJobFinderAiClient(
       }
 
       try {
-        const response = await fetch(buildChatCompletionsUrl(validatedOptions.baseUrl), {
-          method: "POST",
-          signal: controller.signal,
-          headers: {
-            Authorization: `Bearer ${validatedOptions.apiKey}`,
-            "Content-Type": "application/json",
+        const apiMode = validatedOptions.apiMode ?? "chat_completions";
+        const response = await fetch(
+          buildModelUrl(validatedOptions.baseUrl, apiMode),
+          {
+            method: "POST",
+            signal: controller.signal,
+            headers: {
+              Authorization: `Bearer ${validatedOptions.apiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(
+              buildModelRequestBody({
+                apiMode,
+                model: validatedOptions.model,
+                reasoningEffort: validatedOptions.reasoningEffort,
+                messages: messages.map((msg) => {
+                  const base = { role: msg.role, content: msg.content };
+                  if (msg.role === "assistant" && msg.toolCalls) {
+                    return {
+                      ...base,
+                      tool_calls: msg.toolCalls.map((tc) => ({
+                        id: tc.id,
+                        type: tc.type,
+                        function: tc.function,
+                      })),
+                    };
+                  }
+                  if (msg.role === "tool") {
+                    return {
+                      ...base,
+                      tool_call_id: msg.toolCallId,
+                    };
+                  }
+                  return base;
+                }),
+                tools: tools.map((tool) => ({
+                  type: tool.type,
+                  function: {
+                    name: tool.function.name,
+                    description: tool.function.description,
+                    parameters: tool.function.parameters,
+                  },
+                })),
+                maxOutputTokens: options?.maxOutputTokens,
+              }),
+            ),
           },
-          body: JSON.stringify({
-            model: validatedOptions.model,
-            temperature: 0.2,
-            messages: messages.map((msg) => {
-              const base = { role: msg.role, content: msg.content };
-              if (msg.role === "assistant" && msg.toolCalls) {
-                return {
-                  ...base,
-                  tool_calls: msg.toolCalls.map((tc) => ({
-                    id: tc.id,
-                    type: tc.type,
-                    function: tc.function,
-                  })),
-                };
-              }
-              if (msg.role === "tool") {
-                return {
-                  ...base,
-                  tool_call_id: msg.toolCallId,
-                };
-              }
-              return base;
-            }),
-            tools: tools.map((tool) => ({
-              type: tool.type,
-              function: {
-                name: tool.function.name,
-                description: tool.function.description,
-                parameters: tool.function.parameters,
-              },
-            })),
-            tool_choice: "auto",
-            ...(typeof options?.maxOutputTokens === "number"
-              ? { max_tokens: options.maxOutputTokens }
-              : {}),
-          }),
-        });
+        );
 
-        const payload = await parseResponsePayload(response);
+        const payload = await parseResponsePayload(response, apiMode);
 
         const message = payload.choices?.[0]?.message;
 
@@ -617,7 +671,8 @@ export function createJobFinderAiClientFromEnvironment(
     env.UNEMPLOYED_AI_RESUME_TIMEOUT_MS,
   );
 
-  const browserVisualProvider = createBrowserVisualAnalysisProviderFromEnvironment(env);
+  const browserVisualProvider =
+    createBrowserVisualAnalysisProviderFromEnvironment(env);
 
   if (!apiKey) {
     const deterministicClient = createDeterministicJobFinderAiClient();
@@ -631,8 +686,13 @@ export function createJobFinderAiClientFromEnvironment(
 
   const primaryClient = createOpenAiCompatibleJobFinderAiClient({
     apiKey,
-    baseUrl: env.UNEMPLOYED_AI_BASE_URL ?? "https://ai.automatedpros.link/v1",
-    model: env.UNEMPLOYED_AI_MODEL ?? "FelidaeAI-Pro-2.7",
+    baseUrl: env.UNEMPLOYED_AI_BASE_URL ?? "https://api.openai.com/v1",
+    model: env.UNEMPLOYED_AI_MODEL ?? "gpt-5.6-luna",
+    apiMode:
+      parseModelApiMode(env.UNEMPLOYED_AI_API_MODE) ?? DEFAULT_MODEL_API_MODE,
+    reasoningEffort:
+      parseModelReasoningEffort(env.UNEMPLOYED_AI_REASONING_EFFORT) ??
+      DEFAULT_MODEL_REASONING_EFFORT,
     label: "AI resume agent",
     requestTimeoutMs: parsedRequestTimeoutMs,
     resumeExtractionTimeoutMs: parsedResumeExtractionTimeoutMs,
@@ -661,39 +721,103 @@ export function createJobFinderAiClientFromEnvironment(
       }
     },
     async extractResumeImportStage(input) {
+      const startedAtMs = performance.now();
+      if (input.stage === "shared_memory") {
+        const fallback = await fallbackClient.extractResumeImportStage(input);
+        const durationMs = Math.max(
+          0,
+          Math.round(performance.now() - startedAtMs),
+        );
+
+        return {
+          ...fallback,
+          timing: {
+            durationMs,
+            primaryProviderMs: null,
+            deterministicFallbackMs:
+              fallback.timing?.deterministicFallbackMs ??
+              fallback.timing?.durationMs ??
+              durationMs,
+          },
+        };
+      }
+
+      const primaryStartedAtMs = performance.now();
       const fallbackPromise = fallbackClient.extractResumeImportStage(input);
 
       try {
         const primary = await primaryClient.extractResumeImportStage(input);
+        const primaryProviderMs =
+          primary.timing?.primaryProviderMs ??
+          Math.max(0, Math.round(performance.now() - primaryStartedAtMs));
         const fallback = await fallbackPromise;
+        const durationMs = Math.max(
+          0,
+          Math.round(performance.now() - startedAtMs),
+        );
 
         return {
           ...primary,
           candidates: [
-            ...primary.candidates,
+            ...supplementExperienceStageCandidates(
+              primary.candidates,
+              fallback.candidates,
+            ),
             ...fallback.candidates.map((candidate) => ({
               ...candidate,
               notes: [...candidate.notes, "deterministic_stage_fallback"],
             })),
           ],
           notes: uniqueStrings([...primary.notes, ...fallback.notes]),
+          timing: {
+            durationMs,
+            primaryProviderMs,
+            deterministicFallbackMs:
+              fallback.timing?.deterministicFallbackMs ??
+              fallback.timing?.durationMs ??
+              null,
+          },
         };
       } catch (error) {
+        const primaryProviderMs = Math.max(
+          0,
+          Math.round(performance.now() - primaryStartedAtMs),
+        );
+        const primaryErrorSummary = summarizeError(error);
+        const primaryTimedOut = /timed out after \d+s/i.test(
+          primaryErrorSummary,
+        );
         logFallbackError("extractResumeImportStage", error);
         const fallback = await fallbackPromise;
         return {
           ...fallback,
           notes: uniqueStrings([
             ...fallback.notes,
-            "Fell back to the deterministic staged resume importer after the model call failed.",
-            `Primary AI import stage failed: ${summarizeError(error)}`,
+            ...(primaryTimedOut
+              ? []
+              : [
+                  "Fell back to the deterministic staged resume importer after the model call failed.",
+                  `Primary AI import stage failed: ${primaryErrorSummary}`,
+                ]),
           ]),
+          timing: {
+            durationMs: Math.max(
+              0,
+              Math.round(performance.now() - startedAtMs),
+            ),
+            primaryProviderMs,
+            deterministicFallbackMs:
+              fallback.timing?.deterministicFallbackMs ??
+              fallback.timing?.durationMs ??
+              null,
+          },
         };
       }
     },
     async adjudicateResumeImportCandidates(input) {
       if (!primaryClient.adjudicateResumeImportCandidates) {
-        const fallback = await fallbackClient.adjudicateResumeImportCandidates?.(input);
+        const fallback =
+          await fallbackClient.adjudicateResumeImportCandidates?.(input);
         return {
           candidates: fallback?.candidates ?? [],
           notes: uniqueStrings([
@@ -708,7 +832,8 @@ export function createJobFinderAiClientFromEnvironment(
         return await primaryClient.adjudicateResumeImportCandidates(input);
       } catch (error) {
         logFallbackError("adjudicateResumeImportCandidates", error);
-        const fallback = await fallbackClient.adjudicateResumeImportCandidates?.(input);
+        const fallback =
+          await fallbackClient.adjudicateResumeImportCandidates?.(input);
         return {
           candidates: fallback?.candidates ?? [],
           notes: uniqueStrings([
@@ -749,7 +874,9 @@ export function createJobFinderAiClientFromEnvironment(
         primaryReply: ProfileCopilotReply,
         fallbackReply: ProfileCopilotReply,
       ): boolean {
-        if (fallbackReply.patchGroups.length > primaryReply.patchGroups.length) {
+        if (
+          fallbackReply.patchGroups.length > primaryReply.patchGroups.length
+        ) {
           return true;
         }
 
@@ -757,16 +884,19 @@ export function createJobFinderAiClientFromEnvironment(
           return false;
         }
 
-        return /could not turn|guidance only|no profile edits were proposed/i.test(
-          primaryReply.content,
-        ) && fallbackReply.content.trim() !== primaryReply.content.trim();
+        return (
+          /could not turn|guidance only|no profile edits were proposed/i.test(
+            primaryReply.content,
+          ) && fallbackReply.content.trim() !== primaryReply.content.trim()
+        );
       }
 
       try {
         const primaryReply = await primaryClient.reviseCandidateProfile(input);
 
         if (primaryReply.patchGroups.length === 0) {
-          const fallbackReply = await fallbackClient.reviseCandidateProfile(input);
+          const fallbackReply =
+            await fallbackClient.reviseCandidateProfile(input);
 
           if (shouldUseDeterministicProfileReply(primaryReply, fallbackReply)) {
             return fallbackReply;
@@ -819,11 +949,7 @@ export function createJobFinderAiClientFromEnvironment(
         return fallbackClient.analyzeBrowserVisualSnapshot!(input);
       }
     },
-    async chatWithTools(
-      messages,
-      tools,
-      options?: ChatWithToolsOptions,
-    ) {
+    async chatWithTools(messages, tools, options?: ChatWithToolsOptions) {
       try {
         return await primaryClient.chatWithTools(messages, tools, options);
       } catch (error) {

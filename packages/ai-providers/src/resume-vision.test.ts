@@ -52,7 +52,7 @@ describe("resume vision provider", () => {
     const provider = createOpenAiCompatibleResumeVisionProvider({
       apiKey: "test-key",
       baseUrl: "https://example.com/v1",
-      model: "FelidaeAI-Omni-3.6",
+      model: "gpt-5.6-luna",
       maxPagesPerBatch: 1,
     });
     const bundle = createResumeImportFixtureBundle({
@@ -138,7 +138,7 @@ describe("resume vision provider", () => {
       role: "vision",
       ready: true,
       label: "Resume visual scan",
-      model: "FelidaeAI-Omni-3.6",
+      model: "gpt-5.6-luna",
       baseUrl: "https://shared.example.com/v1",
       modelContextWindowTokens: 139_000,
       reservedHeadroomTokens: 30_000,
@@ -146,7 +146,7 @@ describe("resume vision provider", () => {
     });
   });
 
-  test("sends shared AI credentials and default omni model to the vision endpoint", async () => {
+  test("sends shared AI credentials and Luna high to the Responses vision endpoint", async () => {
     const originalFetch = globalThis.fetch;
     let capturedUrl = "";
     let capturedAuthorization = "";
@@ -161,11 +161,15 @@ describe("resume vision provider", () => {
       return Promise.resolve(
         new Response(
           JSON.stringify({
-            choices: [
+            output: [
               {
-                message: {
-                  content: JSON.stringify({ candidates: [], notes: [] }),
-                },
+                type: "message",
+                content: [
+                  {
+                    type: "output_text",
+                    text: JSON.stringify({ candidates: [], notes: [] }),
+                  },
+                ],
               },
             ],
           }),
@@ -236,9 +240,14 @@ describe("resume vision provider", () => {
         },
       });
 
-      expect(capturedUrl).toBe("https://shared.example.com/v1/chat/completions");
+      expect(capturedUrl).toBe("https://shared.example.com/v1/responses");
       expect(capturedAuthorization).toBe("Bearer shared-test-key");
-      expect(capturedBody).toMatchObject({ model: "FelidaeAI-Omni-3.6" });
+      expect(capturedBody).toMatchObject({
+        model: "gpt-5.6-luna",
+        store: false,
+        reasoning: { effort: "high" },
+        text: { format: { type: "json_object" } },
+      });
     } finally {
       globalThis.fetch = originalFetch;
     }

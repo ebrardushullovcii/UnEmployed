@@ -50,10 +50,10 @@ export function promoteGroundedSharedMemoryCandidates(
       )
       .map((candidate) => normalizeText(candidate.value)),
   );
-  const groundedExperiences = candidates.filter(
+  const experienceCandidates = candidates.filter(
     (candidate) =>
       candidate.target.section === "experience" &&
-      candidate.resolution === "auto_applied" &&
+      candidate.resolution !== "rejected" &&
       isObject(candidate.value),
   );
   const groundedLinkUrls = new Set(
@@ -75,6 +75,50 @@ export function promoteGroundedSharedMemoryCandidates(
   );
 
   return candidates.map((candidate) => {
+    if (
+      candidate.target.section === "proof_point" &&
+      candidate.resolutionReason !== "review_confirmed" &&
+      isObject(candidate.value)
+    ) {
+      const proof = candidate.value;
+      const proofTitle =
+        typeof proof.title === "string" ? normalizeText(proof.title) : "";
+      const proofClaim =
+        typeof proof.claim === "string" ? normalizeText(proof.claim) : "";
+      const duplicatesExperienceAchievement = experienceCandidates.some(
+        (experienceCandidate) => {
+          if (!isObject(experienceCandidate.value)) {
+            return false;
+          }
+
+          const experience = experienceCandidate.value;
+          const experienceTitle =
+            typeof experience.title === "string"
+              ? normalizeText(experience.title)
+              : "";
+          const achievements = toNarrativeStringArray(
+            experience.achievements,
+          ).map((entry) => normalizeText(entry));
+
+          return (
+            proofTitle.length > 0 &&
+            proofClaim.length > 0 &&
+            proofTitle === experienceTitle &&
+            achievements.includes(proofClaim)
+          );
+        },
+      );
+
+      if (duplicatesExperienceAchievement) {
+        return {
+          ...candidate,
+          resolution: "rejected",
+          resolutionReason: "redundant_with_experience_achievement",
+          resolvedAt: new Date().toISOString(),
+        };
+      }
+    }
+
     if (candidate.resolution !== "needs_review") {
       return candidate;
     }
@@ -173,7 +217,7 @@ export function promoteGroundedSharedMemoryCandidates(
       const proofClaim =
         typeof proof.claim === "string" ? normalizeText(proof.claim) : "";
 
-      const isGrounded = groundedExperiences.some((experienceCandidate) => {
+      const isGrounded = experienceCandidates.some((experienceCandidate) => {
         if (!isObject(experienceCandidate.value)) {
           return false;
         }

@@ -1,8 +1,10 @@
+import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { access } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 
 interface LocalResumeExportFileVerifier {
   exists(filePath: string): Promise<boolean>;
+  sha256(filePath: string): Promise<string>;
 }
 
 export function createLocalResumeExportFileVerifier(): LocalResumeExportFileVerifier {
@@ -14,6 +16,11 @@ export function createLocalResumeExportFileVerifier(): LocalResumeExportFileVeri
       } catch {
         return false;
       }
+    },
+    async sha256(filePath: string) {
+      return createHash("sha256")
+        .update(await readFile(filePath))
+        .digest("hex");
     },
   };
 }

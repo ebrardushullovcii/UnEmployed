@@ -136,6 +136,63 @@ describe("contracts base schemas", () => {
     expect(preferences.workModes).toEqual([]);
   });
 
+  test("migrates legacy annual USD preferences and preserves typed monthly ranges", () => {
+    const legacy = JobSearchPreferencesSchema.parse({
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
+      minimumSalaryUsd: 36_000,
+      targetSalaryUsd: 48_000,
+      salaryCurrency: "USD",
+    });
+
+    expect(legacy.compensation).toEqual({
+      minimum: 36_000,
+      maximum: 48_000,
+      interval: "year",
+      currency: "USD",
+      currencyStatus: "inherited",
+    });
+
+    const monthly = JobSearchPreferencesSchema.parse({
+      ...legacy,
+      compensation: {
+        minimum: 3_000,
+        maximum: 4_000,
+        interval: "month",
+        currency: "USD",
+        currencyStatus: "explicit",
+      },
+    });
+
+    expect(monthly.compensation.minimum).toBe(3_000);
+    expect(monthly.compensation.maximum).toBe(4_000);
+    expect(monthly.minimumSalaryUsd).toBe(36_000);
+    expect(monthly.targetSalaryUsd).toBe(48_000);
+  });
+
+  test("keeps an ambiguous compensation currency unset instead of assuming USD", () => {
+    const preferences = JobSearchPreferencesSchema.parse({
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
+      minimumSalaryUsd: null,
+      compensation: {
+        minimum: 3_000,
+        maximum: 4_000,
+        interval: "month",
+        currency: null,
+        currencyStatus: "needs_clarification",
+      },
+    });
+
+    expect(preferences.compensation.currency).toBeNull();
+    expect(preferences.compensation.currencyStatus).toBe(
+      "needs_clarification",
+    );
+    expect(preferences.minimumSalaryUsd).toBeNull();
+    expect(preferences.targetSalaryUsd).toBeNull();
+    expect(preferences.salaryCurrency).toBeNull();
+  });
+
   test("preserves user-authored achievement list boundaries", () => {
     const experience = CandidateExperienceSchema.parse({
       id: "experience_short_achievements",

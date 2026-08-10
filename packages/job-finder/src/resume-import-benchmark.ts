@@ -105,6 +105,11 @@ function getBenchmarkActualRecordValues(input: {
   section: ResumeImportFieldCandidate["target"]["section"];
 }): Record<string, unknown>[] {
   const candidateRecords = input.actual
+    .filter(
+      (candidate) =>
+        candidate.resolution === "auto_applied" ||
+        candidate.resolution === "needs_review",
+    )
     .map((candidate) => toRecordValue(candidate.value))
     .filter((entry): entry is Record<string, unknown> => Boolean(entry));
   const autoAppliedRecords = input.actual
@@ -234,7 +239,9 @@ function buildBenchmarkAiClient(useConfiguredAi: boolean): JobFinderAiClient {
     adjudicateResumeImportCandidates() {
       return Promise.resolve({
         candidates: [],
-        notes: ["Benchmark import adjudication uses deterministic review-first handling."],
+        notes: [
+          "Benchmark import adjudication uses deterministic review-first handling.",
+        ],
         warnings: [],
       });
     },
@@ -313,6 +320,8 @@ export function buildBenchmarkRepositoryState(input: {
     applicationConsentRequests: [],
     applicationRecords: [],
     applicationAttempts: [],
+    userActionRequests: [],
+    userActionEvents: [],
     sourceDebugRuns: [],
     sourceDebugAttempts: [],
     sourceInstructionArtifacts: [],
@@ -356,7 +365,8 @@ function createBenchmarkVisionProvider(): ResumeVisionProvider {
         modelContextWindowTokens: null,
         reservedHeadroomTokens: null,
         requestTimeoutMs: null,
-        detail: "Benchmark harness validates local vision artifact wiring without calling an external model.",
+        detail:
+          "Benchmark harness validates local vision artifact wiring without calling an external model.",
       };
     },
     extractResumeVision() {
@@ -364,7 +374,9 @@ function createBenchmarkVisionProvider(): ResumeVisionProvider {
         analysisProviderKind: "deterministic",
         analysisProviderLabel: "Benchmark rendered-preview vision fallback",
         candidates: [],
-        notes: ["Benchmark vision branch consumed local rendered resume page images."],
+        notes: [
+          "Benchmark vision branch consumed local rendered resume page images.",
+        ],
         warnings: [],
         primaryErrorMessage: null,
       });
@@ -613,6 +625,168 @@ function scoreRecordF1(input: {
   return (2 * precision * recall) / (precision + recall);
 }
 
+function scoreOptionalRecordF1(input: {
+  expected: readonly Record<string, unknown>[] | undefined;
+  actual: readonly Record<string, unknown>[];
+  keys: readonly string[];
+}): number {
+  return input.expected === undefined
+    ? 1
+    : scoreRecordF1({ ...input, expected: input.expected });
+}
+
+function normalizeComparableDateValue(value: unknown): string | null {
+  const normalized = normalizeString(value);
+  if (!normalized) {
+    return null;
+  }
+
+  const isoMonthMatch = normalized.match(/^((?:19|20)\d{2})-(0[1-9]|1[0-2])$/);
+  if (isoMonthMatch) {
+    return `${isoMonthMatch[1]}-${isoMonthMatch[2]}`;
+  }
+
+  const numericMonthMatch = normalized.match(/^(0?[1-9]|1[0-2])\/((?:19|20)\d{2})$/);
+  if (numericMonthMatch) {
+    return `${numericMonthMatch[2]}-${numericMonthMatch[1]?.padStart(2, "0")}`;
+  }
+
+  const namedMonthMatch = normalized.match(
+    /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\s+((?:19|20)\d{2})$/i,
+  );
+  if (namedMonthMatch) {
+    const monthIndex = [
+      "jan",
+      "feb",
+      "mar",
+      "apr",
+      "may",
+      "jun",
+      "jul",
+      "aug",
+      "sep",
+      "oct",
+      "nov",
+      "dec",
+    ].indexOf((namedMonthMatch[1] ?? "").slice(0, 3).toLowerCase());
+    return monthIndex === -1
+      ? null
+      : `${namedMonthMatch[2]}-${String(monthIndex + 1).padStart(2, "0")}`;
+  }
+
+  return /^((?:19|20)\d{2})$/.test(normalized) ? normalized : null;
+}
+
+function normalizeComparableRecordValue(
+  value: unknown,
+  fieldKey?: string,
+): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .flatMap((entry) => normalizeComparableRecordValue(entry, fieldKey))
+      .filter(Boolean)
+      .sort();
+  }
+
+  if (value && typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .flatMap(([key, entry]) =>
+        normalizeComparableRecordValue(entry, key).map(
+          (normalized) => `${normalizeBenchmarkRecordString(key)}:${normalized}`,
+        ),
+      );
+  }
+
+  if (typeof value === "boolean" || typeof value === "number") {
+    return [String(value)];
+  }
+
+  if (fieldKey && /(?:^|_)(?:start|end|issue|expiry)?date$/i.test(fieldKey)) {
+    const normalizedDate = normalizeComparableDateValue(value);
+    if (normalizedDate) {
+      return [normalizedDate];
+    }
+  }
+
+  const normalized = normalizeBenchmarkRecordString(value);
+  return normalized ? [normalized] : [];
+}
+
+function recordFieldMatches(
+  expected: unknown,
+  actual: unknown,
+  fieldKey: string,
+): boolean {
+  const expectedValues = normalizeComparableRecordValue(expected, fieldKey);
+  if (expectedValues.length === 0) {
+    return true;
+  }
+  const actualValues = normalizeComparableRecordValue(actual, fieldKey);
+  return expectedValues.every((expectedValue) =>
+    actualValues.some(
+      (actualValue) =>
+        actualValue === expectedValue ||
+        actualValue.includes(expectedValue) ||
+        expectedValue.includes(actualValue),
+    ),
+  );
+}
+
+function scoreRecordDetailAccuracy(input: {
+  expected: readonly Record<string, unknown>[];
+  actual: readonly Record<string, unknown>[];
+  identityKeys: readonly string[];
+  detailKeys: readonly string[];
+}): number {
+  let comparedFields = 0;
+  let matchedFields = 0;
+
+  for (const expectedRecord of input.expected) {
+    const actualRecord = input.actual.find((candidate) =>
+      recordValueMatchesExpected({
+        actual: candidate,
+        expected: expectedRecord,
+        keys: input.identityKeys,
+      }),
+    );
+
+    for (const key of input.detailKeys) {
+      if (normalizeComparableRecordValue(expectedRecord[key], key).length === 0) {
+        continue;
+      }
+      comparedFields += 1;
+      if (
+        actualRecord &&
+        recordFieldMatches(expectedRecord[key], actualRecord[key], key)
+      ) {
+        matchedFields += 1;
+      }
+    }
+  }
+
+  return comparedFields === 0 ? 1 : safeDivide(matchedFields, comparedFields);
+}
+
+function scoreContradictionFreeRate(input: {
+  profile: CandidateProfile;
+  forbiddenProfileText: readonly string[];
+}): number {
+  if (input.forbiddenProfileText.length === 0) {
+    return 1;
+  }
+
+  const serializedProfile = normalizeBenchmarkRecordString(
+    JSON.stringify(input.profile),
+  );
+  const contradictionCount = input.forbiddenProfileText.filter((value) => {
+    const normalized = normalizeBenchmarkRecordString(value);
+    return Boolean(normalized && serializedProfile?.includes(normalized));
+  }).length;
+
+  return 1 - safeDivide(contradictionCount, input.forbiddenProfileText.length);
+}
+
 function summarizeRecordIdentities(input: {
   records: readonly Record<string, unknown>[];
   keys: readonly string[];
@@ -646,23 +820,21 @@ function scoreAutoApplyPrecision(input: {
   expected: Record<string, unknown>;
   candidates: readonly ResumeImportFieldCandidate[];
 }): number {
-  const autoApplied = input.candidates.filter(
-    (candidate) => candidate.resolution === "auto_applied",
+  const expectedKeys = new Set(Object.keys(input.expected));
+  const comparableAutoApplied = input.candidates.filter(
+    (candidate) =>
+      candidate.resolution === "auto_applied" &&
+      expectedKeys.has(candidate.target.key),
   );
 
-  if (autoApplied.length === 0) {
+  if (comparableAutoApplied.length === 0) {
     return 1;
   }
 
   let correct = 0;
 
-  for (const candidate of autoApplied) {
+  for (const candidate of comparableAutoApplied) {
     const expectedValue = input.expected[candidate.target.key];
-
-    if (expectedValue === undefined) {
-      correct += 1;
-      continue;
-    }
 
     if (
       normalizeLooseString(candidate.value) ===
@@ -672,7 +844,7 @@ function scoreAutoApplyPrecision(input: {
     }
   }
 
-  return safeDivide(correct, autoApplied.length);
+  return safeDivide(correct, comparableAutoApplied.length);
 }
 
 function scoreUnresolvedRate(
@@ -727,6 +899,35 @@ export function buildCaseResult(input: {
   const scoredEducationRecords = shouldUseProfileEducationRecords
     ? [...educationRecords, ...input.profile.education]
     : educationRecords;
+  const projectRecords = getBenchmarkActualRecordValues({
+    actual: input.candidates.filter(
+      (candidate) => candidate.target.section === "project",
+    ),
+    section: "project",
+  });
+  const expectedProjectRecords = input.benchmarkCase.expected.projectRecords;
+  const scoredProjectRecords = expectedProjectRecords !== undefined
+    ? [...projectRecords, ...input.profile.projects]
+    : projectRecords;
+  const certificationRecords = getBenchmarkActualRecordValues({
+    actual: input.candidates.filter(
+      (candidate) => candidate.target.section === "certification",
+    ),
+    section: "certification",
+  });
+  const scoredCertificationRecords =
+    input.benchmarkCase.expected.certificationRecords !== undefined
+      ? [...certificationRecords, ...input.profile.certifications]
+      : certificationRecords;
+  const languageRecords = getBenchmarkActualRecordValues({
+    actual: input.candidates.filter(
+      (candidate) => candidate.target.section === "language",
+    ),
+    section: "language",
+  });
+  const scoredLanguageRecords = input.benchmarkCase.expected.languageRecords !== undefined
+    ? [...languageRecords, ...input.profile.spokenLanguages]
+    : languageRecords;
   const metrics: ResumeImportBenchmarkMetrics = {
     literalFieldPrecision: literalScores.literalFieldPrecision,
     literalFieldRecall: literalScores.literalFieldRecall,
@@ -735,10 +936,43 @@ export function buildCaseResult(input: {
       actual: scoredExperienceRecords,
       keys: ["title", "companyName"],
     }),
+    experienceDetailAccuracy: scoreRecordDetailAccuracy({
+      expected: input.benchmarkCase.expected.experienceRecords,
+      actual: scoredExperienceRecords,
+      identityKeys: ["title", "companyName"],
+      detailKeys: [
+        "startDate",
+        "endDate",
+        "isCurrent",
+        "location",
+        "summary",
+        "achievements",
+      ],
+    }),
     educationRecordF1: scoreRecordF1({
       expected: input.benchmarkCase.expected.educationRecords,
       actual: scoredEducationRecords,
       keys: ["schoolName", "degree"],
+    }),
+    projectRecordF1: scoreOptionalRecordF1({
+      expected: expectedProjectRecords,
+      actual: scoredProjectRecords,
+      keys: ["name"],
+    }),
+    certificationRecordF1: scoreOptionalRecordF1({
+      expected: input.benchmarkCase.expected.certificationRecords,
+      actual: scoredCertificationRecords,
+      keys: ["name", "issuer"],
+    }),
+    languageRecordF1: scoreOptionalRecordF1({
+      expected: input.benchmarkCase.expected.languageRecords,
+      actual: scoredLanguageRecords,
+      keys: ["language"],
+    }),
+    contradictionFreeRate: scoreContradictionFreeRate({
+      profile: input.profile,
+      forbiddenProfileText:
+        input.benchmarkCase.expected.forbiddenProfileText ?? [],
     }),
     evidenceCoverage: scoreEvidenceCoverage(input.candidates),
     autoApplyPrecision: scoreAutoApplyPrecision({
@@ -756,7 +990,12 @@ export function buildCaseResult(input: {
   const passed =
     metrics.literalFieldRecall >= 0.75 &&
     metrics.experienceRecordF1 >= 0.5 &&
+    metrics.experienceDetailAccuracy >= 0.75 &&
     metrics.educationRecordF1 >= 0.5 &&
+    metrics.projectRecordF1 >= 0.5 &&
+    metrics.certificationRecordF1 >= 0.5 &&
+    metrics.languageRecordF1 >= 0.5 &&
+    metrics.contradictionFreeRate === 1 &&
     metrics.autoApplyPrecision >= 0.9 &&
     !taxonomy.includes("MISSING_EVIDENCE") &&
     !taxonomy.includes("OVERCONFIDENT_AUTO_APPLY") &&
@@ -793,8 +1032,23 @@ export function aggregateBenchmarkMetrics(
     experienceRecordF1: average(
       results.map((result) => result.metrics.experienceRecordF1),
     ),
+    experienceDetailAccuracy: average(
+      results.map((result) => result.metrics.experienceDetailAccuracy),
+    ),
     educationRecordF1: average(
       results.map((result) => result.metrics.educationRecordF1),
+    ),
+    projectRecordF1: average(
+      results.map((result) => result.metrics.projectRecordF1),
+    ),
+    certificationRecordF1: average(
+      results.map((result) => result.metrics.certificationRecordF1),
+    ),
+    languageRecordF1: average(
+      results.map((result) => result.metrics.languageRecordF1),
+    ),
+    contradictionFreeRate: average(
+      results.map((result) => result.metrics.contradictionFreeRate),
     ),
     evidenceCoverage: average(
       results.map((result) => result.metrics.evidenceCoverage),
@@ -854,12 +1108,14 @@ function createBenchmarkContext(input: {
     activeSourceDebugExecutionIdRef: { current: null },
     activeSourceDebugAbortControllerRef: { current: null },
     activeSourceDebugPromiseRef: { current: null },
+    activeResumeVisionRunIds: new Set<string>(),
     getWorkspaceSnapshot: () =>
       Promise.reject(
         new Error(
           "Workspace snapshots are not available in the benchmark harness.",
         ),
       ),
+    resumeApplicationUserAction: () => Promise.resolve(undefined),
     runSourceDebugWorkflow: () =>
       Promise.reject(
         new Error("Source debug is not available in the benchmark harness."),
@@ -914,7 +1170,10 @@ export async function runResumeImportBenchmark(input: {
       profile: harness.profile,
       searchPreferences: harness.searchPreferences,
       ...(request.useVision && harness.visionArtifact
-        ? { visionProvider: harness.visionProvider ?? createBenchmarkVisionProvider() }
+        ? {
+            visionProvider:
+              harness.visionProvider ?? createBenchmarkVisionProvider(),
+          }
         : {}),
     });
     const workflowResult = await runResumeImportWorkflow(ctx, {
@@ -970,7 +1229,9 @@ export async function runResumeImportBenchmark(input: {
       providerLabels.size === 1 ? ([...providerLabels][0] ?? null) : null,
     cases: results,
     aggregate: aggregateBenchmarkMetrics(results),
-    notes: request.useVision ? ["Vision branch enabled for benchmark run."] : [],
+    notes: request.useVision
+      ? ["Vision branch enabled for benchmark run."]
+      : [],
   });
 }
 

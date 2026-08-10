@@ -23,7 +23,11 @@ import {
   ProfileSetupStateSchema,
   ProfileSetupStepSchema,
 } from "./profile-setup";
-import { JobSearchPreferencesSchema } from "./discovery";
+import {
+  CompensationPreferenceObjectSchema,
+  JobSearchPreferencesObjectSchema,
+  JobSearchPreferencesSchema,
+} from "./discovery";
 
 export const profileCopilotRoleValues = ["user", "assistant"] as const;
 export const ProfileCopilotRoleSchema = z.enum(profileCopilotRoleValues);
@@ -186,7 +190,7 @@ export type ProfileCoreListPatchFields = z.infer<
 >;
 
 export const ProfileSearchPreferencesPatchFieldsSchema = requireAtLeastOneField(
-  JobSearchPreferencesSchema.pick({
+  JobSearchPreferencesObjectSchema.pick({
     approvalMode: true,
     companyBlacklist: true,
     companyWhitelist: true,
@@ -209,6 +213,15 @@ export const ProfileSearchPreferencesPatchFieldsSchema = requireAtLeastOneField(
 );
 export type ProfileSearchPreferencesPatchFields = z.infer<
   typeof ProfileSearchPreferencesPatchFieldsSchema
+>;
+
+export const ProfileCompensationPreferencePatchFieldsSchema =
+  requireAtLeastOneField(
+    CompensationPreferenceObjectSchema.partial(),
+    "Compensation-preference updates must include at least one field.",
+  );
+export type ProfileCompensationPreferencePatchFields = z.infer<
+  typeof ProfileCompensationPreferencePatchFieldsSchema
 >;
 
 export const ProfileCopilotReviewResolutionStatusSchema = z.enum([
@@ -283,6 +296,10 @@ export const ProfileCopilotPatchOperationSchema = z.discriminatedUnion(
     z.object({
       operation: z.literal("replace_search_preferences_fields"),
       value: ProfileSearchPreferencesPatchFieldsSchema,
+    }),
+    z.object({
+      operation: z.literal("replace_compensation_preferences_fields"),
+      value: ProfileCompensationPreferencePatchFieldsSchema,
     }),
     z.object({
       operation: z.literal("upsert_experience_record"),

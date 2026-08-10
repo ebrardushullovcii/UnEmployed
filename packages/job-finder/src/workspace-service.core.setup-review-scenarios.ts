@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { ResumeImportModelRoleStateSchema } from "@unemployed/contracts";
 import {
   createSeed,
   createWorkspaceServiceHarness,
@@ -293,8 +294,14 @@ describe("createJobFinderWorkspaceService", () => {
         resolutionReason: "review_confirmed",
       }),
     );
-    expect(latestCandidates[0]?.conflictChoices?.find((choice) => choice.id === "choice_visual_scan")?.recommended).toBe(true);
-    expect(latestCandidates[0]?.visualEvidence?.[0]?.regionHint).toBe("top headline");
+    expect(
+      latestCandidates[0]?.conflictChoices?.find(
+        (choice) => choice.id === "choice_visual_scan",
+      )?.recommended,
+    ).toBe(true);
+    expect(latestCandidates[0]?.visualEvidence?.[0]?.regionHint).toBe(
+      "top headline",
+    );
   });
 
   test("confirming a recommended document-text conflict can complete an otherwise auto-applied import", async () => {
@@ -397,7 +404,9 @@ describe("createJobFinderWorkspaceService", () => {
               fieldSensitivity: "medium",
               recommendation: "auto_apply",
             },
-            notes: ["Different values were found in document text and visual scan. Review the alternatives before accepting."],
+            notes: [
+              "Different values were found in document text and visual scan. Review the alternatives before accepting.",
+            ],
             alternatives: ["Senior Software Engineer"],
             conflictChoices: [
               {
@@ -744,7 +753,8 @@ describe("createJobFinderWorkspaceService", () => {
                 recordId: null,
               },
               label: "Years of experience",
-              reason: "Confirm the imported experience total before setup is complete.",
+              reason:
+                "Confirm the imported experience total before setup is complete.",
               severity: "recommended",
               status: "pending",
               proposedValue: "6",
@@ -846,10 +856,14 @@ describe("createJobFinderWorkspaceService", () => {
     );
 
     expect(
-      snapshot.profileSetupState.reviewItems.find((item) => item.id === "review_headline_placeholder")?.status,
+      snapshot.profileSetupState.reviewItems.find(
+        (item) => item.id === "review_headline_placeholder",
+      )?.status,
     ).toBe("pending");
     expect(
-      snapshot.profileSetupState.reviewItems.find((item) => item.id === "review_location_placeholder")?.status,
+      snapshot.profileSetupState.reviewItems.find(
+        (item) => item.id === "review_location_placeholder",
+      )?.status,
     ).toBe("pending");
   });
 
@@ -876,7 +890,8 @@ describe("createJobFinderWorkspaceService", () => {
                 recordId: null,
               },
               label: "Years of experience",
-              reason: "Confirm the imported experience total before setup is complete.",
+              reason:
+                "Confirm the imported experience total before setup is complete.",
               severity: "recommended",
               status: "pending",
               proposedValue: "12",
@@ -931,7 +946,8 @@ describe("createJobFinderWorkspaceService", () => {
                 recordId: null,
               },
               label: "Portfolio URL",
-              reason: "Confirm the imported portfolio URL before setup is complete.",
+              reason:
+                "Confirm the imported portfolio URL before setup is complete.",
               severity: "recommended",
               status: "pending",
               proposedValue: "https://jamie.dev",
@@ -1148,5 +1164,79 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.profile.headline).toBe("Principal Product Designer");
     expect(resolvedItem?.status).toBe("confirmed");
     expect(resolvedItem?.resolvedAt).toBeTruthy();
+  });
+
+  test("turns an orphaned deferred vision branch into truthful restart guidance", async () => {
+    const seed = createSeed();
+    const runId = "resume_import_interrupted_vision";
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...seed,
+        profile: {
+          ...seed.profile,
+          baseResume: {
+            ...seed.profile.baseResume,
+            analysisWarnings: [
+              "Visual scan is still running after text import completed; text import is ready and visual reconciliation will continue in the background until the 600000ms vision provider deadline.",
+              "Preferred locations",
+            ],
+          },
+        },
+        resumeImportRuns: [
+          {
+            id: runId,
+            sourceResumeId: seed.profile.baseResume.id,
+            sourceResumeFileName: seed.profile.baseResume.fileName,
+            trigger: "import",
+            status: "applied",
+            startedAt: "2026-07-31T10:00:00.000Z",
+            completedAt: "2026-07-31T10:00:05.000Z",
+            primaryParserKind: "plain_text",
+            parserKinds: ["plain_text"],
+            analysisProviderKind: "deterministic",
+            analysisProviderLabel: "Test AI",
+            warnings: [
+              "Visual scan is still running. Your text import is ready, and visual reconciliation will continue in the background for up to 10 minutes.",
+            ],
+            errorMessage: null,
+            candidateCounts: {
+              total: 0,
+              autoApplied: 0,
+              needsReview: 0,
+              rejected: 0,
+              abstained: 0,
+            },
+            modelRoles: ResumeImportModelRoleStateSchema.parse({
+              vision: {
+                status: "running",
+                startedAt: "2026-07-31T10:00:01.000Z",
+                completedAt: null,
+                providerKind: "openai_compatible_vision",
+                providerLabel: "Resume visual scan",
+                warning:
+                  "Visual scan is still running. Your text import is ready, and visual reconciliation will continue in the background for up to 10 minutes.",
+                errorMessage: null,
+                timeoutMs: 600_000,
+                candidateCount: 0,
+              },
+            }),
+          },
+        ],
+      },
+    });
+
+    const snapshot = await workspaceService.getWorkspaceSnapshot();
+    const persistedRun = await repository.getLatestResumeImportRun();
+
+    expect(snapshot.latestResumeImportRun?.modelRoles?.vision.status).toBe(
+      "failed",
+    );
+    expect(persistedRun?.modelRoles?.vision.status).toBe("failed");
+    expect(persistedRun?.warnings).toEqual([
+      "Visual scan stopped when the app closed. Your text import is ready; choose Refresh from resume to retry the visual scan.",
+    ]);
+    expect(snapshot.profile.baseResume.analysisWarnings).toEqual([
+      "Preferred locations",
+    ]);
   });
 });

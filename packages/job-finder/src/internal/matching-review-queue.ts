@@ -11,6 +11,13 @@ import type {
   TailoredAsset,
 } from "@unemployed/contracts";
 
+import {
+  compareMatchRecommendationPriority,
+  compareMatchRoleSuitabilityPriority,
+  compareMatchScores,
+} from "./match-assessment-ranking";
+import { resolveJobResumeApplicationMode } from "./job-resume-application-mode";
+
 const reviewableStatuses = new Set<ApplicationStatus>([
   "drafting",
   "ready_for_review",
@@ -33,16 +40,6 @@ const assetStatusPriority: Record<AssetStatus, number> = {
   not_started: 4,
 };
 
-const recommendationPriority: Record<
-  SavedJob["matchAssessment"]["recommendation"],
-  number
-> = {
-  strong_fit: 0,
-  apply_with_original: 1,
-  review_before_applying: 2,
-  skip: 3,
-};
-
 function toSortableTime(value: string | null | undefined): number {
   if (!value) {
     return Number.NEGATIVE_INFINITY;
@@ -53,14 +50,33 @@ function toSortableTime(value: string | null | undefined): number {
 }
 
 export function compareDiscoveryJobs(left: SavedJob, right: SavedJob): number {
-  const scoreDelta = right.matchAssessment.score - left.matchAssessment.score;
+  const hardMismatchDelta =
+    Number(left.matchAssessment.recommendation === "skip") -
+    Number(right.matchAssessment.recommendation === "skip");
+  if (hardMismatchDelta !== 0) {
+    return hardMismatchDelta;
+  }
+
+  const roleSuitabilityDelta = compareMatchRoleSuitabilityPriority(
+    left.matchAssessment,
+    right.matchAssessment,
+  );
+  if (roleSuitabilityDelta !== 0) {
+    return roleSuitabilityDelta;
+  }
+
+  const scoreDelta = compareMatchScores(
+    left.matchAssessment,
+    right.matchAssessment,
+  );
   if (scoreDelta !== 0) {
     return scoreDelta;
   }
 
-  const recommendationDelta =
-    recommendationPriority[left.matchAssessment.recommendation] -
-    recommendationPriority[right.matchAssessment.recommendation];
+  const recommendationDelta = compareMatchRecommendationPriority(
+    left.matchAssessment,
+    right.matchAssessment,
+  );
   if (recommendationDelta !== 0) {
     return recommendationDelta;
   }
@@ -73,12 +89,8 @@ export function compareDiscoveryJobs(left: SavedJob, right: SavedJob): number {
   }
 
   const recencyDelta =
-    toSortableTime(
-      right.postedAt ?? right.lastVerifiedActiveAt ?? right.discoveredAt,
-    ) -
-    toSortableTime(
-      left.postedAt ?? left.lastVerifiedActiveAt ?? left.discoveredAt,
-    );
+    toSortableTime(right.postedAt ?? right.firstSeenAt ?? right.discoveredAt) -
+    toSortableTime(left.postedAt ?? left.firstSeenAt ?? left.discoveredAt);
   if (recencyDelta !== 0) {
     return recencyDelta;
   }
@@ -148,8 +160,6 @@ export function buildReviewQueue(
   profile?: CandidateProfile,
   settings?: JobFinderSettings,
 ): ReviewQueueItem[] {
-  const usesOriginalResume =
-    settings?.resumeApplicationMode === "original_resume";
   const originalResume = profile?.baseResume ?? null;
   const originalResumePath = originalResume?.storagePath?.trim() ?? "";
   const assetsByJobId = new Map(
@@ -177,8 +187,16 @@ export function buildReviewQueue(
   return savedJobs
     .filter((job) => reviewableStatuses.has(job.status))
     .map<ReviewQueueItem>((job) => {
+      const resumeApplicationMode = resolveJobResumeApplicationMode(
+        job,
+        settings ?? {},
+      );
+      const usesOriginalResume = resumeApplicationMode === "original_resume";
+
       if (usesOriginalResume) {
-        const hasOriginalResume = Boolean(originalResume && originalResumePath);
+        const hasOriginalResume = Boolean(
+          originalResume && originalResumePath && originalResume.sha256,
+        );
         return {
           jobId: job.id,
           title: job.title,
@@ -186,7 +204,7 @@ export function buildReviewQueue(
           location: job.location,
           matchScore: job.matchAssessment.score,
           applicationStatus: job.status,
-          resumeApplicationMode: "original_resume",
+          resumeApplicationMode,
           assetStatus: hasOriginalResume ? "ready" : "not_started",
           progressPercent: hasOriginalResume ? 100 : null,
           resumeAssetId: hasOriginalResume ? originalResume!.id : null,
@@ -224,7 +242,7 @@ export function buildReviewQueue(
         location: job.location,
         matchScore: job.matchAssessment.score,
         applicationStatus: job.status,
-        resumeApplicationMode: "tailored_per_job",
+        resumeApplicationMode,
         assetStatus: asset?.status ?? "not_started",
         progressPercent: asset?.progressPercent ?? null,
         resumeAssetId: asset?.id ?? null,

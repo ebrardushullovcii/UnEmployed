@@ -469,6 +469,41 @@ function mergeResolvedSelectionIntoWorkspace(
             .slice(0, 3)
             .map((entry) => entry.id);
 
+  const nextEmail =
+    selection.scalarFields.email !== undefined
+      ? selection.scalarFields.email
+      : profile.email;
+  const nextPhone =
+    selection.scalarFields.phone !== undefined
+      ? selection.scalarFields.phone
+      : profile.phone;
+  const resolvePreferredContact = (input: {
+    existingPreferred: string | null;
+    existingPrimary: string | null;
+    importedPreferred: string | null | undefined;
+    importedPrimary: string | null | undefined;
+    kind: "email" | "phone";
+  }): string | null => {
+    if (input.importedPreferred !== undefined) {
+      return input.importedPreferred;
+    }
+
+    if (input.importedPrimary !== undefined) {
+      const normalizeContact = (value: string | null): string =>
+        input.kind === "phone"
+          ? (value ?? "").replace(/\D/gu, "")
+          : normalizeText(value ?? "");
+      const normalizedPreferred = normalizeContact(input.existingPreferred);
+      const normalizedPrimary = normalizeContact(input.existingPrimary);
+
+      if (!normalizedPreferred || normalizedPreferred === normalizedPrimary) {
+        return input.importedPrimary;
+      }
+    }
+
+    return input.existingPreferred ?? input.existingPrimary;
+  };
+
   return {
     profile: CandidateProfileSchema.parse({
       ...profile,
@@ -497,14 +532,8 @@ function mergeResolvedSelectionIntoWorkspace(
           : profile.timeZone,
       yearsExperience:
         selection.scalarFields.yearsExperience ?? profile.yearsExperience,
-      email:
-        selection.scalarFields.email !== undefined
-          ? selection.scalarFields.email
-          : profile.email,
-      phone:
-        selection.scalarFields.phone !== undefined
-          ? selection.scalarFields.phone
-          : profile.phone,
+      email: nextEmail,
+      phone: nextPhone,
       portfolioUrl:
         selection.scalarFields.portfolioUrl !== undefined
           ? selection.scalarFields.portfolioUrl
@@ -534,16 +563,22 @@ function mergeResolvedSelectionIntoWorkspace(
       },
       applicationIdentity: {
         ...profile.applicationIdentity,
-        preferredEmail:
-          selection.scalarFields.applicationIdentity?.preferredEmail ??
-          profile.applicationIdentity.preferredEmail ??
-          selection.scalarFields.email ??
-          profile.email,
-        preferredPhone:
-          selection.scalarFields.applicationIdentity?.preferredPhone ??
-          profile.applicationIdentity.preferredPhone ??
-          selection.scalarFields.phone ??
-          profile.phone,
+        preferredEmail: resolvePreferredContact({
+          existingPreferred: profile.applicationIdentity.preferredEmail,
+          existingPrimary: profile.email,
+          importedPreferred:
+            selection.scalarFields.applicationIdentity?.preferredEmail,
+          importedPrimary: selection.scalarFields.email,
+          kind: "email",
+        }),
+        preferredPhone: resolvePreferredContact({
+          existingPreferred: profile.applicationIdentity.preferredPhone,
+          existingPrimary: profile.phone,
+          importedPreferred:
+            selection.scalarFields.applicationIdentity?.preferredPhone,
+          importedPrimary: selection.scalarFields.phone,
+          kind: "phone",
+        }),
         preferredLinkIds,
       },
       skillGroups: {

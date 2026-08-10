@@ -30,6 +30,8 @@ import {
   SourceDebugWorkerAttemptSchema,
   SourceInstructionArtifactSchema,
   TailoredAssetSchema,
+  UserActionEventSchema,
+  UserActionRequestSchema,
   type JobFinderRepositoryState,
 } from "@unemployed/contracts";
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
@@ -37,6 +39,7 @@ import {
   APPLY_COLLECTION_ORDER_BY_SQL,
   APPLY_INDEXED_COLLECTION_CONFIGS,
 } from "../apply-collection-support";
+import { USER_ACTION_INDEXED_COLLECTION_CONFIGS } from "../user-action-repository-support";
 
 import {
   normalizeLegacyDiscoveryState,
@@ -77,6 +80,8 @@ export const stateTableNames = {
   source_debug_runs: "source_debug_runs",
   source_instruction_artifacts: "source_instruction_artifacts",
   tailored_assets: "tailored_assets",
+  user_action_events: "user_action_events",
+  user_action_requests: "user_action_requests",
 } as const;
 
 export type StateCollectionTable = Exclude<
@@ -296,6 +301,24 @@ export function writeState(
       "application_consent_requests",
       state.applicationConsentRequests,
       APPLY_INDEXED_COLLECTION_CONFIGS.application_consent_requests,
+    );
+    replaceIndexedCollection(
+      database,
+      "user_action_events",
+      [],
+      USER_ACTION_INDEXED_COLLECTION_CONFIGS.user_action_events,
+    );
+    replaceIndexedCollection(
+      database,
+      "user_action_requests",
+      state.userActionRequests,
+      USER_ACTION_INDEXED_COLLECTION_CONFIGS.user_action_requests,
+    );
+    replaceIndexedCollection(
+      database,
+      "user_action_events",
+      state.userActionEvents,
+      USER_ACTION_INDEXED_COLLECTION_CONFIGS.user_action_events,
     );
     replaceIndexedCollection(database, "resume_drafts", state.resumeDrafts, {
       columnNames: ["job_id", "created_at", "updated_at"],
@@ -653,6 +676,18 @@ export function readState(
       {
         orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_consent_requests,
       },
+    ),
+    userActionRequests: listCollectionValues(
+      database,
+      "user_action_requests",
+      UserActionRequestSchema,
+      { orderBySql: "updated_at DESC, id ASC" },
+    ),
+    userActionEvents: listCollectionValues(
+      database,
+      "user_action_events",
+      UserActionEventSchema,
+      { orderBySql: "occurred_at ASC, id ASC" },
     ),
     applicationRecords: listValues(
       database,

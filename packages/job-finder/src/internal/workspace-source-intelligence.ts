@@ -321,7 +321,7 @@ const SOURCE_CAPABILITY_RULES = [
     confidence: 0.85,
     apiAvailability: "available",
     hostnames: {
-      contains: ["ashby"],
+      suffixes: ["ashbyhq.com"],
     },
     resolve(url: URL) {
       const boardSlug = url.pathname.split("/").filter(Boolean)[0] ?? null;
@@ -343,7 +343,6 @@ const SOURCE_CAPABILITY_RULES = [
     apiAvailability: "unconfirmed",
     hostnames: {
       suffixes: ["myworkdayjobs.com"],
-      contains: ["workday"],
     },
     resolve(url: URL) {
       const hostname = url.hostname.toLowerCase();
@@ -360,7 +359,7 @@ const SOURCE_CAPABILITY_RULES = [
       return {
         apiAvailability: hasExactJobApi ? "available" : "unconfirmed",
         publicApiUrlTemplate: hasExactJobApi
-          ? `https://${hostname}/wday/cxs/${encodeURIComponent(tenant!)}/${encodeURIComponent(siteId!)}/job/${jobPath.split("/").map(encodeURIComponent).join("/")}`
+          ? `https://${hostname}/wday/cxs/${encodeURIComponent(tenant!)}/${encodeURIComponent(siteId!)}/job/${jobPath.split("/").map(encodeUrlPathSegment).join("/")}`
           : null,
         boardToken: null,
         boardSlug: siteId,
@@ -374,7 +373,7 @@ const SOURCE_CAPABILITY_RULES = [
     confidence: 0.82,
     apiAvailability: "not_supported",
     hostnames: {
-      contains: ["icims"],
+      suffixes: ["icims.com", "icims.eu"],
     },
     resolve(url: URL) {
       const hostname = url.hostname.toLowerCase();
@@ -662,6 +661,14 @@ function detectProvider(target: JobDiscoveryTarget, urls: readonly string[]) {
   }
 
   return null;
+}
+
+function encodeUrlPathSegment(value: string): string {
+  try {
+    return encodeURIComponent(decodeURIComponent(value));
+  } catch {
+    return encodeURIComponent(value);
+  }
 }
 
 function decodeRoutePathname(pathname: string): string {

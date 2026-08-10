@@ -1,5 +1,6 @@
 import type {
   BrowserSessionState,
+  ApplyExecutionResult,
   JobPosting,
   ApplicationResumeArtifact,
   SavedJob,
@@ -89,6 +90,7 @@ function createCatalogJob(overrides: Partial<JobPosting> = {}): JobPosting {
     keywordSignals: [],
     benefits: [],
     ...overrides,
+    providerUpdatedAt: overrides.providerUpdatedAt ?? null,
   }
 }
 
@@ -173,7 +175,58 @@ function createResumeArtifact(): ApplicationResumeArtifact {
   }
 }
 
+function expectPreSubmitCheckpoint(result: ApplyExecutionResult) {
+  expect(result.state).toBe('paused')
+  expect(result.outcome).toBeNull()
+  expect(result.submittedAt).toBeNull()
+  expect(result.summary).toMatch(/paused before final submit/i)
+  expect(result.checkpoints.some((checkpoint) => checkpoint.state === 'submitted')).toBe(false)
+}
+
 describe('createCatalogSessionAgent', () => {
+  test('persists only the approved resume filename in catalog receipts', async () => {
+    const agent = createCatalogSessionAgent({
+      getSessionState: () => createReadySession(),
+      listCatalogJobs: () => [],
+    })
+    const resumeArtifact = createResumeArtifact()
+
+    const result = await agent.executeEasyApply('target_site', {
+      job: createSavedJob(),
+      resumeArtifact,
+      profile: createProfile(),
+      settings: {
+        resumeFormat: 'pdf',
+        resumeTemplateId: 'classic_ats',
+        fontPreset: 'inter_requisite',
+        appearanceTheme: 'system',
+        humanReviewRequired: true,
+        allowAutoSubmitOverride: false,
+        keepSessionAlive: true,
+        discoveryOnly: false,
+      },
+    })
+    const serialized = JSON.stringify(result)
+    const resumeQuestion = result.questions.find(
+      (question) => question.kind === 'resume',
+    )
+
+    expect(serialized).not.toContain(resumeArtifact.filePath)
+    expect(serialized).not.toContain('/tmp/')
+    expect(resumeQuestion?.submittedAnswer).toBe(resumeArtifact.fileName)
+    expect(resumeQuestion?.suggestedAnswers[0]?.text).toBe(
+      resumeArtifact.fileName,
+    )
+    expect(resumeQuestion?.suggestedAnswers[0]?.provenance[0]?.snippet).toBe(
+      resumeArtifact.fileName,
+    )
+    expect(
+      result.checkpoints.find((checkpoint) =>
+        checkpoint.id.endsWith('_resume_attached'),
+      )?.detail,
+    ).toContain(resumeArtifact.fileName)
+  })
+
   test('rejects promise-based discovery calls when the session is not ready', async () => {
     const agent = createCatalogSessionAgent({
       getSessionState: () => createBlockedSession(),
@@ -196,6 +249,13 @@ describe('createCatalogSessionAgent', () => {
         minimumSalaryUsd: null,
         targetSalaryUsd: null,
         salaryCurrency: 'USD',
+        compensation: {
+          minimum: null,
+          maximum: null,
+          interval: 'year',
+          currency: 'USD',
+          currencyStatus: 'inherited',
+        },
         approvalMode: 'review_before_submit',
         tailoringMode: 'balanced',
         discovery: {
@@ -238,7 +298,7 @@ describe('createCatalogSessionAgent', () => {
         expect.objectContaining({
           kind: 'resume',
           status: 'submitted',
-          submittedAnswer: '/tmp/resume.pdf',
+          submittedAnswer: 'resume.pdf',
         }),
         expect.objectContaining({
           kind: 'relocation',
@@ -246,7 +306,7 @@ describe('createCatalogSessionAgent', () => {
         }),
       ]),
     )
-    expect(result.nextActionLabel).toMatch(/finish the unsupported fields manually/i)
+    expect(result.nextActionLabel).toMatch(/review the prepared answers/i)
   })
 
   test('prepare-only application flow attaches resume and pauses before final submit', async () => {
@@ -279,7 +339,7 @@ describe('createCatalogSessionAgent', () => {
         expect.objectContaining({
           kind: 'resume',
           status: 'submitted',
-          submittedAnswer: '/tmp/resume.pdf',
+          submittedAnswer: 'resume.pdf',
         }),
       ]),
     )
@@ -290,6 +350,42 @@ describe('createCatalogSessionAgent', () => {
       }),
     )
     expect(result.summary).toMatch(/paused before final submit/i)
+  })
+
+  test('keeps every catalog agent apply entrypoint and mode non-submitting', async () => {
+    const agent = createCatalogSessionAgent({
+      getSessionState: () => createReadySession(),
+      listCatalogJobs: () => [],
+    })
+    const input = {
+      job: createSavedJob(),
+      resumeArtifact: createResumeArtifact(),
+      profile: createProfile(),
+      settings: {
+        resumeFormat: 'pdf' as const,
+        resumeTemplateId: 'classic_ats' as const,
+        fontPreset: 'inter_requisite' as const,
+        appearanceTheme: 'system' as const,
+        humanReviewRequired: true,
+        allowAutoSubmitOverride: false,
+        keepSessionAlive: true,
+        discoveryOnly: false,
+      },
+    }
+
+    expectPreSubmitCheckpoint(await agent.executeEasyApply('target_site', input))
+    expectPreSubmitCheckpoint(
+      await agent.executeApplicationFlow('target_site', {
+        ...input,
+        mode: 'prepare_only',
+      }),
+    )
+    expectPreSubmitCheckpoint(
+      await agent.executeApplicationFlow('target_site', {
+        ...input,
+        mode: 'submit_when_ready',
+      }),
+    )
   })
 
   test('prepare-only application flow retains review-ready questions without submitting', async () => {

@@ -10,17 +10,21 @@ import {
 
 describe("contracts resume import schemas", () => {
   test("parses customer-facing import progress without accepting unknown stages", () => {
-    expect(ResumeImportProgressEventSchema.parse({
-      stage: "reading_document",
-      message: "Reading resume text, sections, and page layout.",
-      occurredAt: "2026-07-16T10:00:00.000Z",
-    }).stage).toBe("reading_document");
+    expect(
+      ResumeImportProgressEventSchema.parse({
+        stage: "reading_document",
+        message: "Reading resume text, sections, and page layout.",
+        occurredAt: "2026-07-16T10:00:00.000Z",
+      }).stage,
+    ).toBe("reading_document");
 
-    expect(() => ResumeImportProgressEventSchema.parse({
-      stage: "guessing",
-      message: "Working.",
-      occurredAt: "2026-07-16T10:00:00.000Z",
-    })).toThrow();
+    expect(() =>
+      ResumeImportProgressEventSchema.parse({
+        stage: "guessing",
+        message: "Working.",
+        occurredAt: "2026-07-16T10:00:00.000Z",
+      }),
+    ).toThrow();
   });
 
   test("parses a document bundle, import run, and field candidate", () => {
@@ -39,6 +43,25 @@ describe("contracts resume import schemas", () => {
       qualityScore: 0.92,
       analysisProviderKind: "openai_compatible",
       analysisProviderLabel: "AI resume agent",
+      timing: {
+        totalMs: null,
+        textBranchMs: 1_200,
+        literalExtractionMs: 15,
+        reconciliationMs: 320,
+        finalizationMs: null,
+        textStages: [
+          {
+            stage: "experience",
+            status: "completed",
+            providerKind: "openai_compatible",
+            providerLabel: "AI resume agent",
+            durationMs: 850,
+            primaryProviderMs: 700,
+            deterministicFallbackMs: 45,
+            candidateCount: 2,
+          },
+        ],
+      },
       warnings: [],
       errorMessage: null,
       candidateCounts: {
@@ -176,10 +199,27 @@ describe("contracts resume import schemas", () => {
     expect(bundle.blocks[0]?.sectionHint).toBe("identity");
     expect(candidate.target.key).toBe("fullName");
     expect(run.candidateCounts.autoApplied).toBe(2);
+    expect(run.timing).toMatchObject({
+      totalMs: null,
+      finalizationMs: null,
+      textStages: [
+        expect.objectContaining({
+          stage: "experience",
+          providerKind: "openai_compatible",
+          providerLabel: "AI resume agent",
+          primaryProviderMs: 700,
+          deterministicFallbackMs: 45,
+          candidateCount: 2,
+        }),
+      ],
+    });
   });
 
   test("parses benchmark case and report contracts", async () => {
-    const { ResumeImportBenchmarkCaseSchema, ResumeImportBenchmarkReportSchema } = await import("./index");
+    const {
+      ResumeImportBenchmarkCaseSchema,
+      ResumeImportBenchmarkReportSchema,
+    } = await import("./index");
 
     const benchmarkCase = ResumeImportBenchmarkCaseSchema.parse({
       id: "ebrar_pdf",
@@ -345,10 +385,9 @@ describe("contracts resume import schemas", () => {
     });
 
     expect(artifact.pages[0]?.renderKind).toBe("pdf_page_image");
-    expect(candidate.conflictChoices?.map((choice) => choice.sourceLabel)).toEqual([
-      "Document text",
-      "Visual scan",
-    ]);
+    expect(
+      candidate.conflictChoices?.map((choice) => choice.sourceLabel),
+    ).toEqual(["Document text", "Visual scan"]);
     expect(candidate.visualEvidence?.[0]?.branch).toBe("vision");
   });
 });

@@ -4,7 +4,7 @@ import type {
   JobFinderResumeWorkspace,
   JobFinderWorkspaceSnapshot,
   ProfileCopilotMessage,
-  ResumeAssistantMessage,
+  ResumeAssistantMessage
 } from '@unemployed/contracts'
 import { useJobFinderWorkspace } from '@renderer/features/job-finder/hooks/use-job-finder-workspace'
 import type { ActionState, JobFinderShellActions } from '@renderer/features/job-finder/lib/job-finder-types'
@@ -13,16 +13,21 @@ import {
   hasAnyPendingAction,
   hasPendingAction,
   type PendingActionScope,
-  type PendingActionState,
+  type PendingActionState
 } from './job-finder-pending-actions'
 import type { JobFinderPageContext } from './job-finder-page-context'
 import {
-  buildJobFinderPageContext,
-} from './use-job-finder-page-controller-context'
+  createJobFinderSaveCoordinator,
+  getJobFinderSaveStateFromReceipt,
+  loadJobFinderSaveReceipt,
+  persistJobFinderSaveReceipt
+} from './job-finder-save-state'
+import { buildJobFinderPageContext } from './use-job-finder-page-controller-context'
 import {
   getActiveResumeWorkspaceJobId,
+  getJobFinderWorkspaceSelection,
   getLatestApplicationAttempt,
-  useResettableSelection,
+  useResettableSelection
 } from './use-job-finder-page-controller-helpers'
 
 export type ApplyCopilotVisualCheckpointRequest = {
@@ -36,76 +41,59 @@ export function useJobFinderPageController() {
   const navigate = useNavigate()
   const workspaceState = useJobFinderWorkspace()
   const [actionState, setActionState] = useState<ActionState>({
-    message: null,
+    message: null
   })
-  const [pendingActionState, setPendingActionState] =
-    useState<PendingActionState>({})
-  const [liveDiscoveryEvents, setLiveDiscoveryEvents] = useState<
-    DiscoveryActivityEvent[]
-  >([])
-  const [resumeWorkspace, setResumeWorkspace] =
-    useState<JobFinderResumeWorkspace | null>(null)
-  const [resumeAssistantMessages, setResumeAssistantMessages] = useState<
-    readonly ResumeAssistantMessage[]
-  >([])
+  const [initialSaveReceipt] = useState(() => loadJobFinderSaveReceipt(window.localStorage))
+  const [saveState, setSaveState] = useState(() => getJobFinderSaveStateFromReceipt(initialSaveReceipt))
+  const saveCoordinatorRef = useRef<ReturnType<typeof createJobFinderSaveCoordinator> | null>(null)
+  if (!saveCoordinatorRef.current) {
+    saveCoordinatorRef.current = createJobFinderSaveCoordinator({
+      initialReceipt: initialSaveReceipt,
+      onReceiptChange: (receipt) => persistJobFinderSaveReceipt(window.localStorage, receipt),
+      onStateChange: setSaveState
+    })
+  }
+  const saveCoordinator = saveCoordinatorRef.current
+  const [pendingActionState, setPendingActionState] = useState<PendingActionState>({})
+  const [liveDiscoveryEvents, setLiveDiscoveryEvents] = useState<DiscoveryActivityEvent[]>([])
+  const [resumeWorkspace, setResumeWorkspace] = useState<JobFinderResumeWorkspace | null>(null)
+  const [resumeAssistantMessages, setResumeAssistantMessages] = useState<readonly ResumeAssistantMessage[]>([])
   const [resumeAssistantPending, setResumeAssistantPending] = useState(false)
-  const [optimisticProfileCopilotMessages, setOptimisticProfileCopilotMessages] =
-    useState<readonly ProfileCopilotMessage[]>([])
-  const [profileCopilotPendingContextKey, setProfileCopilotPendingContextKey] =
-    useState<string | null>(null)
+  const [optimisticProfileCopilotMessages, setOptimisticProfileCopilotMessages] = useState<
+    readonly ProfileCopilotMessage[]
+  >([])
+  const [profileCopilotPendingContextKey, setProfileCopilotPendingContextKey] = useState<string | null>(null)
   const [profileCopilotBusy, setProfileCopilotBusy] = useState(false)
-  const [
-    applyCopilotVisualCheckpointRequest,
-    setApplyCopilotVisualCheckpointRequest,
-  ] = useState<ApplyCopilotVisualCheckpointRequest | null>(null)
+  const [applyCopilotVisualCheckpointRequest, setApplyCopilotVisualCheckpointRequest] =
+    useState<ApplyCopilotVisualCheckpointRequest | null>(null)
   const profileCopilotRequestTokenRef = useRef(0)
   const [resumeWorkspaceDirty, setResumeWorkspaceDirty] = useState(false)
   const sourceDebugRunIdRef = useRef(0)
-  const activeResumeWorkspaceJobId = getActiveResumeWorkspaceJobId(
-    location.pathname,
-  )
+  const activeResumeWorkspaceJobId = getActiveResumeWorkspaceJobId(location.pathname)
 
-  const [selectedDiscoveryJobId, setSelectedDiscoveryJobId] =
-    useResettableSelection(
-      workspaceState.status === 'ready'
-        ? workspaceState.workspace.selectedDiscoveryJobId
-        : null,
-    )
-  const [selectedReviewJobId, setSelectedReviewJobId] = useResettableSelection(
-    workspaceState.status === 'ready'
-      ? workspaceState.workspace.selectedReviewJobId
-      : null,
+  const [selectedDiscoveryJobId, setSelectedDiscoveryJobId] = useResettableSelection(
+    workspaceState.status === 'ready' ? workspaceState.workspace.selectedDiscoveryJobId : null
   )
-  const [selectedApplicationRecordId, setSelectedApplicationRecordId] =
-    useResettableSelection(
-      workspaceState.status === 'ready'
-        ? workspaceState.workspace.selectedApplicationRecordId
-        : null,
-    )
+  const [selectedReviewJobId, setSelectedReviewJobId] = useResettableSelection(
+    workspaceState.status === 'ready' ? workspaceState.workspace.selectedReviewJobId : null
+  )
+  const [selectedApplicationRecordId, setSelectedApplicationRecordId] = useResettableSelection(
+    workspaceState.status === 'ready' ? workspaceState.workspace.selectedApplicationRecordId : null
+  )
 
   const activeRouteResumeWorkspace =
-    activeResumeWorkspaceJobId &&
-    resumeWorkspace?.job.id === activeResumeWorkspaceJobId
-      ? resumeWorkspace
-      : null
-  const activeRouteResumeAssistantMessages = activeRouteResumeWorkspace
-    ? resumeAssistantMessages
-    : []
-  const activeRouteResumeAssistantPending = activeRouteResumeWorkspace
-    ? resumeAssistantPending
-    : false
-  const activeRouteResumeWorkspaceDirty = activeRouteResumeWorkspace
-    ? resumeWorkspaceDirty
-    : false
+    activeResumeWorkspaceJobId && resumeWorkspace?.job.id === activeResumeWorkspaceJobId ? resumeWorkspace : null
+  const activeRouteResumeAssistantMessages = activeRouteResumeWorkspace ? resumeAssistantMessages : []
+  const activeRouteResumeAssistantPending = activeRouteResumeWorkspace ? resumeAssistantPending : false
+  const activeRouteResumeWorkspaceDirty = activeRouteResumeWorkspace ? resumeWorkspaceDirty : false
   const [profileSurfaceDirty, setProfileSurfaceDirty] = useState(false)
   const isPendingAction = useCallback(
     (scope: PendingActionScope) => hasPendingAction(pendingActionState, scope),
-    [pendingActionState],
+    [pendingActionState]
   )
   const isAnyPendingAction = useCallback(
-    (scopes: readonly PendingActionScope[]) =>
-      hasAnyPendingAction(pendingActionState, scopes),
-    [pendingActionState],
+    (scopes: readonly PendingActionScope[]) => hasAnyPendingAction(pendingActionState, scopes),
+    [pendingActionState]
   )
 
   const confirmLeaveDirtyResumeWorkspace = useCallback(() => {
@@ -113,18 +101,13 @@ export function useJobFinderPageController() {
       return true
     }
 
-    return window.confirm(
-      'You have unsaved resume edits. Leave this workspace and discard them?',
-    )
+    return window.confirm('You have unsaved resume edits. Leave this workspace and discard them?')
   }, [activeResumeWorkspaceJobId, activeRouteResumeWorkspaceDirty])
 
-  const readyWorkspaceState =
-    workspaceState.status === 'ready' ? workspaceState : null
+  const readyWorkspaceState = workspaceState.status === 'ready' ? workspaceState : null
   const actions = readyWorkspaceState?.actions ?? null
-  const lastKnownPlatformRef = useRef<
-    'darwin' | 'win32' | 'linux' | undefined
-  >(
-    workspaceState.status === 'ready' ? workspaceState.platform : undefined,
+  const lastKnownPlatformRef = useRef<'darwin' | 'win32' | 'linux' | undefined>(
+    workspaceState.status === 'ready' ? workspaceState.platform : undefined
   )
   if (readyWorkspaceState?.platform) {
     lastKnownPlatformRef.current = readyWorkspaceState.platform
@@ -145,10 +128,7 @@ export function useJobFinderPageController() {
 
     return {
       ...workspace,
-      profileCopilotMessages: [
-        ...workspace.profileCopilotMessages,
-        ...optimisticProfileCopilotMessages,
-      ],
+      profileCopilotMessages: [...workspace.profileCopilotMessages, ...optimisticProfileCopilotMessages]
     }
   }, [optimisticProfileCopilotMessages, workspace])
   const profileSetupState = workspace?.profileSetupState ?? null
@@ -156,12 +136,10 @@ export function useJobFinderPageController() {
   const importResumeGuardMessage = profileSurfaceDirty
     ? 'Save your current profile or setup draft before importing or refreshing from resume so those unsaved edits do not get overwritten.'
     : null
-  const activeResumeWorkspaceJobIdRef = useRef<string | null>(
-    activeResumeWorkspaceJobId,
+  const activeResumeWorkspaceJobIdRef = useRef<string | null>(activeResumeWorkspaceJobId)
+  const getResumeWorkspaceRef = useRef<JobFinderShellActions['getResumeWorkspace'] | null>(
+    actions?.getResumeWorkspace ?? null
   )
-  const getResumeWorkspaceRef = useRef<
-    JobFinderShellActions['getResumeWorkspace'] | null
-  >(actions?.getResumeWorkspace ?? null)
   const resumeAssistantRequestTokenRef = useRef(0)
   activeResumeWorkspaceJobIdRef.current = activeResumeWorkspaceJobId
   getResumeWorkspaceRef.current = actions?.getResumeWorkspace ?? null
@@ -176,14 +154,13 @@ export function useJobFinderPageController() {
 
   const isCurrentResumeWorkspaceJob = useCallback(
     (jobId: string) => activeResumeWorkspaceJobIdRef.current === jobId,
-    [],
+    []
   )
 
   const isCurrentResumeAssistantRequest = useCallback(
     (jobId: string, requestToken: number) =>
-      activeResumeWorkspaceJobIdRef.current === jobId &&
-      resumeAssistantRequestTokenRef.current === requestToken,
-    [],
+      activeResumeWorkspaceJobIdRef.current === jobId && resumeAssistantRequestTokenRef.current === requestToken,
+    []
   )
 
   const refreshResumeWorkspace = useCallback(
@@ -191,7 +168,7 @@ export function useJobFinderPageController() {
       jobId: string,
       options?: {
         updateAssistantMessages?: boolean
-      },
+      }
     ) => {
       const nextWorkspace = await actions?.getResumeWorkspace(jobId)
 
@@ -208,25 +185,18 @@ export function useJobFinderPageController() {
 
       return true
     },
-    [actions, isCurrentResumeWorkspaceJob],
+    [actions, isCurrentResumeWorkspaceJob]
   )
 
   useEffect(() => {
-    if (
-      resumeWorkspace?.job.id &&
-      resumeWorkspace.job.id !== activeResumeWorkspaceJobId
-    ) {
+    if (resumeWorkspace?.job.id && resumeWorkspace.job.id !== activeResumeWorkspaceJobId) {
       clearResumeWorkspaceState()
     }
 
     if (!activeResumeWorkspaceJobId) {
       clearResumeWorkspaceState()
     }
-  }, [
-    activeResumeWorkspaceJobId,
-    clearResumeWorkspaceState,
-    resumeWorkspace?.job.id,
-  ])
+  }, [activeResumeWorkspaceJobId, clearResumeWorkspaceState, resumeWorkspace?.job.id])
 
   useEffect(() => {
     if (
@@ -238,8 +208,7 @@ export function useJobFinderPageController() {
     }
 
     setActionState({
-      message:
-        'This resume is no longer available. Shortlisted is shown instead.',
+      message: 'This resume is no longer available. Shortlisted is shown instead.'
     })
     void navigate('/job-finder/review-queue', { replace: true })
   }, [activeResumeWorkspaceJobId, navigate, workspace?.reviewQueue])
@@ -257,13 +226,8 @@ export function useJobFinderPageController() {
 
     void getResumeWorkspace(activeResumeWorkspaceJobId)
       .then((nextWorkspace) => {
-        if (
-          !cancelled &&
-          nextWorkspace.job.id === activeResumeWorkspaceJobIdRef.current
-        ) {
-          setActionState((current) =>
-            current.message === null ? current : { ...current, message: null },
-          )
+        if (!cancelled && nextWorkspace.job.id === activeResumeWorkspaceJobIdRef.current) {
+          setActionState((current) => (current.message === null ? current : { ...current, message: null }))
           setResumeWorkspace(nextWorkspace)
           setResumeAssistantMessages(nextWorkspace.assistantMessages)
           setResumeAssistantPending(false)
@@ -276,7 +240,7 @@ export function useJobFinderPageController() {
             message:
               error instanceof Error
                 ? `Resume editor could not be loaded. ${error.message}`
-                : 'Resume editor could not be loaded. Shortlisted is shown instead.',
+                : 'Resume editor could not be loaded. Shortlisted is shown instead.'
           })
           void navigate('/job-finder/review-queue', { replace: true })
         }
@@ -285,12 +249,7 @@ export function useJobFinderPageController() {
     return () => {
       cancelled = true
     }
-  }, [
-    activeResumeWorkspaceJobId,
-    actions,
-    navigate,
-    setSelectedReviewJobId,
-  ])
+  }, [activeResumeWorkspaceJobId, actions, navigate, setSelectedReviewJobId])
 
   const navigateFromShell = useCallback(
     (path: string) => {
@@ -298,11 +257,33 @@ export function useJobFinderPageController() {
         return
       }
 
+      if (
+        profileSurfaceDirty &&
+        !window.confirm('You have unsaved profile or answer changes. Leave this page and discard them?')
+      ) {
+        return
+      }
+
+      if (
+        saveState.state === 'saving' &&
+        !window.confirm(`${saveState.label} is still saving. Leave this page while the result is uncertain?`)
+      ) {
+        return
+      }
+
+      if (saveState.state === 'failed' && !window.confirm(`${saveState.message} Leave without retrying?`)) {
+        return
+      }
+
+      setProfileSurfaceDirty(false)
       setResumeWorkspaceDirty(false)
       void navigate(path)
     },
-    [confirmLeaveDirtyResumeWorkspace, navigate],
+    [confirmLeaveDirtyResumeWorkspace, navigate, profileSurfaceDirty, saveState]
   )
+  const retryLastSave = useCallback(() => {
+    void saveCoordinator.retry()
+  }, [saveCoordinator])
   const cancelApplyCopilotVisualCheckpointRequest = useCallback(() => {
     const currentRequest = applyCopilotVisualCheckpointRequest
     setApplyCopilotVisualCheckpointRequest(null)
@@ -314,41 +295,24 @@ export function useJobFinderPageController() {
       setApplyCopilotVisualCheckpointRequest(null)
       currentRequest?.onResolve(visualCheckpointsEnabled)
     },
-    [applyCopilotVisualCheckpointRequest],
+    [applyCopilotVisualCheckpointRequest]
   )
 
-  const selectedDiscoveryJob = useMemo(
+  const { selectedDiscoveryJob, selectedReviewItem, selectedReviewJob } = useMemo(
     () =>
-      workspace?.discoveryJobs.find((job) => job.id === selectedDiscoveryJobId) ??
-      workspace?.discoveryJobs[0] ??
-      null,
-    [selectedDiscoveryJobId, workspace?.discoveryJobs],
-  )
-
-  const selectedReviewItem = useMemo(
-    () =>
-      workspace?.reviewQueue.find((item) => item.jobId === selectedReviewJobId) ??
-      workspace?.reviewQueue[0] ??
-      null,
-    [selectedReviewJobId, workspace?.reviewQueue],
-  )
-
-  const selectedReviewJob = useMemo(
-    () =>
-      workspace?.discoveryJobs.find(
-        (job) => job.id === selectedReviewItem?.jobId,
-      ) ??
-      selectedDiscoveryJob ??
-      null,
-    [selectedDiscoveryJob, selectedReviewItem?.jobId, workspace?.discoveryJobs],
+      workspace
+        ? getJobFinderWorkspaceSelection(workspace, selectedDiscoveryJobId, selectedReviewJobId)
+        : {
+            selectedDiscoveryJob: null,
+            selectedReviewItem: null,
+            selectedReviewJob: null
+          },
+    [selectedDiscoveryJobId, selectedReviewJobId, workspace]
   )
 
   const selectedTailoredAsset = useMemo(
-    () =>
-      workspace?.tailoredAssets.find(
-        (asset) => asset.id === selectedReviewItem?.resumeAssetId,
-      ) ?? null,
-    [selectedReviewItem?.resumeAssetId, workspace?.tailoredAssets],
+    () => workspace?.tailoredAssets.find((asset) => asset.id === selectedReviewItem?.resumeAssetId) ?? null,
+    [selectedReviewItem?.resumeAssetId, workspace?.tailoredAssets]
   )
 
   const { selectedApplicationAttempt, selectedApplicationRecord } = useMemo(
@@ -356,7 +320,7 @@ export function useJobFinderPageController() {
       workspace
         ? getLatestApplicationAttempt(workspace, selectedApplicationRecordId)
         : { selectedApplicationAttempt: null, selectedApplicationRecord: null },
-    [selectedApplicationRecordId, workspace],
+    [selectedApplicationRecordId, workspace]
   )
 
   const context = useMemo<JobFinderPageContext | null>(() => {
@@ -382,11 +346,14 @@ export function useJobFinderPageController() {
       navigate: (path, options) => {
         void navigate(path, options)
       },
+      navigateSafely: navigateFromShell,
       profileCopilotBusy,
       resumeImportProgress: readyWorkspaceState.resumeImportProgress,
       profileCopilotPendingContextKey,
       profileCopilotRequestTokenRef,
       profileSetupState,
+      saveCoordinator,
+      saveState,
       requestApplyCopilotVisualCheckpoints: (request) => {
         setApplyCopilotVisualCheckpointRequest(request)
       },
@@ -414,7 +381,7 @@ export function useJobFinderPageController() {
       setSelectedDiscoveryJobId,
       setSelectedReviewJobId,
       sourceDebugRunIdRef,
-      workspace: workspaceWithOptimisticProfileCopilot ?? workspace,
+      workspace: workspaceWithOptimisticProfileCopilot ?? workspace
     })
   }, [
     actionState,
@@ -431,11 +398,14 @@ export function useJobFinderPageController() {
     liveDiscoveryEvents,
     location.pathname,
     navigate,
+    navigateFromShell,
     canImportResume,
     profileCopilotBusy,
     readyWorkspaceState,
     profileSetupState,
     profileCopilotPendingContextKey,
+    saveCoordinator,
+    saveState,
     importResumeGuardMessage,
     refreshResumeWorkspace,
     selectedApplicationAttempt,
@@ -445,7 +415,7 @@ export function useJobFinderPageController() {
     selectedReviewJob,
     selectedTailoredAsset,
     workspace,
-    workspaceWithOptimisticProfileCopilot,
+    workspaceWithOptimisticProfileCopilot
   ])
 
   if (!readyWorkspaceState || !workspace || !actions) {
@@ -454,11 +424,14 @@ export function useJobFinderPageController() {
       applyCopilotVisualCheckpointRequest: null,
       cancelApplyCopilotVisualCheckpointRequest,
       context: null,
+      dismissSavedStatus: saveCoordinator.dismissSaved,
       navigateFromShell,
       platform,
+      retryLastSave,
+      saveState,
       resolveApplyCopilotVisualCheckpointRequest,
       workspace,
-      workspaceState,
+      workspaceState
     }
   }
 
@@ -467,10 +440,13 @@ export function useJobFinderPageController() {
     applyCopilotVisualCheckpointRequest,
     cancelApplyCopilotVisualCheckpointRequest,
     context: context!,
+    dismissSavedStatus: saveCoordinator.dismissSaved,
     navigateFromShell,
     platform,
+    retryLastSave,
+    saveState,
     resolveApplyCopilotVisualCheckpointRequest,
     workspace,
-    workspaceState,
+    workspaceState
   }
 }

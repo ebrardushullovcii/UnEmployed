@@ -3,6 +3,7 @@ import {
   JobFinderResumePreviewSchema,
   JobFinderResumeWorkspaceSchema,
   ResumeDraftSectionSchema,
+  ResumeDraftRevisionSchema,
   ResumeDraftPatchSchema,
   ResumeAssistantMessageSchema,
   ResumeExportArtifactSchema,
@@ -107,7 +108,8 @@ describe("contracts resume workspace schemas", () => {
                 startDate: "2023",
                 endDate: null,
                 isCurrent: true,
-                summary: "Owned design-system adoption across platform surfaces.",
+                summary:
+                  "Owned design-system adoption across platform surfaces.",
                 bullets: [
                   {
                     id: "experience_1_bullet_1",
@@ -193,7 +195,8 @@ describe("contracts resume workspace schemas", () => {
           id: "assistant_message_1",
           jobId: "job_1",
           role: "assistant",
-          content: "I tightened the summary around workflow tooling and design systems.",
+          content:
+            "I tightened the summary around workflow tooling and design systems.",
           patches: [],
           createdAt: "2026-03-20T10:02:40.000Z",
         },
@@ -208,7 +211,8 @@ describe("contracts resume workspace schemas", () => {
           kind: "compact_recommended",
           action: "keep_compact",
           severity: "info",
-          message: "Compact older strong-fit role: included for career coverage without crowding recent experience.",
+          message:
+            "Compact older strong-fit role: included for career coverage without crowding recent experience.",
         },
       ],
     });
@@ -228,7 +232,9 @@ describe("contracts resume workspace schemas", () => {
       endDate: null,
       isCurrent: true,
     });
-    expect(Array.isArray(parsedExperienceSection.entries[0]?.bullets)).toBe(true);
+    expect(Array.isArray(parsedExperienceSection.entries[0]?.bullets)).toBe(
+      true,
+    );
     expect(workspace.validation?.issues[0]?.category).toBe(
       "poor_keyword_coverage",
     );
@@ -258,7 +264,7 @@ describe("contracts resume workspace schemas", () => {
     const preview = JobFinderResumePreviewSchema.parse({
       draftId: "resume_draft_1",
       revisionKey: "resume_preview_resume_draft_1_f49a0e2d",
-      html: "<!doctype html><html><body><article data-resume-section-id=\"section_summary\">Preview</article></body></html>",
+      html: '<!doctype html><html><body><article data-resume-section-id="section_summary">Preview</article></body></html>',
       warnings: [
         {
           id: "preview_warning_1",
@@ -286,16 +292,22 @@ describe("contracts resume workspace schemas", () => {
   });
 
   test("parses resume assistant messages and validation results", () => {
-    expect(
-      ResumeAssistantMessageSchema.parse({
-        id: "assistant_message_1",
-        jobId: "job_1",
-        role: "assistant",
-        content: "Shortened the bullets and kept the metric grounded.",
-        patches: [],
-        createdAt: "2026-03-20T10:02:40.000Z",
-      }).role,
-    ).toBe("assistant");
+    const legacyMessage = ResumeAssistantMessageSchema.parse({
+      id: "assistant_message_1",
+      jobId: "job_1",
+      role: "assistant",
+      content: "Shortened the bullets and kept the metric grounded.",
+      patches: [],
+      createdAt: "2026-03-20T10:02:40.000Z",
+    });
+    expect(legacyMessage).toMatchObject({
+      role: "assistant",
+      proposalStatus: "none",
+      baseDraftUpdatedAt: null,
+      resolvedPatchIds: [],
+      resolvedAt: null,
+      proposalError: null,
+    });
 
     expect(
       ResumeValidationResultSchema.parse({
@@ -375,7 +387,8 @@ describe("contracts resume workspace schemas", () => {
         "timeline_longform",
         "career_pivot",
       ],
-      persistedArtifactsDirectory: "apps/desktop/test-artifacts/ui/resume-quality-benchmark",
+      persistedArtifactsDirectory:
+        "apps/desktop/test-artifacts/ui/resume-quality-benchmark",
       cases: [
         {
           caseId: "grounded_baseline",
@@ -388,6 +401,7 @@ describe("contracts resume workspace schemas", () => {
           metrics: {
             groundedVisibleSkillRate: 1,
             workHistoryRepresentationRate: 1,
+            visibleWorkHistoryCoverageRate: 1,
             fragmentFreeExperienceBulletRate: 1,
             professionalExperienceSummaryRate: 1,
             bleedFreeCaseRate: 1,
@@ -405,6 +419,7 @@ describe("contracts resume workspace schemas", () => {
       aggregate: {
         groundedVisibleSkillRate: 1,
         workHistoryRepresentationRate: 1,
+        visibleWorkHistoryCoverageRate: 1,
         fragmentFreeExperienceBulletRate: 1,
         professionalExperienceSummaryRate: 1,
         bleedFreeCaseRate: 1,
@@ -433,6 +448,10 @@ describe("contracts resume workspace schemas", () => {
     );
     expect(report.cases[0]?.metrics.atsRenderPassRate).toBe(1);
     expect(report.cases[0]?.metrics.workHistoryRepresentationRate).toBe(1);
+    expect(report.cases[0]?.metrics.visibleWorkHistoryCoverageRate).toBe(1);
+    expect(report.providerMode).toBe("deterministic");
+    expect(report.cases[0]?.generationDurationMs).toBe(0);
+    expect(report.cases[0]?.generationDiagnostics).toBeNull();
   });
 
   test("defaults omitted resume quality acceptance metrics for old reports", () => {
@@ -449,6 +468,7 @@ describe("contracts resume workspace schemas", () => {
 
     expect(metrics).toMatchObject({
       workHistoryRepresentationRate: 0,
+      visibleWorkHistoryCoverageRate: 0,
       fragmentFreeExperienceBulletRate: 0,
       professionalExperienceSummaryRate: 0,
     });
@@ -514,8 +534,107 @@ describe("contracts resume workspace schemas", () => {
       assistantMessages: [],
       tailoredAsset: null,
       sharedProfile: {},
-    })
+    });
 
-    expect(workspace.draft.templateId).toBe("technical_matrix")
-  })
+    expect(workspace.draft.templateId).toBe("technical_matrix");
+  });
+
+  test("defaults legacy claim assessments and accepts candidate-only evidence", () => {
+    const legacy = ResumeValidationResultSchema.parse({
+      id: "resume_validation_legacy",
+      draftId: "resume_draft_1",
+      issues: [],
+      pageCount: null,
+      validatedAt: "2026-03-20T10:02:35.000Z",
+    });
+    expect(legacy).toMatchObject({
+      draftContentHash: null,
+      claimAssessments: [],
+    });
+
+    const parsed = ResumeValidationResultSchema.parse({
+      ...legacy,
+      draftContentHash: "fnv1a32:1234abcd",
+      claimAssessments: [
+        {
+          id: "claim_1",
+          field: "entry_bullet",
+          sectionId: "section_experience",
+          entryId: "experience_1",
+          bulletId: "bullet_1",
+          claimText: "Led design-system rollout across core surfaces.",
+          claimOrigin: "ai_generated",
+          contentHash: "fnv1a32:5678efab",
+          status: "exact",
+          evidenceRefs: [
+            {
+              id: "evidence_1",
+              sourceKind: "profile",
+              sourceId: "experience:experience_1:achievement:1",
+              snippet: "Led design-system rollout across core surfaces.",
+            },
+          ],
+          verifier: "deterministic_candidate_evidence_v1",
+          assessedAt: "2026-03-20T10:02:35.000Z",
+        },
+      ],
+    });
+    expect(parsed.claimAssessments[0]?.status).toBe("exact");
+  });
+
+  test("rejects listing and research refs as resume claim evidence", () => {
+    expect(() =>
+      ResumeValidationResultSchema.parse({
+        id: "resume_validation_bad_evidence",
+        draftId: "resume_draft_1",
+        issues: [],
+        claimAssessments: [
+          {
+            id: "claim_1",
+            field: "section_text",
+            sectionId: "section_summary",
+            entryId: null,
+            bulletId: null,
+            claimText: "Own the target company's design-system roadmap.",
+            claimOrigin: "ai_generated",
+            contentHash: "fnv1a32:5678efab",
+            status: "exact",
+            evidenceRefs: [
+              {
+                id: "evidence_job_1",
+                sourceKind: "job",
+                sourceId: "job_1",
+                snippet: "Own the design-system roadmap.",
+              },
+            ],
+            verifier: "deterministic_candidate_evidence_v1",
+            assessedAt: "2026-03-20T10:02:35.000Z",
+          },
+        ],
+        pageCount: null,
+        validatedAt: "2026-03-20T10:02:35.000Z",
+      }),
+    ).toThrow();
+  });
+  test("keeps legacy resume revisions readable while supporting full version metadata", () => {
+    const legacy = ResumeDraftRevisionSchema.parse({
+      id: "resume_revision_legacy",
+      draftId: "resume_draft_1",
+      snapshotIdentity: null,
+      snapshotSections: [],
+      createdAt: "2026-03-20T10:02:35.000Z",
+      reason: "Legacy revision",
+    });
+
+    expect(legacy).toMatchObject({
+      parentRevisionId: null,
+      actor: "system",
+      mutationKind: "manual_patch",
+      snapshotDraft: null,
+      beforeHash: null,
+      afterHash: null,
+      diff: null,
+      restoredFromRevisionId: null,
+    });
+  });
 });

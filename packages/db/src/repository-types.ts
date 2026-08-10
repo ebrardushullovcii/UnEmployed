@@ -40,7 +40,16 @@ import type {
   SourceDebugWorkerAttemptInput,
   SourceInstructionArtifact,
   TailoredAsset,
+  UserActionEvent,
+  UserActionRequest,
 } from "@unemployed/contracts";
+import type {
+  CreateUserActionRequestResult,
+  UserActionEventQuery,
+  UserActionRequestQuery,
+  UserActionTransitionCommitResult,
+  UserActionTransitionInput,
+} from "./user-action-repository-types";
 
 export type JobFinderRepositorySeed = JobFinderRepositoryState;
 
@@ -99,7 +108,10 @@ export interface JobFinderRepository {
     statuses?: readonly ResumeImportRunStatus[];
     limit?: number;
   }): Promise<readonly ResumeImportRun[]>;
-  getLatestResumeImportRun(sourceResumeId?: string): Promise<ResumeImportRun | null>;
+  getLatestResumeImportRun(
+    sourceResumeId?: string,
+  ): Promise<ResumeImportRun | null>;
+  upsertResumeImportRun(run: ResumeImportRun): Promise<void>;
   listResumeImportDocumentBundles(options?: {
     runId?: string;
     sourceResumeId?: string;
@@ -130,20 +142,26 @@ export interface JobFinderRepository {
   listResumeAssistantMessages(
     jobId?: string,
   ): Promise<readonly ResumeAssistantMessage[]>;
-  upsertResumeAssistantMessage(
-    message: ResumeAssistantMessage,
-  ): Promise<void>;
+  upsertResumeAssistantMessage(message: ResumeAssistantMessage): Promise<void>;
   listProfileCopilotMessages(): Promise<readonly ProfileCopilotMessage[]>;
-  upsertProfileCopilotMessage(
-    message: ProfileCopilotMessage,
-  ): Promise<void>;
+  upsertProfileCopilotMessage(message: ProfileCopilotMessage): Promise<void>;
   listProfileRevisions(): Promise<readonly ProfileRevision[]>;
   upsertProfileRevision(revision: ProfileRevision): Promise<void>;
   listApplyRuns(options?: { id?: string }): Promise<readonly ApplyRun[]>;
   upsertApplyRun(run: ApplyRun): Promise<void>;
-  listApplyJobResults(options?: { runId?: string; jobId?: string }): Promise<readonly ApplyJobResult[]>;
+  listApplyJobResults(options?: {
+    runId?: string;
+    jobId?: string;
+  }): Promise<readonly ApplyJobResult[]>;
   upsertApplyJobResult(result: ApplyJobResultInput): Promise<void>;
-  listApplySubmitApprovals(options?: { id?: string; runId?: string }): Promise<readonly ApplySubmitApproval[]>;
+  compareAndSwapApplyJobResult(input: {
+    expected: ApplyJobResult;
+    result: ApplyJobResultInput;
+  }): Promise<boolean>;
+  listApplySubmitApprovals(options?: {
+    id?: string;
+    runId?: string;
+  }): Promise<readonly ApplySubmitApproval[]>;
   upsertApplySubmitApproval(approval: ApplySubmitApproval): Promise<void>;
   listApplicationQuestionRecords(options?: {
     runId?: string;
@@ -182,12 +200,26 @@ export interface JobFinderRepository {
   upsertApplicationConsentRequest(
     request: ApplicationConsentRequest,
   ): Promise<void>;
+  listUserActionRequests(
+    query?: UserActionRequestQuery,
+  ): Promise<readonly UserActionRequest[]>;
+  getUserActionRequest(id: string): Promise<UserActionRequest | null>;
+  createUserActionRequest(
+    request: UserActionRequest,
+  ): Promise<CreateUserActionRequestResult>;
+  listUserActionEvents(
+    query?: UserActionEventQuery,
+  ): Promise<readonly UserActionEvent[]>;
+  commitUserActionTransition(
+    input: UserActionTransitionInput,
+  ): Promise<UserActionTransitionCommitResult>;
   saveResumeDraftWithValidation(input: {
     draft: ResumeDraft;
     validation: ResumeValidationResult;
     tailoredAsset?: TailoredAsset | null;
   }): Promise<void>;
   applyResumePatchWithRevision(input: {
+    expectedDraftUpdatedAt: string;
     draft: ResumeDraft;
     revision: ResumeDraftRevision;
     validation: ResumeValidationResult;
@@ -210,10 +242,15 @@ export interface JobFinderRepository {
   upsertApplicationAttempt(
     applicationAttempt: ApplicationAttemptInput,
   ): Promise<void>;
+  claimApplicationAttempt(
+    applicationAttempt: ApplicationAttemptInput,
+  ): Promise<boolean>;
   listSourceDebugRuns(): Promise<readonly SourceDebugRunRecord[]>;
   upsertSourceDebugRun(run: SourceDebugRunRecord): Promise<void>;
   listSourceDebugAttempts(): Promise<readonly SourceDebugWorkerAttempt[]>;
-  upsertSourceDebugAttempt(attempt: SourceDebugWorkerAttemptInput): Promise<void>;
+  upsertSourceDebugAttempt(
+    attempt: SourceDebugWorkerAttemptInput,
+  ): Promise<void>;
   listSourceInstructionArtifacts(): Promise<
     readonly SourceInstructionArtifact[]
   >;

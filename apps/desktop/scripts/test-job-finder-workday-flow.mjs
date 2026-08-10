@@ -53,7 +53,8 @@ process.env.JOB_FINDER_PREPARE_ONLY_AUTHORIZE_INTERMEDIATE_WRITES = "1";
 process.env.JOB_FINDER_PREPARE_ONLY_EXPECT_EXACT_SOURCE_JOB = "1";
 process.env.JOB_FINDER_PREPARE_ONLY_REQUIRE_FINAL_CHECKPOINT = "0";
 process.env.JOB_FINDER_PREPARE_ONLY_EXPECT_BLOCKER_CODE = "site_login_required";
-process.env.JOB_FINDER_PREPARE_ONLY_RESUME_MODE = "original_resume";
+process.env.JOB_FINDER_PREPARE_ONLY_RESUME_MODE =
+  process.env.JOB_FINDER_PREPARE_ONLY_RESUME_MODE ?? "original_resume";
 process.env.JOB_FINDER_PREPARE_ONLY_USE_LIVE_DISCOVERY_AI = "0";
 process.env.JOB_FINDER_PREPARE_ONLY_SOURCE_ID = `target_workday_${tenant}_${siteId}_complete_flow`;
 process.env.JOB_FINDER_PREPARE_ONLY_SOURCE_LABEL = `${tenant} Workday`;

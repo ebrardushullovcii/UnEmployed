@@ -9,7 +9,9 @@ import {
 } from "@unemployed/contracts";
 
 import {
+  appendDiscoveryEvent,
   countCompletedTargetExecutions,
+  createDiscoveryEvent,
   updateTargetExecution,
 } from "./discovery-state";
 import {
@@ -21,6 +23,34 @@ import {
   DEFAULT_MAX_STEPS,
   DEFAULT_TARGET_JOB_COUNT,
 } from "./workspace-defaults";
+
+function calculateFirstMilestoneMs(
+  events: readonly DiscoveryActivityEvent[],
+  startedAt: string,
+  completedAt: string,
+  predicate: (event: DiscoveryActivityEvent) => boolean,
+): number | null {
+  return computeTimelineSummary({
+    startedAt,
+    completedAt,
+    events: events.filter(predicate).map((event) => ({
+      timestamp: event.timestamp,
+      key: "milestone" as const,
+    })),
+  }).firstEventMs;
+}
+
+function isCandidateMilestone(event: DiscoveryActivityEvent): boolean {
+  return event.targetId !== null && (event.jobsFound ?? 0) > 0;
+}
+
+function isDistinctUsefulJobMilestone(event: DiscoveryActivityEvent): boolean {
+  return (
+    event.targetId !== null &&
+    event.stage === "persistence" &&
+    (event.jobsPersisted ?? 0) + (event.jobsStaged ?? 0) > 0
+  );
+}
 
 function buildDiscoveryTimingSummary(
   events: readonly DiscoveryActivityEvent[],
@@ -55,6 +85,18 @@ function buildDiscoveryTimingSummary(
   return DiscoveryTimingSummarySchema.parse({
     totalDurationMs: stageTimeline.totalDurationMs,
     firstActivityMs: stageTimeline.firstEventMs,
+    firstCandidateMs: calculateFirstMilestoneMs(
+      events,
+      startedAt,
+      completedAt,
+      isCandidateMilestone,
+    ),
+    firstDistinctUsefulJobMs: calculateFirstMilestoneMs(
+      events,
+      startedAt,
+      completedAt,
+      isDistinctUsefulJobMilestone,
+    ),
     longestGapMs: stageTimeline.longestGapMs,
     eventCount: events.length,
     stageDurations: serializeOrderedDurationEntries(
@@ -74,6 +116,55 @@ function buildDiscoveryTimingSummary(
       }),
     ),
   });
+}
+
+function summarizeTargetExecutions(
+  targetExecutions: readonly DiscoveryTargetExecution[],
+) {
+  const changeDigest = targetExecutions.reduce(
+    (total, execution) => ({
+      new: total.new + execution.changeDigest.new,
+      unchanged: total.unchanged + execution.changeDigest.unchanged,
+      changed: total.changed + execution.changeDigest.changed,
+      reactivated: total.reactivated + execution.changeDigest.reactivated,
+      inactive: total.inactive + execution.changeDigest.inactive,
+      known: total.known + execution.changeDigest.known,
+      skipped: total.skipped + execution.changeDigest.skipped,
+    }),
+    {
+      new: 0,
+      unchanged: 0,
+      changed: 0,
+      reactivated: 0,
+      inactive: 0,
+      known: 0,
+      skipped: 0,
+    },
+  );
+  const sourceHealth = targetExecutions.map((execution) => {
+    const health =
+      execution.state === "completed"
+        ? execution.warning
+          ? "warning"
+          : "healthy"
+        : execution.state === "failed"
+          ? "failed"
+          : execution.state === "cancelled"
+            ? "cancelled"
+            : execution.state === "skipped"
+              ? "skipped"
+              : "pending";
+
+    return {
+      targetId: execution.targetId,
+      health,
+      durationMs: execution.timing?.totalDurationMs ?? 0,
+      warnings: execution.warning ? [execution.warning] : [],
+    };
+  });
+  const warnings = sourceHealth.flatMap((source) => source.warnings);
+
+  return { changeDigest, sourceHealth, warnings };
 }
 
 export function completeTargetExecution(
@@ -96,10 +187,13 @@ export function completeTargetExecution(
           ),
   }));
 
+  const executionSummary = summarizeTargetExecutions(nextRun.targetExecutions);
+
   return DiscoveryRunRecordSchema.parse({
     ...nextRun,
     summary: {
       ...nextRun.summary,
+      ...executionSummary,
       targetsCompleted: countCompletedTargetExecutions(nextRun),
     },
   });
@@ -156,6 +250,53 @@ export function finalizeDiscoveryRun(
   });
 }
 
+export function recoverInterruptedDiscoveryRun(
+  run: DiscoveryRunRecord,
+  completedAt: string,
+): DiscoveryRunRecord {
+  let recoveredRun = run;
+
+  for (const targetExecution of run.targetExecutions) {
+    if (targetExecution.state !== "running") {
+      continue;
+    }
+
+    recoveredRun = completeTargetExecution(
+      recoveredRun,
+      targetExecution.targetId,
+      completedAt,
+      {
+        state: "failed",
+        warning:
+          "Discovery was interrupted because the app closed before this source finished.",
+      },
+    );
+  }
+
+  recoveredRun = appendDiscoveryEvent(
+    recoveredRun,
+    createDiscoveryEvent({
+      runId: recoveredRun.id,
+      timestamp: completedAt,
+      kind: "error",
+      stage: "run",
+      targetId: null,
+      adapterKind: null,
+      terminalState: "failed",
+      message:
+        "The previous discovery run was interrupted when the app closed. Jobs saved before the interruption remain available; start a new search to continue.",
+      url: null,
+      jobsFound: recoveredRun.summary.validJobsFound,
+      jobsPersisted: recoveredRun.summary.jobsPersisted,
+      jobsStaged: recoveredRun.summary.jobsStaged,
+      duplicatesMerged: recoveredRun.summary.duplicatesMerged,
+      invalidSkipped: recoveredRun.summary.invalidSkipped,
+    }),
+  );
+
+  return finalizeDiscoveryRun(recoveredRun, "failed", completedAt);
+}
+
 const MIN_DISCOVERY_TARGET_MAX_STEPS = 20;
 const SINGLE_TARGET_DISCOVERY_JOB_COUNT = 8;
 const SINGLE_TARGET_DISCOVERY_MAX_STEPS = 24;
@@ -165,7 +306,9 @@ export function resolveDiscoveryTargetBudget(input: {
   validJobsFoundSoFar: number;
 }) {
   if (input.targetsRemaining <= 0) {
-    throw new Error("resolveDiscoveryTargetBudget requires at least one remaining target.");
+    throw new Error(
+      "resolveDiscoveryTargetBudget requires at least one remaining target.",
+    );
   }
 
   const remainingJobs = Math.max(

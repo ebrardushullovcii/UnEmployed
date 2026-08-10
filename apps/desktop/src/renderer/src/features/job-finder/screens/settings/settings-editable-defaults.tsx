@@ -6,6 +6,7 @@ import { Field, FieldLabel } from '@renderer/components/ui/field'
 import { FormSelect } from '../../components/form-select'
 import { ResumeThemePicker } from '../../components/resume-theme-picker'
 import { ToggleField } from '../../components/toggle-field'
+import type { JobFinderSaveState } from '@renderer/pages/job-finder-save-state'
 
 const fontPresetOptions: ReadonlyArray<{
   description: string
@@ -29,6 +30,7 @@ interface SettingsEditableDefaultsProps {
   availableResumeTemplates: readonly ResumeTemplateDefinition[]
   isSavePending: boolean
   onSaveSettings: (settings: JobFinderSettings) => void
+  saveState: JobFinderSaveState
   settings: JobFinderSettings
 }
 
@@ -37,6 +39,7 @@ export function SettingsEditableDefaults({
   availableResumeTemplates,
   isSavePending,
   onSaveSettings,
+  saveState,
   settings
 }: SettingsEditableDefaultsProps) {
   const appearanceId = useId()
@@ -75,6 +78,16 @@ export function SettingsEditableDefaults({
     settingsForm.keepSessionAlive !== settings.keepSessionAlive ||
     settingsForm.discoveryOnly !== settings.discoveryOnly ||
     selectedResumeApplicationMode !== savedResumeApplicationMode
+  const settingsSaveState =
+    saveState.state !== 'idle' && saveState.surface === 'settings' ? saveState : null
+  const cvSaveButtonLabel =
+    settingsSaveState?.state === 'saving'
+      ? 'Saving CV preference'
+      : settingsSaveState?.state === 'failed'
+        ? 'Retry CV preference'
+        : settingsSaveState?.state === 'saved' && !hasUnsavedChanges
+          ? 'CV preference saved'
+          : 'Save CV preference'
   const saveSettings = () => {
     onSaveSettings({
       ...settingsForm,
@@ -82,9 +95,41 @@ export function SettingsEditableDefaults({
     })
   }
 
+  const {
+    allowAutoSubmitOverride: savedAllowAutoSubmitOverride,
+    appearanceTheme: savedAppearanceTheme,
+    discoveryOnly: savedDiscoveryOnly,
+    fontPreset: savedFontPreset,
+    humanReviewRequired: savedHumanReviewRequired,
+    keepSessionAlive: savedKeepSessionAlive,
+    resumeApplicationMode: savedApplicationMode,
+    resumeFormat: savedResumeFormat,
+    resumeTemplateId: savedResumeTemplateId,
+  } = settings
+
   useEffect(() => {
-    setSettingsForm(settings)
-  }, [settings])
+    setSettingsForm({
+      allowAutoSubmitOverride: savedAllowAutoSubmitOverride,
+      appearanceTheme: savedAppearanceTheme,
+      discoveryOnly: savedDiscoveryOnly,
+      fontPreset: savedFontPreset,
+      humanReviewRequired: savedHumanReviewRequired,
+      keepSessionAlive: savedKeepSessionAlive,
+      resumeApplicationMode: savedApplicationMode,
+      resumeFormat: savedResumeFormat,
+      resumeTemplateId: savedResumeTemplateId,
+    })
+  }, [
+    savedAllowAutoSubmitOverride,
+    savedAppearanceTheme,
+    savedApplicationMode,
+    savedDiscoveryOnly,
+    savedFontPreset,
+    savedHumanReviewRequired,
+    savedKeepSessionAlive,
+    savedResumeFormat,
+    savedResumeTemplateId,
+  ])
 
   return (
     <section className="surface-panel-shell relative grid content-start gap-3 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
@@ -94,15 +139,26 @@ export function SettingsEditableDefaults({
             <div className="grid max-w-[72ch] gap-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-[1.02rem] font-semibold text-(--text-headline)">CV used for applications</h2>
-                <Badge variant="section">Current and future shortlisted jobs</Badge>
+                <Badge variant="section">Default for newly shortlisted jobs</Badge>
               </div>
               <p className="text-(length:--text-description) leading-5 text-foreground-soft">
                 Choose whether each job gets a tailored CV or the exact file you imported in Profile. You still decide job by job before Apply Copilot opens the application.
               </p>
             </div>
-            <Button disabled={!hasUnsavedChanges || isSavePending} pending={isSavePending} onClick={saveSettings} type="button" variant="primary">
-              Save CV preference
-            </Button>
+            <div className="grid justify-items-end gap-1.5">
+              <Button disabled={!hasUnsavedChanges || isSavePending} pending={isSavePending} onClick={saveSettings} type="button" variant="primary">
+                {cvSaveButtonLabel}
+              </Button>
+              {settingsSaveState ? (
+                <p
+                  className={settingsSaveState.state === 'failed' ? 'max-w-80 text-right text-xs leading-4 text-destructive' : 'max-w-80 text-right text-xs leading-4 text-foreground-soft'}
+                  data-settings-save-state={settingsSaveState.state}
+                  role="status"
+                >
+                  {settingsSaveState.message}
+                </p>
+              ) : null}
+            </div>
           </div>
 
           <div className="grid gap-2.5 md:grid-cols-2" role="radiogroup" aria-label="CV application mode">
@@ -151,7 +207,7 @@ export function SettingsEditableDefaults({
                   ? 'Original CV is the saved application default.'
                   : 'Save this preference before leaving Settings.'}
               </strong>
-              <p>Original-CV mode preserves the imported file byte for byte. It applies immediately to current and future shortlisted jobs. Template and font choices below only apply when tailored-CV mode is selected.</p>
+              <p>Original-CV mode preserves the imported file byte for byte. Newly shortlisted jobs start with this choice, while every current job keeps its own selection. Template and font choices below only apply when tailored-CV mode is selected.</p>
             </div>
           ) : null}
         </section>
@@ -275,7 +331,7 @@ export function SettingsEditableDefaults({
             {actionMessage ? <p className="text-primary" role="status">{actionMessage}</p> : hasUnsavedChanges ? <p className="text-(--warning-text)" role="status">You have unsaved settings changes.</p> : 'All settings on this page are saved.'}
           </div>
         <div className="flex flex-wrap items-center gap-3">
-          <Badge variant="section">Current and future shortlisted jobs use this mode</Badge>
+          <Badge variant="section">Default for jobs shortlisted later</Badge>
           <Button disabled={!hasUnsavedChanges || isSavePending} variant="primary" pending={isSavePending} onClick={saveSettings} type="button">
             Save settings
           </Button>

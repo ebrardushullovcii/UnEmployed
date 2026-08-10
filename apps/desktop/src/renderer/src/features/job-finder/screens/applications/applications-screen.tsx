@@ -3,7 +3,9 @@ import type {
   ApplicationAttempt,
   ApplicationRecord,
   ApplyRunDetails,
+  ClearApplicationAnswerCommandInput,
   JobFinderWorkspaceSnapshot,
+  SaveApplicationAnswerCommandInput,
 } from "@unemployed/contracts";
 import { LockedScreenLayout } from "../../components/locked-screen-layout";
 import { PageHeader } from "../../components/page-header";
@@ -36,6 +38,13 @@ export function ApplicationsScreen(props: {
     runId: string,
     jobId: string,
   ) => Promise<ApplyRunDetails>;
+  onSaveApplicationAnswer: (
+    command: SaveApplicationAnswerCommandInput,
+  ) => Promise<ApplyRunDetails>;
+  onClearApplicationAnswer: (
+    command: ClearApplicationAnswerCommandInput,
+  ) => Promise<ApplyRunDetails>;
+  onExportApplicationPacket: (runId: string, jobId: string) => Promise<void>;
   onResolveApplyConsentRequest: (
     requestId: string,
     action: "approve" | "decline",
@@ -61,6 +70,9 @@ export function ApplicationsScreen(props: {
     onApproveApplyRun,
     onCancelApplyRun,
     onGetApplyRunDetails,
+    onSaveApplicationAnswer,
+    onClearApplicationAnswer,
+    onExportApplicationPacket,
     onResolveApplyConsentRequest,
     onRevokeApplyRunApproval,
     onStartAutoApplyQueue,
@@ -223,6 +235,7 @@ export function ApplicationsScreen(props: {
     applyRunDetailsError,
     applyRunDetailsStatus,
     applyRunDetailsTarget,
+    replaceApplyRunDetails,
   } = useApplicationsApplyRunDetails({
     jobId: effectiveSelectedJobId,
     onGetApplyRunDetails,
@@ -304,10 +317,21 @@ export function ApplicationsScreen(props: {
               <div className="min-w-0">
                 <p className="label-mono-xs">Latest automatic run</p>
                 <p className="mt-1 text-(length:--text-small) leading-6 text-foreground-soft">
-                  {latestFinishedAutomaticRun.totalJobs} job{latestFinishedAutomaticRun.totalJobs === 1 ? "" : "s"} · {latestRunAttentionCount} need attention · {latestRunSkippedCount} skipped
+                  {latestFinishedAutomaticRun.totalJobs} job
+                  {latestFinishedAutomaticRun.totalJobs === 1 ? "" : "s"} ·{" "}
+                  {latestRunAttentionCount} need attention ·{" "}
+                  {latestRunSkippedCount} skipped
                 </p>
               </div>
-              <StatusBadge tone={latestRunAttentionCount > 0 ? "critical" : latestFinishedAutomaticRun.state === "completed" ? "positive" : "muted"}>
+              <StatusBadge
+                tone={
+                  latestRunAttentionCount > 0
+                    ? "critical"
+                    : latestFinishedAutomaticRun.state === "completed"
+                      ? "positive"
+                      : "muted"
+                }
+              >
                 {latestRunAttentionCount > 0
                   ? `${latestRunAttentionCount} unusual ${latestRunAttentionCount === 1 ? "case" : "cases"}`
                   : latestFinishedAutomaticRun.state === "completed"
@@ -347,6 +371,13 @@ export function ApplicationsScreen(props: {
           isApplyRunPending={isApplyRunPending}
           onApproveApplyRun={onApproveApplyRun}
           onCancelApplyRun={onCancelApplyRun}
+          onExportApplicationPacket={onExportApplicationPacket}
+          onSaveApplicationAnswer={async (command) => {
+            replaceApplyRunDetails(await onSaveApplicationAnswer(command));
+          }}
+          onClearApplicationAnswer={async (command) => {
+            replaceApplyRunDetails(await onClearApplicationAnswer(command));
+          }}
           onResolveApplyConsentRequest={onResolveApplyConsentRequest}
           onRevokeApplyRunApproval={onRevokeApplyRunApproval}
           onStartAutoApplyQueue={onStartAutoApplyQueue}

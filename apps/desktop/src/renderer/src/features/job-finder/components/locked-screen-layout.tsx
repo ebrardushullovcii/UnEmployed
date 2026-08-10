@@ -5,16 +5,25 @@ import {
   type CSSProperties,
   type ReactNode,
   type WheelEvent,
-} from 'react'
-import { cn } from '@renderer/lib/cn'
+} from "react";
+import { cn } from "@renderer/lib/cn";
 
-const LOCKED_PANE_BREAKPOINT = 1280
+const LOCKED_PANE_BREAKPOINT = 1280;
+
+export function getLockedScreenLayoutHeight(
+  topHeight: number,
+  lockTopContent: boolean,
+): string | undefined {
+  return lockTopContent && topHeight > 0
+    ? `calc(100% + ${topHeight}px)`
+    : undefined;
+}
 
 export function getLockedHeaderWheelTarget(input: {
-  deltaY: number
-  scrollTop: number
-  topHeight: number
-  viewportWidth: number
+  deltaY: number;
+  scrollTop: number;
+  topHeight: number;
+  viewportWidth: number;
 }): number | null {
   if (
     input.viewportWidth < LOCKED_PANE_BREAKPOINT ||
@@ -22,67 +31,73 @@ export function getLockedHeaderWheelTarget(input: {
     input.topHeight <= 0 ||
     input.scrollTop >= input.topHeight
   ) {
-    return null
+    return null;
   }
 
-  return Math.min(input.topHeight, input.scrollTop + input.deltaY)
+  return Math.min(input.topHeight, input.scrollTop + input.deltaY);
 }
 
 interface LockedScreenLayoutProps {
-  children: ReactNode
-  contentClassName?: string
-  reserveRightRail?: boolean
-  topClassName?: string
-  topContent: ReactNode
+  children: ReactNode;
+  contentClassName?: string;
+  lockTopContent?: boolean;
+  reserveRightRail?: boolean;
+  topClassName?: string;
+  topContent: ReactNode;
 }
 
 export function LockedScreenLayout({
   children,
   contentClassName,
+  lockTopContent = true,
   reserveRightRail = false,
   topClassName,
   topContent,
 }: LockedScreenLayoutProps) {
-  const scrollRef = useRef<HTMLDivElement | null>(null)
-  const topRef = useRef<HTMLDivElement | null>(null)
-  const [topHeight, setTopHeight] = useState(0)
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const topRef = useRef<HTMLDivElement | null>(null);
+  const [topHeight, setTopHeight] = useState(0);
 
   useLayoutEffect(() => {
-    const node = topRef.current
+    const node = topRef.current;
 
     if (!node) {
-      return undefined
+      return undefined;
     }
 
     const updateTopHeight = () => {
-      setTopHeight(node.getBoundingClientRect().height)
-    }
+      setTopHeight(node.getBoundingClientRect().height);
+    };
 
-    updateTopHeight()
+    updateTopHeight();
 
     const observer = new ResizeObserver(() => {
-      updateTopHeight()
-    })
+      updateTopHeight();
+    });
 
-    observer.observe(node)
-    window.addEventListener('resize', updateTopHeight)
+    observer.observe(node);
+    window.addEventListener("resize", updateTopHeight);
 
     return () => {
-      observer.disconnect()
-      window.removeEventListener('resize', updateTopHeight)
-    }
-  }, [])
+      observer.disconnect();
+      window.removeEventListener("resize", updateTopHeight);
+    };
+  }, []);
 
   const layoutStyle: CSSProperties = {
-    ...(topHeight > 0 ? { height: `calc(100% + ${topHeight}px)` } : {}),
-    ...(reserveRightRail ? { paddingRight: 'min(31rem, calc(100vw - 32rem))' } : {}),
-  }
+    ...(getLockedScreenLayoutHeight(topHeight, lockTopContent)
+      ? { height: getLockedScreenLayoutHeight(topHeight, lockTopContent) }
+      : {}),
+    ...(reserveRightRail
+      ? { paddingRight: "min(31rem, calc(100vw - 32rem))" }
+      : {}),
+  };
 
   function handleContentWheel(event: WheelEvent<HTMLDivElement>) {
-    const scrollArea = scrollRef.current
+    const scrollArea = scrollRef.current;
 
     if (!scrollArea) {
-      return
+      return;
     }
 
     const nextScrollTop = getLockedHeaderWheelTarget({
@@ -90,14 +105,14 @@ export function LockedScreenLayout({
       scrollTop: scrollArea.scrollTop,
       topHeight,
       viewportWidth: window.innerWidth,
-    })
+    });
 
     if (nextScrollTop === null) {
-      return
+      return;
     }
 
-    event.preventDefault()
-    scrollArea.scrollTop = nextScrollTop
+    event.preventDefault();
+    scrollArea.scrollTop = nextScrollTop;
   }
 
   return (
@@ -111,12 +126,14 @@ export function LockedScreenLayout({
           onWheelCapture={handleContentWheel}
           style={layoutStyle}
         >
-          <div ref={topRef} className={cn('min-w-0', topClassName)}>
+          <div ref={topRef} className={cn("min-w-0", topClassName)}>
             {topContent}
           </div>
-          <div className={cn('min-h-0 min-w-0', contentClassName)}>{children}</div>
+          <div className={cn("min-h-0 min-w-0", contentClassName)}>
+            {children}
+          </div>
         </div>
       </div>
     </section>
-  )
+  );
 }

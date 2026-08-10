@@ -38,7 +38,10 @@ export interface FieldDescriptor<TValue> {
   operation: PatchOperationName;
   reviewDomain: ReviewDomain;
   title: string;
-  parseValue: (detail: string | null, normalizedRequest: string) => TValue | undefined;
+  parseValue: (
+    detail: string | null,
+    normalizedRequest: string,
+  ) => TValue | undefined;
   readCurrentValue: (input: ReviseCandidateProfileInput) => TValue;
 }
 
@@ -71,7 +74,9 @@ export function parseStringList(detail: string): string[] {
 }
 
 export function requestLooksLikeClear(normalizedRequest: string): boolean {
-  return /\b(clear|delete|remove|erase|reset|blank|empty)\b/.test(normalizedRequest);
+  return /\b(clear|delete|remove|erase|reset|blank|empty)\b/.test(
+    normalizedRequest,
+  );
 }
 
 export function parseNullableText(
@@ -126,7 +131,11 @@ export function parseNullableBoolean(
     return undefined;
   }
 
-  if (/\b(yes|true|required|need|needs|willing|available|open|enabled|enable)\b/.test(normalized)) {
+  if (
+    /\b(yes|true|required|need|needs|willing|available|open|enabled|enable)\b/.test(
+      normalized,
+    )
+  ) {
     return true;
   }
 
@@ -156,13 +165,30 @@ export function parseSalaryCurrency(
   detail: string | null,
   normalizedRequest: string,
 ): string | null | undefined {
-  const parsed = parseNullableText(detail, normalizedRequest);
-
-  if (parsed === undefined || parsed === null) {
-    return parsed;
+  if (requestLooksLikeClear(normalizedRequest)) {
+    return null;
   }
 
-  return parsed.toUpperCase();
+  const normalized = normalizeFactText(detail ?? normalizedRequest);
+  const currencyCode = normalized.match(
+    /\b(usd|eur|gbp|chf|cad|aud|nzd|jpy|cny|inr|sek|nok|dkk|pln|czk|huf|ron|bgn|try|all|mkd|rsd|bam)\b/i,
+  )?.[1];
+
+  if (currencyCode) {
+    return currencyCode.toUpperCase();
+  }
+
+  const currencyNames: ReadonlyArray<readonly [RegExp, string]> = [
+    [/\beuros?\b/i, "EUR"],
+    [/\b(?:us )?dollars?\b/i, "USD"],
+    [/\b(?:british )?pounds?\b|\bsterling\b/i, "GBP"],
+    [/\bswiss francs?\b/i, "CHF"],
+  ];
+  const namedCurrency = currencyNames.find(([pattern]) =>
+    pattern.test(detail ?? normalizedRequest),
+  );
+
+  return namedCurrency?.[1];
 }
 
 export function parseTailoringMode(
@@ -189,22 +215,36 @@ export function parseTailoringMode(
 export function parseApprovalMode(
   detail: string | null,
   normalizedRequest: string,
-): "draft_only" | "review_before_submit" | "one_click_approve" | "full_auto" | undefined {
+):
+  | "draft_only"
+  | "review_before_submit"
+  | "one_click_approve"
+  | "full_auto"
+  | undefined {
   const normalized = normalizeFactText(detail ?? normalizedRequest);
 
   if (normalized.includes("draft only")) {
     return "draft_only";
   }
 
-  if (normalized.includes("review before submit") || normalized.includes("review before sending")) {
+  if (
+    normalized.includes("review before submit") ||
+    normalized.includes("review before sending")
+  ) {
     return "review_before_submit";
   }
 
-  if (normalized.includes("one click approve") || normalized.includes("one-click approve")) {
+  if (
+    normalized.includes("one click approve") ||
+    normalized.includes("one-click approve")
+  ) {
     return "one_click_approve";
   }
 
-  if (normalized.includes("full auto") || normalized.includes("fully automatic")) {
+  if (
+    normalized.includes("full auto") ||
+    normalized.includes("fully automatic")
+  ) {
     return "full_auto";
   }
 
@@ -236,12 +276,23 @@ function normalizeComparableValue(value: unknown): unknown {
   return value;
 }
 
-export function valuesMatch(currentValue: unknown, nextValue: unknown): boolean {
-  return JSON.stringify(normalizeComparableValue(currentValue)) === JSON.stringify(normalizeComparableValue(nextValue));
+export function valuesMatch(
+  currentValue: unknown,
+  nextValue: unknown,
+): boolean {
+  return (
+    JSON.stringify(normalizeComparableValue(currentValue)) ===
+    JSON.stringify(normalizeComparableValue(nextValue))
+  );
 }
 
-export function requestMentionsAlias(normalizedRequest: string, aliases: readonly string[]): boolean {
-  return aliases.some((alias) => normalizedRequest.includes(normalizeFactText(alias)));
+export function requestMentionsAlias(
+  normalizedRequest: string,
+  aliases: readonly string[],
+): boolean {
+  return aliases.some((alias) =>
+    normalizedRequest.includes(normalizeFactText(alias)),
+  );
 }
 
 function buildOperation(
@@ -266,13 +317,17 @@ export function buildFieldPatchGroup<TValue>(
   const matchingReviewItems = descriptor.reviewDomain
     ? findPendingRelevantReviewItems(
         input,
-        (item) => item.target.domain === descriptor.reviewDomain && item.target.key === descriptor.key,
+        (item) =>
+          item.target.domain === descriptor.reviewDomain &&
+          item.target.key === descriptor.key,
       )
     : [];
   const operations: ProfileCopilotPatchGroup["operations"] = [];
 
   if (!valuesMatch(currentValue, nextValue)) {
-    operations.push(buildOperation(descriptor.operation, descriptor.key, nextValue));
+    operations.push(
+      buildOperation(descriptor.operation, descriptor.key, nextValue),
+    );
   }
 
   if (matchingReviewItems.length > 0) {
@@ -280,7 +335,9 @@ export function buildFieldPatchGroup<TValue>(
       operation: "resolve_review_items",
       reviewItemIds: matchingReviewItems.map((item) => item.id),
       resolutionStatus:
-        typeof nextValue === "string" || typeof nextValue === "number" || typeof nextValue === "boolean"
+        typeof nextValue === "string" ||
+        typeof nextValue === "number" ||
+        typeof nextValue === "boolean"
           ? getMatchingResolutionStatus(matchingReviewItems[0]!, nextValue)
           : "edited",
     });
@@ -308,8 +365,12 @@ export function buildGenericExplicitFieldPatchGroupFromDescriptors(
   const normalizedRequest = normalizeFactText(input.request);
   const detail = deriveRequestedDetail(input.request);
   const orderedDescriptors = [...descriptors].sort((left, right) => {
-    const leftSpecificity = Math.max(...left.aliases.map((alias) => alias.length));
-    const rightSpecificity = Math.max(...right.aliases.map((alias) => alias.length));
+    const leftSpecificity = Math.max(
+      ...left.aliases.map((alias) => alias.length),
+    );
+    const rightSpecificity = Math.max(
+      ...right.aliases.map((alias) => alias.length),
+    );
 
     return rightSpecificity - leftSpecificity;
   });

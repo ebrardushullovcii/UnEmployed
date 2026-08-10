@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest'
 import {
   CandidateProfileSchema,
   JobSearchPreferencesSchema,
-  ResumeImportFieldCandidateSummarySchema,
+  ResumeImportFieldCandidateSummarySchema
 } from '@unemployed/contracts'
 import {
   buildProfilePayload,
@@ -10,7 +10,7 @@ import {
   createProfileEditorValues,
   createSearchPreferencesEditorValues,
   hasProfileDraftChanges,
-  hasSearchPreferencesDraftChanges,
+  hasSearchPreferencesDraftChanges
 } from './profile-editor'
 
 function createProfile() {
@@ -83,7 +83,11 @@ describe('profile editor application identity defaults', () => {
     const values = createProfileEditorValues(profile, [
       ResumeImportFieldCandidateSummarySchema.parse({
         id: 'experience_candidate_1',
-        target: { section: 'experience', key: 'record', recordId: 'experience_1' },
+        target: {
+          section: 'experience',
+          key: 'record',
+          recordId: 'experience_1'
+        },
         label: 'Staff/Senior Software Engineer at EdSights',
         value: {
           companyName: 'EdSights',
@@ -111,7 +115,11 @@ describe('profile editor application identity defaults', () => {
       }),
       ResumeImportFieldCandidateSummarySchema.parse({
         id: 'education_candidate_1',
-        target: { section: 'education', key: 'record', recordId: 'education_1' },
+        target: {
+          section: 'education',
+          key: 'record',
+          recordId: 'education_1'
+        },
         label: 'Education',
         value: {
           schoolName: 'Florida State University',
@@ -173,7 +181,11 @@ describe('profile editor application identity defaults', () => {
     const values = createProfileEditorValues(profile, [
       ResumeImportFieldCandidateSummarySchema.parse({
         id: 'experience_candidate_mercury',
-        target: { section: 'experience', key: 'record', recordId: 'experience_1' },
+        target: {
+          section: 'experience',
+          key: 'record',
+          recordId: 'experience_1'
+        },
         label: 'Senior Software Engineer at Mercury',
         value: {
           companyName: 'Mercury',
@@ -216,7 +228,11 @@ describe('profile editor application identity defaults', () => {
     const values = createProfileEditorValues(profile, [
       ResumeImportFieldCandidateSummarySchema.parse({
         id: 'experience_candidate_duplicate_1',
-        target: { section: 'experience', key: 'record', recordId: 'experience_1' },
+        target: {
+          section: 'experience',
+          key: 'record',
+          recordId: 'experience_1'
+        },
         label: 'Senior Software Engineer at Mercury',
         value: {
           companyName: 'Mercury',
@@ -244,7 +260,11 @@ describe('profile editor application identity defaults', () => {
       }),
       ResumeImportFieldCandidateSummarySchema.parse({
         id: 'experience_candidate_duplicate_2',
-        target: { section: 'experience', key: 'record', recordId: 'experience_9' },
+        target: {
+          section: 'experience',
+          key: 'record',
+          recordId: 'experience_9'
+        },
         label: 'Senior Software Engineer at Mercury',
         value: {
           companyName: 'Mercury',
@@ -292,7 +312,7 @@ describe('profile editor application identity defaults', () => {
       fullName: 'New Candidate',
       headline: 'Import your resume to begin',
       currentLocation: 'Set your preferred location',
-      yearsExperience: 0,
+      yearsExperience: 0
     })
 
     const values = createProfileEditorValues(profile, [
@@ -306,8 +326,8 @@ describe('profile editor application identity defaults', () => {
         confidence: 0.82,
         resolution: 'needs_review',
         resolutionReason: null,
-        notes: [],
-      }),
+        notes: []
+      })
     ])
 
     expect(values.identity.yearsExperience).toBe('12')
@@ -318,7 +338,11 @@ describe('profile editor application identity defaults', () => {
     const values = createProfileEditorValues(profile, [
       ResumeImportFieldCandidateSummarySchema.parse({
         id: 'experience_candidate_work_mode',
-        target: { section: 'experience', key: 'record', recordId: 'experience_1' },
+        target: {
+          section: 'experience',
+          key: 'record',
+          recordId: 'experience_1'
+        },
         label: 'Senior Software Engineer at Leif',
         value: {
           companyName: 'Leif',
@@ -361,7 +385,11 @@ describe('profile editor application identity defaults', () => {
     const values = createProfileEditorValues(profile, [
       ResumeImportFieldCandidateSummarySchema.parse({
         id: 'experience_candidate_keep_review_first',
-        target: { section: 'experience', key: 'record', recordId: 'experience_candidate_1' },
+        target: {
+          section: 'experience',
+          key: 'record',
+          recordId: 'experience_candidate_1'
+        },
         label: 'React Developer at AUTOMATEDPROS',
         value: {
           companyName: 'AUTOMATEDPROS',
@@ -378,15 +406,15 @@ describe('profile editor application identity defaults', () => {
           skills: ['React'],
           domainTags: [],
           peopleManagementScope: null,
-          ownershipScope: null,
+          ownershipScope: null
         },
         valuePreview: 'AUTOMATEDPROS | React Developer',
         evidenceText: 'AUTOMATEDPROS – React Developer',
         confidence: 0.82,
         resolution: 'needs_review',
         resolutionReason: null,
-        notes: [],
-      }),
+        notes: []
+      })
     ])
 
     const result = buildProfilePayload(profile, values)
@@ -400,7 +428,11 @@ describe('profile editor application identity defaults', () => {
     const values = createProfileEditorValues(profile, [
       ResumeImportFieldCandidateSummarySchema.parse({
         id: 'experience_candidate_keep_after_edit',
-        target: { section: 'experience', key: 'record', recordId: 'experience_candidate_2' },
+        target: {
+          section: 'experience',
+          key: 'record',
+          recordId: 'experience_candidate_2'
+        },
         label: 'React Developer at AUTOMATEDPROS',
         value: {
           companyName: 'AUTOMATEDPROS',
@@ -417,15 +449,15 @@ describe('profile editor application identity defaults', () => {
           skills: ['React'],
           domainTags: [],
           peopleManagementScope: null,
-          ownershipScope: null,
+          ownershipScope: null
         },
         valuePreview: 'AUTOMATEDPROS | React Developer',
         evidenceText: 'AUTOMATEDPROS – React Developer',
         confidence: 0.82,
         resolution: 'needs_review',
         resolutionReason: null,
-        notes: [],
-      }),
+        notes: []
+      })
     ])
 
     values.records.experiences[0]!.workMode = ['hybrid']
@@ -437,7 +469,7 @@ describe('profile editor application identity defaults', () => {
     expect(result.payload?.experiences[0]).toMatchObject({
       companyName: 'AUTOMATEDPROS',
       title: 'React Developer',
-      workMode: ['hybrid'],
+      workMode: ['hybrid']
     })
   })
 
@@ -454,8 +486,8 @@ describe('profile editor application identity defaults', () => {
         confidence: 0.84,
         resolution: 'needs_review',
         resolutionReason: null,
-        notes: [],
-      }),
+        notes: []
+      })
     ])
 
     expect(values.identity.portfolioUrl).toBe('https://alex-vanguard.dev')
@@ -486,8 +518,8 @@ describe('profile editor application identity defaults', () => {
       companyWhitelist: [],
       discovery: {
         historyLimit: 5,
-        targets: [],
-      },
+        targets: []
+      }
     })
 
     const values = createSearchPreferencesEditorValues(searchPreferences)
@@ -499,9 +531,162 @@ describe('profile editor application identity defaults', () => {
     const draftSearchPreferences = buildSearchPreferencesPayload(searchPreferences, values).payload
 
     expect(draftSearchPreferences).toBeDefined()
-    expect(
-      draftSearchPreferences?.discovery.collectOnlyHardCriteriaMatches,
-    ).toBe(true)
+    expect(draftSearchPreferences?.discovery.collectOnlyHardCriteriaMatches).toBe(true)
     expect(hasSearchPreferencesDraftChanges(searchPreferences, draftSearchPreferences)).toBe(true)
+  })
+  test('invalidates saved source guidance when the starting URL changes', () => {
+    const searchPreferences = JobSearchPreferencesSchema.parse({
+      targetRoles: ['Senior Frontend Engineer'],
+      locations: ['Remote'],
+      workModes: ['remote'],
+      minimumSalaryUsd: null,
+      approvalMode: 'review_before_submit',
+      tailoringMode: 'balanced',
+      discovery: {
+        targets: [
+          {
+            id: 'target_mercury',
+            label: 'Mercury Greenhouse',
+            startingUrl: 'https://job-boards.greenhouse.io/mercury',
+            instructionStatus: 'validated',
+            validatedInstructionId: 'instruction_mercury',
+            draftInstructionId: null,
+            lastDebugRunId: 'debug_mercury',
+            lastVerifiedAt: '2026-07-31T20:00:00.000Z',
+            staleReason: null
+          }
+        ]
+      }
+    })
+    const values = createSearchPreferencesEditorValues(searchPreferences)
+
+    values.discoveryTargets[0]!.startingUrl = 'https://jobs.example.com/careers'
+
+    const changedTarget = buildSearchPreferencesPayload(searchPreferences, values).payload?.discovery.targets[0]
+
+    expect(changedTarget).toMatchObject({
+      startingUrl: 'https://jobs.example.com/careers',
+      instructionStatus: 'missing',
+      validatedInstructionId: null,
+      draftInstructionId: null,
+      lastDebugRunId: null,
+      lastVerifiedAt: null,
+      staleReason: 'Starting page URL changed. Check this source again before reusing saved guidance.'
+    })
+
+    const whitespaceOnlyValues = createSearchPreferencesEditorValues(searchPreferences)
+    whitespaceOnlyValues.discoveryTargets[0]!.startingUrl = '  https://job-boards.greenhouse.io/mercury  '
+
+    expect(
+      buildSearchPreferencesPayload(searchPreferences, whitespaceOnlyValues).payload?.discovery.targets[0]
+    ).toMatchObject({
+      instructionStatus: 'validated',
+      validatedInstructionId: 'instruction_mercury',
+      lastDebugRunId: 'debug_mercury',
+      lastVerifiedAt: '2026-07-31T20:00:00.000Z',
+      staleReason: null
+    })
+  })
+
+  test('keeps incomplete source rows from being saved as search-ready', () => {
+    const searchPreferences = JobSearchPreferencesSchema.parse({
+      targetRoles: ['Engineer'],
+      minimumSalaryUsd: null,
+      approvalMode: 'review_before_submit',
+      tailoringMode: 'balanced',
+      discovery: { historyLimit: 5, targets: [] },
+    })
+    const values = createSearchPreferencesEditorValues(searchPreferences)
+    values.discoveryTargets = [
+      {
+        id: 'target_new',
+        label: 'New careers page',
+        startingUrl: '',
+        enabled: true,
+        adapterKind: 'auto',
+        customInstructions: '',
+        instructionStatus: 'missing',
+        validatedInstructionId: null,
+        draftInstructionId: null,
+        lastDebugRunId: null,
+        lastVerifiedAt: null,
+        staleReason: null,
+      },
+    ]
+
+    const result = buildSearchPreferencesPayload(searchPreferences, values)
+
+    expect(result.payload).toBeUndefined()
+    expect(result.validationMessage).toContain('public http or https URL')
+  })
+
+  test('edits compensation as a typed range without converting the visible monthly amounts', () => {
+    const searchPreferences = JobSearchPreferencesSchema.parse({
+      targetRoles: ['Senior Engineer'],
+      minimumSalaryUsd: null,
+      approvalMode: 'review_before_submit',
+      tailoringMode: 'balanced',
+      compensation: {
+        minimum: 3000,
+        maximum: 4000,
+        interval: 'month',
+        currency: 'EUR',
+        currencyStatus: 'explicit'
+      }
+    })
+    const values = createSearchPreferencesEditorValues(searchPreferences)
+
+    expect(values).toMatchObject({
+      minimumSalaryUsd: '3000',
+      targetSalaryUsd: '4000',
+      compensationInterval: 'month',
+      salaryCurrency: 'EUR'
+    })
+
+    values.targetSalaryUsd = '4500'
+    const result = buildSearchPreferencesPayload(searchPreferences, values)
+
+    expect(result.validationMessage).toBeUndefined()
+    expect(result.payload?.compensation).toEqual({
+      minimum: 3000,
+      maximum: 4500,
+      interval: 'month',
+      currency: 'EUR',
+      currencyStatus: 'explicit'
+    })
+    expect(result.payload?.minimumSalaryUsd).toBeNull()
+    expect(result.payload?.targetSalaryUsd).toBeNull()
+  })
+
+  test('requires a valid range and preserves an unresolved currency explicitly', () => {
+    const searchPreferences = JobSearchPreferencesSchema.parse({
+      targetRoles: ['Senior Engineer'],
+      minimumSalaryUsd: null,
+      approvalMode: 'review_before_submit',
+      tailoringMode: 'balanced'
+    })
+    const values = createSearchPreferencesEditorValues(searchPreferences)
+
+    values.minimumSalaryUsd = '4000'
+    values.targetSalaryUsd = '3000'
+    values.compensationInterval = 'month'
+    expect(buildSearchPreferencesPayload(searchPreferences, values).validationMessage).toContain(
+      'Maximum compensation'
+    )
+
+    values.targetSalaryUsd = '5000'
+    values.salaryCurrency = ''
+    const result = buildSearchPreferencesPayload(searchPreferences, values)
+
+    expect(result.validationMessage).toBeUndefined()
+    expect(result.payload?.compensation).toEqual({
+      minimum: 4000,
+      maximum: 5000,
+      interval: 'month',
+      currency: null,
+      currencyStatus: 'needs_clarification'
+    })
+    expect(result.payload?.minimumSalaryUsd).toBeNull()
+    expect(result.payload?.targetSalaryUsd).toBeNull()
   })
 })

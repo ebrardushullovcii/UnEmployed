@@ -30,6 +30,13 @@ export interface ResumeWorkspaceScreenProps {
   onClearResumeApproval: (jobId: string) => void
   onRegenerateDraft: (jobId: string) => void
   onRegenerateSection: (jobId: string, sectionId: string) => void
+  onRestoreRevision: (jobId: string, revisionId: string) => void
   onApplyPatch: (patch: ResumeDraftPatch, revisionReason?: string | null) => void
   onSendAssistantMessage: (jobId: string, content: string) => void
+  onResolveAssistantProposal?: (
+    jobId: string,
+    proposalId: string,
+    action: "accept" | "reject",
+    patchIds: readonly string[],
+  ) => void
 }

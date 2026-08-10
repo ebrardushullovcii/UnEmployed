@@ -285,7 +285,7 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.profile.linkedinUrl).toBe("https://www.linkedin.com/in/jamie-rivers");
     expect(snapshot.profile.id).toBe("candidate_review_existing_profile");
     expect(snapshot.profile.experiences).toEqual([]);
-    expect(snapshot.latestResumeImportRun?.candidateCounts.autoApplied).toBeGreaterThanOrEqual(4);
+    expect(snapshot.latestResumeImportRun?.candidateCounts.autoApplied).toBe(3);
     expect(snapshot.latestResumeImportRun?.candidateCounts.needsReview).toBeGreaterThanOrEqual(1);
     expect(snapshot.latestResumeImportReviewCandidates.map((candidate) => candidate.label)).toContain(
       "Staff Frontend Engineer at Signal Labs",

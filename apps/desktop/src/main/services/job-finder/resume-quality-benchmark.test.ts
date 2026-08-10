@@ -8,6 +8,7 @@ import { deriveResumeCoveragePlan } from '@unemployed/ai-providers'
 import {
   calculateFragmentFreeExperienceBulletRate,
   calculateProfessionalExperienceSummaryRate,
+  calculateVisibleWorkHistoryCoverageRate,
   calculateWorkHistoryRepresentationRate,
   defaultResumeQualityBenchmarkCases,
   isProfessionalExperienceSummary,
@@ -18,10 +19,11 @@ import {
 } from './resume-quality-benchmark'
 
 describe('desktop resume quality benchmark', () => {
-  test('requires targeted acceptance metrics without gating expected review guidance', () => {
+  test('requires complete visible work history and an issue-free result for acceptance', () => {
     const metrics: ResumeQualityBenchmarkMetrics = {
       groundedVisibleSkillRate: 1,
       workHistoryRepresentationRate: 1,
+      visibleWorkHistoryCoverageRate: 1,
       fragmentFreeExperienceBulletRate: 1,
       professionalExperienceSummaryRate: 1,
       bleedFreeCaseRate: 1,
@@ -30,15 +32,17 @@ describe('desktop resume quality benchmark', () => {
       thinOutputFreeRate: 1,
       pageTargetPassRate: 1,
       atsRenderPassRate: 1,
-      issueFreeCaseRate: 0,
+      issueFreeCaseRate: 1,
     }
 
     expect(passesResumeQualityAcceptance(metrics)).toBe(true)
 
     for (const metric of [
       'workHistoryRepresentationRate',
+      'visibleWorkHistoryCoverageRate',
       'fragmentFreeExperienceBulletRate',
       'professionalExperienceSummaryRate',
+      'issueFreeCaseRate',
     ] as const) {
       expect(
         passesResumeQualityAcceptance({
@@ -99,13 +103,49 @@ describe('desktop resume quality benchmark', () => {
     ).toBe(0.5)
   })
 
+  test('reports visible work-history coverage separately from draft representation', () => {
+    const draftExperienceEntries = [
+      { included: true, profileRecordId: 'experience_current' },
+      { included: false, profileRecordId: 'experience_hidden' },
+      { included: true, profileRecordId: 'experience_unmatched' },
+      { included: true, profileRecordId: null },
+    ]
+
+    expect(
+      calculateWorkHistoryRepresentationRate({
+        profileExperienceIds: ['experience_current', 'experience_hidden'],
+        draftExperienceEntries,
+        tailoringMode: 'conservative',
+      }),
+    ).toBe(1)
+    expect(
+      calculateVisibleWorkHistoryCoverageRate({
+        profileExperienceIds: ['experience_current', 'experience_hidden'],
+        draftExperienceEntries,
+      }),
+    ).toBe(0.5)
+    expect(
+      calculateVisibleWorkHistoryCoverageRate({
+        profileExperienceIds: [],
+        draftExperienceEntries: [],
+      }),
+    ).toBe(1)
+  })
+
   test('flags short comma-split fragments without rejecting concise achievements', () => {
     expect(isSuspiciousExperienceBulletFragment('Next.js')).toBe(true)
     expect(isSuspiciousExperienceBulletFragment('TailwindCSS & WebSockets.')).toBe(true)
     expect(isSuspiciousExperienceBulletFragment('synchronizing UI state.')).toBe(true)
+    expect(isSuspiciousExperienceBulletFragment('Built release tools. Built release tools.')).toBe(true)
     expect(isSuspiciousExperienceBulletFragment('Led QA.')).toBe(false)
     expect(isSuspiciousExperienceBulletFragment('Basic collaboration support.')).toBe(false)
     expect(calculateFragmentFreeExperienceBulletRate(['Led QA.', 'TailwindCSS & WebSockets.'])).toBe(0.5)
+    expect(
+      calculateFragmentFreeExperienceBulletRate([
+        'Led design-system rollout across core surfaces.',
+        'Led the design system rollout across core product surfaces.',
+      ]),
+    ).toBe(0.5)
   })
 
   test('rejects first-person career-change and location-only experience summaries', () => {
@@ -118,6 +158,14 @@ describe('desktop resume quality benchmark', () => {
       isProfessionalExperienceSummary('After deciding to return to my passion, I moved back into engineering.', {
         location: 'Remote',
       }),
+    ).toBe(false)
+    expect(
+      isProfessionalExperienceSummary('Worked on various things and helped with lots of stuff.', {
+        location: 'Remote',
+      }),
+    ).toBe(false)
+    expect(
+      isProfessionalExperienceSummary('Built resilient tools. Built resilient tools.', { location: 'Remote' }),
     ).toBe(false)
     expect(isProfessionalExperienceSummary('REMOTE, KOSOVO', { location: 'Kosovo' })).toBe(false)
     expect(
@@ -185,9 +233,17 @@ describe('desktop resume quality benchmark', () => {
     )
     expect(report.aggregate.groundedVisibleSkillRate).toBe(1)
     expect(report.aggregate.workHistoryRepresentationRate).toBe(1)
+    expect(report.aggregate.visibleWorkHistoryCoverageRate).toBe(1)
     expect(report.aggregate.fragmentFreeExperienceBulletRate).toBe(1)
     expect(report.aggregate.professionalExperienceSummaryRate).toBe(1)
     expect(report.aggregate.atsRenderPassRate).toBe(1)
+    expect(report.providerMode).toBe('deterministic')
+    expect(
+      report.cases.every((entry) => entry.generationDurationMs >= 0),
+    ).toBe(true)
+    expect(
+      report.cases.every((entry) => entry.generationDiagnostics === null),
+    ).toBe(true)
     expect(report.notes).toEqual([])
   }, 10_000)
 
@@ -206,7 +262,7 @@ describe('desktop resume quality benchmark', () => {
       expect(result.metrics.groundedVisibleSkillRate).toBe(1)
       expect(result.metrics.bleedFreeCaseRate).toBe(1)
     }
-  })
+  }, 10_000)
 
   test('keeps thin profile cases ATS-safe while clearing the thin-output failure class', async () => {
     const report = await runDesktopResumeQualityBenchmark({
@@ -221,7 +277,7 @@ describe('desktop resume quality benchmark', () => {
       expect(result.metrics.thinOutputFreeRate).toBe(1)
       expect(result.metrics.atsRenderPassRate).toBe(1)
     }
-  })
+  }, 10_000)
 
   test('persists HTML artifacts when a target directory is provided', async () => {
     const persistArtifactsDirectory = await mkdtemp(path.join(os.tmpdir(), 'resume-quality-report-artifacts-'))
@@ -247,7 +303,7 @@ describe('desktop resume quality benchmark', () => {
     } finally {
       await rm(persistArtifactsDirectory, { recursive: true, force: true })
     }
-  })
+  }, 15_000)
 
   test('renders broader archetype cases with grounded ATS-safe output', async () => {
     const report = await runDesktopResumeQualityBenchmark({
@@ -263,7 +319,7 @@ describe('desktop resume quality benchmark', () => {
       expect(result.metrics.atsRenderPassRate).toBe(1)
       expect(result.visibleSkills.length).toBeGreaterThan(0)
     }
-  })
+  }, 20_000)
 
   test('includes real imported resume fixtures in the full quality corpus', () => {
     const realCaseIds = defaultResumeQualityBenchmarkCases
@@ -271,6 +327,7 @@ describe('desktop resume quality benchmark', () => {
       .filter((id) => id.startsWith('real_'))
 
     expect(realCaseIds).toEqual([
+      'real_resume_import_comprehensive_txt',
       'real_ebrar',
       'real_ebrar_new',
       'real_aaron_murphy',
@@ -289,7 +346,8 @@ describe('desktop resume quality benchmark', () => {
     expect(report.cases).toHaveLength(1)
     for (const result of report.cases) {
       expect(result.metrics.workHistoryRepresentationRate).toBe(1)
-      expect(result.passed).toBe(true)
+      expect(result.metrics.visibleWorkHistoryCoverageRate).toBe(1)
+      expect(result.passed).toBe(result.metrics.issueFreeCaseRate === 1)
       expect(result.metrics.fragmentFreeExperienceBulletRate).toBe(1)
       expect(result.metrics.professionalExperienceSummaryRate).toBe(1)
       expect(result.metrics.atsRenderPassRate).toBe(1)

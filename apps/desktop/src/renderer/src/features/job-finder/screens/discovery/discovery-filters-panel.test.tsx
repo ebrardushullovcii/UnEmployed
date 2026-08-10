@@ -33,6 +33,13 @@ describe("DiscoveryFiltersPanel", () => {
       minimumSalaryUsd: null,
       targetSalaryUsd: null,
       salaryCurrency: "USD",
+      compensation: {
+        minimum: null,
+        maximum: null,
+        interval: "year",
+        currency: "USD",
+        currencyStatus: "inherited",
+      },
       approvalMode: "review_before_submit",
       tailoringMode: "balanced",
       companyBlacklist: [],
@@ -158,6 +165,13 @@ describe("DiscoveryFiltersPanel", () => {
       minimumSalaryUsd: null,
       targetSalaryUsd: null,
       salaryCurrency: "USD",
+      compensation: {
+        minimum: null,
+        maximum: null,
+        interval: "year",
+        currency: "USD",
+        currencyStatus: "inherited",
+      },
       approvalMode: "review_before_submit",
       tailoringMode: "balanced",
       companyBlacklist: [],
@@ -290,6 +304,13 @@ describe("DiscoveryFiltersPanel", () => {
       minimumSalaryUsd: null,
       targetSalaryUsd: null,
       salaryCurrency: "USD",
+      compensation: {
+        minimum: null,
+        maximum: null,
+        interval: "year",
+        currency: "USD",
+        currencyStatus: "inherited",
+      },
       approvalMode: "review_before_submit",
       tailoringMode: "balanced",
       companyBlacklist: [],
@@ -453,6 +474,7 @@ describe("DiscoveryFiltersPanel", () => {
             seniority: null,
             postedAt: null,
             postedAtText: null,
+            providerUpdatedAt: null,
             description: "Lead design systems work.",
             responsibilities: [],
             minimumQualifications: [],
@@ -480,7 +502,49 @@ describe("DiscoveryFiltersPanel", () => {
             keySkills: [],
             benefits: [],
             matchAssessment: {
+              scorerVersion: 2,
+              contextFingerprint: null,
+              postingFingerprint: null,
               score: 92,
+              compensationFit: {
+                state: "not_requested",
+                confidence: "unavailable",
+                minimumSalaryUsd: null,
+                listingMinimumAnnualUsd: null,
+                listingCurrency: null,
+                explanation: "No minimum salary preference is configured.",
+              },
+              dimensions: {
+                roleSuitability: {
+                  state: "unknown",
+                  explanation:
+                    "Role suitability is unavailable in this fixture.",
+                  evidence: [],
+                },
+                preferenceAlignment: {
+                  state: "unknown",
+                  explanation:
+                    "Preference alignment is unavailable in this fixture.",
+                  evidence: [],
+                },
+                applicationEffort: {
+                  level: "unknown",
+                  explanation:
+                    "Application effort is unavailable in this fixture.",
+                  evidence: [],
+                },
+                evidenceConfidence: {
+                  level: "unavailable",
+                  explanation:
+                    "Evidence confidence is unavailable in this fixture.",
+                  evidence: [],
+                  supportedCount: 0,
+                  partialCount: 0,
+                  missingCount: 0,
+                  unknownCount: 0,
+                  conflictCount: 0,
+                },
+              },
               reasons: ["Strong fit"],
               gaps: [],
               recommendation: "strong_fit",
@@ -490,6 +554,9 @@ describe("DiscoveryFiltersPanel", () => {
             status: "discovered",
             applyPath: "easy_apply",
             provenance: [],
+            discoveryFeedback: null,
+            resumeApplicationMode: null,
+            latestMatchAssessmentAudit: null,
           },
         ]}
         onRecoveryAction={onRecoveryAction}

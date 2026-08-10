@@ -106,6 +106,7 @@ export interface SearchPreferencesEditorValues {
   jobFamilies: string
   locations: string
   minimumSalaryUsd: string
+  compensationInterval: JobSearchPreferences['compensation']['interval']
   salaryCurrency: string
   seniorityLevels: string
   tailoringMode: JobSearchPreferences['tailoringMode']

@@ -36,9 +36,13 @@ export function ApplicationsDetailPanelSubmitApprovalSection(props: {
     <section className="surface-card-tint grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="grid gap-1">
-          <h3 className="label-mono-xs text-primary">Automatic application authorization</h3>
+          <h3 className="label-mono-xs text-primary">
+            Safe application preparation
+          </h3>
           <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-            Approve this exact run once. Jobs in its scope may then proceed automatically with their already approved résumé choices; no separate confirmation is required for each job.
+            Approve preparation for this exact run and its already approved
+            résumé choices. This does not authorize account creation or a final
+            application submission.
           </p>
         </div>
         <StatusBadge tone={getApprovalTone(submitApproval.status)}>
@@ -86,7 +90,11 @@ export function ApplicationsDetailPanelSubmitApprovalSection(props: {
         </p>
       ) : null}
       <div className="rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) px-3 py-3 text-(length:--text-small) leading-6 text-foreground-soft">
-        Authorization applies only to these jobs and their current approved résumé artifacts. Changing a job or résumé requires fresh approval. You can revoke or cancel before execution reaches an irreversible final action. This audit build still pauses before final submission.
+        Preparation approval applies only to these jobs and their current
+        approved résumé artifacts. Changing a job or résumé requires fresh
+        approval. You can revoke or cancel at any time. Final submission and
+        account creation remain disabled and always require a separate,
+        explicit user decision.
       </div>
       <div className="flex flex-wrap gap-2">
         {submitApproval.status === "pending" &&
@@ -99,8 +107,8 @@ export function ApplicationsDetailPanelSubmitApprovalSection(props: {
             disabled={isApplyRunPending(submitApproval.runId)}
           >
             {submitApproval.jobIds.length === 1
-              ? "Approve automatic application"
-              : `Approve automatic applications for ${submitApproval.jobIds.length} jobs`}
+              ? "Approve safe preparation"
+              : `Approve safe preparation for ${submitApproval.jobIds.length} jobs`}
           </Button>
         ) : null}
         {submitApproval.status === "approved" &&

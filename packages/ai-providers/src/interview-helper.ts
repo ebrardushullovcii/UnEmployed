@@ -17,8 +17,15 @@ import { InterviewCueCardSchema } from "@unemployed/contracts";
 import { z } from "zod";
 import {
   buildAudioTranscriptionsUrl,
-  buildChatCompletionsUrl,
+  buildModelRequestBody,
+  buildModelUrl,
+  DEFAULT_MODEL_API_MODE,
+  DEFAULT_MODEL_REASONING_EFFORT,
+  modelApiModes,
+  modelReasoningEfforts,
+  parseModelApiMode,
   parseModelJsonResponse,
+  parseModelReasoningEffort,
 } from "./openai-compatible-transport";
 
 const execFileAsync = promisify(execFile);
@@ -194,6 +201,8 @@ const OpenAiCompatibleInterviewProviderOptionsSchema = z.object({
   baseUrl: z.string().trim().url(),
   model: z.string().trim().min(1),
   label: z.string().trim().min(1).optional(),
+  apiMode: z.enum(modelApiModes).optional(),
+  reasoningEffort: z.enum(modelReasoningEfforts).optional(),
   requestTimeoutMs: z.number().int().min(1_000).optional(),
 });
 
@@ -225,8 +234,8 @@ export interface InterviewHelperProviderBundle {
 }
 
 const DEFAULT_INTERVIEW_MODEL_TIMEOUT_MS = 30_000;
-const DEFAULT_INTERVIEW_MODEL = "FelidaeAI-Pro-2.7";
-const DEFAULT_INTERVIEW_BASE_URL = "https://ai.automatedpros.link/v1";
+const DEFAULT_INTERVIEW_MODEL = "gpt-5.6-luna";
+const DEFAULT_INTERVIEW_BASE_URL = "https://api.openai.com/v1";
 
 function pickQuestion(input: InterviewCueCardRequest): string {
   const latestMeetingQuestion = [...input.transcriptSegments]
@@ -508,8 +517,9 @@ export function createOpenAiCompatibleInterviewCueCardProvider(
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
+      const apiMode = validatedOptions.apiMode ?? "chat_completions";
       const response = await fetch(
-        buildChatCompletionsUrl(validatedOptions.baseUrl),
+        buildModelUrl(validatedOptions.baseUrl, apiMode),
         {
           method: "POST",
           signal: controller.signal,
@@ -517,22 +527,25 @@ export function createOpenAiCompatibleInterviewCueCardProvider(
             Authorization: `Bearer ${validatedOptions.apiKey}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            model: validatedOptions.model,
-            temperature: 0.2,
-            response_format: { type: "json_object" },
-            messages: [
-              { role: "system", content: buildCueCardPrompt() },
-              {
-                role: "user",
-                content: JSON.stringify(buildCueCardPayload(input)),
-              },
-            ],
-          }),
+          body: JSON.stringify(
+            buildModelRequestBody({
+              apiMode,
+              model: validatedOptions.model,
+              reasoningEffort: validatedOptions.reasoningEffort,
+              jsonOutput: true,
+              messages: [
+                { role: "system", content: buildCueCardPrompt() },
+                {
+                  role: "user",
+                  content: JSON.stringify(buildCueCardPayload(input)),
+                },
+              ],
+            }),
+          ),
         },
       );
 
-      return parseModelJsonResponse(response);
+      return parseModelJsonResponse(response, apiMode);
     } catch (error) {
       throw normalizeAbortLikeError(error, timeoutMs);
     } finally {
@@ -622,8 +635,9 @@ export function createOpenAiCompatibleInterviewScreenshotVisionProvider(
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
+      const apiMode = validatedOptions.apiMode ?? "chat_completions";
       const response = await fetch(
-        buildChatCompletionsUrl(validatedOptions.baseUrl),
+        buildModelUrl(validatedOptions.baseUrl, apiMode),
         {
           method: "POST",
           signal: controller.signal,
@@ -631,33 +645,36 @@ export function createOpenAiCompatibleInterviewScreenshotVisionProvider(
             Authorization: `Bearer ${validatedOptions.apiKey}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            model: validatedOptions.model,
-            temperature: 0.1,
-            response_format: { type: "json_object" },
-            messages: [
-              { role: "system", content: buildScreenshotVisionPrompt() },
-              {
-                role: "user",
-                content: [
-                  {
-                    type: "text",
-                    text: JSON.stringify(buildScreenshotVisionPayload(input)),
-                  },
-                  ...input.images.slice(0, 3).map((image) => ({
-                    type: "image_url",
-                    image_url: {
-                      url: `data:${image.mimeType};base64,${image.base64}`,
+          body: JSON.stringify(
+            buildModelRequestBody({
+              apiMode,
+              model: validatedOptions.model,
+              reasoningEffort: validatedOptions.reasoningEffort,
+              jsonOutput: true,
+              messages: [
+                { role: "system", content: buildScreenshotVisionPrompt() },
+                {
+                  role: "user",
+                  content: [
+                    {
+                      type: "text",
+                      text: JSON.stringify(buildScreenshotVisionPayload(input)),
                     },
-                  })),
-                ],
-              },
-            ],
-          }),
+                    ...input.images.slice(0, 3).map((image) => ({
+                      type: "image_url",
+                      image_url: {
+                        url: `data:${image.mimeType};base64,${image.base64}`,
+                      },
+                    })),
+                  ],
+                },
+              ],
+            }),
+          ),
         },
       );
 
-      return parseModelJsonResponse(response);
+      return parseModelJsonResponse(response, apiMode);
     } catch (error) {
       throw normalizeAbortLikeError(error, timeoutMs);
     } finally {
@@ -1150,6 +1167,15 @@ export function createInterviewHelperProvidersFromEnvironment(
           env.UNEMPLOYED_INTERVIEW_AI_MODEL ??
           env.UNEMPLOYED_AI_MODEL ??
           DEFAULT_INTERVIEW_MODEL,
+        apiMode:
+          parseModelApiMode(
+            env.UNEMPLOYED_INTERVIEW_AI_API_MODE ?? env.UNEMPLOYED_AI_API_MODE,
+          ) ?? DEFAULT_MODEL_API_MODE,
+        reasoningEffort:
+          parseModelReasoningEffort(
+            env.UNEMPLOYED_INTERVIEW_REASONING_EFFORT ??
+              env.UNEMPLOYED_AI_REASONING_EFFORT,
+          ) ?? DEFAULT_MODEL_REASONING_EFFORT,
         label: "AI interview screenshot vision provider",
         requestTimeoutMs,
       })
@@ -1192,6 +1218,15 @@ export function createInterviewHelperProvidersFromEnvironment(
       env.UNEMPLOYED_INTERVIEW_AI_MODEL ??
       env.UNEMPLOYED_AI_MODEL ??
       DEFAULT_INTERVIEW_MODEL,
+    apiMode:
+      parseModelApiMode(
+        env.UNEMPLOYED_INTERVIEW_AI_API_MODE ?? env.UNEMPLOYED_AI_API_MODE,
+      ) ?? DEFAULT_MODEL_API_MODE,
+    reasoningEffort:
+      parseModelReasoningEffort(
+        env.UNEMPLOYED_INTERVIEW_REASONING_EFFORT ??
+          env.UNEMPLOYED_AI_REASONING_EFFORT,
+      ) ?? DEFAULT_MODEL_REASONING_EFFORT,
     requestTimeoutMs,
   };
 
@@ -1229,11 +1264,20 @@ export function createDeterministicInterviewSummaryProvider(): InterviewSummaryP
         .reverse()
         .find((segment) => segment.source === "meeting_audio")?.text;
       const cueCount = input.cueCards.length;
+      const previousSummary = input.previousSummary
+        .replace(/(?:^|\s)\d+ cue cards? generated\.(?=\s|$)/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      const latestTopic = latestQuestion
+        ? `Latest interviewer topic: ${latestQuestion}`
+        : null;
       const summaryParts = [
-        input.previousSummary === "No summary yet."
+        previousSummary === "No summary yet." || previousSummary.length === 0
           ? null
-          : input.previousSummary,
-        latestQuestion ? `Latest interviewer topic: ${latestQuestion}` : null,
+          : previousSummary,
+        latestTopic && !previousSummary.includes(latestTopic)
+          ? latestTopic
+          : null,
         cueCount > 0
           ? `${cueCount} cue card${cueCount === 1 ? "" : "s"} generated.`
           : null,

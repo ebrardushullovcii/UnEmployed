@@ -534,7 +534,7 @@ describe("resume import deduplication", () => {
     const profile = await repository.getProfile();
 
     expect(run?.modelRoles?.vision.status).toBe("running");
-    expect(run?.modelRoles?.vision.warning).toContain("text import completed");
+    expect(run?.modelRoles?.vision.warning).toContain("text import is ready");
     expect(run?.modelRoles?.vision.providerKind).toBe("openai_compatible_vision");
     expect(profile.email).toBe("jamie@example.com");
   });
@@ -644,7 +644,7 @@ describe("resume import deduplication", () => {
     expect(run?.status).toBe("applied");
     expect(run?.modelRoles?.vision.status).toBe("running");
     expect(run?.modelRoles?.vision.timeoutMs).toBe(600_000);
-    expect(run?.modelRoles?.vision.warning).toContain("text import completed");
+    expect(run?.modelRoles?.vision.warning).toContain("text import is ready");
     expect(profile.email).toBe("jamie@example.com");
   });
 

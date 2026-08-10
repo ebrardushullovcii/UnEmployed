@@ -24,6 +24,10 @@ import {
   type ToolCall,
 } from "@unemployed/contracts";
 import { z } from "zod";
+import {
+  modelApiModes,
+  modelReasoningEfforts,
+} from "./openai-compatible-transport";
 import type {
   AdjudicateResumeImportCandidatesInput,
   ExtractResumeImportStageInput,
@@ -208,6 +212,15 @@ export const TailoredResumeDraftSchema = z.object({
   languages: z.array(NonEmptyStringSchema).default([]),
   fullText: NonEmptyStringSchema,
   compatibilityScore: z.number().int().min(0).max(100).nullable(),
+  generationQuality: z
+    .object({
+      strategy: z.enum(["deterministic", "evidence_linked"]),
+      proposedRewriteCount: z.number().int().min(0),
+      acceptedRewriteCount: z.number().int().min(0),
+      rejectedRewriteCount: z.number().int().min(0),
+      acceptedRewriteCharacters: z.number().int().min(0),
+    })
+    .optional(),
   notes: z.array(NonEmptyStringSchema).default([]),
 });
 
@@ -226,6 +239,8 @@ export const OpenAiCompatibleJobFinderAiClientOptionsSchema = z.object({
   baseUrl: z.string().trim().url(),
   model: NonEmptyStringSchema,
   label: NonEmptyStringSchema.optional(),
+  apiMode: z.enum(modelApiModes).optional(),
+  reasoningEffort: z.enum(modelReasoningEfforts).optional(),
   contextWindowTokens: z.number().int().min(1_000).optional(),
   requestTimeoutMs: z.number().int().min(1_000).optional(),
   resumeExtractionTimeoutMs: z.number().int().min(1_000).optional(),

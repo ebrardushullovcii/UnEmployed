@@ -1,0 +1,268 @@
+import { useState } from "react";
+import type {
+  ResumeClaimAssessment,
+  ResumeDraftOrigin,
+  ResumeValidationResult,
+} from "@unemployed/contracts";
+import { Button } from "@renderer/components/ui/button";
+import { StatusBadge } from "../../components/status-badge";
+
+const INITIAL_VISIBLE_CLAIMS = 6;
+const CLAIM_PAGE_SIZE = 6;
+const generatedOrigins = new Set<ResumeDraftOrigin>([
+  "ai_generated",
+  "assistant_edited",
+  "deterministic_fallback",
+]);
+
+function isGeneratedClaim(claim: ResumeClaimAssessment) {
+  return generatedOrigins.has(claim.claimOrigin);
+}
+
+function isBlockingClaim(claim: ResumeClaimAssessment) {
+  return (
+    claim.status === "unsupported" ||
+    (claim.status === "review" && isGeneratedClaim(claim))
+  );
+}
+
+function formatOriginLabel(origin: ResumeDraftOrigin) {
+  switch (origin) {
+    case "ai_generated":
+      return "AI generated";
+    case "assistant_edited":
+      return "Assistant edited";
+    case "deterministic_fallback":
+      return "Generated fallback";
+    case "user_edited":
+      return "Your edit";
+    case "imported":
+      return "Imported";
+  }
+}
+
+function formatEvidenceKind(
+  kind: ResumeClaimAssessment["evidenceRefs"][number]["sourceKind"],
+) {
+  switch (kind) {
+    case "resume":
+      return "Original resume";
+    case "profile":
+      return "Profile";
+    case "proof":
+      return "Saved proof";
+    case "user":
+      return "Your input";
+  }
+}
+
+function getStatusPresentation(claim: ResumeClaimAssessment) {
+  if (claim.status === "exact") {
+    return {
+      label: "Exact evidence",
+      tone: "positive" as const,
+      explanation: "Matches candidate evidence directly.",
+    };
+  }
+  if (claim.status === "paraphrase") {
+    return {
+      label: "Supported paraphrase",
+      tone: "active" as const,
+      explanation: "Reworded, with candidate evidence linked below.",
+    };
+  }
+  if (claim.status === "review" && claim.claimOrigin === "user_edited") {
+    return {
+      label: "Review your edit",
+      tone: "neutral" as const,
+      explanation:
+        "This edit is yours, but it has not been automatically verified against saved evidence.",
+    };
+  }
+  if (claim.status === "review") {
+    return {
+      label: "Generated claim blocked",
+      tone: "critical" as const,
+      explanation:
+        "This generated wording needs candidate evidence before export or approval.",
+    };
+  }
+  return {
+    label: "Unsupported claim blocked",
+    tone: "critical" as const,
+    explanation:
+      "No sufficient candidate evidence was found. Remove or rewrite this claim before export or approval.",
+  };
+}
+
+function claimPriority(claim: ResumeClaimAssessment) {
+  if (isBlockingClaim(claim)) return 0;
+  if (claim.status === "review") return 1;
+  return 2;
+}
+
+export function ResumeClaimTrustPanel(props: {
+  hasUnsavedChanges: boolean;
+  validation: ResumeValidationResult | null;
+}) {
+  const [visibleClaimCount, setVisibleClaimCount] = useState(
+    INITIAL_VISIBLE_CLAIMS,
+  );
+  const assessments = props.validation?.claimAssessments ?? [];
+
+  if (assessments.length === 0) {
+    return (
+      <section
+        aria-label="Resume claim trust"
+        className="surface-card-tint grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) p-4"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
+            Claim trust
+          </p>
+          <StatusBadge tone="muted">Not checked</StatusBadge>
+        </div>
+        <p className="text-sm leading-6 text-foreground-soft">
+          Save and validate this draft to check each visible claim against your
+          resume, profile, proofs, and direct input.
+        </p>
+      </section>
+    );
+  }
+
+  const orderedAssessments = assessments
+    .map((claim, index) => ({ claim, index }))
+    .sort(
+      (left, right) =>
+        claimPriority(left.claim) - claimPriority(right.claim) ||
+        left.index - right.index,
+    )
+    .map(({ claim }) => claim);
+  const blockingCount = assessments.filter(isBlockingClaim).length;
+  const userReviewCount = assessments.filter(
+    (claim) => claim.status === "review" && claim.claimOrigin === "user_edited",
+  ).length;
+  const supportedCount = assessments.filter(
+    (claim) => claim.status === "exact" || claim.status === "paraphrase",
+  ).length;
+  const visibleAssessments = orderedAssessments.slice(0, visibleClaimCount);
+  const remainingCount = assessments.length - visibleAssessments.length;
+
+  return (
+    <section
+      aria-label="Resume claim trust"
+      className="surface-card-tint grid min-w-0 gap-3 rounded-(--radius-field) border border-(--surface-panel-border) p-4 xl:col-span-full"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="grid min-w-0 gap-1">
+          <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
+            Claim trust
+          </p>
+          <p className="text-sm leading-6 text-foreground-soft">
+            Candidate evidence only. Job descriptions and company research do
+            not count as proof about you.
+          </p>
+        </div>
+        <StatusBadge tone={blockingCount > 0 ? "critical" : "positive"}>
+          {blockingCount > 0
+            ? `${blockingCount} blocking`
+            : "No generated blockers"}
+        </StatusBadge>
+      </div>
+
+      <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
+        {[
+          ["Supported", supportedCount],
+          ["Generated blockers", blockingCount],
+          ["Your edits to review", userReviewCount],
+        ].map(([label, value]) => (
+          <div
+            className="rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-3"
+            key={label}
+          >
+            <dt className="text-foreground-muted">{label}</dt>
+            <dd className="mt-1 font-display text-lg font-semibold text-foreground">
+              {value}
+            </dd>
+          </div>
+        ))}
+      </dl>
+
+      {props.hasUnsavedChanges ? (
+        <p
+          className="rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) p-3 text-sm leading-6 text-(--warning-text)"
+          role="status"
+        >
+          These checks describe the last saved draft. Save your edits to refresh
+          claim evidence.
+        </p>
+      ) : null}
+
+      <div className="grid gap-2">
+        {visibleAssessments.map((claim) => {
+          const presentation = getStatusPresentation(claim);
+          return (
+            <details
+              className="group min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-3 [&_summary::-webkit-details-marker]:hidden"
+              key={claim.id}
+            >
+              <summary className="grid min-w-0 cursor-pointer list-none gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+                <span className="min-w-0 text-sm leading-6 text-foreground">
+                  <span className="line-clamp-2 break-words">
+                    {claim.claimText}
+                  </span>
+                  <span className="mt-1 block text-(length:--text-small) text-foreground-muted">
+                    {formatOriginLabel(claim.claimOrigin)}
+                  </span>
+                </span>
+                <StatusBadge tone={presentation.tone}>
+                  {presentation.label}
+                </StatusBadge>
+              </summary>
+              <div className="mt-3 grid gap-3 border-t border-(--surface-panel-border) pt-3 text-sm">
+                <p className="leading-6 text-foreground-soft">
+                  {presentation.explanation}
+                </p>
+                {claim.evidenceRefs.length > 0 ? (
+                  <ul aria-label="Candidate evidence" className="grid gap-2">
+                    {claim.evidenceRefs.slice(0, 3).map((evidence) => (
+                      <li
+                        className="min-w-0 rounded-(--radius-field) bg-background/60 p-3"
+                        key={evidence.id}
+                      >
+                        <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
+                          {formatEvidenceKind(evidence.sourceKind)}
+                        </p>
+                        <p className="mt-1 break-words leading-6 text-foreground-soft">
+                          {evidence.snippet}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="font-medium text-critical">
+                    No candidate evidence is linked to this claim.
+                  </p>
+                )}
+              </div>
+            </details>
+          );
+        })}
+      </div>
+
+      {remainingCount > 0 ? (
+        <Button
+          className="w-full sm:w-fit"
+          onClick={() =>
+            setVisibleClaimCount((current) => current + CLAIM_PAGE_SIZE)
+          }
+          size="compact"
+          type="button"
+          variant="secondary"
+        >
+          Show {Math.min(CLAIM_PAGE_SIZE, remainingCount)} more claims
+        </Button>
+      ) : null}
+    </section>
+  );
+}

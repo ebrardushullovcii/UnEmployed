@@ -174,6 +174,35 @@ describe("createJobFinderWorkspaceService resume import resilience", () => {
       expect(snapshot.profile.baseResume.analysisWarnings).toContain(
         diagnostic,
       );
+      expect(
+        snapshot.latestResumeImportRun?.timing?.totalMs,
+      ).toBeGreaterThanOrEqual(0);
+      expect(
+        snapshot.latestResumeImportRun?.timing?.textBranchMs,
+      ).toBeGreaterThanOrEqual(0);
+      expect(
+        snapshot.latestResumeImportRun?.timing?.literalExtractionMs,
+      ).toBeGreaterThanOrEqual(0);
+      expect(
+        snapshot.latestResumeImportRun?.timing?.reconciliationMs,
+      ).toBeGreaterThanOrEqual(0);
+      expect(
+        snapshot.latestResumeImportRun?.timing?.finalizationMs,
+      ).toBeGreaterThanOrEqual(0);
+      expect(snapshot.latestResumeImportRun?.timing?.textStages).toHaveLength(
+        4,
+      );
+      expect(
+        snapshot.latestResumeImportRun?.timing?.textStages.find(
+          (stage) => stage.stage === "identity_summary",
+        ),
+      ).toEqual(
+        expect.objectContaining({
+          providerKind: "openai_compatible",
+          providerLabel: "Partial-stage test AI",
+          candidateCount: 1,
+        }),
+      );
     },
   );
 });

@@ -65,7 +65,7 @@
 }
 
 :root,
-:root[data-theme='dark'] {
+:root[data-theme="dark"] {
   color-scheme: dark;
 
   --background: #0e0e0e;
@@ -101,10 +101,18 @@
   --surface-panel-border-warm-strong: rgba(227, 202, 127, 0.7);
   --surface-panel-border-warm-hover: rgba(227, 202, 127, 0.28);
   --surface-tab-hover: rgba(255, 255, 255, 0.025);
-  --surface-panel-shell: linear-gradient(180deg, rgba(255, 255, 255, 0.018), rgba(0, 0, 0, 0.04));
+  --surface-panel-shell: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.018),
+    rgba(0, 0, 0, 0.04)
+  );
   --surface-panel-shell-border: rgba(227, 202, 127, 0.18);
   --surface-panel-shell-highlight: rgba(227, 202, 127, 0.7);
-  --surface-card-tint: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.012));
+  --surface-card-tint: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.03),
+    rgba(255, 255, 255, 0.012)
+  );
   --surface-card-tint-border: rgba(227, 202, 127, 0.14);
   --surface-fill-subtle: rgba(255, 255, 255, 0.01);
   --surface-fill-soft: rgba(255, 255, 255, 0.03);
@@ -139,7 +147,11 @@
   --scrollbar-thumb: rgba(255, 255, 255, 0.16);
   --surface-grid-top: rgba(255, 255, 255, 0.02);
   --surface-grid-line: rgba(255, 255, 255, 0.015);
-  --resume-preview-frame: radial-gradient(circle at top, rgba(255, 255, 255, 0.08), var(--surface-overlay-strong));
+  --resume-preview-frame: radial-gradient(
+    circle at top,
+    rgba(255, 255, 255, 0.08),
+    var(--surface-overlay-strong)
+  );
   --resume-preview-shell-shadow: 0 18px 60px var(--surface-overlay-heavy);
 
   --positive: #d0ecff;
@@ -237,7 +249,7 @@
   --workspace-state-card-shadow: 0 30px 80px rgba(0, 0, 0, 0.32);
 }
 
-:root[data-theme='light'] {
+:root[data-theme="light"] {
   color-scheme: light;
 
   --background: #f5f5f2;
@@ -273,10 +285,18 @@
   --surface-panel-border-warm-strong: rgba(148, 109, 32, 0.55);
   --surface-panel-border-warm-hover: rgba(173, 129, 40, 0.3);
   --surface-tab-hover: rgba(24, 24, 22, 0.045);
-  --surface-panel-shell: linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(186, 161, 108, 0.08));
+  --surface-panel-shell: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.72),
+    rgba(186, 161, 108, 0.08)
+  );
   --surface-panel-shell-border: rgba(173, 129, 40, 0.2);
   --surface-panel-shell-highlight: rgba(148, 109, 32, 0.42);
-  --surface-card-tint: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(173, 129, 40, 0.055));
+  --surface-card-tint: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.92),
+    rgba(173, 129, 40, 0.055)
+  );
   --surface-card-tint-border: rgba(173, 129, 40, 0.14);
   --surface-fill-subtle: rgba(24, 24, 22, 0.028);
   --surface-fill-soft: rgba(24, 24, 22, 0.05);
@@ -311,7 +331,11 @@
   --scrollbar-thumb: rgba(24, 24, 22, 0.18);
   --surface-grid-top: rgba(255, 255, 255, 0.5);
   --surface-grid-line: rgba(24, 24, 22, 0.035);
-  --resume-preview-frame: radial-gradient(circle at top, var(--surface-overlay-subtle), var(--surface-panel-raised));
+  --resume-preview-frame: radial-gradient(
+    circle at top,
+    var(--surface-overlay-subtle),
+    var(--surface-panel-raised)
+  );
   --resume-preview-shell-shadow: 0 18px 60px rgba(24, 24, 22, 0.14);
 
   --positive: #0f6ea8;
@@ -385,7 +409,11 @@ body {
     linear-gradient(90deg, var(--surface-grid-line) 1px, transparent 1px),
     linear-gradient(var(--surface-grid-line) 1px, transparent 1px),
     var(--background);
-  background-size: auto, 32px 32px, 32px 32px, auto;
+  background-size:
+    auto,
+    32px 32px,
+    32px 32px,
+    auto;
   color: var(--foreground);
   font-family: var(--font-body);
   text-rendering: optimizeLegibility;
@@ -400,15 +428,15 @@ textarea {
 }
 
 button,
-[role='button'],
+[role="button"],
 a[href],
 summary {
   cursor: pointer;
 }
 
 button:disabled,
-[role='button'][aria-disabled='true'],
-[role='button']:disabled,
+[role="button"][aria-disabled="true"],
+[role="button"]:disabled,
 summary:disabled {
   cursor: not-allowed;
 }
@@ -436,13 +464,23 @@ h1 {
   border-color: var(--surface-panel-shell-border);
 }
 
+.surface-popover-solid {
+  background: var(--card);
+  border-color: var(--surface-panel-shell-border);
+}
+
 .surface-panel-shell::before {
-  content: '';
+  content: "";
   position: absolute;
   inset-inline: 0;
   top: 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, var(--surface-panel-shell-highlight), transparent);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--surface-panel-shell-highlight),
+    transparent
+  );
   pointer-events: none;
 }
 
@@ -493,7 +531,7 @@ strong {
 }
 
 .job-finder-shell-grid {
-  grid-template-columns: var(--job-finder-side-width) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 @keyframes button-pending-rail-slide {
@@ -511,6 +549,15 @@ strong {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+
   .button-pending-rail {
     animation: none;
     transform: translateX(180%);

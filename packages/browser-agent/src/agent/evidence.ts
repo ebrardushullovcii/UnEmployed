@@ -59,6 +59,7 @@ export type ExtractedJobInput = Pick<
     Pick<
       JobPosting,
       | "postedAtText"
+      | "providerUpdatedAt"
       | "responsibilities"
       | "minimumQualifications"
       | "preferredQualifications"
@@ -205,6 +206,7 @@ function buildCollectedJob(
     easyApplyEligible: job.easyApplyEligible ?? false,
     postedAt: job.postedAt ?? null,
     postedAtText: trimToNull(job.postedAtText),
+    providerUpdatedAt: trimToNull(job.providerUpdatedAt),
     discoveredAt,
     salaryText: job.salaryText || null,
     summary: trimToNull(job.summary) ?? summarizeJobInput(job),
@@ -726,7 +728,10 @@ export function addExtractedJobsToState(
     }
 
     if (existingIndex !== -1) {
-      const existingJob = state.collectedJobs[existingIndex]!;
+      const existingJob = state.collectedJobs[existingIndex];
+      if (existingJob === undefined) {
+        continue;
+      }
       if (
         scoreCollectedJobQuality(validatedJob) >
         scoreCollectedJobQuality(existingJob)

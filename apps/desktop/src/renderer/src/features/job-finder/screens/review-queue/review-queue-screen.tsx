@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { BrowserSessionState, ResumeSourceDocument, ReviewQueueItem, SavedJob, TailoredAsset } from '@unemployed/contracts'
+import type { BrowserSessionState, ResumeApplicationMode, ResumeSourceDocument, ReviewQueueItem, SavedJob, TailoredAsset } from '@unemployed/contracts'
 import { LockedScreenLayout } from '../../components/locked-screen-layout'
 import { PageHeader } from '../../components/page-header'
-import { getDisplayedResumeProgress, getNextDisplayedResumeProgress } from './review-queue-progress'
+import { getDisplayedResumeProgress, getNextDisplayedResumeProgress, rememberDisplayedResumeProgress } from './review-queue-progress'
 import { ReviewQueueListPanel } from './review-queue-list-panel'
 import { ReviewQueueMissionPanel } from './review-queue-mission-panel'
 import { ReviewQueuePreviewPanel } from './review-queue-preview-panel'
@@ -12,13 +12,15 @@ export function ReviewQueueScreen(props: {
   browserSession: BrowserSessionState
   isApplyPending: boolean
   isJobPending: (jobId: string) => boolean
-  onApproveApply: (jobId: string) => void
-  onStartAutoApply: (jobId: string) => void
   onStartAutoApplyQueue: (jobIds: string[]) => void
   onStartApplyCopilot: (jobId: string) => void
   onEditResumeWorkspace: (jobId: string) => void
   onGenerateResume: (jobId: string) => void
+  onOpenBrowserSession: () => void
+  onOpenJobDetails: (jobId: string) => void
+  onOpenProfile: () => void
   onRemoveReviewJob: (jobId: string) => void
+  onSetJobResumeApplicationMode: (jobId: string, resumeApplicationMode: ResumeApplicationMode) => void
   onSelectItem: (jobId: string) => void
   originalResume: ResumeSourceDocument
   queue: readonly ReviewQueueItem[]
@@ -31,13 +33,15 @@ export function ReviewQueueScreen(props: {
     browserSession,
     isApplyPending,
     isJobPending,
-    onApproveApply,
-    onStartAutoApply,
     onStartAutoApplyQueue,
     onStartApplyCopilot,
     onEditResumeWorkspace,
     onGenerateResume,
+    onOpenBrowserSession,
+    onOpenJobDetails,
+    onOpenProfile,
     onRemoveReviewJob,
+    onSetJobResumeApplicationMode,
     onSelectItem,
     originalResume,
     queue,
@@ -45,7 +49,8 @@ export function ReviewQueueScreen(props: {
     selectedItem,
     selectedJob
   } = props
-  const previewState = selectedItem && selectedItem.resumeApplicationMode !== 'original_resume' && !selectedAsset && selectedItem.assetStatus === 'ready' ? 'missing' : null
+  const previewState =
+    selectedItem && selectedItem.resumeApplicationMode !== 'original_resume' && !selectedAsset && selectedItem.assetStatus === 'ready' ? 'missing' : null
   const [queueSelection, setQueueSelection] = useState<readonly string[]>([])
   const selectedJobPending = selectedItem ? isJobPending(selectedItem.jobId) : false
   const [displayedProgress, setDisplayedProgress] = useState(() => getDisplayedResumeProgress(selectedItem, selectedJobPending))
@@ -61,11 +66,16 @@ export function ReviewQueueScreen(props: {
     }
 
     const timer = window.setInterval(() => {
-      setDisplayedProgress((current) => getNextDisplayedResumeProgress(current))
+      setDisplayedProgress((current) => {
+        const nextProgress = getNextDisplayedResumeProgress(current)
+        rememberDisplayedResumeProgress(selectedItem, nextProgress)
+
+        return nextProgress
+      })
     }, 650)
 
     return () => window.clearInterval(timer)
-  }, [selectedJobPending])
+  }, [selectedItem, selectedJobPending])
 
   useEffect(() => {
     setQueueSelection((current) => {
@@ -92,14 +102,18 @@ export function ReviewQueueScreen(props: {
     <LockedScreenLayout
       contentClassName="xl:overflow-hidden"
       topClassName="pb-4 pt-6"
-      topContent={(
+      topContent={
         <PageHeader
           compact
           eyebrow="Shortlisted"
           title="Shortlisted jobs"
-          description={selectedItem?.resumeApplicationMode === 'original_resume' ? 'Review the original CV you imported, then choose whether Apply Copilot should use it unchanged.' : 'Review each saved job, approve its PDF, and start Apply Copilot when you are ready.'}
+          description={
+            selectedItem?.resumeApplicationMode === 'original_resume'
+              ? 'Review the original CV you imported, then choose whether Apply Copilot should use it unchanged.'
+              : 'Review each saved job, approve its PDF, and start Apply Copilot when you are ready.'
+          }
         />
-      )}
+      }
     >
       <div className="grid min-h-124 min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[20rem_minmax(22rem,1fr)_24rem] xl:overflow-hidden">
         <ReviewQueueListPanel
@@ -129,13 +143,15 @@ export function ReviewQueueScreen(props: {
           isApplyPending={isApplyPending}
           isJobPending={isJobPending}
           onClearQueueSelection={handleClearQueueSelection}
-          onApproveApply={onApproveApply}
-          onStartAutoApply={onStartAutoApply}
           onStartAutoApplyQueue={onStartAutoApplyQueue}
           onStartApplyCopilot={onStartApplyCopilot}
           onEditResumeWorkspace={onEditResumeWorkspace}
           onGenerateResume={onGenerateResume}
+          onOpenBrowserSession={onOpenBrowserSession}
+          onOpenJobDetails={onOpenJobDetails}
+          onOpenProfile={onOpenProfile}
           onRemoveReviewJob={onRemoveReviewJob}
+          onSetJobResumeApplicationMode={onSetJobResumeApplicationMode}
           queue={queue}
           queueSelection={queueSelection}
           selectedAsset={selectedAsset}

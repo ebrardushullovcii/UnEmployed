@@ -1,5 +1,13 @@
 import { EventEmitter } from "node:events";
-import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import type * as childProcess from "node:child_process";
 import net from "node:net";
 import { tmpdir } from "node:os";
@@ -7,13 +15,14 @@ import { join } from "node:path";
 import type { JobFinderAiClient } from "@unemployed/ai-providers";
 import {
   BrowserVisualObservationSetSchema,
+  SavedJobSchema,
   type BrowserVisualAnalysisInput,
   type BrowserVisualObservationSet,
 } from "@unemployed/contracts";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 function createTestJob() {
-  return {
+  return SavedJobSchema.parse({
     id: "job_visual_runtime",
     source: "target_site" as const,
     sourceJobId: "job_visual_runtime",
@@ -29,6 +38,7 @@ function createTestJob() {
     easyApplyEligible: false,
     postedAt: "2026-03-20T09:00:00.000Z",
     postedAtText: null,
+    providerUpdatedAt: null,
     discoveredAt: "2026-03-20T10:00:00.000Z",
     firstSeenAt: null,
     lastSeenAt: null,
@@ -83,7 +93,7 @@ function createTestJob() {
       requirements: [],
     },
     provenance: [],
-  };
+  });
 }
 
 function createTestProfile() {
@@ -363,7 +373,7 @@ describe("playwright browser runtime", () => {
     }
   });
 
-  test("closeSession still terminates an owned Chrome process after browser disconnect reset", async () => {
+  test("normalizes stale crash state and lets owned Chrome exit gracefully after browser disconnect reset", async () => {
     const userDataDir = await mkdtemp(
       join(tmpdir(), "unemployed-browser-runtime-close-"),
     );
@@ -371,6 +381,21 @@ describe("playwright browser runtime", () => {
     try {
       const chromeExecutablePath = join(userDataDir, "chrome.exe");
       await writeFile(chromeExecutablePath, "", "utf8");
+      const profileDirectory = join(userDataDir, "Default");
+      const preferencesPath = join(profileDirectory, "Preferences");
+      await mkdir(profileDirectory, { recursive: true });
+      await writeFile(
+        preferencesPath,
+        JSON.stringify({
+          account_info: [{ email: "preserved@example.test" }],
+          profile: {
+            exit_type: "Crashed",
+            exited_cleanly: false,
+            name: "Managed browser",
+          },
+        }),
+        "utf8",
+      );
       const debugPort = await reserveFreePort();
       const launchedChromeProcess = createMockChildProcess({ pid: 42424 });
       let disconnectedHandler: (() => void) | null = null;
@@ -410,7 +435,10 @@ describe("playwright browser runtime", () => {
 
           return Promise.resolve({
             ok: true,
-            json: () => Promise.resolve({}),
+            json: () =>
+              Promise.resolve({
+                webSocketDebuggerUrl: `ws://127.0.0.1:${debugPort}/devtools/browser/test`,
+              }),
           } as Response);
         }),
       );
@@ -443,19 +471,34 @@ describe("playwright browser runtime", () => {
         expect(closedState.label).toBe("Browser profile closed");
       });
 
+      const normalizedPreferences: unknown = JSON.parse(
+        await readFile(preferencesPath, "utf8"),
+      );
+
       expect(fakeBrowser.close).toHaveBeenCalledTimes(1);
-      expect(spawnMock).toHaveBeenCalledTimes(2);
+      expect(spawnMock).toHaveBeenCalledTimes(1);
       expect(spawnMock.mock.calls[0]?.[0]).toBe(chromeExecutablePath);
       expect(spawnMock.mock.calls[0]?.[1]).toContain(
         `--remote-debugging-port=${debugPort}`,
       );
-      expect(spawnMock.mock.calls[1]?.[0]).toBe("taskkill");
-      expect(spawnMock.mock.calls[1]?.[1]).toEqual([
-        "/PID",
-        String(launchedChromeProcess.pid),
-        "/T",
-        "/F",
-      ]);
+      expect(connectOverCDPMock).toHaveBeenCalledWith(
+        `ws://127.0.0.1:${debugPort}/devtools/browser/test`,
+        { timeout: 5_000 },
+      );
+      expect(spawnMock.mock.calls[0]?.[1]).toContain(
+        "--disable-session-crashed-bubble",
+      );
+      expect(spawnMock.mock.calls[0]?.[1]).toContain(
+        "--hide-crash-restore-bubble",
+      );
+      expect(normalizedPreferences).toMatchObject({
+        account_info: [{ email: "preserved@example.test" }],
+        profile: {
+          exit_type: "Normal",
+          exited_cleanly: true,
+          name: "Managed browser",
+        },
+      });
     } finally {
       await rm(userDataDir, { recursive: true, force: true });
     }
@@ -756,6 +799,17 @@ describe("playwright browser runtime", () => {
       expect(defaultResult.visualEvidence).toEqual([]);
       expect(defaultResult.visualObservationSets).toEqual([]);
       expect(defaultResult.visualCheckpoints).toEqual([]);
+      expect(
+        defaultResult.executionTimings.map((entry) => entry.stage),
+      ).toEqual([
+        "browser_preparation",
+        "form_preparation",
+        "visual_diagnostics",
+        "total",
+      ]);
+      expect(
+        defaultResult.executionTimings.every((entry) => entry.durationMs >= 0),
+      ).toBe(true);
       expect(fakePage.screenshot).not.toHaveBeenCalled();
       expect(analyzeBrowserVisualSnapshot).not.toHaveBeenCalled();
 
@@ -786,7 +840,7 @@ describe("playwright browser runtime", () => {
     }
   });
 
-  test("closeSession waits for owned Windows Chrome exit after taskkill returns", async () => {
+  test("closeSession waits for an owned Windows Chrome graceful exit before forced cleanup", async () => {
     vi.useFakeTimers();
     const userDataDir = await mkdtemp(
       join(tmpdir(), "unemployed-browser-runtime-windows-exit-"),
@@ -880,8 +934,8 @@ describe("playwright browser runtime", () => {
         );
       });
 
-      expect(spawnMock).toHaveBeenCalledTimes(2);
-      expect(spawnMock.mock.calls[1]?.[0]).toBe("taskkill");
+      expect(spawnMock).toHaveBeenCalledTimes(1);
+      expect(spawnMock.mock.calls[0]?.[0]).toBe(chromeExecutablePath);
       expect(launchedChromeProcess.exitCode).toBe(0);
     } finally {
       vi.useRealTimers();
@@ -1445,7 +1499,7 @@ describe("playwright browser runtime", () => {
 
       expect(fakePage.goto).toHaveBeenCalledWith(
         "https://example.com/jobs/sign-in",
-        { waitUntil: "domcontentloaded" },
+        { timeout: 8_000, waitUntil: "domcontentloaded" },
       );
       expect(fakePage.bringToFront).toHaveBeenCalled();
     } finally {
@@ -1524,6 +1578,7 @@ describe("playwright browser runtime", () => {
 
       expect(fakeContext.newPage).not.toHaveBeenCalled();
       expect(blankPage.goto).toHaveBeenCalledWith("https://example.com/jobs", {
+        timeout: 8_000,
         waitUntil: "domcontentloaded",
       });
       expect(blankPage.bringToFront).toHaveBeenCalled();
@@ -1605,6 +1660,76 @@ describe("playwright browser runtime", () => {
     }
   });
 
+  test("openSession accepts a navigation timeout after the target origin is visibly loaded", async () => {
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-target-timeout-loaded-"),
+    );
+
+    try {
+      const chromeExecutablePath = join(userDataDir, "chrome.exe");
+      await writeFile(chromeExecutablePath, "", "utf8");
+      const debugPort = await reserveFreePort();
+      const launchedChromeProcess = createMockChildProcess({ pid: 58080 });
+      let pageUrl = "about:blank";
+      const timeoutError = Object.assign(new Error("navigation timed out"), {
+        name: "TimeoutError",
+      });
+      const fakePage = {
+        bringToFront: vi.fn().mockResolvedValue(undefined),
+        goto: vi.fn().mockImplementation(() => {
+          pageUrl = "https://example.com/jobs/login";
+          return Promise.reject(timeoutError);
+        }),
+        isClosed: () => false,
+        url: () => pageUrl,
+      };
+      const fakeContext = {
+        newPage: vi.fn().mockResolvedValue(fakePage),
+        pages: () => [fakePage],
+      };
+      const fakeBrowser = {
+        close: vi.fn(),
+        contexts: () => [fakeContext],
+        isConnected: () => true,
+        once: vi.fn(() => fakeBrowser),
+      };
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() =>
+          Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({}),
+          } as Response),
+        ),
+      );
+      execFileMock.mockImplementation((...args: unknown[]) => {
+        maybeInvokeExecFileCallback(args);
+      });
+      spawnMock.mockReturnValue(launchedChromeProcess);
+      connectOverCDPMock.mockResolvedValue(fakeBrowser);
+
+      const { createBrowserAgentRuntime } =
+        await import("./playwright-browser-runtime");
+      const runtime = createBrowserAgentRuntime({
+        userDataDir,
+        chromeExecutablePath,
+        debugPort,
+      });
+
+      await expect(
+        runtime.openSession("target_site", {
+          targetUrl: "https://example.com/jobs/sign-in",
+        }),
+      ).resolves.toEqual(expect.objectContaining({ status: "ready" }));
+      expect(fakePage.goto).toHaveBeenCalledWith(
+        "https://example.com/jobs/sign-in",
+        { timeout: 8_000, waitUntil: "domcontentloaded" },
+      );
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
   test("openSession marks the session blocked when navigation fails", async () => {
     const userDataDir = await mkdtemp(
       join(tmpdir(), "unemployed-browser-runtime-target-open-failure-"),

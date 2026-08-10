@@ -219,6 +219,7 @@ async function saveCurrentStepAndWaitForPersistence(window, options = {}) {
     (item) => item.step === currentStep && item.status === 'pending',
   )
 
+  await minimizeProfileCopilotIfOpen(window)
   await window.getByRole('button', { name: 'Save changes', exact: true }).click()
 
   await waitForCondition(
@@ -290,7 +291,7 @@ async function applyProfileCopilotRequest(window, request, options = {}) {
 
   await requestField.fill(request)
   await window.getByRole('button', { name: 'Send request', exact: true }).click()
-  await window.getByRole('button', { name: 'Thinking...', exact: true }).waitFor({ timeout: 10000 })
+  await window.getByRole('button', { name: 'Preparing...', exact: true }).waitFor({ timeout: 10000 })
 
   await waitForCondition(
     async () => {
@@ -331,7 +332,7 @@ async function addListEditorValue(window, inputSelector, value) {
 }
 
 async function ensureProfileCopilotOpen(window) {
-  const requestField = window.getByLabel('Ask for a structured profile edit')
+  const requestField = window.getByLabel('Ask for an edit')
 
   if (await requestField.isVisible().catch(() => false)) {
     return requestField
@@ -340,6 +341,15 @@ async function ensureProfileCopilotOpen(window) {
   await window.getByRole('button', { name: /Profile Copilot/ }).last().click()
   await requestField.waitFor({ state: 'visible', timeout: 10000 })
   return requestField
+}
+
+async function minimizeProfileCopilotIfOpen(window) {
+  const minimizeButton = window.getByRole('button', { name: 'Minimize Profile Copilot', exact: true })
+
+  if (await minimizeButton.isVisible().catch(() => false)) {
+    await minimizeButton.click()
+    await minimizeButton.waitFor({ state: 'hidden', timeout: 10000 })
+  }
 }
 
 async function advanceSetupStep(window, nextStep) {
@@ -625,25 +635,61 @@ async function captureProfileSetup() {
       return window.unemployed.jobFinder.test.importResumeFromPath(sourcePath)
     }, defaultResumePath)
     await writeJson('workspace-after-setup-import.json', importedWorkspace)
+
+    // The test import mutates the durable workspace through IPC. Re-enter the
+    // rendered route so the audit sees the same settled post-import state as
+    // the native file-picker journey instead of a stale pre-import render.
+    await window.reload()
+    await window.waitForLoadState('domcontentloaded')
+    await window.getByRole('button', { name: /^Profile$/ }).waitFor({ timeout: 15000 })
+    await window.setViewportSize({ width, height })
     await waitForSetupStep(window, 'essentials')
     await window.getByRole('heading', { level: 1, name: 'Guided setup' }).waitFor({ timeout: 10000 })
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '02-after-import-review-queue.png') })
 
     const nextHeadline = 'Principal Frontend Systems Engineer'
+    const workspaceBeforeHeadlineRequest = await getWorkspace(window)
     const requestField = await ensureProfileCopilotOpen(window)
     await requestField.fill(`Update my headline to "${nextHeadline}"`)
     await window.getByRole('button', { name: 'Send request', exact: true }).click()
-    await window.getByRole('button', { name: 'Thinking...', exact: true }).waitFor({ timeout: 10000 })
+    await window.getByRole('button', { name: 'Preparing...', exact: true }).waitFor({ timeout: 10000 })
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '03-setup-copilot-pending.png') })
+    await waitForCondition(
+      async () => {
+        const workspace = await getWorkspace(window)
+        return workspace.profileCopilotMessages.length > workspaceBeforeHeadlineRequest.profileCopilotMessages.length
+      },
+      'setup copilot headline proposal',
+      60000,
+    )
+
+    const workspaceWithHeadlineProposal = await getWorkspace(window)
+    const headlineProposalMessage = [...workspaceWithHeadlineProposal.profileCopilotMessages]
+      .reverse()
+      .find((message) => message.role === 'assistant')
+    const headlineProposal = headlineProposalMessage?.patchGroups.find(
+      (patchGroup) => patchGroup.applyMode === 'needs_review',
+    )
+
+    if (!headlineProposal) {
+      throw new Error('Expected the setup headline request to produce an explicit review proposal.')
+    }
+    if (workspaceWithHeadlineProposal.profile.headline === nextHeadline) {
+      throw new Error('Setup Copilot changed the headline before the proposal was approved.')
+    }
+
+    await writeJson('workspace-with-headline-proposal.json', workspaceWithHeadlineProposal)
+    await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '03b-setup-copilot-proposal.png') })
+    await window.getByRole('button', { name: 'Apply changes', exact: true }).first().click()
     await waitForCondition(
       async () => {
         const workspace = await getWorkspace(window)
         return (
           workspace.profile.headline === nextHeadline &&
-          workspace.profileRevisions.length > importedWorkspace.profileRevisions.length
+          workspace.profileRevisions.length > workspaceBeforeHeadlineRequest.profileRevisions.length
         )
       },
-      'setup copilot headline update',
+      'explicit approval of the setup copilot headline proposal',
     )
     await captureEssentialsCopilotYearsExperienceUpdate(window)
     await writeJson('workspace-after-setup-copilot.json', await getWorkspace(window))
@@ -673,6 +719,18 @@ async function captureProfileSetup() {
     await captureBlockedSetupCopilotMutationGuard(window)
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '06c-targeting-copilot-guard.png') })
     await writeJson('workspace-after-blocked-setup-copilot-guard.json', await getWorkspace(window))
+    await minimizeProfileCopilotIfOpen(window)
+
+    // Complete the same runnable-source requirement a first-time user sees.
+    // Keep this public and synthetic so the audit never depends on a signed-in
+    // account or private candidate data.
+    await window.getByRole('button', { name: 'Add source', exact: true }).click()
+    await window.getByLabel('Source name', { exact: true }).last().fill('Remote public jobs')
+    await window
+      .getByLabel('Careers or job-board URL', { exact: true })
+      .last()
+      .fill('https://job-boards.greenhouse.io/remotecom')
+
     await window.getByRole('button', { name: 'Save changes', exact: true }).click()
     await window.getByRole('status').filter({ hasText: 'Saved this step.' }).last().waitFor({
       state: 'visible',

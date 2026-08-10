@@ -47,7 +47,9 @@
     "ui:apply-queue-controls": "pnpm build && node ./scripts/capture-apply-queue-controls.mjs",
     "ui:original-cv-flow": "pnpm build && node ./scripts/capture-original-cv-flow.mjs",
     "ui:resume-workspace": "pnpm build && node ./scripts/capture-resume-workspace.mjs",
-    "ui:resume-workspace-dirty": "pnpm build && node ./scripts/capture-resume-workspace-dirty.mjs"
+    "ui:resume-workspace-dirty": "pnpm build && node ./scripts/capture-resume-workspace-dirty.mjs",
+    "ui:action-inbox": "pnpm build && node ./scripts/capture-action-inbox.mjs",
+    "ui:action-inbox:built": "node ./scripts/capture-action-inbox.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

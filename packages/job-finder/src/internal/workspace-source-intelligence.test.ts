@@ -125,6 +125,13 @@ function createSearchPreferences(overrides: Partial<JobSearchPreferences> = {}):
     minimumSalaryUsd: null,
     targetSalaryUsd: null,
     salaryCurrency: "USD",
+    compensation: {
+      minimum: null,
+      maximum: null,
+      interval: "year",
+      currency: null,
+      currencyStatus: "needs_clarification",
+    },
     approvalMode: "draft_only",
     tailoringMode: "conservative",
     companyBlacklist: [],

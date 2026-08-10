@@ -26,11 +26,13 @@ import {
   type ResumeValidationIssue,
   type ResumeValidationResult,
   type ResumeTemplateDefinition,
+  type UserActionRequest,
 } from "@unemployed/contracts";
 import {
   buildApplyCopilotArtifacts,
   buildSingleJobAutoApplyArtifacts,
   buildMissingResumeCopilotArtifacts,
+  enforcePrepareOnlyExecutionResult,
   mapExecutionResultToApplyBlockerReason,
   mapExecutionResultToApplyJobState,
   mapExecutionResultToApplyRunState,
@@ -57,9 +59,16 @@ import {
 } from "./workspace-helpers";
 import { createUniqueId, normalizeText, uniqueStrings } from "./shared";
 import {
+  DEFAULT_RESUME_APPLICATION_MODE,
+  resolveJobResumeApplicationMode,
+} from "./job-resume-application-mode";
+import {
   applyPatchToResumeDraft,
   buildAssistantReplyMessage,
   buildResumeDraftFromTailoredDraft,
+  buildResumeDraftContentHash,
+  buildResumeCoverageComparison,
+  buildResumeDraftStateHash,
   buildResumeDraftRevision,
   buildResumeExportArtifact,
   buildResumeRenderDocument,
@@ -79,6 +88,8 @@ import {
   previewResumeDraft,
   renderDraftToPdf,
 } from "./workspace-application-resume-support";
+import { createApplicationUserActionResumer } from "./workspace-application-user-action-resumption";
+import { persistApplicationUserAction } from "./workspace-application-user-action";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
 import type { JobFinderWorkspaceService } from "./workspace-service-contracts";
 
@@ -127,17 +138,18 @@ function getApplyResultSortTime(input: {
   return Date.parse(input.completedAt ?? input.updatedAt ?? input.startedAt);
 }
 
-export function createWorkspaceApplicationMethods(
-  ctx: WorkspaceServiceContext,
-): Pick<
+type WorkspaceApplicationMethods = Pick<
   JobFinderWorkspaceService,
   | "queueJobForReview"
+  | "setJobResumeApplicationMode"
   | "removeJobFromReview"
   | "dismissDiscoveryJob"
+  | "restoreDismissedDiscoveryJob"
   | "generateResume"
   | "getResumeWorkspace"
   | "previewResumeDraft"
   | "saveResumeDraft"
+  | "restoreResumeDraftRevision"
   | "regenerateResumeDraft"
   | "regenerateResumeSection"
   | "exportResumePdf"
@@ -146,6 +158,7 @@ export function createWorkspaceApplicationMethods(
   | "applyResumePatch"
   | "getResumeAssistantMessages"
   | "sendResumeAssistantMessage"
+  | "resolveResumeAssistantProposal"
   | "startApplyCopilotRun"
   | "startAutoApplyRun"
   | "startAutoApplyQueueRun"
@@ -155,7 +168,21 @@ export function createWorkspaceApplicationMethods(
   | "revokeApplyRunApproval"
   | "approveApply"
   | "recordInterviewHelperApplicationAction"
-> {
+> & {
+  resumeApplicationUserAction(request: UserActionRequest): Promise<void>;
+};
+
+async function getLatestResumeRevisionId(
+  ctx: WorkspaceServiceContext,
+  draftId: string,
+): Promise<string | null> {
+  return (
+    (await ctx.repository.listResumeDraftRevisions(draftId))[0]?.id ?? null
+  );
+}
+export function createWorkspaceApplicationMethods(
+  ctx: WorkspaceServiceContext,
+): WorkspaceApplicationMethods {
   function hasLockedResumeContent(draft: ResumeDraft): boolean {
     return draft.sections.some(
       (section) =>
@@ -173,7 +200,9 @@ export function createWorkspaceApplicationMethods(
     templates: readonly ResumeTemplateDefinition[];
     jobTitle: string;
   }) {
-    const template = input.templates.find((entry) => entry.id === input.templateId);
+    const template = input.templates.find(
+      (entry) => entry.id === input.templateId,
+    );
 
     if (!template || !isResumeTemplateApplyEligible(template)) {
       throw new Error(
@@ -187,11 +216,17 @@ export function createWorkspaceApplicationMethods(
     previousValidation: ResumeValidationResult | null;
     draft: ResumeDraft;
   }): ResumeValidationResult {
-    const existingIssueIds = new Set(input.validation.issues.map((issue) => issue.id));
-    const entryIds = new Set(
-      input.draft.sections.flatMap((section) => section.entries.map((entry) => entry.id)),
+    const existingIssueIds = new Set(
+      input.validation.issues.map((issue) => issue.id),
     );
-    const preservedIssues: ResumeValidationIssue[] = (input.previousValidation?.issues ?? [])
+    const entryIds = new Set(
+      input.draft.sections.flatMap((section) =>
+        section.entries.map((entry) => entry.id),
+      ),
+    );
+    const preservedIssues: ResumeValidationIssue[] = (
+      input.previousValidation?.issues ?? []
+    )
       .filter((issue) => issue.category === "work_history_review")
       .filter((issue) => !issue.entryId || entryIds.has(issue.entryId))
       .filter((issue) => !existingIssueIds.has(issue.id));
@@ -206,16 +241,47 @@ export function createWorkspaceApplicationMethods(
     });
   }
 
+  async function verifyResumeFileIntegrity(input: {
+    expectedSha256: string | null | undefined;
+    filePath: string;
+    label: string;
+  }): Promise<string | null> {
+    if (!ctx.exportFileVerifier?.sha256) {
+      return input.expectedSha256 ?? null;
+    }
+
+    if (!input.expectedSha256) {
+      throw new Error(
+        `${input.label} has no saved SHA-256 integrity record. Re-import or re-export it before starting Apply Copilot.`,
+      );
+    }
+
+    const actualSha256 = await ctx.exportFileVerifier.sha256(input.filePath);
+    if (actualSha256.toLowerCase() !== input.expectedSha256.toLowerCase()) {
+      throw new Error(
+        `${input.label} changed after it was saved. Re-import or re-export it before starting Apply Copilot.`,
+      );
+    }
+
+    return actualSha256.toLowerCase();
+  }
+
   async function resolveJobApplyPrerequisites(jobId: string) {
-    const [savedJobs, tailoredAssets, draft, approvedExports, profile, settings] =
-      await Promise.all([
-        ctx.repository.listSavedJobs(),
-        ctx.repository.listTailoredAssets(),
-        ctx.repository.getResumeDraftByJobId(jobId),
-        ctx.repository.listResumeExportArtifacts({ jobId }),
-        ctx.repository.getProfile(),
-        ctx.repository.getSettings(),
-      ]);
+    const [
+      savedJobs,
+      tailoredAssets,
+      draft,
+      approvedExports,
+      profile,
+      settings,
+    ] = await Promise.all([
+      ctx.repository.listSavedJobs(),
+      ctx.repository.listTailoredAssets(),
+      ctx.repository.getResumeDraftByJobId(jobId),
+      ctx.repository.listResumeExportArtifacts({ jobId }),
+      ctx.repository.getProfile(),
+      ctx.repository.getSettings(),
+    ]);
     const job = savedJobs.find((entry) => entry.id === jobId) ?? null;
 
     if (!job) {
@@ -223,8 +289,12 @@ export function createWorkspaceApplicationMethods(
         `Unable to start automatic apply for unknown job '${jobId}'.`,
       );
     }
+    const resumeApplicationMode = resolveJobResumeApplicationMode(
+      job,
+      settings,
+    );
 
-    if (settings.resumeApplicationMode === "original_resume") {
+    if (resumeApplicationMode === "original_resume") {
       const originalResumePath = profile.baseResume.storagePath?.trim() ?? "";
       if (!originalResumePath) {
         throw new Error(
@@ -241,8 +311,15 @@ export function createWorkspaceApplicationMethods(
         );
       }
 
+      const verifiedSha256 = await verifyResumeFileIntegrity({
+        expectedSha256: profile.baseResume.sha256,
+        filePath: originalResumePath,
+        label: "The original CV",
+      });
+
       return {
         job,
+        resumeApplicationMode,
         resumeArtifact: ApplicationResumeArtifactSchema.parse({
           id: `application_resume_${job.id}_${profile.baseResume.id}`,
           jobId: job.id,
@@ -251,6 +328,7 @@ export function createWorkspaceApplicationMethods(
           exportArtifactId: null,
           fileName: profile.baseResume.fileName,
           filePath: originalResumePath,
+          sha256: verifiedSha256,
           approvedAt: new Date().toISOString(),
         }),
       };
@@ -296,8 +374,15 @@ export function createWorkspaceApplicationMethods(
       );
     }
 
+    const verifiedSha256 = await verifyResumeFileIntegrity({
+      expectedSha256: approvedExport.sha256,
+      filePath: approvedExport.filePath,
+      label: "The approved tailored CV",
+    });
+
     return {
       job,
+      resumeApplicationMode,
       resumeArtifact: ApplicationResumeArtifactSchema.parse({
         id: `application_resume_${job.id}_${approvedExport.id}`,
         jobId: job.id,
@@ -308,13 +393,16 @@ export function createWorkspaceApplicationMethods(
           approvedExport.filePath.split(/[\\/]/).at(-1) ??
           `${job.title}-resume.pdf`,
         filePath: approvedExport.filePath,
+        sha256: verifiedSha256,
         approvedAt: new Date().toISOString(),
       }),
     };
   }
 
   async function syncRunApplicationRecord(input: {
-    consentSummary?: ReturnType<typeof ApplicationRecordSchema.shape.consentSummary.parse>;
+    consentSummary?: ReturnType<
+      typeof ApplicationRecordSchema.shape.consentSummary.parse
+    >;
     eventDetail: string;
     eventEmphasis: "neutral" | "positive" | "warning" | "critical";
     eventId: string;
@@ -361,7 +449,7 @@ export function createWorkspaceApplicationMethods(
       lastAttemptState:
         input.lastAttemptState !== undefined
           ? input.lastAttemptState
-          : existingRecord?.lastAttemptState ?? null,
+          : (existingRecord?.lastAttemptState ?? null),
       questionSummary:
         input.questionSummary !== undefined
           ? input.questionSummary
@@ -369,7 +457,7 @@ export function createWorkspaceApplicationMethods(
       latestBlocker:
         input.latestBlocker !== undefined
           ? input.latestBlocker
-          : existingRecord?.latestBlocker ?? null,
+          : (existingRecord?.latestBlocker ?? null),
       consentSummary:
         input.consentSummary !== undefined
           ? input.consentSummary
@@ -420,10 +508,12 @@ export function createWorkspaceApplicationMethods(
   function buildApplyVisualExecutionOptions(input: {
     enabled: boolean;
     source: JobSource;
-  }): Pick<
-    ExecuteApplicationFlowInput,
-    "captureVisualSnapshot" | "analyzeVisualSnapshot"
-  > | Record<string, never> {
+  }):
+    | Pick<
+        ExecuteApplicationFlowInput,
+        "captureVisualSnapshot" | "analyzeVisualSnapshot"
+      >
+    | Record<string, never> {
     if (
       !input.enabled ||
       !ctx.browserRuntime.captureVisualSnapshot ||
@@ -435,9 +525,8 @@ export function createWorkspaceApplicationMethods(
     const captureVisualSnapshot = ctx.browserRuntime.captureVisualSnapshot.bind(
       ctx.browserRuntime,
     );
-    const analyzeVisualSnapshot = ctx.aiClient.analyzeBrowserVisualSnapshot.bind(
-      ctx.aiClient,
-    );
+    const analyzeVisualSnapshot =
+      ctx.aiClient.analyzeBrowserVisualSnapshot.bind(ctx.aiClient);
 
     return {
       captureVisualSnapshot: (request) =>
@@ -454,9 +543,7 @@ export function createWorkspaceApplicationMethods(
     ]);
     const latestResult =
       results
-        .filter(
-          (entry) => entry.jobId === jobId && entry.state !== "planned",
-        )
+        .filter((entry) => entry.jobId === jobId && entry.state !== "planned")
         .sort((left, right) => {
           const rightTime = getApplyResultSortTime(right);
           const leftTime = getApplyResultSortTime(left);
@@ -486,7 +573,9 @@ export function createWorkspaceApplicationMethods(
     const retainedVisualEvidence = (() => {
       const seenEvidence = new Set<string>();
       const candidates: BrowserVisualEvidenceSummary[] = [
-        ...latestRunCheckpoints.flatMap((checkpoint) => checkpoint.visualEvidence),
+        ...latestRunCheckpoints.flatMap(
+          (checkpoint) => checkpoint.visualEvidence,
+        ),
         ...latestResult.visualCheckpoints.flatMap((checkpoint) =>
           checkpoint.retained
             ? [
@@ -640,6 +729,9 @@ export function createWorkspaceApplicationMethods(
     let failedJobs = 0;
     let skippedJobs = 0;
     let awaitingReviewJobs = 0;
+    let pendingConsentRequests = consentRequests.filter(
+      (request) => request.runId === run.id && request.status === "pending",
+    ).length;
     let activeSource: JobSource | null = null;
     let shouldCloseActiveSessionOnExit = false;
     const keepSessionAlive = settings.keepSessionAlive;
@@ -665,7 +757,7 @@ export function createWorkspaceApplicationMethods(
           continue;
         }
 
-        const { job, resumeArtifact } =
+        const { job, resumeApplicationMode, resumeArtifact } =
           await resolveJobApplyPrerequisites(jobId);
         const recoverySeed = await buildApplyRecoveryContext(jobId);
         if (activeSource !== job.source) {
@@ -696,15 +788,15 @@ export function createWorkspaceApplicationMethods(
           ...recoverySeed.recoveryInstructions,
         ]);
 
-        const executionResult = await ctx.browserRuntime.executeApplicationFlow(
-          job.source,
-          {
+        const executionResult = enforcePrepareOnlyExecutionResult(
+          await ctx.browserRuntime.executeApplicationFlow(job.source, {
             job,
             resumeArtifact,
             profile,
-            settings,
+            settings: { ...settings, resumeApplicationMode },
             mode: "prepare_only",
             intermediateMutationsAuthorized: true,
+            accountCreationAuthorized: false,
             submitAuthorized: false,
             ...(recoverySeed.recoveryContext
               ? { recoveryContext: recoverySeed.recoveryContext }
@@ -716,7 +808,7 @@ export function createWorkspaceApplicationMethods(
               enabled: currentRunState.visualCheckpointsEnabled,
               source: job.source,
             }),
-          },
+          }),
         );
         const detectedAt = new Date().toISOString();
         const sourceDebugEvidenceRefIds = buildEvidenceRefIdsFromInstruction({
@@ -741,7 +833,10 @@ export function createWorkspaceApplicationMethods(
         };
         const runArtifacts = buildApplyCopilotArtifacts({
           job,
+          resumeArtifact,
           executionResult: normalizedExecutionResult,
+          runId: run.id,
+          ...(jobResult ? { resultId: jobResult.id } : {}),
           detectedAt,
           visualCheckpointsEnabled: currentRunState.visualCheckpointsEnabled,
         });
@@ -798,13 +893,15 @@ export function createWorkspaceApplicationMethods(
             normalizedExecutionResult.blocker,
           ),
           blockerSummary: normalizedExecutionResult.blocker?.summary ?? null,
-          visualObservationSets: normalizedExecutionResult.visualObservationSets,
+          visualObservationSets:
+            normalizedExecutionResult.visualObservationSets,
           visualCheckpoints: normalizedExecutionResult.visualCheckpoints,
           latestQuestionCount: runArtifacts.questionRecords.length,
           latestAnswerCount: runArtifacts.answerRecords.length,
           pendingConsentRequestCount: runArtifacts.consentRequests.length,
           artifactCount: runArtifacts.artifactRefs.length,
           latestCheckpointId: runArtifacts.checkpoints.at(-1)?.id ?? null,
+          privacyReceipt: runArtifacts.result.privacyReceipt,
         });
 
         await Promise.all([
@@ -856,6 +953,18 @@ export function createWorkspaceApplicationMethods(
             ),
         ]);
 
+        await persistApplicationUserAction({
+          repository: ctx.repository,
+          job,
+          runId: run.id,
+          resultId: updatedResult.id,
+          resultState: updatedResult.state,
+          resultStartedAt: updatedResult.startedAt,
+          replayCheckpointId: runArtifacts.checkpoints.at(-1)?.id ?? null,
+          blocker,
+          occurredAt: detectedAt,
+        });
+
         const attempt = ApplicationAttemptSchema.parse({
           id: `attempt_${jobId}_${Date.now()}`,
           jobId,
@@ -880,9 +989,11 @@ export function createWorkspaceApplicationMethods(
           ),
           replay,
           visualEvidence: normalizedExecutionResult.visualEvidence,
-          visualObservationSets: normalizedExecutionResult.visualObservationSets,
+          visualObservationSets:
+            normalizedExecutionResult.visualObservationSets,
           visualCheckpoints: normalizedExecutionResult.visualCheckpoints,
           nextActionLabel: normalizedExecutionResult.nextActionLabel,
+          executionTimings: normalizedExecutionResult.executionTimings,
         });
         await ctx.repository.upsertApplicationAttempt(attempt);
 
@@ -896,12 +1007,15 @@ export function createWorkspaceApplicationMethods(
         } else if (jobState === "failed") {
           failedJobs += 1;
         }
+        pendingConsentRequests += runArtifacts.consentRequests.length;
 
         await syncRunApplicationRecord({
           consentSummary: buildConsentSummary(attempt.consentDecisions),
           eventDetail:
             jobState === "blocked" && runArtifacts.consentRequests.length > 0
-              ? "The queue paused on a consent-gated step for this job. Resolve or decline the consent request to continue."
+              ? input.mode === "queue_auto"
+                ? "This job needs an explicit consent decision. The queue continued preparing unrelated jobs safely."
+                : "This run paused on a consent-gated step for this job. Resolve or decline the consent request to continue."
               : normalizedExecutionResult.detail,
           eventEmphasis:
             jobState === "submitted"
@@ -914,7 +1028,7 @@ export function createWorkspaceApplicationMethods(
           eventId: `event_${run.id}_${jobId}_${Date.now()}`,
           eventTitle:
             jobState === "blocked" && runArtifacts.consentRequests.length > 0
-              ? "Paused for consent"
+              ? "Consent needed"
               : normalizedExecutionResult.summary,
           jobId,
           lastActionLabel: normalizedExecutionResult.summary,
@@ -922,10 +1036,15 @@ export function createWorkspaceApplicationMethods(
           latestBlocker: buildLatestBlockerSummary(attempt.blocker),
           nextActionLabel:
             jobState === "blocked" && runArtifacts.consentRequests.length > 0
-              ? "Resolve the consent request in Applications to continue the queue."
+              ? input.mode === "queue_auto"
+                ? "Resolve this job's consent request; other queued jobs continue independently."
+                : "Resolve the consent request in Applications to continue."
               : normalizedExecutionResult.nextActionLabel,
           questionSummary: buildQuestionSummary(attempt.questions),
-          replaySummary: buildReplaySummary(attempt.replay, attempt.visualEvidence),
+          replaySummary: buildReplaySummary(
+            attempt.replay,
+            attempt.visualEvidence,
+          ),
           updatedAt: detectedAt,
         });
 
@@ -941,27 +1060,33 @@ export function createWorkspaceApplicationMethods(
           updatedAt: detectedAt,
           state:
             input.mode === "queue_auto"
-              ? runArtifacts.consentRequests.length > 0
-                ? "paused_for_consent"
-                : remainingJobs > 0
-                  ? "running"
-                  : pendingJobs > 0
+              ? remainingJobs > 0
+                ? "running"
+                : pendingConsentRequests > 0
+                  ? "paused_for_consent"
+                  : pendingJobs > 0 || blockedJobs > 0
                     ? "paused_for_user_review"
                     : "completed"
               : nextRunState,
           summary:
-            runArtifacts.consentRequests.length > 0
-              ? `Automatic apply paused for consent on '${job.title}'.`
-              : input.mode === "queue_auto"
-                ? `Automatic apply queue processed ${index + 1} of ${run.jobIds.length} jobs in safe review mode.`
+            input.mode === "queue_auto"
+              ? remainingJobs === 0 && pendingConsentRequests > 0
+                ? `Automatic apply prepared every unblocked job; ${pendingConsentRequests} consent ${pendingConsentRequests === 1 ? "decision needs" : "decisions need"} you.`
+                : `Automatic apply queue processed ${index + 1} of ${run.jobIds.length} jobs in safe review mode.`
+              : runArtifacts.consentRequests.length > 0
+                ? `Automatic apply paused for consent on '${job.title}'.`
                 : `Automatic apply run processed '${job.title}' in safe review mode.`,
           detail:
-            runArtifacts.consentRequests.length > 0
-              ? "The queue stopped because a consent-gated step needs an explicit user decision before the next job can continue."
-              : "The current safe development execution filled and classified the application but still stopped before any final submit action.",
+            input.mode === "queue_auto" && pendingConsentRequests > 0
+              ? "Consent-blocked jobs remain explicit user actions, while every unrelated ready job was allowed to reach its safe review checkpoint."
+              : runArtifacts.consentRequests.length > 0
+                ? "The run stopped because a consent-gated step needs an explicit user decision."
+                : "The current safe development execution filled and classified the application but still stopped before any final submit action.",
           completedAt:
             input.mode === "queue_auto"
-              ? runArtifacts.consentRequests.length > 0 || pendingJobs > 0
+              ? pendingConsentRequests > 0 ||
+                pendingJobs > 0 ||
+                blockedJobs > 0
                 ? null
                 : detectedAt
               : nextRunState === "completed" || nextRunState === "failed"
@@ -974,10 +1099,6 @@ export function createWorkspaceApplicationMethods(
           failedJobs,
         });
         await ctx.repository.upsertApplyRun(currentRunState);
-
-        if (runArtifacts.consentRequests.length > 0) {
-          break;
-        }
 
         if (input.mode === "single_job_auto") {
           break;
@@ -1018,7 +1139,12 @@ export function createWorkspaceApplicationMethods(
     }
   }
 
+  const resumeApplicationUserAction = createApplicationUserActionResumer(ctx, {
+    resolveJobApplyPrerequisites,
+  });
+
   return {
+    resumeApplicationUserAction,
     async recordInterviewHelperApplicationAction(rawInput) {
       const input = JobFinderInterviewFollowUpInputSchema.parse(rawInput);
       const applicationRecords = await ctx.repository.listApplicationRecords();
@@ -1096,17 +1222,27 @@ export function createWorkspaceApplicationMethods(
       return ctx.getWorkspaceSnapshot();
     },
     async queueJobForReview(jobId) {
-      const discoveryState = await ctx.repository.getDiscoveryState();
+      const [discoveryState, settings] = await Promise.all([
+        ctx.repository.getDiscoveryState(),
+        ctx.repository.getSettings(),
+      ]);
+      const defaultResumeApplicationMode =
+        settings.resumeApplicationMode ?? DEFAULT_RESUME_APPLICATION_MODE;
       const pendingIndex = discoveryState.pendingDiscoveryJobs.findIndex(
         (job) => job.id === jobId,
       );
 
       if (pendingIndex >= 0) {
         const pendingJob = discoveryState.pendingDiscoveryJobs[pendingIndex];
+        if (!pendingJob) {
+          throw new Error(`Unable to shortlist unknown job '${jobId}'.`);
+        }
         const savedJobs = await ctx.repository.listSavedJobs();
         const nextJob = SavedJobSchema.parse({
           ...pendingJob,
           status: "shortlisted",
+          resumeApplicationMode:
+            pendingJob.resumeApplicationMode ?? defaultResumeApplicationMode,
         });
         await ctx.repository.replaceSavedJobs(
           mergeSavedJobs(savedJobs, [nextJob]),
@@ -1124,8 +1260,20 @@ export function createWorkspaceApplicationMethods(
         await ctx.updateJob(jobId, (job) => ({
           ...job,
           status: asset?.status === "ready" ? "ready_for_review" : "drafting",
+          resumeApplicationMode:
+            job.resumeApplicationMode ?? defaultResumeApplicationMode,
         }));
       }
+
+      return ctx.getWorkspaceSnapshot();
+    },
+    async setJobResumeApplicationMode(jobId, resumeApplicationMode) {
+      await ctx.updateJob(jobId, (job) =>
+        SavedJobSchema.parse({
+          ...job,
+          resumeApplicationMode,
+        }),
+      );
 
       return ctx.getWorkspaceSnapshot();
     },
@@ -1139,66 +1287,89 @@ export function createWorkspaceApplicationMethods(
 
       return ctx.getWorkspaceSnapshot();
     },
-    async dismissDiscoveryJob(jobId) {
+    async dismissDiscoveryJob(input) {
       const discoveryState = await ctx.repository.getDiscoveryState();
-      const pendingIndex = discoveryState.pendingDiscoveryJobs.findIndex(
-        (job) => job.id === jobId,
-      );
+      const savedJobs = await ctx.repository.listSavedJobs();
+      const pendingJob =
+        discoveryState.pendingDiscoveryJobs.find(
+          (job) => job.id === input.jobId,
+        ) ?? null;
+      const targetJob =
+        pendingJob ?? savedJobs.find((job) => job.id === input.jobId) ?? null;
 
-      if (pendingIndex >= 0) {
-        const pendingJob = discoveryState.pendingDiscoveryJobs[pendingIndex];
-        if (!pendingJob) {
-          throw new Error(
-            `Pending discovery job missing at index ${pendingIndex} while dismissing '${jobId}' (pending count ${discoveryState.pendingDiscoveryJobs.length}).`,
-          );
-        }
-        await ctx.persistDiscoveryState((current) => ({
-          ...current,
-          discoveryLedger: markSavedJobStatusInLedger({
-            ledger: current.discoveryLedger,
-            job: pendingJob,
-            status: "skipped",
-            occurredAt: new Date().toISOString(),
-            skipReason: "Dismissed from discovery results.",
-          }),
-          pendingDiscoveryJobs: current.pendingDiscoveryJobs.filter(
-            (job) => job.id !== jobId,
-          ),
-        }));
-      } else {
-        const savedJobs = await ctx.repository.listSavedJobs();
-        const targetJob = savedJobs.find((job) => job.id === jobId) ?? null;
-
-        if (!targetJob) {
-          throw new Error(`Unable to archive unknown job '${jobId}'.`);
-        }
-
-        const nextSavedJobs = savedJobs.map((job) =>
-          job.id === jobId
-            ? SavedJobSchema.parse({ ...job, status: "archived" })
-            : job,
-        );
-        const occurredAt = new Date().toISOString();
-        const nextDiscoveryState = {
-          ...discoveryState,
-          discoveryLedger: markSavedJobStatusInLedger({
-            ledger: discoveryState.discoveryLedger,
-            job: targetJob,
-            status: "skipped",
-            occurredAt,
-            skipReason: "Archived intentionally by the user.",
-          }),
-        };
-
-        await ctx.persistSavedJobsAndDiscoveryState({
-          savedJobs: nextSavedJobs,
-          discoveryState: nextDiscoveryState,
-        });
+      if (!targetJob) {
+        throw new Error("Unable to hide unknown job '" + input.jobId + "'.");
       }
 
+      const occurredAt = new Date().toISOString();
+      const reasons = [...new Set(input.reasons)];
+      const nextJob = SavedJobSchema.parse({
+        ...targetJob,
+        status: "archived",
+        discoveryFeedback: {
+          version: 1,
+          revision: (targetJob.discoveryFeedback?.revision ?? 0) + 1,
+          reasons,
+          recordedAt: occurredAt,
+        },
+      });
+      const nextSavedJobs = mergeSavedJobs(savedJobs, [nextJob]);
+      const nextDiscoveryState = {
+        ...discoveryState,
+        discoveryLedger: markSavedJobStatusInLedger({
+          ledger: discoveryState.discoveryLedger,
+          job: nextJob,
+          status: "skipped",
+          occurredAt,
+          skipReason: "Not interested: " + reasons.join(", ") + ".",
+        }),
+        pendingDiscoveryJobs: discoveryState.pendingDiscoveryJobs.filter(
+          (job) => job.id !== input.jobId,
+        ),
+      };
+
+      await ctx.persistSavedJobsAndDiscoveryState({
+        savedJobs: nextSavedJobs,
+        discoveryState: nextDiscoveryState,
+      });
       return ctx.getWorkspaceSnapshot();
     },
-    async generateResume(jobId) {
+    async restoreDismissedDiscoveryJob(jobId) {
+      const [discoveryState, savedJobs] = await Promise.all([
+        ctx.repository.getDiscoveryState(),
+        ctx.repository.listSavedJobs(),
+      ]);
+      const targetJob = savedJobs.find((job) => job.id === jobId) ?? null;
+
+      if (!targetJob || targetJob.status !== "archived") {
+        throw new Error("Unable to restore unknown hidden job '" + jobId + "'.");
+      }
+
+      const restoredJob = SavedJobSchema.parse({
+        ...targetJob,
+        status: "discovered",
+        discoveryFeedback: null,
+      });
+      const nextSavedJobs = savedJobs.map((job) =>
+        job.id === jobId ? restoredJob : job,
+      );
+      const nextDiscoveryState = {
+        ...discoveryState,
+        discoveryLedger: markSavedJobStatusInLedger({
+          ledger: discoveryState.discoveryLedger,
+          job: restoredJob,
+          status: "seen",
+          occurredAt: new Date().toISOString(),
+          skipReason: null,
+        }),
+      };
+
+      await ctx.persistSavedJobsAndDiscoveryState({
+        savedJobs: nextSavedJobs,
+        discoveryState: nextDiscoveryState,
+      });
+      return ctx.getWorkspaceSnapshot();
+    },    async generateResume(jobId) {
       const [profile, searchPreferences, settings, savedJobs, tailoredAssets] =
         await Promise.all([
           ctx.repository.getProfile(),
@@ -1301,6 +1472,13 @@ export function createWorkspaceApplicationMethods(
       });
       const validationWithReviewGuidance = ResumeValidationResultSchema.parse({
         ...validation,
+        coverageComparison: buildResumeCoverageComparison({
+          profile,
+          draft: sanitizedResumeDraft,
+          pageCount: renderedArtifact.pageCount ?? null,
+          validationIssues: validation.issues,
+          coverageMetadata: draft.coverageMetadata,
+        }),
         issues: [
           ...validation.issues,
           ...workHistoryReviewSuggestions.map((suggestion) => ({
@@ -1324,12 +1502,11 @@ export function createWorkspaceApplicationMethods(
         status: "ready",
         label: draft.label ?? "Tailored Resume",
         version: nextAssetVersion(existingAsset),
-        templateName:
-          resolveResumeTemplateLabel({
-            templateId: sanitizedResumeDraft.templateId,
-            templates,
-            fallbackLabel: existingAsset?.templateName ?? "Chronology Classic",
-          }),
+        templateName: resolveResumeTemplateLabel({
+          templateId: sanitizedResumeDraft.templateId,
+          templates,
+          fallbackLabel: existingAsset?.templateName ?? "Chronology Classic",
+        }),
         compatibilityScore:
           draft.compatibilityScore ??
           Math.min(100, job.matchAssessment.score + 3),
@@ -1368,11 +1545,37 @@ export function createWorkspaceApplicationMethods(
         ]),
       });
 
-      await ctx.repository.saveResumeDraftWithValidation({
-        draft: sanitizedResumeDraft,
-        validation: validationWithReviewGuidance,
-        tailoredAsset: nextAsset,
-      });
+      if (
+        existingDraft &&
+        buildResumeDraftStateHash(existingDraft) !==
+          buildResumeDraftStateHash(sanitizedResumeDraft)
+      ) {
+        const revision = buildResumeDraftRevision({
+          draft: existingDraft,
+          resultingDraft: sanitizedResumeDraft,
+          createdAt: now,
+          parentRevisionId: await getLatestResumeRevisionId(
+            ctx,
+            existingDraft.id,
+          ),
+          actor: "assistant",
+          mutationKind: "regenerate_draft",
+          reason: "Regenerated full resume draft",
+        });
+        await ctx.repository.applyResumePatchWithRevision({
+          expectedDraftUpdatedAt: existingDraft.updatedAt,
+          draft: sanitizedResumeDraft,
+          revision,
+          validation: validationWithReviewGuidance,
+          tailoredAsset: nextAsset,
+        });
+      } else {
+        await ctx.repository.saveResumeDraftWithValidation({
+          draft: sanitizedResumeDraft,
+          validation: validationWithReviewGuidance,
+          tailoredAsset: nextAsset,
+        });
+      }
       await ctx.updateJob(jobId, (currentJob) => ({
         ...currentJob,
         status: "ready_for_review",
@@ -1388,25 +1591,34 @@ export function createWorkspaceApplicationMethods(
     },
     async saveResumeDraft(draft) {
       const parsedDraft = ResumeDraftSchema.parse(draft);
-      const { job, profile, tailoredAsset, templates } = await ensureResumeDraft(
-        ctx,
+      const { job, profile, tailoredAsset, templates } =
+        await ensureResumeDraft(ctx, parsedDraft.jobId);
+      const currentDraft = await ctx.repository.getResumeDraftByJobId(
         parsedDraft.jobId,
       );
-      const now = new Date().toISOString();
-      const currentDraft = await ctx.repository.getResumeDraftByJobId(parsedDraft.jobId);
+      if (!currentDraft) {
+        throw new Error(`Unable to find resume draft '${parsedDraft.id}'.`);
+      }
+      const parsedStateHash = buildResumeDraftStateHash(parsedDraft);
+      const currentStateHash = buildResumeDraftStateHash(currentDraft);
+      if (
+        parsedDraft.updatedAt !== currentDraft.updatedAt &&
+        parsedStateHash !== currentStateHash
+      ) {
+        throw new Error(
+          "Resume draft changed before this edit could be saved. Reload the workspace and try again.",
+        );
+      }
+      const now = createMonotonicTimestamp(currentDraft.updatedAt);
       const hadApprovedExport = wasResumeDraftApproved(currentDraft);
       const nextDraft = ResumeDraftSchema.parse({
         ...parsedDraft,
-        status:
-          hadApprovedExport
-            ? "stale"
-            : "needs_review",
+        status: hadApprovedExport ? "stale" : "needs_review",
         approvedAt: null,
         approvedExportId: null,
-        staleReason:
-          hadApprovedExport
-            ? "Draft changed after approval and needs a fresh review."
-            : null,
+        staleReason: hadApprovedExport
+          ? "Draft changed after approval and needs a fresh review."
+          : null,
         updatedAt: now,
       });
       const sanitizedDraft = sanitizeResumeDraft({
@@ -1420,9 +1632,10 @@ export function createWorkspaceApplicationMethods(
         profile,
         validatedAt: now,
       });
-      const previousValidation = (
-        await ctx.repository.listResumeValidationResults(sanitizedDraft.id)
-      )[0] ?? null;
+      const previousValidation =
+        (
+          await ctx.repository.listResumeValidationResults(sanitizedDraft.id)
+        )[0] ?? null;
       const validationWithReviewGuidance = preserveWorkHistoryReviewGuidance({
         validation,
         previousValidation,
@@ -1437,8 +1650,123 @@ export function createWorkspaceApplicationMethods(
         templates,
       });
 
-      await ctx.repository.saveResumeDraftWithValidation({
-        draft: sanitizedDraft,
+      if (currentStateHash !== buildResumeDraftStateHash(sanitizedDraft)) {
+        const revision = buildResumeDraftRevision({
+          draft: currentDraft,
+          resultingDraft: sanitizedDraft,
+          createdAt: now,
+          parentRevisionId: await getLatestResumeRevisionId(
+            ctx,
+            currentDraft.id,
+          ),
+          actor: "user",
+          mutationKind: "manual_save",
+          reason:
+            currentDraft.templateId !== sanitizedDraft.templateId
+              ? "Changed resume template"
+              : "Saved resume draft edits",
+        });
+        await ctx.repository.applyResumePatchWithRevision({
+          expectedDraftUpdatedAt: currentDraft.updatedAt,
+          draft: sanitizedDraft,
+          revision,
+          validation: validationWithReviewGuidance,
+          tailoredAsset: nextAsset,
+        });
+      } else {
+        await ctx.repository.saveResumeDraftWithValidation({
+          draft: sanitizedDraft,
+          validation: validationWithReviewGuidance,
+          tailoredAsset: nextAsset,
+        });
+      }
+
+      return ctx.getWorkspaceSnapshot();
+    },
+    async restoreResumeDraftRevision(jobId, revisionId) {
+      const state = await ensureResumeDraft(ctx, jobId);
+      const revisions = await ctx.repository.listResumeDraftRevisions(
+        state.draft.id,
+      );
+      const targetRevision = revisions.find(
+        (revision) => revision.id === revisionId,
+      );
+      if (!targetRevision) {
+        throw new Error(`Unknown resume revision '${revisionId}'.`);
+      }
+      if (!targetRevision.snapshotDraft) {
+        throw new Error(
+          "This legacy resume revision cannot be restored because it does not contain a complete draft snapshot.",
+        );
+      }
+      if (
+        targetRevision.draftId !== state.draft.id ||
+        targetRevision.snapshotDraft.id !== state.draft.id ||
+        targetRevision.snapshotDraft.jobId !== jobId
+      ) {
+        throw new Error("Resume revision does not belong to this job draft.");
+      }
+
+      const restoredAt = createMonotonicTimestamp(state.draft.updatedAt);
+      const restoredDraft = sanitizeResumeDraft({
+        draft: ResumeDraftSchema.parse({
+          ...targetRevision.snapshotDraft,
+          id: state.draft.id,
+          jobId,
+          status: "needs_review",
+          approvedAt: null,
+          approvedExportId: null,
+          staleReason: "Restored from resume history and needs a fresh review.",
+          createdAt: state.draft.createdAt,
+          updatedAt: restoredAt,
+        }),
+        job: state.job,
+        profile: state.profile,
+      });
+      if (
+        buildResumeDraftStateHash(restoredDraft) ===
+        buildResumeDraftStateHash(state.draft)
+      ) {
+        return ctx.getWorkspaceSnapshot();
+      }
+
+      const validation = validateResumeDraft({
+        draft: restoredDraft,
+        job: state.job,
+        profile: state.profile,
+        validatedAt: restoredAt,
+      });
+      const previousValidation =
+        (await ctx.repository.listResumeValidationResults(state.draft.id))[0] ??
+        null;
+      const validationWithReviewGuidance = preserveWorkHistoryReviewGuidance({
+        validation,
+        previousValidation,
+        draft: restoredDraft,
+      });
+      const nextAsset = buildTailoredAssetBridge({
+        draft: restoredDraft,
+        job: state.job,
+        profile: state.profile,
+        existingAsset: state.tailoredAsset,
+        clearStoragePath: true,
+        templates: state.templates,
+      });
+      const restoreRevision = buildResumeDraftRevision({
+        draft: state.draft,
+        resultingDraft: restoredDraft,
+        createdAt: restoredAt,
+        parentRevisionId: revisions[0]?.id ?? null,
+        actor: "restore",
+        mutationKind: "restore",
+        restoredFromRevisionId: targetRevision.id,
+        reason: `Restored resume revision from ${targetRevision.createdAt}`,
+      });
+
+      await ctx.repository.applyResumePatchWithRevision({
+        expectedDraftUpdatedAt: state.draft.updatedAt,
+        draft: restoredDraft,
+        revision: restoreRevision,
         validation: validationWithReviewGuidance,
         tailoredAsset: nextAsset,
       });
@@ -1535,6 +1863,38 @@ export function createWorkspaceApplicationMethods(
     async exportResumePdf(jobId, outputPath) {
       const { draft, job, profile, settings, tailoredAsset, templates } =
         await ensureResumeDraft(ctx, jobId);
+      const preExportValidation = validateResumeDraft({
+        draft,
+        job,
+        profile,
+      });
+      if (
+        preExportValidation.claimAssessments.some(
+          (assessment) =>
+            assessment.status === "unsupported" ||
+            (assessment.status === "review" &&
+              (assessment.claimOrigin === "ai_generated" ||
+                assessment.claimOrigin === "assistant_edited" ||
+                assessment.claimOrigin === "deterministic_fallback")),
+        )
+      ) {
+        const previousValidation =
+          (await ctx.repository.listResumeValidationResults(draft.id))[0] ??
+          null;
+        const visibleValidation = preserveWorkHistoryReviewGuidance({
+          validation: preExportValidation,
+          previousValidation,
+          draft,
+        });
+        await ctx.repository.saveResumeDraftWithValidation({
+          draft,
+          validation: visibleValidation,
+          tailoredAsset,
+        });
+        throw new Error(
+          "This resume has blocking candidate-claim validation issues and cannot be exported yet.",
+        );
+      }
       const renderedArtifact = await renderDraftToPdf(ctx, {
         job,
         profile,
@@ -1554,6 +1914,8 @@ export function createWorkspaceApplicationMethods(
         draft,
         job,
         filePath: renderedArtifact.storagePath,
+        format: renderedArtifact.format,
+        sha256: renderedArtifact.sha256 ?? null,
         pageCount: renderedArtifact.pageCount ?? null,
         exportedAt,
       });
@@ -1564,9 +1926,8 @@ export function createWorkspaceApplicationMethods(
         pageCount: renderedArtifact.pageCount ?? null,
         validatedAt: exportedAt,
       });
-      const previousValidation = (
-        await ctx.repository.listResumeValidationResults(draft.id)
-      )[0] ?? null;
+      const previousValidation =
+        (await ctx.repository.listResumeValidationResults(draft.id))[0] ?? null;
       const validationWithReviewGuidance = preserveWorkHistoryReviewGuidance({
         validation,
         previousValidation,
@@ -1603,10 +1964,8 @@ export function createWorkspaceApplicationMethods(
       return ctx.getWorkspaceSnapshot();
     },
     async approveResume(jobId, exportId) {
-      const { draft, job, profile, tailoredAsset, templates } = await ensureResumeDraft(
-        ctx,
-        jobId,
-      );
+      const { draft, job, profile, tailoredAsset, templates } =
+        await ensureResumeDraft(ctx, jobId);
       const [exports, validations] = await Promise.all([
         ctx.repository.listResumeExportArtifacts({ jobId }),
         ctx.repository.listResumeValidationResults(draft.id),
@@ -1636,6 +1995,30 @@ export function createWorkspaceApplicationMethods(
       }
 
       if (
+        !latestValidation ||
+        latestValidation.draftContentHash !== buildResumeDraftContentHash(draft)
+      ) {
+        throw new Error(
+          `Resume export '${exportId}' does not have a current claim-grounding assessment. Export a fresh PDF before approval.`,
+        );
+      }
+
+      if (
+        latestValidation.claimAssessments.some(
+          (assessment) =>
+            assessment.status === "unsupported" ||
+            (assessment.status === "review" &&
+              (assessment.claimOrigin === "ai_generated" ||
+                assessment.claimOrigin === "assistant_edited" ||
+                assessment.claimOrigin === "deterministic_fallback")),
+        )
+      ) {
+        throw new Error(
+          `Resume export '${exportId}' contains unsupported candidate claims and cannot be approved.`,
+        );
+      }
+
+      if (
         latestValidation?.issues.some((issue) => issue.severity === "error")
       ) {
         throw new Error(
@@ -1643,13 +2026,28 @@ export function createWorkspaceApplicationMethods(
         );
       }
 
-      const template = templates.find((entry) => entry.id === draft.templateId) ?? null;
+      const template =
+        templates.find((entry) => entry.id === draft.templateId) ?? null;
 
       if (!template || !isResumeTemplateApprovalEligible(template)) {
         throw new Error(
           `Resume export '${exportId}' uses a share-ready template and cannot be approved for apply-safe flows. Choose an apply-safe template and export a fresh PDF instead.`,
         );
       }
+
+      if (
+        ctx.exportFileVerifier &&
+        !(await ctx.exportFileVerifier.exists(targetExport.filePath))
+      ) {
+        throw new Error(
+          `Resume export '${exportId}' is missing on disk and cannot be approved. Export a fresh file first.`,
+        );
+      }
+      const verifiedSha256 = await verifyResumeFileIntegrity({
+        expectedSha256: targetExport.sha256,
+        filePath: targetExport.filePath,
+        label: "The resume export",
+      });
 
       const approvedAt = new Date().toISOString();
       const approvedDraft = ResumeDraftSchema.parse({
@@ -1674,6 +2072,7 @@ export function createWorkspaceApplicationMethods(
         draft: approvedDraft,
         exportArtifact: {
           ...targetExport,
+          sha256: verifiedSha256,
           isApproved: true,
         },
         validation: latestValidation,
@@ -1683,10 +2082,8 @@ export function createWorkspaceApplicationMethods(
       return ctx.getWorkspaceSnapshot();
     },
     async clearResumeApproval(jobId) {
-      const { draft, job, profile, tailoredAsset, templates } = await ensureResumeDraft(
-        ctx,
-        jobId,
-      );
+      const { draft, job, profile, tailoredAsset, templates } =
+        await ensureResumeDraft(ctx, jobId);
       const nextDraft = ResumeDraftSchema.parse({
         ...draft,
         status: "stale",
@@ -1738,9 +2135,22 @@ export function createWorkspaceApplicationMethods(
         job: state.job,
         profile: state.profile,
       });
+      if (
+        buildResumeDraftStateHash(currentDraft) ===
+        buildResumeDraftStateHash(sanitizedDraft)
+      ) {
+        return ctx.getWorkspaceSnapshot();
+      }
       const revision = buildResumeDraftRevision({
         draft: currentDraft,
+        resultingDraft: sanitizedDraft,
         createdAt: updatedAt,
+        parentRevisionId: await getLatestResumeRevisionId(ctx, currentDraft.id),
+        actor: parsedPatch.origin === "assistant" ? "assistant" : "user",
+        mutationKind:
+          revisionReason?.startsWith("Regenerated section") === true
+            ? "regenerate_section"
+            : "manual_patch",
         reason: revisionReason ?? null,
       });
       const validation = validateResumeDraft({
@@ -1749,9 +2159,10 @@ export function createWorkspaceApplicationMethods(
         profile: state.profile,
         validatedAt: updatedAt,
       });
-      const previousValidation = (
-        await ctx.repository.listResumeValidationResults(currentDraft.id)
-      )[0] ?? null;
+      const previousValidation =
+        (
+          await ctx.repository.listResumeValidationResults(currentDraft.id)
+        )[0] ?? null;
       const validationWithReviewGuidance = preserveWorkHistoryReviewGuidance({
         validation,
         previousValidation,
@@ -1767,6 +2178,7 @@ export function createWorkspaceApplicationMethods(
       });
 
       await ctx.repository.applyResumePatchWithRevision({
+        expectedDraftUpdatedAt: currentDraft.updatedAt,
         draft: sanitizedDraft,
         revision,
         validation: validationWithReviewGuidance,
@@ -1784,9 +2196,8 @@ export function createWorkspaceApplicationMethods(
       const messageTimestamp = createMonotonicTimestamp(
         workspaceState.draft.updatedAt,
       );
-      const assistantMessageTimestamp = createMonotonicTimestamp(
-        messageTimestamp,
-      );
+      const assistantMessageTimestamp =
+        createMonotonicTimestamp(messageTimestamp);
       const userMessage = ResumeAssistantMessageSchema.parse({
         id: createUniqueId(`resume_message_user_${jobId}`),
         jobId,
@@ -1814,10 +2225,15 @@ export function createWorkspaceApplicationMethods(
           targetEntryId: patch.targetEntryId ?? null,
         }),
       );
+      const assistantContent =
+        normalizedPatches.length > 0
+          ? `I prepared ${normalizedPatches.length} grounded resume edit${normalizedPatches.length === 1 ? "" : "s"} for your review. Nothing changed yet; select the changes you want and accept them explicitly.`
+          : assistantReply.content;
       const assistantMessage = buildAssistantReplyMessage({
         jobId,
-        content: assistantReply.content,
+        content: assistantContent,
         patches: normalizedPatches,
+        baseDraftUpdatedAt: workspaceState.draft.updatedAt,
         createdAt: assistantMessageTimestamp,
       });
 
@@ -1840,6 +2256,7 @@ export function createWorkspaceApplicationMethods(
           jobId,
           content: `No assistant changes were applied. ${failureDetail}`,
           patches: [],
+          proposalError: failureDetail,
           createdAt: assistantMessageTimestamp,
         });
 
@@ -1848,30 +2265,116 @@ export function createWorkspaceApplicationMethods(
         return ctx.repository.listResumeAssistantMessages(jobId);
       }
 
-      if (normalizedPatches.length > 0) {
-        const finalUpdatedAt = createMonotonicTimestamp(
-          candidateDraft.updatedAt,
+      await ctx.repository.upsertResumeAssistantMessage(userMessage);
+      await ctx.repository.upsertResumeAssistantMessage(assistantMessage);
+
+      return ctx.repository.listResumeAssistantMessages(jobId);
+    },
+    async resolveResumeAssistantProposal(
+      jobId,
+      proposalId,
+      action,
+      patchIds,
+    ) {
+      const proposal = (await ctx.repository.listResumeAssistantMessages(jobId)).find(
+        (message) => message.id === proposalId,
+      );
+      if (!proposal || proposal.role !== "assistant") {
+        throw new Error(`Unable to find resume proposal '${proposalId}'.`);
+      }
+      if (proposal.proposalStatus !== "pending") {
+        throw new Error("This resume proposal has already been resolved.");
+      }
+
+      const resolvedAt = createMonotonicTimestamp(proposal.createdAt);
+      if (action === "reject") {
+        await ctx.repository.upsertResumeAssistantMessage(
+          ResumeAssistantMessageSchema.parse({
+            ...proposal,
+            proposalStatus: "rejected",
+            resolvedPatchIds: [],
+            resolvedAt,
+            proposalError: null,
+          }),
         );
+        return ctx.repository.listResumeAssistantMessages(jobId);
+      }
+
+      const uniquePatchIds = [...new Set(patchIds)];
+      const proposalPatchIds = new Set(proposal.patches.map((patch) => patch.id));
+      if (
+        uniquePatchIds.length === 0 ||
+        uniquePatchIds.some((patchId) => !proposalPatchIds.has(patchId))
+      ) {
+        throw new Error("Select at least one change from this exact proposal.");
+      }
+
+      const workspaceState = await ensureResumeDraft(ctx, jobId);
+      if (
+        !proposal.baseDraftUpdatedAt ||
+        workspaceState.draft.updatedAt !== proposal.baseDraftUpdatedAt
+      ) {
+        const message =
+          "The resume changed after this proposal was created. Review the current draft and request fresh edits.";
+        await ctx.repository.upsertResumeAssistantMessage(
+          ResumeAssistantMessageSchema.parse({
+            ...proposal,
+            proposalError: message,
+          }),
+        );
+        throw new Error(message);
+      }
+
+      try {
+        let candidateDraft = workspaceState.draft;
+        for (const patch of proposal.patches) {
+          if (!uniquePatchIds.includes(patch.id)) {
+            continue;
+          }
+          candidateDraft = applyPatchToResumeDraft({
+            draft: candidateDraft,
+            patch,
+            updatedAt: createMonotonicTimestamp(candidateDraft.updatedAt),
+          });
+        }
+
+        const finalUpdatedAt = createMonotonicTimestamp(candidateDraft.updatedAt);
         const sanitizedDraft = sanitizeResumeDraft({
           draft: candidateDraft,
           job: workspaceState.job,
           profile: workspaceState.profile,
         });
+        if (
+          buildResumeDraftStateHash(workspaceState.draft) ===
+          buildResumeDraftStateHash(sanitizedDraft)
+        ) {
+          throw new Error("The selected proposal does not change the current resume.");
+        }
+
         const revision = buildResumeDraftRevision({
-          draft: candidateDraft,
+          draft: workspaceState.draft,
+          resultingDraft: sanitizedDraft,
           createdAt: finalUpdatedAt,
-          reason: `Assistant request: ${content}`,
+          parentRevisionId: await getLatestResumeRevisionId(
+            ctx,
+            workspaceState.draft.id,
+          ),
+          actor: "assistant",
+          mutationKind: "assistant_patch",
+          reason: `Approved guided edits proposal: ${proposal.content}`,
         });
+        const validations = await ctx.repository.listResumeValidationResults(
+          workspaceState.draft.id,
+        );
         const validation = validateResumeDraft({
           draft: sanitizedDraft,
           job: workspaceState.job,
           profile: workspaceState.profile,
           validatedAt: finalUpdatedAt,
         });
-        const previousValidation = validations[0] ?? null;
         const validationWithReviewGuidance = preserveWorkHistoryReviewGuidance({
           validation,
-          previousValidation,
+          previousValidation: validations[0] ?? null,
           draft: sanitizedDraft,
         });
         const nextAsset = buildTailoredAssetBridge({
@@ -1884,15 +2387,34 @@ export function createWorkspaceApplicationMethods(
         });
 
         await ctx.repository.applyResumePatchWithRevision({
+          expectedDraftUpdatedAt: workspaceState.draft.updatedAt,
           draft: sanitizedDraft,
           revision,
           validation: validationWithReviewGuidance,
           tailoredAsset: nextAsset,
         });
+        await ctx.repository.upsertResumeAssistantMessage(
+          ResumeAssistantMessageSchema.parse({
+            ...proposal,
+            proposalStatus: "accepted",
+            resolvedPatchIds: uniquePatchIds,
+            resolvedAt,
+            proposalError: null,
+          }),
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "The selected resume changes could not be applied.";
+        await ctx.repository.upsertResumeAssistantMessage(
+          ResumeAssistantMessageSchema.parse({
+            ...proposal,
+            proposalError: message,
+          }),
+        );
+        throw error;
       }
-
-      await ctx.repository.upsertResumeAssistantMessage(userMessage);
-      await ctx.repository.upsertResumeAssistantMessage(assistantMessage);
 
       return ctx.repository.listResumeAssistantMessages(jobId);
     },
@@ -1924,7 +2446,8 @@ export function createWorkspaceApplicationMethods(
         );
       }
 
-      const { resumeArtifact } = await resolveJobApplyPrerequisites(jobId);
+      const { resumeApplicationMode, resumeArtifact } =
+        await resolveJobApplyPrerequisites(jobId);
 
       const provenanceTargetId =
         job.provenance[job.provenance.length - 1]?.targetId ??
@@ -1950,20 +2473,20 @@ export function createWorkspaceApplicationMethods(
         ...buildInstructionGuidance(activeInstruction),
       ]);
 
-      const executionResult = await ctx.browserRuntime.executeApplicationFlow(
-        job.source,
-        {
+      const executionResult = enforcePrepareOnlyExecutionResult(
+        await ctx.browserRuntime.executeApplicationFlow(job.source, {
           job,
           resumeArtifact,
           profile,
-          settings,
+          settings: { ...settings, resumeApplicationMode },
           mode: "prepare_only",
           intermediateMutationsAuthorized: true,
+          accountCreationAuthorized: false,
           submitAuthorized: false,
           ...(applyInstructions.length > 0
             ? { instructions: applyInstructions }
             : {}),
-        },
+        }),
       );
       const now = new Date().toISOString();
       const sourceDebugEvidenceRefIds = buildEvidenceRefIdsFromInstruction({
@@ -2009,6 +2532,7 @@ export function createWorkspaceApplicationMethods(
         visualObservationSets: executionResult.visualObservationSets,
         visualCheckpoints: executionResult.visualCheckpoints,
         nextActionLabel: executionResult.nextActionLabel,
+        executionTimings: executionResult.executionTimings,
       });
 
       await ctx.repository.upsertApplicationAttempt(attempt);
@@ -2029,7 +2553,10 @@ export function createWorkspaceApplicationMethods(
         questionSummary: buildQuestionSummary(attempt.questions),
         latestBlocker: buildLatestBlockerSummary(attempt.blocker),
         consentSummary: buildConsentSummary(attempt.consentDecisions),
-        replaySummary: buildReplaySummary(attempt.replay, attempt.visualEvidence),
+        replaySummary: buildReplaySummary(
+          attempt.replay,
+          attempt.visualEvidence,
+        ),
         events: mergeEvents(
           existingRecord?.events ?? [],
           toApplicationEvents(job, executionResult.checkpoints),
@@ -2111,17 +2638,16 @@ export function createWorkspaceApplicationMethods(
         tailoredAssets.find((entry) => entry.jobId === jobId) ?? null;
       const originalResumePath = profile.baseResume.storagePath?.trim() ?? "";
       const usesOriginalResume =
-        settings.resumeApplicationMode === "original_resume";
+        resolveJobResumeApplicationMode(job, settings) === "original_resume";
 
-      const shouldBlockForMissingResume =
-        usesOriginalResume
-          ? !originalResumePath
-          : !draft ||
-            draft.status !== "approved" ||
-            !approvedExport ||
-            !asset ||
-            asset.status !== "ready" ||
-            asset.storagePath !== approvedExport.filePath;
+      const shouldBlockForMissingResume = usesOriginalResume
+        ? !originalResumePath
+        : !draft ||
+          draft.status !== "approved" ||
+          !approvedExport ||
+          !asset ||
+          asset.status !== "ready" ||
+          asset.storagePath !== approvedExport.filePath;
 
       if (!shouldBlockForMissingResume && ctx.exportFileVerifier) {
         const approvedFileExists = await ctx.exportFileVerifier.exists(
@@ -2199,7 +2725,7 @@ export function createWorkspaceApplicationMethods(
           ctx.repository.upsertApplicationRecord(
             mergeMissingResumeApplicationRecord({
               applicationRecord: artifacts.applicationRecord,
-                existingRecord,
+              existingRecord,
             }),
           ),
         ]);
@@ -2207,7 +2733,8 @@ export function createWorkspaceApplicationMethods(
         return ctx.getWorkspaceSnapshot();
       }
 
-      const { resumeArtifact } = await resolveJobApplyPrerequisites(jobId);
+      const { resumeApplicationMode, resumeArtifact } =
+        await resolveJobApplyPrerequisites(jobId);
 
       const provenanceTargetId =
         job.provenance[job.provenance.length - 1]?.targetId ??
@@ -2234,15 +2761,15 @@ export function createWorkspaceApplicationMethods(
         );
       }
 
-      const executionResult = await ctx.browserRuntime.executeApplicationFlow(
-        job.source,
-        {
+      const executionResult = enforcePrepareOnlyExecutionResult(
+        await ctx.browserRuntime.executeApplicationFlow(job.source, {
           job,
           resumeArtifact,
           profile,
-          settings,
+          settings: { ...settings, resumeApplicationMode },
           mode: "prepare_only",
           intermediateMutationsAuthorized: true,
+          accountCreationAuthorized: false,
           submitAuthorized: false,
           ...(recoverySeed.recoveryContext
             ? { recoveryContext: recoverySeed.recoveryContext }
@@ -2254,7 +2781,7 @@ export function createWorkspaceApplicationMethods(
             enabled: options?.visualCheckpointsEnabled === true,
             source: job.source,
           }),
-        },
+        }),
       );
       const detectedAt = new Date().toISOString();
       const sourceDebugEvidenceRefIds = buildEvidenceRefIdsFromInstruction({
@@ -2298,9 +2825,11 @@ export function createWorkspaceApplicationMethods(
         visualObservationSets: executionResult.visualObservationSets,
         visualCheckpoints: executionResult.visualCheckpoints,
         nextActionLabel: executionResult.nextActionLabel,
+        executionTimings: executionResult.executionTimings,
       });
       const runArtifacts = buildApplyCopilotArtifacts({
         job,
+        resumeArtifact,
         executionResult: {
           ...executionResult,
           blocker,
@@ -2347,7 +2876,10 @@ export function createWorkspaceApplicationMethods(
         questionSummary: buildQuestionSummary(attempt.questions),
         latestBlocker: buildLatestBlockerSummary(attempt.blocker),
         consentSummary: buildConsentSummary(attempt.consentDecisions),
-        replaySummary: buildReplaySummary(attempt.replay, attempt.visualEvidence),
+        replaySummary: buildReplaySummary(
+          attempt.replay,
+          attempt.visualEvidence,
+        ),
         events: mergeEvents(
           existingRecord?.events ?? [],
           toApplicationEvents(job, executionResult.checkpoints),
@@ -2368,6 +2900,17 @@ export function createWorkspaceApplicationMethods(
             : savedJob,
         ),
       );
+      await persistApplicationUserAction({
+        repository: ctx.repository,
+        job,
+        runId: runArtifacts.run.id,
+        resultId: runArtifacts.result.id,
+        resultState: runArtifacts.result.state,
+        resultStartedAt: runArtifacts.result.startedAt,
+        replayCheckpointId: runArtifacts.checkpoints.at(-1)?.id ?? null,
+        blocker,
+        occurredAt: detectedAt,
+      });
 
       return ctx.getWorkspaceSnapshot();
     },
@@ -2681,7 +3224,11 @@ export function createWorkspaceApplicationMethods(
         );
       }
 
-      if (run.state !== "paused_for_consent") {
+      if (
+        run.state !== "paused_for_consent" &&
+        run.state !== "paused_for_user_review" &&
+        run.state !== "running"
+      ) {
         throw new Error(
           `Consent request '${requestId}' cannot be resolved because run '${run.id}' is ${run.state}.`,
         );
@@ -2694,6 +3241,12 @@ export function createWorkspaceApplicationMethods(
         decidedAt: now,
       });
       await ctx.repository.upsertApplicationConsentRequest(updatedRequest);
+      const otherPendingConsentCount = requests.filter(
+        (candidate) =>
+          candidate.runId === run.id &&
+          candidate.id !== request.id &&
+          candidate.status === "pending",
+      ).length;
 
       const relatedResult = results.find(
         (entry) =>
@@ -2728,19 +3281,41 @@ export function createWorkspaceApplicationMethods(
           );
           return !result || result.state === "planned";
         });
+        const awaitingReviewJobs = run.jobIds.filter((jobId) => {
+          if (jobId === request.jobId) return false;
+          return results.some(
+            (result) =>
+              result.runId === run.id &&
+              result.jobId === jobId &&
+              result.state === "awaiting_review",
+          );
+        }).length;
+        const blockedJobs = Math.max(0, run.blockedJobs - 1);
+        const nextState =
+          remainingJobs.length > 0
+            ? "running"
+            : otherPendingConsentCount > 0
+              ? "paused_for_consent"
+              : awaitingReviewJobs > 0 || blockedJobs > 0
+                ? "paused_for_user_review"
+                : "completed";
         const updatedRun = ApplyRunSchema.parse({
           ...run,
-          state: remainingJobs.length > 0 ? "running" : "completed",
+          state: nextState,
           updatedAt: now,
-          completedAt: remainingJobs.length > 0 ? null : now,
-          currentJobId: remainingJobs[0] ?? null,
-          pendingJobs: remainingJobs.length,
+          completedAt: nextState === "completed" ? now : null,
+          currentJobId: remainingJobs[0] ?? request.jobId,
+          pendingJobs: remainingJobs.length + awaitingReviewJobs,
           skippedJobs: run.skippedJobs + 1,
-          blockedJobs: Math.max(0, run.blockedJobs - 1),
+          blockedJobs,
           summary:
             remainingJobs.length > 0
               ? "Consent declined. The queue skipped this job and continued."
-              : "Consent declined. The queue finished after skipping the blocked job.",
+              : otherPendingConsentCount > 0
+                ? `Consent declined for this job. ${otherPendingConsentCount} other consent ${otherPendingConsentCount === 1 ? "decision still needs" : "decisions still need"} you.`
+                : awaitingReviewJobs > 0 || blockedJobs > 0
+                  ? "Consent declined for this job. Other prepared or blocked jobs remain available for review."
+                  : "Consent declined. The queue finished after skipping the blocked job.",
           detail:
             "The consent-gated job was skipped because consent was declined. The queue remains safe and non-submitting.",
         });
@@ -2826,22 +3401,37 @@ export function createWorkspaceApplicationMethods(
 
         return result.state === "planned" && jobId !== request.jobId;
       });
+      const awaitingReviewJobs = run.jobIds.filter((jobId) => {
+        if (jobId === request.jobId) return true;
+        return results.some(
+          (result) =>
+            result.runId === run.id &&
+            result.jobId === jobId &&
+            result.state === "awaiting_review",
+        );
+      }).length;
+      const blockedJobs = Math.max(0, run.blockedJobs - 1);
+      const nextState =
+        remainingJobs.length > 0
+          ? "running"
+          : otherPendingConsentCount > 0
+            ? "paused_for_consent"
+            : "paused_for_user_review";
 
       await ctx.repository.upsertApplyRun(
         ApplyRunSchema.parse({
           ...run,
-          state:
-            run.mode === "queue_auto" && remainingJobs.length > 0
-              ? "running"
-              : "paused_for_user_review",
+          state: nextState,
           updatedAt: now,
           currentJobId: remainingJobs[0] ?? request.jobId,
-          pendingJobs: remainingJobs.length,
-          blockedJobs: Math.max(0, run.blockedJobs - 1),
+          pendingJobs: remainingJobs.length + awaitingReviewJobs,
+          blockedJobs,
           summary:
-            run.mode === "queue_auto" && remainingJobs.length > 0
+            remainingJobs.length > 0
               ? "Consent approved. The queue resumed in safe review mode."
-              : "Consent approved. The job stayed prepared for review.",
+              : otherPendingConsentCount > 0
+                ? `Consent approved for this job. ${otherPendingConsentCount} other consent ${otherPendingConsentCount === 1 ? "decision still needs" : "decisions still need"} you.`
+                : "Consent approved. The job stayed prepared for review.",
           detail:
             "The consent-gated job can continue in safe review mode, still without any final submit action.",
         }),
@@ -2851,20 +3441,20 @@ export function createWorkspaceApplicationMethods(
         (record) => record.jobId === request.jobId,
       );
 
-        if (existingRecord) {
-          await ctx.repository.upsertApplicationRecord(
-            ApplicationRecordSchema.parse({
-              ...existingRecord,
-              status: "ready_for_review",
-              lastAttemptState: "paused",
-              latestBlocker: null,
-              consentSummary: {
-                status: "approved",
-                pendingCount: 0,
-              },
-              lastActionLabel:
-                run.mode === "queue_auto" && remainingJobs.length > 0
-                  ? "Consent approved. The queue resumed in safe review mode."
+      if (existingRecord) {
+        await ctx.repository.upsertApplicationRecord(
+          ApplicationRecordSchema.parse({
+            ...existingRecord,
+            status: "ready_for_review",
+            lastAttemptState: "paused",
+            latestBlocker: null,
+            consentSummary: {
+              status: "approved",
+              pendingCount: 0,
+            },
+            lastActionLabel:
+              run.mode === "queue_auto" && remainingJobs.length > 0
+                ? "Consent approved. The queue resumed in safe review mode."
                 : "Consent approved. The job stayed prepared for review.",
             nextActionLabel:
               run.mode === "queue_auto" && remainingJobs.length > 0

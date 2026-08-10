@@ -196,5 +196,15 @@ describe('ResumeThemePicker', () => {
     expect(container?.textContent).toContain('Recommended')
     expect(container?.textContent).toContain('Sample renderer preview')
     expect(container?.querySelectorAll('[role="radio"]')).toHaveLength(0)
+    const templateButtons = [
+      ...(container?.querySelectorAll<HTMLButtonElement>('[data-resume-template-select]') ?? []),
+    ]
+    expect(templateButtons).not.toHaveLength(0)
+    expect(
+      templateButtons.every(
+        button => button.getAttribute('aria-label')?.includes(' · ') && button.hasAttribute('aria-pressed'),
+      ),
+    ).toBe(true)
+    expect(new Set(templateButtons.map(button => button.getAttribute('aria-label'))).size).toBe(templateButtons.length)
   })
 })

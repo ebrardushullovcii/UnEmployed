@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   IsoDateTimeSchema,
+  JobSourceSchema,
   NonEmptyStringSchema,
   UrlStringSchema,
 } from "./base";
@@ -10,6 +11,7 @@ import {
   ApplicationAnswerSourceKindSchema,
   ApplicationAttemptSuggestedAnswerSchema,
   ApplicationConsentKindSchema,
+  ApplicationQuestionControlTypeSchema,
   ApplicationQuestionKindSchema,
   ApplicationQuestionStatusSchema,
 } from "./discovery";
@@ -47,6 +49,14 @@ export const ApplicationResumeArtifactSchema = z.object({
   exportArtifactId: NonEmptyStringSchema.nullable().default(null),
   fileName: NonEmptyStringSchema,
   filePath: NonEmptyStringSchema,
+  sha256: z
+    .string()
+    .regex(
+      /^[a-f0-9]{64}$/i,
+      "Resume SHA-256 must be 64 hexadecimal characters.",
+    )
+    .nullable()
+    .optional(),
   approvedAt: IsoDateTimeSchema,
 });
 export type ApplicationResumeArtifact = z.infer<
@@ -154,6 +164,73 @@ export type ApplicationAnswerRecordStatus = z.infer<
   typeof ApplicationAnswerRecordStatusSchema
 >;
 
+export const applicationAnswerValueTypeValues = [
+  "text",
+  "single_choice",
+  "multi_choice",
+  "boolean",
+  "date",
+  "asset_ref",
+] as const;
+export const ApplicationAnswerValueTypeSchema = z.enum(
+  applicationAnswerValueTypeValues,
+);
+export type ApplicationAnswerValueType = z.infer<
+  typeof ApplicationAnswerValueTypeSchema
+>;
+
+const ApplicationAnswerDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Answer date must use YYYY-MM-DD.")
+  .refine((value) => {
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    return (
+      Number.isFinite(parsed.getTime()) &&
+      parsed.toISOString().slice(0, 10) === value
+    );
+  }, "Answer date must be a real calendar date.");
+
+export const ApplicationAnswerValueSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("text"),
+    value: z.string().trim().min(1).max(4_000),
+  }),
+  z.object({
+    type: z.literal("single_choice"),
+    value: NonEmptyStringSchema,
+  }),
+  z.object({
+    type: z.literal("multi_choice"),
+    values: z.array(NonEmptyStringSchema).min(1).max(100),
+  }),
+  z.object({
+    type: z.literal("boolean"),
+    value: z.boolean(),
+  }),
+  z.object({
+    type: z.literal("date"),
+    value: ApplicationAnswerDateSchema,
+  }),
+  z.object({
+    type: z.literal("asset_ref"),
+    assetId: NonEmptyStringSchema,
+  }),
+]);
+export type ApplicationAnswerValue = z.infer<
+  typeof ApplicationAnswerValueSchema
+>;
+
+export const applicationAnswerSaveScopeValues = [
+  "application_once",
+  "reusable_profile",
+] as const;
+export const ApplicationAnswerSaveScopeSchema = z.enum(
+  applicationAnswerSaveScopeValues,
+);
+export type ApplicationAnswerSaveScope = z.infer<
+  typeof ApplicationAnswerSaveScopeSchema
+>;
+
 export const applicationArtifactKindValues = [
   "screenshot",
   "field_snapshot",
@@ -169,21 +246,294 @@ export type ApplicationArtifactKind = z.infer<
   typeof ApplicationArtifactKindSchema
 >;
 
+export const applicationPrivacyLocalDataCategoryValues = [
+  "profile_data",
+  "resume_content",
+  "application_answers",
+  "job_listing_data",
+  "browser_evidence",
+  "generated_documents",
+] as const;
+export const ApplicationPrivacyLocalDataCategorySchema = z.enum(
+  applicationPrivacyLocalDataCategoryValues,
+);
+export type ApplicationPrivacyLocalDataCategory = z.infer<
+  typeof ApplicationPrivacyLocalDataCategorySchema
+>;
+
+export const applicationPrivacyModelUsePurposeValues = [
+  "job_matching",
+  "resume_extraction",
+  "resume_generation",
+  "application_answering",
+  "visual_interpretation",
+  "other",
+] as const;
+export const ApplicationPrivacyModelUsePurposeSchema = z.enum(
+  applicationPrivacyModelUsePurposeValues,
+);
+export type ApplicationPrivacyModelUsePurpose = z.infer<
+  typeof ApplicationPrivacyModelUsePurposeSchema
+>;
+
+export const applicationPrivacyModelTransportValues = [
+  "local_model",
+  "external_model",
+] as const;
+export const ApplicationPrivacyModelTransportSchema = z.enum(
+  applicationPrivacyModelTransportValues,
+);
+export type ApplicationPrivacyModelTransport = z.infer<
+  typeof ApplicationPrivacyModelTransportSchema
+>;
+
+export const applicationPrivacyExternalWriteCategoryValues = [
+  "resume_attachment",
+  "profile_field",
+  "application_answer",
+  "consent_control",
+  "other",
+] as const;
+export const ApplicationPrivacyExternalWriteCategorySchema = z.enum(
+  applicationPrivacyExternalWriteCategoryValues,
+);
+export type ApplicationPrivacyExternalWriteCategory = z.infer<
+  typeof ApplicationPrivacyExternalWriteCategorySchema
+>;
+
+export const ApplicationPrivacyDestinationOriginSchema = UrlStringSchema.refine(
+  (value) => {
+    try {
+      const url = new URL(value);
+      return (
+        (url.protocol === "https:" || url.protocol === "http:") &&
+        url.username.length === 0 &&
+        url.password.length === 0 &&
+        url.pathname === "/" &&
+        url.search.length === 0 &&
+        url.hash.length === 0
+      );
+    } catch {
+      return false;
+    }
+  },
+  {
+    message: "Destination origin must contain only an HTTP(S) scheme and host.",
+  },
+);
+export type ApplicationPrivacyDestinationOrigin = z.infer<
+  typeof ApplicationPrivacyDestinationOriginSchema
+>;
+
+export const ApplicationPrivacySafePathSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .regex(
+    /^\/[^\s?#\\]*$/,
+    "Destination path must be an absolute redacted path without a query or fragment.",
+  );
+export type ApplicationPrivacySafePath = z.infer<
+  typeof ApplicationPrivacySafePathSchema
+>;
+
+export const ApplicationPrivacyDestinationSchema = z.object({
+  origin: ApplicationPrivacyDestinationOriginSchema,
+  safePath: ApplicationPrivacySafePathSchema,
+});
+export type ApplicationPrivacyDestination = z.infer<
+  typeof ApplicationPrivacyDestinationSchema
+>;
+
+export const ApplicationPrivacyResumeIdentitySchema = z.object({
+  source: ApplicationResumeSourceSchema,
+  sourceDocumentId: NonEmptyStringSchema.nullable().default(null),
+  exportArtifactId: NonEmptyStringSchema.nullable().default(null),
+  fileName: NonEmptyStringSchema,
+  sha256: z
+    .string()
+    .regex(
+      /^[a-f0-9]{64}$/i,
+      "Resume SHA-256 must be 64 hexadecimal characters.",
+    )
+    .nullable()
+    .optional(),
+});
+export type ApplicationPrivacyResumeIdentity = z.infer<
+  typeof ApplicationPrivacyResumeIdentitySchema
+>;
+
+export const ApplicationPrivacyModelUseEntrySchema = z.object({
+  purpose: ApplicationPrivacyModelUsePurposeSchema,
+  transport: ApplicationPrivacyModelTransportSchema,
+  providerLabel: NonEmptyStringSchema,
+  modelLabel: NonEmptyStringSchema.nullable().default(null),
+  dataCategories: z
+    .array(ApplicationPrivacyLocalDataCategorySchema)
+    .default([]),
+  occurredAt: IsoDateTimeSchema,
+});
+export type ApplicationPrivacyModelUseEntry = z.infer<
+  typeof ApplicationPrivacyModelUseEntrySchema
+>;
+
+export const ApplicationPrivacyExternalWriteEvidenceSchema = z.object({
+  category: ApplicationPrivacyExternalWriteCategorySchema,
+  fieldLabel: NonEmptyStringSchema,
+  occurredAt: IsoDateTimeSchema,
+  artifactRefId: NonEmptyStringSchema.nullable().default(null),
+  verified: z.boolean().default(false),
+});
+export type ApplicationPrivacyExternalWriteEvidence = z.infer<
+  typeof ApplicationPrivacyExternalWriteEvidenceSchema
+>;
+
+export const ApplicationPrivacyReceiptSchema = z.object({
+  schemaVersion: z.literal(1).default(1),
+  generatedAt: IsoDateTimeSchema,
+  lineage: z.object({
+    runId: NonEmptyStringSchema,
+    jobId: NonEmptyStringSchema,
+    resultId: NonEmptyStringSchema,
+  }),
+  destination: ApplicationPrivacyDestinationSchema,
+  resume: ApplicationPrivacyResumeIdentitySchema,
+  stayedLocal: z.array(ApplicationPrivacyLocalDataCategorySchema).default([]),
+  modelUse: z.array(ApplicationPrivacyModelUseEntrySchema).default([]),
+  externalWrites: z
+    .array(ApplicationPrivacyExternalWriteEvidenceSchema)
+    .default([]),
+  accountCreationAuthorized: z.boolean().default(false),
+  finalSubmitAuthorized: z.boolean().default(false),
+  finalSubmitOccurred: z.boolean().default(false),
+});
+export type ApplicationPrivacyReceipt = z.infer<
+  typeof ApplicationPrivacyReceiptSchema
+>;
+export type ApplicationPrivacyReceiptInput = z.input<
+  typeof ApplicationPrivacyReceiptSchema
+>;
+export const ApplicationPacketQuestionSchema = z.object({
+  id: NonEmptyStringSchema,
+  prompt: NonEmptyStringSchema,
+  kind: ApplicationQuestionKindSchema,
+  isRequired: z.boolean(),
+  status: ApplicationQuestionStatusSchema,
+  preparedAnswer: NonEmptyStringSchema.nullable().default(null),
+  sourceKinds: z.array(ApplicationAnswerSourceKindSchema).default([]),
+});
+export type ApplicationPacketQuestion = z.infer<
+  typeof ApplicationPacketQuestionSchema
+>;
+
+export const ApplicationPacketCheckpointSchema = z.object({
+  label: NonEmptyStringSchema,
+  detail: NonEmptyStringSchema.nullable().default(null),
+  jobState: ApplyJobStateSchema,
+  createdAt: IsoDateTimeSchema,
+  destination: ApplicationPrivacyDestinationSchema.nullable().default(null),
+});
+export type ApplicationPacketCheckpoint = z.infer<
+  typeof ApplicationPacketCheckpointSchema
+>;
+
+export const ApplicationPacketSchema = z
+  .object({
+    schemaVersion: z.literal(1).default(1),
+    generatedAt: IsoDateTimeSchema,
+    job: z.object({
+      id: NonEmptyStringSchema,
+      source: JobSourceSchema,
+      title: NonEmptyStringSchema,
+      company: NonEmptyStringSchema,
+      location: NonEmptyStringSchema,
+      listingDestination: ApplicationPrivacyDestinationSchema,
+      applicationDestination:
+        ApplicationPrivacyDestinationSchema.nullable().default(null),
+      summary: NonEmptyStringSchema.nullable().default(null),
+    }),
+    run: z.object({
+      id: NonEmptyStringSchema,
+      mode: ApplyRunModeSchema,
+      state: ApplyRunStateSchema,
+    }),
+    result: z.object({
+      id: NonEmptyStringSchema,
+      state: ApplyJobStateSchema,
+      summary: NonEmptyStringSchema,
+      detail: NonEmptyStringSchema,
+      blockerReason: ApplyBlockerReasonSchema.nullable().default(null),
+      blockerSummary: NonEmptyStringSchema.nullable().default(null),
+      updatedAt: IsoDateTimeSchema,
+    }),
+    resume: ApplicationPrivacyResumeIdentitySchema.nullable().default(null),
+    questions: z.array(ApplicationPacketQuestionSchema).default([]),
+    consent: z
+      .array(
+        z.object({
+          kind: ApplyConsentRequestKindSchema,
+          label: NonEmptyStringSchema,
+          detail: NonEmptyStringSchema.nullable().default(null),
+          status: ApplyConsentRequestStatusSchema,
+          requestedAt: IsoDateTimeSchema,
+          decidedAt: IsoDateTimeSchema.nullable().default(null),
+        }),
+      )
+      .default([]),
+    checkpoints: z.array(ApplicationPacketCheckpointSchema).default([]),
+    privacyReceipt: ApplicationPrivacyReceiptSchema.nullable().default(null),
+    submissionOccurred: z.boolean().default(false),
+  })
+  .superRefine((value, ctx) => {
+    const submissionProven =
+      value.result.state === "submitted" &&
+      value.privacyReceipt?.finalSubmitOccurred === true;
+    if (value.submissionOccurred !== submissionProven) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Packet submission status must exactly match both result and receipt proof.",
+        path: ["submissionOccurred"],
+      });
+    }
+
+    const receiptLineage = value.privacyReceipt?.lineage;
+    if (
+      receiptLineage &&
+      (receiptLineage.runId !== value.run.id ||
+        receiptLineage.jobId !== value.job.id ||
+        receiptLineage.resultId !== value.result.id)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Packet privacy receipt lineage must match its run, job, and result.",
+        path: ["privacyReceipt", "lineage"],
+      });
+    }
+  });
+export type ApplicationPacket = z.infer<typeof ApplicationPacketSchema>;
+export type ApplicationPacketInput = z.input<typeof ApplicationPacketSchema>;
 export const ApplyRecoveryContextSchema = z.object({
   previousRunId: NonEmptyStringSchema,
   previousResultId: NonEmptyStringSchema.nullable().default(null),
   previousRunMode: ApplyRunModeSchema,
   previousRunState: ApplyRunStateSchema,
-  latestCheckpoint: z.object({
-    label: NonEmptyStringSchema,
-    detail: NonEmptyStringSchema.nullable().default(null),
-    url: UrlStringSchema.nullable().default(null),
-    jobState: ApplyJobStateSchema,
-    createdAt: IsoDateTimeSchema,
-  }).nullable().default(null),
+  latestCheckpoint: z
+    .object({
+      label: NonEmptyStringSchema,
+      detail: NonEmptyStringSchema.nullable().default(null),
+      url: UrlStringSchema.nullable().default(null),
+      jobState: ApplyJobStateSchema,
+      createdAt: IsoDateTimeSchema,
+    })
+    .nullable()
+    .default(null),
   checkpointUrls: z.array(UrlStringSchema).default([]),
   blockerSummary: NonEmptyStringSchema.nullable().default(null),
-  retainedVisualEvidence: z.array(BrowserVisualEvidenceSummarySchema).default([]),
+  retainedVisualEvidence: z
+    .array(BrowserVisualEvidenceSummarySchema)
+    .default([]),
 });
 export type ApplyRecoveryContext = z.infer<typeof ApplyRecoveryContextSchema>;
 
@@ -208,10 +558,13 @@ export const ApplicationQuestionRecordSchema = z.object({
   resultId: NonEmptyStringSchema.nullable().default(null),
   prompt: NonEmptyStringSchema,
   kind: ApplicationQuestionKindSchema.default("other"),
+  answerControlType: ApplicationQuestionControlTypeSchema.default("text"),
   isRequired: z.boolean().default(true),
   detectedAt: IsoDateTimeSchema,
   answerOptions: z.array(NonEmptyStringSchema).default([]),
-  suggestedAnswers: z.array(ApplicationAttemptSuggestedAnswerSchema).default([]),
+  suggestedAnswers: z
+    .array(ApplicationAttemptSuggestedAnswerSchema)
+    .default([]),
   selectedAnswerId: NonEmptyStringSchema.nullable().default(null),
   submittedAnswer: NonEmptyStringSchema.nullable().default(null),
   status: ApplicationQuestionStatusSchema.default("detected"),
@@ -233,6 +586,10 @@ export const ApplicationAnswerRecordSchema = z.object({
   questionId: NonEmptyStringSchema,
   status: ApplicationAnswerRecordStatusSchema.default("suggested"),
   text: NonEmptyStringSchema,
+  value: ApplicationAnswerValueSchema.nullable().default(null),
+  revision: z.number().int().positive().default(1),
+  saveScope: ApplicationAnswerSaveScopeSchema.default("application_once"),
+  supersedesAnswerId: NonEmptyStringSchema.nullable().default(null),
   sourceKind: ApplicationAnswerSourceKindSchema.default("profile"),
   sourceId: NonEmptyStringSchema.nullable().default(null),
   confidenceLabel: NonEmptyStringSchema.nullable().default(null),
@@ -242,6 +599,49 @@ export const ApplicationAnswerRecordSchema = z.object({
 });
 export type ApplicationAnswerRecord = z.infer<
   typeof ApplicationAnswerRecordSchema
+>;
+
+const ApplicationAnswerMutationSafetySchema = {
+  submitAuthorized: z.literal(false).default(false),
+  accountCreationAuthorized: z.literal(false).default(false),
+} as const;
+
+export const SaveApplicationAnswerCommandSchema = z
+  .object({
+    commandId: NonEmptyStringSchema,
+    runId: NonEmptyStringSchema,
+    jobId: NonEmptyStringSchema,
+    resultId: NonEmptyStringSchema,
+    questionId: NonEmptyStringSchema,
+    expectedAnswerRevision: z.number().int().nonnegative(),
+    value: ApplicationAnswerValueSchema,
+    saveScope: ApplicationAnswerSaveScopeSchema.default("application_once"),
+    ...ApplicationAnswerMutationSafetySchema,
+  })
+  .strict();
+export type SaveApplicationAnswerCommand = z.infer<
+  typeof SaveApplicationAnswerCommandSchema
+>;
+export type SaveApplicationAnswerCommandInput = z.input<
+  typeof SaveApplicationAnswerCommandSchema
+>;
+
+export const ClearApplicationAnswerCommandSchema = z
+  .object({
+    commandId: NonEmptyStringSchema,
+    runId: NonEmptyStringSchema,
+    jobId: NonEmptyStringSchema,
+    resultId: NonEmptyStringSchema,
+    questionId: NonEmptyStringSchema,
+    expectedAnswerRevision: z.number().int().positive(),
+    ...ApplicationAnswerMutationSafetySchema,
+  })
+  .strict();
+export type ClearApplicationAnswerCommand = z.infer<
+  typeof ClearApplicationAnswerCommandSchema
+>;
+export type ClearApplicationAnswerCommandInput = z.input<
+  typeof ClearApplicationAnswerCommandSchema
 >;
 
 export const ApplicationArtifactRefSchema = z.object({
@@ -324,6 +724,8 @@ export const ApplyJobResultSchema = z.object({
   pendingConsentRequestCount: z.number().int().nonnegative().default(0),
   artifactCount: z.number().int().nonnegative().default(0),
   latestCheckpointId: NonEmptyStringSchema.nullable().default(null),
+  lastUserActionResumptionId: NonEmptyStringSchema.optional(),
+  privacyReceipt: ApplicationPrivacyReceiptSchema.nullable().default(null),
 });
 export type ApplyJobResult = z.infer<typeof ApplyJobResultSchema>;
 export type ApplyJobResultInput = z.input<typeof ApplyJobResultSchema>;

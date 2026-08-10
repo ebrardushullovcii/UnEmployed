@@ -3,21 +3,22 @@ import {
   JobFinderSettingsSchema,
   JobSearchPreferencesSchema,
   ProfileSetupStateSchema,
-  type JobFinderRepositoryState
-} from '@unemployed/contracts'
+  type JobFinderRepositoryState,
+} from "@unemployed/contracts";
 
 export function createEmptyJobFinderRepositoryState(): JobFinderRepositoryState {
   return {
     profile: CandidateProfileSchema.parse({
-      id: 'candidate_fresh_start',
-      firstName: 'New',
-      lastName: 'Candidate',
+      id: "candidate_fresh_start",
+      firstName: "New",
+      lastName: "Candidate",
       middleName: null,
-      fullName: 'New Candidate',
+      fullName: "New Candidate",
       preferredDisplayName: null,
-      headline: 'Import your resume to begin',
-      summary: 'Import a resume or paste resume text to build your profile, targeting, and tailored documents.',
-      currentLocation: 'Set your preferred location',
+      headline: "Import your resume to begin",
+      summary:
+        "Import a resume or paste resume text to build your profile, targeting, and tailored documents.",
+      currentLocation: "Set your preferred location",
       currentCity: null,
       currentRegion: null,
       currentCountry: null,
@@ -31,15 +32,15 @@ export function createEmptyJobFinderRepositoryState(): JobFinderRepositoryState 
       githubUrl: null,
       personalWebsiteUrl: null,
       baseResume: {
-        id: 'resume_fresh_start',
-        fileName: 'No resume imported yet',
+        id: "resume_fresh_start",
+        fileName: "No resume imported yet",
         uploadedAt: new Date(0).toISOString(),
         storagePath: null,
         textContent: null,
         textUpdatedAt: null,
-        extractionStatus: 'needs_text',
+        extractionStatus: "needs_text",
         lastAnalyzedAt: null,
-        analysisWarnings: []
+        analysisWarnings: [],
       },
       workEligibility: {},
       professionalSummary: {},
@@ -52,7 +53,7 @@ export function createEmptyJobFinderRepositoryState(): JobFinderRepositoryState 
       certifications: [],
       links: [],
       projects: [],
-      spokenLanguages: []
+      spokenLanguages: [],
     }),
     searchPreferences: JobSearchPreferencesSchema.parse({
       targetRoles: [],
@@ -63,25 +64,25 @@ export function createEmptyJobFinderRepositoryState(): JobFinderRepositoryState 
       seniorityLevels: [],
       minimumSalaryUsd: null,
       targetSalaryUsd: null,
-      salaryCurrency: 'USD',
+      salaryCurrency: "USD",
       targetIndustries: [],
       targetCompanyStages: [],
       employmentTypes: [],
-      approvalMode: 'review_before_submit',
-      tailoringMode: 'balanced',
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
       companyBlacklist: [],
       companyWhitelist: [],
       discovery: {
         historyLimit: 5,
-        targets: []
-      }
+        targets: [],
+      },
     }),
     profileSetupState: ProfileSetupStateSchema.parse({
-      status: 'not_started',
-      currentStep: 'import',
+      status: "not_started",
+      currentStep: "import",
       completedAt: null,
       reviewItems: [],
-      lastResumedAt: null
+      lastResumedAt: null,
     }),
     savedJobs: [],
     tailoredAssets: [],
@@ -103,6 +104,8 @@ export function createEmptyJobFinderRepositoryState(): JobFinderRepositoryState 
     applicationConsentRequests: [],
     applicationRecords: [],
     applicationAttempts: [],
+    userActionRequests: [],
+    userActionEvents: [],
     sourceDebugRuns: [],
     sourceDebugAttempts: [],
     sourceInstructionArtifacts: [],
@@ -111,24 +114,24 @@ export function createEmptyJobFinderRepositoryState(): JobFinderRepositoryState 
     resumeImportDocumentBundles: [],
     resumeImportFieldCandidates: [],
     settings: JobFinderSettingsSchema.parse({
-      resumeTemplateId: 'classic_ats',
-      resumeFormat: 'pdf',
-      fontPreset: 'inter_requisite',
-      appearanceTheme: 'system',
+      resumeTemplateId: "classic_ats",
+      resumeFormat: "pdf",
+      fontPreset: "inter_requisite",
+      appearanceTheme: "system",
       humanReviewRequired: true,
       keepSessionAlive: false,
       allowAutoSubmitOverride: false,
-      discoveryOnly: false
+      discoveryOnly: false,
     }),
     discovery: {
       sessions: [],
-      runState: 'idle',
+      runState: "idle",
       activeRun: null,
       recentRuns: [],
       activeSourceDebugRun: null,
       recentSourceDebugRuns: [],
       discoveryLedger: [],
-      pendingDiscoveryJobs: []
-    }
-  }
+      pendingDiscoveryJobs: [],
+    },
+  };
 }

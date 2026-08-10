@@ -26,6 +26,7 @@ import {
   upsertIndexedCollectionValue,
 } from './internal/state'
 import { APPLY_INDEXED_COLLECTION_CONFIGS } from './apply-collection-support'
+import { USER_ACTION_INDEXED_COLLECTION_CONFIGS } from './user-action-repository-support'
 
 export function runImmediateTransaction<TValue>(
   database: DatabaseSync,
@@ -50,9 +51,16 @@ export function syncApprovedResumeExportsForJob(
 ): void {
   database
     .prepare(
-      'UPDATE resume_export_artifacts SET is_approved = CASE WHEN id = ? THEN 1 ELSE 0 END WHERE job_id = ?',
+      `UPDATE resume_export_artifacts
+       SET is_approved = CASE WHEN id = ? THEN 1 ELSE 0 END,
+           value = json_set(
+             value,
+             '$.isApproved',
+             CASE WHEN id = ? THEN json('true') ELSE json('false') END
+           )
+       WHERE job_id = ?`,
     )
-    .run(approvedExportId, jobId)
+    .run(approvedExportId, approvedExportId, jobId)
 }
 
 export function resolveApprovedExportId(
@@ -79,6 +87,7 @@ export function resolveApprovedExportId(
 
 export const INDEXED_COLLECTION_CONFIGS = {
   ...APPLY_INDEXED_COLLECTION_CONFIGS,
+  ...USER_ACTION_INDEXED_COLLECTION_CONFIGS,
   profile_copilot_messages: {
     columnNames: ['created_at'],
     getColumns: (value: unknown) => {
@@ -307,6 +316,24 @@ export function createFileRepositoryContext(input: {
         {
           ...INDEXED_COLLECTION_CONFIGS.application_consent_requests,
         },
+      )
+      replaceIndexedCollection(
+        database,
+        'user_action_events',
+        [],
+        INDEXED_COLLECTION_CONFIGS.user_action_events,
+      )
+      replaceIndexedCollection(
+        database,
+        'user_action_requests',
+        state.userActionRequests,
+        INDEXED_COLLECTION_CONFIGS.user_action_requests,
+      )
+      replaceIndexedCollection(
+        database,
+        'user_action_events',
+        state.userActionEvents,
+        INDEXED_COLLECTION_CONFIGS.user_action_events,
       )
       replaceCollection(database, 'application_records', state.applicationRecords)
       replaceCollection(database, 'application_attempts', state.applicationAttempts)

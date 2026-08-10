@@ -3,16 +3,20 @@ import type {
   ApplicationAttempt,
   ApplicationRecord,
   ApplyRunDetails,
+  ClearApplicationAnswerCommandInput,
   JobFinderWorkspaceSnapshot,
+  SaveApplicationAnswerCommandInput,
 } from "@unemployed/contracts";
 import { Mic } from "lucide-react";
 import { Button } from "@renderer/components/ui";
 import { StatusBadge } from "../../components/status-badge";
 import { ApplicationsDetailPanelActivitySections } from "./applications-detail-panel-activity-sections";
+import { ApplicationsApplicationDocuments } from "./applications-application-documents";
 import { ApplicationsDetailPanelEmptyState } from "./applications-detail-panel-empty-state";
 import { buildQueueEntries } from "./applications-detail-panel-helpers";
 import { ApplicationsDetailPanelOverviewSections } from "./applications-detail-panel-overview-sections";
 import { ApplicationsDetailPanelRecoverySections } from "./applications-detail-panel-recovery-sections";
+import { ApplicationsDetailPanelSubmitApprovalSection } from "./applications-detail-panel-submit-approval-section";
 import { type ApplicationsViewFilter } from "./applications-filters";
 import { getApplicationStagePresentation } from "./applications-status";
 
@@ -23,7 +27,9 @@ function buildInterviewHelperApplicationHref(input: {
   const { record, relatedJob } = input;
   const notes = [
     record.nextActionLabel ? `Next step: ${record.nextActionLabel}` : null,
-    record.lastActionLabel ? `Latest application activity: ${record.lastActionLabel}` : null,
+    record.lastActionLabel
+      ? `Latest application activity: ${record.lastActionLabel}`
+      : null,
     relatedJob?.summary ? `Job summary: ${relatedJob.summary}` : null,
   ].filter((entry): entry is string => Boolean(entry));
   const params = new URLSearchParams({
@@ -33,7 +39,9 @@ function buildInterviewHelperApplicationHref(input: {
     role: record.title,
     company: record.company,
     sourceUrl: relatedJob?.canonicalUrl ?? "",
-    notes: notes.join("\n\n") || `Application record for ${record.title} at ${record.company}.`,
+    notes:
+      notes.join("\n\n") ||
+      `Application record for ${record.title} at ${record.company}.`,
   });
 
   return `/interview-helper?${params.toString()}`;
@@ -65,6 +73,13 @@ interface ApplicationsDetailPanelProps {
   isApplyRunPending: (runId: string) => boolean;
   onApproveApplyRun: (runId: string) => void;
   onCancelApplyRun: (runId: string) => void;
+  onExportApplicationPacket: (runId: string, jobId: string) => Promise<void>;
+  onSaveApplicationAnswer: (
+    command: SaveApplicationAnswerCommandInput,
+  ) => Promise<void>;
+  onClearApplicationAnswer: (
+    command: ClearApplicationAnswerCommandInput,
+  ) => Promise<void>;
   onResolveApplyConsentRequest: (
     requestId: string,
     action: "approve" | "decline",
@@ -97,6 +112,9 @@ export function ApplicationsDetailPanel({
   isApplyRunPending,
   onApproveApplyRun,
   onCancelApplyRun,
+  onExportApplicationPacket,
+  onSaveApplicationAnswer,
+  onClearApplicationAnswer,
   onResolveApplyConsentRequest,
   onRevokeApplyRunApproval,
   onSelectApplyRun,
@@ -113,8 +131,9 @@ export function ApplicationsDetailPanel({
     selectedRecord?.status === "ready_for_review";
   const selectedRunHistoryEntry = useMemo(
     () =>
-      applyRunHistory.find(({ result }) => result.runId === selectedApplyRunId) ??
-      null,
+      applyRunHistory.find(
+        ({ result }) => result.runId === selectedApplyRunId,
+      ) ?? null,
     [applyRunHistory, selectedApplyRunId],
   );
   const selectedApplyRunDetails = useMemo(
@@ -159,17 +178,22 @@ export function ApplicationsDetailPanel({
     (entry) => !entry.includeInRecovery,
   );
   const canRestageQueueRun =
-    selectedRun?.mode === "queue_auto" && selectedQueueRecoveryJobIds.length > 0;
-  const isSelectedRunPending = selectedRun ? isApplyRunPending(selectedRun.id) : false;
+    selectedRun?.mode === "queue_auto" &&
+    selectedQueueRecoveryJobIds.length > 0;
+  const isSelectedRunPending = selectedRun
+    ? isApplyRunPending(selectedRun.id)
+    : false;
   const selectedStage = selectedRecord
     ? getApplicationStagePresentation(selectedRecord)
     : null;
   const selectedRecordJob = selectedRecord
-    ? discoveryJobs.find((job) => job.id === selectedRecord.jobId) ?? null
+    ? (discoveryJobs.find((job) => job.id === selectedRecord.jobId) ?? null)
     : null;
   const canPrepareInterview = selectedRecord
     ? selectedRecord.lastAttemptState === "submitted" ||
-      ["submitted", "assessment", "interview", "offer"].includes(selectedRecord.status)
+      ["submitted", "assessment", "interview", "offer"].includes(
+        selectedRecord.status,
+      )
     : false;
 
   return (
@@ -193,45 +217,55 @@ export function ApplicationsDetailPanel({
       </div>
       {selectedRecord ? (
         <div className="grid min-h-0 min-w-0 flex-1 content-start gap-6 overflow-y-auto pr-1">
-          {canPrepareInterview ? <Button
-            asChild
-            className="h-10 justify-start px-3.5 text-sm font-medium normal-case tracking-normal"
-            size="compact"
-            variant="secondary"
-          >
-            <a
-              href={`#${buildInterviewHelperApplicationHref({
-                record: selectedRecord,
-                relatedJob: selectedRecordJob,
-              })}`}
+          {canPrepareInterview ? (
+            <Button
+              asChild
+              className="h-10 justify-start px-3.5 text-sm font-medium normal-case tracking-normal"
+              size="compact"
+              variant="secondary"
             >
-              <Mic aria-hidden="true" className="size-4" focusable="false" />
-              Prepare interview
-            </a>
-          </Button> : null}
+              <a
+                href={`#${buildInterviewHelperApplicationHref({
+                  record: selectedRecord,
+                  relatedJob: selectedRecordJob,
+                })}`}
+              >
+                <Mic aria-hidden="true" className="size-4" focusable="false" />
+                Prepare interview
+              </a>
+            </Button>
+          ) : null}
           <ApplicationsDetailPanelOverviewSections
             selectedAttempt={selectedAttempt}
             selectedRecord={selectedRecord}
             visibleApplyResult={visibleApplyResult}
             visibleApplyRunId={visibleApplyRunId}
           />
-          <ApplicationsDetailPanelRecoverySections
-            approvalScopeEntries={selectedQueueEntries.map(({ jobId, label }) => ({ jobId, label }))}
-            applyRunHistory={applyRunHistory}
-            canRestageAutoRun={canRestageAutoRun}
-            canRestageQueueRun={canRestageQueueRun}
-            excludedQueueRecoveryEntries={excludedQueueRecoveryEntries}
-            isApplyPending={isApplyPending}
+          <ApplicationsApplicationDocuments
+            applicationRecord={selectedRecord}
+            applyRunDetails={selectedApplyRunDetails}
+          />
+          <ApplicationsDetailPanelSubmitApprovalSection
+            approvalScopeEntries={selectedQueueEntries.map(
+              ({ jobId, label }) => ({ jobId, label }),
+            )}
             isApplyRunPending={isApplyRunPending}
             isSelectedRunPending={isSelectedRunPending}
             onApproveApplyRun={onApproveApplyRun}
             onCancelApplyRun={onCancelApplyRun}
             onRevokeApplyRunApproval={onRevokeApplyRunApproval}
+            selectedApplyRunDetails={selectedApplyRunDetails}
+          />
+          <ApplicationsDetailPanelRecoverySections
+            applyRunHistory={applyRunHistory}
+            canRestageAutoRun={canRestageAutoRun}
+            canRestageQueueRun={canRestageQueueRun}
+            excludedQueueRecoveryEntries={excludedQueueRecoveryEntries}
+            isApplyPending={isApplyPending}
             onSelectApplyRun={onSelectApplyRun}
             onStartApplyCopilot={onStartApplyCopilot}
             onStartAutoApply={onStartAutoApply}
             onStartAutoApplyQueue={onStartAutoApplyQueue}
-            selectedApplyRunDetails={selectedApplyRunDetails}
             selectedApplyRunId={selectedApplyRunId}
             selectedQueueOutcomeEntries={selectedQueueEntries}
             selectedQueueRecoveryEntries={selectedQueueRecoveryEntries}
@@ -245,6 +279,9 @@ export function ApplicationsDetailPanel({
             applyRunDetailsStatus={applyRunDetailsStatus}
             isApplyRequestPending={isApplyRequestPending}
             onResolveApplyConsentRequest={onResolveApplyConsentRequest}
+            onExportApplicationPacket={onExportApplicationPacket}
+            onSaveApplicationAnswer={onSaveApplicationAnswer}
+            onClearApplicationAnswer={onClearApplicationAnswer}
             selectedApplyRunDetails={selectedApplyRunDetails}
             selectedAttempt={selectedAttempt}
             selectedRecord={selectedRecord}

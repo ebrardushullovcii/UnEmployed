@@ -24,6 +24,45 @@ function readCliOption(flag) {
 }
 
 const canaryOnly = process.argv.includes("--canary-only");
+const useConfiguredAi = process.argv.includes("--use-configured-ai");
+const caseIds = process.argv
+  .flatMap((entry, index, argv) => {
+    if (entry === "--case-id" || entry === "--case") {
+      return argv[index + 1] ? [argv[index + 1]] : [];
+    }
+
+    if (entry.startsWith("--case-id=")) {
+      return [entry.slice("--case-id=".length)];
+    }
+
+    if (entry.startsWith("--case=")) {
+      return [entry.slice("--case=".length)];
+    }
+
+    return [];
+  })
+  .flatMap((entry) => entry.split(","))
+  .map((entry) => entry.trim())
+  .filter(Boolean);
+const templateIds = process.argv
+  .flatMap((entry, index, argv) => {
+    if (entry === "--template-id" || entry === "--template") {
+      return argv[index + 1] ? [argv[index + 1]] : [];
+    }
+
+    if (entry.startsWith("--template-id=")) {
+      return [entry.slice("--template-id=".length)];
+    }
+
+    if (entry.startsWith("--template=")) {
+      return [entry.slice("--template=".length)];
+    }
+
+    return [];
+  })
+  .flatMap((entry) => entry.split(","))
+  .map((entry) => entry.trim())
+  .filter(Boolean);
 const benchmarkVersion =
   readCliOption("--benchmark-version") ?? process.env.UI_RESUME_QUALITY_BENCHMARK_VERSION ?? "023-local-benchmark-v1";
 const runLabel = readCliOption("--label") ?? process.env.UI_CAPTURE_LABEL ?? "resume-quality-benchmark";
@@ -44,7 +83,7 @@ async function main() {
         ...process.env,
         UNEMPLOYED_ENABLE_TEST_API: "1",
         UNEMPLOYED_USER_DATA_DIR: userDataDirectory,
-        UNEMPLOYED_AI_API_KEY: "",
+        ...(useConfiguredAi ? {} : { UNEMPLOYED_AI_API_KEY: "" }),
       },
     });
 
@@ -53,7 +92,7 @@ async function main() {
     await window.waitForFunction(() => Boolean(window.unemployed?.jobFinder.test), undefined, { timeout: 15000 });
 
     const report = await window.evaluate(
-      async ({ benchmarkVersion, canaryOnly, outputDir }) => {
+      async ({ benchmarkVersion, canaryOnly, caseIds, templateIds, outputDir, useConfiguredAi }) => {
         if (!window.unemployed.jobFinder.test) {
           throw new Error("Desktop test API is not available in the renderer context.");
         }
@@ -61,10 +100,13 @@ async function main() {
         return window.unemployed.jobFinder.test.runResumeQualityBenchmark({
           benchmarkVersion,
           canaryOnly,
+          caseIds,
+          templateIds,
+          useConfiguredAi,
           persistArtifactsDirectory: outputDir,
         });
       },
-      { benchmarkVersion, canaryOnly, outputDir },
+      { benchmarkVersion, canaryOnly, caseIds, templateIds, outputDir, useConfiguredAi },
     );
 
     const reportPath = path.join(outputDir, "resume-quality-benchmark-report.json");
@@ -79,6 +121,27 @@ async function main() {
     );
     process.stdout.write(
       `Aggregate work-history representation: ${report.aggregate.workHistoryRepresentationRate.toFixed(3)} | fragment-free experience bullets: ${report.aggregate.fragmentFreeExperienceBulletRate.toFixed(3)} | professional experience summaries: ${report.aggregate.professionalExperienceSummaryRate.toFixed(3)}\n`,
+    );
+    const generatedCases = report.cases.filter(
+      (entry) => entry.generationDiagnostics !== null,
+    );
+    const averageGenerationMs =
+      report.cases.reduce(
+        (total, entry) => total + entry.generationDurationMs,
+        0,
+      ) / Math.max(report.cases.length, 1);
+    const acceptedRewrites = generatedCases.reduce(
+      (total, entry) =>
+        total + (entry.generationDiagnostics?.acceptedRewriteCount ?? 0),
+      0,
+    );
+    const rejectedRewrites = generatedCases.reduce(
+      (total, entry) =>
+        total + (entry.generationDiagnostics?.rejectedRewriteCount ?? 0),
+      0,
+    );
+    process.stdout.write(
+      `Provider mode: ${report.providerMode} | average generation: ${Math.round(averageGenerationMs)} ms | accepted/rejected evidence-linked rewrites: ${acceptedRewrites}/${rejectedRewrites}\n`,
     );
 
     const failedCases = report.cases.filter((entry) => !entry.passed);

@@ -14,6 +14,8 @@ import {
   DiscoverySearchSections,
   DiscoverySessionSummary,
 } from './discovery-filters-panel-sections'
+import { getDiscoverySearchReadiness } from './discovery-search-readiness'
+import { JOB_FINDER_ROUTE_HREFS } from '../../lib/job-finder-route-hrefs'
 
 const NEUTRAL_SESSION_SNAPSHOT: BrowserSessionState = {
   source: "target_site",
@@ -128,7 +130,7 @@ export function DiscoveryFiltersPanel({
     enabledTargetIds.has(prompt.targetId),
   );
   const runOneSourceHeadingId = `${sectionHeadingPrefix}-run-one-source`;
-  const hasRunnableTarget = enabledTargets.length > 0;
+  const searchReadiness = getDiscoverySearchReadiness(searchPreferences);
   const chromeProfileSession =
     discoverySessions.find(
       (session) => session.driver === "chrome_profile_agent",
@@ -156,7 +158,7 @@ export function DiscoveryFiltersPanel({
   const needsLogin = displaySessionSnapshot.status === "login_required";
   const isBlocked = displaySessionSnapshot.status === "blocked";
   const canRunDiscovery =
-    Boolean(onRunAgentDiscovery) && hasRunnableTarget && !isDiscoveryAllPending;
+    Boolean(onRunAgentDiscovery) && searchReadiness.ready && !isDiscoveryAllPending;
   const activeTargetId =
     activeRun?.state === "running" && activeRun.scope === "single_target"
       ? activeRun.targetIds[0] ?? null
@@ -214,6 +216,12 @@ export function DiscoveryFiltersPanel({
         <DiscoveryFiltersFooter
           actionMessage={actionMessage}
           canRunDiscovery={canRunDiscovery}
+          searchDisabledReason={searchReadiness.reason}
+          searchSetupHref={
+            searchReadiness.hasSearchRoles
+              ? JOB_FINDER_ROUTE_HREFS.profileSources
+              : JOB_FINDER_ROUTE_HREFS.profileTargetRoles
+          }
           isBrowserSessionPending={isBrowserSessionPending}
           isBrowserSessionPendingForTarget={isBrowserSessionPendingForTarget}
           isDiscoveryAllPending={isDiscoveryAllPending}

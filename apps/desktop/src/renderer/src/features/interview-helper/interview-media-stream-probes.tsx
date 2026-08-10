@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Mic, MicOff, Monitor, Radio } from "lucide-react";
 import type {
   InterviewTranscriptSource,
@@ -9,9 +9,21 @@ import {
   createInterviewAudioChunkQueue,
   isInterviewAudioChunkQueueDropError,
 } from "./interview-audio-chunk-queue";
+import { InterviewHealthPanel } from "./interview-health-panel";
+import { deriveInterviewHealthSummary } from "./interview-health-summary";
 
-type ProbeStatus = "idle" | "checking" | "available" | "unavailable" | "failed";
-type CaptureStatus = "idle" | "starting" | "recording" | "stopping" | "failed";
+export type ProbeStatus =
+  | "idle"
+  | "checking"
+  | "available"
+  | "unavailable"
+  | "failed";
+export type CaptureStatus =
+  | "idle"
+  | "starting"
+  | "recording"
+  | "stopping"
+  | "failed";
 const MIN_AUDIO_CHUNK_BYTES = 2048;
 const MIN_AUDIO_CHUNK_DURATION_MS = 2000;
 const AUDIO_SIGNAL_THRESHOLD = 0.015;
@@ -161,6 +173,7 @@ export function InterviewMediaStreamProbes(props: {
   microphoneCaptureAllowed: boolean;
   meetingAudioCaptureAllowed: boolean;
   onWorkspaceChange?: (workspace: InterviewWorkspaceSnapshot) => void;
+  workspace?: InterviewWorkspaceSnapshot;
 }) {
   const [microphoneStatus, setMicrophoneStatus] = useState<ProbeStatus>("idle");
   const [microphoneDetail, setMicrophoneDetail] = useState(
@@ -968,9 +981,48 @@ export function InterviewMediaStreamProbes(props: {
   const anyRecorderBusy =
     microphoneRecorderStatus === "stopping" ||
     systemRecorderStatus === "stopping";
+  const health = useMemo(
+    () =>
+      props.workspace && props.sessionId
+        ? deriveInterviewHealthSummary({
+            audioTranscriptionAvailable: props.audioTranscriptionAvailable,
+            microphoneDetail,
+            microphoneRecorderDetail,
+            microphoneRecorderStatus,
+            microphoneStatus,
+            queue: audioQueueSnapshot,
+            systemAudioDetail: displayDetail,
+            systemRecorderDetail,
+            systemRecorderStatus,
+            systemStatus: displayStatus,
+            workspace: props.workspace,
+          })
+        : null,
+    [
+      audioQueueSnapshot,
+      displayDetail,
+      displayStatus,
+      microphoneDetail,
+      microphoneRecorderDetail,
+      microphoneRecorderStatus,
+      microphoneStatus,
+      props.audioTranscriptionAvailable,
+      props.sessionId,
+      props.workspace,
+      systemRecorderDetail,
+      systemRecorderStatus,
+    ],
+  );
 
   return (
-    <div className="grid gap-2 rounded-(--radius-small) border border-border-subtle bg-(--surface-fill-soft) p-3">
+    <>
+      {health && props.workspace?.activeSession ? (
+        <InterviewHealthPanel
+          health={health}
+          sessionStatus={props.workspace.activeSession.status}
+        />
+      ) : null}
+      <div className="grid gap-2 rounded-(--radius-small) border border-border-subtle bg-(--surface-fill-soft) p-3">
       <div className="grid gap-1">
         <p className="text-[0.82rem]">
           {props.sessionId ? "Live audio" : "Audio test"}
@@ -1119,5 +1171,6 @@ export function InterviewMediaStreamProbes(props: {
         </div>
       </div>
     </div>
+    </>
   );
 }

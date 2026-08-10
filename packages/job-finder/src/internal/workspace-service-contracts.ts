@@ -1,19 +1,28 @@
-import type { JobFinderAiClient, ResumeVisionProvider } from "@unemployed/ai-providers";
+import type {
+  JobFinderAiClient,
+  ResumeVisionProvider,
+} from "@unemployed/ai-providers";
 import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
 import type {
+  ApplicationPacket,
+  CandidateAsset,
+  ClearApplicationAnswerCommandInput,
   ApplyRunDetails,
   DiscoveryRunScope,
   CandidateProfile,
   DiscoveryActivityEvent,
   EditableSourceInstructionArtifact,
   JobFinderApplyCopilotActionInput,
+  JobFinderDismissDiscoveryJobInput,
   JobFinderOpenBrowserSessionInput,
   JobFinderResumePreview,
   ResumeDocumentBundle,
   JobFinderInterviewFollowUpInput,
   ResumeImportFieldCandidate,
   ResumeImportRun,
+  ResumeTimelineRepairAction,
   ResumeImportVisionArtifact,
+  ResumeApplicationMode,
   ResumeSourceDocument,
   JobFinderResumeWorkspace,
   JobFinderSettings,
@@ -30,9 +39,11 @@ import type {
   ResumeTemplateId,
   ResumeTemplateDefinition,
   SavedJob,
+  SaveApplicationAnswerCommandInput,
   SourceDebugProgressEvent,
   SourceDebugRunDetails,
   SourceDebugRunRecord,
+  UserActionCommandInput,
 } from "@unemployed/contracts";
 import type {
   JobFinderRepository,
@@ -53,6 +64,15 @@ export interface JobFinderWorkspaceService {
     input?: JobFinderOpenBrowserSessionInput,
   ): Promise<JobFinderWorkspaceSnapshot>;
   checkBrowserSession(): Promise<JobFinderWorkspaceSnapshot>;
+  performUserAction(
+    command: UserActionCommandInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  saveApplicationAnswer(
+    command: SaveApplicationAnswerCommandInput,
+  ): Promise<ApplyRunDetails>;
+  clearApplicationAnswer(
+    command: ClearApplicationAnswerCommandInput,
+  ): Promise<ApplyRunDetails>;
   resetWorkspace(
     seed: JobFinderRepositorySeed,
   ): Promise<JobFinderWorkspaceSnapshot>;
@@ -79,7 +99,16 @@ export interface JobFinderWorkspaceService {
     action: ProfileSetupReviewAction,
     options?: ProfileSetupReviewActionOptions,
   ): Promise<JobFinderWorkspaceSnapshot>;
+  applyResumeTimelineRepairAction(
+    runId: string,
+    proposalId: string,
+    action: ResumeTimelineRepairAction,
+  ): Promise<JobFinderWorkspaceSnapshot>;
   sendProfileCopilotMessage(
+    content: string,
+    context?: ProfileCopilotContext,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  proposeProfileCopilotChange(
     content: string,
     context?: ProfileCopilotContext,
   ): Promise<JobFinderWorkspaceSnapshot>;
@@ -89,9 +118,7 @@ export interface JobFinderWorkspaceService {
   rejectProfileCopilotPatchGroup(
     patchGroupId: string,
   ): Promise<JobFinderWorkspaceSnapshot>;
-  undoProfileRevision(
-    revisionId: string,
-  ): Promise<JobFinderWorkspaceSnapshot>;
+  undoProfileRevision(revisionId: string): Promise<JobFinderWorkspaceSnapshot>;
   saveSettings(
     settings: JobFinderSettings,
   ): Promise<JobFinderWorkspaceSnapshot>;
@@ -132,12 +159,25 @@ export interface JobFinderWorkspaceService {
     onProgress?: (event: SourceDebugProgressEvent) => void,
   ): Promise<JobFinderWorkspaceSnapshot>;
   queueJobForReview(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
+  setJobResumeApplicationMode(
+    jobId: string,
+    resumeApplicationMode: ResumeApplicationMode,
+  ): Promise<JobFinderWorkspaceSnapshot>;
   removeJobFromReview(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
-  dismissDiscoveryJob(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
+  dismissDiscoveryJob(
+    input: JobFinderDismissDiscoveryJobInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  restoreDismissedDiscoveryJob(
+    jobId: string,
+  ): Promise<JobFinderWorkspaceSnapshot>;
   generateResume(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
   getResumeWorkspace(jobId: string): Promise<JobFinderResumeWorkspace>;
   previewResumeDraft(draft: ResumeDraft): Promise<JobFinderResumePreview>;
   saveResumeDraft(draft: ResumeDraft): Promise<JobFinderWorkspaceSnapshot>;
+  restoreResumeDraftRevision(
+    jobId: string,
+    revisionId: string,
+  ): Promise<JobFinderWorkspaceSnapshot>;
   regenerateResumeDraft(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
   regenerateResumeSection(
     jobId: string,
@@ -156,12 +196,24 @@ export interface JobFinderWorkspaceService {
     patch: ResumeDraftPatch,
     revisionReason?: string | null,
   ): Promise<JobFinderWorkspaceSnapshot>;
-  getResumeAssistantMessages(jobId: string): Promise<readonly ResumeAssistantMessage[]>;
+  getResumeAssistantMessages(
+    jobId: string,
+  ): Promise<readonly ResumeAssistantMessage[]>;
   sendResumeAssistantMessage(
     jobId: string,
     content: string,
   ): Promise<readonly ResumeAssistantMessage[]>;
+  resolveResumeAssistantProposal(
+    jobId: string,
+    proposalId: string,
+    action: "accept" | "reject",
+    patchIds: readonly string[],
+  ): Promise<readonly ResumeAssistantMessage[]>;
   getApplyRunDetails(runId: string, jobId: string): Promise<ApplyRunDetails>;
+  buildApplicationPacket(
+    runId: string,
+    jobId: string,
+  ): Promise<ApplicationPacket>;
   startApplyCopilotRun(
     jobId: string,
     options?: Pick<
@@ -170,7 +222,9 @@ export interface JobFinderWorkspaceService {
     >,
   ): Promise<JobFinderWorkspaceSnapshot>;
   startAutoApplyRun(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
-  startAutoApplyQueueRun(jobIds: readonly string[]): Promise<JobFinderWorkspaceSnapshot>;
+  startAutoApplyQueueRun(
+    jobIds: readonly string[],
+  ): Promise<JobFinderWorkspaceSnapshot>;
   approveApplyRun(runId: string): Promise<JobFinderWorkspaceSnapshot>;
   cancelApplyRun(runId: string): Promise<JobFinderWorkspaceSnapshot>;
   resolveApplyConsentRequest(
@@ -204,6 +258,7 @@ export type DiscoveryTargetPipelineOptions =
 export interface RenderedResumeArtifact {
   fileName: string | null;
   storagePath: string | null;
+  sha256?: string | null;
   format: "html" | "pdf";
   intermediateFileName?: string | null;
   intermediateStoragePath?: string | null;
@@ -244,6 +299,17 @@ export interface ResumeResearchAdapter {
   ): Promise<readonly ResumeResearchArtifact[]>;
 }
 
+export interface ResolvedApplicationCandidateAsset {
+  asset: CandidateAsset;
+  loadVerifiedBytes: () => Promise<Uint8Array>;
+}
+
+export interface CandidateAssetResolver {
+  resolveForApplication(
+    assetId: string,
+  ): Promise<ResolvedApplicationCandidateAsset>;
+}
+
 export interface CreateJobFinderWorkspaceServiceOptions {
   aiClient: JobFinderAiClient;
   visionProvider?: ResumeVisionProvider;
@@ -251,5 +317,6 @@ export interface CreateJobFinderWorkspaceServiceOptions {
   exportFileVerifier?: ResumeExportFileVerifier;
   repository: JobFinderRepository;
   browserRuntime: BrowserSessionRuntime;
+  candidateAssetResolver?: CandidateAssetResolver;
   researchAdapter?: ResumeResearchAdapter;
 }

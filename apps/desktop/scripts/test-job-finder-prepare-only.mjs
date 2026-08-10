@@ -67,6 +67,8 @@ const expectedBlockerCode =
   process.env.JOB_FINDER_PREPARE_ONLY_EXPECT_BLOCKER_CODE?.trim() || null;
 const useLiveDiscoveryAi =
   process.env.JOB_FINDER_PREPARE_ONLY_USE_LIVE_DISCOVERY_AI !== "0";
+const keepTemporaryProfile =
+  process.env.JOB_FINDER_PREPARE_ONLY_KEEP_PROFILE === "1";
 const resumeApplicationMode =
   process.env.JOB_FINDER_PREPARE_ONLY_RESUME_MODE === "original_resume"
     ? "original_resume"
@@ -348,10 +350,13 @@ async function runPrepareOnlySmoke() {
       temporaryUserDataDirectory: true,
       realWorkspaceUsed: false,
       cleanedUp: false,
+      retainedForInspection: keepTemporaryProfile,
+      retainedPath: keepTemporaryProfile ? userDataDirectory : null,
     },
     phases: [],
     discovery: null,
     selectedJob: null,
+    candidate: null,
     resume: null,
     application: null,
     blocker: null,
@@ -445,6 +450,57 @@ async function runPrepareOnlySmoke() {
             syntheticResumePath,
           ),
       );
+      const importedLocationReviewItem =
+        latestWorkspace.profileSetupState.reviewItems.find(
+          (item) =>
+            item.status === "pending" &&
+            item.target.domain === "identity" &&
+            item.target.key === "currentLocation" &&
+            item.proposedValue === "Berlin, Germany",
+        );
+      if (!importedLocationReviewItem) {
+        throw new SmokeBlocker(
+          "find_synthetic_imported_location",
+          "The synthetic resume import did not expose the expected Berlin, Germany location for confirmation.",
+        );
+      }
+      latestWorkspace = await runPhase(
+        "confirm_synthetic_imported_location",
+        () =>
+          page.evaluate(
+            (reviewItemId) =>
+              window.unemployed.jobFinder.applyProfileSetupReviewAction(
+                reviewItemId,
+                "confirm",
+              ),
+            importedLocationReviewItem.id,
+          ),
+      );
+      report.candidate = {
+        fullName: latestWorkspace.profile.fullName,
+        email: latestWorkspace.profile.email,
+        phone: latestWorkspace.profile.phone,
+        currentLocation: latestWorkspace.profile.currentLocation,
+        currentCountry: latestWorkspace.profile.currentCountry,
+        preferredEmail:
+          latestWorkspace.profile.applicationIdentity.preferredEmail,
+        preferredPhone:
+          latestWorkspace.profile.applicationIdentity.preferredPhone,
+      };
+      if (
+        report.candidate.fullName !== "Jamie Rivers" ||
+        report.candidate.email !== "jamie@example.com" ||
+        report.candidate.phone !== "+49 555 0000000" ||
+        report.candidate.currentLocation !== "Berlin, Germany" ||
+        report.candidate.currentCountry !== "Germany" ||
+        report.candidate.preferredEmail !== report.candidate.email ||
+        report.candidate.preferredPhone !== report.candidate.phone
+      ) {
+        throw new SmokeBlocker(
+          "verify_synthetic_candidate_tuple",
+          "The imported synthetic candidate identity, contact, and location tuple was not coherent before Apply.",
+        );
+      }
       latestWorkspace = await runPhase(
         "restore_exact_search_after_resume_import",
         () =>
@@ -628,7 +684,10 @@ async function runPrepareOnlySmoke() {
     latestWorkspace = await runPhase("approve_apply_prepare_only", () =>
       withTimeout(
         page.evaluate(
-          (jobId) => window.unemployed.jobFinder.approveApply(jobId),
+          (jobId) =>
+            window.unemployed.jobFinder.startApplyCopilotRun(jobId, {
+              visualCheckpointsEnabled: false,
+            }),
           selectedJob.id,
         ),
         applyTimeoutMs,
@@ -738,11 +797,13 @@ async function runPrepareOnlySmoke() {
       };
     }
     await closeCurrentApp();
-    try {
-      await rm(userDataDirectory, { recursive: true, force: true });
-      report.isolation.cleanedUp = true;
-    } catch (error) {
-      report.isolation.cleanupError = summarizeError(error);
+    if (!keepTemporaryProfile) {
+      try {
+        await rm(userDataDirectory, { recursive: true, force: true });
+        report.isolation.cleanedUp = true;
+      } catch (error) {
+        report.isolation.cleanupError = summarizeError(error);
+      }
     }
     await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
   }

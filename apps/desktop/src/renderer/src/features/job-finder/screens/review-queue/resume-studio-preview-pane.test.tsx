@@ -88,7 +88,9 @@ describe('ResumeStudioPreviewPane', () => {
       />,
     )
 
-    expect(screen.getByText('Preview unavailable')).toBeTruthy()
+    const alert = screen.getByRole('alert')
+    expect(alert.getAttribute('aria-atomic')).toBe('true')
+    expect(alert.textContent).toContain('Preview unavailable')
     expect(screen.getByText('Preview rendering failed in desktop test mode.')).toBeTruthy()
   })
 

@@ -1,0 +1,327 @@
+import type { JobPosting } from "@unemployed/contracts";
+import { describe, expect, test, vi } from "vitest";
+import { createSeed } from "../workspace-service.test-fixtures";
+import {
+  MATCH_ASSESSMENT_POSTING_INPUT_FIELDS,
+  type MatchAssessmentPostingInput,
+} from "./match-assessment-posting-input";
+import { createMatchAssessment } from "./matching";
+import {
+  MATCH_ASSESSMENT_SCORER_VERSION,
+  createMatchAssessmentPostingFingerprint,
+  createMatchAssessmentSession,
+} from "./match-assessment-session";
+
+type PostingMutation = (posting: JobPosting) => JobPosting;
+
+const postingInputMutations = {
+  title: (posting) => ({ ...posting, title: `${posting.title} changed` }),
+  company: (posting) => ({
+    ...posting,
+    company: `${posting.company} changed`,
+  }),
+  location: (posting) => ({
+    ...posting,
+    location: `${posting.location} changed`,
+  }),
+  workMode: (posting) => ({
+    ...posting,
+    workMode: posting.workMode.includes("onsite") ? ["remote"] : ["onsite"],
+  }),
+  seniority: (posting) => ({
+    ...posting,
+    seniority: posting.seniority === "Staff" ? "Senior" : "Staff",
+  }),
+  employmentType: (posting) => ({
+    ...posting,
+    employmentType:
+      posting.employmentType === "Contract" ? "Full-time" : "Contract",
+  }),
+  applyPath: (posting) => ({
+    ...posting,
+    applyPath:
+      posting.applyPath === "external_redirect"
+        ? "easy_apply"
+        : "external_redirect",
+  }),
+  easyApplyEligible: (posting) => ({
+    ...posting,
+    easyApplyEligible: !posting.easyApplyEligible,
+  }),
+  salaryText: (posting) => ({
+    ...posting,
+    salaryText: posting.salaryText ? null : "$120,000",
+  }),
+  detailQuality: (posting) => ({
+    ...posting,
+    detailQuality:
+      posting.detailQuality === "detail_enriched"
+        ? "card_only"
+        : "detail_enriched",
+  }),
+  screeningHints: (posting) => ({
+    ...posting,
+    screeningHints: {
+      ...posting.screeningHints,
+      remoteGeographies: [
+        ...posting.screeningHints.remoteGeographies,
+        "Changed geography",
+      ],
+    },
+  }),
+  summary: (posting) => ({
+    ...posting,
+    summary: posting.summary
+      ? `${posting.summary} Changed.`
+      : "Changed summary.",
+  }),
+  description: (posting) => ({
+    ...posting,
+    description: `${posting.description} Changed.`,
+  }),
+  keySkills: (posting) => ({
+    ...posting,
+    keySkills: [...posting.keySkills, "Changed skill"],
+  }),
+  keywordSignals: (posting) => ({
+    ...posting,
+    keywordSignals: [
+      ...posting.keywordSignals,
+      {
+        id: "changed_keyword_signal",
+        label: "Changed keyword signal",
+        kind: "domain",
+        weight: 3,
+      },
+    ],
+  }),
+  responsibilities: (posting) => ({
+    ...posting,
+    responsibilities: [...posting.responsibilities, "Changed responsibility"],
+  }),
+  minimumQualifications: (posting) => ({
+    ...posting,
+    minimumQualifications: [
+      ...posting.minimumQualifications,
+      "Changed minimum qualification",
+    ],
+  }),
+  preferredQualifications: (posting) => ({
+    ...posting,
+    preferredQualifications: [
+      ...posting.preferredQualifications,
+      "Changed preferred qualification",
+    ],
+  }),
+  department: (posting) => ({
+    ...posting,
+    department:
+      posting.department === "Changed department"
+        ? "Other department"
+        : "Changed department",
+  }),
+  team: (posting) => ({
+    ...posting,
+    team: posting.team === "Changed team" ? "Other team" : "Changed team",
+  }),
+  benefits: (posting) => ({
+    ...posting,
+    benefits: [...posting.benefits, "Changed benefit"],
+  }),
+  atsProvider: (posting) => ({
+    ...posting,
+    atsProvider:
+      posting.atsProvider === "Changed ATS" ? "Other ATS" : "Changed ATS",
+  }),
+} satisfies Record<keyof MatchAssessmentPostingInput, PostingMutation>;
+
+describe("match assessment session", () => {
+  test("computes one assessment for repeated budget and merge reads", () => {
+    const seed = createSeed();
+    const calculate = vi.fn(createMatchAssessment);
+    const session = createMatchAssessmentSession({
+      profile: seed.profile,
+      searchPreferences: seed.searchPreferences,
+      calculate,
+    });
+    const posting = seed.savedJobs[0]!;
+
+    const first = session.assess(posting);
+    const second = session.assess({ ...posting });
+
+    expect(second).toBe(first);
+    expect(calculate).toHaveBeenCalledTimes(1);
+    expect(session.getComputationCount()).toBe(1);
+    expect(first).toMatchObject({
+      scorerVersion: MATCH_ASSESSMENT_SCORER_VERSION,
+      contextFingerprint: session.contextFingerprint,
+    });
+    expect(first.postingFingerprint).toMatch(/^match_posting_v4_logic3_/u);
+    expect(session.contextFingerprint).toMatch(/^match_context_v4_logic3_/u);
+  });
+
+  test.each(
+    Object.entries(postingInputMutations) as Array<
+      [keyof MatchAssessmentPostingInput, PostingMutation]
+    >,
+  )("invalidates persisted assessments when %s changes", (_field, mutate) => {
+    const seed = createSeed();
+    const posting = seed.savedJobs[0]!;
+    const baselineSession = createMatchAssessmentSession({
+      profile: seed.profile,
+      searchPreferences: seed.searchPreferences,
+      calculate: createMatchAssessment,
+    });
+    const persisted = baselineSession.assess(posting);
+    const changedPosting = mutate(posting);
+    const calculate = vi.fn(createMatchAssessment);
+    const resumedSession = createMatchAssessmentSession({
+      profile: seed.profile,
+      searchPreferences: seed.searchPreferences,
+      calculate,
+    });
+
+    expect(
+      createMatchAssessmentPostingFingerprint(changedPosting),
+    ).not.toBe(persisted.postingFingerprint);
+    expect(
+      resumedSession.assessPersisted(changedPosting, persisted),
+    ).not.toBe(persisted);
+    expect(calculate).toHaveBeenCalledTimes(1);
+  });
+
+  test("keeps non-scoring identity and discovery metadata out of the cache key", () => {
+    const seed = createSeed();
+    const posting = seed.savedJobs[0]!;
+    const changedIdentity = {
+      ...posting,
+      sourceJobId: `${posting.sourceJobId}_duplicate`,
+      canonicalUrl: `${posting.canonicalUrl}?duplicate=true`,
+      discoveredAt: "2026-04-01T00:00:00.000Z",
+    };
+
+    expect(createMatchAssessmentPostingFingerprint(changedIdentity)).toBe(
+      createMatchAssessmentPostingFingerprint(posting),
+    );
+    expect(Object.keys(postingInputMutations).sort()).toEqual(
+      [...MATCH_ASSESSMENT_POSTING_INPUT_FIELDS].sort(),
+    );
+  });
+
+  test("reuses a persisted assessment only for exact scorer, context, and posting inputs", () => {
+    const seed = createSeed();
+    const firstSession = createMatchAssessmentSession({
+      profile: seed.profile,
+      searchPreferences: seed.searchPreferences,
+      calculate: createMatchAssessment,
+    });
+    const posting = seed.savedJobs[0]!;
+    const persisted = firstSession.assess(posting);
+    const calculate = vi.fn(createMatchAssessment);
+    const resumedSession = createMatchAssessmentSession({
+      profile: seed.profile,
+      searchPreferences: seed.searchPreferences,
+      calculate,
+    });
+
+    const persistedPosting = { ...posting, matchAssessment: persisted };
+    expect(resumedSession.assessPersisted(persistedPosting, persisted)).toBe(
+      persisted,
+    );
+    expect(calculate).not.toHaveBeenCalled();
+
+    resumedSession.assessPersisted(
+      { ...posting, description: `${posting.description} Changed.` },
+      persisted,
+    );
+    expect(calculate).toHaveBeenCalledTimes(1);
+
+    resumedSession.assessPersisted(
+      { ...posting, detailQuality: "detail_enriched" },
+      persisted,
+    );
+    resumedSession.assessPersisted(
+      {
+        ...posting,
+        applyPath: "external_redirect",
+        easyApplyEligible: false,
+      },
+      persisted,
+    );
+    resumedSession.assessPersisted(
+      {
+        ...posting,
+        seniority: "Staff",
+        employmentType: "Contract",
+      },
+      persisted,
+    );
+    expect(calculate).toHaveBeenCalledTimes(4);
+  });
+
+  test("invalidates when profile, preferences, or scorer metadata changes", () => {
+    const seed = createSeed();
+    const posting = seed.savedJobs[0]!;
+    const baselineSession = createMatchAssessmentSession({
+      profile: seed.profile,
+      searchPreferences: seed.searchPreferences,
+      calculate: createMatchAssessment,
+    });
+    const persisted = baselineSession.assess(posting);
+
+    const changedProfile = createMatchAssessmentSession({
+      profile: { ...seed.profile, headline: "Changed headline" },
+      searchPreferences: seed.searchPreferences,
+      calculate: createMatchAssessment,
+    });
+    const changedPreferences = createMatchAssessmentSession({
+      profile: seed.profile,
+      searchPreferences: {
+        ...seed.searchPreferences,
+        minimumSalaryUsd: 140_000,
+      },
+      calculate: createMatchAssessment,
+    });
+    const legacy = {
+      ...persisted,
+      scorerVersion: 1,
+      contextFingerprint: null,
+      postingFingerprint: null,
+    };
+
+    expect(changedProfile.assessPersisted(posting, persisted)).not.toBe(
+      persisted,
+    );
+    expect(changedPreferences.assessPersisted(posting, persisted)).not.toBe(
+      persisted,
+    );
+    expect(baselineSession.assessPersisted(posting, legacy)).not.toBe(legacy);
+  });
+
+  test("computes exactly once per unique scoring input across a 500-posting replay", () => {
+    const seed = createSeed();
+    const calculate = vi.fn(createMatchAssessment);
+    const session = createMatchAssessmentSession({
+      profile: seed.profile,
+      searchPreferences: seed.searchPreferences,
+      calculate,
+    });
+    const postings = Array.from({ length: 500 }, (_, index) => ({
+      ...seed.savedJobs[0]!,
+      sourceJobId: `session_${index}`,
+      canonicalUrl: `https://example.com/jobs/session-${index}`,
+      title: `Software Engineer ${index}`,
+      description: `${seed.savedJobs[0]!.description} Unique role ${index}.`,
+    }));
+
+    for (const posting of postings) {
+      session.assess(posting);
+    }
+    for (const posting of postings) {
+      session.assess({ ...posting });
+    }
+
+    expect(calculate).toHaveBeenCalledTimes(500);
+    expect(session.getComputationCount()).toBe(500);
+  });
+});

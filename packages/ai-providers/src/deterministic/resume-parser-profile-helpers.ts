@@ -13,6 +13,7 @@ import {
   titleCaseWords,
   uniqueStrings,
 } from "./utils";
+import { inferSkills } from "./resume-parser-skills";
 
 export function inferTimeZoneFromLocation(location: string | null): string | null {
   if (!location) {
@@ -160,10 +161,12 @@ export function inferEducationEntries(resumeText: string) {
   const lines = splitLines(resumeText);
   const educationLines = findSectionBodyLinesByAliases(lines, ["EDUCATION AND TRAINING", "EDUCATION"] as const);
   const candidatePool = educationLines.length > 0 ? educationLines : lines;
+  const educationDegreePattern =
+    /\b(?:degree|associate|bachelor|master|ph\.?d|b\.?sc|m\.?sc|b\.?a|m\.?a|btech|mtech)\b/i;
 
   const directEducationLineIndex = candidatePool.findIndex(
     (line) =>
-      /degree|associate|bachelor|master|phd/i.test(line) &&
+      educationDegreePattern.test(line) &&
       /(college|university|school|institute|kolegji)/i.test(line) &&
       !isResumeSectionHeading(line),
   );
@@ -172,11 +175,11 @@ export function inferEducationEntries(resumeText: string) {
       /(college|university|school|institute|kolegji)/i.test(line) &&
       !isResumeSectionHeading(line) &&
       [candidatePool[index - 1], candidatePool[index + 1], candidatePool[index + 2]]
-        .some((nearbyLine) => /degree|associate|bachelor|master|phd/i.test(nearbyLine ?? "")),
+        .some((nearbyLine) => educationDegreePattern.test(nearbyLine ?? "")),
   );
   const degreeOnlyLineIndex = candidatePool.findIndex(
     (line, index) =>
-      /degree|associate|bachelor|master|phd/i.test(line) &&
+      educationDegreePattern.test(line) &&
       !isResumeSectionHeading(line) &&
       [candidatePool[index - 2], candidatePool[index - 1], candidatePool[index + 1]]
         .some((nearbyLine) => /(college|university|school|institute|kolegji)/i.test(nearbyLine ?? "")),
@@ -206,9 +209,9 @@ export function inferEducationEntries(resumeText: string) {
   ].map((line) => cleanLine(line ?? "")).filter(Boolean);
   const combinedEducationLine = cleanLine(nearbyEducationLines.join(" "));
   const schoolMatch = (educationLineForParsing || educationLine).match(
-    /((?:[A-Z][A-Za-z'().&-]*\s+){0,6}(?:College|University|School|Institute|Kolegji)(?:\s+[A-Z][A-Za-z'().&-]*)*(?:\s*\([^)]*\))?)/i,
+    /((?:[A-Z][A-Za-z'().&-]*\s+){0,6}(?:College|University|School|Institute|Kolegji)(?:\s+(?:[A-Z][A-Za-z'().&-]*|of|the|and)){0,8}(?:\s*\([^)]*\))?)/i,
   ) ?? combinedEducationLine.match(
-    /((?:[A-Z][A-Za-z'().&-]*\s+){0,6}(?:College|University|School|Institute|Kolegji)(?:\s+[A-Z][A-Za-z'().&-]*)*(?:\s*\([^)]*\))?)/i,
+    /((?:[A-Z][A-Za-z'().&-]*\s+){0,6}(?:College|University|School|Institute|Kolegji)(?:\s+(?:[A-Z][A-Za-z'().&-]*|of|the|and)){0,8}(?:\s*\([^)]*\))?)/i,
   );
 
   let schoolName: string | null = null;
@@ -236,7 +239,7 @@ export function inferEducationEntries(resumeText: string) {
 
   if (!degree) {
     const degreeLine = nearbyEducationLines.find((line) =>
-      /degree|associate|bachelor|master|phd/i.test(line) &&
+      educationDegreePattern.test(line) &&
       !/(college|university|school|institute|kolegji)/i.test(line),
     );
     degree = degreeLine ?? null;
@@ -244,7 +247,7 @@ export function inferEducationEntries(resumeText: string) {
 
   const schoolKeywordIndex = (educationLineForParsing || educationLine).search(/\b(?:College|University|School|Institute|Kolegji)\b/i);
 
-  if (!schoolName && schoolKeywordIndex !== -1 && /degree|associate|bachelor|master|phd/i.test((educationLineForParsing || educationLine).slice(0, schoolKeywordIndex))) {
+  if (!schoolName && schoolKeywordIndex !== -1 && educationDegreePattern.test((educationLineForParsing || educationLine).slice(0, schoolKeywordIndex))) {
     schoolName = cleanLine((educationLineForParsing || educationLine).slice(schoolKeywordIndex));
     const detailParts = cleanLine((educationLineForParsing || educationLine).slice(0, schoolKeywordIndex)).replace(/^[,\s–—-]+|[,\s–—-]+$/g, "");
 
@@ -313,6 +316,164 @@ export function inferEducationEntries(resumeText: string) {
   ].filter((entry) => entry.schoolName || entry.degree || entry.fieldOfStudy);
 }
 
+const projectRolePattern =
+  /\b(?:engineer|developer|designer|manager|director|analyst|consultant|specialist|architect|lead|owner|maintainer|founder|contributor)\b/i;
+
+function isProjectRoleLine(value: string): boolean {
+  const cleaned = cleanLine(value);
+  return (
+    cleaned.length > 0 &&
+    cleaned.length <= 72 &&
+    projectRolePattern.test(cleaned) &&
+    !/[.!?;:]$/.test(cleaned)
+  );
+}
+
+export function inferProjects(resumeText: string) {
+  const lines = findSectionBodyLinesByAliases(splitLines(resumeText), [
+    "PROJECT EXPERIENCE",
+    "PROJECTS",
+  ] as const);
+  const projects: Array<{
+    name: string | null;
+    projectType: string | null;
+    summary: string | null;
+    role: string | null;
+    skills: string[];
+    outcome: string | null;
+    projectUrl: string | null;
+    repositoryUrl: string | null;
+    caseStudyUrl: string | null;
+  }> = [];
+
+  let index = 0;
+  while (index < lines.length) {
+    const name = cleanLine(lines[index] ?? "").replace(/^[•*-]\s*/, "");
+    if (!name || /^https?:\/\//i.test(name)) {
+      index += 1;
+      continue;
+    }
+
+    const role = isProjectRoleLine(lines[index + 1] ?? "")
+      ? cleanLine(lines[index + 1] ?? "")
+      : null;
+    let cursor = index + (role ? 2 : 1);
+    const detailLines: string[] = [];
+    let projectUrl: string | null = null;
+
+    while (cursor < lines.length) {
+      const line = cleanLine(lines[cursor] ?? "");
+      if (/^https?:\/\//i.test(line)) {
+        projectUrl = extractFirstUrl(line, /https?:\/\/[^\s]+/i);
+        cursor += 1;
+        break;
+      }
+
+      if (
+        detailLines.length > 0 &&
+        isProjectRoleLine(lines[cursor + 1] ?? "")
+      ) {
+        break;
+      }
+
+      detailLines.push(line.replace(/^[•*-]\s*/, ""));
+      cursor += 1;
+    }
+
+    const combinedText = [name, role ?? "", ...detailLines].join("\n");
+    const repositoryUrl = /github\.com|gitlab\.com|bitbucket\.org/i.test(
+      projectUrl ?? "",
+    )
+      ? projectUrl
+      : null;
+
+    projects.push({
+      name,
+      projectType: null,
+      summary: cleanLine(detailLines.join(" ")) || null,
+      role,
+      skills: inferSkills(combinedText, []),
+      outcome:
+        detailLines.find((line) => /\b\d+(?:\.\d+)?\s*%|\b\d+\+/i.test(line)) ??
+        null,
+      projectUrl: repositoryUrl ? null : projectUrl,
+      repositoryUrl,
+      caseStudyUrl: null,
+    });
+    index = Math.max(cursor, index + 1);
+  }
+
+  return projects;
+}
+
+export function inferCertifications(resumeText: string) {
+  const lines = findSectionBodyLinesByAliases(splitLines(resumeText), [
+    "CERTIFICATIONS",
+    "CERTIFICATES",
+  ] as const);
+  const certifications: Array<{
+    name: string | null;
+    issuer: string | null;
+    issueDate: string | null;
+    expiryDate: string | null;
+    credentialUrl: string | null;
+  }> = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const name = cleanLine(lines[index] ?? "").replace(/^[•*-]\s*/, "");
+    if (!name || /^(?:issued|expires?|credential)\b/i.test(name)) {
+      index += 1;
+      continue;
+    }
+
+    const possibleIssuer = cleanLine(lines[index + 1] ?? "");
+    const issuer =
+      possibleIssuer &&
+      !/^(?:issued|expires?|credential)\b/i.test(possibleIssuer) &&
+      !/^https?:\/\//i.test(possibleIssuer)
+        ? possibleIssuer
+        : null;
+    let cursor = index + (issuer ? 2 : 1);
+    let issueDate: string | null = null;
+    let expiryDate: string | null = null;
+    let credentialUrl: string | null = null;
+
+    while (cursor < lines.length) {
+      const line = cleanLine(lines[cursor] ?? "");
+      const issuedMatch = line.match(/^(?:issued|awarded)\s+(.+)$/i);
+      const expiryMatch = line.match(/^(?:expires?|expiration)\s+(.+)$/i);
+
+      if (issuedMatch?.[1]) {
+        issueDate = cleanLine(issuedMatch[1]);
+        cursor += 1;
+        continue;
+      }
+      if (expiryMatch?.[1]) {
+        expiryDate = cleanLine(expiryMatch[1]);
+        cursor += 1;
+        continue;
+      }
+      if (/^https?:\/\//i.test(line)) {
+        credentialUrl = extractFirstUrl(line, /https?:\/\/[^\s]+/i);
+        cursor += 1;
+      }
+      break;
+    }
+
+    certifications.push({
+      name,
+      issuer,
+      issueDate,
+      expiryDate,
+      credentialUrl,
+    });
+    index = Math.max(cursor, index + 1);
+  }
+
+  return certifications;
+}
+
 export function inferSpokenLanguages(resumeText: string) {
   const lines = splitLines(resumeText);
   const entries: Array<{ language: string | null; proficiency: string | null; interviewPreference: boolean; notes: string | null }> = [];
@@ -344,7 +505,38 @@ export function inferSpokenLanguages(resumeText: string) {
     });
   }
 
-  return entries.filter((entry) => entry.language);
+  const languageSectionLines = findSectionBodyLinesByAliases(lines, [
+    "LANGUAGE SKILLS",
+    "LANGUAGES",
+  ] as const);
+
+  for (const line of languageSectionLines) {
+    const match = line.match(
+      /^([A-Za-z][A-Za-z .'()-]*?)\s*(?:[:|]|\s+[–—-]\s+)\s*(.+)$/,
+    );
+    const language = cleanLine(match?.[1] ?? "");
+    const proficiency = cleanLine(match?.[2] ?? "");
+
+    if (!language || !proficiency || /^https?:\/\//i.test(line)) {
+      continue;
+    }
+
+    entries.push({
+      language: titleCaseWords(language),
+      proficiency,
+      interviewPreference: false,
+      notes: null,
+    });
+  }
+
+  return entries.filter(
+    (entry, index) =>
+      entry.language &&
+      entries.findIndex(
+        (candidate) =>
+          candidate.language?.toLowerCase() === entry.language?.toLowerCase(),
+      ) === index,
+  );
 }
 
 export function buildProfileExtractionNotes(input: {

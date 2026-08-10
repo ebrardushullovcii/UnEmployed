@@ -8,13 +8,15 @@ import { EmptyState } from "../../components/empty-state";
 import { LockedScreenLayout } from "../../components/locked-screen-layout";
 import { ResumeWorkspaceEditorPanel } from "./resume-workspace-editor-panel";
 import { ResumeWorkspaceHeader } from "./resume-workspace-header";
+import { ResumeWorkspaceContextDisclosure } from "./resume-workspace-context-disclosure";
 import { ResumeWorkspaceSecondaryRail } from "./resume-workspace-secondary-rail";
 import { ResumeWorkspaceSidebar } from "./resume-workspace-sidebar";
 import { ResumeGuidedEditsPopup } from "./resume-guided-edits-popup";
 import { ResumeStudioPreviewPane } from "./resume-studio-preview-pane";
 import { ResumeWorkspaceStudioShell } from "./resume-workspace-studio-shell";
 import { ResumeWorkspaceTemplatePanel } from "./resume-workspace-template-panel";
-import { cloneDraft } from "./resume-workspace-utils";
+import { ResumeVersionHistoryPanel } from "./resume-version-history-panel";
+import { cloneDraft, formatDraftStatusLabel } from "./resume-workspace-utils";
 import { orderResumeEntriesNewestFirst } from "./resume-section-editor-helpers";
 import {
   buildResumeThemeRecommendationContext,
@@ -247,8 +249,8 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
     return (
       <main className="grid min-h-full place-items-center px-6 py-10">
         <EmptyState
-          title="Resume editor unavailable"
-          description="We couldn't load this resume. Go back to Shortlisted and try another job."
+          title="Loading Resume Studio"
+          description="Loading the saved draft, validation, and version history."
         />
       </main>
     );
@@ -263,6 +265,9 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
   const editorPanel = (
     <ResumeWorkspaceEditorPanel
       actionMessage={props.actionMessage}
+      coverageComparison={
+        props.workspace.validation?.coverageComparison ?? null
+      }
       draft={draft}
       hasUnsavedChanges={hasUnsavedChanges}
       isWorkspacePending={props.isWorkspacePending}
@@ -300,11 +305,20 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
       assistantMessages={props.assistantMessages}
       assistantPending={props.assistantPending}
       compactWhenIdle={showCompactAssistantRail}
+      draft={draft}
       isWorkspacePending={props.isWorkspacePending}
       onSendAssistantMessage={(content) =>
         runWithSavedDraftAsync(
           () => props.onSendAssistantMessage(props.jobId, content),
           "Saved your draft before sending this request.",
+        )
+      }
+      onResolveProposal={(proposalId, action, patchIds) =>
+        props.onResolveAssistantProposal?.(
+          props.jobId,
+          proposalId,
+          action,
+          patchIds,
         )
       }
     />
@@ -357,6 +371,19 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
       }
     />
   );
+  const historyPanel = (
+    <ResumeVersionHistoryPanel
+      currentDraft={draft}
+      isPending={props.isWorkspacePending}
+      onRestore={(revisionId) =>
+        runWithSavedDraftAsync(
+          () => props.onRestoreRevision(props.jobId, revisionId),
+          "Saved your current edits before restoring the earlier draft.",
+        )
+      }
+      revisions={props.workspace.revisions}
+    />
+  );
   const { approvalStateLabel, studioStatusMessage } = buildWorkspaceStatusCopy({
     availableExportToApprove,
     draft,
@@ -386,11 +413,18 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
             }
             selectedThemeLabel={selectedTheme?.label ?? fallbackThemeLabel}
           />
-          <ResumeWorkspaceSidebar
-            draft={draft}
-            hasUnsavedChanges={hasUnsavedChanges}
-            workspace={props.workspace}
-          />
+          <ResumeWorkspaceContextDisclosure
+            claimCount={
+              props.workspace.validation?.claimAssessments.length ?? 0
+            }
+            statusLabel={formatDraftStatusLabel(draft.status)}
+          >
+            <ResumeWorkspaceSidebar
+              draft={draft}
+              hasUnsavedChanges={hasUnsavedChanges}
+              workspace={props.workspace}
+            />
+          </ResumeWorkspaceContextDisclosure>
         </>
       }
     >
@@ -404,6 +438,7 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
           canClearApproval={Boolean(draft.approvedExportId)}
           editorPanel={editorPanel}
           hasUnsavedChanges={hasUnsavedChanges}
+          historyPanel={historyPanel}
           isWorkspacePending={props.isWorkspacePending}
           mobileStudioTab={mobileStudioTab}
           onApproveCurrentPdf={() => {
@@ -417,6 +452,7 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
               "Saved your draft before approving the PDF.",
             );
           }}
+          onContinueToShortlisted={props.onBack}
           onClearApproval={() =>
             runWithSavedDraftAsync(
               () => props.onClearResumeApproval(props.jobId),
@@ -446,11 +482,20 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
       <ResumeGuidedEditsPopup
         assistantMessages={props.assistantMessages}
         assistantPending={props.assistantPending}
+        draft={draft}
         isWorkspacePending={props.isWorkspacePending}
         onSendAssistantMessage={(content) =>
           runWithSavedDraftAsync(
             () => props.onSendAssistantMessage(props.jobId, content),
             "Saved your draft before sending this request.",
+          )
+        }
+        onResolveProposal={(proposalId, action, patchIds) =>
+          props.onResolveAssistantProposal?.(
+            props.jobId,
+            proposalId,
+            action,
+            patchIds,
           )
         }
       />

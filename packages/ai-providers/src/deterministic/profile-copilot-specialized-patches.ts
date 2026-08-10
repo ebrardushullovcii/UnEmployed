@@ -4,6 +4,7 @@ import type { ReviseCandidateProfileInput } from "../shared";
 import {
   createUniqueId,
   deriveRequestedDetail,
+  detectRequestedMinimumSalary,
   detectRequestedRemoteEligibility,
   detectRequestedTargetSalary,
   detectRequestedVisaSponsorship,
@@ -24,7 +25,9 @@ import {
 function buildYearsExperiencePatchGroup(
   input: ReviseCandidateProfileInput,
 ): ProfileCopilotPatchGroup | null {
-  const requestedYearsExperience = detectRequestedYearsExperience(input.request);
+  const requestedYearsExperience = detectRequestedYearsExperience(
+    input.request,
+  );
 
   if (requestedYearsExperience === null) {
     return null;
@@ -51,7 +54,10 @@ function buildYearsExperiencePatchGroup(
     operations.push({
       operation: "resolve_review_items",
       reviewItemIds: [item.id],
-      resolutionStatus: getMatchingResolutionStatus(item, requestedYearsExperience),
+      resolutionStatus: getMatchingResolutionStatus(
+        item,
+        requestedYearsExperience,
+      ),
     });
   }
 
@@ -71,24 +77,76 @@ function buildYearsExperiencePatchGroup(
 function buildTargetSalaryPatchGroup(
   input: ReviseCandidateProfileInput,
 ): ProfileCopilotPatchGroup | null {
+  const requestedMinimumSalary = detectRequestedMinimumSalary(input.request);
   const requestedTargetSalary = detectRequestedTargetSalary(input.request);
+  const value: {
+    minimum?: number | null;
+    maximum?: number | null;
+  } = {};
+  const changesMinimum =
+    requestedMinimumSalary !== null &&
+    requestedMinimumSalary !== input.searchPreferences.compensation.minimum;
+  const changesMaximum =
+    requestedTargetSalary !== null &&
+    requestedTargetSalary !== requestedMinimumSalary &&
+    requestedTargetSalary !== input.searchPreferences.compensation.maximum;
+
+  if (changesMinimum) {
+    value.minimum = requestedMinimumSalary;
+  }
+
+  if (changesMaximum) {
+    value.maximum = requestedTargetSalary;
+  }
 
   if (
-    requestedTargetSalary === null ||
-    requestedTargetSalary === input.searchPreferences.targetSalaryUsd
+    changesMaximum &&
+    requestedTargetSalary !== null &&
+    requestedMinimumSalary === null &&
+    input.searchPreferences.compensation.minimum !== null &&
+    requestedTargetSalary < input.searchPreferences.compensation.minimum
   ) {
+    value.minimum = null;
+  }
+  if (
+    changesMinimum &&
+    requestedMinimumSalary !== null &&
+    requestedTargetSalary === null &&
+    input.searchPreferences.compensation.maximum !== null &&
+    requestedMinimumSalary > input.searchPreferences.compensation.maximum
+  ) {
+    value.maximum = null;
+  }
+
+  if (Object.keys(value).length === 0) {
     return null;
   }
 
+  const savedCurrencyIsKnown =
+    input.searchPreferences.compensation.currencyStatus !== "needs_clarification" &&
+    input.searchPreferences.compensation.currency !== null;
+
   return {
     id: createUniqueId("profile_patch_group"),
-    summary: "Update expected salary",
-    applyMode: "applied",
+    summary:
+      changesMinimum && changesMaximum
+        ? "Update minimum and expected salary"
+        : changesMinimum
+          ? "Update minimum salary"
+          : "Update expected salary",
+    applyMode: savedCurrencyIsKnown ? "applied" : "needs_review",
     operations: [
       {
-        operation: "replace_search_preferences_fields",
+        operation: "replace_compensation_preferences_fields",
         value: {
-          targetSalaryUsd: requestedTargetSalary,
+          ...value,
+          interval: input.searchPreferences.compensation.interval,
+          currency: savedCurrencyIsKnown
+            ? input.searchPreferences.compensation.currency
+            : null,
+          currencyStatus: savedCurrencyIsKnown
+            ? "inherited"
+            : "needs_clarification",
         },
       },
     ],
@@ -147,12 +205,15 @@ function buildCurrentLocationPatchGroup(
 
   if (
     !/location/.test(normalizedRequest) ||
-    /preferred locations|excluded locations|relocation locations|relocation regions/.test(normalizedRequest)
+    /preferred locations|excluded locations|relocation locations|relocation regions/.test(
+      normalizedRequest,
+    )
   ) {
     return null;
   }
 
-  const detail = deriveRequestedDetail(input.request) ?? trimNonEmptyString(input.request);
+  const detail =
+    deriveRequestedDetail(input.request) ?? trimNonEmptyString(input.request);
 
   if (!detail || !looksLikeExplicitAnswer(input.request)) {
     return null;
@@ -199,7 +260,8 @@ function buildTargetRolesPatchGroup(
     return null;
   }
 
-  const detail = deriveRequestedDetail(input.request) ?? trimNonEmptyString(input.request);
+  const detail =
+    deriveRequestedDetail(input.request) ?? trimNonEmptyString(input.request);
 
   if (!detail || !looksLikeExplicitAnswer(input.request)) {
     return null;
@@ -240,15 +302,20 @@ function buildTargetRolesPatchGroup(
 function buildWorkEligibilityPatchGroup(
   input: ReviseCandidateProfileInput,
 ): ProfileCopilotPatchGroup | null {
-  const requestedVisaSponsorship = detectRequestedVisaSponsorship(input.request);
-  const requestedRemoteEligibility = detectRequestedRemoteEligibility(input.request);
+  const requestedVisaSponsorship = detectRequestedVisaSponsorship(
+    input.request,
+  );
+  const requestedRemoteEligibility = detectRequestedRemoteEligibility(
+    input.request,
+  );
   const matchingExperience = findMentionedExperience(input);
   const workEligibilityValue: Record<string, boolean> = {};
   const workEligibilityReviewItemIds = new Set<string>();
 
   if (
     requestedVisaSponsorship !== null &&
-    requestedVisaSponsorship !== input.profile.workEligibility.requiresVisaSponsorship
+    requestedVisaSponsorship !==
+      input.profile.workEligibility.requiresVisaSponsorship
   ) {
     workEligibilityValue.requiresVisaSponsorship = requestedVisaSponsorship;
     findPendingRelevantReviewItems(

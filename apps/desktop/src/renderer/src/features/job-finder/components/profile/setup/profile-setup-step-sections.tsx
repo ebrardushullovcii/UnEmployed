@@ -414,6 +414,25 @@ export function ProfileSetupTargetingStep(props: {
     shouldTouch: true,
     shouldValidate: true,
   } as const
+  const discoveryTargets = props.preferencesForm.watch('discoveryTargets')
+
+  const updateDiscoveryTargets = (
+    nextTargets: SearchPreferencesEditorValues['discoveryTargets'],
+  ) => {
+    props.preferencesForm.setValue('discoveryTargets', nextTargets, listFieldOptions)
+  }
+
+  const createDiscoveryTargetId = () =>
+    `target_${typeof globalThis.crypto?.randomUUID === 'function' ? globalThis.crypto.randomUUID() : `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`}`
+
+  const hasValidStartingUrl = (value: string) => {
+    try {
+      const url = new URL(value.trim())
+      return url.protocol === 'http:' || url.protocol === 'https:'
+    } catch {
+      return false
+    }
+  }
 
   return (
     <Card className="rounded-(--radius-panel) border-border/40">
@@ -590,6 +609,161 @@ export function ProfileSetupTargetingStep(props: {
             </p>
           )}
         </fieldset>
+
+        <section
+          aria-labelledby="profile-setup-job-sources-heading"
+          className="grid gap-4 rounded-(--radius-field) border border-border/35 bg-background/45 p-4"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="grid gap-1">
+              <h3
+                className="text-sm font-semibold text-foreground"
+                id="profile-setup-job-sources-heading"
+              >
+                Job sources
+              </h3>
+              <p className="max-w-2xl text-sm leading-6 text-foreground-soft">
+                Add at least one public careers page or job-board URL. Job Finder
+                cannot search until one valid source is included.
+              </p>
+            </div>
+            <Button
+              onClick={() =>
+                updateDiscoveryTargets([
+                  ...discoveryTargets,
+                  {
+                    id: createDiscoveryTargetId(),
+                    label: '',
+                    startingUrl: '',
+                    enabled: true,
+                    adapterKind: 'auto',
+                    customInstructions: '',
+                    instructionStatus: 'missing',
+                    validatedInstructionId: null,
+                    draftInstructionId: null,
+                    lastDebugRunId: null,
+                    lastVerifiedAt: null,
+                    staleReason: null,
+                  },
+                ])
+              }
+              type="button"
+              variant="secondary"
+            >
+              Add source
+            </Button>
+          </div>
+
+          {discoveryTargets.length === 0 ? (
+            <div className="rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) p-3 text-sm leading-6 text-(--warning-text)" role="status">
+              No job source is configured. Add the public page where you would
+              normally browse open roles.
+            </div>
+          ) : (
+            <div className="grid gap-3">
+              {discoveryTargets.map((target, index) => {
+                const validUrl = hasValidStartingUrl(target.startingUrl)
+                const sourceLabel = target.label.trim() || `Source ${index + 1}`
+
+                return (
+                  <div
+                    className="grid gap-3 rounded-(--radius-field) border border-border/30 bg-background/65 p-4"
+                    key={target.id}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-foreground">
+                        {sourceLabel}
+                      </p>
+                      <Button
+                        aria-label={`Remove ${sourceLabel}`}
+                        onClick={() =>
+                          updateDiscoveryTargets(
+                            discoveryTargets.filter((entry) => entry.id !== target.id),
+                          )
+                        }
+                        size="sm"
+                        type="button"
+                        variant="ghost"
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="grid gap-(--gap-field)">
+                        <FieldLabel htmlFor={`profile-setup-source-label-${target.id}`}>
+                          Source name
+                        </FieldLabel>
+                        <ProfileInput
+                          id={`profile-setup-source-label-${target.id}`}
+                          onChange={(event) =>
+                            updateDiscoveryTargets(
+                              discoveryTargets.map((entry) =>
+                                entry.id === target.id
+                                  ? { ...entry, label: event.target.value }
+                                  : entry,
+                              ),
+                            )
+                          }
+                          placeholder="Example: Acme careers"
+                          value={target.label}
+                        />
+                      </div>
+                      <div className="grid gap-(--gap-field)">
+                        <FieldLabel htmlFor={`profile-setup-source-url-${target.id}`}>
+                          Careers or job-board URL
+                        </FieldLabel>
+                        <ProfileInput
+                          aria-invalid={target.startingUrl.trim().length > 0 && !validUrl}
+                          id={`profile-setup-source-url-${target.id}`}
+                          onChange={(event) =>
+                            updateDiscoveryTargets(
+                              discoveryTargets.map((entry) =>
+                                entry.id === target.id
+                                  ? {
+                                      ...entry,
+                                      startingUrl: event.target.value,
+                                      instructionStatus: 'missing',
+                                      validatedInstructionId: null,
+                                      draftInstructionId: null,
+                                      lastDebugRunId: null,
+                                      lastVerifiedAt: null,
+                                      staleReason: null,
+                                    }
+                                  : entry,
+                              ),
+                            )
+                          }
+                          placeholder="https://company.example/careers"
+                          type="url"
+                          value={target.startingUrl}
+                        />
+                      </div>
+                    </div>
+                    <CheckboxField
+                      checked={target.enabled}
+                      label="Include this source in searches"
+                      onCheckedChange={(checked) =>
+                        updateDiscoveryTargets(
+                          discoveryTargets.map((entry) =>
+                            entry.id === target.id
+                              ? { ...entry, enabled: checked }
+                              : entry,
+                          ),
+                        )
+                      }
+                    />
+                    {target.enabled && !validUrl ? (
+                      <p className="text-sm leading-6 text-(--warning-text)" role="status">
+                        Enter a complete http or https URL before this source can
+                        be used.
+                      </p>
+                    ) : null}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </section>
 
         {props.renderFooter({
           nextLabel: 'Save and continue to narrative',

@@ -12,13 +12,23 @@ import {
   type SavedJobDiscoveryProvenance,
 } from "@unemployed/contracts";
 import {
+  evaluateCompensationFit,
   parseNormalizedCompensation,
-  parseSalaryFloor,
 } from "./matching-compensation";
+import type { MatchAssessmentPostingInput } from "./match-assessment-posting-input";
+import { createMatchAssessmentChangeAudit } from "./match-assessment-change-audit";
+import { MATCH_ASSESSMENT_SCORER_VERSION } from "./match-assessment-session";
+import { buildMatchDimensionsAssessment } from "./matching-dimensions";
 import {
   buildFitRecommendation,
   buildRequirementEvidenceAssessment,
 } from "./matching-requirements";
+import { canonicalizeLocationAliases } from "./location-normalization";
+import {
+  createJobIdentityDigest,
+  createJobIdentityIndex,
+} from "./job-identity";
+import { buildDiscoveryJobs as orderVisibleDiscoveryJobs } from "./matching-review-queue";
 export {
   buildApplicationRecords,
   compareDiscoveryJobs,
@@ -69,10 +79,14 @@ type RoleFamily =
   | "engineering"
   | "data"
   | "support"
+  | "product"
   | "marketing"
   | "sales"
   | "people"
   | "finance"
+  | "legal"
+  | "risk_compliance"
+  | "security"
   | "design"
   | "operations"
   | "healthcare";
@@ -103,6 +117,10 @@ const roleFamilyPatterns: Record<RoleFamily, readonly RegExp[]> = {
     /\bhelp ?desk\b/,
     /\bclient services?\b/,
   ],
+  product: [
+    /\bproduct (?:manager|management|owner|operations?)\b/,
+    /\bproduct strategy\b/,
+  ],
   marketing: [
     /\bmarketing\b/,
     /\bcontent\b/,
@@ -115,8 +133,11 @@ const roleFamilyPatterns: Record<RoleFamily, readonly RegExp[]> = {
   sales: [
     /\bsales\b/,
     /\baccount executive\b/,
+    /\baccount manager\b/,
     /\bbusiness development\b/,
     /\b(?:sales|business) development representative\b/,
+    /\bgo[ -]?to[ -]?market\b/,
+    /\bgtm\b/,
   ],
   people: [
     /\bhuman resources?\b/,
@@ -126,6 +147,11 @@ const roleFamilyPatterns: Record<RoleFamily, readonly RegExp[]> = {
     /\btalent (?:acquisition|partner)\b/,
     /\btotal rewards?\b/,
     /\bcompensation\b/,
+    /\b(?:global )?mobility specialist\b/,
+    /\btime (?:and )?attendance\b/,
+    /\bemployee relations?\b/,
+    /\bemployee (?:lifecycle|transitions?)\b/,
+    /\blabou?r relations?\b/,
   ],
   finance: [
     /\bfinance\b/,
@@ -134,19 +160,54 @@ const roleFamilyPatterns: Record<RoleFamily, readonly RegExp[]> = {
     /\baccounting\b/,
     /\bcontroller\b/,
     /\bpayroll\b/,
+    /\bbilling\b/,
+    /\baccounts? (?:payable|receivable)\b/,
+    /\btreasury\b/,
+    /\btax\b/,
   ],
-  design: [
-    /\bdesigner\b/,
-    /\bproduct design\b/,
-    /\bux\b/,
-    /\bui design\b/,
+  legal: [
+    /\blegal\b/,
+    /\bcounsel\b/,
+    /\battorney\b/,
+    /\blawyer\b/,
+    /\bparalegal\b/,
+    /\bsolicitor\b/,
   ],
+  risk_compliance: [
+    /\brisk\b/,
+    /\baudit(?:or|ing)?\b/,
+    /\bcompliance\b/,
+    /\bfraud\b/,
+    /\banti money laundering\b/,
+    /\baml\b/,
+    /\bedd analyst\b/,
+    /\benhanced due diligence\b/,
+    /\bkyc\b/,
+    /\bohs\b/,
+    /\boccupational (?:health (?:and )?)?safety\b/,
+    /\b(?:workplace|health (?:and )?)safety\b/,
+    /\bsafety (?:officer|specialist|manager|advisor|coordinator)\b/,
+    /\bprevenci n de riesgos laborales\b/,
+  ],
+  security: [
+    /\bciso\b/,
+    /\bchief information security officer\b/,
+    /\bcyber ?security\b/,
+    /\binformation security\b/,
+  ],
+  design: [/\bdesigner\b/, /\bproduct design\b/, /\bux\b/, /\bui design\b/],
   operations: [
     /\boperations?\b/,
     /\bproject coordinator\b/,
     /\bprogram coordinator\b/,
     /\badministrative\b/,
     /\boffice manager\b/,
+    /\bprocurement\b/,
+    /\bsupply chain\b/,
+    /\blogistics\b/,
+    /\bcontracts? management\b/,
+    /\bcontracts? (?:manager|specialist|administrator)\b/,
+    /\bvendor management\b/,
   ],
   healthcare: [
     /\bnurs(?:e|ing)\b/,
@@ -157,12 +218,59 @@ const roleFamilyPatterns: Record<RoleFamily, readonly RegExp[]> = {
   ],
 };
 
+const primaryRoleFamilyPatterns: ReadonlyArray<readonly [RoleFamily, RegExp]> =
+  [
+    [
+      "data",
+      /\b(?:data engineer|data scientist|data analyst|analytics engineer|machine learning engineer|ml engineer|ai engineer)\b/iu,
+    ],
+    [
+      "engineering",
+      /\b(?:software|frontend|front[- ]end|backend|back[- ]end|full[- ]?stack|platform|site reliability|devops) engineer\b|\bsoftware developer\b/iu,
+    ],
+    [
+      "sales",
+      /\b(?:account executive|sales engineer|sales manager|business development|sales development representative)\b/iu,
+    ],
+    [
+      "support",
+      /\b(?:customer success|customer support|customer service|technical support|support specialist|client services?)\b/iu,
+    ],
+    [
+      "design",
+      /\b(?:product|ux|ui|interaction|visual) designer\b|\bux researcher\b/iu,
+    ],
+    [
+      "finance",
+      /\b(?:financial analyst|accountant|controller|payroll specialist|financial engineer)\b/iu,
+    ],
+    [
+      "people",
+      /\b(?:recruiter|talent acquisition|human resources|people operations)\b/iu,
+    ],
+    ["healthcare", /\b(?:nurse|physician|therapist|clinical engineer)\b/iu],
+  ];
+
+function getPrimaryRoleFamily(value: string): RoleFamily | null {
+  return (
+    primaryRoleFamilyPatterns.find(([, pattern]) => pattern.test(value))?.[0] ??
+    null
+  );
+}
+
 function collectRoleFamilies(value: string): Set<RoleFamily> {
   const normalized = normalizeText(value);
+  // Classify reusable occupational phrases rather than complete listing titles.
+  // A title may belong to more than one family; an explicit target anchor such
+  // as "Software Engineer" or "Customer Support" therefore still wins when a
+  // second phrase only describes the product domain. Generic wrappers such as
+  // "Lifecycle" and "Specialist" intentionally carry no family on their own.
   return new Set(
-    (Object.entries(roleFamilyPatterns) as Array<
-      [RoleFamily, readonly RegExp[]]
-    >).flatMap(([family, patterns]) =>
+    (
+      Object.entries(roleFamilyPatterns) as Array<
+        [RoleFamily, readonly RegExp[]]
+      >
+    ).flatMap(([family, patterns]) =>
       family === "engineering" &&
       /\b(?:data|analytics|machine learning|ml|ai) engineer\b/.test(normalized)
         ? []
@@ -173,6 +281,15 @@ function collectRoleFamilies(value: string): Set<RoleFamily> {
   );
 }
 
+const engineeringVocationalTitlePatterns: ReadonlyArray<
+  readonly [RoleFamily, RegExp]
+> = [
+  ["sales", /\bsales engineer\b/iu],
+  ["support", /\b(?:technical |customer )?support engineer\b/iu],
+  ["finance", /\bfinancial engineer\b/iu],
+  ["healthcare", /\bclinical engineer\b/iu],
+];
+
 function hasRoleFamilyMismatch(
   candidateTitle: string,
   targetRoles: readonly string[],
@@ -181,11 +298,33 @@ function hasRoleFamilyMismatch(
   const targetFamilies = new Set(
     targetRoles.flatMap((role) => [...collectRoleFamilies(role)]),
   );
+  if (candidateFamilies.size === 0 || targetFamilies.size === 0) {
+    return false;
+  }
+  if (![...candidateFamilies].some((family) => targetFamilies.has(family))) {
+    return true;
+  }
 
-  return (
-    candidateFamilies.size > 0 &&
-    targetFamilies.size > 0 &&
-    ![...candidateFamilies].some((family) => targetFamilies.has(family))
+  // Generic targets such as "Senior Engineer" must not collapse vocationally
+  // distinct Sales Engineer or Support Engineer roles into software matches.
+  const candidatePrimaryFamily = getPrimaryRoleFamily(candidateTitle);
+  const targetPrimaryFamilies = new Set(
+    targetRoles
+      .map(getPrimaryRoleFamily)
+      .filter((family): family is RoleFamily => family !== null),
+  );
+  if (
+    candidatePrimaryFamily &&
+    targetPrimaryFamilies.size > 0 &&
+    !targetPrimaryFamilies.has(candidatePrimaryFamily)
+  ) {
+    return true;
+  }
+  // Match the occupational phrase, not a domain qualifier such as
+  // "Software Engineer, Sales Platform".
+  return engineeringVocationalTitlePatterns.some(
+    ([family, pattern]) =>
+      !targetFamilies.has(family) && pattern.test(candidateTitle),
   );
 }
 
@@ -367,7 +506,7 @@ function normalizePhraseMatchInput(
     return normalized;
   }
 
-  return normalized
+  return canonicalizeLocationAliases(normalized)
     .replace(/\bon\s*site\b/gi, "onsite")
     .replace(/\bwork\s+from\s+home\b/gi, "remote");
 }
@@ -671,6 +810,19 @@ function mergeKeywordSignals(
   return [...byKey.values()];
 }
 
+function selectLatestProviderUpdate(
+  incoming: string | null,
+  existing: string | null | undefined,
+): string | null {
+  if (!incoming) {
+    return existing ?? null;
+  }
+  if (!existing) {
+    return incoming;
+  }
+  return Date.parse(incoming) >= Date.parse(existing) ? incoming : existing;
+}
+
 function enrichDiscoveredPosting(
   posting: JobPosting,
   existingJob: SavedJob | undefined,
@@ -684,6 +836,10 @@ function enrichDiscoveredPosting(
 
   return {
     ...posting,
+    providerUpdatedAt: selectLatestProviderUpdate(
+      posting.providerUpdatedAt,
+      existingJob?.providerUpdatedAt,
+    ),
     applicationUrl:
       posting.applicationUrl ??
       existingJob?.applicationUrl ??
@@ -948,10 +1104,85 @@ export function toSavedJobId(posting: JobPosting): string {
   return `job_${posting.source}_${posting.sourceJobId}`;
 }
 
-export function createMatchAssessment(
+function isSalesOrientedEngineeringListing(
+  posting: MatchAssessmentPostingInput,
+): boolean {
+  if (!/\b(?:solutions?|sales) engineer\b/iu.test(posting.title)) {
+    return false;
+  }
+
+  const evidence = [
+    posting.summary,
+    posting.description,
+    ...posting.responsibilities,
+    ...posting.minimumQualifications,
+    ...posting.preferredQualifications,
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ");
+  const decisiveSalesSignals = [
+    /\b(?:carry|own|meet)\s+(?:a\s+)?(?:sales\s+)?quota\b/iu,
+    /\b(?:pre[- ]sales|presales)\b/iu,
+  ];
+  if (decisiveSalesSignals.some((pattern) => pattern.test(evidence))) {
+    return true;
+  }
+
+  const independentSalesCycleSignals = [
+    /\b(?:sales|revenue)\s+pipeline\b|\bqualif(?:y|ying) opportunities\b/iu,
+    /\b(?:technical|product) demos?\b.{0,48}\b(?:prospects?|customers?)\b|\b(?:prospects?|customers?)\b.{0,48}\b(?:technical|product) demos?\b/iu,
+    /\b(?:partner|work|collaborate)\w*\b.{0,32}\b(?:account executives?|sales team)\b/iu,
+    /\b(?:technical discovery|proofs? of concept|pocs?|rfps?|rfis?)\b/iu,
+    /\b(?:close|win)\w*\b.{0,24}\b(?:deals?|revenue|opportunities)\b/iu,
+  ];
+  return (
+    independentSalesCycleSignals.filter((pattern) => pattern.test(evidence))
+      .length >= 2
+  );
+}
+
+function isNonOpeningListing(posting: MatchAssessmentPostingInput): boolean {
+  const title = normalizeText(posting.title);
+  const evidence = normalizeText(
+    [posting.title, posting.summary, posting.description]
+      .filter((value): value is string => typeof value === "string")
+      .join(" "),
+  );
+  const titleSignalsTalentPool =
+    /\b(?:talent (?:community|network|pool)|future opportunities|general application|open application|expression of interest)\b/iu.test(
+      title,
+    );
+  const explicitlyNotOpen =
+    /\b(?:not|isn t)\s+(?:an?\s+)?(?:active|current)\s+(?:vacancy|opening|role|position)\b/iu.test(
+      evidence,
+    );
+  const invitesFutureInterest =
+    /\b(?:join|register|submit)\b.{0,48}\b(?:talent|future|interest|network|community)\b/iu.test(
+      evidence,
+    );
+
+  return titleSignalsTalentPool || (explicitlyNotOpen && invitesFutureInterest);
+}
+
+function hasExplicitPreferenceConflict(
+  listingValue: string | null,
+  savedValues: readonly string[],
+): boolean {
+  return (
+    savedValues.length > 0 &&
+    listingValue !== null &&
+    !savedValues.some(
+      (savedValue) => normalizeText(savedValue) === normalizeText(listingValue),
+    )
+  );
+}
+
+export function createMatchAssessment<
+  TPosting extends MatchAssessmentPostingInput,
+>(
   profile: CandidateProfile,
   searchPreferences: JobSearchPreferences,
-  posting: JobPosting,
+  posting: TPosting,
 ): MatchAssessment {
   let score = 48;
   // Deterministic overlap is a shortlist signal, not proof that every listed requirement is met.
@@ -963,15 +1194,14 @@ export function createMatchAssessment(
     posting.title,
     searchPreferences.targetRoles,
   );
-  const roleFamilyMismatch = hasRoleFamilyMismatch(
-    posting.title,
-    searchPreferences.targetRoles,
-  );
+  const nonOpeningListing = isNonOpeningListing(posting);
+  const roleFamilyMismatch =
+    hasRoleFamilyMismatch(posting.title, searchPreferences.targetRoles) ||
+    isSalesOrientedEngineeringListing(posting);
   const roleFamilyUnclear =
     searchPreferences.targetRoles.some(
       (role) => collectRoleFamilies(role).size > 0,
-    ) &&
-    collectRoleFamilies(posting.title).size === 0;
+    ) && collectRoleFamilies(posting.title).size === 0;
   const matchesLocation = matchesLocationPreference(
     posting.location,
     searchPreferences.locations,
@@ -980,11 +1210,18 @@ export function createMatchAssessment(
     searchPreferences.workModes.length === 0 ||
     searchPreferences.workModes.includes("flexible") ||
     posting.workMode.some((mode) => searchPreferences.workModes.includes(mode));
-  const salaryFloor = parseSalaryFloor(posting.salaryText);
-  const meetsSalaryExpectation =
-    searchPreferences.minimumSalaryUsd === null ||
-    salaryFloor === null ||
-    salaryFloor >= searchPreferences.minimumSalaryUsd;
+  const explicitSeniorityConflict = hasExplicitPreferenceConflict(
+    posting.seniority,
+    searchPreferences.seniorityLevels,
+  );
+  const explicitEmploymentTypeConflict = hasExplicitPreferenceConflict(
+    posting.employmentType,
+    searchPreferences.employmentTypes,
+  );
+  const compensationFit = evaluateCompensationFit(
+    posting.salaryText,
+    searchPreferences.minimumSalaryUsd,
+  );
   const isPreferredCompany = searchPreferences.companyWhitelist.some(
     (company) => normalizeText(company) === normalizeText(posting.company),
   );
@@ -1048,15 +1285,21 @@ export function createMatchAssessment(
     scoreCeiling = Math.min(scoreCeiling, 74);
   }
 
-  if (matchesRole) {
-    score += 16;
-    reasons.push("Role title aligns closely with the current target roles.");
+  if (nonOpeningListing) {
+    score -= 40;
+    scoreCeiling = Math.min(scoreCeiling, 39);
+    gaps.push(
+      "The listing is a talent pool or future-interest form rather than a current vacancy.",
+    );
   } else if (roleFamilyMismatch) {
     score -= 28;
-    scoreCeiling = Math.min(scoreCeiling, 46);
+    scoreCeiling = Math.min(scoreCeiling, 39);
     gaps.push(
       "Role family is outside the current target roles, so this is unlikely to be a useful match.",
     );
+  } else if (matchesRole) {
+    score += 16;
+    reasons.push("Role title aligns closely with the current target roles.");
   } else if (roleFamilyUnclear) {
     score -= 22;
     scoreCeiling = Math.min(scoreCeiling, 50);
@@ -1103,10 +1346,24 @@ export function createMatchAssessment(
     /\b(?:staff|principal|director|manager|head|chief)\b/iu.test(
       currentEngineeringTitle,
     );
-  if (postingRequestsElevatedSeniority && !profileShowsElevatedSeniority) {
+  const elevatedScopeGap =
+    postingRequestsElevatedSeniority && !profileShowsElevatedSeniority;
+  if (elevatedScopeGap) {
     score -= 8;
     gaps.push(
       "The title signals a staff-or-leadership scope not yet explicit in the current profile.",
+    );
+  }
+  if (explicitSeniorityConflict) {
+    score -= 8;
+    gaps.push(
+      "The listing seniority conflicts with the saved seniority preferences.",
+    );
+  }
+  if (explicitEmploymentTypeConflict) {
+    score -= 8;
+    gaps.push(
+      "The listing employment type conflicts with the saved employment preferences.",
     );
   }
 
@@ -1137,13 +1394,13 @@ export function createMatchAssessment(
     );
   }
 
-  if (searchPreferences.minimumSalaryUsd === null) {
-    // Missing compensation preferences and missing listing salary data should
-    // never manufacture positive fit evidence.
-  } else if (meetsSalaryExpectation) {
+  if (compensationFit.state === "meets_minimum") {
     score += 6;
-  } else {
-    gaps.push("Compensation looks below the saved salary target.");
+    reasons.push("Compensation meets the saved salary minimum.");
+  } else if (compensationFit.state === "below_minimum") {
+    score -= 14;
+    scoreCeiling = Math.min(scoreCeiling, 71);
+    gaps.push("Compensation is below the saved salary minimum.");
   }
 
   if (isPreferredCompany) {
@@ -1159,13 +1416,6 @@ export function createMatchAssessment(
   } else {
     gaps.push(
       "The listing emphasizes skills that are not yet prominent in the current profile.",
-    );
-  }
-
-  if (posting.easyApplyEligible) {
-    score += 6;
-    reasons.push(
-      "Easy Apply is available for the listing, keeping the flow in scope.",
     );
   }
 
@@ -1197,14 +1447,76 @@ export function createMatchAssessment(
   );
   score -= Math.min(24, requirementEvidencePenalty);
 
+  const dimensions = buildMatchDimensionsAssessment({
+    posting,
+    searchPreferences,
+    requirements,
+    matchesRole,
+    roleFamilyMismatch,
+    roleFamilyUnclear,
+    matchesLocation,
+    matchesWorkMode,
+    isPreferredCompany,
+  });
+  const hasHardConflict = requirements.some(
+    (requirement) =>
+      requirement.importance === "required" &&
+      requirement.status === "conflict",
+  );
+  const hasUnresolvedRequired = requirements.some(
+    (requirement) =>
+      requirement.importance === "required" &&
+      (requirement.status === "missing" || requirement.status === "unknown"),
+  );
+  if (nonOpeningListing || roleFamilyMismatch || hasHardConflict) {
+    scoreCeiling = Math.min(scoreCeiling, 39);
+  } else if (
+    compensationFit.state === "below_minimum" ||
+    explicitSeniorityConflict ||
+    explicitEmploymentTypeConflict ||
+    elevatedScopeGap ||
+    hasUnresolvedRequired ||
+    dimensions.roleSuitability.state === "unknown" ||
+    dimensions.evidenceConfidence.level === "low" ||
+    dimensions.evidenceConfidence.level === "unavailable"
+  ) {
+    scoreCeiling = Math.min(scoreCeiling, 71);
+  } else if (dimensions.roleSuitability.state === "adjacent") {
+    scoreCeiling = Math.min(scoreCeiling, 85);
+  }
+
   const finalScore = clampScore(Math.min(score, scoreCeiling));
-  const recommendation = buildFitRecommendation({
+  const evidenceRecommendation = buildFitRecommendation({
     score: finalScore,
     requirements,
   });
+  const recommendation = nonOpeningListing
+    ? {
+        recommendation: "skip" as const,
+        rationale:
+          "This is a talent-pool or future-interest listing, not a current vacancy.",
+      }
+    : roleFamilyMismatch
+      ? {
+          recommendation: "skip" as const,
+          rationale: "The listing belongs to a different occupational role.",
+        }
+      : compensationFit.state === "below_minimum" &&
+          evidenceRecommendation.recommendation !== "skip"
+        ? {
+            recommendation: "review_before_applying" as const,
+            rationale:
+              "The listing compensation is below the saved salary minimum.",
+          }
+        : evidenceRecommendation;
 
   return {
+    scorerVersion: MATCH_ASSESSMENT_SCORER_VERSION,
+    contextFingerprint: null,
+    postingFingerprint: null,
     score: finalScore,
+    compensationFit,
+    dimensions,
     reasons: reasons.slice(0, 3),
     gaps: gaps.slice(0, 3),
     recommendation: recommendation.recommendation,
@@ -1272,7 +1584,38 @@ export function mergeDiscoveredJob(
     id: existingJob?.id ?? toSavedJobId(posting),
     status: preserveJobStatus(existingJob),
     matchAssessment,
+    discoveryFeedback: existingJob?.discoveryFeedback ?? null,
+    resumeApplicationMode: existingJob?.resumeApplicationMode ?? null,
+    latestMatchAssessmentAudit:
+      existingJob?.latestMatchAssessmentAudit ?? null,
   });
+}
+
+function buildVisibleDiscoveryRankById(
+  jobs: readonly SavedJob[],
+): ReadonlyMap<string, number> {
+  return new Map(
+    orderVisibleDiscoveryJobs(jobs).map((job, index) => [job.id, index + 1]),
+  );
+}
+
+function selectLatestDiscoveryTimestamp(
+  postings: readonly JobPosting[],
+): string | null {
+  return postings.reduce<string | null>((latest, posting) => {
+    const candidate = posting.lastSeenAt ?? posting.discoveredAt;
+    if (!latest) {
+      return candidate;
+    }
+
+    return Date.parse(candidate) > Date.parse(latest) ? candidate : latest;
+  }, null);
+}
+
+function hasMeaningfulMatchAssessmentChange(
+  audit: ReturnType<typeof createMatchAssessmentChangeAudit>,
+): boolean {
+  return audit.status !== "unchanged" && audit.status !== "metadata_incomplete";
 }
 
 // Helper to merge discovered postings with existing jobs
@@ -1283,27 +1626,20 @@ export function mergeDiscoveredPostings(
   discoveredPostings: readonly JobPosting[],
   provenanceBuilder: (posting: JobPosting) => SavedJobDiscoveryProvenance,
   signal?: AbortSignal,
+  assessPosting?: (posting: JobPosting) => MatchAssessment,
 ): MergeDiscoveryResult {
   // Check if already aborted
   if (signal?.aborted) {
     throw new DOMException("Aborted", "AbortError");
   }
 
-  const savedJobsByPostingKey = new Map<string, SavedJob>();
-  const savedJobsBySourceId = new Map<string, SavedJob>();
-  const newJobs: SavedJob[] = [];
+  const identityIndex = createJobIdentityIndex(savedJobs, (job) => job);
+  const previousJobsById = new Map(savedJobs.map((job) => [job.id, job]));
+  const previousRankById = buildVisibleDiscoveryRankById(savedJobs);
+  const newJobIds = new Set<string>();
   let validatedCount = 0;
   let duplicatesMerged = 0;
   let invalidSkipped = 0;
-
-  for (const job of savedJobs) {
-    // Full key with canonical URL
-    const key = `${job.source}:${job.sourceJobId}:${job.canonicalUrl}`;
-    savedJobsByPostingKey.set(key, job);
-    // Fallback key without URL (for when canonical URL changes)
-    const sourceIdKey = `${job.source}:${job.sourceJobId}`;
-    savedJobsBySourceId.set(sourceIdKey, job);
-  }
 
   const nextJobsById = new Map(savedJobs.map((job) => [job.id, job]));
 
@@ -1313,13 +1649,6 @@ export function mergeDiscoveredPostings(
       throw new DOMException("Aborted", "AbortError");
     }
 
-    const postingKey = `${posting.source}:${posting.sourceJobId}:${posting.canonicalUrl}`;
-    const sourceIdKey = `${posting.source}:${posting.sourceJobId}`;
-
-    // Try full key first, then fallback to source+sourceId
-    const existingJob =
-      savedJobsByPostingKey.get(postingKey) ??
-      savedJobsBySourceId.get(sourceIdKey);
     const postingUrl = (() => {
       try {
         return new URL(posting.canonicalUrl);
@@ -1334,14 +1663,13 @@ export function mergeDiscoveredPostings(
     }
 
     validatedCount += 1;
+    const existingJob = identityIndex.find(posting) ?? undefined;
 
-    const matchAssessment = createMatchAssessment(
-      profile,
-      searchPreferences,
-      posting,
-    );
+    const matchAssessment = assessPosting
+      ? assessPosting(posting)
+      : createMatchAssessment(profile, searchPreferences, posting);
     const provenance = provenanceBuilder(posting);
-    const mergedJob = SavedJobSchema.parse({
+    let mergedJob = SavedJobSchema.parse({
       ...mergeDiscoveredJob(matchAssessment, posting, existingJob),
       provenance: uniqueProvenance([
         ...(existingJob?.provenance ?? []),
@@ -1349,20 +1677,56 @@ export function mergeDiscoveredPostings(
       ]),
     });
 
-    if (existingJob) {
-      duplicatesMerged += 1;
-    } else {
-      newJobs.push(mergedJob);
+    if (!existingJob && nextJobsById.has(mergedJob.id)) {
+      const baseId = `${mergedJob.id}_${createJobIdentityDigest(posting)}`;
+      let availableId = baseId;
+      let collisionIndex = 2;
+      while (nextJobsById.has(availableId)) {
+        availableId = `${baseId}_${collisionIndex}`;
+        collisionIndex += 1;
+      }
+      mergedJob = SavedJobSchema.parse({ ...mergedJob, id: availableId });
     }
 
-    savedJobsByPostingKey.set(postingKey, mergedJob);
-    savedJobsBySourceId.set(sourceIdKey, mergedJob);
+    if (existingJob) {
+      duplicatesMerged += 1;
+      identityIndex.replace(existingJob, mergedJob);
+    } else {
+      newJobIds.add(mergedJob.id);
+      identityIndex.add(mergedJob);
+    }
+
     nextJobsById.set(mergedJob.id, mergedJob);
   }
 
+  const jobsBeforeAudit = [...nextJobsById.values()];
+  const currentRankById = buildVisibleDiscoveryRankById(jobsBeforeAudit);
+  const auditRecordedAt = selectLatestDiscoveryTimestamp(discoveredPostings);
+  const mergedJobs = jobsBeforeAudit.map((job) => {
+    const previousJob = previousJobsById.get(job.id);
+    if (!previousJob) {
+      return job;
+    }
+
+    const audit = createMatchAssessmentChangeAudit({
+      previous: previousJob.matchAssessment,
+      current: job.matchAssessment,
+      previousRank: previousRankById.get(job.id) ?? null,
+      currentRank: currentRankById.get(job.id) ?? null,
+      recordedAt: auditRecordedAt,
+    });
+
+    return SavedJobSchema.parse({
+      ...job,
+      latestMatchAssessmentAudit: hasMeaningfulMatchAssessmentChange(audit)
+        ? audit
+        : previousJob.latestMatchAssessmentAudit,
+    });
+  });
+
   return {
-    mergedJobs: [...nextJobsById.values()],
-    newJobs,
+    mergedJobs,
+    newJobs: mergedJobs.filter((job) => newJobIds.has(job.id)),
     validatedCount,
     duplicatesMerged,
     invalidSkipped,

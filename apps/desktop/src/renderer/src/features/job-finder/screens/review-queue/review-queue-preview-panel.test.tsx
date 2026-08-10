@@ -21,7 +21,7 @@ describe('ReviewQueuePreviewPanel', () => {
         selectedAsset={null}
         selectedItem={null}
         selectedJob={null}
-      />,
+      />
     )
 
     expect(screen.getByText('No shortlisted jobs yet')).toBeTruthy()
@@ -45,9 +45,9 @@ describe('ReviewQueuePreviewPanel', () => {
         status: 'original_resume' as const,
         sourceDocumentId: 'resume_1',
         fileName: 'alex-original.pdf',
-        filePath: '/tmp/alex-original.pdf',
+        filePath: '/tmp/alex-original.pdf'
       },
-      updatedAt: '2026-07-14T10:00:00.000Z',
+      updatedAt: '2026-07-14T10:00:00.000Z'
     }
 
     render(
@@ -66,14 +66,14 @@ describe('ReviewQueuePreviewPanel', () => {
           lastAnalyzedAt: '2026-07-14T10:00:00.000Z',
           analysisProviderKind: null,
           analysisProviderLabel: null,
-          analysisWarnings: [],
+          analysisWarnings: []
         }}
         previewState={null}
         queue={[selectedItem]}
         selectedAsset={null}
         selectedItem={selectedItem}
         selectedJob={null}
-      />,
+      />
     )
 
     expect(screen.getByText('Original CV · unchanged')).toBeTruthy()
@@ -86,5 +86,47 @@ describe('ReviewQueuePreviewPanel', () => {
     expect(screen.getByText(/home address, date of birth, nationality/i)).toBeTruthy()
     expect(screen.getByText(/Full work history/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /create tailored resume/i })).toBeNull()
+  })
+
+  it('keeps the estimated percentage readable outside the progress fill', () => {
+    const selectedItem = {
+      jobId: 'job_generating',
+      title: 'Senior Frontend Engineer',
+      company: 'Mercury',
+      location: 'Remote',
+      matchScore: 86,
+      applicationStatus: 'shortlisted',
+      resumeApplicationMode: 'tailored_per_job',
+      assetStatus: 'generating',
+      progressPercent: 69,
+      resumeAssetId: null,
+      resumeReview: {
+        status: 'not_started'
+      },
+      updatedAt: '2026-07-31T12:00:00.000Z'
+    } as never
+
+    render(
+      <ReviewQueuePreviewPanel
+        displayedProgress={69}
+        isGenerating
+        onEditResumeWorkspace={vi.fn()}
+        onGenerateResume={vi.fn()}
+        previewState={null}
+        queue={[selectedItem]}
+        selectedAsset={null}
+        selectedItem={selectedItem}
+        selectedJob={null}
+      />
+    )
+
+    const progress = screen.getByRole('progressbar', {
+      name: 'Estimated resume preparation progress'
+    })
+
+    expect(progress.getAttribute('aria-valuenow')).toBe('69')
+    expect(progress.getAttribute('aria-valuetext')).toBe('69% estimated')
+    expect(screen.getByText('69% estimated').className).toContain('text-(--text-headline)')
+    expect(screen.getByText(/Progress keeps its place/i)).toBeTruthy()
   })
 })

@@ -87,11 +87,21 @@ export function getApplicationStagePresentation(record: ApplicationRecord): {
 
   if (
     shouldPresentConsentState(record) &&
+    record.lastAttemptState === 'paused' &&
+    record.consentSummary.status !== 'declined'
+  ) {
+    return { label: 'Needs action', tone: 'active' }
+  }
+
+  if (
+    shouldPresentConsentState(record) &&
     record.consentSummary.status === 'approved'
   ) {
-    return record.lastAttemptState === 'submitted'
-      ? { label: 'Submitted', tone: getApplicationTone('submitted') }
-      : { label: 'Ready after consent', tone: 'active' }
+    if (record.lastAttemptState === 'submitted') {
+      return { label: 'Submitted', tone: getApplicationTone('submitted') }
+    }
+
+    return { label: 'Ready after consent', tone: 'active' }
   }
 
   if (
@@ -166,7 +176,7 @@ export function getApplicationReadableNextStepLabel(label: string | null | undef
   }
 
   if (/review the pending submit approval in applications/i.test(trimmed)) {
-    return 'Review the pending submit approval'
+    return 'Review the pending safe preparation approval'
   }
 
   if (/review the queued run approval in applications/i.test(trimmed)) {

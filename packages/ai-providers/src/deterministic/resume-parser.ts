@@ -29,12 +29,14 @@ import {
 } from "./resume-parser-experience";
 import {
   buildProfileExtractionNotes,
+  inferCertifications,
   inferEducationEntries,
   inferGithubUrl,
   inferLinks,
   inferLocations,
   inferPersonalWebsiteUrl,
   inferProfessionalSummary,
+  inferProjects,
   inferSalaryCurrencyFromLocation,
   inferSpokenLanguages,
   inferTimeZoneFromLocation,
@@ -680,6 +682,8 @@ export function buildDeterministicResumeProfileExtraction(
   const personalWebsiteUrl = inferPersonalWebsiteUrl(input.resumeText);
   const portfolioUrl = inferPortfolioUrl(input.resumeText, personalWebsiteUrl);
   const education = inferEducationEntries(input.resumeText);
+  const certifications = inferCertifications(input.resumeText);
+  const projects = inferProjects(input.resumeText);
   const notes = buildProfileExtractionNotes({ fullName, headline, summary, currentLocation });
   const parsedYearsExperience = Number.parseInt(
     extractRegexMatch(input.resumeText, /\b\d{1,2}\+?\s+years?\b/i)?.match(/\d+/)?.[0] ?? "",
@@ -741,9 +745,9 @@ export function buildDeterministicResumeProfileExtraction(
     preferredLocations,
     experiences,
     education,
-    certifications: [],
+    certifications,
     links: inferLinks(input.resumeText),
-    projects: [],
+    projects,
     spokenLanguages: inferSpokenLanguages(input.resumeText),
     analysisProviderKind,
     analysisProviderLabel,

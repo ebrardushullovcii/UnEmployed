@@ -1,7 +1,22 @@
 import type { ApplicationAttempt } from "@unemployed/contracts";
-import { formatStatusLabel, getAttemptLabel, getAttemptTone } from "@renderer/features/job-finder/lib/job-finder-utils";
+import {
+  formatDuration,
+  formatStatusLabel,
+  getAttemptLabel,
+  getAttemptTone,
+} from "@renderer/features/job-finder/lib/job-finder-utils";
 import { StatusBadge } from "../../components/status-badge";
 import { getCustomerFacingApplyText } from "./applications-detail-panel-helpers";
+
+const executionTimingLabels: Record<
+  ApplicationAttempt["executionTimings"][number]["stage"],
+  string
+> = {
+  browser_preparation: "Browser setup",
+  form_preparation: "Form preparation",
+  visual_diagnostics: "Visual checks",
+  total: "Total",
+};
 
 export function ApplicationsDetailPanelAttemptSection(props: {
   selectedAttempt: ApplicationAttempt | null;
@@ -25,7 +40,11 @@ export function ApplicationsDetailPanelAttemptSection(props: {
     <section className="surface-card-tint grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
       <h3 className="label-mono-xs text-primary">Attempt details</h3>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        {attemptSummary ? <strong>{attemptSummary}</strong> : <strong>No summary available</strong>}
+        {attemptSummary ? (
+          <strong>{attemptSummary}</strong>
+        ) : (
+          <strong>No summary available</strong>
+        )}
         <StatusBadge tone={getAttemptTone(selectedAttempt.state)}>
           {getAttemptLabel(selectedAttempt.state)}
         </StatusBadge>
@@ -53,6 +72,19 @@ export function ApplicationsDetailPanelAttemptSection(props: {
           ) : null}
         </div>
       ) : null}
+      {selectedAttempt.executionTimings.length ? (
+        <div className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3">
+          <p className="label-mono-xs">Preparation timing</p>
+          <div className="flex flex-wrap gap-x-5 gap-y-2 text-(length:--text-small) leading-6 text-foreground-soft">
+            {selectedAttempt.executionTimings.map((timing) => (
+              <span key={timing.stage}>
+                {executionTimingLabels[timing.stage]}:{" "}
+                {formatDuration(timing.durationMs)}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {selectedAttempt.questions.length ? (
         <div className="grid gap-2">
           <p className="label-mono-xs">Question memory</p>
@@ -65,7 +97,8 @@ export function ApplicationsDetailPanelAttemptSection(props: {
                 <strong>{question.prompt}</strong>
                 <StatusBadge
                   tone={
-                    question.status === "submitted" || question.status === "answered"
+                    question.status === "submitted" ||
+                    question.status === "answered"
                       ? "positive"
                       : "active"
                   }
@@ -79,7 +112,10 @@ export function ApplicationsDetailPanelAttemptSection(props: {
               </p>
               {question.submittedAnswer ? (
                 <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">
-                  {question.status === "submitted" ? "Submitted" : "Prepared answer"}: {question.submittedAnswer}
+                  {question.status === "submitted"
+                    ? "Submitted"
+                    : "Prepared answer"}
+                  : {question.submittedAnswer}
                 </p>
               ) : null}
               {question.suggestedAnswers[0] ? (

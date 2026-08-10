@@ -91,6 +91,8 @@ function CompactVariantCard(props: {
           </p>
         </div>
         <Button
+          aria-label={`${selected ? "Selected template" : "Use template"}: ${getTemplateOptionLabel(theme)}`}
+          aria-pressed={selected}
           className="xl:min-w-44"
           data-resume-template-select={theme.id}
           disabled={disabled}

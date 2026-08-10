@@ -221,11 +221,36 @@ describe("contracts profile setup schemas", () => {
         minimumSalaryUsd: null,
         targetSalaryUsd: null,
         salaryCurrency: "USD",
+        compensation: {
+          minimum: null,
+          maximum: null,
+          interval: "year",
+          currency: null,
+          currencyStatus: "needs_clarification",
+        },
         approvalMode: "review_before_submit",
         tailoringMode: "balanced",
         companyBlacklist: [],
         companyWhitelist: [],
-        discovery: { historyLimit: 5, targets: [] },
+        discovery: {
+          historyLimit: 5,
+          targets: [
+            {
+              id: "source_1",
+              label: "Signal Systems careers",
+              startingUrl: "https://signal.example/careers",
+              enabled: true,
+              adapterKind: "auto",
+              customInstructions: null,
+              instructionStatus: "missing",
+              validatedInstructionId: null,
+              draftInstructionId: null,
+              lastDebugRunId: null,
+              lastVerifiedAt: null,
+              staleReason: null,
+            },
+          ],
+        },
       },
       { now: "2026-04-11T10:15:00.000Z" },
     );
@@ -332,6 +357,13 @@ describe("contracts profile setup schemas", () => {
         minimumSalaryUsd: null,
         targetSalaryUsd: null,
         salaryCurrency: "USD",
+        compensation: {
+          minimum: null,
+          maximum: null,
+          interval: "year",
+          currency: null,
+          currencyStatus: "needs_clarification",
+        },
         approvalMode: "review_before_submit",
         tailoringMode: "balanced",
         companyBlacklist: [],
@@ -472,6 +504,13 @@ describe("contracts profile setup schemas", () => {
         minimumSalaryUsd: null,
         targetSalaryUsd: null,
         salaryCurrency: "USD",
+        compensation: {
+          minimum: null,
+          maximum: null,
+          interval: "year",
+          currency: null,
+          currencyStatus: "needs_clarification",
+        },
         approvalMode: "review_before_submit",
         tailoringMode: "balanced",
         companyBlacklist: [],
@@ -592,6 +631,13 @@ describe("contracts profile setup schemas", () => {
         minimumSalaryUsd: null,
         targetSalaryUsd: null,
         salaryCurrency: "USD",
+        compensation: {
+          minimum: null,
+          maximum: null,
+          interval: "year",
+          currency: null,
+          currencyStatus: "needs_clarification",
+        },
         approvalMode: "review_before_submit",
         tailoringMode: "balanced",
         companyBlacklist: [],
@@ -602,6 +648,7 @@ describe("contracts profile setup schemas", () => {
 
     expect(readiness.freshStart).toBe(true);
     expect(readiness.hasCoreIdentity).toBe(false);
+    expect(readiness.hasDiscoverySource).toBe(false);
     expect(readiness.recommendedStep).toBe("essentials");
   });
 
@@ -702,6 +749,13 @@ describe("contracts profile setup schemas", () => {
         minimumSalaryUsd: null,
         targetSalaryUsd: null,
         salaryCurrency: "USD",
+        compensation: {
+          minimum: null,
+          maximum: null,
+          interval: "year",
+          currency: null,
+          currencyStatus: "needs_clarification",
+        },
         approvalMode: "review_before_submit",
         tailoringMode: "balanced",
         companyBlacklist: [],

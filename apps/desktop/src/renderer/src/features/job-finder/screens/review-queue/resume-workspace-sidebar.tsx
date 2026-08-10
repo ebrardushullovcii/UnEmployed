@@ -4,6 +4,7 @@ import type {
 } from "@unemployed/contracts";
 import { StatusBadge } from "../../components/status-badge";
 import { formatNormalizedCompensation } from "../../lib/normalized-compensation";
+import { ResumeClaimTrustPanel } from "./resume-claim-trust-panel";
 import {
   formatDraftStatusLabel,
   formatOptionalDate,
@@ -125,8 +126,8 @@ export function ResumeWorkspaceSidebar({
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-foreground-soft">
         <p>
-          {researchCount === 1 ? "Saved research note" : "Saved research notes"}:{" "}
-          {researchCount}
+          {researchCount === 1 ? "Saved research note" : "Saved research notes"}
+          : {researchCount}
         </p>
         <p>
           {validationCount === 1 ? "Validation check" : "Validation checks"}:{" "}
@@ -237,6 +238,11 @@ export function ResumeWorkspaceSidebar({
             </div>
           ) : null}
         </div>
+
+        <ResumeClaimTrustPanel
+          hasUnsavedChanges={hasUnsavedChanges}
+          validation={validation}
+        />
       </div>
     </aside>
   );

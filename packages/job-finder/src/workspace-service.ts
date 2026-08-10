@@ -34,8 +34,11 @@ import { createWorkspaceDiscoveryMethods } from "./internal/workspace-discovery-
 import { createWorkspaceSourceDebugMethods } from "./internal/workspace-source-debug-methods";
 import { createWorkspaceApplicationMethods } from "./internal/workspace-application-methods";
 import { createWorkspaceApplyRunStoreMethods } from "./internal/workspace-apply-run-store-methods";
+import { createWorkspaceApplicationAnswerMethods } from "./internal/workspace-application-answer-methods";
+import { createWorkspaceUserActionMethods } from "./internal/workspace-user-action-methods";
 import { toDiscoverySessionState } from "./internal/discovery-state";
 import { uniqueStrings } from "./internal/shared";
+import { persistDiscoveryLoginUserAction } from "./internal/workspace-source-user-action";
 
 export {
   DEFAULT_DISCOVERY_HISTORY_LIMIT,
@@ -54,9 +57,11 @@ export {
 
 export type {
   CreateJobFinderWorkspaceServiceOptions,
+  CandidateAssetResolver,
   JobFinderDocumentManager,
   JobFinderWorkspaceService,
   RenderedResumeArtifact,
+  ResolvedApplicationCandidateAsset,
   ResumeResearchAdapter,
   ResumeResearchAdapterInput,
 } from "./internal/workspace-service-contracts";
@@ -74,6 +79,7 @@ export function createJobFinderWorkspaceService(
     aiClient,
     visionProvider,
     browserRuntime,
+    candidateAssetResolver,
     documentManager,
     exportFileVerifier,
     repository,
@@ -92,6 +98,7 @@ export function createJobFinderWorkspaceService(
   const activeSourceDebugPromiseRef = {
     current: null as Promise<unknown> | null,
   };
+  const activeResumeVisionRunIds = new Set<string>();
   const shutdownPromiseRef = {
     current: null as Promise<void> | null,
   };
@@ -100,6 +107,7 @@ export function createJobFinderWorkspaceService(
     aiClient,
     ...(visionProvider ? { visionProvider } : {}),
     browserRuntime,
+    ...(candidateAssetResolver ? { candidateAssetResolver } : {}),
     documentManager,
     ...(exportFileVerifier ? { exportFileVerifier } : {}),
     repository,
@@ -108,8 +116,13 @@ export function createJobFinderWorkspaceService(
     activeSourceDebugExecutionIdRef,
     activeSourceDebugAbortControllerRef,
     activeSourceDebugPromiseRef,
+    activeResumeVisionRunIds,
     getWorkspaceSnapshot: () =>
       Promise.reject(new Error("Workspace snapshot method not initialized.")),
+    resumeApplicationUserAction: () =>
+      Promise.reject(
+        new Error("Application user action resumer not initialized."),
+      ),
     runSourceDebugWorkflow: () =>
       Promise.reject(new Error("Source debug workflow not initialized.")),
     async persistDiscoveryState(
@@ -206,6 +219,7 @@ export function createJobFinderWorkspaceService(
           ),
         ].slice(0, SOURCE_DEBUG_RECENT_HISTORY_LIMIT),
       }));
+      await persistDiscoveryLoginUserAction({ repository, run });
     },
     async persistBrowserSessionState(
       session: Awaited<ReturnType<BrowserSessionRuntime["openSession"]>>,
@@ -336,11 +350,41 @@ export function createJobFinderWorkspaceService(
   };
 
   const snapshotProfileMethods = createWorkspaceSnapshotProfileMethods(context);
-  context.getWorkspaceSnapshot = snapshotProfileMethods.getWorkspaceSnapshot;
+  const applicationMethods = createWorkspaceApplicationMethods(context);
+  context.resumeApplicationUserAction = (request) =>
+    applicationMethods.resumeApplicationUserAction(request);
+  const userActionMethods = createWorkspaceUserActionMethods(context);
+  let userActionRecoveryPromise: Promise<void> | null = null;
+
+  async function resumeVerifyingUserActions(): Promise<void> {
+    if (!userActionRecoveryPromise) {
+      userActionRecoveryPromise =
+        userActionMethods.resumeVerifyingUserActions();
+    }
+
+    try {
+      await userActionRecoveryPromise;
+    } catch (error) {
+      userActionRecoveryPromise = null;
+      throw error;
+    }
+  }
+
+  async function getWorkspaceSnapshot() {
+    await resumeVerifyingUserActions();
+    return snapshotProfileMethods.getWorkspaceSnapshot();
+  }
+
+  context.getWorkspaceSnapshot = getWorkspaceSnapshot;
 
   const sourceDebugMethods = createWorkspaceSourceDebugMethods(context);
   context.runSourceDebugWorkflow = sourceDebugMethods.runSourceDebugWorkflow;
+  const discoveryMethods = createWorkspaceDiscoveryMethods(context);
   const applyRunStoreMethods = createWorkspaceApplyRunStoreMethods(context);
+  const applicationAnswerMethods = createWorkspaceApplicationAnswerMethods(
+    context,
+    applyRunStoreMethods.getApplyRunDetails,
+  );
 
   function isJobSource(value: unknown): value is JobSource {
     return JobSourceSchema.safeParse(value).success;
@@ -356,35 +400,38 @@ export function createJobFinderWorkspaceService(
     }
 
     shutdownPromiseRef.current = (async () => {
-    activeDiscoveryAbortControllerRef.current?.abort();
-    activeSourceDebugAbortControllerRef.current?.abort();
+      activeDiscoveryAbortControllerRef.current?.abort();
+      activeSourceDebugAbortControllerRef.current?.abort();
 
-    await Promise.allSettled([
-      activeDiscoveryPromiseRef.current,
-      activeSourceDebugPromiseRef.current,
-    ].filter((value): value is Promise<unknown> => value != null));
-
-    const discoveryState = await repository
-      .getDiscoveryState()
-      .catch(() => null);
-    const sessionSources = uniqueStrings(
-      (discoveryState?.sessions ?? []).map((session) => session.adapterKind),
-    ).filter(isJobSource);
-    const shutdownResults = await Promise.allSettled([
-      ...sessionSources.map((source) => browserRuntime.closeSession(source)),
-      repository.close(),
-    ]);
-    const rejectedResults = shutdownResults.filter(
-      (result): result is PromiseRejectedResult => result.status === "rejected",
-    );
-    if (rejectedResults.length > 0) {
-      console.warn(
-        "[JobFinderWorkspace] Shutdown completed with failures",
-        rejectedResults.map((result) =>
-          describeShutdownFailure(result.reason),
-        ),
+      await Promise.allSettled(
+        [
+          activeDiscoveryPromiseRef.current,
+          activeSourceDebugPromiseRef.current,
+        ].filter((value): value is Promise<unknown> => value != null),
       );
-    }
+
+      const discoveryState = await repository
+        .getDiscoveryState()
+        .catch(() => null);
+      const sessionSources = uniqueStrings(
+        (discoveryState?.sessions ?? []).map((session) => session.adapterKind),
+      ).filter(isJobSource);
+      const shutdownResults = await Promise.allSettled([
+        ...sessionSources.map((source) => browserRuntime.closeSession(source)),
+        repository.close(),
+      ]);
+      const rejectedResults = shutdownResults.filter(
+        (result): result is PromiseRejectedResult =>
+          result.status === "rejected",
+      );
+      if (rejectedResults.length > 0) {
+        console.warn(
+          "[JobFinderWorkspace] Shutdown completed with failures",
+          rejectedResults.map((result) =>
+            describeShutdownFailure(result.reason),
+          ),
+        );
+      }
     })();
 
     return shutdownPromiseRef.current;
@@ -393,9 +440,12 @@ export function createJobFinderWorkspaceService(
   return {
     shutdown,
     ...snapshotProfileMethods,
-    ...createWorkspaceDiscoveryMethods(context),
+    getWorkspaceSnapshot,
+    ...discoveryMethods,
     ...sourceDebugMethods,
     ...applyRunStoreMethods,
-    ...createWorkspaceApplicationMethods(context),
+    ...applicationAnswerMethods,
+    performUserAction: userActionMethods.performUserAction,
+    ...applicationMethods,
   };
 }

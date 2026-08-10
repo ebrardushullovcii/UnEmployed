@@ -57,6 +57,7 @@ describe('buildStructuredCandidateJobs', () => {
           description: 'Build product interfaces for the hiring platform.',
           summary: 'Build product interfaces.',
           postedAt: '2026-03-20T10:00:00.000Z',
+          providerUpdatedAt: '2026-03-20T12:30:00+02:00',
           salaryText: '$120k',
           workMode: ['remote'],
           applyPath: 'easy_apply',
@@ -90,6 +91,7 @@ describe('buildStructuredCandidateJobs', () => {
         easyApplyEligible: true,
         keySkills: ['React', 'TypeScript'],
         responsibilities: ['Build hiring workflows'],
+        providerUpdatedAt: '2026-03-20T10:30:00.000Z',
         minimumQualifications: ['3+ years with React'],
         employmentType: 'Full-time',
       }),
@@ -137,6 +139,81 @@ describe('buildStructuredCandidateJobs', () => {
         location: 'Pristina (On-site)',
       }),
     ])
+  })
+
+  test('normalizes a repeated structured title before company and location metadata', () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl: 'https://www.linkedin.com/jobs/view/4399165260/',
+      maxJobs: 5,
+      structuredDataCandidates: [
+        {
+          canonicalUrl: 'https://www.linkedin.com/jobs/view/4399165260/',
+          sourceJobId: '4399165260',
+          title:
+            'Senior Full Stack Engineer (Typescript) Senior Full Stack Engineer (Typescript) Fresha Pristina, District of Pristina, Kosovo (Hybrid)',
+          company: 'Fresha',
+          location: 'Pristina, District of Pristina, Kosovo (Hybrid)',
+          description: 'Build product systems for salons and marketplaces.',
+        },
+      ],
+    })
+
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        title: 'Senior Full Stack Engineer (Typescript)',
+        company: 'Fresha',
+        location: 'Pristina, District of Pristina, Kosovo (Hybrid)',
+      }),
+    ])
+  })
+
+  test('normalizes the same repeated title when it comes from a generic result card', () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl: 'https://jobs.example.com/search',
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl: 'https://jobs.example.com/roles/senior-full-stack-engineer',
+          anchorText:
+            'Senior Full Stack Engineer (Typescript) Senior Full Stack Engineer (Typescript)',
+          headingText:
+            'Senior Full Stack Engineer (Typescript) Senior Full Stack Engineer (Typescript)',
+          lines: [
+            'Senior Full Stack Engineer (Typescript) Senior Full Stack Engineer (Typescript)',
+            'Fresha',
+            'Pristina (Hybrid)',
+            'Build product systems for salons and marketplaces.',
+          ],
+        },
+      ],
+    })
+
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        title: 'Senior Full Stack Engineer (Typescript)',
+        company: 'Fresha',
+        location: 'Pristina (Hybrid)',
+      }),
+    ])
+  })
+
+  test('preserves legitimate role and team wording that repeats a role token', () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl: 'https://jobs.example.com/roles/engineer-productivity',
+      maxJobs: 5,
+      structuredDataCandidates: [
+        {
+          canonicalUrl: 'https://jobs.example.com/roles/engineer-productivity',
+          sourceJobId: 'engineer_productivity',
+          title: 'Senior Engineer, Engineer Productivity',
+          company: 'Acme',
+          location: 'Remote',
+          description: 'Improve the developer experience and build systems.',
+        },
+      ],
+    })
+
+    expect(jobs[0]?.title).toBe('Senior Engineer, Engineer Productivity')
   })
 
   test('normalizes LinkedIn detail tracking params so duplicate job variants merge into one candidate', () => {

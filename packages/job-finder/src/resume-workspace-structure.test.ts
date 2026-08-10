@@ -260,6 +260,55 @@ describe("buildResumeRenderDocument", () => {
     expect(JSON.stringify(document)).not.toContain("Sales Operations Associate");
   });
 
+  test("buildResumeDraftFromTailoredDraft does not append original bullets after grounded rewrites", () => {
+    const seed = createSeed();
+    const experience = seed.profile.experiences[0]!;
+    const groundedRewrite =
+      "Led a cross-functional design-system rollout across core product surfaces.";
+    const draft = buildResumeDraftFromTailoredDraft({
+      job: seed.savedJobs[0]!,
+      templateId: seed.settings.resumeTemplateId,
+      createdAt: "2026-08-09T12:00:00.000Z",
+      generationMethod: "ai",
+      profile: seed.profile,
+      draft: {
+        label: "Tailored Resume",
+        summary: seed.profile.summary ?? "Grounded summary.",
+        experienceHighlights: [],
+        coreSkills: seed.profile.skills,
+        targetedKeywords: ["Design Systems"],
+        experienceEntries: [
+          {
+            title: experience.title,
+            employer: experience.companyName,
+            location: experience.location,
+            dateRange: "Jan 2020 – Present",
+            summary: experience.summary,
+            bullets: [groundedRewrite],
+            profileRecordId: experience.id,
+          },
+        ],
+        projectEntries: [],
+        educationEntries: [],
+        certificationEntries: [],
+        coverageMetadata: [],
+        additionalSkills: [],
+        languages: [],
+        fullText: groundedRewrite,
+        compatibilityScore: 86,
+        notes: [],
+      },
+    });
+
+    const bullets =
+      draft.sections
+        .find((section) => section.kind === "experience")
+        ?.entries[0]?.bullets.map((bullet) => bullet.text) ?? [];
+
+    expect(bullets).toEqual([groundedRewrite]);
+    expect(bullets).not.toContain(experience.achievements[0]);
+  });
+
   test("buildResumeDraftFromTailoredDraft keeps every canonical job available in the editor", () => {
     const seed = createSeed();
     const primaryExperience = seed.profile.experiences[0]!;
@@ -528,9 +577,9 @@ describe("buildResumeRenderDocument", () => {
         targetedKeywords: ["React"],
         experienceEntries: [
           {
-            title: "Operations Systems Engineer",
-            employer: "AUTOMATEDPROS",
-            location: "Remote, Kosovo",
+            title: "Generated Principal Platform Visionary",
+            employer: "Generated Employer Name",
+            location: "Generated Location",
             dateRange: "Remote, Kosovo | Present",
             summary: "AUTOMATEDPROS Remote Kosovo Present",
             bullets: ["React and WebSockets"],
@@ -553,6 +602,9 @@ describe("buildResumeRenderDocument", () => {
       ?.entries.find((item) => item.profileRecordId === "experience_operations_system");
 
     expect(entry?.dateRange).toBe("Jul 2023 – Present");
+    expect(entry?.title).toBe("Operations Systems Engineer");
+    expect(entry?.subtitle).toBe("AUTOMATEDPROS");
+    expect(entry?.location).toBe("Remote, Kosovo");
     expect(entry?.startDate).toBe("01/07/2023");
     expect(entry?.endDate).toBeNull();
     expect(entry?.isCurrent).toBe(true);

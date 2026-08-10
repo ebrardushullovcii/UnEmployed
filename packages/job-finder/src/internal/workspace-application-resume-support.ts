@@ -127,31 +127,33 @@ function buildWorkHistoryReviewSuggestionsFromValidation(input: {
   draft: ResumeDraft;
   validation: Awaited<ReturnType<typeof validateResumeDraft>> | null;
 }) {
-  const structuredEntries = input.draft.sections
-    .flatMap((section) =>
-      section.entries.map((entry) => ({
-        sectionId: section.id,
-        entry,
-      })),
-    );
-  const experienceSectionId = input.draft.sections.find(
-    (section) => section.kind === "experience",
-  )?.id ?? null;
+  const structuredEntries = input.draft.sections.flatMap((section) =>
+    section.entries.map((entry) => ({
+      sectionId: section.id,
+      entry,
+    })),
+  );
+  const experienceSectionId =
+    input.draft.sections.find((section) => section.kind === "experience")?.id ??
+    null;
 
   return (input.validation?.issues ?? [])
-    .filter((issue) => issue.category === "work_history_review" || issue.category === "date_quality")
+    .filter(
+      (issue) =>
+        issue.category === "work_history_review" ||
+        issue.category === "date_quality",
+    )
     .flatMap((issue) => {
-      const matchedEntry = structuredEntries.find(
-        ({ entry }) => entry.id === issue.entryId,
-      ) ?? (
-        issue.category === "work_history_review"
-          ? structuredEntries.find(
-            ({ entry }) =>
-              entry.profileRecordId &&
-              issue.id === `issue_work_history_review_${entry.profileRecordId}`,
-          ) ?? null
-          : null
-      );
+      const matchedEntry =
+        structuredEntries.find(({ entry }) => entry.id === issue.entryId) ??
+        (issue.category === "work_history_review"
+          ? (structuredEntries.find(
+              ({ entry }) =>
+                entry.profileRecordId &&
+                issue.id ===
+                  `issue_work_history_review_${entry.profileRecordId}`,
+            ) ?? null)
+          : null);
       const profileRecordId =
         matchedEntry?.entry.profileRecordId ??
         (issue.category === "work_history_review"
@@ -167,16 +169,18 @@ function buildWorkHistoryReviewSuggestionsFromValidation(input: {
           return [];
         }
 
-        return [{
-          id: issue.id.replace(/^issue_/, ""),
-          profileRecordId: profileRecordId ?? matchedEntry.entry.id,
-          sectionId: issue.sectionId ?? matchedEntry.sectionId,
-          entryId: issue.entryId,
-          kind: "date_quality" as const,
-          action: "fix_dates" as const,
-          severity: issue.severity,
-          message: issue.message,
-        }];
+        return [
+          {
+            id: issue.id.replace(/^issue_/, ""),
+            profileRecordId: profileRecordId ?? matchedEntry.entry.id,
+            sectionId: issue.sectionId ?? matchedEntry.sectionId,
+            entryId: issue.entryId,
+            kind: "date_quality" as const,
+            action: "fix_dates" as const,
+            severity: issue.severity,
+            message: issue.message,
+          },
+        ];
       }
 
       if (!profileRecordId) {
@@ -189,24 +193,33 @@ function buildWorkHistoryReviewSuggestionsFromValidation(input: {
         : normalizedMessage.includes("compact")
           ? "compact_recommended"
           : "weak_fit";
-      const action = matchedEntry?.entry.included ? "keep_compact" : "consider_showing";
+      const action = matchedEntry?.entry.included
+        ? "keep_compact"
+        : "consider_showing";
 
-      return [{
-        id: issue.id.replace(/^issue_/, ""),
-        profileRecordId,
-        sectionId: issue.sectionId ?? matchedEntry?.sectionId ?? experienceSectionId,
-        entryId: issue.entryId,
-        kind,
-        action,
-        severity: issue.severity,
-        message: issue.message,
-      }];
+      return [
+        {
+          id: issue.id.replace(/^issue_/, ""),
+          profileRecordId,
+          sectionId:
+            issue.sectionId ?? matchedEntry?.sectionId ?? experienceSectionId,
+          entryId: issue.entryId,
+          kind,
+          action,
+          severity: issue.severity,
+          message: issue.message,
+        },
+      ];
     });
 }
 
 export interface LoadedResumeWorkspaceState {
-  profile: Awaited<ReturnType<WorkspaceServiceContext["repository"]["getProfile"]>>;
-  settings: Awaited<ReturnType<WorkspaceServiceContext["repository"]["getSettings"]>>;
+  profile: Awaited<
+    ReturnType<WorkspaceServiceContext["repository"]["getProfile"]>
+  >;
+  settings: Awaited<
+    ReturnType<WorkspaceServiceContext["repository"]["getSettings"]>
+  >;
   templates: readonly ResumeTemplateDefinition[];
   job: SavedJob;
   draft: ResumeDraft | null;
@@ -222,17 +235,15 @@ export async function loadResumeWorkspaceState(
   jobId: string,
 ): Promise<LoadedResumeWorkspaceState> {
   const templates = ctx.documentManager.listResumeTemplates();
-  const [profile, rawSettings, savedJobs, tailoredAssets, draft] = await Promise.all([
-    ctx.repository.getProfile(),
-    ctx.repository.getSettings(),
-    ctx.repository.listSavedJobs(),
-    ctx.repository.listTailoredAssets(),
-    ctx.repository.getResumeDraftByJobId(jobId),
-  ]);
-  const settings = normalizeJobFinderSettings(
-    rawSettings,
-    templates,
-  );
+  const [profile, rawSettings, savedJobs, tailoredAssets, draft] =
+    await Promise.all([
+      ctx.repository.getProfile(),
+      ctx.repository.getSettings(),
+      ctx.repository.listSavedJobs(),
+      ctx.repository.listTailoredAssets(),
+      ctx.repository.getResumeDraftByJobId(jobId),
+    ]);
+  const settings = normalizeJobFinderSettings(rawSettings, templates);
   const job = savedJobs.find((entry) => entry.id === jobId);
 
   if (!job) {
@@ -245,7 +256,8 @@ export async function loadResumeWorkspaceState(
     templates,
     job,
     draft,
-    tailoredAsset: tailoredAssets.find((entry) => entry.jobId === jobId) ?? null,
+    tailoredAsset:
+      tailoredAssets.find((entry) => entry.jobId === jobId) ?? null,
   };
 }
 
@@ -300,9 +312,9 @@ export async function ensureResumeDraft(
   });
 
   return {
-      ...state,
-      draft: sanitizedDraft,
-      tailoredAsset,
+    ...state,
+    draft: sanitizedDraft,
+    tailoredAsset,
   };
 }
 
@@ -310,8 +322,12 @@ export async function renderDraftToPdf(
   ctx: WorkspaceServiceContext,
   input: {
     job: SavedJob;
-    profile: Awaited<ReturnType<WorkspaceServiceContext["repository"]["getProfile"]>>;
-    settings: Awaited<ReturnType<WorkspaceServiceContext["repository"]["getSettings"]>>;
+    profile: Awaited<
+      ReturnType<WorkspaceServiceContext["repository"]["getProfile"]>
+    >;
+    settings: Awaited<
+      ReturnType<WorkspaceServiceContext["repository"]["getSettings"]>
+    >;
     draft: ResumeDraft;
     outputPath?: string | null;
   },
@@ -340,35 +356,37 @@ export async function previewResumeDraft(
   const persistedDraft = state.draft
     ? normalizeResumeDraftTemplate(state.draft, state.templates)
     : null;
-  const parsedDraft = normalizeResumeDraftTemplate(
-    draft,
-    state.templates,
-  );
+  const parsedDraft = normalizeResumeDraftTemplate(draft, state.templates);
   const hadApprovedExport = wasResumeDraftApproved(persistedDraft);
   const approvedDraftChanged = Boolean(
     hadApprovedExport &&
-      persistedDraft &&
-      JSON.stringify(toComparableDraftPreviewSignature(persistedDraft, state.profile)) !==
-        JSON.stringify(toComparableDraftPreviewSignature(parsedDraft, state.profile)),
+    persistedDraft &&
+    JSON.stringify(
+      toComparableDraftPreviewSignature(persistedDraft, state.profile),
+    ) !==
+      JSON.stringify(
+        toComparableDraftPreviewSignature(parsedDraft, state.profile),
+      ),
   );
-  const normalizedDraft = hadApprovedExport && !approvedDraftChanged
-    ? ({
-        ...parsedDraft,
-        status: persistedDraft?.status ?? parsedDraft.status,
-        approvedAt: persistedDraft?.approvedAt ?? parsedDraft.approvedAt,
-        approvedExportId:
-          persistedDraft?.approvedExportId ?? parsedDraft.approvedExportId,
-        staleReason: null,
-      } satisfies ResumeDraft)
-    : ({
-        ...parsedDraft,
-        status: hadApprovedExport ? "stale" : "needs_review",
-        approvedAt: null,
-        approvedExportId: null,
-        staleReason: hadApprovedExport
-          ? "Unsaved changes differ from the last approved export. Save and export a fresh PDF before applying."
-          : null,
-      } satisfies ResumeDraft);
+  const normalizedDraft =
+    hadApprovedExport && !approvedDraftChanged
+      ? ({
+          ...parsedDraft,
+          status: persistedDraft?.status ?? parsedDraft.status,
+          approvedAt: persistedDraft?.approvedAt ?? parsedDraft.approvedAt,
+          approvedExportId:
+            persistedDraft?.approvedExportId ?? parsedDraft.approvedExportId,
+          staleReason: null,
+        } satisfies ResumeDraft)
+      : ({
+          ...parsedDraft,
+          status: hadApprovedExport ? "stale" : "needs_review",
+          approvedAt: null,
+          approvedExportId: null,
+          staleReason: hadApprovedExport
+            ? "Unsaved changes differ from the last approved export. Save and export a fresh PDF before applying."
+            : null,
+        } satisfies ResumeDraft);
   const sanitizedDraft = sanitizeResumeDraft({
     draft: normalizedDraft,
     job: state.job,
@@ -403,7 +421,9 @@ export async function previewResumeDraft(
       templateId: sanitizedDraft.templateId,
       renderedAt,
       pageCount: null,
-      sectionCount: sanitizedDraft.sections.filter((section) => section.included).length,
+      sectionCount: sanitizedDraft.sections.filter(
+        (section) => section.included,
+      ).length,
       entryCount: countVisibleEntries(sanitizedDraft),
     },
   };
@@ -436,13 +456,18 @@ export async function buildResumeWorkspace(
   ctx: WorkspaceServiceContext,
   jobId: string,
 ): Promise<JobFinderResumeWorkspace> {
-  const { job, draft, profile, tailoredAsset } = await ensureResumeDraft(ctx, jobId);
-  const [validations, exports, research, assistantMessages] = await Promise.all([
-    ctx.repository.listResumeValidationResults(draft.id),
-    ctx.repository.listResumeExportArtifacts({ jobId }),
-    ctx.repository.listResumeResearchArtifacts(jobId),
-    ctx.repository.listResumeAssistantMessages(jobId),
-  ]);
+  const { job, draft, profile, tailoredAsset } = await ensureResumeDraft(
+    ctx,
+    jobId,
+  );
+  const [validations, exports, research, assistantMessages, revisions] =
+    await Promise.all([
+      ctx.repository.listResumeValidationResults(draft.id),
+      ctx.repository.listResumeExportArtifacts({ jobId }),
+      ctx.repository.listResumeResearchArtifacts(jobId),
+      ctx.repository.listResumeAssistantMessages(jobId),
+      ctx.repository.listResumeDraftRevisions(draft.id),
+    ]);
   const normalizedExports = exports.map((artifact) => ({
     ...artifact,
     isApproved: draft.approvedExportId === artifact.id,
@@ -458,11 +483,13 @@ export async function buildResumeWorkspace(
     exports: normalizedExports,
     research,
     assistantMessages,
+    revisions,
     tailoredAsset,
     sharedProfile: buildResumeWorkspaceSharedProfile(profile),
-    workHistoryReviewSuggestions: buildWorkHistoryReviewSuggestionsFromValidation({
-      draft,
-      validation: validations[0] ?? null,
-    }),
+    workHistoryReviewSuggestions:
+      buildWorkHistoryReviewSuggestionsFromValidation({
+        draft,
+        validation: validations[0] ?? null,
+      }),
   });
 }

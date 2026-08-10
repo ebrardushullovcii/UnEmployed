@@ -14,6 +14,68 @@ function getDiscoveryTargetCount(operation: ProfileCopilotPatchOperation): numbe
   return discoveryValue ? discoveryValue.targets.length : null
 }
 
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(value)
+}
+
+function formatProposedValue(value: unknown): string {
+  if (value === null) {
+    return 'cleared'
+  }
+
+  if (typeof value === 'string') {
+    return `“${value}”`
+  }
+
+  if (typeof value === 'number') {
+    return formatNumber(value)
+  }
+
+  if (typeof value === 'boolean') {
+    return value ? 'yes' : 'no'
+  }
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return 'none'
+    }
+
+    return value
+      .map((item) => {
+        if (typeof item === 'string') {
+          return item
+        }
+
+        if (typeof item === 'number') {
+          return formatNumber(item)
+        }
+
+        if (typeof item === 'boolean') {
+          return item ? 'yes' : 'no'
+        }
+
+        return 'updated item'
+      })
+      .join(', ')
+  }
+
+  return 'updated details'
+}
+
+function describeFieldChanges(value: Record<string, unknown>): string {
+  return Object.entries(value)
+    .map(([key, proposedValue]) => {
+      const fieldLabel = humanizeFieldKey(key)
+
+      if (proposedValue === null) {
+        return `Clear ${fieldLabel}`
+      }
+
+      return `Set ${fieldLabel} to ${formatProposedValue(proposedValue)}`
+    })
+    .join('; ')
+}
+
 function humanizeFieldKey(key: string): string {
   switch (key) {
     case 'targetSalaryUsd':
@@ -96,6 +158,7 @@ export function describePatchOperation(operation: ProfileCopilotPatchOperation):
     case 'replace_answer_bank_fields':
     case 'replace_application_identity_fields':
     case 'replace_skill_group_fields':
+    case 'replace_profile_list_fields':
     case 'replace_search_preferences_fields': {
       const keys = Object.keys(operation.value)
       const discoveryTargetCount = getDiscoveryTargetCount(operation)
@@ -104,7 +167,21 @@ export function describePatchOperation(operation: ProfileCopilotPatchOperation):
         return `Update job sources (${discoveryTargetCount} target${discoveryTargetCount === 1 ? '' : 's'})`
       }
 
-      return `Update ${keys.map(humanizeFieldKey).join(', ')}`
+      return describeFieldChanges(operation.value)
+    }
+    case 'replace_compensation_preferences_fields': {
+      const { currency, currencyStatus, interval, maximum, minimum } = operation.value
+      const range = minimum != null && maximum != null
+        ? `${formatNumber(minimum)}–${formatNumber(maximum)}`
+        : minimum != null
+          ? `from ${formatNumber(minimum)}`
+          : maximum != null
+            ? `up to ${formatNumber(maximum)}`
+            : 'range'
+      const currencyLabel = currencyStatus === 'needs_clarification'
+        ? 'currency not set — confirmation needed'
+        : currency ?? 'saved currency'
+      return `Set compensation to ${range} / ${interval ?? 'saved interval'} (${currencyLabel})`
     }
     case 'upsert_experience_record':
       return `Add or update experience: ${operation.record.title ?? operation.record.companyName ?? 'record'}`
@@ -145,6 +222,37 @@ export function describePatchOperation(operation: ProfileCopilotPatchOperation):
   return 'Update profile data'
 }
 
+export function getProfileCopilotDisplayContent(
+  message: JobFinderWorkspaceSnapshot['profileCopilotMessages'][number],
+): string {
+  if (
+    message.patchGroups.length === 0 ||
+    message.patchGroups.every((patchGroup) => patchGroup.applyMode === 'needs_review')
+  ) {
+    return message.content
+  }
+
+  const appliedCount = message.patchGroups.filter(
+    (patchGroup) => patchGroup.applyMode === 'applied',
+  ).length
+  const rejectedCount = message.patchGroups.filter(
+    (patchGroup) => patchGroup.applyMode === 'rejected',
+  ).length
+  const pendingCount = message.patchGroups.length - appliedCount - rejectedCount
+  const contentWithoutPendingStatus = message.content
+    .replace(/\s*Nothing changed yet\.?/giu, '')
+    .trim()
+  const currentStatus = appliedCount === message.patchGroups.length
+    ? `**Current status:** ${appliedCount === 1 ? 'This change is' : 'These changes are'} applied to your profile.`
+    : rejectedCount === message.patchGroups.length
+      ? `**Current status:** ${rejectedCount === 1 ? 'This proposal was' : 'These proposals were'} rejected. Your profile was not changed.`
+      : pendingCount === 0
+        ? `**Current status:** All proposals resolved — ${appliedCount} applied and ${rejectedCount} rejected.`
+        : `**Current status:** ${appliedCount} applied, ${pendingCount} awaiting review${rejectedCount > 0 ? `, and ${rejectedCount} rejected` : ''}.`
+
+  return `${contentWithoutPendingStatus}\n\n${currentStatus}`
+}
+
 export function getPatchGroupOperationSummary(
   patchGroup: JobFinderWorkspaceSnapshot['profileCopilotMessages'][number]['patchGroups'][number],
 ): string {
@@ -183,6 +291,8 @@ export function getPatchGroupOperationSummary(
 
       return `Updated ${keys.length} profile fields`
     }
+    case 'replace_compensation_preferences_fields':
+      return 'Updated compensation preferences'
     case 'upsert_experience_record':
       return `Suggested experience update: ${firstOperation.record.title ?? firstOperation.record.companyName ?? 'record'}`
     case 'upsert_link_record':

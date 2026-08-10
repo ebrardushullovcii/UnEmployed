@@ -145,6 +145,37 @@ export function applyPatchToResumeDraft(input: {
           patch,
           updatedAt,
         );
+      case "replace_entry_summary": {
+        if (!targetEntry) {
+          throw new Error(
+            "replace_entry_summary requires a target resume entry.",
+          );
+        }
+        if ((targetEntry.summary ?? null) === (patch.newText ?? null)) {
+          return section;
+        }
+        sectionsChanged = true;
+        return updateSectionMeta(
+          {
+            ...section,
+            entries: section.entries.map((entry) =>
+              entry.id === targetEntry.id
+                ? {
+                    ...entry,
+                    summary: patch.newText,
+                    origin:
+                      patch.origin === "assistant"
+                        ? "assistant_edited"
+                        : "user_edited",
+                    updatedAt,
+                  }
+                : entry,
+            ),
+          },
+          patch,
+          updatedAt,
+        );
+      }
       case "insert_bullet": {
         if (!patch.newText) {
           throw new Error("A new bullet text value is required for insert_bullet.");
@@ -465,7 +496,10 @@ export function applyPatchToResumeDraft(input: {
 
         if (targetEntry) {
           const nextIncluded = patch.newIncluded ?? !targetEntry.included;
-          if (nextIncluded === targetEntry.included) {
+          if (
+            nextIncluded === targetEntry.included &&
+            (!nextIncluded || section.included)
+          ) {
             return section;
           }
 
@@ -473,6 +507,7 @@ export function applyPatchToResumeDraft(input: {
           return updateSectionMeta(
             {
               ...section,
+              included: nextIncluded ? true : section.included,
               entries: entryCollection.map((entry) =>
                 entry.id === targetEntry.id
                   ? {

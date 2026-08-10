@@ -703,6 +703,75 @@ describe("interview helper service", () => {
     );
   });
 
+  test("preserves the active session across transcription failure and recovery", async () => {
+    const transcriptionProvider =
+      createDeterministicInterviewTranscriptionProvider();
+    let shouldFail = true;
+    const service = createService(createMemoryRepository(), {
+      transcriptionProvider: {
+        ...transcriptionProvider,
+        transcribeAudioChunk: () => {
+          if (shouldFail) {
+            return Promise.reject(new Error("Synthetic Windows STT failure."));
+          }
+          return Promise.resolve({
+            text: "Recovered transcription remains in the same live session.",
+            confidence: 0.88,
+            language: "en-US",
+            engineKind: "local_model",
+          });
+        },
+      },
+    });
+
+    await acceptSetup(service);
+    await service.runRehearsal();
+    const started = await service.startSession();
+    const sessionId = started.activeSession?.id;
+    if (!sessionId) {
+      throw new Error("Expected an active session.");
+    }
+
+    const failed = await service.transcribeAudioChunk({
+      sessionId,
+      source: "meeting_audio",
+      mimeType: "audio/webm",
+      audioBase64: "ZmFpbGVkIGF1ZGlv",
+    });
+    expect(failed.activeSession).toMatchObject({
+      id: sessionId,
+      status: "active",
+      listening: true,
+    });
+    expect(failed.activeSession?.diagnostics.at(-1)).toMatchObject({
+      kind: "provider",
+      severity: "warning",
+      label: "Audio transcription failed",
+      detail: "Synthetic Windows STT failure.",
+    });
+
+    shouldFail = false;
+    const recovered = await service.transcribeAudioChunk({
+      sessionId,
+      source: "meeting_audio",
+      mimeType: "audio/webm",
+      audioBase64: "cmVjb3ZlcmVkIGF1ZGlv",
+    });
+
+    expect(recovered.activeSession).toMatchObject({
+      id: sessionId,
+      status: "active",
+      listening: true,
+    });
+    expect(recovered.activeSession?.transcriptSegments.at(-1)).toMatchObject({
+      source: "meeting_audio",
+      text: "Recovered transcription remains in the same live session.",
+      engineKind: "local_model",
+    });
+    expect(JSON.stringify(recovered)).not.toContain("ZmFpbGVkIGF1ZGlv");
+    expect(JSON.stringify(recovered)).not.toContain("cmVjb3ZlcmVkIGF1ZGlv");
+  });
+
   test("does not retain Whisper non-speech sentinels as transcript context", async () => {
     const transcriptionProvider =
       createDeterministicInterviewTranscriptionProvider();

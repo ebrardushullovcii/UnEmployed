@@ -18,6 +18,14 @@ export function getGeneratedResumeDocumentsDirectory() {
   return path.join(getJobFinderDocumentsDirectory(), 'generated')
 }
 
+export function getCandidateAssetsDirectory() {
+  return path.join(getUserDataDirectory(), 'documents', 'candidate-assets')
+}
+
+export function getApplicationDocumentsDirectory() {
+  return path.join(getUserDataDirectory(), 'documents', 'application-documents')
+}
+
 export function getBrowserAgentProfileDirectory() {
   return path.join(getUserDataDirectory(), 'browser-agent', 'default')
 }

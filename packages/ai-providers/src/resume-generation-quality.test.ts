@@ -11,6 +11,77 @@ import {
 } from "./test-fixtures";
 
 describe("resume generation quality", () => {
+  test("never accepts model-authored employment metadata for a canonical role", () => {
+    const baseProfile = createProfile();
+    const canonicalExperience = {
+      id: "experience_metadata",
+      companyName: "Signal Systems",
+      companyUrl: null,
+      title: "Software Engineer",
+      employmentType: "Full-time",
+      location: "Remote",
+      workMode: ["remote" as const],
+      startDate: null,
+      endDate: null,
+      isCurrent: false,
+      isDraft: false,
+      summary: "Built reliable workflow tools.",
+      achievements: ["Improved release reliability for operations teams."],
+      skills: ["TypeScript"],
+      domainTags: [],
+      peopleManagementScope: null,
+      ownershipScope: null,
+    };
+    const profile = {
+      ...baseProfile,
+      experiences: [canonicalExperience],
+    };
+    const input = {
+      profile,
+      searchPreferences: createPreferences(),
+      settings: createSettings(),
+      job: createJobPosting(),
+      resumeText: profile.baseResume.textContent,
+      evidence: {
+        summary: [],
+        candidateSummary: [],
+        experience: [],
+        skills: profile.skills,
+        keywords: [],
+      },
+      researchContext: {
+        companyNotes: [],
+        domainVocabulary: [],
+        priorityThemes: [],
+      },
+    };
+
+    const result = completeTailoredResumeDraft(
+      {
+        experienceEntries: [
+          {
+            profileRecordId: canonicalExperience.id,
+            title: canonicalExperience.title,
+            employer: canonicalExperience.companyName,
+            location: "Dubai, UAE",
+            dateRange: "Jan 2024 - Present",
+            summary: canonicalExperience.summary,
+            bullets: canonicalExperience.achievements,
+          },
+        ],
+      },
+      input,
+    );
+
+    expect(result.experienceEntries[0]).toMatchObject({
+      profileRecordId: canonicalExperience.id,
+      title: canonicalExperience.title,
+      employer: canonicalExperience.companyName,
+      location: "Remote",
+      dateRange: null,
+    });
+  });
+
   test("uses coverage policy instead of silently capping work history at the first three roles", () => {
     const baseProfile = createProfile();
     const profile: typeof baseProfile = {
@@ -156,7 +227,7 @@ describe("resume generation quality", () => {
     );
   });
 
-  test("balanced tailoring preserves grounded weak-fit roles without inventing technical claims", () => {
+  test("all tailoring modes preserve grounded weak-fit roles without inventing technical claims", () => {
     const baseProfile = createProfile();
     const weakFitExperience = {
       id: "experience_ops_tooling",
@@ -224,10 +295,17 @@ describe("resume generation quality", () => {
       searchPreferences: createPreferences(),
     });
 
-    expect(conservativeResult.experienceEntries).toEqual([]);
+    expect(conservativeResult.experienceEntries[0]).toMatchObject({
+      profileRecordId: "experience_ops_tooling",
+      title: "Operations Coordinator",
+      employer: "OpsBridge",
+      bullets: [
+        "Built workflow automation dashboards that reduced manual QA checks by 30% using Airtable and SQL exports.",
+      ],
+    });
     expect(conservativeResult.coverageMetadata[0]).toMatchObject({
       profileRecordId: "experience_ops_tooling",
-      classification: "suggested_hidden",
+      classification: "compact",
       careerFamilyFit: "weak",
     });
     expect(balancedResult.experienceEntries[0]).toMatchObject({
@@ -243,7 +321,7 @@ describe("resume generation quality", () => {
     );
   });
 
-  test("keeps usable canonical history compact outside conservative tailoring", () => {
+  test("keeps usable canonical history compact across tailoring modes", () => {
     const baseProfile = createProfile();
     const profile: typeof baseProfile = {
       ...baseProfile,
@@ -336,7 +414,11 @@ describe("resume generation quality", () => {
       },
     });
 
-    for (const result of [balancedResult, aggressiveResult]) {
+    for (const result of [
+      balancedResult,
+      aggressiveResult,
+      conservativeResult,
+    ]) {
       expect(
         result.experienceEntries.map((entry) => entry.profileRecordId),
       ).toEqual(["experience_technical_support", "experience_call_center"]);
@@ -355,19 +437,202 @@ describe("resume generation quality", () => {
         ]),
       );
     }
-    expect(conservativeResult.experienceEntries).toEqual([]);
-    expect(conservativeResult.coverageMetadata).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          profileRecordId: "experience_technical_support",
-          classification: "omitted",
-        }),
-        expect.objectContaining({
-          profileRecordId: "experience_call_center",
-          classification: "omitted",
-        }),
-      ]),
-    );
+  });
+
+  test("preserves long career-pivot and contract history without adding unsupported claims", () => {
+    const baseProfile = createProfile();
+    const profile: typeof baseProfile = {
+      ...baseProfile,
+      experiences: [
+        {
+          id: "experience_current_engineer",
+          companyName: "Atlas Product",
+          companyUrl: null,
+          title: "Senior Software Engineer",
+          employmentType: "Full-time",
+          location: "Remote",
+          workMode: ["remote"],
+          startDate: "2024-01",
+          endDate: null,
+          isCurrent: true,
+          isDraft: false,
+          summary: "Builds TypeScript workflow products.",
+          achievements: ["Reduced release rollback time by 35%."],
+          skills: ["TypeScript", "React"],
+          domainTags: ["workflow software"],
+          peopleManagementScope: null,
+          ownershipScope: null,
+        },
+        {
+          id: "experience_contract_engineer",
+          companyName: "Northstar Labs",
+          companyUrl: null,
+          title: "Contract Web Developer",
+          employmentType: "Contract",
+          location: "Remote",
+          workMode: ["remote"],
+          startDate: "2022-05",
+          endDate: "2023-12",
+          isCurrent: false,
+          isDraft: false,
+          summary: "Delivered customer portals under a fixed-term contract.",
+          achievements: ["Shipped three customer portals on schedule."],
+          skills: ["JavaScript"],
+          domainTags: ["web applications"],
+          peopleManagementScope: null,
+          ownershipScope: null,
+        },
+        {
+          id: "experience_freelance",
+          companyName: "Independent",
+          companyUrl: null,
+          title: "Freelance Web Developer",
+          employmentType: "Freelance",
+          location: "Prishtina, Kosovo",
+          workMode: ["hybrid"],
+          startDate: "2021-01",
+          endDate: "2022-04",
+          isCurrent: false,
+          isDraft: false,
+          summary: "Maintained small-business websites.",
+          achievements: ["Delivered accessible websites for four local clients."],
+          skills: ["JavaScript"],
+          domainTags: ["small business"],
+          peopleManagementScope: null,
+          ownershipScope: null,
+        },
+        {
+          id: "experience_customer_success",
+          companyName: "CareDesk",
+          companyUrl: null,
+          title: "Customer Success Specialist",
+          employmentType: "Full-time",
+          location: "Prishtina, Kosovo",
+          workMode: ["onsite"],
+          startDate: "2019-01",
+          endDate: "2020-12",
+          isCurrent: false,
+          isDraft: false,
+          summary: "Supported onboarding and account adoption.",
+          achievements: ["Documented onboarding answers for support teams."],
+          skills: [],
+          domainTags: [],
+          peopleManagementScope: null,
+          ownershipScope: null,
+        },
+        {
+          id: "experience_operations",
+          companyName: "City Logistics",
+          companyUrl: null,
+          title: "Operations Coordinator",
+          employmentType: "Full-time",
+          location: "Prishtina, Kosovo",
+          workMode: ["onsite"],
+          startDate: "2017-01",
+          endDate: "2018-12",
+          isCurrent: false,
+          isDraft: false,
+          summary: "Coordinated daily delivery schedules.",
+          achievements: ["Reconciled daily delivery records for dispatch teams."],
+          skills: [],
+          domainTags: [],
+          peopleManagementScope: null,
+          ownershipScope: null,
+        },
+        {
+          id: "experience_retail",
+          companyName: "Market House",
+          companyUrl: null,
+          title: "Retail Associate",
+          employmentType: null,
+          location: null,
+          workMode: [],
+          startDate: null,
+          endDate: null,
+          isCurrent: false,
+          isDraft: false,
+          summary: null,
+          achievements: [],
+          skills: [],
+          domainTags: [],
+          peopleManagementScope: null,
+          ownershipScope: null,
+        },
+      ],
+    };
+    const expectedRecordIds = [
+      "experience_current_engineer",
+      "experience_contract_engineer",
+      "experience_freelance",
+      "experience_customer_success",
+      "experience_operations",
+      "experience_retail",
+    ];
+
+    for (const tailoringMode of [
+      "conservative",
+      "balanced",
+      "aggressive",
+    ] as const) {
+      const result = buildDeterministicStructuredResumeDraft({
+        profile,
+        searchPreferences: {
+          ...createPreferences(),
+          tailoringMode,
+        },
+        settings: createSettings(),
+        job: {
+          ...createJobPosting(),
+          title: "Senior Frontend Engineer",
+          keySkills: ["React", "TypeScript"],
+        },
+        resumeText: profile.baseResume.textContent,
+        evidence: {
+          summary: [],
+          candidateSummary: [],
+          experience: [],
+          skills: ["React", "TypeScript"],
+          keywords: ["React", "TypeScript"],
+        },
+        researchContext: {
+          companyNotes: [],
+          domainVocabulary: [],
+          priorityThemes: [],
+        },
+      });
+
+      expect(
+        result.experienceEntries.map((entry) => entry.profileRecordId),
+      ).toEqual(expectedRecordIds);
+      expect(
+        result.coverageMetadata.map((entry) => entry.classification),
+      ).not.toContain("omitted");
+      expect(
+        result.coverageMetadata.map((entry) => entry.classification),
+      ).not.toContain("suggested_hidden");
+      expect(
+        result.experienceEntries.find(
+          (entry) => entry.profileRecordId === "experience_contract_engineer",
+        ),
+      ).toMatchObject({
+        title: "Contract Web Developer",
+        employer: "Northstar Labs",
+        bullets: ["Shipped three customer portals on schedule."],
+      });
+      expect(
+        result.experienceEntries.find(
+          (entry) => entry.profileRecordId === "experience_retail",
+        ),
+      ).toMatchObject({
+        title: "Retail Associate",
+        employer: "Market House",
+        summary: null,
+        bullets: [],
+      });
+      expect(result.fullText).not.toMatch(
+        /React.*(?:CareDesk|City Logistics|Market House)/,
+      );
+    }
   });
 
   test("requires actual missing-month overlap before using weak roles as gap coverage", () => {

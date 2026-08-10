@@ -192,6 +192,9 @@ function buildStageInstructions(stage: ExtractResumeImportStageInput["stage"]): 
         "If a role header does not have an explicit employer on the same line or an immediately preceding company marker, leave companyName null instead of inheriting an older employer.",
         "If title, company, and location appear on one header line, split them into the correct fields instead of embedding company or location inside title.",
         "Merge wrapped continuation lines so summaries and achievements read as complete sentences instead of broken fragments.",
+        "Populate workMode only when the record explicitly says remote, hybrid, onsite, or flexible.",
+        "Include skills only when that specific role header, summary, or achievement explicitly names the skill or directly demonstrates a skill that is also declared in the resume skills section.",
+        "Do not copy unrelated global skills onto every experience record.",
         "Do not create an experience record unless the blocks contain an explicit role header or date range.",
         "For record candidates, target must be an object like {\"section\":\"experience\",\"key\":\"record\",\"recordId\":\"experience_1\"}.",
       ].join(" ");

@@ -4,11 +4,13 @@ import type * as childProcess from "node:child_process";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type {
-  ApplyExecutionResult,
-  CandidateProfile,
+import {
+  SavedJobSchema,
+  type ApplyExecutionResult,
+  type CandidateProfile,
 } from "@unemployed/contracts";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import type { ApplicationAttachmentArtifact } from "./runtime-types";
 
 interface FakeFormControl {
   index: number;
@@ -18,6 +20,8 @@ interface FakeFormControl {
   name: string;
   label: string;
   groupLabel: string;
+  role: string;
+  ariaHidden: boolean;
   placeholder: string;
   autocomplete: string;
   required: boolean;
@@ -28,8 +32,11 @@ interface FakeFormControl {
   visible: boolean;
   value: string;
   checked: boolean;
+  multiple: boolean;
   options: string[];
   selectedOptionLabel: string;
+  cssInJsSelectedValueText: string;
+  cssInJsSelectedCountryCode: string;
   valueAfterFill: string | undefined;
   valuesAfterWaits: string[];
 }
@@ -68,10 +75,17 @@ interface FakeApplicationState {
   clickedLabels: string[];
   filledValues: Map<string, string>;
   uploadedFiles: Map<string, string>;
+  uploadedFileBytes: Map<string, Buffer>;
   selectedOptions: Map<string, string>;
   guardInstallCount: number;
+  intermediateMutationsAuthorized: boolean;
+  guardAuthorizationHistory: boolean[];
   networkGuardInstallCount: number;
   waitCount: number;
+  controlInspectionCount: number;
+  actionInspectionCount: number;
+  bodyInspectionCount: number;
+  frameInspectionCount: number;
   guardBlockedAttempts: Array<{
     kind: "dom_submit" | "form_request_submit" | "fetch" | "xhr";
     method: string;
@@ -168,6 +182,8 @@ function createFakeApplicationPage(stepsInput: readonly FakeApplicationStep[]) {
       name: control.name ?? "",
       label: control.label,
       groupLabel: control.groupLabel ?? "",
+      role: control.role ?? "",
+      ariaHidden: control.ariaHidden ?? false,
       placeholder: control.placeholder ?? "",
       autocomplete: control.autocomplete ?? "",
       required: control.required ?? false,
@@ -178,8 +194,11 @@ function createFakeApplicationPage(stepsInput: readonly FakeApplicationStep[]) {
       visible: control.visible ?? true,
       value: control.value ?? "",
       checked: control.checked ?? false,
+      multiple: control.multiple ?? false,
       options: [...(control.options ?? [])],
       selectedOptionLabel: control.selectedOptionLabel ?? "",
+      cssInJsSelectedValueText: control.cssInJsSelectedValueText ?? "",
+      cssInJsSelectedCountryCode: control.cssInJsSelectedCountryCode ?? "",
       valueAfterFill: control.valueAfterFill,
       valuesAfterWaits: [...(control.valuesAfterWaits ?? [])],
     })),
@@ -208,18 +227,34 @@ function createFakeApplicationPage(stepsInput: readonly FakeApplicationStep[]) {
     clickedLabels: [],
     filledValues: new Map(),
     uploadedFiles: new Map(),
+    uploadedFileBytes: new Map(),
     selectedOptions: new Map(),
     guardInstallCount: 0,
+    intermediateMutationsAuthorized: false,
+    guardAuthorizationHistory: [],
     networkGuardInstallCount: 0,
     waitCount: 0,
+    controlInspectionCount: 0,
+    actionInspectionCount: 0,
+    bodyInspectionCount: 0,
+    frameInspectionCount: 0,
     guardBlockedAttempts: [],
   };
   let stepIndex = 0;
+  let activeComboboxIndex: number | null = null;
   let currentUrl = "about:blank";
   let targetBaseUrl = "";
 
   const currentStep = () => steps[Math.min(stepIndex, steps.length - 1)]!;
+  const currentApplicationControls = () =>
+    currentStep().controls.filter((control) => !control.ariaHidden);
 
+  const guardBlocksAttempt = (attempt: {
+    kind: "dom_submit" | "form_request_submit" | "fetch" | "xhr";
+  }) =>
+    attempt.kind === "dom_submit" ||
+    attempt.kind === "form_request_submit" ||
+    !state.intermediateMutationsAuthorized;
   const applyMutationEffects = (control: FakeFormControl) => {
     if (state.guardInstallCount === 0) {
       throw new Error(
@@ -239,20 +274,65 @@ function createFakeApplicationPage(stepsInput: readonly FakeApplicationStep[]) {
       step.actions = step.actionsAfterMutation;
       step.actionsAfterMutation = [];
     }
-    if (step.blockedAttemptAfterMutation) {
+    const attemptedMutation = step.blockedAttemptAfterMutation;
+    step.blockedAttemptAfterMutation = null;
+    if (attemptedMutation && guardBlocksAttempt(attemptedMutation)) {
       state.guardBlockedAttempts.push({
-        ...step.blockedAttemptAfterMutation,
+        ...attemptedMutation,
         url: currentUrl,
         at: new Date().toISOString(),
       });
-      step.blockedAttemptAfterMutation = null;
     }
   };
 
   const createControlLocator = (index: number) => ({
+    evaluate: (callback: (element: Element) => unknown) => {
+      const control = currentApplicationControls()[index];
+      if (!control) {
+        throw new Error(`Missing fake form control ${index}.`);
+      }
+
+      const flagElement = {
+        getAttribute: (name: string) =>
+          name === "class" && control.cssInJsSelectedCountryCode
+            ? `iti__flag iti__${control.cssInJsSelectedCountryCode}`
+            : null,
+      };
+      const selectedValueElement = {
+        textContent: control.cssInJsSelectedValueText,
+        getAttribute: (name: string) =>
+          name === "class" && control.cssInJsSelectedValueText
+            ? "select__single-value remix-css-1dimb5e-singleValue"
+            : null,
+        querySelector: () => null,
+        querySelectorAll: (selector: string) =>
+          selector === "[class]" && control.cssInJsSelectedCountryCode
+            ? [flagElement]
+            : [],
+      };
+      const controlRoot = {
+        getAttribute: () => null,
+        getClientRects: () => [{}],
+        querySelector: () =>
+          control.cssInJsSelectedValueText ? selectedValueElement : null,
+        querySelectorAll: (selector: string) =>
+          selector === "[class*='iti__']" && control.cssInJsSelectedCountryCode
+            ? [flagElement]
+            : [],
+      };
+      const element = {
+        closest: () => (control.cssInJsSelectedValueText ? controlRoot : null),
+        parentElement: null,
+      };
+      return Promise.resolve(callback(element as unknown as Element));
+    },
     blur: () => Promise.resolve(),
+    click: () => {
+      activeComboboxIndex = index;
+      return Promise.resolve();
+    },
     fill: (value: string) => {
-      const control = currentStep().controls[index];
+      const control = currentApplicationControls()[index];
       if (!control) {
         throw new Error(`Missing fake form control ${index}.`);
       }
@@ -262,18 +342,21 @@ function createFakeApplicationPage(stepsInput: readonly FakeApplicationStep[]) {
       return Promise.resolve();
     },
     setInputFiles: (file: FakeUploadedFile) => {
-      const control = currentStep().controls[index];
+      const control = currentApplicationControls()[index];
       if (!control) {
         throw new Error(`Missing fake file control ${index}.`);
       }
       const displayedFileName = typeof file === "string" ? file : file.name;
       control.value = displayedFileName;
       state.uploadedFiles.set(control.label, displayedFileName);
+      if (typeof file !== "string") {
+        state.uploadedFileBytes.set(control.label, file.buffer);
+      }
       applyMutationEffects(control);
       return Promise.resolve();
     },
     selectOption: (option: { label: string }) => {
-      const control = currentStep().controls[index];
+      const control = currentApplicationControls()[index];
       if (!control) {
         throw new Error(`Missing fake select control ${index}.`);
       }
@@ -285,6 +368,36 @@ function createFakeApplicationPage(stepsInput: readonly FakeApplicationStep[]) {
     },
   });
 
+  const getActiveComboboxControl = () =>
+    activeComboboxIndex === null
+      ? null
+      : (currentApplicationControls()[activeComboboxIndex] ?? null);
+
+  const createComboboxOptionLocator = (index: number) => ({
+    click: () => {
+      const control = getActiveComboboxControl();
+      const option = control?.options[index];
+      if (!control || !option) {
+        throw new Error(`Missing fake combobox option ${index}.`);
+      }
+      control.selectedOptionLabel = option;
+      control.value = "";
+      state.selectedOptions.set(control.label, option);
+      activeComboboxIndex = null;
+      applyMutationEffects(control);
+      return Promise.resolve();
+    },
+  });
+
+  const inspectComboboxOptions = () => {
+    const control = getActiveComboboxControl();
+    return (control?.options ?? []).map((label, index) => ({
+      index,
+      label,
+      visible: true,
+    }));
+  };
+
   const clickAction = (action: FakeActionControl) => {
     if (!currentStep().actions.includes(action)) {
       throw new Error("Fake action detached before click.");
@@ -294,13 +407,14 @@ function createFakeApplicationPage(stepsInput: readonly FakeApplicationStep[]) {
     }
     state.clickedLabels.push(action.label);
     const step = currentStep();
-    if (step.blockedAttemptAfterAction) {
+    const attemptedMutation = step.blockedAttemptAfterAction;
+    step.blockedAttemptAfterAction = null;
+    if (attemptedMutation && guardBlocksAttempt(attemptedMutation)) {
       state.guardBlockedAttempts.push({
-        ...step.blockedAttemptAfterAction,
+        ...attemptedMutation,
         url: currentUrl,
         at: new Date().toISOString(),
       });
-      step.blockedAttemptAfterAction = null;
       return Promise.resolve();
     }
     if (stepIndex < steps.length - 1) {
@@ -357,9 +471,13 @@ function createFakeApplicationPage(stepsInput: readonly FakeApplicationStep[]) {
       state.networkGuardInstallCount += 1;
       return Promise.resolve(undefined);
     }),
-    evaluate: vi.fn((callback: { name?: string }) => {
+    evaluate: vi.fn((callback: { name?: string }, argument?: unknown) => {
       if (callback.name === "installPrepareOnlyMutationGuardInPage") {
         state.guardInstallCount += 1;
+        state.intermediateMutationsAuthorized = argument === true;
+        state.guardAuthorizationHistory.push(
+          state.intermediateMutationsAuthorized,
+        );
         return Promise.resolve(undefined);
       }
       if (callback.name === "readPrepareOnlyMutationGuardInPage") {
@@ -375,17 +493,37 @@ function createFakeApplicationPage(stepsInput: readonly FakeApplicationStep[]) {
     locator: (selector: string) => {
       if (selector === "body") {
         return {
-          innerText: () => Promise.resolve(currentStep().bodyText),
+          innerText: () => {
+            state.bodyInspectionCount += 1;
+            return Promise.resolve(currentStep().bodyText);
+          },
         };
       }
       if (selector === "iframe") {
         return {
-          evaluateAll: () => Promise.resolve(currentStep().frameHints),
+          evaluateAll: () => {
+            state.frameInspectionCount += 1;
+            return Promise.resolve(currentStep().frameHints);
+          },
+        };
+      }
+      if (selector.includes("[role='option']")) {
+        return {
+          evaluateAll: () => Promise.resolve(inspectComboboxOptions()),
+          nth: (index: number) => createComboboxOptionLocator(index),
         };
       }
       if (selector.includes("contenteditable")) {
         return {
-          evaluateAll: () => Promise.resolve(currentStep().controls),
+          evaluateAll: () => {
+            state.controlInspectionCount += 1;
+            return Promise.resolve(
+              currentApplicationControls().map((control, index) => ({
+                ...control,
+                index,
+              })),
+            );
+          },
           first: () => ({
             waitFor: () => Promise.resolve(undefined),
           }),
@@ -394,7 +532,10 @@ function createFakeApplicationPage(stepsInput: readonly FakeApplicationStep[]) {
       }
       if (selector.includes("a[role='button']")) {
         return {
-          evaluateAll: () => Promise.resolve(currentStep().actions),
+          evaluateAll: () => {
+            state.actionInspectionCount += 1;
+            return Promise.resolve(currentStep().actions);
+          },
           nth: (index: number) => createActionLocator(index),
         };
       }
@@ -406,7 +547,7 @@ function createFakeApplicationPage(stepsInput: readonly FakeApplicationStep[]) {
 }
 
 function createTestJob() {
-  return {
+  return SavedJobSchema.parse({
     id: "job_prepare_runtime",
     source: "target_site" as const,
     sourceJobId: "job_prepare_runtime",
@@ -422,6 +563,7 @@ function createTestJob() {
     easyApplyEligible: false,
     postedAt: "2026-03-20T09:00:00.000Z",
     postedAtText: null,
+    providerUpdatedAt: null,
     discoveredAt: "2026-03-20T10:00:00.000Z",
     firstSeenAt: null,
     lastSeenAt: null,
@@ -475,7 +617,7 @@ function createTestJob() {
       requirements: [],
     },
     provenance: [],
-  };
+  });
 }
 
 function createTestProfile(): CandidateProfile {
@@ -593,12 +735,20 @@ function createTestSettings() {
 async function runApplicationScenario(input: {
   steps: readonly FakeApplicationStep[];
   mode?: "prepare_only" | "submit_when_ready";
+  accountCreationAuthorized?: boolean;
   submitAuthorized?: boolean;
   intermediateMutationsAuthorized?: boolean;
   applicationUrl?: string | null;
   profile?: ReturnType<typeof createTestProfile>;
   resumeSource?: "original_upload" | "tailored_export";
   resumeFileName?: string;
+  applicationAttachment?: Omit<
+    ApplicationAttachmentArtifact,
+    "loadVerifiedBytes"
+  > & {
+    contents: string;
+  };
+  applicationAttachmentLoadVerifiedBytes?: () => Promise<Uint8Array>;
 }): Promise<{
   result: ApplyExecutionResult;
   state: FakeApplicationState;
@@ -611,6 +761,7 @@ async function runApplicationScenario(input: {
   try {
     const resumeFilePath = join(userDataDir, "approved-resume.pdf");
     await writeFile(resumeFilePath, "approved resume", "utf8");
+    const applicationAttachment = input.applicationAttachment ?? null;
     const debugPort = await reserveFreePort();
     const fakeApplication = createFakeApplicationPage(input.steps);
     const fakeContext = {
@@ -664,8 +815,32 @@ async function runApplicationScenario(input: {
         approvedAt: "2026-03-20T10:00:00.000Z",
       },
       profile: input.profile ?? createTestProfile(),
+      ...(applicationAttachment
+        ? {
+            applicationAttachments: [
+              {
+                assetId: applicationAttachment.assetId,
+                questionId: applicationAttachment.questionId,
+                prompt: applicationAttachment.prompt,
+                questionKind: applicationAttachment.questionKind,
+                fileName: applicationAttachment.fileName,
+                mime: applicationAttachment.mime,
+                sha256: applicationAttachment.sha256,
+                loadVerifiedBytes:
+                  input.applicationAttachmentLoadVerifiedBytes ??
+                  (() =>
+                    Promise.resolve(
+                      Buffer.from(applicationAttachment.contents, "utf8"),
+                    )),
+              },
+            ],
+          }
+        : {}),
       settings: createTestSettings(),
       mode: input.mode ?? ("prepare_only" as const),
+      ...(input.accountCreationAuthorized !== undefined
+        ? { accountCreationAuthorized: input.accountCreationAuthorized }
+        : {}),
       ...(input.intermediateMutationsAuthorized !== undefined
         ? {
             intermediateMutationsAuthorized:
@@ -870,7 +1045,7 @@ describe("Playwright prepare-only application flow", () => {
   });
 
   test("fills exact grounded fields, uploads the approved resume, advances non-final steps, and never clicks final submit", async () => {
-    const { result, state } = await runApplicationScenario({
+    const { result, state, resumeFilePath } = await runApplicationScenario({
       submitAuthorized: false,
       steps: [
         {
@@ -935,6 +1110,20 @@ describe("Playwright prepare-only application flow", () => {
     expect(state.clickedLabels).not.toContain("Submit application");
     expect(result.state).toBe("paused");
     expect(result.summary).toContain("final pre-submit checkpoint");
+    expect(result.externalWrites).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          category: "profile_field",
+          fieldLabel: "First name",
+          verified: true,
+        }),
+        expect.objectContaining({
+          category: "resume_attachment",
+          fieldLabel: "Resume / CV",
+          verified: true,
+        }),
+      ]),
+    );
     expect(result.submittedAt).toBeNull();
     expect(result.outcome).toBeNull();
     expect(result.blocker).toBeNull();
@@ -952,6 +1141,7 @@ describe("Playwright prepare-only application flow", () => {
     expect(
       result.questions.some((question) => question.status === "submitted"),
     ).toBe(false);
+    expect(JSON.stringify(result)).not.toContain(resumeFilePath);
     expect(result.replay.lastUrl).toContain("?step=3");
     expect(result.replay.checkpointUrls).toContain(
       "https://apply.example.com/jobs/job_prepare_runtime",
@@ -960,38 +1150,221 @@ describe("Playwright prepare-only application flow", () => {
     expect(state.networkGuardInstallCount).toBe(1);
   }, 10_000);
 
-  test("opens a listing-level Apply action before preparing the form", async () => {
-    const { result, state } = await runApplicationScenario({
+  test("uploads one exact user-approved supporting asset and still stops before final submit", async () => {
+    const verifiedBytes = Buffer.from(
+      "%PDF-1.7\nverified portfolio\n%%EOF",
+      "utf8",
+    );
+    const loadVerifiedBytes = vi.fn(() => Promise.resolve(verifiedBytes));
+    const { result, state, resumeFilePath } = await runApplicationScenario({
       submitAuthorized: false,
+      applicationAttachmentLoadVerifiedBytes: loadVerifiedBytes,
+      applicationAttachment: {
+        assetId: "asset-portfolio",
+        questionId: "persisted-question-portfolio",
+        prompt: "Portfolio upload",
+        questionKind: "portfolio",
+        fileName: "portfolio.pdf",
+        mime: "application/pdf",
+        sha256: "a".repeat(64),
+        contents: "%PDF-1.7\nportfolio\n%%EOF",
+      },
       steps: [
-        {
-          bodyText: "Senior software engineer job listing",
-          actions: [{ label: "Apply" }],
-        },
         {
           controls: [
             {
-              label: "First name",
-              autocomplete: "given-name",
+              label: "Resume / CV",
+              name: "candidate[resume]",
+              inputType: "file",
               required: true,
+              visible: false,
             },
             {
-              label: "Resume / CV",
+              label: "Portfolio upload",
+              name: "candidate[portfolio]",
               inputType: "file",
               required: true,
             },
           ],
+          actions: [{ label: "Review application" }],
+        },
+        {
+          bodyText: "Review your application before submission",
           actions: [{ label: "Submit application", type: "submit" }],
         },
       ],
     });
 
-    expect(state.clickedLabels).toEqual(["Apply"]);
-    expect(state.filledValues.get("First name")).toBe("Alex");
     expect(state.uploadedFiles.get("Resume / CV")).toBe("resume.pdf");
+    expect(state.uploadedFiles.get("Portfolio upload")).toBe("portfolio.pdf");
+    expect(state.uploadedFileBytes.get("Portfolio upload")).toEqual(
+      verifiedBytes,
+    );
+    expect(loadVerifiedBytes).toHaveBeenCalledTimes(1);
+    expect(state.clickedLabels).toEqual(["Review application"]);
     expect(state.clickedLabels).not.toContain("Submit application");
+    expect(result.state).toBe("paused");
+    expect(result.externalWrites).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          category: "application_answer",
+          fieldLabel: "Portfolio upload",
+          verified: true,
+        }),
+      ]),
+    );
+    expect(result.questions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          prompt: "Resume / CV",
+          kind: "resume",
+          answerControlType: "file",
+          status: "answered",
+          submittedAnswer: "resume.pdf",
+          suggestedAnswers: [
+            expect.objectContaining({
+              text: "resume.pdf",
+              provenance: [
+                expect.objectContaining({ snippet: "resume.pdf" }),
+              ],
+            }),
+          ],
+        }),
+        expect.objectContaining({
+          prompt: "Portfolio upload",
+          kind: "portfolio",
+          answerControlType: "file",
+          status: "answered",
+          submittedAnswer: "portfolio.pdf",
+        }),
+      ]),
+    );
+    expect(JSON.stringify(result)).not.toContain(resumeFilePath);
+    expect(JSON.stringify(result)).not.toContain("unemployed-prepare-runtime");
+    expect(result.submittedAt).toBeNull();
+  }, 10_000);
+
+  test.each(["removed", "tampered"] as const)(
+    "revalidates a supporting asset immediately before upload and refuses %s bytes",
+    async (failure) => {
+      const loadVerifiedBytes = vi.fn(() =>
+        Promise.reject(
+          new Error(
+            failure === "removed"
+              ? "The selected candidate asset is no longer available."
+              : "The selected candidate asset failed integrity verification.",
+          ),
+        ),
+      );
+      const { result, state } = await runApplicationScenario({
+        submitAuthorized: false,
+        applicationAttachmentLoadVerifiedBytes: loadVerifiedBytes,
+        applicationAttachment: {
+          assetId: "asset-portfolio",
+          questionId: "persisted-question-portfolio",
+          prompt: "Portfolio upload",
+          questionKind: "portfolio",
+          fileName: "portfolio.pdf",
+          mime: "application/pdf",
+          sha256: "a".repeat(64),
+          contents: "%PDF-1.7\nstale portfolio\n%%EOF",
+        },
+        steps: [
+          {
+            controls: [
+              {
+                label: "Resume / CV",
+                name: "candidate[resume]",
+                inputType: "file",
+                required: true,
+                visible: false,
+              },
+              {
+                label: "Portfolio upload",
+                name: "candidate[portfolio]",
+                inputType: "file",
+                required: true,
+              },
+            ],
+            actions: [{ label: "Submit application", type: "submit" }],
+          },
+        ],
+      });
+
+      expect(loadVerifiedBytes).toHaveBeenCalledTimes(1);
+      expect(state.uploadedFiles.has("Portfolio upload")).toBe(false);
+      expect(state.clickedLabels).not.toContain("Submit application");
+      expect(result.state).toBe("paused");
+      expect(result.submittedAt).toBeNull();
+      expect(result.externalWrites).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ fieldLabel: "Portfolio upload" }),
+        ]),
+      );
+    },
+    10_000,
+  );
+
+  test("keeps full page scans constant when a form has many unsupported controls", async () => {
+    const unsupportedControls = Array.from({ length: 30 }, (_, index) => ({
+      label: `Optional custom field ${index + 1}`,
+      name: `custom[${index}]`,
+    }));
+    const { result, state } = await runApplicationScenario({
+      submitAuthorized: false,
+      steps: [
+        {
+          controls: [
+            {
+              label: "First name",
+              name: "candidate[first_name]",
+              autocomplete: "given-name",
+              required: true,
+            },
+            ...unsupportedControls,
+            {
+              label: "Resume / CV",
+              name: "candidate[resume]",
+              inputType: "file",
+              required: true,
+              visible: false,
+            },
+          ],
+          bodyText: "Review your application before submission",
+          actions: [{ label: "Submit application", type: "submit" }],
+        },
+      ],
+    });
+
+    expect(result.state).toBe("paused");
     expect(result.summary).toContain("final pre-submit checkpoint");
+    expect(state.clickedLabels).not.toContain("Submit application");
+    expect(state.bodyInspectionCount).toBe(2);
+    expect(state.actionInspectionCount).toBe(2);
+    expect(state.frameInspectionCount).toBe(2);
+    expect(state.controlInspectionCount).toBeLessThan(10);
   });
+  test.each(["Apply", "Apply now"])(
+    "does not treat a listing-level %s control as proven navigation",
+    async (label) => {
+      const { result, state } = await runApplicationScenario({
+        submitAuthorized: false,
+        steps: [
+          {
+            bodyText: "Senior software engineer job listing",
+            actions: [{ label }],
+          },
+        ],
+      });
+
+      expect(state.clickedLabels).toEqual([]);
+      expect(result.summary).toBe(
+        "Application preparation needs manual navigation",
+      );
+      expect(result.blocker?.code).toBe("requires_manual_review");
+      expect(result.submittedAt).toBeNull();
+    },
+  );
 
   test("never clicks a button-typed Apply control when an application form is already visible", async () => {
     const { result, state } = await runApplicationScenario({
@@ -1103,6 +1476,7 @@ describe("Playwright prepare-only application flow", () => {
 
   test("accepts a phone widget that restores the selected calling code in its formatted value", async () => {
     const profile = createTestProfile();
+    profile.currentCountry = "Kosovo";
     profile.phone = "(+383) 44 283 970";
     profile.applicationIdentity.preferredPhone = "(+383) 44 283 970";
 
@@ -1146,9 +1520,662 @@ describe("Playwright prepare-only application flow", () => {
     expect(result.summary).toContain("final pre-submit checkpoint");
     expect(result.submittedAt).toBeNull();
   });
+  test("selects a Greenhouse-like phone-country combobox by one explicit profile country and ignores its aria-hidden required shim", async () => {
+    const profile = createTestProfile();
+    profile.currentLocation = "Portland, Oregon";
+    profile.currentCountry = "";
+    profile.phone = "+1 555 010 2401";
+    profile.applicationIdentity.preferredPhone = "+1 555 010 2401";
+    profile.workEligibility.authorizedWorkCountries = ["United States"];
+    profile.workEligibility.requiresVisaSponsorship = false;
+
+    const { result, state } = await runApplicationScenario({
+      intermediateMutationsAuthorized: true,
+      profile,
+      steps: [
+        {
+          controls: [
+            {
+              id: "country",
+              label: "Country",
+              groupLabel: "Phone",
+              role: "combobox",
+              value: "+1 555 010 2401",
+              options: ["Canada+1", "United States+1"],
+            },
+            {
+              label: "Phone",
+              name: "candidate[phone]",
+              inputType: "tel",
+              value: "+1 555 010 2401",
+            },
+            {
+              id: "country-required-shim",
+              label: "Phone country required shim",
+              ariaHidden: true,
+              required: true,
+            },
+            {
+              label: "Resume / CV",
+              name: "candidate[resume]",
+              inputType: "file",
+              required: true,
+            },
+          ],
+          bodyText: "Review your application before submission",
+          actions: [{ label: "Submit application", type: "submit" }],
+        },
+      ],
+    });
+
+    expect(state.selectedOptions.get("Country")).toBe("United States+1");
+    expect(state.uploadedFiles.get("Resume / CV")).toBe("resume.pdf");
+    expect(
+      result.questions.some(
+        (question) => question.prompt === "Phone country required shim",
+      ),
+    ).toBe(false);
+    expect(state.clickedLabels).not.toContain("Submit application");
+    expect(result.summary).toContain("final pre-submit checkpoint");
+    expect(result.submittedAt).toBeNull();
+  });
+
+  test("does not choose an ambiguous custom phone-country option from a shared calling code alone", async () => {
+    const profile = createTestProfile();
+    profile.currentCountry = "";
+    profile.phone = "+1 555 010 2401";
+    profile.applicationIdentity.preferredPhone = "+1 555 010 2401";
+    profile.workEligibility.authorizedWorkCountries = [
+      "United States",
+      "Canada",
+    ];
+
+    const { result, state } = await runApplicationScenario({
+      intermediateMutationsAuthorized: true,
+      profile,
+      steps: [
+        {
+          controls: [
+            {
+              id: "country",
+              label: "Country",
+              groupLabel: "Phone",
+              role: "combobox",
+              value: "+1 555 010 2401",
+              options: ["Canada+1", "United States+1"],
+            },
+            {
+              label: "Phone",
+              name: "candidate[phone]",
+              inputType: "tel",
+              value: "+1 555 010 2401",
+            },
+            {
+              label: "Resume / CV",
+              name: "candidate[resume]",
+              inputType: "file",
+              required: true,
+            },
+          ],
+          bodyText: "Review your application before submission",
+          actions: [{ label: "Submit application", type: "submit" }],
+        },
+      ],
+    });
+
+    expect(state.selectedOptions.has("Country")).toBe(false);
+    expect(state.clickedLabels).not.toContain("Submit application");
+    expect(result.summary).toBe(
+      "Prepared application fields need manual review",
+    );
+    expect(result.questions).toContainEqual(
+      expect.objectContaining({
+        prompt: "Phone country code",
+        status: "detected",
+        submittedAnswer: null,
+      }),
+    );
+    expect(result.submittedAt).toBeNull();
+  });
+
+  test("ignores invisible Greenhouse phone shims when the visible phone controls remain correct", async () => {
+    const profile = createTestProfile();
+    profile.currentLocation = "Portland, Oregon";
+    profile.currentCountry = "United States";
+    profile.phone = "+1 555 010 2401";
+    profile.applicationIdentity.preferredPhone = "+1 555 010 2401";
+
+    const { result, state } = await runApplicationScenario({
+      intermediateMutationsAuthorized: true,
+      profile,
+      steps: [
+        {
+          controls: [
+            {
+              id: "visible-phone-country",
+              label: "Country",
+              groupLabel: "Phone",
+              role: "combobox",
+              selectedOptionLabel: "United States+1",
+              options: ["United States+1"],
+            },
+            {
+              id: "visible-phone",
+              label: "Phone",
+              name: "candidate[phone]",
+              inputType: "tel",
+              value: "555 010 2401",
+            },
+            {
+              id: "invisible-phone-country-shim",
+              label: "Country",
+              groupLabel: "Phone",
+              role: "combobox",
+              visible: false,
+              required: true,
+            },
+            {
+              id: "invisible-phone-shim",
+              label: "Phone",
+              name: "candidate[phone_shim]",
+              inputType: "tel",
+              visible: false,
+              valueAfterFill: "",
+            },
+            {
+              label: "Resume / CV",
+              name: "candidate[resume]",
+              inputType: "file",
+              required: true,
+            },
+          ],
+          bodyText: "Review your application before submission",
+          actions: [{ label: "Submit application", type: "submit" }],
+        },
+      ],
+    });
+
+    expect(state.selectedOptions.has("Country")).toBe(false);
+    expect(state.filledValues.has("Country")).toBe(false);
+    expect(state.filledValues.has("Phone")).toBe(false);
+    expect(state.uploadedFiles.get("Resume / CV")).toBe("resume.pdf");
+    const phoneQuestions = result.questions.filter(
+      (question) =>
+        question.prompt === "Phone country code" || question.prompt === "Phone",
+    );
+    expect(phoneQuestions).toHaveLength(2);
+    expect(phoneQuestions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          prompt: "Phone country code",
+          submittedAnswer: "+1",
+          status: "answered",
+        }),
+        expect.objectContaining({
+          prompt: "Phone",
+          submittedAnswer: "555 010 2401",
+          status: "answered",
+        }),
+      ]),
+    );
+    expect(state.clickedLabels).not.toContain("Submit application");
+    expect(result.summary).toContain("final pre-submit checkpoint");
+    expect(result.submittedAt).toBeNull();
+  });
+
+  test("preserves a compact selected phone country using structured region evidence", async () => {
+    const profile = createTestProfile();
+    profile.currentLocation = "Portland, Oregon";
+    profile.currentCountry = null;
+    profile.currentRegion = "Oregon";
+    profile.phone = "+1 555 010 2401";
+    profile.applicationIdentity.preferredPhone = "+1 555 010 2401";
+
+    const { result, state } = await runApplicationScenario({
+      intermediateMutationsAuthorized: true,
+      profile,
+      steps: [
+        {
+          controls: [
+            {
+              id: "country",
+              label: "Country",
+              groupLabel: "Phone",
+              role: "combobox",
+              required: true,
+              selectedOptionLabel: "+1",
+              cssInJsSelectedValueText: "+1",
+              cssInJsSelectedCountryCode: "us",
+            },
+            {
+              id: "phone",
+              label: "Phone",
+              groupLabel: "Phone",
+              name: "phone",
+              inputType: "tel",
+              required: true,
+              value: "+1 555 010 2401",
+            },
+            {
+              label: "Resume / CV",
+              name: "candidate[resume]",
+              inputType: "file",
+              required: true,
+            },
+          ],
+          bodyText: "Review your application before submission",
+          actions: [{ label: "Submit application", type: "submit" }],
+        },
+      ],
+    });
+
+    expect(state.selectedOptions.has("Country")).toBe(false);
+    expect(state.filledValues.has("Country")).toBe(false);
+    expect(state.filledValues.has("Phone")).toBe(false);
+    expect(state.uploadedFiles.get("Resume / CV")).toBe("resume.pdf");
+    expect(result.questions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          prompt: "Phone country code",
+          submittedAnswer: "+1",
+          status: "answered",
+        }),
+        expect.objectContaining({
+          prompt: "Phone",
+          submittedAnswer: "555 010 2401",
+          status: "answered",
+        }),
+      ]),
+    );
+    expect(state.clickedLabels).not.toContain("Submit application");
+    expect(result.summary).toContain("final pre-submit checkpoint");
+    expect(result.submittedAt).toBeNull();
+  });
+
+  test("rejects a wrong compact country when the visible composite hides its inner input", async () => {
+    const profile = createTestProfile();
+    profile.currentLocation = "Portland, Oregon";
+    profile.currentCountry = null;
+    profile.currentRegion = "Oregon";
+    profile.phone = "+1 555 010 2401";
+    profile.applicationIdentity.preferredPhone = "+1 555 010 2401";
+
+    const { result, state } = await runApplicationScenario({
+      intermediateMutationsAuthorized: true,
+      profile,
+      steps: [
+        {
+          controls: [
+            {
+              id: "country",
+              label: "Country",
+              groupLabel: "Phone",
+              role: "combobox",
+              required: true,
+              visible: false,
+              selectedOptionLabel: "+1",
+              cssInJsSelectedValueText: "+1",
+              cssInJsSelectedCountryCode: "ca",
+            },
+            {
+              id: "phone",
+              label: "Phone",
+              groupLabel: "Phone",
+              name: "phone",
+              inputType: "tel",
+              required: true,
+              value: "+1 555 010 2401",
+            },
+            {
+              label: "Resume / CV",
+              name: "candidate[resume]",
+              inputType: "file",
+              required: true,
+            },
+          ],
+          bodyText: "Review your application before submission",
+          actions: [{ label: "Submit application", type: "submit" }],
+        },
+      ],
+    });
+
+    expect(state.selectedOptions.has("Country")).toBe(false);
+    expect(state.filledValues.has("Country")).toBe(false);
+    expect(state.clickedLabels).not.toContain("Submit application");
+    expect(result.summary).toBe(
+      "Prefilled application values need manual review",
+    );
+    expect(result.questions).toContainEqual(
+      expect.objectContaining({
+        prompt: "Phone country code",
+        submittedAnswer: null,
+        status: "detected",
+      }),
+    );
+    expect(result.submittedAt).toBeNull();
+  });
+
+  test("keeps a genuine preferred-phone country conflict at manual review", async () => {
+    const profile = createTestProfile();
+    profile.currentLocation = "Berlin, Germany";
+    profile.currentCountry = "Germany";
+    profile.currentRegion = null;
+    profile.phone = "+49 555 0000000";
+    profile.applicationIdentity.preferredPhone = "+44 7700 900123";
+
+    const { result, state } = await runApplicationScenario({
+      intermediateMutationsAuthorized: true,
+      profile,
+      steps: [
+        {
+          controls: [
+            {
+              id: "country",
+              label: "Country",
+              groupLabel: "Phone",
+              role: "combobox",
+              required: true,
+              options: ["Germany+49", "Jersey+44"],
+            },
+            {
+              id: "phone",
+              label: "Phone",
+              groupLabel: "Phone",
+              name: "phone",
+              inputType: "tel",
+              required: true,
+            },
+            {
+              label: "Resume / CV",
+              name: "candidate[resume]",
+              inputType: "file",
+              required: true,
+            },
+          ],
+          bodyText: "Review your application before submission",
+          actions: [{ label: "Submit application", type: "submit" }],
+        },
+      ],
+    });
+
+    expect(state.selectedOptions.has("Country")).toBe(false);
+    expect(state.clickedLabels).not.toContain("Submit application");
+    expect(result.summary).toContain("manual review");
+    expect(result.questions).toContainEqual(
+      expect.objectContaining({
+        prompt: "Phone country code",
+        submittedAnswer: null,
+        status: "detected",
+      }),
+    );
+    expect(result.submittedAt).toBeNull();
+  });
+
+  test("selects a native phone-country option by exact country and shared calling code", async () => {
+    const profile = createTestProfile();
+    profile.currentCountry = "United States";
+    profile.phone = "+1 555 010 2401";
+    profile.applicationIdentity.preferredPhone = "+1 555 010 2401";
+
+    const { result, state } = await runApplicationScenario({
+      intermediateMutationsAuthorized: true,
+      profile,
+      steps: [
+        {
+          controls: [
+            {
+              label: "Country",
+              groupLabel: "Phone",
+              name: "candidate[phone_country]",
+              tagName: "select",
+              options: ["Canada (+1)", "United States (+1)"],
+            },
+            {
+              label: "Phone",
+              name: "candidate[phone]",
+              inputType: "tel",
+            },
+            {
+              label: "Resume / CV",
+              name: "candidate[resume]",
+              inputType: "file",
+              required: true,
+            },
+          ],
+          bodyText: "Review your application before submission",
+          actions: [{ label: "Submit application", type: "submit" }],
+        },
+      ],
+    });
+
+    expect(state.selectedOptions.get("Country")).toBe("United States (+1)");
+    expect(state.selectedOptions.get("Country")).not.toBe("Canada (+1)");
+    expect(state.clickedLabels).not.toContain("Submit application");
+    expect(result.summary).toContain("final pre-submit checkpoint");
+    expect(result.submittedAt).toBeNull();
+  });
+
+  test("derives a compact E.164 calling code only from exact country-option evidence", async () => {
+    const profile = createTestProfile();
+    profile.currentCountry = "Kosovo";
+    profile.phone = "+38344283970";
+    profile.applicationIdentity.preferredPhone = "+38344283970";
+
+    const { result, state } = await runApplicationScenario({
+      intermediateMutationsAuthorized: true,
+      profile,
+      steps: [
+        {
+          controls: [
+            {
+              label: "Country",
+              groupLabel: "Phone",
+              name: "candidate[phone_country]",
+              tagName: "select",
+              options: ["Kosovo (+383)"],
+            },
+            {
+              label: "Phone",
+              name: "candidate[phone]",
+              inputType: "tel",
+            },
+            {
+              label: "Resume / CV",
+              name: "candidate[resume]",
+              inputType: "file",
+              required: true,
+            },
+          ],
+          bodyText: "Review your application before submission",
+          actions: [{ label: "Submit application", type: "submit" }],
+        },
+      ],
+    });
+
+    expect(state.selectedOptions.get("Country")).toBe("Kosovo (+383)");
+    expect(state.filledValues.get("Phone")).toBe("44283970");
+    expect(state.clickedLabels).not.toContain("Submit application");
+    expect(result.summary).toContain("final pre-submit checkpoint");
+    expect(result.submittedAt).toBeNull();
+  });
+
+  test("preserves a nonempty custom phone-country value without a selected option for manual review", async () => {
+    const profile = createTestProfile();
+    profile.currentCountry = "United States";
+    profile.phone = "+1 555 010 2401";
+    profile.applicationIdentity.preferredPhone = "+1 555 010 2401";
+
+    const { result, state } = await runApplicationScenario({
+      intermediateMutationsAuthorized: true,
+      profile,
+      steps: [
+        {
+          controls: [
+            {
+              label: "Country",
+              groupLabel: "Phone",
+              role: "combobox",
+              value: "Canada +1",
+              selectedOptionLabel: "",
+              options: ["Canada +1", "United States +1"],
+            },
+            {
+              label: "Phone",
+              name: "candidate[phone]",
+              inputType: "tel",
+              value: "+1 555 010 2401",
+            },
+            {
+              label: "Resume / CV",
+              name: "candidate[resume]",
+              inputType: "file",
+              required: true,
+            },
+          ],
+          bodyText: "Review your application before submission",
+          actions: [{ label: "Submit application", type: "submit" }],
+        },
+      ],
+    });
+
+    expect(state.selectedOptions.has("Country")).toBe(false);
+    expect(state.clickedLabels).not.toContain("Submit application");
+    expect(result.summary).toBe(
+      "Prefilled application values need manual review",
+    );
+    expect(result.questions).toContainEqual(
+      expect.objectContaining({
+        prompt: "Phone country code",
+        submittedAnswer: null,
+        status: "detected",
+      }),
+    );
+    expect(result.submittedAt).toBeNull();
+  });
+  test("selects the exact Greenhouse visa answer and grounds the intended work location", async () => {
+    const profile = createTestProfile();
+    profile.workEligibility.requiresVisaSponsorship = false;
+
+    const visaPrompt =
+      "Will you now or at any time in the future require visa sponsorship?";
+    const { result, state } = await runApplicationScenario({
+      intermediateMutationsAuthorized: true,
+      profile,
+      steps: [
+        {
+          controls: [
+            {
+              label: visaPrompt,
+              role: "combobox",
+              options: ["Yes", "No"],
+              required: true,
+            },
+            {
+              label: "From where do you intend to work?",
+              required: true,
+            },
+            {
+              label: "Resume / CV",
+              name: "candidate[resume]",
+              inputType: "file",
+              required: true,
+            },
+          ],
+          bodyText: "Review your application before submission",
+          actions: [{ label: "Submit application", type: "submit" }],
+        },
+      ],
+    });
+
+    expect(state.selectedOptions.get(visaPrompt)).toBe("No");
+    expect(state.filledValues.get("From where do you intend to work?")).toBe(
+      "Budapest, Hungary",
+    );
+    expect(state.uploadedFiles.get("Resume / CV")).toBe("resume.pdf");
+    expect(result.questions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          prompt: visaPrompt,
+          submittedAnswer: "No",
+          status: "answered",
+        }),
+        expect.objectContaining({
+          prompt: "From where do you intend to work?",
+          submittedAnswer: "Budapest, Hungary",
+          status: "answered",
+        }),
+      ]),
+    );
+    expect(state.clickedLabels).not.toContain("Submit application");
+    expect(result.summary).toContain("final pre-submit checkpoint");
+    expect(result.submittedAt).toBeNull();
+  });
+
+  test.each([
+    {
+      label: "ambiguous duplicate exact options",
+      options: ["No", "NO", "Yes"],
+    },
+    {
+      label: "no exact option",
+      options: ["Not currently", "Yes"],
+    },
+  ])("pauses on a Greenhouse visa combobox with $label", async (scenario) => {
+    const profile = createTestProfile();
+    profile.workEligibility.requiresVisaSponsorship = false;
+
+    const visaPrompt =
+      "Will you now or at any time in the future require visa sponsorship?";
+    const { result, state } = await runApplicationScenario({
+      intermediateMutationsAuthorized: true,
+      profile,
+      steps: [
+        {
+          controls: [
+            {
+              label: visaPrompt,
+              role: "combobox",
+              options: scenario.options,
+              required: true,
+            },
+            {
+              label: "From where do you intend to work?",
+              required: true,
+            },
+            {
+              label: "Resume / CV",
+              name: "candidate[resume]",
+              inputType: "file",
+              required: true,
+            },
+          ],
+          bodyText: "Review your application before submission",
+          actions: [{ label: "Submit application", type: "submit" }],
+        },
+      ],
+    });
+
+    expect(state.selectedOptions.has(visaPrompt)).toBe(false);
+    expect(state.filledValues.get("From where do you intend to work?")).toBe(
+      "Budapest, Hungary",
+    );
+    expect(state.clickedLabels).not.toContain("Submit application");
+    expect(result.summary).toBe(
+      "Prepared application fields need manual review",
+    );
+    expect(result.questions).toContainEqual(
+      expect.objectContaining({
+        prompt: visaPrompt,
+        submittedAnswer: null,
+        status: "detected",
+      }),
+    );
+    expect(result.submittedAt).toBeNull();
+  });
 
   test("accepts a formatted phone value when a rerender drops the visible phone label", async () => {
     const profile = createTestProfile();
+    profile.currentCountry = "Kosovo";
     profile.phone = "(+383) 44 283 970";
     profile.applicationIdentity.preferredPhone = "(+383) 44 283 970";
 
@@ -1195,6 +2222,7 @@ describe("Playwright prepare-only application flow", () => {
 
   test("accepts the national phone digits while the calling-code widget is transiently blank", async () => {
     const profile = createTestProfile();
+    profile.currentCountry = "Kosovo";
     profile.phone = "(+383) 44 283 970";
     profile.applicationIdentity.preferredPhone = "(+383) 44 283 970";
 
@@ -1236,6 +2264,7 @@ describe("Playwright prepare-only application flow", () => {
 
   test("waits through a late controlled-phone rerender before declaring the form ready", async () => {
     const profile = createTestProfile();
+    profile.currentCountry = "Kosovo";
     profile.phone = "(+383) 44 283 970";
     profile.applicationIdentity.preferredPhone = "(+383) 44 283 970";
 
@@ -1266,14 +2295,6 @@ describe("Playwright prepare-only application flow", () => {
                 "",
                 "",
                 "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
                 "(+383) 44 283 970",
                 "(+383) 44 283 970",
                 "(+383) 44 283 970",
@@ -1292,7 +2313,7 @@ describe("Playwright prepare-only application flow", () => {
       ],
     });
 
-    expect(state.waitCount).toBeGreaterThan(10);
+    expect(state.waitCount).toBeGreaterThan(5);
     expect(state.clickedLabels).not.toContain("Submit application");
     expect(result.summary).toContain("final pre-submit checkpoint");
     expect(result.submittedAt).toBeNull();
@@ -1337,7 +2358,10 @@ describe("Playwright prepare-only application flow", () => {
       ],
     });
 
-    expect(state.waitCount).toBe(31);
+    expect(state.waitCount).toBe(13);
+    expect(state.bodyInspectionCount).toBe(2);
+    expect(state.actionInspectionCount).toBe(2);
+    expect(state.frameInspectionCount).toBe(2);
     expect(state.clickedLabels).not.toContain("Submit application");
     expect(result.summary).toBe(
       "Prepared application fields need manual review",
@@ -1411,6 +2435,8 @@ describe("Playwright prepare-only application flow", () => {
 
     expect(state.clickedLabels).toEqual([]);
     expect(state.filledValues.has("Email address")).toBe(false);
+    expect(state.uploadedFiles.has("Resume")).toBe(false);
+    expect(state.waitCount).toBe(0);
     expect(result.summary).toBe(
       "Prefilled application values need manual review",
     );
@@ -1487,6 +2513,37 @@ describe("Playwright prepare-only application flow", () => {
     expect(result.outcome).toBeNull();
   });
 
+  test("re-arms the network guard before Continue when field writes were authorized", async () => {
+    const { result, state } = await runApplicationScenario({
+      intermediateMutationsAuthorized: true,
+      submitAuthorized: false,
+      steps: [
+        {
+          controls: [
+            {
+              label: "Resume",
+              inputType: "file",
+              required: true,
+            },
+          ],
+          actions: [{ label: "Continue", type: "button" }],
+          blockedAttemptAfterAction: {
+            kind: "fetch",
+            method: "POST",
+          },
+        },
+      ],
+    });
+
+    expect(state.clickedLabels).toEqual(["Continue"]);
+    expect(state.guardAuthorizationHistory).toContain(true);
+    expect(state.guardAuthorizationHistory.at(-1)).toBe(false);
+    expect(state.guardBlockedAttempts).toEqual([
+      expect.objectContaining({ kind: "fetch", method: "POST" }),
+    ]);
+    expect(result.submittedAt).toBeNull();
+    expect(result.outcome).toBeNull();
+  });
   test("falls back to the saved canonical URL when no application URL is available", async () => {
     const { result, state } = await runApplicationScenario({
       applicationUrl: null,
@@ -1510,6 +2567,279 @@ describe("Playwright prepare-only application flow", () => {
     ]);
     expect(result.state).toBe("paused");
     expect(state.clickedLabels).toEqual([]);
+  });
+
+  test("fills exact common application signals from the answer bank before eligibility fallbacks", async () => {
+    const profile = createTestProfile();
+    profile.answerBank = {
+      ...profile.answerBank,
+      workAuthorization: "Authorized without restriction",
+      visaSponsorship: "Saved sponsorship response",
+      relocation: "Saved relocation response",
+      travel: "Saved travel response",
+      noticePeriod: "Saved notice response",
+      availability: "Saved availability response",
+      salaryExpectations: null,
+      selfIntroduction: "Saved self introduction",
+      careerTransition: "Saved career transition",
+      customAnswers: [
+        {
+          id: "answer_salary_expectations",
+          kind: "salary_expectation",
+          label: "Salary expectations",
+          question: "What are your salary expectations?",
+          answer: "USD 120,000 base",
+          roleFamilies: [],
+          proofEntryIds: [],
+        },
+      ],
+    };
+    profile.workEligibility = {
+      ...profile.workEligibility,
+      requiresVisaSponsorship: false,
+      willingToRelocate: false,
+      willingToTravel: false,
+      noticePeriodDays: 30,
+      availableStartDate: "2026-09-15",
+    };
+
+    const { result, state } = await runApplicationScenario({
+      profile,
+      submitAuthorized: false,
+      steps: [
+        {
+          controls: [
+            {
+              label: "Are you authorized to work?",
+              required: true,
+            },
+            {
+              label: "Will you now or in the future require visa sponsorship?",
+              required: true,
+            },
+            {
+              label: "What are your salary expectations?",
+              required: true,
+            },
+            {
+              label: "When are you available to start?",
+              required: true,
+            },
+            {
+              label:
+                "How much notice do you need to give your current employer?",
+              required: true,
+            },
+            {
+              label: "Are you willing to relocate?",
+              required: true,
+            },
+            {
+              label: "Are you willing to travel?",
+              required: true,
+            },
+            {
+              label: "Tell us about yourself",
+              tagName: "textarea",
+              inputType: "textarea",
+              required: true,
+            },
+            {
+              label: "Please explain your career transition",
+              tagName: "textarea",
+              inputType: "textarea",
+              required: true,
+            },
+            {
+              label: "Resume",
+              inputType: "file",
+              required: true,
+            },
+          ],
+          bodyText: "Review your application before submission",
+          actions: [{ label: "Submit application", type: "submit" }],
+        },
+      ],
+    });
+
+    expect(state.filledValues.get("Are you authorized to work?")).toBe(
+      "Authorized without restriction",
+    );
+    expect(
+      state.filledValues.get(
+        "Will you now or in the future require visa sponsorship?",
+      ),
+    ).toBe("Saved sponsorship response");
+    expect(state.filledValues.get("What are your salary expectations?")).toBe(
+      "USD 120,000 base",
+    );
+    expect(state.filledValues.get("When are you available to start?")).toBe(
+      "Saved availability response",
+    );
+    expect(
+      state.filledValues.get(
+        "How much notice do you need to give your current employer?",
+      ),
+    ).toBe("Saved notice response");
+    expect(state.filledValues.get("Are you willing to relocate?")).toBe(
+      "Saved relocation response",
+    );
+    expect(state.filledValues.get("Are you willing to travel?")).toBe(
+      "Saved travel response",
+    );
+    expect(state.filledValues.get("Tell us about yourself")).toBe(
+      "Saved self introduction",
+    );
+    expect(
+      state.filledValues.get("Please explain your career transition"),
+    ).toBe("Saved career transition");
+    expect(result.summary).toContain("final pre-submit checkpoint");
+    expect(state.clickedLabels).not.toContain("Submit application");
+  });
+
+  test("uses only unambiguous work-eligibility fallbacks for exact controls", async () => {
+    const profile = createTestProfile();
+    profile.workEligibility = {
+      ...profile.workEligibility,
+      authorizedWorkCountries: ["Hungary", "Germany"],
+      requiresVisaSponsorship: false,
+      willingToRelocate: true,
+      willingToTravel: false,
+      noticePeriodDays: 30,
+      availableStartDate: "2026-09-15",
+    };
+
+    const { result, state } = await runApplicationScenario({
+      profile,
+      submitAuthorized: false,
+      steps: [
+        {
+          controls: [
+            {
+              label: "Do you require visa sponsorship?",
+              tagName: "select",
+              inputType: "select-one",
+              options: ["Select", "Yes", "No"],
+              value: "Select",
+              selectedOptionLabel: "Select",
+              required: true,
+            },
+            {
+              label: "Are you willing to relocate?",
+              tagName: "select",
+              inputType: "select-one",
+              options: ["Select", "Yes", "No"],
+              value: "Select",
+              selectedOptionLabel: "Select",
+              required: true,
+            },
+            {
+              label: "Are you willing to travel?",
+              tagName: "select",
+              inputType: "select-one",
+              options: ["Select", "Yes", "No"],
+              value: "Select",
+              selectedOptionLabel: "Select",
+              required: true,
+            },
+            {
+              label: "Notice period",
+              required: true,
+            },
+            {
+              label: "Available start date",
+              required: true,
+            },
+            {
+              label: "Countries you are authorized to work in",
+              required: true,
+            },
+            {
+              label: "Resume",
+              inputType: "file",
+              required: true,
+            },
+          ],
+          bodyText: "Review your application before submission",
+          actions: [{ label: "Submit application", type: "submit" }],
+        },
+      ],
+    });
+
+    expect(state.selectedOptions.get("Do you require visa sponsorship?")).toBe(
+      "No",
+    );
+    expect(state.selectedOptions.get("Are you willing to relocate?")).toBe(
+      "Yes",
+    );
+    expect(state.selectedOptions.get("Are you willing to travel?")).toBe("No");
+    expect(state.filledValues.get("Notice period")).toBe("30 days");
+    expect(state.filledValues.get("Available start date")).toBe("2026-09-15");
+    expect(
+      state.filledValues.get("Countries you are authorized to work in"),
+    ).toBe("Hungary, Germany");
+    expect(result.summary).toContain("final pre-submit checkpoint");
+    expect(state.clickedLabels).not.toContain("Submit application");
+  });
+
+  test("leaves near-match and unclear native choice questions unanswered", async () => {
+    const profile = createTestProfile();
+    profile.answerBank = {
+      ...profile.answerBank,
+      salaryExpectations: "USD 120,000 base",
+      careerTransition: "Saved career transition",
+    };
+
+    const { result, state } = await runApplicationScenario({
+      profile,
+      submitAuthorized: false,
+      steps: [
+        {
+          controls: [
+            {
+              label: "Salary expectations",
+              tagName: "select",
+              inputType: "select-one",
+              options: ["Select", "Below range", "Above range"],
+              value: "Select",
+              selectedOptionLabel: "Select",
+              required: true,
+            },
+            {
+              label: "Tell us about a project that changed direction",
+              tagName: "textarea",
+              inputType: "textarea",
+              required: true,
+            },
+            {
+              label: "Resume",
+              inputType: "file",
+              required: true,
+            },
+          ],
+          actions: [{ label: "Next" }],
+        },
+      ],
+    });
+
+    expect(state.selectedOptions.has("Salary expectations")).toBe(false);
+    expect(
+      state.filledValues.has("Tell us about a project that changed direction"),
+    ).toBe(false);
+    expect(state.clickedLabels).toEqual([]);
+    expect(result.blocker?.code).toBe("missing_candidate_answer");
+    expect(result.questions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          prompt: "Salary expectations",
+          submittedAnswer: null,
+        }),
+        expect.objectContaining({
+          prompt: "Tell us about a project that changed direction",
+          submittedAnswer: null,
+        }),
+      ]),
+    );
   });
 
   test("pauses on unknown required questions after filling known fields", async () => {
@@ -1605,6 +2935,14 @@ describe("Playwright prepare-only application flow", () => {
       blockerCode: "site_login_required",
     },
     {
+      label: "account creation",
+      step: {
+        bodyText: "Create an account to continue your application",
+        actions: [{ label: "Create account" }],
+      },
+      blockerCode: "site_login_required",
+    },
+    {
       label: "captcha",
       step: {
         bodyText: "Verify you are human",
@@ -1627,6 +2965,7 @@ describe("Playwright prepare-only application flow", () => {
     },
   ])("detects $label gates as blockers without clicking", async (scenario) => {
     const { result, state } = await runApplicationScenario({
+      accountCreationAuthorized: false,
       submitAuthorized: false,
       steps: [scenario.step],
     });

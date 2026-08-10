@@ -441,6 +441,7 @@ export function InterviewVisibleChat(props: InterviewVisibleChatProps) {
       </section>
 
       <aside className="grid content-start gap-4">
+
         <section className="surface-card-tint rounded-(--radius-panel) border p-4">
           <div className="mb-4 flex items-center justify-between gap-2">
             <h2 className="text-[0.75rem] font-bold uppercase tracking-(--tracking-badge)">
@@ -464,6 +465,7 @@ export function InterviewVisibleChat(props: InterviewVisibleChatProps) {
               }
               onWorkspaceChange={props.onWorkspaceChange}
               sessionId={session.id}
+              workspace={props.workspace}
             />
           ) : (
             <p className="text-[0.8rem] leading-5 text-muted-foreground">

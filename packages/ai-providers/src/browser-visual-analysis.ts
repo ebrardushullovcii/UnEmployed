@@ -10,12 +10,19 @@ import {
 } from "@unemployed/contracts";
 import { z } from "zod";
 import {
-  buildChatCompletionsUrl,
+  buildModelRequestBody,
+  buildModelUrl,
+  DEFAULT_MODEL_API_MODE,
+  DEFAULT_MODEL_REASONING_EFFORT,
+  modelApiModes,
+  modelReasoningEfforts,
+  parseModelApiMode,
   parseModelJsonResponse,
+  parseModelReasoningEffort,
 } from "./openai-compatible-transport";
 
-const DEFAULT_BROWSER_VISUAL_MODEL = "FelidaeAI-Omni-3.6";
-const DEFAULT_BROWSER_VISUAL_BASE_URL = "https://ai.automatedpros.link/v1";
+const DEFAULT_BROWSER_VISUAL_MODEL = "gpt-5.6-luna";
+const DEFAULT_BROWSER_VISUAL_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_BROWSER_VISUAL_TIMEOUT_MS = 120_000;
 
 export const OpenAiCompatibleBrowserVisualProviderOptionsSchema = z.object({
@@ -23,6 +30,8 @@ export const OpenAiCompatibleBrowserVisualProviderOptionsSchema = z.object({
   baseUrl: z.string().trim().url(),
   model: z.string().trim().min(1),
   label: z.string().trim().min(1).optional(),
+  apiMode: z.enum(modelApiModes).optional(),
+  reasoningEffort: z.enum(modelReasoningEfforts).optional(),
   requestTimeoutMs: z.number().int().min(1_000).optional(),
 });
 export type OpenAiCompatibleBrowserVisualProviderOptions = z.infer<
@@ -417,17 +426,19 @@ export function createOpenAiCompatibleBrowserVisualAnalysisProvider(
     const localTimeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const response = await fetch(buildChatCompletionsUrl(validatedOptions.baseUrl), {
+      const apiMode = validatedOptions.apiMode ?? "chat_completions";
+      const response = await fetch(buildModelUrl(validatedOptions.baseUrl, apiMode), {
         method: "POST",
         signal: controller.signal,
         headers: {
           Authorization: `Bearer ${validatedOptions.apiKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
+        body: JSON.stringify(buildModelRequestBody({
+          apiMode,
           model: validatedOptions.model,
-          temperature: 0.1,
-          response_format: { type: "json_object" },
+          reasoningEffort: validatedOptions.reasoningEffort,
+          jsonOutput: true,
           messages: [
             {
               role: "system",
@@ -487,10 +498,10 @@ export function createOpenAiCompatibleBrowserVisualAnalysisProvider(
               ],
             },
           ],
-        }),
+        })),
       });
 
-      return parseModelJsonResponse(response);
+      return parseModelJsonResponse(response, apiMode);
     } catch (error) {
       throw normalizeTimeoutLikeError(error, timeoutMs);
     } finally {
@@ -597,6 +608,15 @@ export function createBrowserVisualAnalysisProviderFromEnvironment(
       env.UNEMPLOYED_BROWSER_VISION_MODEL ??
       env.UNEMPLOYED_AI_VISION_MODEL ??
       DEFAULT_BROWSER_VISUAL_MODEL,
+    apiMode:
+      parseModelApiMode(
+        env.UNEMPLOYED_BROWSER_VISION_API_MODE ?? env.UNEMPLOYED_AI_API_MODE,
+      ) ?? DEFAULT_MODEL_API_MODE,
+    reasoningEffort:
+      parseModelReasoningEffort(
+        env.UNEMPLOYED_BROWSER_VISION_REASONING_EFFORT ??
+          env.UNEMPLOYED_AI_REASONING_EFFORT,
+      ) ?? DEFAULT_MODEL_REASONING_EFFORT,
     label: "Browser visual analysis",
     requestTimeoutMs:
       parseConfiguredNumber(env.UNEMPLOYED_BROWSER_VISION_TIMEOUT_MS) ??

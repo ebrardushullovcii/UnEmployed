@@ -68,6 +68,13 @@ function createSearchPreferences(
     minimumSalaryUsd: null,
     targetSalaryUsd: null,
     salaryCurrency: "USD",
+    compensation: {
+      minimum: null,
+      maximum: null,
+      interval: "year",
+      currency: null,
+      currencyStatus: "needs_clarification",
+    },
     approvalMode: "draft_only",
     tailoringMode: "conservative",
     companyBlacklist: [],
@@ -359,7 +366,7 @@ describe("deriveSourceDebugStartingUrls", () => {
 });
 
 describe("resolveSourceDebugPhases", () => {
-  test("skips listing and search probing when a public provider API is available", () => {
+  test("keeps complete browser fallback coverage when a public provider API is unavailable at runtime", () => {
     expect(
       resolveSourceDebugPhases({
         target: createPublicProviderTarget(),
@@ -367,6 +374,8 @@ describe("resolveSourceDebugPhases", () => {
       }),
     ).toEqual([
       "access_auth_probe",
+      "site_structure_mapping",
+      "search_filter_probe",
       "job_detail_validation",
       "apply_path_validation",
       "replay_verification",

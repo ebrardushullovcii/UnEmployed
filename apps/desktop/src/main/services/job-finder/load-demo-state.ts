@@ -5,25 +5,45 @@ import {
   createApplyQueueDemoState,
   createResumeWorkspaceDemoState,
 } from "../../adapters/job-finder-demo-state";
+import {
+  JOB_FINDER_DEMO_EXPORT_RESUME_CONTENT,
+  JOB_FINDER_DEMO_SOURCE_RESUME_CONTENT,
+} from "../../adapters/job-finder-demo-resume-files";
 import { getJobFinderWorkspaceService } from "./workspace-service";
 
-async function ensureDemoExportFiles(filePaths: readonly (string | null | undefined)[]) {
-  await Promise.all(
-    filePaths.map(async (filePath) => {
-      if (!filePath) {
-        return;
-      }
+async function writeDemoFile(
+  filePath: string | null | undefined,
+  content: string,
+) {
+  if (!filePath) {
+    return;
+  }
 
-      const directory = path.dirname(filePath);
-      await mkdir(directory, { recursive: true });
-      await writeFile(filePath, "%PDF-1.4\n% deterministic demo export\n", "utf8");
-    }),
+  const directory = path.dirname(filePath);
+  await mkdir(directory, { recursive: true });
+  await writeFile(filePath, content, "utf8");
+}
+
+export async function ensureDemoResumeFiles(
+  sourceFilePath: string | null | undefined,
+  exportFilePaths: readonly (string | null | undefined)[],
+) {
+  await Promise.all(
+    [
+      writeDemoFile(sourceFilePath, JOB_FINDER_DEMO_SOURCE_RESUME_CONTENT),
+      ...exportFilePaths.map((filePath) =>
+        writeDemoFile(filePath, JOB_FINDER_DEMO_EXPORT_RESUME_CONTENT),
+      ),
+    ],
   );
 }
 
 export async function loadResumeWorkspaceDemoState() {
   const state = createResumeWorkspaceDemoState();
-  await ensureDemoExportFiles(state.resumeExportArtifacts.map((artifact) => artifact.filePath));
+  await ensureDemoResumeFiles(
+    state.profile.baseResume.storagePath,
+    state.resumeExportArtifacts.map((artifact) => artifact.filePath),
+  );
   const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
   const snapshot = await jobFinderWorkspaceService.resetWorkspace(
     state,
@@ -34,7 +54,10 @@ export async function loadResumeWorkspaceDemoState() {
 
 export async function loadApplyQueueDemoState() {
   const state = createApplyQueueDemoState();
-  await ensureDemoExportFiles(state.resumeExportArtifacts.map((artifact) => artifact.filePath));
+  await ensureDemoResumeFiles(
+    state.profile.baseResume.storagePath,
+    state.resumeExportArtifacts.map((artifact) => artifact.filePath),
+  );
   const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
   const snapshot = await jobFinderWorkspaceService.resetWorkspace(
     state,

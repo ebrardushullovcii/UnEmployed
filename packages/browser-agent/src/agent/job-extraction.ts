@@ -28,6 +28,7 @@ export type ExtractedJobInput = Pick<
     Pick<
       JobPosting,
       | "postedAtText"
+      | "providerUpdatedAt"
       | "responsibilities"
       | "minimumQualifications"
       | "preferredQualifications"
@@ -51,6 +52,7 @@ export interface StructuredDataJobCandidate {
   summary?: string | null;
   postedAt?: string | null;
   postedAtText?: string | null;
+  providerUpdatedAt?: string | null;
   salaryText?: string | null;
   workMode?: readonly string[] | null;
   applyPath?: JobPosting["applyPath"] | null;
@@ -476,9 +478,14 @@ function titlePreferenceMatchPassesThreshold(
     return false;
   }
 
+  const leadingDesiredToken = desiredTokens[0];
+  if (leadingDesiredToken === undefined) {
+    return false;
+  }
+
   if (desiredTokens.length === 1) {
     return candidateTokens.some((candidateToken) =>
-      preferenceTokensEqual(candidateToken, desiredTokens[0]!),
+      preferenceTokensEqual(candidateToken, leadingDesiredToken),
     );
   }
 
@@ -634,8 +641,13 @@ function scoreJobForPreferences(
             return 0;
           }
 
+          const leadingDesiredToken = desiredTokens[0];
+          if (leadingDesiredToken === undefined) {
+            return 0;
+          }
+
           return candidateTokens.some((candidateToken) =>
-            preferenceTokensEqual(candidateToken, desiredTokens[0]!),
+            preferenceTokensEqual(candidateToken, leadingDesiredToken),
           )
             ? 700
             : 0;
@@ -680,9 +692,14 @@ function scoreJobForPreferences(
             return 0;
           }
 
+          const leadingDesiredToken = desiredTokens[0];
+          if (leadingDesiredToken === undefined) {
+            return 0;
+          }
+
           const matchesLeadingSpecificToken = candidateTokens.some(
             (candidateToken) =>
-              preferenceTokensEqual(candidateToken, desiredTokens[0]!),
+              preferenceTokensEqual(candidateToken, leadingDesiredToken),
           );
           const matchesTrailingBroaderToken = desiredTokens
             .slice(1)
@@ -1178,6 +1195,23 @@ function toIsoDateTimeOrNull(value: string | null | undefined): string | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
+function preferLatestIsoDateTime(
+  current: string | null | undefined,
+  candidate: string | null | undefined,
+): string | null {
+  const currentIso = toIsoDateTimeOrNull(current);
+  const candidateIso = toIsoDateTimeOrNull(candidate);
+  if (!currentIso) {
+    return candidateIso;
+  }
+  if (!candidateIso) {
+    return currentIso;
+  }
+  return Date.parse(candidateIso) > Date.parse(currentIso)
+    ? candidateIso
+    : currentIso;
+}
+
 function trimToNull(value: string | null | undefined): string | null {
   const normalized = cleanLine(value);
   return normalized || null;
@@ -1660,6 +1694,49 @@ function findRepeatedLeadingPhrase(value: string): string | null {
   }
 
   return null;
+}
+
+function normalizeExtractedJobTitle(input: {
+  value: string | null | undefined;
+  company?: string | null | undefined;
+  location?: string | null | undefined;
+}): string {
+  const normalized = cleanLine(input.value);
+  const repeatedTitle = findRepeatedLeadingPhrase(normalized);
+  if (!repeatedTitle || scoreCardTitleCandidate(repeatedTitle) <= 0) {
+    return normalized;
+  }
+
+  const escapedTitle = repeatedTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const suffix = cleanLine(
+    normalized
+      .replace(
+        new RegExp(`^(?:${escapedTitle})(?:\\s+${escapedTitle})+\\s*`, "iu"),
+        "",
+      )
+      .replace(/^[\s|•·–—-]+/u, ""),
+  );
+
+  if (!suffix) {
+    return repeatedTitle;
+  }
+
+  const normalizedSuffix = suffix.toLocaleLowerCase();
+  const beginsWithKnownMetadata = [input.company, input.location]
+    .map((value) => cleanLine(value).replace(/^[\s|•·–—-]+/u, ""))
+    .filter(Boolean)
+    .some((value) => {
+      const normalizedValue = value.toLocaleLowerCase();
+      return (
+        normalizedSuffix === normalizedValue ||
+        normalizedSuffix.startsWith(`${normalizedValue} `) ||
+        normalizedSuffix.startsWith(`${normalizedValue} •`) ||
+        normalizedSuffix.startsWith(`${normalizedValue} ·`) ||
+        normalizedSuffix.startsWith(`${normalizedValue} |`)
+      );
+    });
+
+  return beginsWithKnownMetadata ? repeatedTitle : normalized;
 }
 
 function recoverTitleFromMetadataLine(
@@ -2593,6 +2670,10 @@ function mergeJob(
     salaryText: candidate.salaryText ?? current.salaryText ?? null,
     postedAt: candidate.postedAt ?? current.postedAt ?? null,
     postedAtText: candidate.postedAtText ?? current.postedAtText ?? null,
+    providerUpdatedAt: preferLatestIsoDateTime(
+      current.providerUpdatedAt,
+      candidate.providerUpdatedAt,
+    ),
     workMode: uniqueStrings([
       ...(current.workMode ?? []),
       ...(candidate.workMode ?? []),
@@ -2651,7 +2732,11 @@ function buildJobFromStructuredData(
   pageUrl: string,
 ): ExtractedJobInput | null {
   const canonicalUrl = canonicalizeUrl(candidate.canonicalUrl, pageUrl);
-  const title = cleanLine(candidate.title);
+  const title = normalizeExtractedJobTitle({
+    value: candidate.title,
+    company: candidate.company,
+    location: candidate.location,
+  });
   const company = cleanLine(candidate.company);
   const workMode = normalizeWorkModes(
     candidate.workMode,
@@ -2674,6 +2759,7 @@ function buildJobFromStructuredData(
     summary: trimToNull(candidate.summary) ?? description.slice(0, 280),
     postedAt: toIsoDateTimeOrNull(candidate.postedAt),
     postedAtText: trimToNull(candidate.postedAtText),
+    providerUpdatedAt: toIsoDateTimeOrNull(candidate.providerUpdatedAt),
     workMode,
     applyPath: candidate.applyPath ?? "unknown",
     easyApplyEligible: candidate.easyApplyEligible === true,
@@ -2801,10 +2887,15 @@ function buildJobFromCardCandidate(
     ) ??
     pollutedTitleCompanySplit.company ??
     urlCompany;
+  const canonicalTitle = normalizeExtractedJobTitle({
+    value: title,
+    company,
+    location,
+  });
 
   const { summary, description } = buildSummaryAndDescription({
     lines,
-    title: title || cleanLine(candidate.anchorText),
+    title: canonicalTitle || cleanLine(candidate.anchorText),
     company: company || "",
     location: location || "",
     excludedLines: [rawTitle],
@@ -2820,7 +2911,7 @@ function buildJobFromCardCandidate(
           )
         : buildGenericJobId(canonicalUrl || pageUrl)),
     canonicalUrl,
-    title,
+    title: canonicalTitle,
     company: company || "",
     location: location || "",
     description,

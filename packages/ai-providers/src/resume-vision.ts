@@ -19,12 +19,19 @@ import {
 } from "./resume-import";
 import { buildCandidateConfidenceBreakdown } from "./resume-import-helpers";
 import {
-  buildChatCompletionsUrl,
+  buildModelRequestBody,
+  buildModelUrl,
+  DEFAULT_MODEL_API_MODE,
+  DEFAULT_MODEL_REASONING_EFFORT,
+  modelApiModes,
+  modelReasoningEfforts,
+  parseModelApiMode,
   parseModelJsonResponse,
+  parseModelReasoningEffort,
 } from "./openai-compatible-transport";
 
-const DEFAULT_VISION_MODEL = "FelidaeAI-Omni-3.6";
-const DEFAULT_VISION_BASE_URL = "https://ai.automatedpros.link/v1";
+const DEFAULT_VISION_MODEL = "gpt-5.6-luna";
+const DEFAULT_VISION_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_VISION_TIMEOUT_MS = 600_000;
 const DEFAULT_VISION_CONTEXT_WINDOW_TOKENS = 139_000;
 const DEFAULT_VISION_RESERVED_HEADROOM_TOKENS = 30_000;
@@ -35,6 +42,8 @@ export const OpenAiCompatibleResumeVisionProviderOptionsSchema = z.object({
   baseUrl: z.string().trim().url(),
   model: NonEmptyStringSchema,
   label: NonEmptyStringSchema.optional(),
+  apiMode: z.enum(modelApiModes).optional(),
+  reasoningEffort: z.enum(modelReasoningEfforts).optional(),
   contextWindowTokens: z.number().int().min(1_000).optional(),
   reservedHeadroomTokens: z.number().int().min(1_000).optional(),
   requestTimeoutMs: z.number().int().min(1_000).optional(),
@@ -419,17 +428,19 @@ export function createOpenAiCompatibleResumeVisionProvider(
     const localTimeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const response = await fetch(buildChatCompletionsUrl(validatedOptions.baseUrl), {
+      const apiMode = validatedOptions.apiMode ?? "chat_completions";
+      const response = await fetch(buildModelUrl(validatedOptions.baseUrl, apiMode), {
         method: "POST",
         signal: controller.signal,
         headers: {
           Authorization: `Bearer ${validatedOptions.apiKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
+        body: JSON.stringify(buildModelRequestBody({
+          apiMode,
           model: validatedOptions.model,
-          temperature: 0.1,
-          response_format: { type: "json_object" },
+          reasoningEffort: validatedOptions.reasoningEffort,
+          jsonOutput: true,
           messages: [
             {
               role: "system",
@@ -481,10 +492,10 @@ export function createOpenAiCompatibleResumeVisionProvider(
               ],
             },
           ],
-        }),
+        })),
       });
 
-      return parseModelJsonResponse(response);
+      return parseModelJsonResponse(response, apiMode);
     } catch (error) {
       throw normalizeTimeoutLikeError(error, timeoutMs);
     } finally {
@@ -581,6 +592,14 @@ export function createResumeVisionProviderFromEnvironment(
     apiKey,
     baseUrl: env.UNEMPLOYED_RESUME_VISION_BASE_URL ?? env.UNEMPLOYED_AI_VISION_BASE_URL ?? env.UNEMPLOYED_AI_BASE_URL ?? DEFAULT_VISION_BASE_URL,
     model: env.UNEMPLOYED_RESUME_VISION_MODEL ?? env.UNEMPLOYED_AI_VISION_MODEL ?? DEFAULT_VISION_MODEL,
+    apiMode:
+      parseModelApiMode(env.UNEMPLOYED_RESUME_VISION_API_MODE ?? env.UNEMPLOYED_AI_API_MODE) ??
+      DEFAULT_MODEL_API_MODE,
+    reasoningEffort:
+      parseModelReasoningEffort(
+        env.UNEMPLOYED_RESUME_VISION_REASONING_EFFORT ??
+          env.UNEMPLOYED_AI_REASONING_EFFORT,
+      ) ?? DEFAULT_MODEL_REASONING_EFFORT,
     label: "Resume visual scan",
     requestTimeoutMs: parseConfiguredNumber(env.UNEMPLOYED_RESUME_VISION_TIMEOUT_MS) ?? DEFAULT_VISION_TIMEOUT_MS,
     contextWindowTokens: parseConfiguredNumber(env.UNEMPLOYED_RESUME_VISION_CONTEXT_WINDOW_TOKENS) ?? DEFAULT_VISION_CONTEXT_WINDOW_TOKENS,

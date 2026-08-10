@@ -11,6 +11,18 @@ export type ProfileSetupReviewItemDisplay = ProfileSetupReviewItem & {
   savedStatus: ProfileSetupReviewItem['status']
   statusSource: 'saved' | 'draft'
 }
+export function isBlockingPendingReviewItem(
+  item: Pick<ProfileSetupReviewItem, 'severity' | 'status'>,
+): boolean {
+  return item.status === 'pending' && item.severity !== 'optional'
+}
+
+export function isOptionalPendingReviewItem(
+  item: Pick<ProfileSetupReviewItem, 'severity' | 'status'>,
+): boolean {
+  return item.status === 'pending' && item.severity === 'optional'
+}
+
 
 function hasMeaningfulText(value: string | null | undefined): boolean {
   return typeof value === 'string' && value.trim().length > 0

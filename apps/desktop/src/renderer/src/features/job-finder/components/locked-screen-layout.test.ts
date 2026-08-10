@@ -1,8 +1,19 @@
-import { describe, expect, test } from 'vitest'
-import { getLockedHeaderWheelTarget } from './locked-screen-layout'
+import { describe, expect, test } from "vitest";
+import {
+  getLockedHeaderWheelTarget,
+  getLockedScreenLayoutHeight,
+} from "./locked-screen-layout";
 
-describe('getLockedHeaderWheelTarget', () => {
-  test('moves the wide locked layout header before a nested pane consumes downward wheel input', () => {
+describe("getLockedScreenLayoutHeight", () => {
+  test("adds one viewport below a measured header only when a body pane exists", () => {
+    expect(getLockedScreenLayoutHeight(704, true)).toBe("calc(100% + 704px)");
+    expect(getLockedScreenLayoutHeight(704, false)).toBeUndefined();
+    expect(getLockedScreenLayoutHeight(0, true)).toBeUndefined();
+  });
+});
+
+describe("getLockedHeaderWheelTarget", () => {
+  test("moves the wide locked layout header before a nested pane consumes downward wheel input", () => {
     expect(
       getLockedHeaderWheelTarget({
         deltaY: 120,
@@ -10,10 +21,10 @@ describe('getLockedHeaderWheelTarget', () => {
         topHeight: 240,
         viewportWidth: 1440,
       }),
-    ).toBe(120)
-  })
+    ).toBe(120);
+  });
 
-  test('stops at the header boundary so the next wheel event reaches the nested pane', () => {
+  test("stops at the header boundary so the next wheel event reaches the nested pane", () => {
     expect(
       getLockedHeaderWheelTarget({
         deltaY: 120,
@@ -21,7 +32,7 @@ describe('getLockedHeaderWheelTarget', () => {
         topHeight: 240,
         viewportWidth: 1440,
       }),
-    ).toBe(240)
+    ).toBe(240);
     expect(
       getLockedHeaderWheelTarget({
         deltaY: 120,
@@ -29,10 +40,10 @@ describe('getLockedHeaderWheelTarget', () => {
         topHeight: 240,
         viewportWidth: 1440,
       }),
-    ).toBeNull()
-  })
+    ).toBeNull();
+  });
 
-  test('leaves narrow layouts and upward boundary handoff to normal scrolling', () => {
+  test("leaves narrow layouts and upward boundary handoff to normal scrolling", () => {
     expect(
       getLockedHeaderWheelTarget({
         deltaY: 120,
@@ -40,7 +51,7 @@ describe('getLockedHeaderWheelTarget', () => {
         topHeight: 240,
         viewportWidth: 1024,
       }),
-    ).toBeNull()
+    ).toBeNull();
     expect(
       getLockedHeaderWheelTarget({
         deltaY: -120,
@@ -48,6 +59,6 @@ describe('getLockedHeaderWheelTarget', () => {
         topHeight: 240,
         viewportWidth: 1440,
       }),
-    ).toBeNull()
-  })
-})
+    ).toBeNull();
+  });
+});

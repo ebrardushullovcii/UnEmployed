@@ -47,10 +47,24 @@ describe("resume import common helpers", () => {
     ).toEqual(["Director, Product"]);
   });
 
+  test("preserves commas inside array-backed location candidates", () => {
+    expect(
+      toCandidateListValues({
+        target: {
+          section: "search_preferences",
+          key: "locations",
+          recordId: null,
+        },
+        value: ["Portland, Oregon"],
+      }),
+    ).toEqual(["Portland, Oregon"]);
+  });
+
   test("splits explicit narrative lines without keeping bullet markers", () => {
-    expect(toNarrativeStringArray("• Built the workflow dashboard.\n- Reduced triage time by 30%.")).toEqual([
-      "Built the workflow dashboard.",
-      "Reduced triage time by 30%.",
-    ]);
+    expect(
+      toNarrativeStringArray(
+        "• Built the workflow dashboard.\n- Reduced triage time by 30%.",
+      ),
+    ).toEqual(["Built the workflow dashboard.", "Reduced triage time by 30%."]);
   });
 });

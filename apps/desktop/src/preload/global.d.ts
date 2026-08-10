@@ -1,16 +1,35 @@
 import type {
+  ApplicationDocumentExportResult,
+  ApplicationDocumentListResult,
+  ApplicationDocumentRevision,
+  ApproveApplicationDocumentInput,
   ApplyRunDetails,
+  CandidateAssetDeleteInput,
+  CandidateAssetDeleteResult,
+  CandidateAssetImportInput,
+  CandidateAssetImportResult,
+  CandidateAssetListInput,
+  CandidateAssetListResult,
+  CandidateAssetRestoreInput,
+  CandidateAssetRestoreResult,
+  JobFinderApplicationPacketExportResult,
+  JobFinderDiagnosticExportResult,
   JobFinderApplyConsentActionInput,
   JobFinderApplyCopilotActionInput,
   JobFinderApplyQueueActionInput,
   CandidateProfile,
+  ClearApplicationAnswerCommandInput,
+  EditApplicationDocumentInput,
+  ExportApplicationDocumentInput,
   DesktopPlatformPing,
   EditableSourceInstructionArtifact,
   DesktopWindowControlsState,
   DiscoveryActivityEvent,
+  DiscoveryFeedbackReason,
   InterviewExportFormat,
   InterviewExportResult,
   JobFinderInterviewFollowUpInput,
+  ListApplicationDocumentsInput,
   InterviewHotkeyAction,
   InterviewOverlayMoveInput,
   InterviewAudioTranscriptionInput,
@@ -29,14 +48,18 @@ import type {
   JobFinderOpenBrowserSessionInput,
   ProfileCopilotContext,
   ProfileSetupReviewActionOptions,
+  ProposeApplicationDocumentInput,
   ResumeQualityBenchmarkReport,
   ResumeQualityBenchmarkRequest,
+  SaveApplicationAnswerCommandInput,
   ResumeImportBenchmarkReport,
   ResumeImportBenchmarkCase,
   ResumeImportBenchmarkRequest,
   ResumeImportFieldCandidate,
   ResumeImportProgressEvent,
   ResumeImportRun,
+  ResumeApplicationMode,
+  ResumeTimelineRepairAction,
   ResumeDocumentBundle,
   JobFinderPerformanceSnapshot,
   JobFinderResumePreview,
@@ -52,7 +75,11 @@ import type {
   SourceDebugRunDetails,
   SaveJobFinderWorkspaceInput,
   JobFinderWorkspaceSnapshot,
+  JobFinderWorkspaceEntityMutationInput,
+  JobFinderWorkspaceSyncResult,
   JobSearchPreferences,
+  WorkspaceRevision,
+  UserActionCommandInput,
 } from "@unemployed/contracts";
 
 declare global {
@@ -126,11 +153,47 @@ declare global {
         ) => Promise<JobFinderWorkspaceSnapshot>;
       };
       jobFinder: {
+        listApplicationDocuments: (
+          input: ListApplicationDocumentsInput,
+        ) => Promise<ApplicationDocumentListResult>;
+        proposeApplicationDocument: (
+          input: ProposeApplicationDocumentInput,
+        ) => Promise<ApplicationDocumentRevision>;
+        approveApplicationDocument: (
+          input: ApproveApplicationDocumentInput,
+        ) => Promise<ApplicationDocumentRevision>;
+        editApplicationDocument: (
+          input: EditApplicationDocumentInput,
+        ) => Promise<ApplicationDocumentRevision>;
+        exportApplicationDocument: (
+          input: ExportApplicationDocumentInput,
+        ) => Promise<ApplicationDocumentExportResult>;
+        listCandidateAssets: (
+          input?: CandidateAssetListInput,
+        ) => Promise<CandidateAssetListResult>;
+        importCandidateAsset: (
+          input: CandidateAssetImportInput,
+        ) => Promise<CandidateAssetImportResult>;
+        deleteCandidateAsset: (
+          input: CandidateAssetDeleteInput,
+        ) => Promise<CandidateAssetDeleteResult>;
+        restoreCandidateAsset: (
+          input: CandidateAssetRestoreInput,
+        ) => Promise<CandidateAssetRestoreResult>;
         getWorkspace: () => Promise<JobFinderWorkspaceSnapshot>;
+        syncWorkspace: (
+          baseRevision: WorkspaceRevision | null,
+        ) => Promise<JobFinderWorkspaceSyncResult>;
+        mutateWorkspaceEntities: (
+          input: JobFinderWorkspaceEntityMutationInput,
+        ) => Promise<JobFinderWorkspaceSyncResult>;
         openBrowserSession: (
           input?: JobFinderOpenBrowserSessionInput,
         ) => Promise<JobFinderWorkspaceSnapshot>;
         checkBrowserSession: () => Promise<JobFinderWorkspaceSnapshot>;
+        performUserAction: (
+          command: UserActionCommandInput,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
         saveProfile: (
           profile: CandidateProfile,
         ) => Promise<JobFinderWorkspaceSnapshot>;
@@ -157,6 +220,11 @@ declare global {
           reviewItemId: string,
           action: "confirm" | "dismiss" | "clear_value",
           options?: ProfileSetupReviewActionOptions,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
+        applyResumeTimelineRepairAction: (
+          runId: string,
+          proposalId: string,
+          action: ResumeTimelineRepairAction,
         ) => Promise<JobFinderWorkspaceSnapshot>;
         sendProfileCopilotMessage: (
           content: string,
@@ -194,6 +262,18 @@ declare global {
           runId: string,
           jobId: string,
         ) => Promise<ApplyRunDetails>;
+        saveApplicationAnswer: (
+          command: SaveApplicationAnswerCommandInput,
+        ) => Promise<ApplyRunDetails>;
+        clearApplicationAnswer: (
+          command: ClearApplicationAnswerCommandInput,
+        ) => Promise<ApplyRunDetails>;
+        exportDiagnostics: () => Promise<JobFinderDiagnosticExportResult>;
+        getPerformanceSnapshot: () => Promise<JobFinderPerformanceSnapshot>;
+        exportApplicationPacket: (
+          runId: string,
+          jobId: string,
+        ) => Promise<JobFinderApplicationPacketExportResult>;
         saveSourceInstructionArtifact: (
           targetId: string,
           artifact: EditableSourceInstructionArtifact,
@@ -214,10 +294,18 @@ declare global {
         queueJobForReview: (
           jobId: string,
         ) => Promise<JobFinderWorkspaceSnapshot>;
+        setJobResumeApplicationMode: (
+          jobId: string,
+          resumeApplicationMode: ResumeApplicationMode,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
         removeJobFromReview: (
           jobId: string,
         ) => Promise<JobFinderWorkspaceSnapshot>;
         dismissDiscoveryJob: (
+          jobId: string,
+          reasons: readonly DiscoveryFeedbackReason[],
+        ) => Promise<JobFinderWorkspaceSnapshot>;
+        restoreDismissedDiscoveryJob: (
           jobId: string,
         ) => Promise<JobFinderWorkspaceSnapshot>;
         getResumeWorkspace: (
@@ -228,6 +316,10 @@ declare global {
         ) => Promise<JobFinderResumePreview>;
         saveResumeDraft: (
           draft: ResumeDraft,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
+        restoreResumeDraftRevision: (
+          jobId: string,
+          revisionId: string,
         ) => Promise<JobFinderWorkspaceSnapshot>;
         regenerateResumeDraft: (
           jobId: string,
@@ -254,6 +346,12 @@ declare global {
         sendResumeAssistantMessage: (
           jobId: string,
           content: string,
+        ) => Promise<readonly ResumeAssistantMessage[]>;
+        resolveResumeAssistantProposal: (
+          jobId: string,
+          proposalId: string,
+          action: "accept" | "reject",
+          patchIds: readonly string[],
         ) => Promise<readonly ResumeAssistantMessage[]>;
         generateResume: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
         startApplyCopilotRun: (

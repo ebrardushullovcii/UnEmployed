@@ -57,6 +57,7 @@ export function ReviewQueueListPanel({
             const queueReady = isQueueStageReady(item);
             const selectedForQueue = queueSelection.includes(item.jobId);
             const queueCheckboxId = `${queueCheckboxIdPrefix}-${item.jobId}`;
+            const queueDisabledReasonId = `${queueCheckboxId}-disabled-reason`;
 
             return (
               <div
@@ -79,6 +80,11 @@ export function ReviewQueueListPanel({
                     )}
                   >
                     <Checkbox
+                      aria-describedby={
+                        !queueReady && !selectedForQueue
+                          ? queueDisabledReasonId
+                          : undefined
+                      }
                       id={queueCheckboxId}
                       checked={selectedForQueue}
                       disabled={!queueReady && !selectedForQueue}
@@ -114,7 +120,10 @@ export function ReviewQueueListPanel({
                       : "Job-specific tailored CV"}
                   </span>
                   {!queueReady ? (
-                    <span className="block w-full text-[0.76rem] leading-5 text-muted-foreground">
+                    <span
+                      className="block w-full text-[0.76rem] leading-5 text-muted-foreground"
+                      id={queueDisabledReasonId}
+                    >
                       Queue staging needs an approved ready PDF for this job.
                     </span>
                   ) : null}

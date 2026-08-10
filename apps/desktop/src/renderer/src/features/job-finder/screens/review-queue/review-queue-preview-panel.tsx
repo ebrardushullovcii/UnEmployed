@@ -1,4 +1,3 @@
-import type { CSSProperties } from 'react'
 import type { ResumeSourceDocument, ReviewQueueItem, SavedJob, TailoredAsset } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
 import { EmptyState } from '../../components/empty-state'
@@ -21,7 +20,18 @@ interface ReviewQueuePreviewPanelProps {
 
 type PreviewState = 'missing' | null
 
-export function ReviewQueuePreviewPanel({ displayedProgress, isGenerating: isSelectedJobPending = false, onEditResumeWorkspace, onGenerateResume, originalResume, previewState, queue, selectedAsset, selectedItem, selectedJob }: ReviewQueuePreviewPanelProps) {
+export function ReviewQueuePreviewPanel({
+  displayedProgress,
+  isGenerating: isSelectedJobPending = false,
+  onEditResumeWorkspace,
+  onGenerateResume,
+  originalResume,
+  previewState,
+  queue,
+  selectedAsset,
+  selectedItem,
+  selectedJob
+}: ReviewQueuePreviewPanelProps) {
   const needsGeneration = needsResumeGeneration(selectedItem)
   const hasGenerationFailure = hasResumeGenerationFailure(selectedItem)
   const isGenerating = isResumeGenerationInProgress(selectedItem) || isSelectedJobPending
@@ -29,17 +39,12 @@ export function ReviewQueuePreviewPanel({ displayedProgress, isGenerating: isSel
   const workflowStatus = getReviewQueueWorkflowStatus(selectedItem)
   const previewTone = previewState === 'missing' ? 'critical' : workflowStatus.tone
   const previewLabel = previewState === 'missing' ? 'Resume issue' : workflowStatus.label
-  const progressRingStyle = {
-    background: `conic-gradient(var(--primary) ${displayedProgress * 3.6}deg, color-mix(in srgb, var(--border) 32%, transparent) 0deg)`,
-  } satisfies CSSProperties
 
   return (
     <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col gap-4 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
       <header className="flex flex-wrap items-start justify-between gap-3 px-5 pt-5">
         <h2 className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-foreground">Resume</h2>
-        <StatusBadge tone={previewTone}>
-          {previewLabel}
-        </StatusBadge>
+        <StatusBadge tone={previewTone}>{previewLabel}</StatusBadge>
       </header>
       {queue.length === 0 ? (
         <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
@@ -58,45 +63,68 @@ export function ReviewQueuePreviewPanel({ displayedProgress, isGenerating: isSel
       ) : null}
       {queue.length > 0 && selectedItem && showGenerationState ? (
         <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
-            <div className="grid w-full min-h-full place-items-center content-center gap-4 rounded-(--radius-field) bg-(--surface-panel-tint) p-8 text-center">
-              {isGenerating ? (
-                <div className="grid aspect-square w-40 place-items-center rounded-full p-[3px]" style={progressRingStyle}>
-                  <div className="grid size-full place-items-center rounded-full bg-(--surface-panel-tint) text-[1.1rem] font-semibold text-(--text-headline)">
-                    <span>{displayedProgress}%</span>
-                  </div>
+          <div className="grid w-full min-h-full place-items-center content-center gap-4 rounded-(--radius-field) bg-(--surface-panel-tint) p-8 text-center">
+            {isGenerating ? (
+              <div
+                aria-label="Estimated resume preparation progress"
+                aria-valuemax={100}
+                aria-valuemin={0}
+                aria-valuenow={displayedProgress}
+                aria-valuetext={`${displayedProgress}% estimated`}
+                className="grid w-full max-w-xl gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/35 p-5 text-left"
+                role="progressbar"
+              >
+                <div className="flex flex-wrap items-baseline justify-between gap-3">
+                  <span className="label-mono-xs text-foreground-muted">Draft and PDF</span>
+                  <strong className="text-[1.15rem] text-(--text-headline)">{displayedProgress}% estimated</strong>
                 </div>
-              ) : null}
-              <h2 className="text-[1.4rem] font-semibold tracking-[-0.03em] text-(--text-headline)">{hasGenerationFailure ? 'Resume issue' : isGenerating ? 'Preparing resume' : needsGeneration ? 'No tailored resume yet' : 'Preparing resume'}</h2>
-              <p className="max-w-136 text-(length:--text-body) leading-7 text-foreground-soft">
-                {hasGenerationFailure
-                  ? `The last tailored resume attempt for ${selectedItem.title} did not finish. Try again to create a fresh draft.`
-                  : isGenerating
+                <div className="h-2.5 overflow-hidden rounded-full bg-(--surface-progress-track)">
+                  <div
+                    className="h-full rounded-full bg-primary transition-[width] duration-500 motion-reduce:transition-none"
+                    style={{ width: `${displayedProgress}%` }}
+                  />
+                </div>
+                <p className="text-(length:--text-small) leading-5 text-foreground-muted">
+                  You can leave this screen. Progress keeps its place while the same resume is being prepared.
+                </p>
+              </div>
+            ) : null}
+            <h2 className="text-[1.4rem] font-semibold tracking-[-0.03em] text-(--text-headline)">
+              {hasGenerationFailure ? 'Resume issue' : isGenerating ? 'Preparing resume' : needsGeneration ? 'No tailored resume yet' : 'Preparing resume'}
+            </h2>
+            <p className="max-w-136 text-(length:--text-body) leading-7 text-foreground-soft">
+              {hasGenerationFailure
+                ? `The last tailored resume attempt for ${selectedItem.title} did not finish. Try again to create a fresh draft.`
+                : isGenerating
                   ? `Job Finder is preparing the resume for ${selectedItem.title}. This progress indicator is an estimate while the draft and PDF are being built.`
                   : needsGeneration
-                  ? `Create a tailored resume for ${selectedItem.title} to continue.`
-                  : `Job Finder is still preparing the resume for ${selectedItem.title}. You can continue once it is ready.`}
-              </p>
-              {!isGenerating ? (
-                <div className="flex flex-wrap items-center justify-center gap-3">
-                  <Button disabled={isSelectedJobPending} pending={isSelectedJobPending} onClick={() => onGenerateResume(selectedItem.jobId)} type="button" variant="primary">
-                    {hasGenerationFailure ? 'Try again' : 'Create tailored resume'}
+                    ? `Create a tailored resume for ${selectedItem.title} to continue.`
+                    : `Job Finder is still preparing the resume for ${selectedItem.title}. You can continue once it is ready.`}
+            </p>
+            {!isGenerating ? (
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                <Button
+                  disabled={isSelectedJobPending}
+                  pending={isSelectedJobPending}
+                  onClick={() => onGenerateResume(selectedItem.jobId)}
+                  type="button"
+                  variant="primary"
+                >
+                  {hasGenerationFailure ? 'Try again' : 'Create tailored resume'}
+                </Button>
+                {hasGenerationFailure ? (
+                  <Button onClick={() => onEditResumeWorkspace(selectedItem.jobId)} type="button" variant="secondary">
+                    Open resume workspace
                   </Button>
-                  {hasGenerationFailure ? (
-                    <Button onClick={() => onEditResumeWorkspace(selectedItem.jobId)} type="button" variant="secondary">
-                      Open resume workspace
-                    </Button>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
+        </div>
       ) : null}
       {queue.length > 0 && !selectedItem ? (
         <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
-          <EmptyState
-            title="Choose a job"
-            description="Select a shortlisted job to see what the resume needs next."
-          />
+          <EmptyState title="Choose a job" description="Select a shortlisted job to see what the resume needs next." />
         </div>
       ) : null}
       {queue.length > 0 && selectedItem?.resumeReview.status === 'original_resume' ? (
@@ -114,7 +142,8 @@ export function ReviewQueuePreviewPanel({ displayedProgress, isGenerating: isSel
             </p>
             <div className="rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) px-4 py-3 text-sm leading-6 text-(--warning-text)">
               <strong className="block text-foreground">Check sensitive personal details before attaching</strong>
-              Original CVs can include a home address, date of birth, nationality, phone number, or other details you may not want to share with every employer. Review the preview below before starting Apply Copilot.
+              Original CVs can include a home address, date of birth, nationality, phone number, or other details you may not want to share with every employer.
+              Review the preview below before starting Apply Copilot.
             </div>
             <dl className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/35 px-4 py-3 text-sm sm:grid-cols-2">
               <div className="grid gap-1">
@@ -130,7 +159,9 @@ export function ReviewQueuePreviewPanel({ displayedProgress, isGenerating: isSel
             </dl>
             <div className="grid gap-2">
               <span className="label-mono-xs">Read-only extracted text preview</span>
-              <p className="text-sm leading-6 text-foreground-soft">This preview is only for review. The attachment remains the original imported file shown above.</p>
+              <p className="text-sm leading-6 text-foreground-soft">
+                This preview is only for review. The attachment remains the original imported file shown above.
+              </p>
               {originalResume?.textContent ? (
                 <div className="max-h-[56vh] overflow-y-auto whitespace-pre-wrap rounded-(--radius-field) border border-(--surface-panel-border) bg-background/35 p-5 text-sm leading-7 text-foreground-soft">
                   {originalResume.textContent}
@@ -147,8 +178,13 @@ export function ReviewQueuePreviewPanel({ displayedProgress, isGenerating: isSel
       {queue.length > 0 && selectedItem?.resumeApplicationMode === 'original_resume' && selectedItem.resumeReview.status !== 'original_resume' ? (
         <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
           <div className="grid w-full max-w-xl gap-4 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) p-8 text-center">
-            <EmptyState title="Original CV unavailable" description="Import or re-import your original CV in Profile. This mode never substitutes a tailored resume when the original file is missing." />
-            <Button asChild type="button" variant="primary"><a href={JOB_FINDER_ROUTE_HREFS.profile}>Go to Profile</a></Button>
+            <EmptyState
+              title="Original CV unavailable"
+              description="Import or re-import your original CV in Profile. This mode never substitutes a tailored resume when the original file is missing."
+            />
+            <Button asChild type="button" variant="primary">
+              <a href={JOB_FINDER_ROUTE_HREFS.profile}>Go to Profile</a>
+            </Button>
           </div>
         </div>
       ) : null}
@@ -174,9 +210,7 @@ export function ReviewQueuePreviewPanel({ displayedProgress, isGenerating: isSel
               <strong className="text-[1.1rem] text-(--text-headline)">{selectedJob?.title ?? selectedItem.title}</strong>
               <div className="flex flex-wrap items-center justify-end gap-2">
                 <span className="text-[0.9rem] text-foreground-soft">{selectedAsset.label}</span>
-                <StatusBadge tone={workflowStatus.tone}>
-                  {workflowStatus.label}
-                </StatusBadge>
+                <StatusBadge tone={workflowStatus.tone}>{workflowStatus.label}</StatusBadge>
               </div>
             </div>
             {selectedItem.resumeReview.status === 'approved' ? (
@@ -211,7 +245,9 @@ export function ReviewQueuePreviewPanel({ displayedProgress, isGenerating: isSel
               <div key={`${section.heading}-${sectionIndex}`} className="grid gap-2">
                 <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">{section.heading}</p>
                 {section.lines.map((line, lineIndex) => (
-                  <p key={`${section.heading}-${lineIndex}-${line}`} className="text-(length:--text-body) leading-7 text-foreground-soft">{line}</p>
+                  <p key={`${section.heading}-${lineIndex}-${line}`} className="text-(length:--text-body) leading-7 text-foreground-soft">
+                    {line}
+                  </p>
                 ))}
               </div>
             ))}

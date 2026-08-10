@@ -10,7 +10,10 @@ import type {
   ResumeAssistantMessage,
   ResumeTemplateDefinition,
 } from "@unemployed/contracts";
-import { getResumeIdentityTargetId } from "@unemployed/contracts";
+import {
+  getResumeIdentityTargetId,
+  ResumeDraftRevisionSchema,
+} from "@unemployed/contracts";
 import { JobFinderResumeWorkspaceSchema } from "@unemployed/contracts";
 import {
   afterAll,
@@ -178,6 +181,38 @@ function buildWorkspace(): JobFinderResumeWorkspace {
   });
 }
 
+function buildWorkspaceWithRevision(): JobFinderResumeWorkspace {
+  const workspace = buildWorkspace();
+
+  return JobFinderResumeWorkspaceSchema.parse({
+    ...workspace,
+    revisions: [
+      ResumeDraftRevisionSchema.parse({
+        id: "revision_restore_1",
+        draftId: workspace.draft.id,
+        parentRevisionId: null,
+        actor: "user",
+        mutationKind: "manual_save",
+        snapshotDraft: workspace.draft,
+        snapshotIdentity: workspace.draft.identity,
+        snapshotSections: workspace.draft.sections,
+        beforeHash: "before_restore_1",
+        afterHash: "after_restore_1",
+        diff: {
+          templateChanged: false,
+          identityChanged: false,
+          sectionOrderChanged: false,
+          addedSectionIds: [],
+          removedSectionIds: [],
+          changedSectionIds: ["section_summary"],
+        },
+        restoredFromRevisionId: null,
+        createdAt: "2026-04-27T00:00:00.000Z",
+        reason: "Before template change",
+      }),
+    ],
+  });
+}
 function buildPreview(
   revisionKey: string,
   htmlText: string,
@@ -206,6 +241,11 @@ function buildAssistantMessage(
     role: overrides?.role ?? "assistant",
     content: overrides?.content ?? "Draft update ready.",
     patches: overrides?.patches ?? [],
+    proposalStatus: overrides?.proposalStatus ?? "none",
+    baseDraftUpdatedAt: overrides?.baseDraftUpdatedAt ?? null,
+    resolvedPatchIds: overrides?.resolvedPatchIds ?? [],
+    resolvedAt: overrides?.resolvedAt ?? null,
+    proposalError: overrides?.proposalError ?? null,
     createdAt: overrides?.createdAt ?? "2026-04-27T00:00:00.000Z",
   };
 }
@@ -219,11 +259,19 @@ function renderScreen(options?: {
   ) => void;
   onPreviewDraft?: (draft: ResumeDraft) => Promise<JobFinderResumePreview>;
   onRegenerateDraft?: (jobId: string) => void;
+  onResolveAssistantProposal?: (
+    jobId: string,
+    proposalId: string,
+    action: "accept" | "reject",
+    patchIds: readonly string[],
+  ) => void;
+  onRestoreRevision?: (jobId: string, revisionId: string) => void;
   onSaveDraftAndThen?: (
     draft: ResumeDraft,
     next: () => void | Promise<void>,
     successMessage?: string | null,
   ) => void;
+  workspace?: JobFinderResumeWorkspace | null;
 }) {
   const onPreviewDraft =
     options?.onPreviewDraft ??
@@ -246,11 +294,17 @@ function renderScreen(options?: {
       onPreviewDraft={onPreviewDraft}
       onRefresh={vi.fn()}
       onRegenerateDraft={options?.onRegenerateDraft ?? vi.fn()}
+      onResolveAssistantProposal={
+        options?.onResolveAssistantProposal ?? vi.fn()
+      }
       onRegenerateSection={vi.fn()}
+      onRestoreRevision={options?.onRestoreRevision ?? vi.fn()}
       onSaveDraft={vi.fn()}
       onSaveDraftAndThen={options?.onSaveDraftAndThen ?? vi.fn()}
       onSendAssistantMessage={vi.fn()}
-      workspace={buildWorkspace()}
+      workspace={
+        options && "workspace" in options ? options.workspace : buildWorkspace()
+      }
     />,
   );
 }
@@ -313,6 +367,34 @@ describe("ResumeWorkspaceScreen", () => {
       vi.unstubAllGlobals();
     }
     vi.clearAllMocks();
+  });
+
+  it("shows an honest loading state while the resume workspace is fetched", () => {
+    renderScreen({ workspace: null });
+
+    expect(
+      screen.getByRole("heading", { name: "Loading Resume Studio" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Loading the saved draft, validation, and version history.",
+      ),
+    ).toBeTruthy();
+  });
+  it("makes the resume-to-application handoff explicit", () => {
+    renderScreen();
+
+    expect(screen.getByText("Your next step")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Review → export → approve → return to Shortlisted. Final application submission stays disabled.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: /Continue to Shortlisted|Approve this PDF|Export review PDF/,
+      }),
+    ).toBeTruthy();
   });
 
   it("shows preview fallback while keeping editing available when preview rendering fails", async () => {
@@ -419,10 +501,12 @@ describe("ResumeWorkspaceScreen", () => {
       screen.getAllByText("Engineering Spec · Skills First").length,
     ).toBeGreaterThan(0);
     expect(
-      screen.getAllByRole("button", { name: "Use this template" }).length,
+      screen.getAllByRole("button", {
+        name: /template: Engineering Spec · Skills First$/,
+      }).length,
     ).toBeGreaterThan(0);
     expect(
-      screen.getAllByRole("button", { name: "Open guided edits" }).length,
+      screen.getAllByRole("button", { name: /^Open guided edits/ }).length,
     ).toBeGreaterThan(0);
   });
 
@@ -448,6 +532,22 @@ describe("ResumeWorkspaceScreen", () => {
     ).toBeGreaterThan(0);
   });
 
+  it("anchors the untouched guided edits bubble to the viewport bottom-left", async () => {
+    renderScreen();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    const popupRoot = document.querySelector<HTMLElement>(
+      "[data-resume-guided-edits-open]",
+    );
+
+    expect(popupRoot?.parentElement).toBe(document.body);
+    expect(popupRoot?.style.bottom).toBe("16px");
+    expect(popupRoot?.style.left).toBe("16px");
+    expect(popupRoot?.style.top).toBe("");
+  });
   it("opens the guided edits popup from the always-available bubble", async () => {
     renderScreen();
 
@@ -455,7 +555,7 @@ describe("ResumeWorkspaceScreen", () => {
       await vi.advanceTimersByTimeAsync(100);
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Open guided edits" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Open guided edits/ }));
 
     const guidedEditToggle = screen
       .getAllByRole("button", { name: "Minimize guided edits" })
@@ -496,6 +596,7 @@ describe("ResumeWorkspaceScreen", () => {
         onRefresh={vi.fn()}
         onRegenerateDraft={vi.fn()}
         onRegenerateSection={vi.fn()}
+        onRestoreRevision={vi.fn()}
         onSaveDraft={vi.fn()}
         onSaveDraftAndThen={vi.fn()}
         onSendAssistantMessage={vi.fn()}
@@ -536,6 +637,7 @@ describe("ResumeWorkspaceScreen", () => {
           onRefresh={vi.fn()}
           onRegenerateDraft={vi.fn()}
           onRegenerateSection={vi.fn()}
+          onRestoreRevision={vi.fn()}
           onSaveDraft={vi.fn()}
           onSaveDraftAndThen={vi.fn()}
           onSendAssistantMessage={vi.fn()}
@@ -550,6 +652,65 @@ describe("ResumeWorkspaceScreen", () => {
     expect(
       screen.getAllByText("Here is the update you asked for.").length,
     ).toBeGreaterThan(0);
+  });
+
+  it("previews assistant patches and applies only the selected proposal changes", async () => {
+    const workspace = buildWorkspace();
+    const section = workspace.draft.sections.find((entry) => entry.text);
+    if (!section) {
+      throw new Error("Expected a text section for proposal preview coverage.");
+    }
+    const onResolveAssistantProposal = vi.fn();
+    renderScreen({
+      assistantMessages: [
+        buildAssistantMessage({
+          id: "proposal_1",
+          proposalStatus: "pending",
+          baseDraftUpdatedAt: workspace.draft.updatedAt,
+          patches: [
+            {
+              id: "proposal_patch_1",
+              draftId: workspace.draft.id,
+              operation: "replace_section_text",
+              targetSectionId: section.id,
+              targetEntryId: null,
+              anchorEntryId: null,
+              targetBulletId: null,
+              anchorBulletId: null,
+              position: null,
+              newText: "A clearer proposed summary.",
+              newIncluded: null,
+              newLocked: null,
+              newBullets: null,
+              appliedAt: "2026-04-27T00:01:00.000Z",
+              origin: "assistant",
+              conflictReason: null,
+            },
+          ],
+        }),
+      ],
+      onResolveAssistantProposal,
+      workspace,
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Open guided edits/ }));
+
+    expect(screen.getAllByText(section.text!).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText("A clearer proposed summary.").length,
+    ).toBeGreaterThan(0);
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Accept selected (1)" }).at(-1)!,
+    );
+    expect(onResolveAssistantProposal).toHaveBeenCalledWith(
+      "job_ready",
+      "proposal_1",
+      "accept",
+      ["proposal_patch_1"],
+    );
   });
 
   it("keeps preview-selected identity fields focused instead of jumping to summary", async () => {
@@ -594,16 +755,23 @@ describe("ResumeWorkspaceScreen", () => {
       await vi.advanceTimersByTimeAsync(100);
     });
 
-    const summaryInput = screen.getAllByLabelText("Section text")[0] as HTMLTextAreaElement;
+    const summaryInput = screen.getAllByLabelText(
+      "Section text",
+    )[0] as HTMLTextAreaElement;
     fireEvent.change(summaryInput, {
-      target: { value: "Unsaved stale summary that should not be persisted before rebuild." },
+      target: {
+        value:
+          "Unsaved stale summary that should not be persisted before rebuild.",
+      },
     });
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400);
     });
 
-    fireEvent.click(screen.getAllByRole("button", { name: /refresh draft/i })[0]!);
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /refresh draft/i })[0]!,
+    );
 
     expect(onSaveDraftAndThen).toHaveBeenCalledTimes(1);
     expect(onRegenerateDraft).not.toHaveBeenCalled();
@@ -615,6 +783,52 @@ describe("ResumeWorkspaceScreen", () => {
     expect(onRegenerateDraft).toHaveBeenCalledWith("job_ready");
   });
 
+  it("saves unsaved edits before restoring an earlier draft", async () => {
+    const onRestoreRevision = vi.fn();
+    const onSaveDraftAndThen = vi.fn();
+
+    renderScreen({
+      onRestoreRevision,
+      onSaveDraftAndThen,
+      workspace: buildWorkspaceWithRevision(),
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    const summaryInput = screen.getAllByLabelText(
+      "Section text",
+    )[0] as HTMLTextAreaElement;
+    fireEvent.change(summaryInput, {
+      target: { value: "Unsaved summary that must be saved before restore." },
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Restore version saved/i }),
+    );
+
+    expect(onSaveDraftAndThen).toHaveBeenCalledTimes(1);
+    expect(onRestoreRevision).not.toHaveBeenCalled();
+
+    const followUp = onSaveDraftAndThen.mock.calls[0]?.[1] as
+      | (() => void | Promise<void>)
+      | undefined;
+    expect(followUp).toBeTypeOf("function");
+    await followUp?.();
+
+    expect(onRestoreRevision).toHaveBeenCalledWith(
+      "job_ready",
+      "revision_restore_1",
+    );
+    expect(onSaveDraftAndThen.mock.calls[0]?.[2]).toBe(
+      "Saved your current edits before restoring the earlier draft.",
+    );
+  });
   it("shows work-history review guidance in the editor", async () => {
     renderScreen({
       onPreviewDraft: () =>
@@ -638,7 +852,6 @@ describe("ResumeWorkspaceScreen", () => {
         "Hidden by default for review: this role has a weaker career-family fit for the target job.",
       ).length,
     ).toBeGreaterThan(0);
-
   });
 
   it("exposes manual entry ordering controls and sends typed reorder patches", async () => {
@@ -771,6 +984,7 @@ describe("ResumeWorkspaceScreen", () => {
         onRefresh={vi.fn()}
         onRegenerateDraft={vi.fn()}
         onRegenerateSection={vi.fn()}
+        onRestoreRevision={vi.fn()}
         onSaveDraft={vi.fn()}
         onSaveDraftAndThen={vi.fn()}
         onSendAssistantMessage={vi.fn()}

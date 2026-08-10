@@ -96,6 +96,9 @@ async function run() {
   try {
     const window = await app.firstWindow();
     await window.waitForLoadState("domcontentloaded");
+    await window.evaluate(() => {
+      window.location.hash = "/interview-helper";
+    });
     await window.evaluate(async () => {
       await window.unemployed.interviewHelper.saveSetup({
         consent: {

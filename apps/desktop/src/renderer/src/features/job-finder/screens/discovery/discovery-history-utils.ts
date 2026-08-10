@@ -7,10 +7,20 @@ import type {
 
 export type DiscoveryTargetConfig = JobSearchPreferences['discovery']['targets'][number]
 
+function createEmptyChangeDigest(): DiscoveryTargetExecution['changeDigest'] {
+  return {
+    new: 0,
+    unchanged: 0,
+    changed: 0,
+    reactivated: 0,
+    inactive: 0,
+    known: 0,
+    skipped: 0
+  }
+}
+
 export function formatOutcomeLabel(value: DiscoveryRunRecord['summary']['outcome']): string {
-  return value === 'running'
-    ? 'Running now'
-    : value.charAt(0).toUpperCase() + value.slice(1)
+  return value === 'running' ? 'Running now' : value.charAt(0).toUpperCase() + value.slice(1)
 }
 
 function createPlannedExecution(target: DiscoveryTargetConfig): DiscoveryTargetExecution {
@@ -23,9 +33,16 @@ function createPlannedExecution(target: DiscoveryTargetConfig): DiscoveryTargetE
     state: 'planned',
     startedAt: null,
     completedAt: null,
+    requestedJobBudget: null,
+    jobsReviewed: 0,
     jobsFound: 0,
     jobsPersisted: 0,
     jobsStaged: 0,
+    jobsSkippedByLedger: 0,
+    jobsSkippedByTitleTriage: 0,
+    duplicatesMerged: 0,
+    invalidSkipped: 0,
+    changeDigest: createEmptyChangeDigest(),
     warning: null,
     compactionState: null,
     compactionUsedFallbackTrigger: false,
@@ -43,9 +60,16 @@ function createSyntheticExecution(event: DiscoveryActivityEvent): DiscoveryTarge
     state: 'planned',
     startedAt: null,
     completedAt: null,
+    requestedJobBudget: null,
+    jobsReviewed: 0,
     jobsFound: 0,
     jobsPersisted: 0,
     jobsStaged: 0,
+    jobsSkippedByLedger: 0,
+    jobsSkippedByTitleTriage: 0,
+    duplicatesMerged: 0,
+    invalidSkipped: 0,
+    changeDigest: createEmptyChangeDigest(),
     warning: null,
     compactionState: null,
     compactionUsedFallbackTrigger: false,
@@ -116,7 +140,7 @@ export function buildLiveRunRecord(
       jobsPersisted: event.jobsPersisted ?? currentExecution.jobsPersisted,
       jobsStaged: event.jobsStaged ?? currentExecution.jobsStaged,
       collectionMethod: event.collectionMethod ?? currentExecution.collectionMethod,
-      sourceIntelligenceProvider: event.sourceIntelligenceProvider ?? currentExecution.sourceIntelligenceProvider,
+      sourceIntelligenceProvider: event.sourceIntelligenceProvider ?? currentExecution.sourceIntelligenceProvider
     }
 
     if (event.stage === 'target' && event.message.startsWith('Starting target')) {
@@ -129,7 +153,8 @@ export function buildLiveRunRecord(
       nextExecution.state = terminalState
       nextExecution.startedAt = nextExecution.startedAt ?? event.timestamp
       nextExecution.completedAt = event.timestamp
-      nextExecution.warning = event.kind === 'warning' || event.kind === 'error' ? event.message : currentExecution.warning
+      nextExecution.warning =
+        event.kind === 'warning' || event.kind === 'error' ? event.message : currentExecution.warning
     }
 
     if (event.stage !== 'target' && nextExecution.state === 'planned') {
@@ -141,7 +166,26 @@ export function buildLiveRunRecord(
   }
 
   const targetExecutions = [...executions.values()]
-  const targetsCompleted = targetExecutions.filter((execution) => execution.state !== 'planned' && execution.state !== 'running').length
+  const targetsCompleted = targetExecutions.filter(
+    (execution) => execution.state !== 'planned' && execution.state !== 'running'
+  ).length
+  const sourceHealth = targetExecutions.map((execution) => ({
+    targetId: execution.targetId,
+    health:
+      execution.state === 'completed'
+        ? execution.warning
+          ? ('warning' as const)
+          : ('healthy' as const)
+        : execution.state === 'failed'
+          ? ('failed' as const)
+          : execution.state === 'cancelled'
+            ? ('cancelled' as const)
+            : execution.state === 'skipped'
+              ? ('skipped' as const)
+              : ('pending' as const),
+    durationMs: execution.timing?.totalDurationMs ?? 0,
+    warnings: execution.warning ? [execution.warning] : []
+  }))
   const isSingleTargetRun =
     enabledTargets.length === 1 ||
     runEvents.some((event) => event.message.toLowerCase().includes('planning discovery for'))
@@ -165,6 +209,9 @@ export function buildLiveRunRecord(
       jobsSkippedByTitleTriage: 0,
       duplicatesMerged: 0,
       invalidSkipped: 0,
+      changeDigest: createEmptyChangeDigest(),
+      sourceHealth,
+      warnings: sourceHealth.flatMap((source) => source.warnings),
       durationMs: Math.max(0, new Date().getTime() - new Date(firstEvent.timestamp).getTime()),
       outcome: 'running',
       browserCloseout: null,

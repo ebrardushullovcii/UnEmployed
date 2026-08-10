@@ -260,4 +260,44 @@ describe('ProfileSetupImportStep', () => {
       selectedConflictChoiceId: 'choice_vision',
     })
   })
+
+  it('labels pending optional suggestions as non-blocking', () => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+
+    act(() => {
+      root?.render(
+        <ProfileSetupReviewQueueCard
+          actionsDisabledReason={null}
+          isReviewItemPending={() => false}
+          items={[{
+            id: 'review_optional_proof',
+            step: 'narrative',
+            target: { domain: 'proof_point', key: 'record', recordId: 'proof_1' },
+            label: 'Optional achievement proof',
+            reason: 'Review before reuse.',
+            severity: 'optional',
+            status: 'pending',
+            savedStatus: 'pending',
+            statusSource: 'saved',
+            proposedValue: 'A grounded achievement',
+            sourceSnippet: 'A grounded achievement',
+            sourceCandidateId: 'candidate_optional_proof',
+            sourceRunId: 'resume_import_run_1',
+            createdAt: '2026-07-31T04:00:00.000Z',
+            resolvedAt: null,
+          }]}
+          latestResumeImportReviewCandidates={[]}
+          onApplyReviewAction={vi.fn()}
+          onEditReviewItem={vi.fn()}
+        />,
+      )
+    })
+
+    expect(container?.textContent).toContain(
+      '1 optional suggestion is available. Optional suggestions do not block setup.',
+    )
+    expect(container?.textContent).not.toContain('needs confirmation or an edit')
+  })
 })

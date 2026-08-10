@@ -739,7 +739,6 @@ function renderSwissAccentHeader(renderDocument: ResumeRenderDocument, mode: Ren
   const contactValues = buildHeaderIdentityValues(renderDocument)
 
   return `<header class="header header-swiss-accent">
-      <p class="eyebrow">Modern Editorial</p>
       <div class="identity-block">
         ${renderIdentityFieldTag({ mode, field: 'fullName', tagName: 'h1', className: 'name name-left', text: renderDocument.fullName })}
         ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: 'headline', tagName: 'p', className: 'headline headline-left', text: renderDocument.headline }) : ''}
@@ -756,7 +755,6 @@ function renderExecutiveHeader(
   const contactValues = buildHeaderIdentityValues(renderDocument)
 
   return `<header class="header header-executive${variant === 'credentials' ? ' header-executive-credentials' : ''}">
-      <p class="eyebrow">${variant === 'credentials' ? 'Formal Proof' : 'Senior Brief'}</p>
       <div class="identity-block identity-block-tight">
         ${renderIdentityFieldTag({ mode, field: 'fullName', tagName: 'h1', className: 'name', text: renderDocument.fullName })}
         ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: 'headline', tagName: 'p', className: 'headline headline-executive', text: renderDocument.headline }) : ''}
@@ -771,7 +769,6 @@ function renderEngineeringSpecHeader(renderDocument: ResumeRenderDocument, mode:
   return `<header class="header header-spec">
       <div class="header-spec-shell">
         <div class="identity-block">
-          <p class="eyebrow">Engineering Spec</p>
           ${renderIdentityFieldTag({ mode, field: 'fullName', tagName: 'h1', className: 'name name-left', text: renderDocument.fullName })}
           ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: 'headline', tagName: 'p', className: 'headline headline-left headline-spec', text: renderDocument.headline }) : ''}
         </div>
@@ -784,7 +781,6 @@ function renderPortfolioHeader(renderDocument: ResumeRenderDocument, mode: Rende
   const contactValues = buildHeaderIdentityValues(renderDocument)
 
   return `<header class="header header-portfolio">
-      <p class="eyebrow">Proof Portfolio</p>
       <div class="identity-block">
         ${renderIdentityFieldTag({ mode, field: 'fullName', tagName: 'h1', className: 'name name-left', text: renderDocument.fullName })}
         ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: 'headline', tagName: 'p', className: 'headline headline-left headline-portfolio', text: renderDocument.headline }) : ''}
@@ -797,8 +793,7 @@ function renderLongformHeader(renderDocument: ResumeRenderDocument, mode: Render
   const contactValues = buildHeaderIdentityValues(renderDocument)
 
   return `<header class="header header-longform">
-      <div class="header-longform-topline">
-        <p class="eyebrow">Longform Timeline</p>
+      <div class="header-longform-topline header-longform-topline-contact">
         ${renderIdentityMeta(contactValues, 'meta meta-longform', mode)}
       </div>
       <div class="identity-block">
@@ -812,7 +807,6 @@ function renderCareerPivotHeader(renderDocument: ResumeRenderDocument, mode: Ren
   const contactValues = buildHeaderIdentityValues(renderDocument)
 
   return `<header class="header header-pivot">
-      <p class="eyebrow">Career Pivot Bridge</p>
       <div class="identity-block identity-block-pivot">
         ${renderIdentityFieldTag({ mode, field: 'fullName', tagName: 'h1', className: 'name name-left name-pivot', text: renderDocument.fullName })}
         ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: 'headline', tagName: 'p', className: 'headline headline-left headline-pivot', text: renderDocument.headline }) : ''}
@@ -1237,14 +1231,14 @@ export function renderResumeTemplateHtml(input: {
       --resume-selected-surface: var(--surface-fill-soft, rgba(31, 58, 95, 0.06));
       --resume-hover-shadow: var(--border-strong, rgba(31, 58, 95, 0.18));
       --resume-hover-surface: var(--surface-fill-subtle, rgba(31, 58, 95, 0.04));
-      --resume-page-padding-classic: 0.5in 0.58in;
-      --resume-page-padding-compact: 0.45in 0.5in;
-      --resume-page-padding-modern: 0.52in 0.58in;
-      --resume-page-padding-technical: 0.48in 0.54in;
-      --resume-page-padding-projects: 0.56in 0.6in;
-      --resume-page-padding-credentials: 0.52in 0.58in;
-      --resume-page-padding-longform: 0.42in 0.48in;
-      --resume-page-padding-pivot: 0.52in 0.58in;
+      --resume-page-padding-classic: 0.52in 0.62in;
+      --resume-page-padding-compact: 0.44in 0.54in;
+      --resume-page-padding-modern: 0.54in 0.64in;
+      --resume-page-padding-technical: 0.48in 0.58in;
+      --resume-page-padding-projects: 0.56in 0.66in;
+      --resume-page-padding-credentials: 0.52in 0.64in;
+      --resume-page-padding-longform: 0.4in 0.52in;
+      --resume-page-padding-pivot: 0.52in 0.64in;
       --resume-catalog-page-padding-classic: 0.42in 0.48in;
       --resume-catalog-page-padding-compact: 0.38in 0.42in;
       --resume-catalog-page-padding-modern: 0.42in 0.48in;
@@ -1253,30 +1247,30 @@ export function renderResumeTemplateHtml(input: {
       --resume-catalog-page-padding-credentials: 0.42in 0.48in;
       --resume-catalog-page-padding-longform: 0.34in 0.4in;
       --resume-catalog-page-padding-pivot: 0.42in 0.48in;
-      --resume-classic-accent: var(--foreground, #202124);
-      --resume-classic-line: var(--border, #cfd6df);
-      --resume-classic-surface: color-mix(in srgb, var(--resume-paper) 94%, black 6%);
-      --resume-compact-accent: var(--foreground, #202124);
-      --resume-compact-line: var(--border, #cfd6df);
-      --resume-compact-surface: color-mix(in srgb, var(--resume-paper) 94%, black 6%);
-      --resume-modern-accent: var(--foreground, #202124);
-      --resume-modern-line: var(--border, #cfd6df);
-      --resume-modern-surface: color-mix(in srgb, var(--resume-paper) 94%, black 6%);
-      --resume-technical-accent: var(--foreground, #202124);
-      --resume-technical-line: var(--border, #cfd6df);
-      --resume-technical-surface: color-mix(in srgb, var(--resume-paper) 94%, black 6%);
-      --resume-projects-accent: var(--foreground, #202124);
-      --resume-projects-line: var(--border, #cfd6df);
-      --resume-projects-surface: color-mix(in srgb, var(--resume-paper) 94%, black 6%);
-      --resume-credentials-accent: var(--foreground, #202124);
-      --resume-credentials-line: var(--border, #cfd6df);
-      --resume-credentials-surface: color-mix(in srgb, var(--resume-paper) 94%, black 6%);
-      --resume-longform-accent: var(--foreground, #202124);
-      --resume-longform-line: var(--border, #cfd6df);
-      --resume-longform-surface: color-mix(in srgb, var(--resume-paper) 94%, black 6%);
-      --resume-pivot-accent: var(--foreground, #202124);
-      --resume-pivot-line: var(--border, #cfd6df);
-      --resume-pivot-surface: color-mix(in srgb, var(--resume-paper) 94%, black 6%);
+      --resume-classic-accent: #1f2933;
+      --resume-classic-line: #c7cdd3;
+      --resume-classic-surface: #f6f7f8;
+      --resume-compact-accent: #182433;
+      --resume-compact-line: #aeb8c2;
+      --resume-compact-surface: #f4f6f7;
+      --resume-modern-accent: #145c63;
+      --resume-modern-line: #b7c9ca;
+      --resume-modern-surface: #f2f7f7;
+      --resume-technical-accent: #234d72;
+      --resume-technical-line: #b7c3ce;
+      --resume-technical-surface: #f3f6f8;
+      --resume-projects-accent: #6a3e55;
+      --resume-projects-line: #cabcc3;
+      --resume-projects-surface: #f8f4f6;
+      --resume-credentials-accent: #4a3f2c;
+      --resume-credentials-line: #c8c0b2;
+      --resume-credentials-surface: #f8f6f1;
+      --resume-longform-accent: #30343a;
+      --resume-longform-line: #b9bdc2;
+      --resume-longform-surface: #f5f5f4;
+      --resume-pivot-accent: #365947;
+      --resume-pivot-line: #bcc8c1;
+      --resume-pivot-surface: #f3f7f4;
       --ink: var(--foreground, #202124);
       --muted: var(--muted-foreground, #4f5661);
       --line: var(--resume-classic-line);
@@ -1285,6 +1279,7 @@ export function renderResumeTemplateHtml(input: {
       font-family: var(--resume-font-family);
     }
     * { box-sizing: border-box; }
+    html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     body { margin: 0; background: var(--resume-paper); color: var(--ink); font-family: var(--resume-font-family); }
     .page { width: 8.5in; min-height: 11in; margin: 0 auto; }
     .page-classic { padding: var(--resume-page-padding-classic); }
@@ -1296,42 +1291,43 @@ export function renderResumeTemplateHtml(input: {
     .page-longform { padding: var(--resume-page-padding-longform); }
     .page-pivot { padding: var(--resume-page-padding-pivot); }
     h1, h2, h3, h4, p, ul { margin: 0; }
-    .name { font-size: 1.55rem; line-height: 1.1; letter-spacing: -0.015em; text-align: center; }
+    .name { font-size: 1.72rem; line-height: 1.04; letter-spacing: -0.025em; text-align: center; font-weight: 720; }
     .name-left { text-align: left; }
-    .headline { font-size: 0.98rem; color: var(--muted); text-align: center; }
+    .headline { font-size: 0.94rem; line-height: 1.3; color: var(--muted); text-align: center; }
     .headline-left { text-align: left; }
-    .eyebrow { font-size: 0.7rem; line-height: 1.1; color: var(--accent); font-weight: 700; text-transform: uppercase; letter-spacing: 0.16em; }
     .identity-block { display: grid; gap: 0.12rem; }
     .identity-block-tight { gap: 0.08rem; }
-    h3 { font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.02em; color: var(--ink); border-bottom: 1px solid var(--line); padding-bottom: 0.08rem; margin-bottom: 0.28rem; }
-    h4 { display: grid; grid-template-columns: minmax(0, 1fr) max-content; align-items: baseline; gap: 0.12rem 0.8rem; font-size: 0.92rem; line-height: 1.32; font-weight: 700; }
-    p, li { font-size: 0.89rem; line-height: 1.35; }
+    h3 { font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.075em; color: var(--accent); border-bottom: 1px solid var(--line); padding-bottom: 0.11rem; margin-bottom: 0.3rem; break-after: avoid; page-break-after: avoid; }
+    h4 { display: grid; grid-template-columns: minmax(0, 1fr) max-content; align-items: baseline; gap: 0.12rem 0.8rem; font-size: 0.91rem; line-height: 1.28; font-weight: 720; break-after: avoid; page-break-after: avoid; }
+    p, li { font-size: 0.875rem; line-height: 1.4; }
     ul { padding-left: 1.08rem; display: grid; gap: 0.12rem; }
     li { padding-left: 0.03rem; }
     .resume-bullet-list { list-style: none; padding-left: 0.62rem; }
     .resume-bullet-list li { display: grid; grid-template-columns: 0.42rem 1fr; column-gap: 0.18rem; padding-left: 0; }
     .resume-bullet-list li::before { content: '•'; color: var(--ink); }
-    .header { display: grid; gap: 0.16rem; padding-bottom: 0.42rem; border-bottom: 1px solid var(--line); }
+    .header { display: grid; gap: 0.16rem; padding-bottom: 0.38rem; border-bottom: 1px solid var(--line); }
     .header-classic { justify-items: center; text-align: center; }
-    .header-swiss-accent { justify-items: start; text-align: left; border-bottom: 2px solid var(--accent); gap: 0.22rem; }
-    .header-executive { justify-items: center; text-align: center; border-bottom: 2px solid var(--accent); gap: 0.18rem; }
-    .header-executive-credentials { background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 88%, var(--resume-paper)), var(--resume-paper)); padding: 0.16in 0.2in 0.18in; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 0.18in; }
+    .header-swiss-accent { justify-items: start; text-align: left; border-top: 0.06in solid var(--accent); border-bottom: 1px solid var(--line); padding-top: 0.2rem; gap: 0.2rem; }
+    .header-executive { justify-items: center; text-align: center; border-top: 2px solid var(--accent); border-bottom: 1px solid var(--accent); padding-top: 0.2rem; gap: 0.16rem; }
+    .header-executive-credentials { padding: 0.18in 0 0.16in; border-top: 3px double var(--accent); border-bottom: 1px solid var(--accent); }
     .header-spec { border-bottom: 2px solid var(--accent); padding-bottom: 0.34rem; }
-    .header-spec-shell { display: grid; gap: 0.18rem; border: 1px solid var(--line); background: var(--surface); border-radius: 0.16in; padding: 0.14in 0.16in; }
-    .header-portfolio { justify-items: start; text-align: left; border-bottom: 2px solid var(--accent); gap: 0.22rem; }
+    .header-spec-shell { display: grid; gap: 0.16rem; border-left: 0.045in solid var(--accent); padding: 0.03in 0 0.03in 0.16in; }
+    .header-portfolio { justify-items: start; text-align: left; border-bottom: 1px solid var(--line); gap: 0.2rem; }
     .header-longform { gap: 0.16rem; border-bottom: 3px double var(--line); padding-bottom: 0.28rem; }
     .header-longform-topline { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.12rem 0.45rem; }
-    .header-pivot { justify-items: start; text-align: left; gap: 0.18rem; border: 1px solid var(--line); border-left: 0.14in solid var(--accent); border-radius: 0.16in; background: linear-gradient(135deg, color-mix(in srgb, var(--surface) 92%, var(--resume-paper)), var(--resume-paper)); padding: 0.16in 0.18in; }
+    .header-longform-topline-contact { justify-content: flex-end; }
+    .header-pivot { justify-items: start; text-align: left; gap: 0.17rem; border-top: 0.055in solid var(--accent); border-bottom: 1px solid var(--line); padding: 0.16in 0 0.14in; }
     .meta { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.18rem 0.55rem; color: var(--muted); font-size: 0.82rem; }
     .meta-left { justify-content: flex-start; }
     .meta span + span::before { content: '|'; color: var(--line); margin-right: 0.55rem; }
     .meta-longform { justify-content: flex-end; font-size: 0.75rem; gap: 0.12rem 0.4rem; }
     .meta-stack { display: grid; gap: 0.08rem; color: var(--muted); font-size: 0.8rem; }
-    .meta-pill-list { list-style: none; padding-left: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 0.14rem; color: var(--muted); }
-    .meta-pill-list li { border: 1px solid var(--line); border-radius: 999px; padding: 0.08rem 0.34rem; font-size: 0.76rem; line-height: 1.15; background: var(--resume-paper); }
+    .meta-pill-list { list-style: none; padding-left: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 0.12rem 0.5rem; color: var(--muted); }
+    .meta-pill-list li { padding: 0; font-size: 0.76rem; line-height: 1.2; }
+    .meta-pill-list li + li::before { content: '|'; color: var(--line); margin-right: 0.5rem; }
     .meta-pill-list-left { justify-content: flex-start; }
-    .meta-pill-list-warm li { background: color-mix(in srgb, var(--surface) 80%, var(--resume-paper)); }
-    .meta-pill-list-pivot li { background: color-mix(in srgb, var(--surface) 82%, var(--resume-paper)); }
+    .meta-pill-list-warm li,
+    .meta-pill-list-pivot li { background: transparent; }
     .section-block { display: grid; gap: 0.24rem; }
     .section-cluster { display: grid; gap: 0.42rem; }
     .section-cluster-classic-intro,
@@ -1349,38 +1345,38 @@ export function renderResumeTemplateHtml(input: {
     .section-portfolio-supporting,
     .section-longform-proof,
     .section-pivot-supporting { gap: 0.34rem; }
-    .section-summary-callout { border: 1px solid var(--line); background: var(--surface); padding: 0.18in 0.18in 0.16in; border-radius: 0.14in; }
-    .section-summary-tight { padding: 0.14in 0.16in; }
-    .section-summary-accent { border-left: 0.12in solid color-mix(in srgb, var(--accent) 24%, var(--resume-paper)); }
-    .section-summary-elevated { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 78%, var(--resume-paper)); }
-    .section-subtle-card { border: 1px solid color-mix(in srgb, var(--line) 76%, var(--resume-paper)); border-radius: 0.14in; background: color-mix(in srgb, var(--surface) 70%, var(--resume-paper)); padding: 0.14in 0.16in; }
-    .section-subtle-card-tight { padding: 0.12in 0.14in; }
-    .section-surface-block { border: 1px solid var(--line); border-radius: 0.14in; background: var(--resume-paper); padding: 0.14in 0.16in; }
+    .section-summary-callout { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 0.14in 0; }
+    .section-summary-tight { padding: 0.1in 0; }
+    .section-summary-accent { border-top: 0; border-bottom: 0; border-left: 0.045in solid var(--accent); padding: 0.04in 0 0.04in 0.16in; }
+    .section-summary-elevated { border-top-color: var(--accent); border-bottom-color: var(--line); }
+    .section-subtle-card { border-top: 1px solid var(--line); padding-top: 0.12in; }
+    .section-subtle-card-tight { padding-top: 0.08in; }
+    .section-surface-block { border-top: 1px solid var(--accent); border-bottom: 1px solid var(--line); padding: 0.12in 0; }
     .section-executive-rundown .inline-lines { gap: 0.12rem; }
     .section-executive-rundown .inline-lines p { border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, var(--resume-paper)); padding-bottom: 0.08rem; }
     .section-project-accent .entry-block { border-left: 2px solid var(--accent); padding-left: 0.16rem; }
-    .section-credential-grid .entry-block { border: 1px solid var(--line); border-radius: 0.12in; padding: 0.12in 0.14in; }
-    .section-credential-spotlight-surface { border: 1px solid var(--line); border-radius: 0.16in; background: color-mix(in srgb, var(--surface) 86%, var(--resume-paper)); padding: 0.16in 0.18in; }
+    .section-credential-grid .entry-block { border-top: 1px solid var(--line); padding-top: 0.12in; }
+    .section-credential-spotlight-surface { border-top: 2px solid var(--accent); border-bottom: 1px solid var(--line); padding: 0.14in 0 0.12in; }
     .section-timeline .entry-block { border-left: 1px solid color-mix(in srgb, var(--accent) 32%, var(--resume-paper)); padding-left: 0.18rem; }
     .section-dense-chronology .entry-block { margin-top: 0.18rem; }
     .section-proof-led .entry-block { border-top: 1px solid color-mix(in srgb, var(--line) 74%, var(--resume-paper)); padding-top: 0.18rem; }
     .section-proof-compact .entry-block { gap: 0.12rem; }
-    .section-project-spotlight { border: 1px solid color-mix(in srgb, var(--line) 78%, var(--resume-paper)); border-radius: 0.16in; background: color-mix(in srgb, var(--surface) 78%, var(--resume-paper)); padding: 0.16in 0.18in; }
-    .section-portfolio-highlight { background: color-mix(in srgb, var(--surface) 84%, var(--resume-paper)); }
-    .section-portfolio-narrative { border-style: dashed; }
-    .section-spec-shell { background: color-mix(in srgb, var(--surface) 82%, var(--resume-paper)); }
-    .section-technical-matrix.section-spec-shell { border: 1px solid var(--line); border-radius: 0.14in; padding: 0.14in 0.16in; }
+    .section-project-spotlight { border-top: 2px solid var(--accent); border-bottom: 1px solid var(--line); padding: 0.16in 0; }
+    .section-portfolio-highlight { background: transparent; }
+    .section-portfolio-narrative { border-top: 0; border-bottom: 1px solid var(--line); padding-top: 0; }
+    .section-spec-shell { background: transparent; }
+    .section-technical-matrix.section-spec-shell { border-top: 1px solid var(--accent); border-bottom: 1px solid var(--line); padding: 0.12in 0; }
     .section-longform-summary { border-left: 0.08in solid color-mix(in srgb, var(--accent) 28%, var(--resume-paper)); }
     .section-longform-skills .inline-lines { gap: 0.06rem; }
     .section-longform-skills .inline-lines p { font-size: 0.79rem; line-height: 1.24; }
     .section-longform-chronology .entry-block { border-left: 0; border-top: 1px solid color-mix(in srgb, var(--line) 70%, var(--resume-paper)); padding-top: 0.13rem; padding-left: 0; margin-top: 0.16rem; }
-    .section-pivot-summary { border-style: solid; border-left: 0.12in solid color-mix(in srgb, var(--accent) 30%, var(--resume-paper)); }
-    .section-pivot-proof { border: 1px solid color-mix(in srgb, var(--line) 76%, var(--resume-paper)); border-radius: 0.16in; background: color-mix(in srgb, var(--surface) 80%, var(--resume-paper)); padding: 0.16in 0.18in; }
+    .section-pivot-summary { border-top: 0; border-bottom: 0; border-left: 0.05in solid var(--accent); padding: 0.04in 0 0.04in 0.16in; }
+    .section-pivot-proof { border-top: 2px solid var(--accent); border-bottom: 1px solid var(--line); padding: 0.16in 0; }
     .section-pivot-proof .entry-block:first-of-type { margin-top: 0; }
-    .section-pivot-chronology .entry-block { border-left-style: dashed; }
-    .career-snapshot { border: 1px solid var(--line); border-radius: 0.14in; background: color-mix(in srgb, var(--surface) 82%, var(--resume-paper)); padding: 0.12in 0.14in; }
+    .section-pivot-chronology .entry-block { border-left-style: solid; }
+    .career-snapshot { border-top: 2px solid var(--accent); border-bottom: 1px solid var(--line); padding: 0.1in 0; }
     .snapshot-list { list-style: none; padding-left: 0; display: grid; grid-template-columns: 1fr; gap: 0.08rem; }
-    .snapshot-list li { display: grid; gap: 0.02rem; border-left: 1px solid color-mix(in srgb, var(--accent) 28%, var(--resume-paper)); padding-left: 0.1rem; font-size: 0.72rem; line-height: 1.14; }
+    .snapshot-list li { display: grid; grid-template-columns: 1.8rem 1fr; align-items: baseline; gap: 0.1rem; border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, var(--resume-paper)); padding: 0 0 0.06rem; font-size: 0.72rem; line-height: 1.14; }
     .snapshot-list strong { color: var(--accent); font-size: 0.95rem; line-height: 1; }
     .snapshot-list span { color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
     .entry-block { display: grid; gap: 0.18rem; margin-top: 0.24rem; break-inside: avoid; page-break-inside: avoid; }
@@ -1393,8 +1389,9 @@ export function renderResumeTemplateHtml(input: {
     .skill-groups { display: grid; gap: 0.26rem; }
     .skill-group { display: grid; gap: 0.12rem; }
     .skill-group-label { font-size: 0.72rem; line-height: 1.1; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
-    .skill-pill-list { list-style: none; padding-left: 0; display: flex; flex-wrap: wrap; gap: 0.16rem; }
-    .skill-pill-list li { border: 1px solid var(--line); border-radius: 999px; padding: 0.08rem 0.38rem; font-size: 0.81rem; line-height: 1.2; }
+    .skill-pill-list { list-style: none; padding-left: 0; display: flex; flex-wrap: wrap; gap: 0.08rem 0.34rem; }
+    .skill-pill-list li { padding: 0; font-size: 0.81rem; line-height: 1.25; }
+    .skill-pill-list li + li::before { content: '·'; color: var(--accent); margin-right: 0.34rem; }
     .body-grid { display: grid; grid-template-columns: 1fr; }
     .body-grid-classic { gap: 0.62rem; margin-top: 0.68rem; }
     .body-grid-compact { gap: 0.5rem; margin-top: 0.58rem; }
@@ -1412,31 +1409,48 @@ export function renderResumeTemplateHtml(input: {
     .theme-credentials_focus { --accent: var(--resume-credentials-accent); --line: var(--resume-credentials-line); --surface: var(--resume-credentials-surface); }
     .theme-timeline_longform { --accent: var(--resume-longform-accent); --line: var(--resume-longform-line); --surface: var(--resume-longform-surface); }
     .theme-career_pivot { --accent: var(--resume-pivot-accent); --line: var(--resume-pivot-line); --surface: var(--resume-pivot-surface); }
-    .theme-modern_split .name,
-    .theme-project_showcase .name { letter-spacing: -0.02em; }
-    .theme-modern_split .eyebrow,
-    .theme-project_showcase .eyebrow { letter-spacing: 0.18em; }
-    .theme-technical_matrix .eyebrow { letter-spacing: 0.14em; }
-    .theme-timeline_longform .eyebrow { letter-spacing: 0.12em; }
-    .theme-career_pivot .eyebrow { letter-spacing: 0.15em; }
+    .theme-classic_ats .name { font-family: Georgia, 'Times New Roman', serif; font-size: 1.82rem; font-weight: 600; letter-spacing: -0.01em; }
+    .theme-classic_ats h3 { color: var(--ink); letter-spacing: 0.06em; }
+    .theme-classic_ats .header { border-top: 1px solid var(--ink); padding-top: 0.16rem; border-bottom-color: var(--ink); }
+    .theme-compact_exec .name { letter-spacing: -0.035em; }
+    .theme-compact_exec h3 { border-bottom: 0; border-left: 0.035in solid var(--accent); padding: 0 0 0 0.12rem; letter-spacing: 0.09em; }
+    .theme-compact_exec .section-cluster { gap: 0.3rem; }
+    .theme-modern_split .name { font-size: 1.92rem; letter-spacing: -0.04em; }
+    .theme-modern_split h3 { border-bottom: 0; border-left: 0.04in solid var(--accent); padding: 0 0 0 0.14rem; letter-spacing: 0.1em; }
+    .theme-technical_matrix .name { font-size: 1.62rem; letter-spacing: -0.015em; }
+    .theme-technical_matrix h3 { color: var(--accent); border-bottom: 2px solid var(--accent); font-size: 0.72rem; letter-spacing: 0.11em; }
     .theme-technical_matrix .skill-pill-list li { font-size: 0.79rem; }
-    .theme-technical_matrix .skill-group { border-top: 1px solid color-mix(in srgb, var(--line) 72%, var(--resume-paper)); padding-top: 0.12rem; }
+    .theme-technical_matrix .skill-group { border-top: 1px solid var(--line); padding-top: 0.12rem; }
+    .theme-project_showcase .name { font-size: 1.96rem; letter-spacing: -0.04em; }
+    .theme-project_showcase h3 { border-top: 1px solid var(--accent); border-bottom: 0; padding-top: 0.1rem; padding-bottom: 0; letter-spacing: 0.11em; }
     .theme-project_showcase .section-project-spotlight .entry-block:first-of-type { margin-top: 0; }
-    .page-compact .name { font-size: 1.42rem; }
+    .theme-credentials_focus .name { font-family: Georgia, 'Times New Roman', serif; font-size: 1.8rem; font-weight: 600; letter-spacing: -0.01em; }
+    .theme-credentials_focus h3 { font-family: Georgia, 'Times New Roman', serif; color: var(--accent); font-size: 0.82rem; letter-spacing: 0.045em; text-transform: none; border-bottom-color: var(--accent); }
+    .theme-timeline_longform h3 { color: var(--ink); border-bottom: 0; border-top: 1px solid var(--ink); padding: 0.1rem 0 0; letter-spacing: 0.07em; }
+    .theme-career_pivot .name { font-size: 1.84rem; }
+    .theme-career_pivot h3 { color: var(--accent); border-bottom: 0; border-left: 0.045in solid var(--accent); padding: 0 0 0 0.14rem; letter-spacing: 0.08em; }
+    .page-compact .name { font-size: 1.54rem; }
     .page-compact .headline { font-size: 0.9rem; }
     .page-compact p, .page-compact li { font-size: 0.84rem; line-height: 1.3; }
     .page-compact h3 { font-size: 0.76rem; }
     .page-compact .header { gap: 0.14rem; padding-bottom: 0.34rem; }
     .page-technical p, .page-technical li { font-size: 0.86rem; }
     .page-projects .section-project-accent .entry-block { padding-left: 0.2rem; }
-    .page-longform .name { font-size: 1.38rem; }
+    .page-longform .name { font-size: 1.48rem; }
     .page-longform .headline { font-size: 0.86rem; }
     .page-longform h3 { font-size: 0.74rem; margin-bottom: 0.18rem; }
     .page-longform h4 { font-size: 0.84rem; line-height: 1.24; }
     .page-longform p, .page-longform li { font-size: 0.8rem; line-height: 1.25; }
     .page-longform .entry-block { gap: 0.11rem; }
-    .page-pivot .name { font-size: 1.5rem; }
+    .page-pivot .name { font-size: 1.78rem; }
     .page-pivot .section-project-accent .entry-block { padding-left: 0.18rem; }
+    @media print {
+      html, body { width: 8.5in; min-height: 11in; background: #ffffff; }
+      body { margin: 0; }
+      .page { margin: 0; box-shadow: none !important; }
+      .header, .entry-block, h3, h4, .skill-group { break-inside: avoid; page-break-inside: avoid; }
+      a { color: inherit; text-decoration: none; }
+    }
     ${mode === 'preview'
       ? `
     html, body.preview-body {
@@ -1464,9 +1478,9 @@ export function renderResumeTemplateHtml(input: {
       box-shadow: 0 20px 60px var(--resume-shadow-color);
       margin: 0;
     }
-    [data-resume-section-id], [data-resume-entry-id], [data-resume-target-id] { cursor: pointer; transition: box-shadow 120ms ease, background-color 120ms ease; border-radius: 0.12in; }
-    [data-resume-entry-id] { padding: 0.06in 0.08in; margin-inline: -0.08in; }
-    [data-resume-section-id][data-resume-selected="true"], [data-resume-entry-id][data-resume-selected="true"], [data-resume-target-id][data-resume-selected="true"] { box-shadow: 0 0 0 2px var(--resume-selected-shadow); background: var(--resume-selected-surface); }
+    [data-resume-section-id], [data-resume-entry-id], [data-resume-target-id] { cursor: pointer; transition: box-shadow 120ms ease, background-color 120ms ease; border-radius: 0.02in; }
+    [data-resume-entry-id] { padding: 0.035in 0.05in; margin-inline: -0.05in; }
+    [data-resume-section-id][data-resume-selected="true"], [data-resume-entry-id][data-resume-selected="true"], [data-resume-target-id][data-resume-selected="true"] { box-shadow: 0 0 0 1px var(--resume-selected-shadow); background: var(--resume-selected-surface); }
     [data-resume-section-id]:hover, [data-resume-entry-id]:hover, [data-resume-target-id]:hover, [data-resume-section-id]:focus-visible, [data-resume-entry-id]:focus-visible, [data-resume-target-id]:focus-visible { box-shadow: 0 0 0 1px var(--resume-hover-shadow); background: var(--resume-hover-surface); outline: none; }
       `
       : ''}

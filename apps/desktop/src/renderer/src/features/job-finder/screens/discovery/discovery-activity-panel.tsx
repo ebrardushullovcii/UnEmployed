@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { X } from 'lucide-react'
+import { RotateCcw, X } from 'lucide-react'
 import type { DiscoveryActivityEvent, DiscoveryRunRecord } from '@unemployed/contracts'
 import { Button } from '@renderer/components/ui/button'
 import { formatDuration } from '@renderer/features/job-finder/lib/job-finder-utils'
@@ -11,7 +11,10 @@ import {
 } from './discovery-history-utils'
 
 function formatTimestamp(value: string): string {
-  return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return new Date(value).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit'
+  })
 }
 
 function formatRunLabel(value: string): string {
@@ -71,8 +74,11 @@ function ActivityEventCard(props: { event: DiscoveryActivityEvent; targetLabel: 
 
 export function DiscoveryHistoryModal(props: {
   activeRun: DiscoveryRunRecord | null
+  isDiscoveryPending: boolean
+  isTargetPending: (targetId: string) => boolean
   liveEvents: readonly DiscoveryActivityEvent[]
   onClose: () => void
+  onRetrySource?: (targetId: string) => void
   open: boolean
   recentRuns: readonly DiscoveryRunRecord[]
   targets: readonly DiscoveryTargetConfig[]
@@ -147,9 +153,11 @@ export function DiscoveryHistoryModal(props: {
         return
       }
 
-      const focusableElements = [...dialogRef.current.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [role="button"], [tabindex]:not([tabindex="-1"])'
-      )].filter((element) => !element.hasAttribute('aria-hidden'))
+      const focusableElements = [
+        ...dialogRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [role="button"], [tabindex]:not([tabindex="-1"])'
+        )
+      ].filter((element) => !element.hasAttribute('aria-hidden'))
 
       if (focusableElements.length === 0) {
         event.preventDefault()
@@ -178,10 +186,34 @@ export function DiscoveryHistoryModal(props: {
   const selectedRun = runOptions.find((run) => run.id === selectedRunId) ?? runOptions[0] ?? null
   const displayedEvents = selectedRun?.activity ?? []
   const selectedRunIsLive = Boolean(liveRun && selectedRun?.id === liveRun.id)
-  const targetLabels = useMemo(
-    () => new Map(props.targets.map((target) => [target.id, target.label])),
-    [props.targets]
-  )
+  const targetLabels = useMemo(() => new Map(props.targets.map((target) => [target.id, target.label])), [props.targets])
+  const sourceHealth = useMemo(() => {
+    if (!selectedRun) {
+      return []
+    }
+
+    if (selectedRun.summary.sourceHealth.length > 0) {
+      return selectedRun.summary.sourceHealth
+    }
+
+    return selectedRun.targetExecutions.map((execution) => ({
+      targetId: execution.targetId,
+      health:
+        execution.state === 'completed'
+          ? execution.warning
+            ? ('warning' as const)
+            : ('healthy' as const)
+          : execution.state === 'failed'
+            ? ('failed' as const)
+            : execution.state === 'cancelled'
+              ? ('cancelled' as const)
+              : execution.state === 'skipped'
+                ? ('skipped' as const)
+                : ('pending' as const),
+      durationMs: execution.timing?.totalDurationMs ?? 0,
+      warnings: execution.warning ? [execution.warning] : []
+    }))
+  }, [selectedRun])
 
   useEffect(() => {
     if (!props.open) {
@@ -224,7 +256,10 @@ export function DiscoveryHistoryModal(props: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-(--modal-scrim) px-4 py-6 backdrop-blur-sm" onClick={props.onClose}>
+    <div
+      className="fixed inset-0 z-50 overflow-y-auto bg-(--modal-scrim) px-4 py-6 backdrop-blur-sm"
+      onClick={props.onClose}
+    >
       <div
         aria-labelledby={dialogTitleId}
         aria-modal="true"
@@ -236,15 +271,26 @@ export function DiscoveryHistoryModal(props: {
       >
         <div className="flex shrink-0 flex-wrap items-start justify-between gap-4 border-b border-(--surface-panel-border) px-5 py-4">
           <div className="grid gap-1">
-            <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Recent searches</p>
-            <h2 className="text-[1.3rem] font-semibold tracking-[-0.02em] text-(--text-headline)" id={dialogTitleId}>Search history</h2>
+            <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
+              Recent searches
+            </p>
+            <h2 className="text-[1.3rem] font-semibold tracking-[-0.02em] text-(--text-headline)" id={dialogTitleId}>
+              Search history
+            </h2>
             <p className="text-[0.9rem] leading-6 text-foreground-soft">
               {selectedRunIsLive
                 ? 'Follow the current search here while new activity arrives.'
                 : 'See what happened in each earlier search.'}
             </p>
           </div>
-          <Button aria-label="Close" className="size-10" onClick={props.onClose} size="icon" type="button" variant="ghost">
+          <Button
+            aria-label="Close"
+            className="size-10"
+            onClick={props.onClose}
+            size="icon"
+            type="button"
+            variant="ghost"
+          >
             <X className="size-4" />
           </Button>
         </div>
@@ -253,91 +299,209 @@ export function DiscoveryHistoryModal(props: {
           <aside className="grid min-h-0 content-start gap-3 overflow-y-auto border-b border-(--surface-panel-border) px-4 py-4 lg:border-b-0 lg:border-r">
             <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Searches</p>
             <div className="grid gap-2 pb-1">
-              {runOptions.length > 0 ? runOptions.map((run) => {
-                const isSelected = run.id === selectedRun?.id
-                const isLive = liveRun?.id === run.id
-                const durationSummary = run.summary.durationMs > 0
-                  ? ` · ${formatDuration(run.summary.durationMs)}`
-                  : ''
+              {runOptions.length > 0 ? (
+                runOptions.map((run) => {
+                  const isSelected = run.id === selectedRun?.id
+                  const isLive = liveRun?.id === run.id
+                  const durationSummary =
+                    run.summary.durationMs > 0 ? ` · ${formatDuration(run.summary.durationMs)}` : ''
 
-                return (
-                  <button
-                    aria-pressed={isSelected}
-                    className={[
-                      'grid gap-1 rounded-(--radius-panel) border px-3 py-3 text-left transition-colors',
-                      isSelected
-                        ? 'border-primary/40 bg-primary/10 text-foreground'
-                        : 'border-(--surface-panel-border) bg-(--surface-panel-raised) text-foreground-soft hover:bg-secondary'
-                    ].join(' ')}
-                    key={run.id}
-                    onClick={() => setSelectedRunId(run.id)}
-                    type="button"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[0.94rem] font-semibold text-(--text-headline)">{formatOutcomeLabel(run.summary.outcome)}</span>
-                      {isLive ? (
-                        <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-(--tracking-label) text-primary">
-                          Live
+                  return (
+                    <button
+                      aria-pressed={isSelected}
+                      className={[
+                        'grid gap-1 rounded-(--radius-panel) border px-3 py-3 text-left transition-colors',
+                        isSelected
+                          ? 'border-primary/40 bg-primary/10 text-foreground'
+                          : 'border-(--surface-panel-border) bg-(--surface-panel-raised) text-foreground-soft hover:bg-secondary'
+                      ].join(' ')}
+                      key={run.id}
+                      onClick={() => setSelectedRunId(run.id)}
+                      type="button"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[0.94rem] font-semibold text-(--text-headline)">
+                          {formatOutcomeLabel(run.summary.outcome)}
                         </span>
-                      ) : null}
-                    </div>
-                    <span className="text-[0.8rem] text-foreground-muted">{formatRunLabel(run.startedAt)}</span>
-                    <span className="text-[0.8rem] text-foreground-muted">
-                      {`${run.summary.targetsCompleted}/${run.summary.targetsPlanned} sources completed · ${run.summary.validJobsFound} jobs found${durationSummary}`}
-                    </span>
-                  </button>
-                )
-              }) : (
-                <p className="text-[0.9rem] leading-6 text-foreground-soft">No searches yet. Your recent runs will appear here.</p>
+                        {isLive ? (
+                          <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-(--tracking-label) text-primary">
+                            Live
+                          </span>
+                        ) : null}
+                      </div>
+                      <span className="text-[0.8rem] text-foreground-muted">{formatRunLabel(run.startedAt)}</span>
+                      <span className="text-[0.8rem] text-foreground-muted">
+                        {`${run.summary.targetsCompleted}/${run.summary.targetsPlanned} sources completed · ${run.summary.validJobsFound} jobs found${durationSummary}`}
+                      </span>
+                    </button>
+                  )
+                })
+              ) : (
+                <p className="text-[0.9rem] leading-6 text-foreground-soft">
+                  No searches yet. Your recent runs will appear here.
+                </p>
               )}
             </div>
           </aside>
 
-          <div className="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-4 overflow-hidden px-4 py-4">
+          <div className="grid min-h-0 grid-rows-[auto_auto_auto_minmax(0,1fr)] gap-4 overflow-hidden px-4 py-4">
             {selectedRun ? (
               <div className="grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-4 sm:grid-cols-4">
                 <div>
                   <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Started</p>
-                  <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">{formatRunLabel(selectedRun.startedAt)}</p>
+                  <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">
+                    {formatRunLabel(selectedRun.startedAt)}
+                  </p>
                 </div>
                 <div>
                   <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Outcome</p>
-                  <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">{formatOutcomeLabel(selectedRun.summary.outcome)}</p>
+                  <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">
+                    {formatOutcomeLabel(selectedRun.summary.outcome)}
+                  </p>
                 </div>
                 <div>
                   <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Scope</p>
-                  <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">{formatScopeLabel(selectedRun.scope)}</p>
+                  <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">
+                    {formatScopeLabel(selectedRun.scope)}
+                  </p>
                 </div>
                 <div>
                   <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Found</p>
-                  <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">{selectedRun.summary.validJobsFound}</p>
+                  <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">
+                    {selectedRun.summary.validJobsFound}
+                  </p>
                 </div>
                 <div>
-                  <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Saved / held for review</p>
-                  <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">{selectedRun.summary.jobsPersisted} / {selectedRun.summary.jobsStaged}</p>
+                  <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
+                    Saved / held for review
+                  </p>
+                  <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">
+                    {selectedRun.summary.jobsPersisted} / {selectedRun.summary.jobsStaged}
+                  </p>
                 </div>
                 {selectedRun.summary.durationMs > 0 ? (
                   <div>
-                    <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Duration</p>
-                    <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">{formatDuration(selectedRun.summary.durationMs)}</p>
+                    <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
+                      Duration
+                    </p>
+                    <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">
+                      {formatDuration(selectedRun.summary.durationMs)}
+                    </p>
                   </div>
                 ) : null}
                 {selectedRun.summary.timing?.longestGapMs != null && selectedRun.summary.timing.longestGapMs > 10000 ? (
                   <div>
-                    <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Longest quiet gap</p>
-                    <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">{formatDuration(selectedRun.summary.timing.longestGapMs)}</p>
+                    <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
+                      Longest quiet gap
+                    </p>
+                    <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">
+                      {formatDuration(selectedRun.summary.timing.longestGapMs)}
+                    </p>
                   </div>
                 ) : null}
                 {selectedRun.summary.browserCloseout ? (
                   <div className="sm:col-span-2">
-                    <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Browser closeout</p>
-                    <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">{selectedRun.summary.browserCloseout.label}</p>
+                    <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
+                      Browser closeout
+                    </p>
+                    <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">
+                      {selectedRun.summary.browserCloseout.label}
+                    </p>
                     {selectedRun.summary.browserCloseout.detail ? (
                       <p className="mt-1 text-[0.84rem] leading-6 text-foreground-soft">
                         {selectedRun.summary.browserCloseout.detail}
                       </p>
                     ) : null}
                   </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {selectedRun ? (
+              <div className="grid max-h-60 gap-4 overflow-y-auto pr-1">
+                <section aria-labelledby={`${dialogTitleId}-changes`} className="grid gap-2">
+                  <h3
+                    className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted"
+                    id={`${dialogTitleId}-changes`}
+                  >
+                    Changes since earlier searches
+                  </h3>
+                  <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
+                    {[
+                      ['New', selectedRun.summary.changeDigest.new],
+                      ['Unchanged', selectedRun.summary.changeDigest.unchanged],
+                      ['Changed', selectedRun.summary.changeDigest.changed],
+                      ['Reactivated', selectedRun.summary.changeDigest.reactivated],
+                      ['Inactive', selectedRun.summary.changeDigest.inactive],
+                      ['Known', selectedRun.summary.changeDigest.known],
+                      ['Skipped', selectedRun.summary.changeDigest.skipped]
+                    ].map(([label, value]) => (
+                      <div
+                        className="rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-3 py-2"
+                        key={label}
+                      >
+                        <dt className="text-[0.68rem] uppercase tracking-(--tracking-label) text-foreground-muted">
+                          {label}
+                        </dt>
+                        <dd className="mt-1 text-[1rem] font-semibold text-(--text-headline)">{value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </section>
+
+                {sourceHealth.length > 0 ? (
+                  <section aria-labelledby={`${dialogTitleId}-sources`} className="grid gap-2">
+                    <h3
+                      className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted"
+                      id={`${dialogTitleId}-sources`}
+                    >
+                      Source health
+                    </h3>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {sourceHealth.map((source) => {
+                        const sourceLabel = targetLabels.get(source.targetId) ?? 'Configured source'
+                        const isRetrying = props.isTargetPending(source.targetId)
+                        const canRetry = source.health === 'failed' && Boolean(props.onRetrySource)
+
+                        return (
+                          <article
+                            className="grid gap-2 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-3 py-3"
+                            key={source.targetId}
+                          >
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="break-words text-[0.9rem] font-semibold text-(--text-headline)">
+                                  {sourceLabel}
+                                </p>
+                                <p className="mt-1 text-[0.76rem] capitalize text-foreground-muted">
+                                  {source.health}
+                                  {source.durationMs > 0 ? ` · ${formatDuration(source.durationMs)}` : ''}
+                                </p>
+                              </div>
+                              {canRetry ? (
+                                <Button
+                                  aria-label={`Retry failed source ${sourceLabel}`}
+                                  disabled={props.isDiscoveryPending || isRetrying}
+                                  onClick={() => props.onRetrySource?.(source.targetId)}
+                                  size="sm"
+                                  type="button"
+                                  variant="secondary"
+                                >
+                                  <RotateCcw aria-hidden="true" className="size-3.5" />
+                                  {isRetrying ? 'Retrying' : 'Retry source'}
+                                </Button>
+                              ) : null}
+                            </div>
+                            {source.warnings.map((warning) => (
+                              <p className="text-[0.82rem] leading-5 text-foreground-soft" key={warning}>
+                                {warning}
+                              </p>
+                            ))}
+                          </article>
+                        )
+                      })}
+                    </div>
+                  </section>
                 ) : null}
               </div>
             ) : null}
@@ -359,14 +523,20 @@ export function DiscoveryHistoryModal(props: {
               ) : null}
             </div>
 
-            <div className="grid min-h-0 gap-3 overflow-y-auto pr-2 pb-1" onScroll={handleEventStreamScroll} ref={eventStreamRef}>
-              {displayedEvents.length > 0 ? displayedEvents.map((event) => (
-                <ActivityEventCard
-                  event={event}
-                  key={event.id}
-                  targetLabel={event.targetId ? (targetLabels.get(event.targetId) ?? 'Configured source') : null}
-                />
-              )) : (
+            <div
+              className="grid min-h-0 gap-3 overflow-y-auto pr-2 pb-1"
+              onScroll={handleEventStreamScroll}
+              ref={eventStreamRef}
+            >
+              {displayedEvents.length > 0 ? (
+                displayedEvents.map((event) => (
+                  <ActivityEventCard
+                    event={event}
+                    key={event.id}
+                    targetLabel={event.targetId ? (targetLabels.get(event.targetId) ?? 'Configured source') : null}
+                  />
+                ))
+              ) : (
                 <p className="text-[0.9rem] leading-6 text-foreground-soft">No activity was recorded for this run.</p>
               )}
               <div aria-hidden="true" ref={eventStreamEndRef} />

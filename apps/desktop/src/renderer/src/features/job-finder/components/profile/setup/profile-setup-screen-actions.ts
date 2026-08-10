@@ -5,6 +5,16 @@ import { buildProfilePayload, buildSearchPreferencesPayload } from '../../../lib
 import { getReviewItemScrollTargetId } from './profile-setup-review-scroll-targets'
 import type { ProfileSetupReviewItemDisplay } from './profile-setup-screen-helpers'
 
+export function getProfileSetupScrollBehavior(
+  windowRef: {
+    matchMedia?: (query: string) => { matches: boolean }
+  } = window,
+): ScrollBehavior {
+  return windowRef.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    ? 'auto'
+    : 'smooth'
+}
+
 export function useProfileSetupScreenActions(input: {
   draftAwareReviewItems: readonly ProfileSetupReviewItemDisplay[]
   hasUnsavedChanges: boolean
@@ -47,7 +57,10 @@ export function useProfileSetupScreenActions(input: {
       target.open = true
     }
 
-    target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    target.scrollIntoView({
+      behavior: getProfileSetupScrollBehavior(),
+      block: 'center',
+    })
 
     window.requestAnimationFrame(() => {
       const focusTarget =

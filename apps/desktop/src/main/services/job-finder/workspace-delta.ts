@@ -1,0 +1,200 @@
+import type {
+  JobFinderWorkspaceDelta,
+  JobFinderWorkspaceSnapshot,
+  JobFinderWorkspaceSyncResult,
+  WorkspaceRevision,
+} from "@unemployed/contracts";
+
+type EntitySlice<T> = {
+  upserts: T[];
+  removedIds: string[];
+};
+
+const DELTA_OR_IGNORED_KEYS = new Set<keyof JobFinderWorkspaceSnapshot>([
+  "generatedAt",
+  "discoveryRunState",
+  "activeDiscoveryRun",
+  "discoverySessions",
+  "sourceAccessPrompts",
+  "latestResumeImportRun",
+  "discoveryJobs",
+  "dismissedDiscoveryJobs",
+  "recentDiscoveryRuns",
+  "reviewQueue",
+  "applyRuns",
+  "applyJobResults",
+  "applicationRecords",
+  "applicationAttempts",
+  "userActionRequests",
+  "userActionEvents",
+  "selectedDiscoveryJobId",
+  "selectedReviewJobId",
+  "selectedApplyRunId",
+  "selectedApplicationRecordId",
+]);
+
+function sameValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function buildEntitySlice<T>(
+  previous: readonly T[],
+  current: readonly T[],
+  getId: (value: T) => string,
+): EntitySlice<T> {
+  const previousById = new Map(previous.map((value) => [getId(value), value]));
+  const currentIds = new Set(current.map(getId));
+
+  return {
+    upserts: current.filter((value) => {
+      const previousValue = previousById.get(getId(value));
+      return !previousValue || !sameValue(previousValue, value);
+    }),
+    removedIds: previous.map(getId).filter((id) => !currentIds.has(id)),
+  };
+}
+
+function untrackedFingerprint(snapshot: JobFinderWorkspaceSnapshot): string {
+  return JSON.stringify(
+    Object.fromEntries(
+      Object.entries(snapshot).filter(
+        ([key]) =>
+          !DELTA_OR_IGNORED_KEYS.has(key as keyof JobFinderWorkspaceSnapshot),
+      ),
+    ),
+  );
+}
+
+export function buildJobFinderWorkspaceDelta(input: {
+  baseRevision: WorkspaceRevision;
+  currentRevision: WorkspaceRevision;
+  previous: JobFinderWorkspaceSnapshot;
+  current: JobFinderWorkspaceSnapshot;
+}): JobFinderWorkspaceDelta | null {
+  if (
+    untrackedFingerprint(input.previous) !== untrackedFingerprint(input.current)
+  ) {
+    return null;
+  }
+
+  return {
+    baseRevision: input.baseRevision,
+    currentRevision: input.currentRevision,
+    generatedAt: input.current.generatedAt,
+    discoveryRunState: input.current.discoveryRunState,
+    activeDiscoveryRun: input.current.activeDiscoveryRun,
+    discoverySessions: input.current.discoverySessions,
+    sourceAccessPrompts: input.current.sourceAccessPrompts,
+    latestResumeImportRun: input.current.latestResumeImportRun,
+    selectedDiscoveryJobId: input.current.selectedDiscoveryJobId,
+    selectedReviewJobId: input.current.selectedReviewJobId,
+    selectedApplyRunId: input.current.selectedApplyRunId,
+    selectedApplicationRecordId: input.current.selectedApplicationRecordId,
+    discoveryJobs: buildEntitySlice(
+      input.previous.discoveryJobs,
+      input.current.discoveryJobs,
+      (value) => value.id,
+    ),
+    dismissedDiscoveryJobs: buildEntitySlice(
+      input.previous.dismissedDiscoveryJobs,
+      input.current.dismissedDiscoveryJobs,
+      (value) => value.id,
+    ),
+    recentDiscoveryRuns: buildEntitySlice(
+      input.previous.recentDiscoveryRuns,
+      input.current.recentDiscoveryRuns,
+      (value) => value.id,
+    ),
+    reviewQueue: buildEntitySlice(
+      input.previous.reviewQueue,
+      input.current.reviewQueue,
+      (value) => value.jobId,
+    ),
+    applyRuns: buildEntitySlice(
+      input.previous.applyRuns,
+      input.current.applyRuns,
+      (value) => value.id,
+    ),
+    applyJobResults: buildEntitySlice(
+      input.previous.applyJobResults,
+      input.current.applyJobResults,
+      (value) => value.id,
+    ),
+    applicationRecords: buildEntitySlice(
+      input.previous.applicationRecords,
+      input.current.applicationRecords,
+      (value) => value.id,
+    ),
+    applicationAttempts: buildEntitySlice(
+      input.previous.applicationAttempts,
+      input.current.applicationAttempts,
+      (value) => value.id,
+    ),
+    userActionRequests: buildEntitySlice(
+      input.previous.userActionRequests,
+      input.current.userActionRequests,
+      (value) => value.id,
+    ),
+    userActionEvents: buildEntitySlice(
+      input.previous.userActionEvents,
+      input.current.userActionEvents,
+      (value) => value.id,
+    ),
+  };
+}
+
+export function createJobFinderWorkspaceDeltaTracker() {
+  let currentRevision: WorkspaceRevision = 0;
+  let baseline: JobFinderWorkspaceSnapshot | null = null;
+
+  return {
+    synchronize(
+      baseRevision: WorkspaceRevision | null,
+      current: JobFinderWorkspaceSnapshot,
+    ): JobFinderWorkspaceSyncResult {
+      if (baseline === null || baseRevision === null) {
+        currentRevision += 1;
+        baseline = current;
+        return {
+          kind: "snapshot",
+          currentRevision,
+          reason: "initial",
+          snapshot: current,
+        };
+      }
+
+      if (baseRevision !== currentRevision) {
+        const reason =
+          baseRevision < currentRevision ? "stale_base" : "revision_gap";
+        currentRevision += 1;
+        baseline = current;
+        return {
+          kind: "snapshot",
+          currentRevision,
+          reason,
+          snapshot: current,
+        };
+      }
+
+      const nextRevision = currentRevision + 1;
+      const delta = buildJobFinderWorkspaceDelta({
+        baseRevision,
+        currentRevision: nextRevision,
+        previous: baseline,
+        current,
+      });
+
+      currentRevision = nextRevision;
+      baseline = current;
+
+      return delta
+        ? { kind: "delta", delta }
+        : {
+            kind: "snapshot",
+            currentRevision,
+            reason: "unsupported_change",
+            snapshot: current,
+          };
+    },
+  };
+}

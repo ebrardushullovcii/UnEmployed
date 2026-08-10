@@ -14,6 +14,7 @@ Start here, then read only the docs needed for the task.
 | architecture, package ownership, discovery/source-debug       | `docs/ARCHITECTURE.md`                                                  |
 | contracts, schemas, preload APIs, IPC                         | `docs/CONTRACTS.md`                                                     |
 | tests, harnesses, validation choice                           | `docs/TESTING.md`                                                       |
+| AI model, Responses API, or local Codex bridge setup          | `docs/AI_PROVIDER_SETUP.md`                                             |
 | decisions and rationale                                       | `docs/adr/README.md`, then the linked ADR                               |
 | domain language                                               | `CONTEXT.md`                                                            |
 | repo guidance, adapters, project skills, package guide policy | `docs/AGENT_CONTEXT.md`, `.agents/registry.yaml`                        |
@@ -28,9 +29,17 @@ Read `docs/ARCHITECTURE.md` before changing discovery or source-debug behavior.
 - `docs/exec-plans/active/`: detailed active plans
 - `docs/exec-plans/queued/`: detailed ready plans
 
-Current active plan: none.
+No internal feature implementation is currently active, and there are no active
+or queued execution plans. The approved Candidate Asset lifecycle and the
+resume visual/export refinement are integrated; current release state and
+remaining external acceptance are recorded in `docs/STATUS.md` and
+`docs/TRACKS.md`.
 
 Current Job Finder product audit checklist: `docs/audits/JOB_FINDER_PRODUCT_DECISIONS_AND_AUDIT_CHECKLIST.md`.
+
+Current product quality and performance roadmap: `docs/audits/PRODUCT_QUALITY_PERFORMANCE_ROADMAP.html`.
+
+Current living release audit: `docs/audits/PRODUCT_QUALITY_RELEASE_AUDIT.md`.
 
 ## Durable Docs
 

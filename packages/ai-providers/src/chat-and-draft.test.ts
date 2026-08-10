@@ -236,7 +236,8 @@ describe("openai-compatible chat and draft behavior", () => {
               startDate: "2012",
               endDate: "2016",
               isDraft: false,
-              summary: "Completed the canonical software engineering curriculum.",
+              summary:
+                "Completed the canonical software engineering curriculum.",
             },
           ],
           certifications: [
@@ -426,7 +427,11 @@ describe("openai-compatible chat and draft behavior", () => {
                   title: "Platform Engineer",
                   employer: "Acme Labs",
                   summary: fabricatedSummary,
-                  bullets: [canonicalBullets[1], vagueBullet, canonicalBullets[0]],
+                  bullets: [
+                    canonicalBullets[1],
+                    vagueBullet,
+                    canonicalBullets[0],
+                  ],
                   profileRecordId: "experience_platform",
                 },
               ],
@@ -505,6 +510,243 @@ describe("openai-compatible chat and draft behavior", () => {
     }
   });
 
+  test("accepts evidence-linked professional rewrites while preserving canonical role identity", async () => {
+    const canonicalSummary =
+      "Directed platform reliability for customer-facing workflow systems.";
+    const canonicalBullets = [
+      "Improved production uptime from 99.5% to 99.9%.",
+      "Reduced median API latency by 30% after profiling critical requests.",
+    ];
+    const rewrittenProfileSummary =
+      "Platform reliability for customer-facing workflow systems.";
+    const rewrittenRoleSummary =
+      "Platform reliability: customer-facing workflow systems.";
+    const rewrittenBullets = [
+      "Production uptime improved from 99.5% to 99.9%.",
+      "Median API latency reduced by 30% after profiling critical requests.",
+    ];
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              label: "Tailored Resume",
+              summary: {
+                text: rewrittenProfileSummary,
+                evidenceRefs: ["experience:experience_platform:summary"],
+              },
+              experienceEntries: [
+                {
+                  title: "Platform Engineer",
+                  employer: "Acme Labs",
+                  summary: {
+                    text: rewrittenRoleSummary,
+                    evidenceRefs: ["experience:experience_platform:summary"],
+                  },
+                  bullets: [
+                    {
+                      text: rewrittenBullets[0],
+                      evidenceRefs: [
+                        "experience:experience_platform:achievement:0",
+                      ],
+                    },
+                    {
+                      text: rewrittenBullets[1],
+                      evidenceRefs: [
+                        "experience:experience_platform:achievement:1",
+                      ],
+                    },
+                  ],
+                  profileRecordId: "experience_platform",
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    });
+
+    try {
+      const client = createOpenAiCompatibleJobFinderAiClient({
+        apiKey: "test-key",
+        baseUrl: "https://example.com/v1",
+        model: "test-model",
+      });
+      const input = {
+        profile: {
+          ...createProfile(),
+          skills: ["TypeScript", "Node.js"],
+          proofBank: [],
+          experiences: [
+            {
+              id: "experience_platform",
+              companyName: "Acme Labs",
+              companyUrl: null,
+              title: "Platform Engineer",
+              employmentType: null,
+              location: "Remote",
+              workMode: ["remote" as const],
+              startDate: "2022-01",
+              endDate: null,
+              isCurrent: true,
+              isDraft: false,
+              summary: canonicalSummary,
+              achievements: canonicalBullets,
+              skills: ["TypeScript", "Node.js"],
+              domainTags: ["platform reliability"],
+              peopleManagementScope: null,
+              ownershipScope: null,
+            },
+          ],
+        },
+        searchPreferences: createPreferences(),
+        settings: createSettings(),
+        job: {
+          ...createJobPosting(),
+          title: "Platform Engineer",
+          company: "ExampleCo",
+          keySkills: ["TypeScript", "Node.js"],
+        },
+        resumeText: "Resume text",
+        evidence: {
+          summary: [],
+          candidateSummary: [],
+          experience: [],
+          skills: ["TypeScript", "Node.js"],
+          keywords: ["TypeScript", "Node.js"],
+        },
+        researchContext: {
+          companyNotes: [],
+          domainVocabulary: [],
+          priorityThemes: [],
+        },
+      } satisfies Parameters<typeof client.createResumeDraft>[0];
+
+      const result = await client.createResumeDraft(input);
+
+      expect(result.summary).toBe(rewrittenProfileSummary);
+      expect(result.experienceEntries[0]).toMatchObject({
+        title: "Platform Engineer",
+        employer: "Acme Labs",
+        profileRecordId: "experience_platform",
+        summary: rewrittenRoleSummary,
+        bullets: rewrittenBullets,
+      });
+      expect(result.fullText).toContain(rewrittenProfileSummary);
+      expect(result.fullText).toContain(rewrittenBullets[0]);
+      expect(result.fullText).not.toContain(canonicalBullets[0]);
+      expect(result.generationQuality).toEqual({
+        strategy: "evidence_linked",
+        proposedRewriteCount: 4,
+        acceptedRewriteCount: 4,
+        rejectedRewriteCount: 0,
+        acceptedRewriteCharacters:
+          rewrittenProfileSummary.length +
+          rewrittenRoleSummary.length +
+          rewrittenBullets.reduce((sum, bullet) => sum + bullet.length, 0),
+      });
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("rejects an evidence-referenced rewrite when it adds an unsupported metric", async () => {
+    const canonicalBullet = "Improved production uptime from 99.5% to 99.9%.";
+    const fabricatedRewrite = "Raised production uptime from 99.5% to 100%.";
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              experienceEntries: [
+                {
+                  title: "Platform Engineer",
+                  employer: "Acme Labs",
+                  bullets: [
+                    {
+                      text: fabricatedRewrite,
+                      evidenceRefs: [
+                        "experience:experience_platform:achievement:0",
+                      ],
+                    },
+                  ],
+                  profileRecordId: "experience_platform",
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    });
+
+    try {
+      const client = createOpenAiCompatibleJobFinderAiClient({
+        apiKey: "test-key",
+        baseUrl: "https://example.com/v1",
+        model: "test-model",
+      });
+      const baseProfile = createProfile();
+      const result = await client.createResumeDraft({
+        profile: {
+          ...baseProfile,
+          proofBank: [],
+          experiences: [
+            {
+              id: "experience_platform",
+              companyName: "Acme Labs",
+              companyUrl: null,
+              title: "Platform Engineer",
+              employmentType: null,
+              location: "Remote",
+              workMode: ["remote"],
+              startDate: "2022-01",
+              endDate: null,
+              isCurrent: true,
+              isDraft: false,
+              summary: "Maintained platform reliability.",
+              achievements: [canonicalBullet],
+              skills: ["TypeScript"],
+              domainTags: [],
+              peopleManagementScope: null,
+              ownershipScope: null,
+            },
+          ],
+        },
+        searchPreferences: createPreferences(),
+        settings: createSettings(),
+        job: {
+          ...createJobPosting(),
+          company: "ExampleCo",
+          keySkills: ["TypeScript"],
+        },
+        resumeText: "Resume text",
+        evidence: {
+          summary: [],
+          candidateSummary: [],
+          experience: [],
+          skills: ["TypeScript"],
+          keywords: ["TypeScript"],
+        },
+        researchContext: {
+          companyNotes: [],
+          domainVocabulary: [],
+          priorityThemes: [],
+        },
+      });
+
+      expect(result.experienceEntries[0]?.bullets).toContain(canonicalBullet);
+      expect(result.fullText).not.toContain(fabricatedRewrite);
+      expect(result.generationQuality).toMatchObject({
+        strategy: "deterministic",
+        proposedRewriteCount: 1,
+        acceptedRewriteCount: 0,
+        rejectedRewriteCount: 1,
+      });
+    } finally {
+      restoreFetch();
+    }
+  });
+
   test("keeps fallback coverage entries when a model returns a partial experience list", async () => {
     const restoreFetch = mockJsonFetch({
       choices: [
@@ -571,7 +813,9 @@ describe("openai-compatible chat and draft behavior", () => {
               isCurrent: false,
               isDraft: false,
               summary: "Built .NET APIs and web applications.",
-              achievements: ["Improved API latency by 25% through cached .NET endpoints."],
+              achievements: [
+                "Improved API latency by 25% through cached .NET endpoints.",
+              ],
               skills: [".NET", "C#"],
               domainTags: ["web applications"],
               peopleManagementScope: null,
@@ -603,10 +847,9 @@ describe("openai-compatible chat and draft behavior", () => {
 
       const result = await client.createResumeDraft(input);
 
-      expect(result.experienceEntries.map((entry) => entry.profileRecordId)).toEqual([
-        "experience_frontend",
-        "experience_dotnet",
-      ]);
+      expect(
+        result.experienceEntries.map((entry) => entry.profileRecordId),
+      ).toEqual(["experience_frontend", "experience_dotnet"]);
       expect(result.experienceEntries[0]).toMatchObject({
         profileRecordId: "experience_frontend",
         summary: "Builds React workflow products.",
@@ -670,7 +913,8 @@ describe("openai-compatible chat and draft behavior", () => {
               endDate: null,
               isCurrent: true,
               isDraft: false,
-              summary: "Led hands-on product engineering across order, kitchen, and billing workflows.",
+              summary:
+                "Led hands-on product engineering across order, kitchen, and billing workflows.",
               achievements: [
                 "Engineered a real-time restaurant order platform with React, Next.js, TailwindCSS & WebSockets, synchronizing POS and kitchen screens and eliminating manual order calls. Improved release confidence across kitchen workflows.",
                 "Integrated car-repair parts tracking and service scheduling; reducing car-parts load time by 87% (15s to 2s); improving ordering logic aligned with safety protocols.",
@@ -709,7 +953,8 @@ describe("openai-compatible chat and draft behavior", () => {
       expect(result.experienceEntries[0]).toMatchObject({
         profileRecordId: "experience_full_stack",
         dateRange: "Jul 2023 – Present",
-        summary: "Led hands-on product engineering across order, kitchen, and billing workflows.",
+        summary:
+          "Led hands-on product engineering across order, kitchen, and billing workflows.",
       });
       expect(result.experienceEntries[0]?.bullets).toEqual([
         "Engineered a real-time restaurant order platform with React, Next.js, TailwindCSS & WebSockets, synchronizing POS and kitchen screens and eliminating manual order calls. Improved release confidence across kitchen workflows.",
@@ -793,7 +1038,9 @@ describe("openai-compatible chat and draft behavior", () => {
               isCurrent: false,
               isDraft: false,
               summary: "Built .NET APIs and web applications.",
-              achievements: ["Improved API latency by 25% through cached .NET endpoints."],
+              achievements: [
+                "Improved API latency by 25% through cached .NET endpoints.",
+              ],
               skills: [".NET", "C#"],
               domainTags: ["web applications"],
               peopleManagementScope: null,
@@ -825,11 +1072,12 @@ describe("openai-compatible chat and draft behavior", () => {
 
       const result = await client.createResumeDraft(input);
 
-      expect(result.experienceEntries.map((entry) => entry.profileRecordId)).toEqual([
-        "experience_frontend",
-        "experience_dotnet",
-      ]);
-      expect(result.experienceEntries.map((entry) => entry.profileRecordId)).not.toContain("fake_id");
+      expect(
+        result.experienceEntries.map((entry) => entry.profileRecordId),
+      ).toEqual(["experience_frontend", "experience_dotnet"]);
+      expect(
+        result.experienceEntries.map((entry) => entry.profileRecordId),
+      ).not.toContain("fake_id");
       expect(result.experienceEntries[0]?.bullets).toEqual([
         "Built React workflow products for hiring teams.",
       ]);
@@ -913,7 +1161,9 @@ describe("openai-compatible chat and draft behavior", () => {
               isCurrent: false,
               isDraft: false,
               summary: "Built .NET APIs and web applications.",
-              achievements: ["Improved API latency by 25% through cached .NET endpoints."],
+              achievements: [
+                "Improved API latency by 25% through cached .NET endpoints.",
+              ],
               skills: [".NET", "C#"],
               domainTags: ["web applications"],
               peopleManagementScope: null,
@@ -945,10 +1195,9 @@ describe("openai-compatible chat and draft behavior", () => {
 
       const result = await client.createResumeDraft(input);
 
-      expect(result.experienceEntries.map((entry) => entry.profileRecordId)).toEqual([
-        "experience_frontend",
-        "experience_dotnet",
-      ]);
+      expect(
+        result.experienceEntries.map((entry) => entry.profileRecordId),
+      ).toEqual(["experience_frontend", "experience_dotnet"]);
       expect(result.experienceEntries[0]?.bullets).toEqual([
         "Built React workflow products for hiring teams.",
       ]);
@@ -1053,10 +1302,9 @@ describe("openai-compatible chat and draft behavior", () => {
 
       const result = await client.createResumeDraft(input);
 
-      expect(result.experienceEntries.map((entry) => entry.profileRecordId)).toEqual([
-        "experience_orbit_new",
-        "experience_orbit_old",
-      ]);
+      expect(
+        result.experienceEntries.map((entry) => entry.profileRecordId),
+      ).toEqual(["experience_orbit_new", "experience_orbit_old"]);
       expect(result.experienceEntries[0]?.bullets).toEqual([
         "Built modern workflow tooling.",
       ]);
@@ -1161,11 +1409,12 @@ describe("openai-compatible chat and draft behavior", () => {
 
       const result = await client.createResumeDraft(input);
 
-      expect(result.experienceEntries[1]?.profileRecordId).toBe("experience_orbit_old");
-      expect(result.experienceEntries.map((entry) => entry.profileRecordId)).toEqual([
-        "experience_orbit_new",
+      expect(result.experienceEntries[1]?.profileRecordId).toBe(
         "experience_orbit_old",
-      ]);
+      );
+      expect(
+        result.experienceEntries.map((entry) => entry.profileRecordId),
+      ).toEqual(["experience_orbit_new", "experience_orbit_old"]);
       expect(result.experienceEntries[1]?.bullets).toEqual([
         "Maintained legacy workflow tooling.",
       ]);
@@ -1240,10 +1489,9 @@ describe("openai-compatible chat and draft behavior", () => {
 
     const result = buildDeterministicStructuredResumeDraft(input);
 
-    expect(result.experienceEntries.map((entry) => entry.profileRecordId)).toEqual([
-      "experience_valid_month",
-      "experience_invalid_month",
-    ]);
+    expect(
+      result.experienceEntries.map((entry) => entry.profileRecordId),
+    ).toEqual(["experience_valid_month", "experience_invalid_month"]);
   });
 
   test("compacts oversized resume assistant payloads before sending them to the model", async () => {
@@ -1371,20 +1619,22 @@ describe("openai-compatible chat and draft behavior", () => {
       expect(userPayload.request).toContain("please improve this draft");
       expect(userPayload.request).toContain("[truncated");
       expect(userPayload.draft?.sections?.length).toBeLessThan(12);
-      expect(userPayload.draft?.sections?.every((section) => {
-        if (!section || typeof section !== "object") {
-          return true;
-        }
+      expect(
+        userPayload.draft?.sections?.every((section) => {
+          if (!section || typeof section !== "object") {
+            return true;
+          }
 
-        return "entryOrderMode" in section;
-      })).toBe(true);
+          return "entryOrderMode" in section;
+        }),
+      ).toBe(true);
       expect(userPayload.validationIssues?.length ?? 0).toBeLessThanOrEqual(12);
     } finally {
       fetchMock.restore();
     }
   });
 
-  test("compacts oversized draft-creation payloads before sending them to the model", async () => {
+  test("sends a lean evidence-linked rewrite request instead of asking the model to recreate the resume", async () => {
     const fetchMock = mockCapturingJsonFetch({
       choices: [
         {
@@ -1477,23 +1727,42 @@ describe("openai-compatible chat and draft behavior", () => {
         messages?: Array<{ content?: string }>;
       };
       const userPayload = JSON.parse(body.messages?.[1]?.content ?? "{}") as {
-        resumeText?: string;
-        evidence?: { summary?: unknown[] };
+        profile?: unknown;
+        settings?: unknown;
+        searchPreferences?: unknown;
+        resumeText?: unknown;
+        evidence?: unknown;
+        groundingEvidence?: {
+          items?: Array<{ id?: string; text?: string }>;
+        };
         researchContext?: { companyNotes?: unknown[] };
-        job?: { description?: string };
+        targetJob?: { description?: string; title?: string; company?: string };
       };
 
-      expect(userPayload.resumeText?.length ?? 0).toBeLessThan(
-        `Resume text ${"history ".repeat(8000)}`.length,
-      );
-      expect(userPayload.resumeText).toContain("[truncated");
-      expect(Array.isArray(userPayload.evidence?.summary)).toBe(true);
+      expect(userPayload).not.toHaveProperty("profile");
+      expect(userPayload).not.toHaveProperty("settings");
+      expect(userPayload).not.toHaveProperty("searchPreferences");
+      expect(userPayload).not.toHaveProperty("resumeText");
+      expect(userPayload).not.toHaveProperty("evidence");
+      expect(
+        userPayload.groundingEvidence?.items?.some(
+          (item) => item.id === "profile:summary" && Boolean(item.text),
+        ),
+      ).toBe(true);
       expect(Array.isArray(userPayload.researchContext?.companyNotes)).toBe(
         true,
       );
-      expect(userPayload.job?.description?.length ?? 0).toBeLessThan(
+      expect(userPayload.targetJob).toMatchObject({
+        title: createJobPosting().title,
+        company: createJobPosting().company,
+      });
+      expect(userPayload.targetJob?.description?.length ?? 0).toBeLessThan(
         `Job description ${"requirement ".repeat(5000)}`.length,
       );
+      expect(body.messages?.[0]?.content).toContain(
+        "Return {} when the cited evidence is already as clear and professional",
+      );
+      expect(body.messages?.[0]?.content).toContain('"profileRecordId":"..."');
     } finally {
       fetchMock.restore();
     }

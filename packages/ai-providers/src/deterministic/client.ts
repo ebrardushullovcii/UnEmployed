@@ -49,9 +49,23 @@ export function createDeterministicJobFinderAiClient(
       );
     },
     extractResumeImportStage(input) {
-      return Promise.resolve(
-        buildDeterministicResumeImportStageExtraction(input, status.label),
+      const startedAtMs = performance.now();
+      const result = buildDeterministicResumeImportStageExtraction(
+        input,
+        status.label,
       );
+      const durationMs = Math.max(
+        0,
+        Math.round(performance.now() - startedAtMs),
+      );
+      return Promise.resolve({
+        ...result,
+        timing: {
+          durationMs,
+          primaryProviderMs: null,
+          deterministicFallbackMs: durationMs,
+        },
+      });
     },
     adjudicateResumeImportCandidates() {
       return Promise.resolve({

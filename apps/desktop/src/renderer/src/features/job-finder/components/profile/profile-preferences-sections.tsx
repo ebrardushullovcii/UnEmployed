@@ -18,7 +18,6 @@ import { formatStatusLabel, joinListInput, parseListInput } from '../../lib/job-
 import { ProfileInput, profileSelectTriggerClassName } from './profile-form-primitives'
 import { ProfileDiscoveryTargetRow } from './profile-discovery-target-row'
 import { ProfileListEditor } from './profile-list-editor'
-import { ProfileOptionalSection } from './profile-optional-section'
 import { ProfileSectionHeader } from './profile-section-header'
 
 export function ProfilePreferencesTargetingSection(props: {
@@ -45,6 +44,7 @@ export function ProfilePreferencesTargetingSection(props: {
   const tailoringModeId = useId()
   const minimumSalaryId = useId()
   const targetSalaryId = useId()
+  const compensationIntervalId = useId()
   const salaryCurrencyId = useId()
   const listFieldOptions = { shouldDirty: true, shouldTouch: true, shouldValidate: true } as const
 
@@ -135,8 +135,37 @@ export function ProfilePreferencesTargetingSection(props: {
             )}
           />
 
-          <div className="grid min-w-0 content-start gap-(--gap-field) h-full"><FieldLabel htmlFor={minimumSalaryId}>Minimum salary (USD)</FieldLabel><ProfileInput id={minimumSalaryId} min="0" step="1" type="number" {...register('minimumSalaryUsd')} /></div>
-          <div className="grid min-w-0 content-start gap-(--gap-field) h-full"><FieldLabel htmlFor={targetSalaryId}>Target salary (USD)</FieldLabel><ProfileInput id={targetSalaryId} min="0" step="1" type="number" {...register('targetSalaryUsd')} /></div>
+          <div className="grid min-w-0 content-start gap-(--gap-field) h-full"><FieldLabel htmlFor={minimumSalaryId}>Minimum compensation</FieldLabel><ProfileInput id={minimumSalaryId} min="0" step="1" type="number" {...register('minimumSalaryUsd')} /></div>
+          <div className="grid min-w-0 content-start gap-(--gap-field) h-full"><FieldLabel htmlFor={targetSalaryId}>Maximum compensation</FieldLabel><ProfileInput id={targetSalaryId} min="0" step="1" type="number" {...register('targetSalaryUsd')} /></div>
+          <Controller
+            control={control}
+            name="compensationInterval"
+            render={({ field }) => (
+              <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
+                <FieldLabel htmlFor={compensationIntervalId}>Compensation interval</FieldLabel>
+                <FormSelect
+                  onValueChange={field.onChange}
+                  options={[
+                    { label: 'Hourly', value: 'hour' },
+                    { label: 'Daily', value: 'day' },
+                    { label: 'Weekly', value: 'week' },
+                    { label: 'Monthly', value: 'month' },
+                    { label: 'Yearly', value: 'year' }
+                  ]}
+                  triggerClassName={profileSelectTriggerClassName}
+                  triggerId={compensationIntervalId}
+                  value={field.value}
+                />
+              </div>
+            )}
+          />
+          <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
+            <FieldLabel htmlFor={salaryCurrencyId}>Compensation currency</FieldLabel>
+            <ProfileInput id={salaryCurrencyId} maxLength={3} placeholder="USD or EUR" {...register('salaryCurrency')} />
+            {!watch('salaryCurrency').trim() && (watch('minimumSalaryUsd').trim() || watch('targetSalaryUsd').trim()) ? (
+              <p className="text-xs leading-5 text-(--warning-text)">Add a three-letter currency before relying on compensation matching.</p>
+            ) : null}
+          </div>
         </div>
       </article>
 
@@ -162,19 +191,6 @@ export function ProfilePreferencesTargetingSection(props: {
           Strict collection can reduce application volume and may hide adjacent roles. Explicitly excluded companies and locations are always skipped.
         </p>
       </article>
-
-      <ProfileOptionalSection
-        defaultOpen={Boolean(watch('salaryCurrency'))}
-        description="Leave this closed unless you are tracking compensation in something other than the default USD view."
-        title="International salary details"
-      >
-        <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
-          <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
-            <FieldLabel htmlFor={salaryCurrencyId}>Salary currency</FieldLabel>
-            <ProfileInput id={salaryCurrencyId} placeholder="Defaults to USD" {...register('salaryCurrency')} />
-          </div>
-        </div>
-      </ProfileOptionalSection>
 
       <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4" id="profile-job-sources">
         <div className="flex flex-wrap items-center justify-between gap-3">

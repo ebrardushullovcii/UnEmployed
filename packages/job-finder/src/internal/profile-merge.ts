@@ -1,4 +1,7 @@
-import type { ResumeProfileExtraction, TailoredResumeDraft } from "@unemployed/ai-providers";
+import type {
+  ResumeProfileExtraction,
+  TailoredResumeDraft,
+} from "@unemployed/ai-providers";
 import {
   CandidateProfileSchema,
   JobSearchPreferencesSchema,
@@ -12,6 +15,7 @@ import {
   scoreEducationRecordCompleteness,
   scoreExperienceRecordCompleteness,
 } from "./resume-record-identity";
+import { inferAdministrativeAreaCountry } from "./location-normalization";
 import { normalizeText, uniqueStrings } from "./shared";
 
 const KNOWN_COUNTRY_LIKE_LOCATION_PARTS = new Set([
@@ -161,7 +165,9 @@ function mergeWorkModes(
   return [...new Set([...(existing ?? []), ...(incoming ?? [])])];
 }
 
-export function toValidUrlOrNull(value: string | null | undefined): string | null {
+export function toValidUrlOrNull(
+  value: string | null | undefined,
+): string | null {
   if (!value) {
     return null;
   }
@@ -221,7 +227,7 @@ export function parseLocationParts(location: string | null | undefined): {
     return {
       currentCity: parts[0] ?? null,
       currentRegion: parts[1] ?? null,
-      currentCountry: null,
+      currentCountry: inferAdministrativeAreaCountry([parts[1]]),
     };
   }
 
@@ -236,17 +242,26 @@ export function mergeExperienceRecords(
   existing: CandidateProfile["experiences"],
   extracted: ResumeProfileExtraction["experiences"],
 ): CandidateProfile["experiences"] {
-  const normalizedExisting = [...existing].sort((left, right) =>
-    scoreExperienceRecordCompleteness(right) - scoreExperienceRecordCompleteness(left),
+  const normalizedExisting = [...existing].sort(
+    (left, right) =>
+      scoreExperienceRecordCompleteness(right) -
+      scoreExperienceRecordCompleteness(left),
   );
-  const merged = normalizedExisting.reduce<CandidateProfile["experiences"]>((accumulator, entry) => {
-    if (accumulator.some((existingEntry) => areEquivalentExperienceRecords(existingEntry, entry))) {
-      return accumulator;
-    }
+  const merged = normalizedExisting.reduce<CandidateProfile["experiences"]>(
+    (accumulator, entry) => {
+      if (
+        accumulator.some((existingEntry) =>
+          areEquivalentExperienceRecords(existingEntry, entry),
+        )
+      ) {
+        return accumulator;
+      }
 
-    accumulator.push(entry);
-    return accumulator;
-  }, []);
+      accumulator.push(entry);
+      return accumulator;
+    },
+    [],
+  );
 
   extracted.forEach((entry, index) => {
     const key = normalizeRecordKey([
@@ -262,7 +277,7 @@ export function mergeExperienceRecords(
           existingEntry.startDate,
         ]) === key || areEquivalentExperienceRecords(existingEntry, entry),
     );
-    const match = matchIndex === -1 ? null : merged[matchIndex] ?? null;
+    const match = matchIndex === -1 ? null : (merged[matchIndex] ?? null);
     const nextEntry = {
       id:
         match?.id ??
@@ -280,7 +295,9 @@ export function mergeExperienceRecords(
       startDate: entry.startDate ?? match?.startDate ?? null,
       endDate: entry.endDate ?? match?.endDate ?? null,
       isCurrent: entry.isCurrent,
-      isDraft: !(entry.companyName ?? match?.companyName) && !(entry.title ?? match?.title),
+      isDraft:
+        !(entry.companyName ?? match?.companyName) &&
+        !(entry.title ?? match?.title),
       summary: preferLongerText(match?.summary, entry.summary),
       achievements: uniqueStrings([
         ...safeStringArray(match?.achievements),
@@ -314,17 +331,26 @@ export function mergeEducationRecords(
   existing: CandidateProfile["education"],
   extracted: ResumeProfileExtraction["education"],
 ): CandidateProfile["education"] {
-  const normalizedExisting = [...existing].sort((left, right) =>
-    scoreEducationRecordCompleteness(right) - scoreEducationRecordCompleteness(left),
+  const normalizedExisting = [...existing].sort(
+    (left, right) =>
+      scoreEducationRecordCompleteness(right) -
+      scoreEducationRecordCompleteness(left),
   );
-  const merged = normalizedExisting.reduce<CandidateProfile["education"]>((accumulator, entry) => {
-    if (accumulator.some((existingEntry) => areEquivalentEducationRecords(existingEntry, entry))) {
-      return accumulator;
-    }
+  const merged = normalizedExisting.reduce<CandidateProfile["education"]>(
+    (accumulator, entry) => {
+      if (
+        accumulator.some((existingEntry) =>
+          areEquivalentEducationRecords(existingEntry, entry),
+        )
+      ) {
+        return accumulator;
+      }
 
-    accumulator.push(entry);
-    return accumulator;
-  }, []);
+      accumulator.push(entry);
+      return accumulator;
+    },
+    [],
+  );
 
   extracted.forEach((entry, index) => {
     const key = normalizeRecordKey([
@@ -340,7 +366,7 @@ export function mergeEducationRecords(
           existingEntry.startDate,
         ]) === key || areEquivalentEducationRecords(existingEntry, entry),
     );
-    const match = matchIndex === -1 ? null : merged[matchIndex] ?? null;
+    const match = matchIndex === -1 ? null : (merged[matchIndex] ?? null);
     const nextEntry = {
       id:
         match?.id ??

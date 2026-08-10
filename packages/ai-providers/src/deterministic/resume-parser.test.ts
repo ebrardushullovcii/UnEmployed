@@ -165,6 +165,83 @@ describe("buildDeterministicResumeProfileExtraction", () => {
     expect(extraction.experiences[0]?.skills).not.toContain("Product Design");
   });
 
+  test("keeps explicit work modes and grounded job-scoped skills on the matching experience", () => {
+    const extraction = buildDeterministicResumeProfileExtraction(
+      {
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: [
+          "CASEY ROWAN",
+          "Senior Frontend Engineer",
+          "casey.rowan@example.test | +1 555 010 2401 | Portland, Oregon",
+          "SUMMARY",
+          "Frontend engineer with eight years of experience building accessible web applications and design systems for logistics and financial-services teams. Strong in React, TypeScript, testing, performance, and mentoring.",
+          "EXPERIENCE",
+          "Senior Frontend Engineer — Northstar Parcel Software",
+          "March 2021–Present | Portland, Oregon",
+          "- Led a React and TypeScript shipment-tracking redesign used by 18 internal operations teams.",
+          "- Reduced median page-load time from 4.2 seconds to 1.9 seconds by splitting bundles and removing duplicate requests.",
+          "- Built an accessible component library with Storybook and automated axe checks.",
+          "- Mentored four engineers and introduced Vitest integration tests for critical workflows.",
+          "Frontend Engineer — Cedar Ledger",
+          "June 2018–February 2021 | Remote",
+          "- Built account-management workflows with React, GraphQL, and Node.js.",
+          "- Partnered with product designers to improve form completion and error recovery.",
+          "EDUCATION",
+          "Bachelor of Science in Computer Science — Oregon State University, 2018",
+          "SKILLS",
+          "React, TypeScript, JavaScript, HTML, CSS, GraphQL, Node.js, Vitest, Playwright, Storybook, accessibility, performance optimization",
+        ].join("\n"),
+      },
+      "deterministic",
+      "Test provider",
+      { preserveExistingValues: false },
+    );
+
+    expect(extraction.experiences).toHaveLength(2);
+
+    const northstar = extraction.experiences.find(
+      (experience) => experience.companyName === "Northstar Parcel Software",
+    );
+    const cedar = extraction.experiences.find(
+      (experience) => experience.companyName === "Cedar Ledger",
+    );
+
+    expect(northstar).toMatchObject({
+      title: "Senior Frontend Engineer",
+      location: "Portland, Oregon",
+      workMode: [],
+    });
+    expect(northstar?.achievements).toHaveLength(4);
+    expect(northstar?.skills).toEqual(
+      expect.arrayContaining([
+        "React",
+        "TypeScript",
+        "Storybook",
+        "Vitest",
+        "Accessibility",
+        "axe",
+        "Performance Optimization",
+      ]),
+    );
+
+    expect(cedar).toMatchObject({
+      title: "Frontend Engineer",
+      location: "Remote",
+      workMode: ["remote"],
+    });
+    expect(cedar?.achievements).toHaveLength(2);
+    expect(cedar?.skills).toEqual(
+      expect.arrayContaining(["React", "GraphQL", "Node.js"]),
+    );
+    expect(cedar?.skills).not.toEqual(
+      expect.arrayContaining([
+        "Storybook",
+        "Vitest",
+        "Performance Optimization",
+      ]),
+    );
+  });
   test("derives years of experience from single-digit slash month ranges", () => {
     const extraction = buildDeterministicResumeProfileExtraction(
       {
@@ -744,5 +821,138 @@ describe("buildDeterministicResumeProfileExtraction", () => {
     expect(titles.some((title) => title?.includes("Real-time Tracking"))).toBe(
       false,
     );
+  });
+
+  test("keeps stacked role headers and background sections associated with their records", () => {
+    const extraction = buildDeterministicResumeProfileExtraction(
+      {
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: [
+          "EXPERIENCE",
+          "Northstar Labs",
+          "Senior Product Engineer",
+          "Amsterdam, Netherlands",
+          "March 2022 - Present",
+          "Built TypeScript workflow tools for operations teams.",
+          "- Reduced manual review time by 28% through a guided validation queue.",
+          "Harbor Studio",
+          "Frontend Engineer",
+          "Rotterdam, Netherlands",
+          "January 2019 - February 2022",
+          "Delivered customer-facing React applications.",
+          "- Shipped a reusable component library across four products.",
+          "PROJECTS",
+          "Queue Insight",
+          "Lead Developer",
+          "Open-source workflow diagnostics dashboard built with TypeScript.",
+          "https://example.test/queue-insight",
+          "CERTIFICATIONS",
+          "AWS Certified Developer - Associate",
+          "Amazon Web Services",
+          "Issued June 2023",
+          "EDUCATION",
+          "Delft University of Technology",
+          "BSc Computer Science",
+          "2015 - 2018",
+          "LANGUAGES",
+          "English - Professional working proficiency",
+          "Dutch - Native",
+          "SKILLS",
+          "TypeScript, React, Accessibility, AWS",
+        ].join("\n"),
+      },
+      "deterministic",
+      "Test provider",
+      { preserveExistingValues: false },
+    );
+
+    expect(extraction.experiences).toEqual([
+      expect.objectContaining({
+        companyName: "Northstar Labs",
+        title: "Senior Product Engineer",
+        location: "Amsterdam, Netherlands",
+        startDate: "March 2022",
+        isCurrent: true,
+      }),
+      expect.objectContaining({
+        companyName: "Harbor Studio",
+        title: "Frontend Engineer",
+        location: "Rotterdam, Netherlands",
+        startDate: "January 2019",
+        endDate: "February 2022",
+      }),
+    ]);
+    expect(extraction.experiences[0]?.achievements).toContain(
+      "Reduced manual review time by 28% through a guided validation queue.",
+    );
+    expect(extraction.education[0]).toMatchObject({
+      schoolName: "Delft University of Technology",
+      degree: "BSc Computer Science",
+    });
+    expect(extraction.projects[0]).toMatchObject({
+      name: "Queue Insight",
+      role: "Lead Developer",
+    });
+    expect(extraction.certifications[0]).toMatchObject({
+      name: "AWS Certified Developer - Associate",
+      issuer: "Amazon Web Services",
+      issueDate: "June 2023",
+    });
+    expect(extraction.spokenLanguages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          language: "English",
+          proficiency: "Professional working proficiency",
+        }),
+        expect.objectContaining({ language: "Dutch", proficiency: "Native" }),
+      ]),
+    );
+  });
+
+  test("supports title-first stacked headers and carries an employer across consecutive roles", () => {
+    const extraction = buildDeterministicResumeProfileExtraction(
+      {
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: [
+          "EXPERIENCE",
+          "Senior Product Engineer",
+          "Northstar Labs",
+          "Amsterdam, Netherlands",
+          "March 2022 - Present",
+          "Built workflow tools for operations teams.",
+          "Product Engineer",
+          "January 2020 - February 2022",
+          "Maintained the same product platform for internal teams.",
+          "Frontend Engineer",
+          "Harbor Studio",
+          "Rotterdam, Netherlands",
+          "January 2018 - December 2019",
+          "Delivered customer-facing applications.",
+        ].join("\n"),
+      },
+      "deterministic",
+      "Test provider",
+      { preserveExistingValues: false },
+    );
+
+    expect(extraction.experiences).toEqual([
+      expect.objectContaining({
+        title: "Senior Product Engineer",
+        companyName: "Northstar Labs",
+        location: "Amsterdam, Netherlands",
+      }),
+      expect.objectContaining({
+        title: "Product Engineer",
+        companyName: "Northstar Labs",
+        location: "Amsterdam, Netherlands",
+      }),
+      expect.objectContaining({
+        title: "Frontend Engineer",
+        companyName: "Harbor Studio",
+        location: "Rotterdam, Netherlands",
+      }),
+    ]);
   });
 });

@@ -177,7 +177,6 @@ export function registerInterviewHelperRouteHandlers(ipcMain: IpcMain) {
       return withSyncedOverlays(() => service.transcribeAudioChunk(input));
     },
   );
-
   ipcMain.handle("interview-helper:verify-overlay-protection", async () => {
     const protectedSurfaces = await verifyInterviewOverlayCaptureProtection();
     const service = await getInterviewHelperService();

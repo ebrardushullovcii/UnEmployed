@@ -1,4 +1,10 @@
-import type { JobFinderDiscoveryState, JobSource, SavedJob } from "@unemployed/contracts";
+import type {
+  JobFinderDiscoveryState,
+  JobSource,
+  SavedJob,
+} from "@unemployed/contracts";
+
+import { compareDiscoveryJobs } from "./matching-review-queue";
 
 export function mergeSessionStates(
   currentSessions: ReadonlyArray<JobFinderDiscoveryState["sessions"][number]>,
@@ -19,9 +25,7 @@ export function mergePendingJobs(
   for (const job of nextJobs) {
     nextById.set(job.id, job);
   }
-  return [...nextById.values()].sort(
-    (left, right) => right.matchAssessment.score - left.matchAssessment.score,
-  );
+  return [...nextById.values()].sort(compareDiscoveryJobs);
 }
 
 export function mergeSavedJobs(
@@ -30,7 +34,30 @@ export function mergeSavedJobs(
 ): SavedJob[] {
   const nextById = new Map(currentJobs.map((job) => [job.id, job]));
   for (const job of nextJobs) {
-    nextById.set(job.id, job);
+    const currentJob = nextById.get(job.id);
+    const jobWithPersistedLocalChoices = {
+      ...job,
+      resumeApplicationMode:
+        currentJob?.resumeApplicationMode ?? job.resumeApplicationMode,
+      latestMatchAssessmentAudit:
+        job.latestMatchAssessmentAudit ??
+        currentJob?.latestMatchAssessmentAudit ??
+        null,
+    };
+    const preservesExplicitDismissal =
+      currentJob?.status === "archived" &&
+      currentJob.discoveryFeedback !== null &&
+      job.status === "discovered";
+    nextById.set(
+      job.id,
+      preservesExplicitDismissal
+        ? {
+            ...jobWithPersistedLocalChoices,
+            status: "archived",
+            discoveryFeedback: currentJob.discoveryFeedback,
+          }
+        : jobWithPersistedLocalChoices,
+    );
   }
   return [...nextById.values()];
 }

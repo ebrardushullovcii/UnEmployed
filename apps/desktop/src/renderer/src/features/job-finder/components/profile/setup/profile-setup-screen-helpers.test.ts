@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { formatProfileSetupReviewValue } from './profile-setup-screen-helpers'
+import {
+  formatProfileSetupReviewValue,
+  isBlockingPendingReviewItem,
+  isOptionalPendingReviewItem,
+} from './profile-setup-screen-helpers'
 
 describe('formatProfileSetupReviewValue', () => {
   it('renders serialized education records as readable details without internal ids', () => {
@@ -30,5 +34,18 @@ describe('formatProfileSetupReviewValue', () => {
   it('leaves ordinary text untouched and safely handles malformed JSON-like text', () => {
     expect(formatProfileSetupReviewValue('Senior Software Engineer')).toBe('Senior Software Engineer')
     expect(formatProfileSetupReviewValue('{not json')).toBe('{not json')
+  })
+})
+
+describe('profile setup review priority', () => {
+  it('keeps pending optional suggestions out of blocking counts', () => {
+    const optionalItem = { severity: 'optional' as const, status: 'pending' as const }
+    const recommendedItem = { severity: 'recommended' as const, status: 'pending' as const }
+    const resolvedCriticalItem = { severity: 'critical' as const, status: 'confirmed' as const }
+
+    expect(isOptionalPendingReviewItem(optionalItem)).toBe(true)
+    expect(isBlockingPendingReviewItem(optionalItem)).toBe(false)
+    expect(isBlockingPendingReviewItem(recommendedItem)).toBe(true)
+    expect(isBlockingPendingReviewItem(resolvedCriticalItem)).toBe(false)
   })
 })

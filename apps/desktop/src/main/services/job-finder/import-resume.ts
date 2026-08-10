@@ -1,51 +1,73 @@
-import { copyFile, mkdir } from 'node:fs/promises'
-import path from 'node:path'
+import { createHash } from "node:crypto";
+import { copyFile, mkdir, readFile } from "node:fs/promises";
+import path from "node:path";
 import {
   JobFinderWorkspaceSnapshotSchema,
   type ResumeImportProgressEvent,
   type ResumeSourceDocument,
-} from '@unemployed/contracts'
-import { detectResumeDocumentFileKind, extractResumeDocument } from '../../adapters/resume-document'
-import { generateResumeVisionImages } from '../../adapters/resume-vision-images'
-import { getJobFinderWorkspaceService } from './workspace-service'
-import { getJobFinderDocumentsDirectory } from './paths'
+} from "@unemployed/contracts";
+import {
+  detectResumeDocumentFileKind,
+  extractResumeDocument,
+} from "../../adapters/resume-document";
+import { generateResumeVisionImages } from "../../adapters/resume-vision-images";
+import { getJobFinderWorkspaceService } from "./workspace-service";
+import { getJobFinderDocumentsDirectory } from "./paths";
 
 export interface ImportResumeFromSourcePathOptions {
-  onProgress?: (event: ResumeImportProgressEvent) => void
-  useVision?: boolean
+  onProgress?: (event: ResumeImportProgressEvent) => void;
+  useVision?: boolean;
 }
 
 export async function importResumeFromSourcePath(
   sourcePath: string,
   options: ImportResumeFromSourcePathOptions = {},
 ) {
-  const targetDirectory = getJobFinderDocumentsDirectory()
-  const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
-  const useVision = options.useVision ?? true
+  const targetDirectory = getJobFinderDocumentsDirectory();
+  const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+  const useVision = options.useVision ?? true;
   const reportProgress = (
-    stage: ResumeImportProgressEvent['stage'],
+    stage: ResumeImportProgressEvent["stage"],
     message: string,
-  ) => options.onProgress?.({ stage, message, occurredAt: new Date().toISOString() })
+  ) =>
+    options.onProgress?.({
+      stage,
+      message,
+      occurredAt: new Date().toISOString(),
+    });
 
-  reportProgress('saving_file', 'Saving a private working copy on this device.')
-  await mkdir(targetDirectory, { recursive: true })
+  reportProgress(
+    "saving_file",
+    "Saving a private working copy on this device.",
+  );
+  await mkdir(targetDirectory, { recursive: true });
 
-  const timestamp = Date.now()
-  const uploadedAt = new Date(timestamp).toISOString()
-  const fileName = path.basename(sourcePath)
-  const resumeId = `resume_${timestamp}`
-  const targetPath = path.join(targetDirectory, `${timestamp}_${fileName}`)
-  const seedRunId = `resume_import_seed_${timestamp}`
-  const sourceFileKind = detectResumeDocumentFileKind(targetPath)
+  const timestamp = Date.now();
+  const uploadedAt = new Date(timestamp).toISOString();
+  const fileName = path.basename(sourcePath);
+  const resumeId = `resume_${timestamp}`;
+  const targetPath = path.join(targetDirectory, `${timestamp}_${fileName}`);
+  const seedRunId = `resume_import_seed_${timestamp}`;
+  const sourceFileKind = detectResumeDocumentFileKind(targetPath);
+  const shouldGenerateVision =
+    useVision &&
+    sourceFileKind !== "plain_text" &&
+    sourceFileKind !== "markdown";
 
-  await copyFile(sourcePath, targetPath)
-  reportProgress('reading_document', 'Reading resume text, sections, and page layout.')
+  await copyFile(sourcePath, targetPath);
+  const sourceSha256 = createHash("sha256")
+    .update(await readFile(targetPath))
+    .digest("hex");
+  reportProgress(
+    "reading_document",
+    "Reading resume text, sections, and page layout.",
+  );
   const extractionInput = {
     bundleId: `resume_bundle_${timestamp}`,
     runId: seedRunId,
-    sourceResumeId: resumeId
-  }
-  const generatedVisionArtifactPromise = useVision
+    sourceResumeId: resumeId,
+  };
+  const generatedVisionArtifactPromise = shouldGenerateVision
     ? generateResumeVisionImages({
         filePath: targetPath,
         fileKind: sourceFileKind,
@@ -57,22 +79,25 @@ export async function importResumeFromSourcePath(
         warnings: [
           error instanceof Error
             ? `Local resume image generation failed: ${error.message}`
-            : 'Local resume image generation failed before the vision branch could start.',
+            : "Local resume image generation failed before the vision branch could start.",
         ],
       }))
-    : Promise.resolve({ artifact: null, warnings: [] })
+    : Promise.resolve({ artifact: null, warnings: [] });
 
   const [extractedResume, generatedVisionArtifact] = await Promise.all([
     extractResumeDocument(targetPath, extractionInput),
     generatedVisionArtifactPromise,
-  ])
-  const visionWarnings = generatedVisionArtifact.warnings
-  const extractionStatus = extractedResume.textContent ? 'not_started' : 'needs_text'
+  ]);
+  const visionWarnings = generatedVisionArtifact.warnings;
+  const extractionStatus = extractedResume.textContent
+    ? "not_started"
+    : "needs_text";
   const baseResume: ResumeSourceDocument = {
     id: resumeId,
     fileName,
     uploadedAt,
     storagePath: targetPath,
+    sha256: sourceSha256,
     textContent: extractedResume.textContent,
     textUpdatedAt: extractedResume.textContent ? uploadedAt : null,
     extractionStatus,
@@ -84,12 +109,21 @@ export async function importResumeFromSourcePath(
         ? [...extractedResume.warnings, ...visionWarnings]
         : extractedResume.textContent
           ? []
-          : ['Paste plain-text resume content below if you want the agent to extract profile details from this file.']
-  }
+          : [
+              "Paste plain-text resume content below if you want the agent to extract profile details from this file.",
+            ],
+  };
 
-  if (!extractedResume.textContent && !generatedVisionArtifact.artifact?.pages.length) {
-    reportProgress('saving_results', 'Saving the import issue and recovery guidance.')
-    const currentSnapshot = await jobFinderWorkspaceService.getWorkspaceSnapshot()
+  if (
+    !extractedResume.textContent &&
+    !generatedVisionArtifact.artifact?.pages.length
+  ) {
+    reportProgress(
+      "saving_results",
+      "Saving the import issue and recovery guidance.",
+    );
+    const currentSnapshot =
+      await jobFinderWorkspaceService.getWorkspaceSnapshot();
     const snapshot = await jobFinderWorkspaceService.saveProfile({
       ...currentSnapshot.profile,
       baseResume: {
@@ -97,23 +131,31 @@ export async function importResumeFromSourcePath(
         analysisWarnings: [
           ...baseResume.analysisWarnings,
           ...(generatedVisionArtifact.artifact?.pages.length
-            ? ['Local resume page images were generated, but this import still needs readable text before profile extraction can run.']
+            ? [
+                "Local resume page images were generated, but this import still needs readable text before profile extraction can run.",
+              ]
             : []),
         ],
-      }
-    })
+      },
+    });
 
-    return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
+    return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
   }
 
-  reportProgress('building_profile', 'Building grounded profile suggestions for your review.')
+  reportProgress(
+    "building_profile",
+    "Building grounded profile suggestions for your review.",
+  );
   const snapshot = await jobFinderWorkspaceService.runResumeImport({
     baseResume,
     documentBundle: extractedResume.bundle,
     importWarnings: [...extractedResume.warnings, ...visionWarnings],
     visionArtifact: generatedVisionArtifact.artifact,
-  })
+  });
 
-  reportProgress('saving_results', 'Saving the imported resume and review items.')
-  return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
+  reportProgress(
+    "saving_results",
+    "Saving the imported resume and review items.",
+  );
+  return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
 }

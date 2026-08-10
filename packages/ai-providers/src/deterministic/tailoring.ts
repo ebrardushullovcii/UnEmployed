@@ -1078,7 +1078,7 @@ export function buildDeterministicResumeAssistantReply(
   }
 
   const content = patches.length
-    ? `Applied ${patches.length} grounded resume edit${patches.length === 1 ? "" : "s"} based on your request.`
+    ? `Prepared ${patches.length} grounded resume edit${patches.length === 1 ? "" : "s"} for your review.`
     : "I could not safely turn that request into a grounded patch, so no changes were applied.";
 
   return ResumeAssistantReplySchema.parse({
@@ -1098,11 +1098,34 @@ function tightenSentence(value: string): string {
     return /[.!?;]$/.test(normalized) ? normalized : `${normalized}.`;
   }
 
-  const candidate = normalized.slice(0, 240);
-  const boundaryMatch = candidate.match(/^.*(?=[\s.!?;][^\s.!?;]*$)/);
-  const trimmed =
-    boundaryMatch?.[0]?.trim() ?? candidate.replace(/\s+\S*$/, "").trim();
-  const safe = trimmed.length > 0 ? trimmed : candidate.trim();
+  const maximumContentLength = 239;
+  const window = normalized.slice(0, maximumContentLength);
+  const boundaryCandidates = [
+    ...window.matchAll(/[.!?](?=\s|$)/g),
+    ...window.matchAll(/[,;:](?=\s|$)/g),
+    ...window.matchAll(/[—–](?=\s|$)/g),
+    ...window.matchAll(/\s+(?=(?:and|but|while|whereas|which|who|that)\b)/gi),
+  ]
+    .map((match) => match.index)
+    .filter((index): index is number => index !== undefined && index >= 55)
+    .sort((left, right) => right - left);
 
-  return /[.!?;]$/.test(safe) ? safe : `${safe}...`;
+  for (const boundaryIndex of boundaryCandidates) {
+    const candidate = window
+      .slice(0, boundaryIndex + 1)
+      .trim()
+      .replace(/[,;:—–-]+$/, "")
+      .trim();
+
+    if (
+      candidate.length >= 55 &&
+      !/\b(?:and|but|for|or|nor|to|with|who|which|that)$/i.test(candidate)
+    ) {
+      return /[.!?]$/.test(candidate) ? candidate : `${candidate}.`;
+    }
+  }
+
+  // Returning the complete normalized sentence is safer than manufacturing a
+  // fragment when the source contains no sentence or clause boundary.
+  return /[.!?]$/.test(normalized) ? normalized : `${normalized}.`;
 }

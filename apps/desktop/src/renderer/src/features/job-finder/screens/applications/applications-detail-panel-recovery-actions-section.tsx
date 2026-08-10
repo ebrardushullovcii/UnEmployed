@@ -76,11 +76,13 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
             variant="secondary"
             disabled={isApplyPending}
           >
-            {isWaitingForSignIn
-              ? "I'm signed in — retry application"
-              : needsResumeAttachment
-                ? "Approve and retry CV attachment"
-                : "Rerun apply copilot"}
+            {isApplyPending
+              ? "Preparing safely..."
+              : isWaitingForSignIn
+                ? "I'm signed in — retry application"
+                : needsResumeAttachment
+                  ? "Approve and retry CV attachment"
+                  : "Rerun apply copilot"}
           </Button>
           <Button
             onClick={() => onStartAutoApply(selectedRecordJobId)}
@@ -101,6 +103,11 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
             Restage remaining queue
           </Button>
         </div>
+        {isApplyPending ? (
+          <p aria-live="polite" className="text-(length:--text-small) leading-6 text-foreground-soft" role="status">
+            Preparing the application in the dedicated browser now. This can take up to a minute while Job Finder verifies every retained field. It will stop before the final submit control.
+          </p>
+        ) : null}
         <div className="grid gap-1 text-(length:--text-small) leading-6 text-foreground-soft">
           {!canRestageAutoRun ? (
             <p>

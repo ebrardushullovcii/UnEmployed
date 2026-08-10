@@ -1,0 +1,509 @@
+import type {
+  JobRequirementAssessment,
+  JobSearchPreferences,
+  MatchDimensionEvidence,
+  MatchDimensionsAssessment,
+} from "@unemployed/contracts";
+
+import type { MatchAssessmentPostingInput } from "./match-assessment-posting-input";
+import { normalizeText } from "./shared";
+
+export type BuildMatchDimensionsAssessmentInput = {
+  posting: MatchAssessmentPostingInput;
+  searchPreferences: JobSearchPreferences;
+  requirements: readonly JobRequirementAssessment[];
+  matchesRole: boolean;
+  roleFamilyMismatch: boolean;
+  roleFamilyUnclear: boolean;
+  matchesLocation: boolean;
+  matchesWorkMode: boolean;
+  isPreferredCompany: boolean;
+};
+
+function clip(value: string, limit: number): string {
+  const normalized = value.replace(/\s+/gu, " ").trim();
+  return normalized.length <= limit
+    ? normalized
+    : `${normalized.slice(0, limit - 1).trim()}…`;
+}
+
+function evidence(
+  source: MatchDimensionEvidence["source"],
+  label: string,
+  detail: string,
+): MatchDimensionEvidence {
+  return {
+    source,
+    label: clip(label, 120),
+    detail: clip(detail, 240),
+  };
+}
+
+function formatList(values: readonly string[]): string {
+  return values.length > 0 ? values.slice(0, 4).join(", ") : "None saved";
+}
+
+function buildRoleSuitability(
+  input: BuildMatchDimensionsAssessmentInput,
+): MatchDimensionsAssessment["roleSuitability"] {
+  const { posting, searchPreferences } = input;
+  const roleEvidence = [
+    evidence("listing", "Listing title", posting.title),
+    ...(searchPreferences.targetRoles.length > 0
+      ? [
+          evidence(
+            "preference",
+            "Saved target roles",
+            formatList(searchPreferences.targetRoles),
+          ),
+        ]
+      : []),
+  ];
+
+  const requiredCoreRequirements = input.requirements.filter(
+    (requirement) =>
+      requirement.importance === "required" &&
+      (requirement.category === "skill" ||
+        requirement.category === "domain" ||
+        requirement.category === "experience"),
+  );
+  const requiredCoreConflict =
+    requiredCoreRequirements.find(
+      (requirement) => requirement.status === "conflict",
+    ) ??
+    input.requirements.find(
+      (requirement) =>
+        requirement.importance === "required" &&
+        requirement.category === "work_authorization" &&
+        requirement.status === "conflict",
+    );
+  const unsupportedRequiredCore = requiredCoreRequirements.find(
+    (requirement) => requirement.status !== "supported",
+  );
+  const withRequirementEvidence = (
+    requirement: JobRequirementAssessment,
+  ): MatchDimensionEvidence[] =>
+    [
+      ...roleEvidence,
+      evidence(
+        "listing",
+        `Required: ${requirement.label}`,
+        `${requirement.status.replaceAll("_", " ")}: ${requirement.jobEvidence}`,
+      ),
+    ].slice(0, 4);
+
+  if (input.roleFamilyMismatch || requiredCoreConflict) {
+    return {
+      state: "conflict",
+      explanation: requiredCoreConflict
+        ? `${requiredCoreConflict.label} explicitly conflicts with the saved profile evidence.`
+        : "The listing belongs to a different role family than the saved target roles.",
+      evidence: requiredCoreConflict
+        ? withRequirementEvidence(requiredCoreConflict)
+        : roleEvidence,
+    };
+  }
+
+  if (searchPreferences.targetRoles.length === 0) {
+    return {
+      state: "unknown",
+      explanation:
+        "No target roles are saved, so the listing title cannot be compared with an intended role.",
+      evidence: roleEvidence,
+    };
+  }
+
+  if (
+    input.matchesRole &&
+    requiredCoreRequirements.length > 0 &&
+    !unsupportedRequiredCore
+  ) {
+    return {
+      state: "exact",
+      explanation:
+        "The listing title matches a saved target role and its detected required core evidence is supported.",
+      evidence: roleEvidence,
+    };
+  }
+
+  if (input.matchesRole) {
+    return {
+      state: "adjacent",
+      explanation: unsupportedRequiredCore
+        ? `The title matches, but ${unsupportedRequiredCore.label} is not fully supported by explicit profile evidence.`
+        : "The title matches, but no required core evidence was extracted to verify suitability.",
+      evidence: unsupportedRequiredCore
+        ? withRequirementEvidence(unsupportedRequiredCore)
+        : roleEvidence,
+    };
+  }
+
+  if (input.roleFamilyUnclear) {
+    return {
+      state: "unknown",
+      explanation:
+        "The listing title does not provide enough role-family evidence for a reliable comparison.",
+      evidence: roleEvidence,
+    };
+  }
+
+  return {
+    state: "adjacent",
+    explanation:
+      "The listing title is related to the saved target roles, but it is not a direct title match.",
+    evidence: roleEvidence,
+  };
+}
+
+function buildPreferenceAlignment(
+  input: BuildMatchDimensionsAssessmentInput,
+): MatchDimensionsAssessment["preferenceAlignment"] {
+  const { posting, searchPreferences } = input;
+  const hasLocationPreference = searchPreferences.locations.length > 0;
+  const hasWorkModePreference = searchPreferences.workModes.length > 0;
+  const hasCompanyPreference = searchPreferences.companyWhitelist.length > 0;
+  const hasSeniorityPreference = searchPreferences.seniorityLevels.length > 0;
+  const hasEmploymentTypePreference =
+    searchPreferences.employmentTypes.length > 0;
+  const senioritySignal = hasSeniorityPreference
+    ? posting.seniority
+      ? searchPreferences.seniorityLevels.some(
+          (seniority) =>
+            normalizeText(seniority) === normalizeText(posting.seniority!),
+        )
+      : null
+    : undefined;
+  const employmentTypeSignal = hasEmploymentTypePreference
+    ? posting.employmentType
+      ? searchPreferences.employmentTypes.some(
+          (employmentType) =>
+            normalizeText(employmentType) ===
+            normalizeText(posting.employmentType!),
+        )
+      : null
+    : undefined;
+  const facets: Array<{
+    signal: boolean | null;
+    evidence: MatchDimensionEvidence;
+  }> = [];
+
+  if (hasLocationPreference) {
+    facets.push({
+      signal: input.matchesLocation,
+      evidence: evidence(
+        "preference",
+        "Location comparison",
+        `${posting.location} compared with ${formatList(searchPreferences.locations)}: ${input.matchesLocation ? "aligned" : "outside the saved areas"}.`,
+      ),
+    });
+  }
+
+  if (hasWorkModePreference) {
+    facets.push({
+      signal: input.matchesWorkMode,
+      evidence: evidence(
+        "preference",
+        "Work-mode comparison",
+        `${formatList(posting.workMode)} compared with ${formatList(searchPreferences.workModes)}: ${input.matchesWorkMode ? "aligned" : "not aligned"}.`,
+      ),
+    });
+  }
+
+  if (hasCompanyPreference) {
+    facets.push({
+      signal: input.isPreferredCompany ? true : null,
+      evidence: evidence(
+        "preference",
+        "Preferred-company comparison",
+        input.isPreferredCompany
+          ? `${posting.company} is on the saved preferred-company list.`
+          : `${posting.company} is not on the saved preferred-company list; this is neutral, not a conflict.`,
+      ),
+    });
+  }
+
+  if (senioritySignal !== undefined) {
+    facets.push({
+      signal: senioritySignal,
+      evidence: evidence(
+        "preference",
+        "Seniority comparison",
+        posting.seniority
+          ? `${posting.seniority} compared with ${formatList(searchPreferences.seniorityLevels)}: ${senioritySignal ? "aligned" : "not aligned"}.`
+          : `The listing does not state seniority; saved levels are ${formatList(searchPreferences.seniorityLevels)}.`,
+      ),
+    });
+  }
+
+  if (employmentTypeSignal !== undefined) {
+    facets.push({
+      signal: employmentTypeSignal,
+      evidence: evidence(
+        "preference",
+        "Employment-type comparison",
+        posting.employmentType
+          ? `${posting.employmentType} compared with ${formatList(searchPreferences.employmentTypes)}: ${employmentTypeSignal ? "aligned" : "not aligned"}.`
+          : `The listing does not state employment type; saved types are ${formatList(searchPreferences.employmentTypes)}.`,
+      ),
+    });
+  }
+
+  if (facets.length === 0) {
+    return {
+      state: "not_configured",
+      explanation:
+        "No location, work-mode, seniority, employment-type, or preferred-company constraints are saved.",
+      evidence: [],
+    };
+  }
+
+  const alignedCount = facets.filter((facet) => facet.signal === true).length;
+  const conflictCount = facets.filter((facet) => facet.signal === false).length;
+  const unknownCount = facets.filter((facet) => facet.signal === null).length;
+  const preferenceEvidence = facets
+    .sort((left, right) => {
+      const rank = (signal: boolean | null) =>
+        signal === false ? 0 : signal === null ? 1 : 2;
+      return rank(left.signal) - rank(right.signal);
+    })
+    .slice(0, 4)
+    .map((facet) => facet.evidence);
+
+  if (conflictCount > 0 && (alignedCount > 0 || unknownCount > 0)) {
+    return {
+      state: "mixed",
+      explanation:
+        "Some configured preferences align or remain unknown while others conflict with the listing.",
+      evidence: preferenceEvidence,
+    };
+  }
+
+  if (conflictCount > 0) {
+    return {
+      state: "conflict",
+      explanation:
+        "The listing conflicts with one or more configured search preferences.",
+      evidence: preferenceEvidence,
+    };
+  }
+
+  if (alignedCount > 0 && unknownCount > 0) {
+    return {
+      state: "mixed",
+      explanation:
+        "Some configured preferences align, while other listing fields are missing or neutral.",
+      evidence: preferenceEvidence,
+    };
+  }
+
+  if (alignedCount > 0) {
+    return {
+      state: "aligned",
+      explanation: "The listing aligns with the configured search preferences.",
+      evidence: preferenceEvidence,
+    };
+  }
+
+  return {
+    state: "unknown",
+    explanation:
+      "The configured preferences could not be compared or are neutral rather than conflicting.",
+    evidence: preferenceEvidence,
+  };
+}
+function buildApplicationEffort(
+  input: BuildMatchDimensionsAssessmentInput,
+): MatchDimensionsAssessment["applicationEffort"] {
+  const { posting } = input;
+  const effortEvidence = [
+    evidence(
+      "listing",
+      "Application path",
+      posting.applyPath.replaceAll("_", " "),
+    ),
+  ];
+
+  if (posting.screeningHints.requiresConsentInterrupt === true) {
+    const kind = posting.screeningHints.requiresConsentInterruptKind;
+    effortEvidence.push(
+      evidence(
+        "listing",
+        "User-action checkpoint",
+        kind
+          ? `The listing signals a ${kind.replaceAll("_", " ")} step.`
+          : "The listing signals an account or verification step.",
+      ),
+    );
+    return {
+      level: "high",
+      explanation:
+        "The application path requires an account, decision, or verification step that needs user action.",
+      evidence: effortEvidence,
+    };
+  }
+
+  if (posting.applyPath === "easy_apply" && posting.easyApplyEligible) {
+    effortEvidence.push(
+      evidence(
+        "derived",
+        "Easy Apply signal",
+        "Both application-path fields confirm an in-platform Easy Apply route.",
+      ),
+    );
+    return {
+      level: "low",
+      explanation:
+        "The listing consistently exposes an in-platform application path with fewer expected handoff steps.",
+      evidence: effortEvidence,
+    };
+  }
+
+  if (
+    (posting.applyPath === "easy_apply" && !posting.easyApplyEligible) ||
+    (posting.applyPath !== "easy_apply" && posting.easyApplyEligible)
+  ) {
+    effortEvidence.push(
+      evidence(
+        "derived",
+        "Inconsistent path signal",
+        "The application path and Easy Apply eligibility fields disagree.",
+      ),
+    );
+    return {
+      level: "unknown",
+      explanation:
+        "The listing exposes inconsistent application-path signals, so effort is not inferred.",
+      evidence: effortEvidence,
+    };
+  }
+
+  if (posting.applyPath === "external_redirect") {
+    return {
+      level: "moderate",
+      explanation:
+        "The application redirects to an employer or ATS form, which usually requires more review and form entry.",
+      evidence: effortEvidence,
+    };
+  }
+
+  return {
+    level: "unknown",
+    explanation:
+      "The listing does not expose a reliable application path, so effort cannot be estimated yet.",
+    evidence: effortEvidence,
+  };
+}
+
+function buildEvidenceConfidence(
+  input: BuildMatchDimensionsAssessmentInput,
+): MatchDimensionsAssessment["evidenceConfidence"] {
+  const counts = {
+    supportedCount: 0,
+    partialCount: 0,
+    missingCount: 0,
+    unknownCount: 0,
+    conflictCount: 0,
+  };
+  const evidenceRequirements = input.requirements.filter(
+    (requirement) =>
+      requirement.category !== "location" &&
+      requirement.category !== "work_mode",
+  );
+
+  // Saved location/work-mode comparisons are preference checks, not proof that
+  // the listing exposes enough role evidence for a reliable fit decision.
+  for (const requirement of evidenceRequirements) {
+    switch (requirement.status) {
+      case "supported":
+        counts.supportedCount += 1;
+        break;
+      case "partial":
+        counts.partialCount += 1;
+        break;
+      case "missing":
+        counts.missingCount += 1;
+        break;
+      case "unknown":
+        counts.unknownCount += 1;
+        break;
+      case "conflict":
+        counts.conflictCount += 1;
+        break;
+    }
+  }
+
+  const total = evidenceRequirements.length;
+  const supportableCount = total - counts.unknownCount;
+  const supportableRatio = total > 0 ? supportableCount / total : 0;
+  const evidenceRows = [
+    evidence(
+      "listing",
+      "Listing detail depth",
+      input.posting.detailQuality.replaceAll("_", " "),
+    ),
+    evidence(
+      "derived",
+      "Requirement supportability",
+      total === 0
+        ? "No requirements were extracted for comparison."
+        : `${supportableCount} of ${total} role or eligibility requirements have explicit positive or negative evidence.`,
+    ),
+  ];
+
+  if (total === 0 && input.posting.detailQuality === "card_only") {
+    return {
+      level: "unavailable",
+      explanation:
+        "Only card-level listing detail is available and no requirements were extracted. Confidence is not a measure of fit quality.",
+      evidence: evidenceRows,
+      ...counts,
+    };
+  }
+
+  if (
+    input.posting.detailQuality === "detail_enriched" &&
+    total >= 2 &&
+    supportableRatio >= 0.75
+  ) {
+    return {
+      level: "high",
+      explanation:
+        "The detailed listing supports most extracted requirement comparisons. Explicit gaps still count as strong evidence, not positive fit.",
+      evidence: evidenceRows,
+      ...counts,
+    };
+  }
+
+  if (
+    input.posting.detailQuality !== "card_only" &&
+    total > 0 &&
+    supportableRatio >= 0.5
+  ) {
+    return {
+      level: "moderate",
+      explanation:
+        "The listing supports several requirement comparisons, but some evidence remains incomplete. Confidence is not a measure of fit quality.",
+      evidence: evidenceRows,
+      ...counts,
+    };
+  }
+
+  return {
+    level: "low",
+    explanation:
+      "The listing detail or extracted requirement coverage is limited. Explicit gaps are preserved, while unsupported assumptions remain unknown.",
+    evidence: evidenceRows,
+    ...counts,
+  };
+}
+
+export function buildMatchDimensionsAssessment(
+  input: BuildMatchDimensionsAssessmentInput,
+): MatchDimensionsAssessment {
+  return {
+    roleSuitability: buildRoleSuitability(input),
+    preferenceAlignment: buildPreferenceAlignment(input),
+    applicationEffort: buildApplicationEffort(input),
+    evidenceConfidence: buildEvidenceConfidence(input),
+  };
+}

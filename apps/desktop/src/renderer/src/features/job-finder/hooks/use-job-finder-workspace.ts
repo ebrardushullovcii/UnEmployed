@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   CandidateProfile,
+  ClearApplicationAnswerCommandInput,
   DiscoveryActivityEvent,
+  DiscoveryFeedbackReason,
   EditableSourceInstructionArtifact,
   JobFinderApplyConsentActionInput,
   JobFinderApplyCopilotActionInput,
@@ -9,17 +11,25 @@ import type {
   JobFinderOpenBrowserSessionInput,
   JobFinderSettings,
   JobFinderWorkspaceSnapshot,
+  JobFinderWorkspaceEntityMutation,
+  JobFinderWorkspaceSyncResult,
   JobSearchPreferences,
+  WorkspaceRevision,
   ProfileCopilotContext,
   ProfileSetupReviewAction,
   ProfileSetupReviewActionOptions,
   ProfileSetupState,
   ResumeImportProgressEvent,
+  ResumeApplicationMode,
+  ResumeTimelineRepairAction,
   ResumeDraft,
   ResumeDraftPatch,
+  SaveApplicationAnswerCommandInput,
   SourceDebugProgressEvent,
+  UserActionCommandInput,
 } from "@unemployed/contracts";
 import type { JobFinderShellActions } from "../lib/job-finder-types";
+import { applyJobFinderWorkspaceDelta } from "../../../pages/job-finder-workspace-delta";
 
 type JobFinderWorkspaceState =
   | { status: "loading" }
@@ -30,31 +40,114 @@ type JobFinderWorkspaceState =
       resumeImportProgress: ResumeImportProgressEvent | null;
       workspace: JobFinderWorkspaceSnapshot;
     }
-  | { status: "error"; message: string };
+  | { status: "error"; message: string; retry: () => void };
 
 export function useJobFinderWorkspace(): JobFinderWorkspaceState {
   const [workspaceState, setWorkspaceState] = useState<JobFinderWorkspaceState>(
     { status: "loading" },
   );
+  const [loadRequest, setLoadRequest] = useState(0);
+  const workspaceRef = useRef<JobFinderWorkspaceSnapshot | null>(null);
+  const workspaceRevisionRef = useRef<WorkspaceRevision>(0);
+
+  const commitWorkspace = useCallback(
+    (workspace: JobFinderWorkspaceSnapshot) => {
+      workspaceRef.current = workspace;
+      setWorkspaceState((currentState) =>
+        currentState.status === "ready"
+          ? { ...currentState, workspace }
+          : currentState,
+      );
+    },
+    [],
+  );
 
   const runWorkspaceAction = useCallback(
     async (action: () => Promise<JobFinderWorkspaceSnapshot>) => {
       const workspace = await action();
-
-      setWorkspaceState((currentState) => {
-        if (currentState.status !== "ready") {
-          return currentState;
-        }
-
-        return {
-          ...currentState,
-          workspace,
-        };
-      });
-
+      workspaceRevisionRef.current = 0;
+      commitWorkspace(workspace);
       return workspace;
     },
-    [],
+    [commitWorkspace],
+  );
+
+  const commitWorkspaceSyncResult = useCallback(
+    (
+      result: JobFinderWorkspaceSyncResult,
+    ): JobFinderWorkspaceSnapshot | null => {
+      if (result.kind === "snapshot") {
+        workspaceRevisionRef.current = result.currentRevision;
+        commitWorkspace(result.snapshot);
+        return result.snapshot;
+      }
+
+      const workspace = workspaceRef.current;
+      if (!workspace) {
+        return null;
+      }
+
+      const applied = applyJobFinderWorkspaceDelta({
+        revision: workspaceRevisionRef.current,
+        workspace,
+        delta: result.delta,
+      });
+      if (applied.status !== "applied") {
+        return null;
+      }
+
+      workspaceRevisionRef.current = applied.revision;
+      commitWorkspace(applied.workspace);
+      return applied.workspace;
+    },
+    [commitWorkspace],
+  );
+
+  const recoverFullWorkspaceOnce = useCallback(async () => {
+    try {
+      const result = await window.unemployed.jobFinder.syncWorkspace(null);
+      if (result.kind === "snapshot") {
+        workspaceRevisionRef.current = result.currentRevision;
+        commitWorkspace(result.snapshot);
+        return result.snapshot;
+      }
+    } catch {
+      // Older preload builds still use the existing full-snapshot fallback.
+    }
+
+    const workspace = await window.unemployed.jobFinder.getWorkspace();
+    workspaceRevisionRef.current = 0;
+    commitWorkspace(workspace);
+    return workspace;
+  }, [commitWorkspace]);
+
+  const syncWorkspace = useCallback(async () => {
+    let result: JobFinderWorkspaceSyncResult;
+    try {
+      result = await window.unemployed.jobFinder.syncWorkspace(
+        workspaceRevisionRef.current || null,
+      );
+    } catch {
+      return recoverFullWorkspaceOnce();
+    }
+
+    return (
+      commitWorkspaceSyncResult(result) ?? (await recoverFullWorkspaceOnce())
+    );
+  }, [commitWorkspaceSyncResult, recoverFullWorkspaceOnce]);
+
+  const runWorkspaceEntityMutation = useCallback(
+    async (mutation: JobFinderWorkspaceEntityMutation) => {
+      const result = await window.unemployed.jobFinder.mutateWorkspaceEntities({
+        baseRevision: workspaceRevisionRef.current || null,
+        mutation,
+      });
+
+      return (
+        commitWorkspaceSyncResult(result) ?? (await recoverFullWorkspaceOnce())
+      );
+    },
+    [commitWorkspaceSyncResult, recoverFullWorkspaceOnce],
   );
 
   const actions = useMemo<JobFinderShellActions>(
@@ -71,24 +164,41 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.checkBrowserSession(),
         ),
+      performUserAction: (command: UserActionCommandInput) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.performUserAction(command),
+        ),
       approveApply: (jobId: string) =>
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.approveApply(jobId),
         ),
-      dismissDiscoveryJob: (jobId: string) =>
-        runWorkspaceAction(() =>
-          window.unemployed.jobFinder.dismissDiscoveryJob(jobId),
-        ),
+      dismissDiscoveryJob: (
+        jobId: string,
+        reasons: readonly DiscoveryFeedbackReason[],
+      ) =>
+        runWorkspaceEntityMutation({
+          type: "dismiss_discovery_job",
+          jobId,
+          reasons: [...reasons],
+        }),
+      restoreDismissedDiscoveryJob: (jobId: string) =>
+        runWorkspaceEntityMutation({
+          type: "restore_dismissed_discovery_job",
+          jobId,
+        }),
       removeJobFromReview: (jobId: string) =>
-        runWorkspaceAction(() =>
-          window.unemployed.jobFinder.removeJobFromReview(jobId),
-        ),
+        runWorkspaceEntityMutation({
+          type: "remove_job_from_review",
+          jobId,
+        }),
       getResumeWorkspace: (jobId: string) =>
         window.unemployed.jobFinder.getResumeWorkspace(jobId),
       previewResumeDraft: (draft: ResumeDraft) =>
         window.unemployed.jobFinder.previewResumeDraft(draft),
       saveResumeDraft: (draft: ResumeDraft) =>
-        runWorkspaceAction(() => window.unemployed.jobFinder.saveResumeDraft(draft)),
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.saveResumeDraft(draft),
+        ),
       regenerateResumeDraft: (jobId: string) =>
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.regenerateResumeDraft(jobId),
@@ -97,8 +207,17 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.regenerateResumeSection(jobId, sectionId),
         ),
+      restoreResumeDraftRevision: (jobId: string, revisionId: string) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.restoreResumeDraftRevision(
+            jobId,
+            revisionId,
+          ),
+        ),
       exportResumePdf: (jobId: string) =>
-        runWorkspaceAction(() => window.unemployed.jobFinder.exportResumePdf(jobId)),
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.exportResumePdf(jobId),
+        ),
       approveResume: (jobId: string, exportId: string) =>
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.approveResume(jobId, exportId),
@@ -107,7 +226,10 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.clearResumeApproval(jobId),
         ),
-      applyResumePatch: (patch: ResumeDraftPatch, revisionReason?: string | null) =>
+      applyResumePatch: (
+        patch: ResumeDraftPatch,
+        revisionReason?: string | null,
+      ) =>
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.applyResumePatch(patch, revisionReason),
         ),
@@ -115,6 +237,18 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         window.unemployed.jobFinder.getResumeAssistantMessages(jobId),
       sendResumeAssistantMessage: (jobId: string, content: string) =>
         window.unemployed.jobFinder.sendResumeAssistantMessage(jobId, content),
+      resolveResumeAssistantProposal: (
+        jobId: string,
+        proposalId: string,
+        action: "accept" | "reject",
+        patchIds: readonly string[],
+      ) =>
+        window.unemployed.jobFinder.resolveResumeAssistantProposal(
+          jobId,
+          proposalId,
+          action,
+          patchIds,
+        ),
       generateResume: (jobId: string) =>
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.generateResume(jobId),
@@ -134,7 +268,7 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
           window.unemployed.jobFinder.startAutoApplyRun(jobId),
         ),
       startAutoApplyQueueRun: (
-        jobIds: JobFinderApplyQueueActionInput['jobIds'],
+        jobIds: JobFinderApplyQueueActionInput["jobIds"],
       ) =>
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.startAutoApplyQueueRun(jobIds),
@@ -149,31 +283,49 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         ),
       resolveApplyConsentRequest: (
         requestId: string,
-        action: JobFinderApplyConsentActionInput['action'],
+        action: JobFinderApplyConsentActionInput["action"],
       ) =>
         runWorkspaceAction(() =>
-          window.unemployed.jobFinder.resolveApplyConsentRequest(requestId, action),
+          window.unemployed.jobFinder.resolveApplyConsentRequest(
+            requestId,
+            action,
+          ),
         ),
       revokeApplyRunApproval: (runId: string) =>
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.revokeApplyRunApproval(runId),
         ),
       importResume: () => {
-        setWorkspaceState((currentState) => currentState.status === "ready"
-          ? { ...currentState, resumeImportProgress: null }
-          : currentState);
-        return runWorkspaceAction(() => window.unemployed.jobFinder.importResume((progress) => {
-          setWorkspaceState((currentState) => currentState.status === "ready"
-            ? { ...currentState, resumeImportProgress: progress }
-            : currentState);
-        }));
+        setWorkspaceState((currentState) =>
+          currentState.status === "ready"
+            ? { ...currentState, resumeImportProgress: null }
+            : currentState,
+        );
+        return runWorkspaceAction(() =>
+          window.unemployed.jobFinder.importResume((progress) => {
+            setWorkspaceState((currentState) =>
+              currentState.status === "ready"
+                ? { ...currentState, resumeImportProgress: progress }
+                : currentState,
+            );
+          }),
+        );
       },
       queueJobForReview: (jobId: string) =>
-        runWorkspaceAction(() =>
-          window.unemployed.jobFinder.queueJobForReview(jobId),
-        ),
-      refreshWorkspace: () =>
-        runWorkspaceAction(() => window.unemployed.jobFinder.getWorkspace()),
+        runWorkspaceEntityMutation({
+          type: "queue_job_for_review",
+          jobId,
+        }),
+      setJobResumeApplicationMode: (
+        jobId: string,
+        resumeApplicationMode: ResumeApplicationMode,
+      ) =>
+        runWorkspaceEntityMutation({
+          type: "set_job_resume_application_mode",
+          jobId,
+          resumeApplicationMode,
+        }),
+      refreshWorkspace: syncWorkspace,
       resetWorkspace: () =>
         runWorkspaceAction(() => window.unemployed.jobFinder.resetWorkspace()),
       runAgentDiscovery: (
@@ -194,6 +346,12 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         window.unemployed.jobFinder.getSourceDebugRunDetails(runId),
       getApplyRunDetails: (runId: string, jobId: string) =>
         window.unemployed.jobFinder.getApplyRunDetails(runId, jobId),
+      saveApplicationAnswer: (command: SaveApplicationAnswerCommandInput) =>
+        window.unemployed.jobFinder.saveApplicationAnswer(command),
+      clearApplicationAnswer: (command: ClearApplicationAnswerCommandInput) =>
+        window.unemployed.jobFinder.clearApplicationAnswer(command),
+      exportApplicationPacket: (runId: string, jobId: string) =>
+        window.unemployed.jobFinder.exportApplicationPacket(runId, jobId),
       saveSourceInstructionArtifact: (
         targetId: string,
         artifact: EditableSourceInstructionArtifact,
@@ -256,27 +414,46 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
             options,
           ),
         ),
+      applyResumeTimelineRepairAction: (
+        runId: string,
+        proposalId: string,
+        action: ResumeTimelineRepairAction,
+      ) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.applyResumeTimelineRepairAction(
+            runId,
+            proposalId,
+            action,
+          ),
+        ),
       sendProfileCopilotMessage: (
         content: string,
         context?: ProfileCopilotContext,
       ) =>
         runWorkspaceAction(() =>
-          window.unemployed.jobFinder.sendProfileCopilotMessage(content, context),
+          window.unemployed.jobFinder.sendProfileCopilotMessage(
+            content,
+            context,
+          ),
         ),
       applyProfileCopilotPatchGroup: (patchGroupId: string) =>
         runWorkspaceAction(() =>
-          window.unemployed.jobFinder.applyProfileCopilotPatchGroup(patchGroupId),
+          window.unemployed.jobFinder.applyProfileCopilotPatchGroup(
+            patchGroupId,
+          ),
         ),
       rejectProfileCopilotPatchGroup: (patchGroupId: string) =>
         runWorkspaceAction(() =>
-          window.unemployed.jobFinder.rejectProfileCopilotPatchGroup(patchGroupId),
+          window.unemployed.jobFinder.rejectProfileCopilotPatchGroup(
+            patchGroupId,
+          ),
         ),
       undoProfileRevision: (revisionId: string) =>
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.undoProfileRevision(revisionId),
         ),
     }),
-    [runWorkspaceAction],
+    [runWorkspaceAction, runWorkspaceEntityMutation, syncWorkspace],
   );
 
   useEffect(() => {
@@ -286,7 +463,7 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
       try {
         const [platformResponse, workspace] = await Promise.all([
           window.unemployed.ping(),
-          window.unemployed.jobFinder.getWorkspace(),
+          recoverFullWorkspaceOnce(),
         ]);
 
         if (!cancelled) {
@@ -305,7 +482,14 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
             : "Unable to load the Job Finder workspace.";
 
         if (!cancelled) {
-          setWorkspaceState({ status: "error", message });
+          setWorkspaceState({
+            status: "error",
+            message,
+            retry: () => {
+              setWorkspaceState({ status: "loading" });
+              setLoadRequest((current) => current + 1);
+            },
+          });
         }
       }
     }
@@ -315,7 +499,7 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
     return () => {
       cancelled = true;
     };
-  }, [actions]);
+  }, [actions, loadRequest, recoverFullWorkspaceOnce]);
 
   return workspaceState;
 }

@@ -9,14 +9,13 @@ import {
   type ResumeImportFieldCandidate,
   type ResumeImportBranchStatus,
   type ResumeImportModelRoleState,
+  type ResumeImportTextStageTiming,
   type ResumeImportRun,
   type ResumeImportVisionArtifact,
 } from "@unemployed/contracts";
 
 import type { WorkspaceServiceContext } from "./workspace-service-context";
-export {
-  applyResolvedResumeImportCandidatesToWorkspace,
-} from "./resume-import-apply";
+export { applyResolvedResumeImportCandidatesToWorkspace } from "./resume-import-apply";
 export {
   countResumeImportCandidates,
   hasBlockingResumeImportCandidates,
@@ -45,6 +44,12 @@ import {
   reconcileCandidates,
 } from "./resume-import-reconciliation";
 import { createUniqueId, uniqueStrings } from "./shared";
+import { deriveResumeTimelineRepairProposals } from "./resume-timeline-repair";
+import {
+  buildResumeAnalysisCacheIdentity,
+  cloneCachedResumeAnalysisArtifacts,
+  findCompatibleResumeAnalysisCacheEntry,
+} from "./resume-analysis-cache";
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -77,23 +82,35 @@ function promoteEducationScalarCandidates(
 
     const text = normalizeInlineText(candidate.value);
     const relatedScalars = scalarEducationCandidates.filter(
-      (entry) => normalizeInlineText(entry.value) && text.includes(normalizeInlineText(entry.value)),
+      (entry) =>
+        normalizeInlineText(entry.value) &&
+        text.includes(normalizeInlineText(entry.value)),
     );
-    const schoolScalar = relatedScalars.find((entry) =>
-      /institution|school|university|college/i.test(entry.label) || entry.target.key === "institution",
+    const schoolScalar = relatedScalars.find(
+      (entry) =>
+        /institution|school|university|college/i.test(entry.label) ||
+        entry.target.key === "institution",
     );
     const degreeScalar = relatedScalars.find((entry) =>
       /degree|bachelor|master|phd/i.test(entry.label),
     );
-    const startScalar = relatedScalars.find((entry) => /start/i.test(entry.label));
-    const endScalar = relatedScalars.find((entry) => /graduation|end/i.test(entry.label));
-    const dateRange = text.match(/((?:[A-Za-z]{3,9}\s+)?\d{4})\s*[–—-]\s*((?:[A-Za-z]{3,9}\s+)?\d{4}|present|current)/i);
+    const startScalar = relatedScalars.find((entry) =>
+      /start/i.test(entry.label),
+    );
+    const endScalar = relatedScalars.find((entry) =>
+      /graduation|end/i.test(entry.label),
+    );
+    const dateRange = text.match(
+      /((?:[A-Za-z]{3,9}\s+)?\d{4})\s*[–—-]\s*((?:[A-Za-z]{3,9}\s+)?\d{4}|present|current)/i,
+    );
     const schoolName = normalizeInlineText(schoolScalar?.value) || null;
     let degree = normalizeInlineText(degreeScalar?.value) || null;
     let fieldOfStudy: string | null = null;
 
     if (degree) {
-      const degreeWithField = degree.match(/^(.*?(?:degree|bachelor|master|phd)(?:\s*\([^)]*\))?)(?:\s+in\s+|,\s+)(.+)$/i);
+      const degreeWithField = degree.match(
+        /^(.*?(?:degree|bachelor|master|phd)(?:\s*\([^)]*\))?)(?:\s+in\s+|,\s+)(.+)$/i,
+      );
       if (degreeWithField) {
         degree = normalizeInlineText(degreeWithField[1]);
         fieldOfStudy = normalizeInlineText(degreeWithField[2]) || null;
@@ -112,13 +129,18 @@ function promoteEducationScalarCandidates(
         degree,
         fieldOfStudy,
         location: null,
-        startDate: normalizeInlineText(startScalar?.value) || dateRange?.[1] || null,
-        endDate: normalizeInlineText(endScalar?.value) || dateRange?.[2] || null,
+        startDate:
+          normalizeInlineText(startScalar?.value) || dateRange?.[1] || null,
+        endDate:
+          normalizeInlineText(endScalar?.value) || dateRange?.[2] || null,
         summary: null,
       },
       normalizedValue: null,
       valuePreview: null,
-      notes: uniqueStrings([...candidate.notes, "education_scalar_record_promoted"]),
+      notes: uniqueStrings([
+        ...candidate.notes,
+        "education_scalar_record_promoted",
+      ]),
     });
   }
 
@@ -132,7 +154,10 @@ type ResumeImportBranchResult =
       ok: true;
       literalCandidates: ResumeImportFieldCandidate[];
       stageCandidates: ResumeImportFieldCandidate[];
-      providerKind: Extract<AiProviderKind, "deterministic" | "openai_compatible"> | null;
+      providerKind: Extract<
+        AiProviderKind,
+        "deterministic" | "openai_compatible"
+      > | null;
       providerLabel: string | null;
       notes: string[];
       warnings: string[];
@@ -172,7 +197,9 @@ type ResumeVisionBranchDeferredResult = {
   message: string;
 };
 
-type ResumeVisionBranchResolution = ResumeVisionBranchResult | ResumeVisionBranchDeferredResult;
+type ResumeVisionBranchResolution =
+  | ResumeVisionBranchResult
+  | ResumeVisionBranchDeferredResult;
 
 type PromiseSnapshot<T> =
   | {
@@ -231,7 +258,9 @@ function resumeImportStageFailureOutcome(
 function visionTimeoutMsFor(ctx: WorkspaceServiceContext): number {
   const timeoutMs = ctx.visionProvider?.getStatus().requestTimeoutMs;
 
-  return typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0
+  return typeof timeoutMs === "number" &&
+    Number.isFinite(timeoutMs) &&
+    timeoutMs > 0
     ? timeoutMs
     : 600_000;
 }
@@ -241,22 +270,30 @@ function visionBranchTimeoutMessage(timeoutMs: number): string {
 }
 
 function visionBranchDeferredMessage(timeoutMs: number): string {
-  return `Visual scan is still running after text import completed; text import is ready and visual reconciliation will continue in the background until the ${timeoutMs}ms vision provider deadline.`;
+  const timeoutMinutes = Math.max(1, Math.round(timeoutMs / 60_000));
+  return `Visual scan is still running. Your text import is ready, and visual reconciliation will continue in the background for up to ${timeoutMinutes} minute${timeoutMinutes === 1 ? "" : "s"}.`;
 }
 
-function removeVisionDeferredWarnings(
-  warnings: readonly string[],
-): string[] {
+function removeVisionDeferredWarnings(warnings: readonly string[]): string[] {
   return warnings.filter(
-    (warning) => !/^Visual scan is still running after text import completed;/.test(warning),
+    (warning) =>
+      !/^Visual scan is still running(?: after text import completed;|\.)/.test(
+        warning,
+      ),
   );
 }
 
-function createVisionTimeoutResult(ctx: WorkspaceServiceContext, message: string): ResumeVisionExtractionResult {
+function createVisionTimeoutResult(
+  ctx: WorkspaceServiceContext,
+  message: string,
+): ResumeVisionExtractionResult {
   const status = ctx.visionProvider?.getStatus();
 
   return ResumeVisionExtractionResultSchema.parse({
-    analysisProviderKind: status?.kind === "openai_compatible_vision" ? "openai_compatible_vision" : "deterministic",
+    analysisProviderKind:
+      status?.kind === "openai_compatible_vision"
+        ? "openai_compatible_vision"
+        : "deterministic",
     analysisProviderLabel: status?.label ?? "Resume vision provider",
     candidates: [],
     notes: [],
@@ -265,7 +302,10 @@ function createVisionTimeoutResult(ctx: WorkspaceServiceContext, message: string
   });
 }
 
-function createTimedOutVisionResult(ctx: WorkspaceServiceContext, timeoutMs: number): ResumeVisionExtractionResult {
+function createTimedOutVisionResult(
+  ctx: WorkspaceServiceContext,
+  timeoutMs: number,
+): ResumeVisionExtractionResult {
   return createVisionTimeoutResult(ctx, visionBranchTimeoutMessage(timeoutMs));
 }
 
@@ -294,7 +334,9 @@ function withVisionBranchDeadline(
 }
 
 function getVisionBranchWithoutBlockingTextCompletion(
-  observedVisionBranch: ReturnType<typeof observePromise<ResumeVisionBranchResult>>,
+  observedVisionBranch: ReturnType<
+    typeof observePromise<ResumeVisionBranchResult>
+  >,
   timeoutMs: number,
 ): Promise<ResumeVisionBranchResolution> {
   let timer: NodeJS.Timeout | null = null;
@@ -305,23 +347,28 @@ function getVisionBranchWithoutBlockingTextCompletion(
   });
 
   return Promise.race([
-    observedVisionBranch.promise.then((value) => ({ settled: true as const, value })),
+    observedVisionBranch.promise.then((value) => ({
+      settled: true as const,
+      value,
+    })),
     nextTickPromise,
-  ]).then((outcome) => {
-    if (outcome.settled) {
-      return outcome.value;
-    }
+  ])
+    .then((outcome) => {
+      if (outcome.settled) {
+        return outcome.value;
+      }
 
-    return {
-      ok: false as const,
-      deferred: true as const,
-      message: visionBranchDeferredMessage(timeoutMs),
-    };
-  }).finally(() => {
-    if (timer) {
-      clearTimeout(timer);
-    }
-  });
+      return {
+        ok: false as const,
+        deferred: true as const,
+        message: visionBranchDeferredMessage(timeoutMs),
+      };
+    })
+    .finally(() => {
+      if (timer) {
+        clearTimeout(timer);
+      }
+    });
 }
 
 function isDeferredVisionBranch(
@@ -330,7 +377,9 @@ function isDeferredVisionBranch(
   return !visionBranch.ok && "deferred" in visionBranch;
 }
 
-function hasExplicitUserDecision(candidate: ResumeImportFieldCandidate): boolean {
+function hasExplicitUserDecision(
+  candidate: ResumeImportFieldCandidate,
+): boolean {
   return Boolean(
     candidate.resolvedAt &&
     candidate.resolution !== "needs_review" &&
@@ -368,9 +417,13 @@ function preserveCurrentCandidateDecisions(
   nextCandidates: readonly ResumeImportFieldCandidate[],
   currentCandidates: readonly ResumeImportFieldCandidate[],
 ): ResumeImportFieldCandidate[] {
-  const currentById = new Map(currentCandidates.map((candidate) => [candidate.id, candidate]));
+  const currentById = new Map(
+    currentCandidates.map((candidate) => [candidate.id, candidate]),
+  );
 
-  return nextCandidates.map((candidate) => mergeCurrentResolution(candidate, currentById.get(candidate.id)));
+  return nextCandidates.map((candidate) =>
+    mergeCurrentResolution(candidate, currentById.get(candidate.id)),
+  );
 }
 
 async function preserveLatestCandidateDecisions(
@@ -396,7 +449,7 @@ function branchStateFromVisionResolution(input: {
       ...current,
       status: visionBranch.result.primaryErrorMessage
         ? branchStatusForFailure(visionBranch.result.primaryErrorMessage)
-        : "completed" as const,
+        : ("completed" as const),
       completedAt: new Date().toISOString(),
       providerKind: visionBranch.result.analysisProviderKind,
       providerLabel: visionBranch.result.analysisProviderLabel,
@@ -423,9 +476,10 @@ function branchStateFromVisionResolution(input: {
 
   return {
     ...current,
-    status: "skipped" in visionBranch
-      ? "skipped" as const
-      : branchStatusForFailure(visionBranch.message),
+    status:
+      "skipped" in visionBranch
+        ? ("skipped" as const)
+        : branchStatusForFailure(visionBranch.message),
     completedAt: new Date().toISOString(),
     providerKind: null,
     providerLabel: null,
@@ -446,33 +500,44 @@ async function completeDeferredVisionBranch(input: {
   textCandidates: readonly ResumeImportFieldCandidate[];
   visionTimeoutMs: number;
 }): Promise<void> {
-  const {
-    ctx,
-    promise,
-    bundle,
-    runId,
-    now,
-    textCandidates,
-    visionTimeoutMs,
-  } = input;
+  const { ctx, promise, bundle, runId, now, textCandidates, visionTimeoutMs } =
+    input;
   let run = input.run;
 
   try {
-    const visionBranch = await withVisionBranchDeadline(promise, visionTimeoutMs, ctx, {
-      unrefTimer: true,
-    });
-    const currentCandidates = await ctx.repository.listResumeImportFieldCandidates({ runId });
-    const latestProfile = CandidateProfileSchema.parse(await ctx.repository.getProfile());
+    const visionBranch = await withVisionBranchDeadline(
+      promise,
+      visionTimeoutMs,
+      ctx,
+      {
+        unrefTimer: true,
+      },
+    );
+    const currentCandidates =
+      await ctx.repository.listResumeImportFieldCandidates({ runId });
+    const latestProfile = CandidateProfileSchema.parse(
+      await ctx.repository.getProfile(),
+    );
     const latestSearchPreferences = await ctx.repository.getSearchPreferences();
     const currentTextCandidates = currentCandidates.filter(
-      (candidate) => candidate.sourceKind !== "vision_omni" && candidate.sourceKind !== "adjudicator",
+      (candidate) =>
+        candidate.sourceKind !== "vision_omni" &&
+        candidate.sourceKind !== "adjudicator",
     );
-    const preservedTextCandidates = currentTextCandidates.length > 0
-      ? currentTextCandidates
-      : [...textCandidates];
+    const preservedTextCandidates =
+      currentTextCandidates.length > 0
+        ? currentTextCandidates
+        : [...textCandidates];
     const visionCandidates = visionBranch.ok
       ? visionBranch.result.candidates.map((candidate, index) =>
-          toCandidate(bundle, runId, "vision_omni", now, candidate, 10_000 + index),
+          toCandidate(
+            bundle,
+            runId,
+            "vision_omni",
+            now,
+            candidate,
+            10_000 + index,
+          ),
         )
       : [];
     const provisionalCandidates = promoteEducationScalarCandidates(
@@ -486,10 +551,12 @@ async function completeDeferredVisionBranch(input: {
     run = ResumeImportRunSchema.parse({
       ...run,
       status: "extracting",
-      visionProviderKind:
-        visionBranch.ok ? visionBranch.result.analysisProviderKind : run.visionProviderKind ?? null,
-      visionProviderLabel:
-        visionBranch.ok ? visionBranch.result.analysisProviderLabel : run.visionProviderLabel ?? null,
+      visionProviderKind: visionBranch.ok
+        ? visionBranch.result.analysisProviderKind
+        : (run.visionProviderKind ?? null),
+      visionProviderLabel: visionBranch.ok
+        ? visionBranch.result.analysisProviderLabel
+        : (run.visionProviderLabel ?? null),
       modelRoles: {
         ...modelRolesFor(run),
         vision: branchStateFromVisionResolution({
@@ -508,7 +575,11 @@ async function completeDeferredVisionBranch(input: {
 
     let reconciledCandidates = preserveCurrentCandidateDecisions(
       promoteGroundedSharedMemoryCandidates(
-        reconcileCandidates(latestProfile, latestSearchPreferences, provisionalCandidates),
+        reconcileCandidates(
+          latestProfile,
+          latestSearchPreferences,
+          provisionalCandidates,
+        ),
       ),
       currentCandidates,
     );
@@ -529,29 +600,44 @@ async function completeDeferredVisionBranch(input: {
         },
       },
     });
-    reconciledCandidates = await preserveLatestCandidateDecisions(ctx, runId, reconciledCandidates);
+    reconciledCandidates = await preserveLatestCandidateDecisions(
+      ctx,
+      runId,
+      reconciledCandidates,
+    );
     await ctx.repository.replaceResumeImportRunArtifacts({
       run,
       documentBundles: [bundle],
       fieldCandidates: reconciledCandidates,
     });
 
-    const adjudicationResult = await maybeAdjudicateResumeImportCandidates(ctx, {
-      profile: latestProfile,
-      searchPreferences: latestSearchPreferences,
-      bundle,
-      runId,
-      now,
-      candidates: reconciledCandidates,
-    });
+    const adjudicationResult = await maybeAdjudicateResumeImportCandidates(
+      ctx,
+      {
+        profile: latestProfile,
+        searchPreferences: latestSearchPreferences,
+        bundle,
+        runId,
+        now,
+        candidates: reconciledCandidates,
+      },
+    );
     reconciledCandidates = preserveCurrentCandidateDecisions(
       promoteGroundedSharedMemoryCandidates(
-        reconcileCandidates(latestProfile, latestSearchPreferences, adjudicationResult.candidates),
+        reconcileCandidates(
+          latestProfile,
+          latestSearchPreferences,
+          adjudicationResult.candidates,
+        ),
       ),
       currentCandidates,
     );
 
-    reconciledCandidates = await preserveLatestCandidateDecisions(ctx, runId, reconciledCandidates);
+    reconciledCandidates = await preserveLatestCandidateDecisions(
+      ctx,
+      runId,
+      reconciledCandidates,
+    );
 
     const visionBranchNotes = visionBranch.ok
       ? [...visionBranch.result.notes, ...visionBranch.result.warnings]
@@ -565,7 +651,8 @@ async function completeDeferredVisionBranch(input: {
       ...adjudicationResult.warnings,
       ...summarizeCandidateWarnings(reconciledCandidates),
     ]);
-    const hasBlockingReviewCandidates = hasBlockingResumeImportCandidates(reconciledCandidates);
+    const hasBlockingReviewCandidates =
+      hasBlockingResumeImportCandidates(reconciledCandidates);
 
     run = ResumeImportRunSchema.parse({
       ...run,
@@ -598,7 +685,6 @@ async function completeDeferredVisionBranch(input: {
       analysisProviderLabel: run.analysisProviderLabel,
       analysisWarnings: stageNotes,
     });
-
     await ctx.repository.finalizeResumeImportRun({
       profile: merged.profile,
       searchPreferences: merged.searchPreferences,
@@ -607,7 +693,10 @@ async function completeDeferredVisionBranch(input: {
       fieldCandidates: reconciledCandidates,
     });
   } catch (error) {
-    const message = messageFromUnknownError(error, "Deferred resume vision branch failed.");
+    const message = messageFromUnknownError(
+      error,
+      "Deferred resume vision branch failed.",
+    );
     const failedRun = ResumeImportRunSchema.parse({
       ...run,
       modelRoles: {
@@ -623,7 +712,8 @@ async function completeDeferredVisionBranch(input: {
       },
       warnings: uniqueStrings([...run.warnings, message]),
     });
-    const currentCandidates = await ctx.repository.listResumeImportFieldCandidates({ runId });
+    const currentCandidates =
+      await ctx.repository.listResumeImportFieldCandidates({ runId });
     await ctx.repository.replaceResumeImportRunArtifacts({
       run: failedRun,
       documentBundles: [bundle],
@@ -632,51 +722,57 @@ async function completeDeferredVisionBranch(input: {
   }
 }
 
-function scheduleDeferredVisionBranchCompletion(input: Parameters<typeof completeDeferredVisionBranch>[0]): void {
-  void completeDeferredVisionBranch(input).catch((error: unknown) => {
-    console.error(
-      "Deferred resume vision branch completion failed.",
-      error,
-    );
-  });
+function scheduleDeferredVisionBranchCompletion(
+  input: Parameters<typeof completeDeferredVisionBranch>[0],
+): void {
+  input.ctx.activeResumeVisionRunIds.add(input.runId);
+  void completeDeferredVisionBranch(input)
+    .catch((error: unknown) => {
+      console.error("Deferred resume vision branch completion failed.", error);
+    })
+    .finally(() => {
+      input.ctx.activeResumeVisionRunIds.delete(input.runId);
+    });
 }
 
 function modelRolesFor(run: ResumeImportRun): ResumeImportModelRoleState {
-  return run.modelRoles ?? {
-    text: {
-      status: "not_started",
-      startedAt: null,
-      completedAt: null,
-      providerKind: null,
-      providerLabel: null,
-      warning: null,
-      errorMessage: null,
-      timeoutMs: null,
-      candidateCount: 0,
-    },
-    vision: {
-      status: "not_started",
-      startedAt: null,
-      completedAt: null,
-      providerKind: null,
-      providerLabel: null,
-      warning: null,
-      errorMessage: null,
-      timeoutMs: null,
-      candidateCount: 0,
-    },
-    adjudication: {
-      status: "not_started",
-      startedAt: null,
-      completedAt: null,
-      providerKind: null,
-      providerLabel: null,
-      warning: null,
-      errorMessage: null,
-      timeoutMs: null,
-      candidateCount: 0,
-    },
-  };
+  return (
+    run.modelRoles ?? {
+      text: {
+        status: "not_started",
+        startedAt: null,
+        completedAt: null,
+        providerKind: null,
+        providerLabel: null,
+        warning: null,
+        errorMessage: null,
+        timeoutMs: null,
+        candidateCount: 0,
+      },
+      vision: {
+        status: "not_started",
+        startedAt: null,
+        completedAt: null,
+        providerKind: null,
+        providerLabel: null,
+        warning: null,
+        errorMessage: null,
+        timeoutMs: null,
+        candidateCount: 0,
+      },
+      adjudication: {
+        status: "not_started",
+        startedAt: null,
+        completedAt: null,
+        providerKind: null,
+        providerLabel: null,
+        warning: null,
+        errorMessage: null,
+        timeoutMs: null,
+        candidateCount: 0,
+      },
+    }
+  );
 }
 
 function hasReviewableTextVisionConflict(
@@ -685,8 +781,12 @@ function hasReviewableTextVisionConflict(
   return candidates.some(
     (candidate) =>
       candidate.resolution === "needs_review" &&
-      (candidate.conflictChoices ?? []).some((choice) => choice.sourceLabel === "Document text") &&
-      (candidate.conflictChoices ?? []).some((choice) => choice.sourceLabel === "Visual scan"),
+      (candidate.conflictChoices ?? []).some(
+        (choice) => choice.sourceLabel === "Document text",
+      ) &&
+      (candidate.conflictChoices ?? []).some(
+        (choice) => choice.sourceLabel === "Visual scan",
+      ),
   );
 }
 
@@ -743,7 +843,14 @@ async function maybeAdjudicateResumeImportCandidates(
       candidates: input.candidates,
     });
     const adjudicatedCandidates = result.candidates.map((candidate, index) =>
-      toCandidate(input.bundle, input.runId, "adjudicator", input.now, candidate, 20_000 + index),
+      toCandidate(
+        input.bundle,
+        input.runId,
+        "adjudicator",
+        input.now,
+        candidate,
+        20_000 + index,
+      ),
     );
 
     return {
@@ -756,7 +863,10 @@ async function maybeAdjudicateResumeImportCandidates(
       errorMessage: null,
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Resume import adjudication failed.";
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Resume import adjudication failed.";
     return {
       candidates: [...input.candidates],
       notes: [
@@ -787,6 +897,10 @@ export async function runResumeImportWorkflow(
   run: ResumeImportRun;
   candidates: ResumeImportFieldCandidate[];
 }> {
+  const workflowStartedAtMs = performance.now();
+  let literalExtractionMs = 0;
+  let textBranchMs = 0;
+  let textStageTimings: ResumeImportTextStageTiming[] = [];
   const now = new Date().toISOString();
   const runId = createUniqueId("resume_import_run");
   const bundle = ResumeDocumentBundleSchema.parse({
@@ -795,6 +909,124 @@ export async function runResumeImportWorkflow(
     runId,
     sourceResumeId: input.profile.baseResume.id,
   });
+  // Import paths hash the newly copied app-owned bytes before entering this
+  // workflow. Refresh paths do not reread the file, so they deliberately bypass
+  // the cache rather than trusting a possibly stale persisted digest.
+  const analysisCacheIdentity =
+    input.trigger === "import"
+      ? buildResumeAnalysisCacheIdentity({
+          profile: input.profile,
+          searchPreferences: input.searchPreferences,
+          documentBundle: bundle,
+          visionArtifact: input.visionArtifact,
+          textProviderStatus: ctx.aiClient.getStatus(),
+          visionProviderStatus:
+            input.visionArtifact && ctx.visionProvider
+              ? ctx.visionProvider.getStatus()
+              : null,
+        })
+      : null;
+  const cachedAnalysis = await findCompatibleResumeAnalysisCacheEntry(
+    ctx,
+    analysisCacheIdentity,
+  );
+
+  if (cachedAnalysis) {
+    const cachedArtifacts = cloneCachedResumeAnalysisArtifacts({
+      entry: cachedAnalysis,
+      runId,
+      sourceResumeId: input.profile.baseResume.id,
+      now,
+    });
+    const analysisWarnings = uniqueStrings([
+      ...(input.importWarnings ?? []),
+      ...cachedAnalysis.run.warnings,
+    ]);
+    const merged = applyResolvedResumeImportCandidatesToWorkspace({
+      profile: input.profile,
+      searchPreferences: input.searchPreferences,
+      candidates: cachedArtifacts.candidates,
+      analysisProviderKind: cachedAnalysis.run.analysisProviderKind,
+      analysisProviderLabel: cachedAnalysis.run.analysisProviderLabel,
+      analysisWarnings,
+    });
+    const candidateCounts = countResumeImportCandidates(
+      cachedArtifacts.candidates,
+    );
+    let cachedRun = ResumeImportRunSchema.parse({
+      id: runId,
+      sourceResumeId: input.profile.baseResume.id,
+      sourceResumeFileName: input.profile.baseResume.fileName,
+      trigger: input.trigger,
+      status: hasBlockingResumeImportCandidates(cachedArtifacts.candidates)
+        ? "review_ready"
+        : "applied",
+      startedAt: now,
+      completedAt: new Date().toISOString(),
+      primaryParserKind: cachedArtifacts.bundle.primaryParserKind,
+      parserKinds: cachedArtifacts.bundle.parserKinds,
+      routeKind: cachedArtifacts.bundle.route?.routeKind ?? null,
+      parserManifestVersion:
+        cachedArtifacts.bundle.parserManifest?.manifestVersion ?? null,
+      qualityScore: cachedArtifacts.bundle.quality?.score ?? null,
+      analysisProviderKind: cachedAnalysis.run.analysisProviderKind,
+      analysisProviderLabel: cachedAnalysis.run.analysisProviderLabel,
+      visionProviderKind: cachedAnalysis.run.visionProviderKind ?? null,
+      visionProviderLabel: cachedAnalysis.run.visionProviderLabel ?? null,
+      modelRoles: cachedAnalysis.run.modelRoles,
+      timing: {
+        totalMs: Math.max(
+          0,
+          Math.round(performance.now() - workflowStartedAtMs),
+        ),
+        textBranchMs: 0,
+        literalExtractionMs: 0,
+        reconciliationMs: 0,
+        finalizationMs: 0,
+        textStages: [],
+      },
+      analysisCacheIdentity,
+      analysisCacheHit: true,
+      analysisCacheSourceRunId: cachedAnalysis.run.id,
+      warnings: analysisWarnings,
+      errorMessage: null,
+      candidateCounts,
+    });
+    await ctx.repository.finalizeResumeImportRun({
+      profile: merged.profile,
+      searchPreferences: merged.searchPreferences,
+      run: cachedRun,
+      documentBundles: [cachedArtifacts.bundle],
+      fieldCandidates: cachedArtifacts.candidates,
+    });
+    cachedRun = ResumeImportRunSchema.parse({
+      ...cachedRun,
+      timing: {
+        ...cachedRun.timing,
+        totalMs: Math.max(
+          0,
+          Math.round(performance.now() - workflowStartedAtMs),
+        ),
+      },
+    });
+    try {
+      await ctx.repository.upsertResumeImportRun(cachedRun);
+    } catch (telemetryError) {
+      console.warn(
+        "Resume import cache timing could not be persisted after finalization.",
+        telemetryError instanceof Error
+          ? telemetryError.message
+          : "Unknown error",
+      );
+    }
+
+    return {
+      profile: merged.profile,
+      searchPreferences: merged.searchPreferences,
+      run: cachedRun,
+      candidates: cachedArtifacts.candidates,
+    };
+  }
 
   let run = ResumeImportRunSchema.parse({
     id: runId,
@@ -815,8 +1047,14 @@ export async function runResumeImportWorkflow(
       vision: { status: input.visionArtifact ? "not_started" : "skipped" },
       adjudication: { status: "not_started" },
     },
-    warnings: uniqueStrings([...(input.importWarnings ?? []), ...bundle.warnings]),
+    warnings: uniqueStrings([
+      ...(input.importWarnings ?? []),
+      ...bundle.warnings,
+    ]),
     errorMessage: null,
+    analysisCacheIdentity,
+    analysisCacheHit: false,
+    analysisCacheSourceRunId: null,
     candidateCounts: {
       total: 0,
       autoApplied: 0,
@@ -834,12 +1072,16 @@ export async function runResumeImportWorkflow(
 
   try {
     const textStartedAt = new Date().toISOString();
+    const textBranchStartedAtMs = performance.now();
     const visionArtifact = input.visionArtifact;
     const visionProvider = ctx.visionProvider;
-    const visionSkipMessage = !visionArtifact || visionArtifact.pages.length === 0
-      ? "No local resume page images were available for the vision branch."
-      : "Resume vision provider is not configured; text import continued.";
-    const canRunVision = Boolean(visionArtifact && visionArtifact.pages.length > 0 && visionProvider);
+    const visionSkipMessage =
+      !visionArtifact || visionArtifact.pages.length === 0
+        ? "No local resume page images were available for the vision branch."
+        : "Resume vision provider is not configured; text import continued.";
+    const canRunVision = Boolean(
+      visionArtifact && visionArtifact.pages.length > 0 && visionProvider,
+    );
     const visionStartedAt = canRunVision ? textStartedAt : null;
     const visionTimeoutMs = canRunVision ? visionTimeoutMsFor(ctx) : null;
     const modelRoles = modelRolesFor(run);
@@ -848,8 +1090,12 @@ export async function runResumeImportWorkflow(
       status: "extracting",
       modelRoles: {
         ...modelRoles,
-        text: { ...modelRoles.text, status: "running", startedAt: textStartedAt },
-      vision: canRunVision
+        text: {
+          ...modelRoles.text,
+          status: "running",
+          startedAt: textStartedAt,
+        },
+        vision: canRunVision
           ? {
               ...modelRoles.vision,
               status: "running",
@@ -871,137 +1117,206 @@ export async function runResumeImportWorkflow(
       fieldCandidates: [],
     });
 
-    const textBranchPromise: Promise<ResumeImportBranchResult> = (async (): Promise<ResumeImportBranchResult> => {
-      const literalCandidates = extractLiteralCandidates(runId, bundle, now);
-      const stageSettlements = await Promise.allSettled(
-        RESUME_IMPORT_STAGES.map((stage) =>
-          Promise.resolve().then(() =>
-            ctx.aiClient.extractResumeImportStage({
+    const textBranchPromise: Promise<ResumeImportBranchResult> =
+      (async (): Promise<ResumeImportBranchResult> => {
+        const literalStartedAtMs = performance.now();
+        const literalCandidates = extractLiteralCandidates(runId, bundle, now);
+        literalExtractionMs = Math.max(
+          0,
+          Math.round(performance.now() - literalStartedAtMs),
+        );
+        const stageDurations = new Map<
+          (typeof RESUME_IMPORT_STAGES)[number],
+          number
+        >();
+        const stageSettlements = await Promise.allSettled(
+          RESUME_IMPORT_STAGES.map((stage) => {
+            const stageStartedAtMs = performance.now();
+            return Promise.resolve()
+              .then(() =>
+                ctx.aiClient.extractResumeImportStage({
+                  stage,
+                  existingProfile: input.profile,
+                  existingSearchPreferences: input.searchPreferences,
+                  documentBundle: bundle,
+                }),
+              )
+              .finally(() => {
+                stageDurations.set(
+                  stage,
+                  Math.max(0, Math.round(performance.now() - stageStartedAtMs)),
+                );
+              });
+          }),
+        );
+        const stageOutcomes: ResumeImportStageExtractionOutcome[] =
+          RESUME_IMPORT_STAGES.map((stage, index) => {
+            const settlement = stageSettlements[index];
+
+            if (!settlement) {
+              return resumeImportStageFailureOutcome(
+                stage,
+                new Error(
+                  "The extraction stage did not produce a settled result.",
+                ),
+              );
+            }
+
+            if (settlement.status === "rejected") {
+              return resumeImportStageFailureOutcome(stage, settlement.reason);
+            }
+
+            const parsedResult =
+              ResumeImportStageExtractionResultSchema.safeParse(
+                settlement.value,
+              );
+            if (!parsedResult.success) {
+              return resumeImportStageFailureOutcome(stage, parsedResult.error);
+            }
+
+            if (parsedResult.data.stage !== stage) {
+              return resumeImportStageFailureOutcome(
+                stage,
+                new Error(
+                  `The provider returned the ${parsedResult.data.stage} stage instead of ${stage}.`,
+                ),
+              );
+            }
+
+            return {
+              ok: true,
               stage,
+              result: parsedResult.data,
+            };
+          });
+        textStageTimings = stageOutcomes.map(
+          (outcome): ResumeImportTextStageTiming => ({
+            stage: outcome.stage,
+            status: outcome.ok
+              ? "completed"
+              : branchStatusForFailure(outcome.message),
+            providerKind: outcome.ok
+              ? outcome.result.analysisProviderKind
+              : null,
+            providerLabel: outcome.ok
+              ? outcome.result.analysisProviderLabel
+              : null,
+            durationMs: stageDurations.get(outcome.stage) ?? 0,
+            primaryProviderMs: outcome.ok
+              ? (outcome.result.timing?.primaryProviderMs ?? null)
+              : null,
+            deterministicFallbackMs: outcome.ok
+              ? (outcome.result.timing?.deterministicFallbackMs ?? null)
+              : null,
+            candidateCount: outcome.ok ? outcome.result.candidates.length : 0,
+          }),
+        );
+        const successfulStages = stageOutcomes.filter(
+          (
+            outcome,
+          ): outcome is Extract<
+            ResumeImportStageExtractionOutcome,
+            { ok: true }
+          > => outcome.ok,
+        );
+        const failedStages = stageOutcomes.filter(
+          (
+            outcome,
+          ): outcome is Extract<
+            ResumeImportStageExtractionOutcome,
+            { ok: false }
+          > => !outcome.ok,
+        );
+
+        if (successfulStages.length === 0) {
+          return {
+            ok: false,
+            message:
+              failedStages[0]?.message ||
+              "Text resume import branch produced no usable extraction results.",
+          };
+        }
+
+        const stageCandidates = successfulStages.flatMap(
+          ({ stage, result }) => {
+            const sourceKind = (() => {
+              switch (stage) {
+                case "identity_summary":
+                  return "model_identity_summary" as const;
+                case "experience":
+                  return "model_experience" as const;
+                case "background":
+                  return "model_background" as const;
+                case "shared_memory":
+                  return "model_shared_memory" as const;
+                default:
+                  return "reconciler" as const;
+              }
+            })();
+
+            return result.candidates.map((candidate, index) =>
+              toCandidate(bundle, runId, sourceKind, now, candidate, index),
+            );
+          },
+        );
+
+        return {
+          ok: true as const,
+          literalCandidates,
+          stageCandidates,
+          providerKind:
+            successfulStages.find(
+              (entry) => entry.result.analysisProviderKind !== null,
+            )?.result.analysisProviderKind ?? null,
+          providerLabel:
+            successfulStages.find((entry) => entry.result.analysisProviderLabel)
+              ?.result.analysisProviderLabel ?? null,
+          notes: uniqueStrings(
+            successfulStages.flatMap((entry) => entry.result.notes),
+          ),
+          warnings: uniqueStrings(
+            failedStages.map((entry) => entry.diagnostic),
+          ),
+        };
+      })().catch(
+        (error: unknown): ResumeImportBranchResult => ({
+          ok: false,
+          message: messageFromUnknownError(
+            error,
+            "Text resume import branch failed.",
+          ),
+        }),
+      );
+
+    const visionBranchPromise: Promise<ResumeVisionBranchResult> =
+      canRunVision && visionArtifact && visionProvider
+        ? visionProvider
+            .extractResumeVision({
               existingProfile: input.profile,
               existingSearchPreferences: input.searchPreferences,
               documentBundle: bundle,
-            }),
-          ),
-        ),
-      );
-      const stageOutcomes: ResumeImportStageExtractionOutcome[] =
-        RESUME_IMPORT_STAGES.map((stage, index) => {
-          const settlement = stageSettlements[index];
-
-          if (!settlement) {
-            return resumeImportStageFailureOutcome(
-              stage,
-              new Error("The extraction stage did not produce a settled result."),
-            );
-          }
-
-          if (settlement.status === "rejected") {
-            return resumeImportStageFailureOutcome(stage, settlement.reason);
-          }
-
-          const parsedResult = ResumeImportStageExtractionResultSchema.safeParse(
-            settlement.value,
-          );
-          if (!parsedResult.success) {
-            return resumeImportStageFailureOutcome(stage, parsedResult.error);
-          }
-
-          if (parsedResult.data.stage !== stage) {
-            return resumeImportStageFailureOutcome(
-              stage,
-              new Error(
-                `The provider returned the ${parsedResult.data.stage} stage instead of ${stage}.`,
+              visionArtifact,
+            })
+            .then((result) => ({ ok: true as const, result }))
+            .catch((error: unknown) => ({
+              ok: false as const,
+              message: messageFromUnknownError(
+                error,
+                "Vision resume import branch failed.",
               ),
-            );
-          }
-
-          return {
-            ok: true,
-            stage,
-            result: parsedResult.data,
-          };
-        });
-      const successfulStages = stageOutcomes.filter(
-        (
-          outcome,
-        ): outcome is Extract<ResumeImportStageExtractionOutcome, { ok: true }> =>
-          outcome.ok,
-      );
-      const failedStages = stageOutcomes.filter(
-        (
-          outcome,
-        ): outcome is Extract<ResumeImportStageExtractionOutcome, { ok: false }> =>
-          !outcome.ok,
-      );
-
-      if (successfulStages.length === 0) {
-        return {
-          ok: false,
-          message:
-            failedStages[0]?.message ||
-            "Text resume import branch produced no usable extraction results.",
-        };
-      }
-
-      const stageCandidates = successfulStages.flatMap(({ stage, result }) => {
-        const sourceKind = (() => {
-          switch (stage) {
-            case "identity_summary":
-              return "model_identity_summary" as const;
-            case "experience":
-              return "model_experience" as const;
-            case "background":
-              return "model_background" as const;
-            case "shared_memory":
-              return "model_shared_memory" as const;
-            default:
-              return "reconciler" as const;
-          }
-        })();
-
-        return result.candidates.map((candidate, index) =>
-          toCandidate(bundle, runId, sourceKind, now, candidate, index),
-        );
-      });
-
-      return {
-        ok: true as const,
-        literalCandidates,
-        stageCandidates,
-        providerKind:
-          successfulStages.find((entry) => entry.result.analysisProviderKind !== null)?.result
-            .analysisProviderKind ?? null,
-        providerLabel:
-          successfulStages.find((entry) => entry.result.analysisProviderLabel)?.result
-            .analysisProviderLabel ?? null,
-        notes: uniqueStrings(successfulStages.flatMap((entry) => entry.result.notes)),
-        warnings: uniqueStrings(failedStages.map((entry) => entry.diagnostic)),
-      };
-    })().catch((error: unknown): ResumeImportBranchResult => ({
-      ok: false,
-      message: messageFromUnknownError(error, "Text resume import branch failed."),
-    }));
-
-    const visionBranchPromise: Promise<ResumeVisionBranchResult> = canRunVision && visionArtifact && visionProvider
-      ? visionProvider.extractResumeVision({
-            existingProfile: input.profile,
-            existingSearchPreferences: input.searchPreferences,
-            documentBundle: bundle,
-            visionArtifact,
-          }).then((result) => ({ ok: true as const, result }))
-          .catch((error: unknown) => ({
+            }))
+        : Promise.resolve({
             ok: false as const,
-            message: messageFromUnknownError(error, "Vision resume import branch failed."),
-          }))
-      : Promise.resolve({
-          ok: false as const,
-          skipped: true as const,
-          message: visionSkipMessage,
-        });
+            skipped: true as const,
+            message: visionSkipMessage,
+          });
     const observedVisionBranch = observePromise(visionBranchPromise);
 
     const textBranch = await textBranchPromise;
+    textBranchMs = Math.max(
+      0,
+      Math.round(performance.now() - textBranchStartedAtMs),
+    );
     let visionBranch: ResumeVisionBranchResolution;
 
     if (textBranch.ok && canRunVision) {
@@ -1021,29 +1336,35 @@ export async function runResumeImportWorkflow(
           )
         : await observedVisionBranch.promise;
     }
+    const reconciliationStartedAtMs = performance.now();
 
     run = ResumeImportRunSchema.parse({
       ...run,
       status: "extracting",
-      analysisProviderKind:
-        textBranch.ok ? textBranch.providerKind : null,
-      analysisProviderLabel:
-        textBranch.ok ? textBranch.providerLabel : null,
-      visionProviderKind:
-        visionBranch.ok ? visionBranch.result.analysisProviderKind : null,
-      visionProviderLabel:
-        visionBranch.ok ? visionBranch.result.analysisProviderLabel : null,
+      analysisProviderKind: textBranch.ok ? textBranch.providerKind : null,
+      analysisProviderLabel: textBranch.ok ? textBranch.providerLabel : null,
+      visionProviderKind: visionBranch.ok
+        ? visionBranch.result.analysisProviderKind
+        : null,
+      visionProviderLabel: visionBranch.ok
+        ? visionBranch.result.analysisProviderLabel
+        : null,
       modelRoles: {
         ...modelRolesFor(run),
         text: {
           ...modelRolesFor(run).text,
-          status: textBranch.ok ? "completed" : branchStatusForFailure(textBranch.message),
+          status: textBranch.ok
+            ? "completed"
+            : branchStatusForFailure(textBranch.message),
           completedAt: new Date().toISOString(),
           providerKind: textBranch.ok ? textBranch.providerKind : null,
           providerLabel: textBranch.ok ? textBranch.providerLabel : null,
-          warning: textBranch.ok ? textBranch.warnings[0] ?? null : null,
+          warning: textBranch.ok ? (textBranch.warnings[0] ?? null) : null,
           errorMessage: textBranch.ok ? null : textBranch.message,
-          candidateCount: textBranch.ok ? textBranch.literalCandidates.length + textBranch.stageCandidates.length : 0,
+          candidateCount: textBranch.ok
+            ? textBranch.literalCandidates.length +
+              textBranch.stageCandidates.length
+            : 0,
         },
         vision: branchStateFromVisionResolution({
           current: modelRolesFor(run).vision,
@@ -1053,23 +1374,31 @@ export async function runResumeImportWorkflow(
       },
     });
 
-    const visionBranchHasUsableCandidates = visionBranch.ok && visionBranch.result.candidates.length > 0;
+    const visionBranchHasUsableCandidates =
+      visionBranch.ok && visionBranch.result.candidates.length > 0;
 
     if (!textBranch.ok && !visionBranchHasUsableCandidates) {
       throw new Error(
         uniqueStrings([
           textBranch.message,
           visionBranch.ok
-            ? visionBranch.result.primaryErrorMessage ?? "Vision resume import produced no usable candidates."
+            ? (visionBranch.result.primaryErrorMessage ??
+              "Vision resume import produced no usable candidates.")
             : visionBranch.message,
-        ]).join(" ") ||
-          "Both resume import extraction branches failed.",
+        ]).join(" ") || "Both resume import extraction branches failed.",
       );
     }
 
     const visionCandidates = visionBranch.ok
       ? visionBranch.result.candidates.map((candidate, index) =>
-          toCandidate(bundle, runId, "vision_omni", now, candidate, 10_000 + index),
+          toCandidate(
+            bundle,
+            runId,
+            "vision_omni",
+            now,
+            candidate,
+            10_000 + index,
+          ),
         )
       : [];
 
@@ -1089,7 +1418,11 @@ export async function runResumeImportWorkflow(
     });
 
     let reconciledCandidates = promoteGroundedSharedMemoryCandidates(
-      reconcileCandidates(input.profile, input.searchPreferences, provisionalCandidates),
+      reconcileCandidates(
+        input.profile,
+        input.searchPreferences,
+        provisionalCandidates,
+      ),
     );
     const adjudicationStartedAt = new Date().toISOString();
     run = ResumeImportRunSchema.parse({
@@ -1114,16 +1447,23 @@ export async function runResumeImportWorkflow(
       fieldCandidates: reconciledCandidates,
     });
 
-    const adjudicationResult = await maybeAdjudicateResumeImportCandidates(ctx, {
-      profile: input.profile,
-      searchPreferences: input.searchPreferences,
-      bundle,
-      runId,
-      now,
-      candidates: reconciledCandidates,
-    });
+    const adjudicationResult = await maybeAdjudicateResumeImportCandidates(
+      ctx,
+      {
+        profile: input.profile,
+        searchPreferences: input.searchPreferences,
+        bundle,
+        runId,
+        now,
+        candidates: reconciledCandidates,
+      },
+    );
     reconciledCandidates = promoteGroundedSharedMemoryCandidates(
-      reconcileCandidates(input.profile, input.searchPreferences, adjudicationResult.candidates),
+      reconcileCandidates(
+        input.profile,
+        input.searchPreferences,
+        adjudicationResult.candidates,
+      ),
     );
     run = ResumeImportRunSchema.parse({
       ...run,
@@ -1161,6 +1501,12 @@ export async function runResumeImportWorkflow(
       ...stageNotes,
       ...summarizeCandidateWarnings(reconciledCandidates),
     ]);
+    const reconciliationMs = Math.max(
+      0,
+      Math.round(performance.now() - reconciliationStartedAtMs),
+    );
+    const finalizationStartedAtMs = performance.now();
+
     const merged = applyResolvedResumeImportCandidatesToWorkspace({
       profile: input.profile,
       searchPreferences: input.searchPreferences,
@@ -1172,6 +1518,11 @@ export async function runResumeImportWorkflow(
     const candidateCounts = countResumeImportCandidates(reconciledCandidates);
     const hasBlockingReviewCandidates =
       hasBlockingResumeImportCandidates(reconciledCandidates);
+    const timelineRepairProposals = deriveResumeTimelineRepairProposals({
+      runId: run.id,
+      candidates: reconciledCandidates,
+      createdAt: new Date().toISOString(),
+    });
 
     run = ResumeImportRunSchema.parse({
       ...run,
@@ -1179,17 +1530,64 @@ export async function runResumeImportWorkflow(
       completedAt: new Date().toISOString(),
       warnings: analysisWarnings,
       candidateCounts,
+      timelineRepairProposals,
+      timing: {
+        totalMs: null,
+        textBranchMs,
+        literalExtractionMs,
+        reconciliationMs,
+        finalizationMs: null,
+        textStages: textStageTimings,
+      },
     });
+    const timingBeforeFinalization = run.timing;
+    if (!timingBeforeFinalization) {
+      throw new Error(
+        "Resume import timing summary was not retained before finalization.",
+      );
+    }
 
+    const atomicallyFinalizedRun = run;
     await ctx.repository.finalizeResumeImportRun({
       profile: merged.profile,
       searchPreferences: merged.searchPreferences,
-      run,
+      run: atomicallyFinalizedRun,
       documentBundles: [bundle],
       fieldCandidates: reconciledCandidates,
     });
+    const finalizationMs = Math.max(
+      0,
+      Math.round(performance.now() - finalizationStartedAtMs),
+    );
+    const measuredRun = ResumeImportRunSchema.parse({
+      ...atomicallyFinalizedRun,
+      timing: {
+        ...timingBeforeFinalization,
+        totalMs: Math.max(
+          0,
+          Math.round(performance.now() - workflowStartedAtMs),
+        ),
+        finalizationMs,
+      },
+    });
+    try {
+      await ctx.repository.upsertResumeImportRun(measuredRun);
+      run = measuredRun;
+    } catch (telemetryError) {
+      console.warn(
+        "Resume import timing telemetry could not be persisted after finalization.",
+        telemetryError instanceof Error
+          ? telemetryError.message
+          : "Unknown error",
+      );
+      run = atomicallyFinalizedRun;
+    }
 
-    if (isDeferredVisionBranch(visionBranch) && canRunVision && visionTimeoutMs) {
+    if (
+      isDeferredVisionBranch(visionBranch) &&
+      canRunVision &&
+      visionTimeoutMs
+    ) {
       scheduleDeferredVisionBranchCompletion({
         ctx,
         promise: observedVisionBranch.promise,

@@ -181,9 +181,9 @@ function renderTemplate(
 describe('job finder resume renderer', () => {
   test('lists eight ATS-safe local templates with family metadata', () => {
     expect(listLocalResumeTemplates()).toEqual([
-      expect.objectContaining({ id: 'classic_ats', label: 'Chronology Classic', familyLabel: 'Chronology Classic', density: 'balanced' }),
-      expect.objectContaining({ id: 'compact_exec', label: 'Senior Brief', familyLabel: 'Senior Brief', density: 'compact' }),
-      expect.objectContaining({ id: 'modern_split', label: 'Modern Editorial', familyLabel: 'Modern Editorial', density: 'balanced' }),
+      expect.objectContaining({ id: 'classic_ats', label: 'Chronology Classic', familyLabel: 'Chronology Classic', density: 'balanced', visualTags: ['Standard ATS', 'Reverse chronology', 'Traditional'] }),
+      expect.objectContaining({ id: 'compact_exec', label: 'Senior Brief', familyLabel: 'Senior Brief', density: 'compact', visualTags: ['Experienced professional', 'Dense timeline', 'High signal'] }),
+      expect.objectContaining({ id: 'modern_split', label: 'Modern Editorial', familyLabel: 'Modern Editorial', density: 'balanced', visualTags: ['Modern professional', 'Single column', 'Balanced'] }),
       expect.objectContaining({ id: 'technical_matrix', label: 'Engineering Spec', familyLabel: 'Engineering Spec', density: 'compact' }),
       expect.objectContaining({ id: 'project_showcase', label: 'Proof Portfolio', familyLabel: 'Proof Portfolio', density: 'comfortable' }),
       expect.objectContaining({ id: 'credentials_focus', label: 'Formal Proof', familyLabel: 'Formal Proof', density: 'balanced' }),
@@ -325,7 +325,6 @@ describe('job finder resume renderer', () => {
     expect(html).toContain('header-executive')
     expect(html).toContain('meta-pill-list')
     expect(html).toContain('section-dense-chronology')
-    expect(html).toContain('Senior Brief')
     expect(html).toContain("'Space Grotesk', 'Segoe UI', sans-serif")
     expect(html).toContain('grid-template-columns: 1fr;')
     expect(html).toContain('break-inside: avoid;')
@@ -365,7 +364,6 @@ describe('job finder resume renderer', () => {
     const html = renderTemplate('credentials_focus', credentialHeavyRenderDocument)
 
     expect(html).toContain('header-executive-credentials')
-    expect(html).toContain('Formal Proof')
     expect(html).toContain('section-credential-spotlight')
     expect(html).toContain('section-credential-spotlight-surface')
 
@@ -424,6 +422,36 @@ describe('job finder resume renderer', () => {
     expect(html).not.toContain('Proof items')
   })
 
+  test('keeps internal template branding out of candidate-facing resume content', () => {
+    const templateIds: ResumeTemplateId[] = [
+      'classic_ats',
+      'compact_exec',
+      'modern_split',
+      'technical_matrix',
+      'project_showcase',
+      'credentials_focus',
+      'timeline_longform',
+      'career_pivot',
+    ]
+    const internalLabels = [
+      'Career Pivot Bridge',
+      'Modern Editorial',
+      'Engineering Spec',
+      'Proof Portfolio',
+      'Senior Brief',
+      'Formal Proof',
+      'Longform Timeline',
+    ]
+
+    for (const templateId of templateIds) {
+      const html = renderTemplate(templateId, credentialHeavyRenderDocument)
+
+      for (const internalLabel of internalLabels) {
+        expect(html).not.toContain(`>${internalLabel}<`)
+      }
+    }
+  })
+
   test('keeps work-history review guidance out of rendered resume HTML', () => {
     const html = renderTemplate('classic_ats')
 
@@ -473,5 +501,89 @@ describe('job finder resume renderer', () => {
       expect(html).not.toContain('data-resume-target-id=')
       expect(html).toContain(`content="${template.label}"`)
     }
+  })
+
+  test('keeps exported resumes flat, typeset, and print-ready across every family', () => {
+    for (const template of listLocalResumeTemplates()) {
+      const html = renderTemplate(template.id)
+
+      expect(html).toContain('-webkit-print-color-adjust: exact;')
+      expect(html).toContain('@media print')
+      expect(html).toContain('break-inside: avoid;')
+      expect(html).toContain('page-break-inside: avoid;')
+      expect(html).not.toContain('border-radius:')
+      expect(html).not.toContain('border-style: dashed;')
+      expect(html).not.toContain('border-radius: 999px;')
+      expect(html).not.toContain('background: linear-gradient')
+    }
+  })
+
+  test('ships restrained, distinct print accents for all eight resume systems', () => {
+    const html = renderTemplate('classic_ats')
+
+    expect(html).toContain('--resume-classic-accent: #1f2933;')
+    expect(html).toContain('--resume-compact-accent: #182433;')
+    expect(html).toContain('--resume-modern-accent: #145c63;')
+    expect(html).toContain('--resume-technical-accent: #234d72;')
+    expect(html).toContain('--resume-projects-accent: #6a3e55;')
+    expect(html).toContain('--resume-credentials-accent: #4a3f2c;')
+    expect(html).toContain('--resume-longform-accent: #30343a;')
+    expect(html).toContain('--resume-pivot-accent: #365947;')
+    expect(html).toContain('.theme-classic_ats { --accent: var(--resume-classic-accent);')
+    expect(html).toContain('.theme-compact_exec { --accent: var(--resume-compact-accent);')
+    expect(html).toContain('.theme-modern_split { --accent: var(--resume-modern-accent);')
+    expect(html).toContain('.theme-technical_matrix { --accent: var(--resume-technical-accent);')
+    expect(html).toContain('.theme-project_showcase { --accent: var(--resume-projects-accent);')
+    expect(html).toContain('.theme-credentials_focus { --accent: var(--resume-credentials-accent);')
+    expect(html).toContain('.theme-timeline_longform { --accent: var(--resume-longform-accent);')
+    expect(html).toContain('.theme-career_pivot { --accent: var(--resume-pivot-accent);')
+  })
+
+  test('lets multi-entry sections paginate while keeping each entry together', () => {
+    const experienceSection = baseRenderDocument.sections.find(
+      (section) => section.id === 'section_experience',
+    )!
+    const firstEntry = experienceSection.entries[0]!
+    const html = renderTemplate('timeline_longform', {
+      ...baseRenderDocument,
+      sections: baseRenderDocument.sections.map((section) =>
+        section.id === 'section_experience'
+          ? {
+              ...section,
+              entries: [
+                firstEntry,
+                {
+                  ...firstEntry,
+                  id: 'entry_2',
+                  title: 'Systems designer',
+                  dateRange: 'Jan 2017 – Dec 2019',
+                  startDate: '2017-01',
+                  endDate: '2019-12',
+                  isCurrent: false,
+                  bullets: [{ id: 'entry_2_bullet_1', text: 'Built durable workflow foundations.' }],
+                },
+              ],
+            }
+          : section,
+      ),
+    })
+
+    expect(html.match(/class="entry-block"/g)).toHaveLength(3)
+    expect(html).toContain(
+      '.header, .entry-block, h3, h4, .skill-group { break-inside: avoid; page-break-inside: avoid; }',
+    )
+    expect(html).not.toContain('.header, .section-block, .entry-block')
+  })
+
+  test('keeps preview selection affordances precise without changing export markup', () => {
+    const previewHtml = renderTemplate('technical_matrix', baseRenderDocument, 'inter_requisite', {
+      mode: 'preview',
+    })
+    const exportHtml = renderTemplate('technical_matrix')
+
+    expect(previewHtml).toContain('box-shadow: 0 0 0 1px var(--resume-selected-shadow);')
+    expect(previewHtml).toContain('border-radius: 0.02in;')
+    expect(exportHtml).not.toContain('data-resume-target-id=')
+    expect(exportHtml).not.toContain('border-radius:')
   })
 })

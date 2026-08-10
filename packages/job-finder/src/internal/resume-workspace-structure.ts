@@ -540,9 +540,61 @@ function mergeEntryBullets(
 ): string[] {
   const normalizedTailoredBullets = tailoredBullets.flatMap(splitResumeDetailLine);
   const normalizedProfileBullets = profileBullets.flatMap(splitResumeDetailLine);
+  const ignoredClaimTokens = new Set([
+    "and",
+    "for",
+    "from",
+    "into",
+    "the",
+    "that",
+    "this",
+    "through",
+    "using",
+    "with",
+  ]);
+  const claimTokens = (value: string) =>
+    new Set(
+      normalizeText(value)
+        .split(/[^\p{L}\p{N}+#.]+/u)
+        .filter(
+          (token) => token.length >= 3 && !ignoredClaimTokens.has(token),
+        ),
+    );
+  const isCoveredByTailoredClaim = (profileClaim: string) => {
+    const normalizedProfileClaim = normalizeText(profileClaim);
+    const profileTokens = claimTokens(profileClaim);
+
+    return normalizedTailoredBullets.some((tailoredClaim) => {
+      const normalizedTailoredClaim = normalizeText(tailoredClaim);
+      if (normalizedTailoredClaim === normalizedProfileClaim) {
+        return true;
+      }
+      if (
+        normalizedProfileClaim.length >= 36 &&
+        (normalizedTailoredClaim.includes(normalizedProfileClaim) ||
+          normalizedProfileClaim.includes(normalizedTailoredClaim))
+      ) {
+        return true;
+      }
+      if (profileTokens.size < 4) {
+        return false;
+      }
+
+      const tailoredTokens = claimTokens(tailoredClaim);
+      const sharedTokenCount = [...profileTokens].filter((token) =>
+        tailoredTokens.has(token),
+      ).length;
+      return sharedTokenCount / profileTokens.size >= 0.67;
+    });
+  };
+  // Keep canonical details that the provider returned too thinly, but do not
+  // append an original claim immediately after a grounded rewrite of it.
+  const uncoveredProfileBullets = normalizedProfileBullets.filter(
+    (bullet) => !isCoveredByTailoredClaim(bullet),
+  );
   const canonicalBullets = uniqueStrings([
     ...normalizedTailoredBullets,
-    ...normalizedProfileBullets,
+    ...uncoveredProfileBullets,
   ]);
   const narrativeBullets = canonicalBullets.filter(
     (bullet) => !/^[^.!?]{2,80}\([^)]{2,80}\)\s*[–—]\s*[^.!?]{2,120}$/u.test(bullet),
@@ -593,12 +645,21 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
       generatedDateRange: entry.dateRange,
     });
     const generatedDates = parseResumeDateRange(entry.dateRange);
+    const canonicalTitle = profileExperience
+      ? profileExperience.title
+      : entry.title;
+    const canonicalEmployer = profileExperience
+      ? profileExperience.companyName
+      : entry.employer;
+    const canonicalLocation = profileExperience
+      ? profileExperience.location
+      : entry.location ?? null;
     const createdEntry = createEntry({
       id: entry.profileRecordId ? `experience_${entry.profileRecordId}` : `experience_entry_${index + 1}`,
       entryType: "experience",
-      title: entry.title,
-      subtitle: entry.employer,
-      location: entry.location ?? profileExperience?.location ?? null,
+      title: canonicalTitle,
+      subtitle: canonicalEmployer,
+      location: canonicalLocation,
       dateRange: canonicalDateRange,
       startDate: profileExperience?.startDate ?? generatedDates.startDate,
       endDate: profileExperience?.endDate ?? generatedDates.endDate,
@@ -606,9 +667,9 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
       summary: selectEntrySummary({
         generated: entry.summary,
         profile: profileExperience?.summary,
-        title: entry.title,
-        subtitle: entry.employer,
-        location: entry.location ?? profileExperience?.location ?? null,
+        title: canonicalTitle,
+        subtitle: canonicalEmployer,
+        location: canonicalLocation,
         dateRange: canonicalDateRange ?? entry.dateRange,
       }),
       bullets: mergeEntryBullets(entry.bullets, profileExperience?.achievements ?? []),

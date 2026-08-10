@@ -3,6 +3,7 @@
 import { act } from 'react'
 import {
   getResumeEntryFieldTargetId,
+  type ResumeCoverageComparison,
   type ResumeDraft,
 } from '@unemployed/contracts'
 import { createRoot, type Root } from 'react-dom/client'
@@ -53,6 +54,7 @@ describe('ResumeWorkspaceEditorPanel', () => {
       root?.render(
         <ResumeWorkspaceEditorPanel
           actionMessage={null}
+          coverageComparison={null}
           draft={draft}
           hasUnsavedChanges={false}
           isWorkspacePending={isWorkspacePending}
@@ -171,6 +173,7 @@ describe('ResumeWorkspaceEditorPanel', () => {
       root?.render(
         <ResumeWorkspaceEditorPanel
           actionMessage={null}
+          coverageComparison={null}
           draft={dateDraft}
           hasUnsavedChanges={false}
           isWorkspacePending={false}
@@ -311,6 +314,7 @@ describe('ResumeWorkspaceEditorPanel', () => {
       root?.render(
         <ResumeWorkspaceEditorPanel
           actionMessage={null}
+          coverageComparison={null}
           draft={lockedEntryDraft}
           hasUnsavedChanges={false}
           isWorkspacePending={false}
@@ -342,5 +346,242 @@ describe('ResumeWorkspaceEditorPanel', () => {
     expect(lockedTitleInput?.value).toBe('Locked role')
     expect(lockedTitleInput?.disabled).toBe(true)
     expect(moveDownButton?.disabled).toBe(false)
+  })
+
+  it('lets the user restore original role content from the coverage comparison', () => {
+    const comparison: ResumeCoverageComparison = {
+      originalRoleCount: 1,
+      representedRoleCount: 1,
+      visibleRoleCount: 1,
+      rewrittenRoleCount: 1,
+      compactedRoleCount: 0,
+      hiddenRoleCount: 0,
+      missingRoleCount: 0,
+      reorderedRoleCount: 0,
+      addedClaimCount: 1,
+      removedClaimCount: 1,
+      duplicateIssueCount: 0,
+      addedKeywords: ['TypeScript'],
+      removedKeywords: [],
+      pageImpact: 'within_target',
+      pageCount: 1,
+      targetPageCount: 2,
+      roles: [
+        {
+          profileRecordId: 'experience_1',
+          title: 'Software Engineer',
+          employer: 'Signal Systems',
+          sectionId: 'section_experience',
+          entryId: 'experience_1',
+          status: 'rewritten',
+          included: true,
+          reordered: false,
+          originalIndex: 0,
+          tailoredIndex: 0,
+          originalClaimCount: 1,
+          retainedClaimCount: 0,
+          addedClaims: [
+            {
+              field: 'summary',
+              text: 'Reworded summary.',
+              restorable: false,
+            },
+          ],
+          removedClaims: [
+            {
+              field: 'summary',
+              text: 'Original summary.',
+              restorable: true,
+            },
+          ],
+          reasons: ['The summary was rewritten for this role.'],
+        },
+      ],
+    }
+    const onApplyPatch = vi.fn()
+
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    act(() => {
+      root?.render(
+        <ResumeWorkspaceEditorPanel
+          actionMessage={null}
+          coverageComparison={comparison}
+          draft={draft}
+          hasUnsavedChanges={false}
+          isWorkspacePending={false}
+          jobId="job_1"
+          onApplyPatch={onApplyPatch}
+          onDraftChange={vi.fn()}
+          onRegenerateSection={vi.fn()}
+          onSectionChange={vi.fn()}
+          onSelectEntry={vi.fn()}
+          onSelectSection={vi.fn()}
+          runWithSavedDraft={(next) => {
+            void next()
+          }}
+          selectedEntryId={null}
+          selectedSectionId={null}
+          selectedTargetId={null}
+          workHistoryReviewSuggestions={[]}
+        />,
+      )
+    })
+
+    const restoreButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'Restore',
+    )
+    expect(container.textContent).toContain('Original vs tailored')
+    expect(restoreButton).toBeTruthy()
+
+    act(() => {
+      restoreButton?.click()
+    })
+
+    expect(onApplyPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: 'replace_entry_summary',
+        targetSectionId: 'section_experience',
+        targetEntryId: 'experience_1',
+        newText: 'Original summary.',
+      }),
+      'Restored original summary for Software Engineer.',
+    )
+  })
+
+  it('targets the hidden role so the patch restores both it and its parent section', () => {
+    const hiddenDraft: ResumeDraft = {
+      ...draft,
+      sections: [
+        {
+          id: 'section_experience',
+          kind: 'experience',
+          label: 'Experience',
+          text: null,
+          bullets: [],
+          entries: [
+            {
+              id: 'experience_1',
+              entryType: 'experience',
+              title: 'Software Engineer',
+              subtitle: 'Signal Systems',
+              location: 'Remote',
+              dateRange: '2020 - Present',
+              startDate: '2020',
+              endDate: null,
+              isCurrent: true,
+              summary: 'Original summary.',
+              bullets: [],
+              origin: 'imported',
+              locked: false,
+              included: true,
+              sortOrder: 0,
+              profileRecordId: 'experience_1',
+              sourceRefs: [],
+              updatedAt: draft.updatedAt,
+            },
+          ],
+          origin: 'imported',
+          locked: false,
+          included: false,
+          sortOrder: 0,
+          entryOrderMode: 'chronology',
+          profileRecordId: null,
+          sourceRefs: [],
+          updatedAt: draft.updatedAt,
+        },
+      ],
+    }
+    const comparison: ResumeCoverageComparison = {
+      originalRoleCount: 1,
+      representedRoleCount: 1,
+      visibleRoleCount: 0,
+      rewrittenRoleCount: 0,
+      compactedRoleCount: 0,
+      hiddenRoleCount: 1,
+      missingRoleCount: 0,
+      reorderedRoleCount: 0,
+      addedClaimCount: 0,
+      removedClaimCount: 1,
+      duplicateIssueCount: 0,
+      addedKeywords: [],
+      removedKeywords: [],
+      pageImpact: 'unknown',
+      pageCount: null,
+      targetPageCount: 2,
+      roles: [
+        {
+          profileRecordId: 'experience_1',
+          title: 'Software Engineer',
+          employer: 'Signal Systems',
+          sectionId: 'section_experience',
+          entryId: 'experience_1',
+          status: 'hidden',
+          included: false,
+          reordered: false,
+          originalIndex: 0,
+          tailoredIndex: 0,
+          originalClaimCount: 1,
+          retainedClaimCount: 0,
+          addedClaims: [],
+          removedClaims: [
+            {
+              field: 'summary',
+              text: 'Original summary.',
+              restorable: false,
+            },
+          ],
+          reasons: ['The experience section is hidden.'],
+        },
+      ],
+    }
+    const onApplyPatch = vi.fn()
+
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    act(() => {
+      root?.render(
+        <ResumeWorkspaceEditorPanel
+          actionMessage={null}
+          coverageComparison={comparison}
+          draft={hiddenDraft}
+          hasUnsavedChanges={false}
+          isWorkspacePending={false}
+          jobId="job_1"
+          onApplyPatch={onApplyPatch}
+          onDraftChange={vi.fn()}
+          onRegenerateSection={vi.fn()}
+          onSectionChange={vi.fn()}
+          onSelectEntry={vi.fn()}
+          onSelectSection={vi.fn()}
+          runWithSavedDraft={(next) => {
+            void next()
+          }}
+          selectedEntryId={null}
+          selectedSectionId={null}
+          selectedTargetId={null}
+          workHistoryReviewSuggestions={[]}
+        />,
+      )
+    })
+
+    const showRoleButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.includes('Show role'),
+    )
+    act(() => {
+      showRoleButton?.click()
+    })
+
+    expect(onApplyPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: 'toggle_include',
+        targetSectionId: 'section_experience',
+        targetEntryId: 'experience_1',
+        newIncluded: true,
+      }),
+      'Restored Software Engineer to the resume.',
+    )
   })
 })

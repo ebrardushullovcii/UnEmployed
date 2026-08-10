@@ -6,19 +6,26 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
-import type { ResumeAssistantMessage } from "@unemployed/contracts";
+import type { ResumeAssistantMessage, ResumeDraft } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
 import { FieldLabel } from "@renderer/components/ui/field";
 import { Textarea } from "@renderer/components/ui/textarea";
 import { cn } from "@renderer/lib/cn";
 import { formatTimestamp } from "./resume-workspace-utils";
+import { ResumeAssistantProposalCard } from "./resume-assistant-proposal-card";
 
 export function ResumeWorkspaceSecondaryRail(props: {
   assistantMessages: readonly ResumeAssistantMessage[];
   assistantPending: boolean;
   compactWhenIdle?: boolean;
+  draft: ResumeDraft;
   isWorkspacePending: boolean;
   onSendAssistantMessage: (content: string) => void;
+  onResolveProposal: (
+    proposalId: string,
+    action: "accept" | "reject",
+    patchIds: readonly string[],
+  ) => void;
 }) {
   const [assistantInput, setAssistantInput] = useState("");
   const assistantId = useId();
@@ -148,6 +155,14 @@ export function ResumeWorkspaceSecondaryRail(props: {
                         <span>{formatTimestamp(message.createdAt)}</span>
                       </div>
                       <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                      {isAssistant && message.proposalStatus !== "none" ? (
+                        <ResumeAssistantProposalCard
+                          draft={props.draft}
+                          isPending={props.isWorkspacePending}
+                          message={message}
+                          onResolve={props.onResolveProposal}
+                        />
+                      ) : null}
                     </div>
                   </article>
                 );

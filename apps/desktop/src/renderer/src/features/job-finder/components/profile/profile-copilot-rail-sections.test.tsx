@@ -56,8 +56,8 @@ describe('ProfileCopilotComposer', () => {
     expect(textarea).not.toBeNull()
     expect(textarea?.disabled).toBe(false)
     expect(textarea?.value).toBe('Draft next request while Copilot works.')
-    expect(container?.textContent).toContain('Working on your request… You can keep typing.')
-    expect(button?.textContent).toContain('Thinking...')
+    expect(container?.textContent).toContain('Reviewing your request… You can keep editing or draft your next message.')
+    expect(button?.textContent).toContain('Preparing...')
     expect(button?.hasAttribute('disabled')).toBe(true)
   })
 
@@ -149,6 +149,149 @@ describe('ProfileCopilotTranscript', () => {
     expect(inlineCode?.textContent).toBe('LinkedIn Jobs')
     expect(codeBlock?.textContent).toContain('"applyMode": "needs_review"')
   })
+
+  test('explains that a pending request cannot change the saved profile without acceptance', () => {
+    renderTranscript({ isPendingHere: true })
+
+    expect(container?.textContent).toContain(
+      'Your saved profile stays unchanged unless you accept a proposed change.',
+    )
+  })
+
+  test('shows exact proposed scalar, list, and compensation values before approval', () => {
+    renderTranscript({
+      messages: [
+        {
+          id: 'assistant_message_proposal',
+          role: 'assistant',
+          content: 'I prepared these changes for your review. Nothing changed yet.',
+          context: { surface: 'profile', section: 'preferences' },
+          patchGroups: [
+            {
+              id: 'patch_group_proposal',
+              summary: 'Update job preferences',
+              applyMode: 'needs_review',
+              operations: [
+                {
+                  operation: 'replace_identity_fields',
+                  value: { headline: 'Senior Product Engineer' },
+                },
+                {
+                  operation: 'replace_profile_list_fields',
+                  value: { locations: ['New York'] },
+                },
+                {
+                  operation: 'replace_compensation_preferences_fields',
+                  value: {
+                    minimum: 3000,
+                    maximum: 4000,
+                    interval: 'month',
+                    currency: null,
+                    currencyStatus: 'needs_clarification',
+                  },
+                },
+              ],
+              createdAt: '2026-04-15T16:00:00.000Z',
+            },
+          ],
+          createdAt: '2026-04-15T16:00:00.000Z',
+        },
+      ],
+    })
+
+    expect(container?.textContent).toContain('Set headline to “Senior Product Engineer”')
+    expect(container?.textContent).toContain('Set locations to New York')
+    expect(container?.textContent).toContain(
+      'Set compensation to 3,000–4,000 / month (currency not set — confirmation needed)',
+    )
+    expect(container?.textContent).toContain('Nothing changed yet.')
+    expect(container?.textContent).toContain('Apply changes')
+  })
+
+  test.each([
+    {
+      applyMode: 'applied' as const,
+      expectedStatus: 'Current status: This change is applied to your profile.',
+    },
+    {
+      applyMode: 'rejected' as const,
+      expectedStatus: 'Current status: This proposal was rejected. Your profile was not changed.',
+    },
+  ])('replaces stale pending-only wording after a proposal is $applyMode', ({ applyMode, expectedStatus }) => {
+    renderTranscript({
+      messages: [
+        {
+          id: `assistant_message_${applyMode}`,
+          role: 'assistant',
+          content: 'I prepared this change for your review. Nothing changed yet.',
+          context: { surface: 'profile', section: 'basics' },
+          patchGroups: [
+            {
+              id: `patch_group_${applyMode}`,
+              summary: 'Update headline',
+              applyMode,
+              operations: [
+                {
+                  operation: 'replace_identity_fields',
+                  value: { headline: 'Senior Product Engineer' },
+                },
+              ],
+              createdAt: '2026-04-15T16:00:00.000Z',
+            },
+          ],
+          createdAt: '2026-04-15T16:00:00.000Z',
+        },
+      ],
+    })
+
+    expect(container?.textContent).not.toContain('Nothing changed yet')
+    expect(container?.textContent).toContain(expectedStatus)
+    expect(container?.textContent).not.toContain('Apply changes')
+  })
+
+  test('reports partial progress when one proposal is applied and another still needs review', () => {
+    renderTranscript({
+      messages: [
+        {
+          id: 'assistant_message_partial',
+          role: 'assistant',
+          content: 'I prepared 2 changes for your review. Nothing changed yet.',
+          context: { surface: 'profile', section: 'preferences' },
+          patchGroups: [
+            {
+              id: 'patch_group_applied',
+              summary: 'Update headline',
+              applyMode: 'applied',
+              operations: [
+                {
+                  operation: 'replace_identity_fields',
+                  value: { headline: 'Senior Product Engineer' },
+                },
+              ],
+              createdAt: '2026-04-15T16:00:00.000Z',
+            },
+            {
+              id: 'patch_group_pending',
+              summary: 'Update locations',
+              applyMode: 'needs_review',
+              operations: [
+                {
+                  operation: 'replace_profile_list_fields',
+                  value: { locations: ['New York'] },
+                },
+              ],
+              createdAt: '2026-04-15T16:00:00.000Z',
+            },
+          ],
+          createdAt: '2026-04-15T16:00:00.000Z',
+        },
+      ],
+    })
+
+    expect(container?.textContent).not.toContain('Nothing changed yet')
+    expect(container?.textContent).toContain('Current status: 1 applied, 1 awaiting review.')
+    expect(container?.textContent).toContain('Apply changes')
+  })
 })
 
 describe('ProfileCopilotCollapsedBubble', () => {
@@ -216,5 +359,8 @@ describe('ProfileCopilotCollapsedBubble', () => {
     expect(onPointerCancel).toHaveBeenCalledTimes(1)
     expect(button?.getAttribute('aria-expanded')).toBe('false')
     expect(button?.getAttribute('aria-haspopup')).toBe('dialog')
+    expect(button?.getAttribute('aria-label')).toBe('Profile Copilot: Continue this thread')
+    expect(button?.className).toContain('max-sm:w-12')
+    expect(button?.querySelector('.max-sm\\:hidden')).not.toBeNull()
   })
 })

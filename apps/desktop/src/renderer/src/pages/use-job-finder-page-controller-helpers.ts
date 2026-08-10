@@ -57,3 +57,35 @@ export function getLatestApplicationAttempt(
     selectedApplicationRecord,
   }
 }
+
+export function getJobFinderWorkspaceSelection(
+  workspace: {
+    discoveryJobs: readonly JobFinderWorkspaceSnapshot['discoveryJobs'][number][]
+    reviewQueue: readonly JobFinderWorkspaceSnapshot['reviewQueue'][number][]
+  },
+  selectedDiscoveryJobId: string | null,
+  selectedReviewJobId: string | null,
+) {
+  const jobsById = new Map(workspace.discoveryJobs.map((job) => [job.id, job]))
+  const selectedDiscoveryJob =
+    (selectedDiscoveryJobId
+      ? (jobsById.get(selectedDiscoveryJobId) ?? null)
+      : null) ??
+    workspace.discoveryJobs[0] ??
+    null
+  const selectedReviewItem =
+    workspace.reviewQueue.find((item) => item.jobId === selectedReviewJobId) ??
+    workspace.reviewQueue[0] ??
+    null
+  const selectedReviewJob =
+    (selectedReviewItem
+      ? (jobsById.get(selectedReviewItem.jobId) ?? null)
+      : null) ??
+    selectedDiscoveryJob
+
+  return {
+    selectedDiscoveryJob,
+    selectedReviewItem,
+    selectedReviewJob,
+  }
+}

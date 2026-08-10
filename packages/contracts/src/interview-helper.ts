@@ -352,6 +352,113 @@ export const InterviewCueCardSchema = z.object({
 });
 export type InterviewCueCard = z.infer<typeof InterviewCueCardSchema>;
 
+export const InterviewHealthStatusSchema = z.enum([
+  "unknown",
+  "healthy",
+  "degraded",
+  "failed",
+]);
+export type InterviewHealthStatus = z.infer<
+  typeof InterviewHealthStatusSchema
+>;
+
+export const InterviewAudioSignalStateSchema = z.enum([
+  "not_checked",
+  "detecting",
+  "detected",
+  "quiet",
+  "unavailable",
+  "permission_denied",
+  "failed",
+]);
+export type InterviewAudioSignalState = z.infer<
+  typeof InterviewAudioSignalStateSchema
+>;
+
+export const InterviewAudioSourceHealthSchema = z.object({
+  status: InterviewHealthStatusSchema.default("unknown"),
+  signal: InterviewAudioSignalStateSchema.default("not_checked"),
+  peakLevel: z.number().min(0).max(1).nullable().default(null),
+  detail: NonEmptyStringSchema.nullable().default(null),
+  updatedAt: IsoDateTimeSchema.nullable().default(null),
+});
+export type InterviewAudioSourceHealth = z.infer<
+  typeof InterviewAudioSourceHealthSchema
+>;
+
+export const InterviewTranscriptionBacklogSchema = z.object({
+  active: z.boolean().default(false),
+  pending: z.number().int().nonnegative().default(0),
+  maxPending: z.number().int().positive().default(4),
+});
+export type InterviewTranscriptionBacklog = z.infer<
+  typeof InterviewTranscriptionBacklogSchema
+>;
+
+export const InterviewTranscriptionHealthSchema = z.object({
+  status: InterviewHealthStatusSchema.default("unknown"),
+  providerLabel: NonEmptyStringSchema.nullable().default(null),
+  providerReady: z.boolean().default(false),
+  fallbackActive: z.boolean().default(false),
+  backlog: InterviewTranscriptionBacklogSchema.default({}),
+  detail: NonEmptyStringSchema.nullable().default(null),
+  updatedAt: IsoDateTimeSchema.nullable().default(null),
+});
+export type InterviewTranscriptionHealth = z.infer<
+  typeof InterviewTranscriptionHealthSchema
+>;
+
+export const InterviewCueHealthSchema = z.object({
+  status: InterviewHealthStatusSchema.default("unknown"),
+  providerLabel: NonEmptyStringSchema.nullable().default(null),
+  providerReady: z.boolean().default(false),
+  fallbackActive: z.boolean().default(false),
+  lastLatencyMs: z.number().int().nonnegative().nullable().default(null),
+  detail: NonEmptyStringSchema.nullable().default(null),
+  updatedAt: IsoDateTimeSchema.nullable().default(null),
+});
+export type InterviewCueHealth = z.infer<typeof InterviewCueHealthSchema>;
+
+export const InterviewPopupHealthSchema = z.object({
+  status: InterviewHealthStatusSchema.default("unknown"),
+  answerVisible: z.boolean().default(false),
+  transcriptVisible: z.boolean().default(false),
+  answerProtectionState: InterviewCaptureProtectionStateSchema.default("unknown"),
+  transcriptProtectionState:
+    InterviewCaptureProtectionStateSchema.default("unknown"),
+  detail: NonEmptyStringSchema.nullable().default(null),
+  updatedAt: IsoDateTimeSchema.nullable().default(null),
+});
+export type InterviewPopupHealth = z.infer<typeof InterviewPopupHealthSchema>;
+
+export const InterviewRecoverableFailureSchema = z.object({
+  kind: z.enum(["device", "provider", "transcription", "popup"]),
+  source: z
+    .enum(["microphone", "system_audio", "transcription", "cue", "popup"])
+    .nullable()
+    .default(null),
+  message: NonEmptyStringSchema,
+  recoveryAction: NonEmptyStringSchema,
+  occurredAt: IsoDateTimeSchema,
+});
+export type InterviewRecoverableFailure = z.infer<
+  typeof InterviewRecoverableFailureSchema
+>;
+
+export const InterviewSessionHealthSchema = z.object({
+  overallStatus: InterviewHealthStatusSchema.default("unknown"),
+  microphone: InterviewAudioSourceHealthSchema.default({}),
+  systemAudio: InterviewAudioSourceHealthSchema.default({}),
+  transcription: InterviewTranscriptionHealthSchema.default({}),
+  cue: InterviewCueHealthSchema.default({}),
+  popups: InterviewPopupHealthSchema.default({}),
+  recoverableFailure: InterviewRecoverableFailureSchema.nullable().default(null),
+  updatedAt: IsoDateTimeSchema.nullable().default(null),
+});
+export type InterviewSessionHealth = z.infer<
+  typeof InterviewSessionHealthSchema
+>;
+
 export const InterviewDiagnosticEventSchema = z.object({
   id: NonEmptyStringSchema,
   sessionId: NonEmptyStringSchema.nullable().default(null),

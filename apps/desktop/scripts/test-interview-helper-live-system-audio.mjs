@@ -121,6 +121,9 @@ async function run() {
   try {
     const window = await app.firstWindow();
     await window.waitForLoadState("domcontentloaded");
+    await window.evaluate(() => {
+      window.location.hash = "/interview-helper";
+    });
     await window.setViewportSize({ width: 1440, height: 920 });
     await window
       .getByRole("heading", { name: "Interview conversation" })

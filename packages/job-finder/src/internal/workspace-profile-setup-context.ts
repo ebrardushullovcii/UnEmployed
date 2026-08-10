@@ -8,15 +8,25 @@ import {
   type ResumeDocumentBundle,
 } from "@unemployed/contracts";
 
-import { deriveAndPersistProfileSetupState, summarizeReviewCandidates } from "./profile-workspace-state";
+import {
+  deriveAndPersistProfileSetupState,
+  summarizeReviewCandidates,
+} from "./profile-workspace-state";
 import { hasBlockingResumeImportCandidates } from "./resume-import-candidate-utils";
 import { countResumeImportCandidates } from "./resume-import-workflow";
+import {
+  clearSettledVisionDeferredWarnings,
+  recoverInterruptedDeferredVisionRun,
+} from "./resume-import-recovery";
 import { createUniqueId } from "./shared";
 import { normalizeSearchPreferences } from "./workspace-helpers";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
 
-function buildBundleFromStoredResume(profile: CandidateProfile): ResumeDocumentBundle {
-  const createdAt = profile.baseResume.textUpdatedAt ?? new Date().toISOString();
+function buildBundleFromStoredResume(
+  profile: CandidateProfile,
+): ResumeDocumentBundle {
+  const createdAt =
+    profile.baseResume.textUpdatedAt ?? new Date().toISOString();
   const runId = createUniqueId("resume_import_refresh");
   const text = profile.baseResume.textContent?.trim() ?? null;
   const blocks = text
@@ -88,10 +98,16 @@ async function syncLatestResumeImportCandidatesWithSetupState(
   ctx: WorkspaceServiceContext,
   input: {
     documentBundles: readonly ResumeDocumentBundle[];
-    latestResumeImportRun: Awaited<ReturnType<WorkspaceServiceContext["repository"]["getLatestResumeImportRun"]>>;
+    latestResumeImportRun: Awaited<
+      ReturnType<
+        WorkspaceServiceContext["repository"]["getLatestResumeImportRun"]
+      >
+    >;
     profileSetupState: ProfileSetupState;
     candidates: readonly Awaited<
-      ReturnType<WorkspaceServiceContext["repository"]["listResumeImportFieldCandidates"]>
+      ReturnType<
+        WorkspaceServiceContext["repository"]["listResumeImportFieldCandidates"]
+      >
     >[number][];
   },
 ) {
@@ -103,7 +119,8 @@ async function syncLatestResumeImportCandidatesWithSetupState(
       latestResumeImportAllCandidates: [...input.candidates],
       latestResumeImportReviewCandidates: input.candidates.filter(
         (candidate) =>
-          candidate.resolution === "needs_review" || candidate.resolution === "abstained",
+          candidate.resolution === "needs_review" ||
+          candidate.resolution === "abstained",
       ),
     };
   }
@@ -126,7 +143,8 @@ async function syncLatestResumeImportCandidatesWithSetupState(
       return candidate;
     }
 
-    const nextResolvedAt = linkedReviewItem.resolvedAt ?? new Date().toISOString();
+    const nextResolvedAt =
+      linkedReviewItem.resolvedAt ?? new Date().toISOString();
 
     if (
       candidate.resolution === nextResolution.resolution &&
@@ -151,7 +169,8 @@ async function syncLatestResumeImportCandidatesWithSetupState(
       latestResumeImportAllCandidates: [...input.candidates],
       latestResumeImportReviewCandidates: input.candidates.filter(
         (candidate) =>
-          candidate.resolution === "needs_review" || candidate.resolution === "abstained",
+          candidate.resolution === "needs_review" ||
+          candidate.resolution === "abstained",
       ),
     };
   }
@@ -175,7 +194,8 @@ async function syncLatestResumeImportCandidatesWithSetupState(
     latestResumeImportAllCandidates: nextCandidates,
     latestResumeImportReviewCandidates: nextCandidates.filter(
       (candidate) =>
-        candidate.resolution === "needs_review" || candidate.resolution === "abstained",
+        candidate.resolution === "needs_review" ||
+        candidate.resolution === "abstained",
     ),
   };
 }
@@ -184,27 +204,62 @@ export function createWorkspaceProfileSetupContextHelpers(
   ctx: WorkspaceServiceContext,
 ) {
   async function getCurrentSetupStateContext() {
-    const [profile, rawSearchPreferences, persistedState, latestResumeImportRun] = await Promise.all([
+    const [
+      persistedProfile,
+      rawSearchPreferences,
+      persistedState,
+      persistedLatestResumeImportRun,
+    ] = await Promise.all([
       ctx.repository.getProfile(),
       ctx.repository.getSearchPreferences(),
       ctx.repository.getProfileSetupState(),
       ctx.repository.getLatestResumeImportRun(),
     ]);
     const searchPreferences = normalizeSearchPreferences(rawSearchPreferences);
-    const [latestResumeImportAllCandidates, latestResumeImportBundles] = latestResumeImportRun
-      ? await Promise.all([
-          ctx.repository.listResumeImportFieldCandidates({
-            runId: latestResumeImportRun.id,
-          }),
-          ctx.repository.listResumeImportDocumentBundles({
-            runId: latestResumeImportRun.id,
-          }),
-        ])
-      : [[], []] as const;
-    const latestResumeImportReviewCandidates = latestResumeImportAllCandidates.filter(
-      (candidate) =>
-        candidate.resolution === "needs_review" || candidate.resolution === "abstained",
-    );
+    const latestResumeImportRun = persistedLatestResumeImportRun
+      ? recoverInterruptedDeferredVisionRun({
+          run: persistedLatestResumeImportRun,
+          isActiveInCurrentProcess: ctx.activeResumeVisionRunIds.has(
+            persistedLatestResumeImportRun.id,
+          ),
+        })
+      : null;
+    const profile = clearSettledVisionDeferredWarnings({
+      profile: persistedProfile,
+      run: latestResumeImportRun,
+    });
+    if (profile !== persistedProfile) {
+      await ctx.repository.saveProfile(profile);
+    }
+    const [latestResumeImportAllCandidates, latestResumeImportBundles] =
+      latestResumeImportRun
+        ? await Promise.all([
+            ctx.repository.listResumeImportFieldCandidates({
+              runId: latestResumeImportRun.id,
+            }),
+            ctx.repository.listResumeImportDocumentBundles({
+              runId: latestResumeImportRun.id,
+            }),
+          ])
+        : ([[], []] as const);
+    if (
+      latestResumeImportRun &&
+      persistedLatestResumeImportRun &&
+      latestResumeImportRun.modelRoles?.vision.status !==
+        persistedLatestResumeImportRun.modelRoles?.vision.status
+    ) {
+      await ctx.repository.replaceResumeImportRunArtifacts({
+        run: latestResumeImportRun,
+        documentBundles: latestResumeImportBundles,
+        fieldCandidates: latestResumeImportAllCandidates,
+      });
+    }
+    const latestResumeImportReviewCandidates =
+      latestResumeImportAllCandidates.filter(
+        (candidate) =>
+          candidate.resolution === "needs_review" ||
+          candidate.resolution === "abstained",
+      );
     const profileSetupState = await deriveAndPersistProfileSetupState(ctx, {
       persistedState,
       profile,
@@ -212,19 +267,21 @@ export function createWorkspaceProfileSetupContextHelpers(
       latestResumeImportRunId: latestResumeImportRun?.id ?? null,
       latestResumeImportReviewCandidates,
     });
-    const syncedImportState = await syncLatestResumeImportCandidatesWithSetupState(ctx, {
-      profileSetupState,
-      latestResumeImportRun,
-      candidates: latestResumeImportAllCandidates,
-      documentBundles: latestResumeImportBundles,
-    });
+    const syncedImportState =
+      await syncLatestResumeImportCandidatesWithSetupState(ctx, {
+        profileSetupState,
+        latestResumeImportRun,
+        candidates: latestResumeImportAllCandidates,
+        documentBundles: latestResumeImportBundles,
+      });
 
     return {
       profile: CandidateProfileSchema.parse(profile),
       searchPreferences: JobSearchPreferencesSchema.parse(searchPreferences),
       profileSetupState: ProfileSetupStateSchema.parse(profileSetupState),
       latestResumeImportRun: syncedImportState.latestResumeImportRun,
-      latestResumeImportAllCandidates: syncedImportState.latestResumeImportAllCandidates,
+      latestResumeImportAllCandidates:
+        syncedImportState.latestResumeImportAllCandidates,
       latestResumeImportReviewCandidates:
         syncedImportState.latestResumeImportReviewCandidates,
       latestResumeImportReviewCandidateSummaries: summarizeReviewCandidates(

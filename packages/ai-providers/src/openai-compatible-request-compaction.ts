@@ -132,6 +132,10 @@ function arrayLimitForPath(path: readonly string[], level: number, value: readon
     return pickLevelValue(level, [32, 24, 20]);
   }
 
+  if (matchesPathSuffix(path, ["groundingEvidence", "items"])) {
+    return pickLevelValue(level, [64, 48, 32]);
+  }
+
   if (key === "sections") {
     return pickLevelValue(level, [8, 7, 6]);
   }
@@ -170,6 +174,10 @@ function arrayLimitForPath(path: readonly string[], level: number, value: readon
 
   if (
     key === "validationIssues" ||
+    key === "evidenceRefs" ||
+    key === "summaryEvidenceRefs" ||
+    key === "outcomeEvidenceRefs" ||
+    key === "bulletEvidenceRefs" ||
     key === "conversationFacts" ||
     key === "relevantReviewItems" ||
     key === "companyNotes" ||

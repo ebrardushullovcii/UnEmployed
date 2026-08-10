@@ -1,4 +1,10 @@
-import { type CSSProperties, useEffect, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import type {
   DesktopWindowControlsState,
   InterviewExportResult,
@@ -39,6 +45,7 @@ import { InterviewAnswerPopup } from "./interview-answer-popup";
 import { TranscriptAnnotationPanel } from "./interview-review-annotations";
 import { InterviewCaptionFileWatcher } from "./interview-caption-file-watcher";
 import { InterviewDiagnosticsPanel } from "./interview-diagnostics-panel";
+import { InterviewDeleteSessionDialog } from "./interview-delete-session-dialog";
 import { InterviewMediaStreamProbes } from "./interview-media-stream-probes";
 import { InterviewNativeCaptionWatcher } from "./interview-native-caption-watcher";
 import { InterviewSessionPreferences } from "./interview-session-preferences";
@@ -130,6 +137,49 @@ function getInitialInterviewTab(workspace: InterviewWorkspaceSnapshot) {
   return "setup";
 }
 
+export function getInterviewModeLabel(
+  activeTab: "setup" | "assist" | "review" | "settings",
+  isLiveSession: boolean,
+) {
+  if (isLiveSession) {
+    return activeTab === "assist"
+      ? "Live session"
+      : `Live session · ${{ setup: "Setup", review: "Review", settings: "Settings" }[activeTab]}`;
+  }
+
+  switch (activeTab) {
+    case "assist":
+      return "Assist mode";
+    case "review":
+      return "Review mode";
+    case "settings":
+      return "Settings mode";
+    default:
+      return "Setup mode";
+  }
+}
+
+export function inferInterviewRendererPlatform(
+  rendererPlatform: string,
+): "darwin" | "linux" | "win32" {
+  const normalizedPlatform = rendererPlatform.toLowerCase();
+
+  if (normalizedPlatform.includes("mac")) return "darwin";
+  if (normalizedPlatform.includes("linux")) return "linux";
+  return "win32";
+}
+
+export function formatRetainedCueCardCount(count: number) {
+  return `${count} cue card${count === 1 ? "" : "s"} retained`;
+}
+
+export function getInterviewDocumentTitle(
+  activeTab: "setup" | "assist" | "review" | "settings",
+  isLiveSession: boolean,
+) {
+  return `${getInterviewModeLabel(activeTab, isLiveSession)} | Interview Helper | UnEmployed`;
+}
+
 export function shouldApplyInterviewWorkspaceSnapshot(
   currentGeneratedAt: string,
   nextGeneratedAt: string,
@@ -150,6 +200,10 @@ export function InterviewHelperPage() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
+  const [deleteSessionError, setDeleteSessionError] = useState<string | null>(
+    null,
+  );
   const [followUpDraft, setFollowUpDraft] = useState("");
   const [jobFinderWriteBackStatus, setJobFinderWriteBackStatus] = useState<
     string | null
@@ -160,8 +214,8 @@ export function InterviewHelperPage() {
   const [transcriptSource, setTranscriptSource] =
     useState<InterviewTranscriptSource>("meeting_native_transcript");
   const [transcriptDraft, setTranscriptDraft] = useState("");
-  const [platform, setPlatform] = useState<"darwin" | "linux" | "win32">(
-    "win32",
+  const [platform, setPlatform] = useState<"darwin" | "linux" | "win32">(() =>
+    inferInterviewRendererPlatform(navigator.platform),
   );
   const [windowControlsState, setWindowControlsState] =
     useState<DesktopWindowControlsState>({
@@ -173,6 +227,10 @@ export function InterviewHelperPage() {
   const dragRegionStyle = { WebkitAppRegion: "drag" } as CSSProperties;
   const noDragRegionStyle = { WebkitAppRegion: "no-drag" } as CSSProperties;
   const isMac = platform === "darwin";
+  const closeDeleteConfirmation = useCallback(() => {
+    setDeleteSessionError(null);
+    setDeleteConfirmationOpen(false);
+  }, []);
 
   function applyWorkspaceSnapshot(
     workspace: InterviewWorkspaceSnapshot,
@@ -415,6 +473,17 @@ export function InterviewHelperPage() {
     );
   }
 
+  const pageHasLiveSession =
+    state.status === "ready" &&
+    Boolean(
+      state.workspace.activeSession &&
+      state.workspace.activeSession.status !== "ended",
+    );
+
+  useEffect(() => {
+    document.title = getInterviewDocumentTitle(activeTab, pageHasLiveSession);
+  }, [activeTab, pageHasLiveSession]);
+
   if (state.status === "loading") {
     return (
       <main className="grid h-screen place-items-center bg-canvas">
@@ -435,9 +504,7 @@ export function InterviewHelperPage() {
 
   const { workspace } = state;
   const activeSession = workspace.activeSession;
-  const isLiveSession = Boolean(
-    activeSession && activeSession.status !== "ended",
-  );
+  const isLiveSession = pageHasLiveSession;
   const advancedSurfaceUiEnabled =
     import.meta.env.VITE_UNEMPLOYED_INTERVIEW_ADVANCED_SURFACES === "1";
   const rehearsal = workspace.setup.rehearsal;
@@ -475,6 +542,7 @@ export function InterviewHelperPage() {
     workspace.setup.consent.acceptedAt,
   );
   const readinessBlocked = hardBlocks.length > 0 || !consentAccepted;
+  const interviewModeLabel = getInterviewModeLabel(activeTab, isLiveSession);
   const activeTabDefinitions = [
     { id: "setup", label: "Setup" },
     { id: "assist", label: "Assist" },
@@ -615,27 +683,35 @@ export function InterviewHelperPage() {
         className="fixed inset-x-0 top-0 z-50 border-b border-border/15 bg-(--shell-header-bg) backdrop-blur-sm"
         style={dragRegionStyle}
       >
-        <div className="job-finder-shell-grid grid grid-rows-[2.5rem_4rem] items-stretch pl-2 pr-0 sm:pl-3 sm:pr-0">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[2.5rem_4rem] items-stretch pl-2 pr-0 sm:pl-3 sm:pr-0 lg:grid-cols-[var(--job-finder-side-width-sm)_minmax(0,1fr)_auto]">
           <div
-            className="row-span-2 flex min-w-0 items-center pl-2 sm:pl-3"
-            style={dragRegionStyle}
+            className="col-start-1 row-start-1 flex min-w-0 items-center pl-2 sm:pl-3 lg:row-span-2"
+            data-desktop-brand
+            style={{
+              ...dragRegionStyle,
+              paddingInlineStart: isMac ? "5.5rem" : undefined,
+            }}
           >
             <div className="flex min-w-0 flex-col">
               <Link
-                className="font-display text-[2.35rem] font-black leading-none tracking-[-0.08em] text-(var(--headline-primary)) sm:text-[2.7rem]"
+                className={cn(
+                  "truncate font-display text-[1.45rem] font-black leading-none tracking-[-0.08em] text-(var(--headline-primary)) sm:text-[2rem]",
+                  isMac ? "xl:text-[2rem]" : "xl:text-[2.7rem]",
+                )}
                 style={noDragRegionStyle}
                 to="/job-finder/profile"
               >
                 UNEMPLOYED
               </Link>
-              <span className="text-[0.72rem] uppercase tracking-(var(--tracking-caps)) text-muted-foreground sm:text-(length:var(--text-tiny))">
+              <span className="hidden text-[0.72rem] uppercase tracking-(var(--tracking-caps)) text-muted-foreground sm:block sm:text-(length:var(--text-tiny))">
                 Interview Helper
               </span>
             </div>
           </div>
 
           <div
-            className="col-start-2 row-start-1 flex items-center justify-center"
+            className="col-start-2 row-start-1 hidden items-center justify-center lg:absolute lg:inset-x-0 lg:top-0 lg:z-10 lg:flex lg:h-10"
+            data-desktop-module-navigation
             style={dragRegionStyle}
           >
             <div
@@ -680,7 +756,7 @@ export function InterviewHelperPage() {
           </div>
 
           <div
-            className="col-start-3 row-start-1 flex h-full items-start justify-end self-start"
+            className="absolute right-0 top-0 z-20 flex h-10 items-start justify-end self-start"
             style={dragRegionStyle}
           >
             {!isMac ? (
@@ -732,10 +808,24 @@ export function InterviewHelperPage() {
 
           <nav
             aria-label="Interview Helper sections"
-            className="col-start-2 row-start-2 hidden min-w-0 items-center justify-center lg:flex"
+            className="col-span-2 col-start-1 row-start-2 flex min-w-0 items-center overflow-x-auto px-2 lg:absolute lg:inset-x-0 lg:top-10 lg:z-10 lg:h-16 lg:justify-center lg:overflow-visible lg:px-52"
             style={noDragRegionStyle}
           >
-            <div className="inline-flex max-w-full items-center gap-1 rounded-full border border-(--surface-panel-border) bg-(--surface-panel) p-1">
+            <div className="inline-flex min-w-max items-center gap-1 rounded-full border border-(--surface-panel-border) bg-(--surface-panel) p-1 lg:max-w-full lg:min-w-0">
+              <span className="shrink-0 px-2 text-[0.68rem] font-semibold uppercase tracking-(--tracking-badge) text-foreground lg:hidden">
+                Interview Helper
+              </span>
+              <Link
+                aria-label="Open Job Finder"
+                className="shrink-0 rounded-full border border-border px-3 py-2 text-[0.68rem] font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground lg:hidden"
+                to="/job-finder/profile"
+              >
+                Job Finder
+              </Link>
+              <span
+                aria-hidden="true"
+                className="mx-1 h-4 w-px shrink-0 bg-border/50 lg:hidden"
+              />
               {activeTabDefinitions.map((tab, index) => (
                 <span className="contents" key={tab.id}>
                   {tab.id === "settings" && index > 0 ? (
@@ -747,7 +837,7 @@ export function InterviewHelperPage() {
                   <button
                     aria-current={activeTab === tab.id ? "page" : undefined}
                     className={cn(
-                      "inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-[0.76rem] font-medium text-muted-foreground transition-colors hover:text-foreground xl:px-4 xl:text-(length:--text-small)",
+                      "inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-[0.72rem] font-medium text-muted-foreground transition-colors hover:text-foreground sm:gap-2 sm:px-3.5 sm:text-[0.76rem] xl:px-4 xl:text-(length:--text-small)",
                       activeTab === tab.id
                         ? "bg-secondary text-foreground"
                         : "",
@@ -764,13 +854,12 @@ export function InterviewHelperPage() {
               ))}
             </div>
           </nav>
-
-          <div
-            aria-hidden="true"
-            className="col-start-3 row-start-2 hidden lg:block"
-          />
         </div>
       </header>
+
+      <p aria-live="polite" className="sr-only" role="status">
+        {interviewModeLabel}
+      </p>
 
       <main className="screen-scroll-area mt-[6.75rem] h-[calc(100vh-6.75rem)] scroll-pt-8 overflow-y-auto px-4 pb-8 pt-4 sm:px-6">
         <div className="mx-auto grid max-w-[118rem] gap-4">
@@ -783,7 +872,7 @@ export function InterviewHelperPage() {
                 <div className="grid min-w-0 gap-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <StatusPill
-                      label={isLiveSession ? "Live session" : "Setup mode"}
+                      label={interviewModeLabel}
                       tone={isLiveSession ? "success" : "info"}
                     />
                     <StatusPill
@@ -1420,8 +1509,9 @@ export function InterviewHelperPage() {
                             {latestCue?.question ?? "No cue generated."}
                           </p>
                           <p className="mt-2 text-[0.76rem] text-muted-foreground">
-                            {reviewSession?.cueCards.length ?? 0} cue cards
-                            retained
+                            {formatRetainedCueCardCount(
+                              reviewSession?.cueCards.length ?? 0,
+                            )}
                           </p>
                         </div>
                         {reviewSession ? (
@@ -1522,13 +1612,8 @@ export function InterviewHelperPage() {
                           className={reviewDisabledDangerButtonClass}
                           disabled={!reviewSession}
                           onClick={() => {
-                            if (reviewSession) {
-                              void updateWorkspace("delete", () =>
-                                window.unemployed.interviewHelper.deleteSession(
-                                  reviewSession.id,
-                                ),
-                              );
-                            }
+                            setDeleteSessionError(null);
+                            setDeleteConfirmationOpen(true);
                           }}
                           pending={pendingAction === "delete"}
                           size="compact"
@@ -1804,6 +1889,28 @@ export function InterviewHelperPage() {
           ) : null}
         </div>
       </main>
+      <InterviewDeleteSessionDialog
+        error={deleteSessionError}
+        onCancel={closeDeleteConfirmation}
+        onConfirm={() => {
+          if (!reviewSession) return;
+
+          setDeleteSessionError(null);
+          void updateWorkspace("delete", () =>
+            window.unemployed.interviewHelper.deleteSession(reviewSession.id),
+          )
+            .then(() => {
+              setDeleteConfirmationOpen(false);
+            })
+            .catch(() => {
+              setDeleteSessionError(
+                "Could not delete this session. Nothing was removed. Try again.",
+              );
+            });
+        }}
+        open={deleteConfirmationOpen && Boolean(reviewSession)}
+        pending={pendingAction === "delete"}
+      />
     </div>
   );
 }

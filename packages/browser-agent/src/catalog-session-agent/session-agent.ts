@@ -92,11 +92,7 @@ function getStartingUrl(options: CatalogSessionAgentDiscoveryOptions): string {
 }
 
 function requireStartingUrl(options: CatalogSessionAgentDiscoveryOptions): Promise<string> {
-  try {
-    return Promise.resolve(getStartingUrl(options))
-  } catch (error) {
-    return Promise.reject(error)
-  }
+  return Promise.resolve().then(() => getStartingUrl(options))
 }
 
 export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimitives) {
@@ -113,6 +109,7 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
     const now = new Date().toISOString()
     const { job, resumeArtifact } = input
     const resumeFilePath = resumeArtifact.filePath
+    const resumeFileName = resumeArtifact.fileName
     const resumeLabel =
       resumeArtifact.source === 'original_upload'
         ? 'Original resume selected by the user'
@@ -186,7 +183,7 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
       suggestedAnswers: [
         {
           id: `suggested_answer_${job.id}_resume_upload`,
-          text: resumeFilePath,
+          text: resumeFileName,
           sourceKind: 'resume' as const,
           sourceId: resumeArtifact.id,
           confidenceLabel: 'user-approved resume',
@@ -196,12 +193,12 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
               sourceKind: 'resume' as const,
               sourceId: resumeArtifact.id,
               label: resumeLabel,
-              snippet: resumeFilePath,
+              snippet: resumeFileName,
             },
           ],
         },
       ],
-      submittedAnswer: resumeFilePath,
+      submittedAnswer: resumeFileName,
       status: 'submitted' as const,
     }
 
@@ -310,7 +307,7 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
               id: `checkpoint_${job.id}_resume_attached`,
               at: now,
               label: 'Attached selected resume',
-              detail: `Attached the selected application resume from ${resumeFilePath}.`,
+              detail: `Attached the selected application resume '${resumeFileName}'.`,
               state: 'in_progress',
             },
             {
@@ -390,7 +387,7 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
               id: `checkpoint_${job.id}_resume_attached`,
               at: now,
               label: 'Attached selected resume',
-              detail: `Attached the selected application resume from ${resumeFilePath}.`,
+              detail: `Attached the selected application resume '${resumeFileName}'.`,
               state: 'in_progress',
             },
             {
@@ -462,7 +459,7 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
               id: `checkpoint_${job.id}_resume_attached`,
               at: now,
               label: 'Attached selected resume',
-              detail: `Attached the selected application resume from ${resumeFilePath}.`,
+              detail: `Attached the selected application resume '${resumeFileName}'.`,
               state: 'in_progress',
             },
             {
@@ -479,33 +476,33 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
 
     return Promise.resolve(
       ApplyExecutionResultSchema.parse({
-        state: 'submitted',
-        summary: 'Easy Apply submitted',
-        detail: `Submitted ${job.title} at ${job.company} with your approved tailored resume.`,
-        submittedAt: now,
-        outcome: 'submitted',
-        questions: [resumeQuestion],
+        state: 'paused',
+        summary: 'Apply copilot paused before final submit',
+        detail: `The selected application resume is attached and grounded profile answers are prepared. The copilot stopped before the final submit step.`,
+        submittedAt: null,
+        outcome: null,
+        questions: capturedQuestions,
         blocker: null,
         consentDecisions: [
           {
             id: `consent_${job.id}_resume_use`,
             kind: 'resume_use',
-            label: 'Use the approved tailored resume for this apply flow',
+            label: 'Use the selected resume for this apply flow',
             status: 'approved',
             decidedAt: now,
-            detail: `Applied with your approved tailored resume.`,
+            detail: `${resumeLabel} (${resumeArtifact.id}) stayed selected for this copilot run.`,
           },
           {
             id: `consent_${job.id}_autofill_profile`,
             kind: 'autofill_profile',
-            label: 'Use saved profile details where the supported flow requests them',
+            label: 'Use saved profile details where the form requests them',
             status: 'approved',
             decidedAt: now,
-            detail: 'The supported path completed without extra manual questions.',
+            detail: 'Grounded profile fields were prepared without needing extra review.',
           },
         ],
         replay,
-        nextActionLabel: 'Monitor your inbox for recruiter follow-up',
+        nextActionLabel: 'Review the prepared application and submit manually when ready',
         checkpoints: [
           ...(recoveryCheckpoint ? [recoveryCheckpoint] : []),
           {
@@ -513,22 +510,22 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
             at: now,
             label: 'Opened Easy Apply',
             detail:
-              'The adapter opened the Easy Apply workflow from the selected listing.',
+              'The adapter validated the listing and started the Easy Apply flow.',
             state: 'in_progress',
           },
           {
             id: `checkpoint_${job.id}_resume_attached`,
             at: now,
             label: 'Attached selected resume',
-            detail: `Attached the selected application resume from ${resumeFilePath}.`,
+            detail: `Attached the selected application resume '${resumeFileName}'.`,
             state: 'in_progress',
           },
           {
-            id: `checkpoint_${job.id}_submitted`,
+            id: `checkpoint_${job.id}_prepared_for_review`,
             at: now,
-            label: 'Submission confirmed',
-            detail: 'The supported Easy Apply path completed successfully.',
-            state: 'submitted',
+            label: 'Prepared application for final review',
+            detail: 'The supported path reached the review step and paused before final submit.',
+            state: 'paused',
           },
         ],
       }),
@@ -570,10 +567,15 @@ export function createCatalogSessionAgent(primitives: CatalogSessionRuntimePrimi
     executeEasyApply(source: JobSource, input: CatalogSessionEasyApplyInput) {
       return executeApplicationFlow(source, {
         ...input,
-        mode: 'submit_when_ready',
+        mode: 'prepare_only',
       })
     },
-    executeApplicationFlow,
+    executeApplicationFlow(source: JobSource, input: CatalogSessionApplicationFlowInput) {
+      return executeApplicationFlow(source, {
+        ...input,
+        mode: 'prepare_only',
+      })
+    },
     runAgentDiscovery(
       source: JobSource,
       options: CatalogSessionAgentDiscoveryOptions,

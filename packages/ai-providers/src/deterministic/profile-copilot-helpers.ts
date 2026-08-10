@@ -16,7 +16,9 @@ export function createUniqueId(prefix: string): string {
   return `${prefix}_${suffix}`;
 }
 
-export function trimNonEmptyString(value: string | null | undefined): string | null {
+export function trimNonEmptyString(
+  value: string | null | undefined,
+): string | null {
   if (typeof value !== "string") {
     return null;
   }
@@ -25,7 +27,9 @@ export function trimNonEmptyString(value: string | null | undefined): string | n
   return trimmed.length > 0 ? trimmed : null;
 }
 
-export function normalizeFactText(value: string | number | boolean | null | undefined): string {
+export function normalizeFactText(
+  value: string | number | boolean | null | undefined,
+): string {
   if (typeof value === "string") {
     return value.trim().replace(/\s+/g, " ").toLowerCase();
   }
@@ -50,7 +54,9 @@ export function normalizeCompanyName(value: string | null | undefined): string {
   return normalizeFactText(value).replace(/[^a-z0-9]/g, "");
 }
 
-export function parseIsoLikeMonth(value: string | null | undefined): number | null {
+export function parseIsoLikeMonth(
+  value: string | null | undefined,
+): number | null {
   const normalized = normalizeFactText(value);
 
   if (!normalized) {
@@ -71,7 +77,9 @@ export function parseIsoLikeMonth(value: string | null | undefined): number | nu
     }
   }
 
-  const monthYearMatch = normalized.match(/^(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+(\d{4})$/);
+  const monthYearMatch = normalized.match(
+    /^(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+(\d{4})$/,
+  );
   if (!monthYearMatch) {
     return null;
   }
@@ -139,20 +147,24 @@ export function buildDateRangeLabel(
   isCurrent: boolean,
 ): string {
   const startLabel = trimNonEmptyString(startDate) ?? "an unknown start";
-  const endLabel = isCurrent ? "present" : trimNonEmptyString(endDate) ?? "an unknown end";
+  const endLabel = isCurrent
+    ? "present"
+    : (trimNonEmptyString(endDate) ?? "an unknown end");
   return `${startLabel} to ${endLabel}`;
 }
 
 export function findMentionedExperience(input: ReviseCandidateProfileInput) {
   const normalizedRequest = normalizeCompanyName(input.request);
-  return input.profile.experiences.find((experience) => {
-    const company = normalizeCompanyName(experience.companyName);
-    const title = normalizeCompanyName(experience.title);
-    return Boolean(
-      (company && normalizedRequest.includes(company)) ||
+  return (
+    input.profile.experiences.find((experience) => {
+      const company = normalizeCompanyName(experience.companyName);
+      const title = normalizeCompanyName(experience.title);
+      return Boolean(
+        (company && normalizedRequest.includes(company)) ||
         (title && normalizedRequest.includes(title)),
-    );
-  }) ?? null;
+      );
+    }) ?? null
+  );
 }
 
 export function describeContext(context: ProfileCopilotContext): string {
@@ -167,17 +179,22 @@ export function describeContext(context: ProfileCopilotContext): string {
   return "profile";
 }
 
-export function buildReviewSummary(input: ReviseCandidateProfileInput): string | null {
-  const pending = input.relevantReviewItems.filter((item) => item.status === "pending");
+export function buildReviewSummary(
+  input: ReviseCandidateProfileInput,
+): string | null {
+  const pending = input.relevantReviewItems.filter(
+    (item) => item.status === "pending",
+  );
 
   if (pending.length === 0) {
     return null;
   }
 
   const topLabels = pending.slice(0, 2).map((item) => item.label);
-  const suffix = pending.length > topLabels.length
-    ? ` and ${pending.length - topLabels.length} more`
-    : "";
+  const suffix =
+    pending.length > topLabels.length
+      ? ` and ${pending.length - topLabels.length} more`
+      : "";
 
   return `${topLabels.join(" and ")}${suffix}`;
 }
@@ -206,9 +223,11 @@ export function findPendingRelevantReviewItem(
   input: ReviseCandidateProfileInput,
   predicate: (item: ProfileCopilotRelevantReviewItem) => boolean,
 ): ProfileCopilotRelevantReviewItem | null {
-  return input.relevantReviewItems.find(
-    (item) => item.status === "pending" && predicate(item),
-  ) ?? null;
+  return (
+    input.relevantReviewItems.find(
+      (item) => item.status === "pending" && predicate(item),
+    ) ?? null
+  );
 }
 
 export function findPendingRelevantReviewItems(
@@ -240,7 +259,9 @@ export function detectRequestedWorkMode(
   return null;
 }
 
-export function detectRequestedVisaSponsorship(request: string): boolean | null {
+export function detectRequestedVisaSponsorship(
+  request: string,
+): boolean | null {
   const normalized = normalizeFactText(request);
 
   if (!/\b(visa|sponsorship|sponsor)\b/.test(normalized)) {
@@ -274,7 +295,9 @@ export function detectRequestedVisaSponsorship(request: string): boolean | null 
   return null;
 }
 
-export function detectRequestedRemoteEligibility(request: string): boolean | null {
+export function detectRequestedRemoteEligibility(
+  request: string,
+): boolean | null {
   const normalized = normalizeFactText(request);
 
   if (!/\bremote\b/.test(normalized)) {
@@ -330,7 +353,11 @@ export function inferIdentityUrlField(
     return "linkedinUrl";
   }
 
-  if (/(behance\.net|dribbble\.com|artstation\.com|adobe\.com\/portfolio)/i.test(url)) {
+  if (
+    /(behance\.net|dribbble\.com|artstation\.com|adobe\.com\/portfolio)/i.test(
+      url,
+    )
+  ) {
     return "portfolioUrl";
   }
 
@@ -338,7 +365,11 @@ export function inferIdentityUrlField(
     return "portfolioUrl";
   }
 
-  if (/\b(personal website|website|site|homepage|personal page)\b/.test(normalized)) {
+  if (
+    /\b(personal website|website|site|homepage|personal page)\b/.test(
+      normalized,
+    )
+  ) {
     return "personalWebsiteUrl";
   }
 
@@ -346,7 +377,11 @@ export function inferIdentityUrlField(
 }
 
 export function formatIdentityFieldLabel(
-  field: IdentityUrlField | "timeZone" | "requiresVisaSponsorship" | "remoteEligible",
+  field:
+    | IdentityUrlField
+    | "timeZone"
+    | "requiresVisaSponsorship"
+    | "remoteEligible",
 ): string {
   switch (field) {
     case "githubUrl":
@@ -387,14 +422,20 @@ export function looksLikeExplicitAnswer(request: string): boolean {
   );
 }
 
-export function sanitizeDerivedDetail(value: string | null | undefined): string | null {
+export function sanitizeDerivedDetail(
+  value: string | null | undefined,
+): string | null {
   return trimNonEmptyString(value);
 }
 
 export function detectRequestedYearsExperience(request: string): number | null {
   const normalized = request.toLowerCase();
 
-  if (!/\b(years?\s+of\s+experience|years?\s+experience|yoe|experience)\b/.test(normalized)) {
+  if (
+    !/\b(years?\s+of\s+experience|years?\s+experience|yoe|experience)\b/.test(
+      normalized,
+    )
+  ) {
     return null;
   }
 
@@ -425,7 +466,9 @@ export function detectRequestedYearsExperience(request: string): number | null {
 }
 
 export function normalizeSourceLabel(value: string): string {
-  return normalizeFactText(value).replace(/[^a-z0-9]+/g, " ").trim();
+  return normalizeFactText(value)
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 export function normalizeSourceStartingUrl(value: string): string {
@@ -496,24 +539,37 @@ const jobSourcePresets = [
 export function inferRequestedJobSources(request: string) {
   const normalized = normalizeSourceLabel(request);
   const mentionsKnownSource = jobSourcePresets.some((preset) =>
-    preset.aliases.some((alias) => normalized.includes(normalizeSourceLabel(alias))),
+    preset.aliases.some((alias) =>
+      normalized.includes(normalizeSourceLabel(alias)),
+    ),
   );
   const hasSourceEditVerb =
-    /\b(add|include|save|use|track|watch|follow|enable|reactivate)\b/.test(normalized) ||
+    /\b(add|include|save|use|track|watch|follow|enable|reactivate)\b/.test(
+      normalized,
+    ) ||
     /\bre\s*enable\b/.test(normalized) ||
     /\bturn\s+(?:.+\s+)?(?:back\s+)?on\b/.test(normalized);
   const soundsLikeSourceEdit =
-    /job source|job sources|source|sources|search site|search sites|job board|job boards/.test(normalized) ||
+    /job source|job sources|source|sources|search site|search sites|job board|job boards/.test(
+      normalized,
+    ) ||
     (mentionsKnownSource && hasSourceEditVerb);
 
   if (!soundsLikeSourceEdit) {
     return [] as Array<{ label: string; startingUrl: string }>;
   }
 
-  const requestedSources = new Map<string, { label: string; startingUrl: string }>();
+  const requestedSources = new Map<
+    string,
+    { label: string; startingUrl: string }
+  >();
 
   for (const preset of jobSourcePresets) {
-    if (preset.aliases.some((alias) => normalized.includes(normalizeSourceLabel(alias)))) {
+    if (
+      preset.aliases.some((alias) =>
+        normalized.includes(normalizeSourceLabel(alias)),
+      )
+    ) {
       requestedSources.set(preset.label, {
         label: preset.label,
         startingUrl: preset.startingUrl,
@@ -524,10 +580,16 @@ export function inferRequestedJobSources(request: string) {
   return [...requestedSources.values()];
 }
 
-export function requestLooksLikeWorkModePreferenceEdit(request: string): boolean {
+export function requestLooksLikeWorkModePreferenceEdit(
+  request: string,
+): boolean {
   const normalized = normalizeFactText(request);
 
-  if (/preferred locations|locations to search|target locations|excluded locations/.test(normalized)) {
+  if (
+    /preferred locations|locations to search|target locations|excluded locations/.test(
+      normalized,
+    )
+  ) {
     return false;
   }
 
@@ -539,31 +601,64 @@ export function requestLooksLikeWorkModePreferenceEdit(request: string): boolean
 export function requestLooksLikeLocationListEdit(request: string): boolean {
   const normalized = normalizeFactText(request);
 
-  return /preferred locations|locations to search|target locations|excluded locations/.test(normalized);
+  return /preferred locations|locations to search|target locations|excluded locations/.test(
+    normalized,
+  );
+}
+
+function parseSalaryAmount(
+  rawValue: string,
+  thousandsSuffix: string | undefined,
+): number | null {
+  const normalizedValue = rawValue.replaceAll(",", "");
+  const parsedValue = Number.parseFloat(normalizedValue);
+
+  if (!Number.isFinite(parsedValue) || parsedValue < 0) {
+    return null;
+  }
+
+  const value = thousandsSuffix ? parsedValue * 1_000 : parsedValue;
+  return Number.isInteger(value) ? value : Math.round(value);
+}
+
+function extractSalaryAmounts(request: string): number[] {
+  return [...request.matchAll(/(?:€|\$|£)?\s*([\d,.]+)\s*(k)?\b/gi)]
+    .map((match) => parseSalaryAmount(match[1] ?? "", match[2]))
+    .filter((value): value is number => value !== null);
+}
+
+export function detectRequestedMinimumSalary(request: string): number | null {
+  const match = request.match(
+    /\b(?:minimum|min|floor)(?:\s+(?:salary|expectation))?(?:\s+(?:to\s+be|should\s+be|of|at|is|be))?\s*(?:€|\$|£)?\s*([\d,.]+)\s*(k)?\b/i,
+  );
+
+  return match ? parseSalaryAmount(match[1] ?? "", match[2]) : null;
 }
 
 export function detectRequestedTargetSalary(request: string): number | null {
   const normalized = normalizeFactText(request);
 
-  if (!/\b(expected salary|target salary|salary expectation|salary expectations|salary)\b/.test(normalized)) {
+  if (
+    !/\b(expected salary|target salary|salary expectation|salary expectations|salary|expecting|expectation)\b/.test(
+      normalized,
+    )
+  ) {
     return null;
   }
 
-  const patterns = [
-    /\b(?:expected|target)?\s*salary(?:\s+expectations?)?(?:\s+(?:to\s+be|should\s+be|to|at|as|be|is))?\s*\$?([\d,]+)(?:\b|$)/i,
-    /\bsalary(?:\s+(?:to\s+be|should\s+be|to|at|as|be|is))?\s*\$?([\d,]+)(?:\b|$)/i,
-  ] as const;
+  const explicitTargetIndex = normalized.search(
+    /\b(?:actually\s+)?expect(?:ed|ing)?|target salary|expected salary|salary expectation/,
+  );
+  const targetSource =
+    explicitTargetIndex >= 0 ? request.slice(explicitTargetIndex) : request;
+  const targetAmounts = extractSalaryAmounts(targetSource);
 
-  for (const pattern of patterns) {
-    const match = request.match(pattern);
-    const value = Number.parseInt((match?.[1] ?? "").replaceAll(",", ""), 10);
-
-    if (Number.isInteger(value) && value >= 0) {
-      return value;
-    }
+  if (targetAmounts.length > 0) {
+    return Math.max(...targetAmounts);
   }
 
-  return null;
+  const allAmounts = extractSalaryAmounts(request);
+  return allAmounts.length > 0 ? Math.max(...allAmounts) : null;
 }
 
 export function deriveRequestedDetail(request: string): string | null {

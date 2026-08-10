@@ -1,20 +1,34 @@
 import type { ResumeImportFieldCandidate } from "@unemployed/contracts";
 
-import { areEquivalentEducationRecords, areEquivalentExperienceRecords } from "./resume-record-identity";
+import {
+  areEquivalentEducationRecords,
+  areEquivalentExperienceRecords,
+} from "./resume-record-identity";
 
 export function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-export function stringifyCandidateTarget(candidate: ResumeImportFieldCandidate): string {
-  return [candidate.target.section, candidate.target.key, candidate.target.recordId ?? ""].join("|").trim();
+export function stringifyCandidateTarget(
+  candidate: ResumeImportFieldCandidate,
+): string {
+  return [
+    candidate.target.section,
+    candidate.target.key,
+    candidate.target.recordId ?? "",
+  ]
+    .join("|")
+    .trim();
 }
 
 export function areEquivalentRecordCandidates(
   left: ResumeImportFieldCandidate,
   right: ResumeImportFieldCandidate,
 ): boolean {
-  if (left.target.section !== right.target.section || left.target.key !== right.target.key) {
+  if (
+    left.target.section !== right.target.section ||
+    left.target.key !== right.target.key
+  ) {
     return false;
   }
 
@@ -38,18 +52,30 @@ export function toStringArray(value: unknown): string[] {
     return [];
   }
 
-  return value.flatMap((entry) => (typeof entry === "string" ? splitListString(entry.trim()) : [])).filter(Boolean);
+  return value
+    .flatMap((entry) =>
+      typeof entry === "string" ? splitListString(entry.trim()) : [],
+    )
+    .filter(Boolean);
 }
 
 export function toCandidateListValues(
   candidate: Pick<ResumeImportFieldCandidate, "target" | "value">,
 ): string[] {
   if (
-    typeof candidate.value === "string" &&
-    (candidate.target.key === "locations" || candidate.target.key === "targetRoles")
+    candidate.target.key === "locations" ||
+    candidate.target.key === "targetRoles"
   ) {
-    const trimmed = candidate.value.trim();
-    return trimmed ? [trimmed] : [];
+    const entries =
+      typeof candidate.value === "string"
+        ? [candidate.value]
+        : Array.isArray(candidate.value)
+          ? candidate.value.filter(
+              (entry): entry is string => typeof entry === "string",
+            )
+          : [];
+
+    return entries.map((entry) => entry.trim()).filter(Boolean);
   }
 
   return toStringArray(candidate.value);

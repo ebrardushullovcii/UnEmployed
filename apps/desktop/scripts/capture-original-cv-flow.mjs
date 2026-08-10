@@ -1,6 +1,3 @@
-/* eslint-env node, browser */
-/* global process, document */
-
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -44,7 +41,9 @@ async function captureOriginalCvFlow() {
 
     await window.evaluate(() => { window.location.hash = '#/job-finder/settings' })
     await window.getByRole('heading', { level: 1, name: 'Settings' }).waitFor({ timeout: 10000 })
-    await window.getByRole('radio', { name: /Use my original CV unchanged/i }).click()
+    const originalCvDefault = window.getByRole('radio', { name: /Use my original CV unchanged/i })
+    await originalCvDefault.focus()
+    await originalCvDefault.press('Space')
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '01-original-cv-setting.png') })
     await window.getByRole('button', { name: 'Save settings' }).click()
     await window.waitForFunction(async () => {
@@ -59,12 +58,19 @@ async function captureOriginalCvFlow() {
 
     await window.evaluate(() => { window.location.hash = '#/job-finder/review-queue' })
     await window.getByRole('heading', { level: 1, name: 'Shortlisted jobs' }).waitFor({ timeout: 10000 })
+    const originalCvForJob = window.getByRole('radio', { name: 'Original CV unchanged', exact: true })
+    await originalCvForJob.focus()
+    await originalCvForJob.press('Space')
+    await window.waitForFunction(async () => {
+      const workspace = await window.unemployed.jobFinder.getWorkspace()
+      return workspace.reviewQueue[0]?.resumeApplicationMode === 'original_resume'
+    }, undefined, { timeout: 10000 })
     await window.getByText('Original CV · unchanged').waitFor({ timeout: 10000 })
-    await window.getByText('alex-vanguard.pdf').waitFor({ timeout: 10000 })
+    await window.getByText('alex-vanguard.pdf').first().waitFor({ timeout: 10000 })
     if (await window.getByRole('button', { name: /Create tailored resume/i }).count()) {
       throw new Error('Tailored-resume generation remained available in original-CV mode.')
     }
-    await window.getByRole('button', { name: /Start apply copilot/i }).waitFor({
+    await window.getByRole('button', { name: 'Prepare application', exact: true }).waitFor({
       state: 'visible',
       timeout: 10000,
     })

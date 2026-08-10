@@ -6,6 +6,7 @@ import {
   loadMainWindowState,
   restoreMainWindowBounds,
 } from './window-state'
+import { bindMainWindowZoomShortcuts } from './window-zoom'
 
 const defaultMainWindowBounds = {
   width: 1440,
@@ -46,7 +47,7 @@ export function createMainWindow(currentDir: string) {
     ...restoreMainWindowBounds(defaultMainWindowBounds, savedState),
     minWidth: 1024,
     minHeight: 720,
-    show: false,
+    show: true,
     title: 'UnEmployed',
     backgroundColor: '#0e1726',
     autoHideMenuBar: true,
@@ -62,6 +63,7 @@ export function createMainWindow(currentDir: string) {
 
   bindWindowControlsState(mainWindow)
   bindMainWindowStatePersistence(mainWindow)
+  bindMainWindowZoomShortcuts(mainWindow.webContents)
 
   mainWindow.on('ready-to-show', () => {
     if (savedState?.displayMode === 'fullscreen') {

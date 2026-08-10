@@ -1,4 +1,7 @@
-import type { JobFinderAiClient, ResumeVisionProvider } from "@unemployed/ai-providers";
+import type {
+  JobFinderAiClient,
+  ResumeVisionProvider,
+} from "@unemployed/ai-providers";
 import type {
   BrowserSessionRuntime,
   OpenBrowserSessionOptions,
@@ -11,15 +14,18 @@ import type {
   JobSource,
   SavedJob,
   SourceDebugRunRecord,
+  UserActionRequest,
 } from "@unemployed/contracts";
 import type { JobFinderRepository } from "@unemployed/db";
 import type {
+  CandidateAssetResolver,
   JobFinderDocumentManager,
   ResumeResearchAdapter,
 } from "./workspace-service-contracts";
 
 export interface ResumeExportFileVerifier {
   exists(filePath: string): Promise<boolean>;
+  sha256?(filePath: string): Promise<string>;
 }
 
 export interface MutableRef<T> {
@@ -31,6 +37,7 @@ export interface WorkspaceServiceContext {
   visionProvider?: ResumeVisionProvider;
   browserRuntime: BrowserSessionRuntime;
   documentManager: JobFinderDocumentManager;
+  candidateAssetResolver?: CandidateAssetResolver;
   exportFileVerifier?: ResumeExportFileVerifier;
   researchAdapter?: ResumeResearchAdapter;
   repository: JobFinderRepository;
@@ -39,7 +46,9 @@ export interface WorkspaceServiceContext {
   activeSourceDebugExecutionIdRef: MutableRef<string | null>;
   activeSourceDebugAbortControllerRef: MutableRef<AbortController | null>;
   activeSourceDebugPromiseRef: MutableRef<Promise<unknown> | null>;
+  activeResumeVisionRunIds: Set<string>;
   getWorkspaceSnapshot: () => Promise<JobFinderWorkspaceSnapshot>;
+  resumeApplicationUserAction: (request: UserActionRequest) => Promise<void>;
   runSourceDebugWorkflow: (
     targetId: string,
     signal?: AbortSignal,
@@ -75,5 +84,8 @@ export interface WorkspaceServiceContext {
     options?: OpenBrowserSessionOptions,
   ) => Promise<void>;
   closeRunBrowserSession: (source: JobSource) => Promise<void>;
-  updateJob: (jobId: string, updater: (job: SavedJob) => SavedJob) => Promise<void>;
+  updateJob: (
+    jobId: string,
+    updater: (job: SavedJob) => SavedJob,
+  ) => Promise<void>;
 }

@@ -8,11 +8,7 @@ import {
   type JobDiscoveryTarget,
   type JobSearchPreferences
 } from '@unemployed/contracts'
-import type {
-  DiscoveryTargetEditorValue,
-  ProofBankEntryFormEntry,
-  ReusableAnswerFormEntry
-} from './job-finder-types'
+import type { DiscoveryTargetEditorValue, ProofBankEntryFormEntry, ReusableAnswerFormEntry } from './job-finder-types'
 import {
   booleanToSelect,
   buildFullName,
@@ -32,7 +28,7 @@ import {
   applyReviewCandidates,
   buildComparableValueFingerprint,
   buildEducationFormFingerprint,
-  buildExperienceFormFingerprint,
+  buildExperienceFormFingerprint
 } from './profile-editor-review-candidates'
 import type { ProfileEditorValues, SearchPreferencesEditorValues } from './profile-editor-types'
 
@@ -50,9 +46,7 @@ function shouldPersistReviewCandidateEntry(input: {
   return input.currentFingerprint !== input.sourceCandidateFingerprint
 }
 
-function dedupeRecordsByFingerprint<TRecord extends Record<string, unknown>>(
-  records: readonly TRecord[],
-): TRecord[] {
+function dedupeRecordsByFingerprint<TRecord extends Record<string, unknown>>(records: readonly TRecord[]): TRecord[] {
   const seen = new Set<string>()
 
   return records.filter((record) => {
@@ -88,24 +82,32 @@ function toDiscoveryTargetEditorValues(searchPreferences: JobSearchPreferences):
   }))
 }
 
-function toDiscoveryTargets(values: readonly DiscoveryTargetEditorValue[]): JobDiscoveryTarget[] {
+function toDiscoveryTargets(
+  values: readonly DiscoveryTargetEditorValue[],
+  persistedTargets: readonly JobDiscoveryTarget[]
+): JobDiscoveryTarget[] {
   return values.map((target) => {
     const parsedStatus = SourceInstructionStatusSchema.safeParse(target.instructionStatus)
     const instructionStatus = parsedStatus.success ? parsedStatus.data : 'missing'
+    const startingUrl = target.startingUrl.trim()
+    const persistedTarget = persistedTargets.find((entry) => entry.id === target.id)
+    const startingUrlChanged = persistedTarget !== undefined && persistedTarget.startingUrl.trim() !== startingUrl
 
     return {
-      instructionStatus,
+      instructionStatus: startingUrlChanged ? 'missing' : instructionStatus,
       id: target.id,
       label: target.label.trim(),
-      startingUrl: target.startingUrl.trim(),
+      startingUrl,
       enabled: target.enabled,
       adapterKind: 'auto',
       customInstructions: target.customInstructions.trim() || null,
-      validatedInstructionId: target.validatedInstructionId,
-      draftInstructionId: target.draftInstructionId,
-      lastDebugRunId: target.lastDebugRunId,
-      lastVerifiedAt: target.lastVerifiedAt,
-      staleReason: target.staleReason
+      validatedInstructionId: startingUrlChanged ? null : target.validatedInstructionId,
+      draftInstructionId: startingUrlChanged ? null : target.draftInstructionId,
+      lastDebugRunId: startingUrlChanged ? null : target.lastDebugRunId,
+      lastVerifiedAt: startingUrlChanged ? null : target.lastVerifiedAt,
+      staleReason: startingUrlChanged
+        ? 'Starting page URL changed. Check this source again before reusing saved guidance.'
+        : target.staleReason
     }
   })
 }
@@ -237,29 +239,26 @@ export function createSearchPreferencesEditorValues(
   return {
     companyBlacklist: joinListInput(searchPreferences.companyBlacklist),
     companyWhitelist: joinListInput(searchPreferences.companyWhitelist),
-    collectOnlyHardCriteriaMatches:
-      searchPreferences.discovery.collectOnlyHardCriteriaMatches ?? false,
+    collectOnlyHardCriteriaMatches: searchPreferences.discovery.collectOnlyHardCriteriaMatches ?? false,
     employmentTypes: joinListInput(searchPreferences.employmentTypes),
     excludedLocations: joinListInput(searchPreferences.excludedLocations),
     jobFamilies: joinListInput(searchPreferences.jobFamilies),
     locations: joinListInput(searchPreferences.locations),
-    minimumSalaryUsd: searchPreferences.minimumSalaryUsd?.toString() ?? '',
-    salaryCurrency: searchPreferences.salaryCurrency ?? 'USD',
+    minimumSalaryUsd: searchPreferences.compensation.minimum?.toString() ?? '',
+    compensationInterval: searchPreferences.compensation.interval,
+    salaryCurrency: searchPreferences.compensation.currency ?? '',
     seniorityLevels: joinListInput(searchPreferences.seniorityLevels),
     tailoringMode: searchPreferences.tailoringMode,
     discoveryTargets: toDiscoveryTargetEditorValues(searchPreferences),
     targetCompanyStages: joinListInput(searchPreferences.targetCompanyStages),
     targetIndustries: joinListInput(searchPreferences.targetIndustries),
     targetRoles: joinListInput(searchPreferences.targetRoles),
-    targetSalaryUsd: searchPreferences.targetSalaryUsd?.toString() ?? '',
+    targetSalaryUsd: searchPreferences.compensation.maximum?.toString() ?? '',
     workModes: searchPreferences.workModes
   }
 }
 
-export function hasProfileDraftChanges(
-  profile: CandidateProfile,
-  draftProfile: CandidateProfile | undefined,
-): boolean {
+export function hasProfileDraftChanges(profile: CandidateProfile, draftProfile: CandidateProfile | undefined): boolean {
   if (!draftProfile) {
     return false
   }
@@ -269,7 +268,7 @@ export function hasProfileDraftChanges(
 
 export function hasSearchPreferencesDraftChanges(
   searchPreferences: JobSearchPreferences,
-  draftSearchPreferences: JobSearchPreferences | undefined,
+  draftSearchPreferences: JobSearchPreferences | undefined
 ): boolean {
   if (!draftSearchPreferences) {
     return false
@@ -317,8 +316,8 @@ export function buildProfilePayload(
         shouldPersistReviewCandidateEntry({
           sourceCandidateId: entry.sourceCandidateId,
           sourceCandidateFingerprint: entry.sourceCandidateFingerprint,
-          currentFingerprint: buildExperienceFormFingerprint(entry),
-        }),
+          currentFingerprint: buildExperienceFormFingerprint(entry)
+        })
       )
       .map((entry) => ({
         id: entry.id,
@@ -337,8 +336,8 @@ export function buildProfilePayload(
         skills: parseListInput(entry.skills),
         domainTags: parseListInput(entry.domainTags),
         peopleManagementScope: entry.peopleManagementScope.trim() || null,
-        ownershipScope: entry.ownershipScope.trim() || null,
-      })),
+        ownershipScope: entry.ownershipScope.trim() || null
+      }))
   )
   const persistedEducation = dedupeRecordsByFingerprint(
     values.records.education
@@ -346,8 +345,8 @@ export function buildProfilePayload(
         shouldPersistReviewCandidateEntry({
           sourceCandidateId: entry.sourceCandidateId,
           sourceCandidateFingerprint: entry.sourceCandidateFingerprint,
-          currentFingerprint: buildEducationFormFingerprint(entry),
-        }),
+          currentFingerprint: buildEducationFormFingerprint(entry)
+        })
       )
       .map((entry) => ({
         id: entry.id,
@@ -358,8 +357,8 @@ export function buildProfilePayload(
         startDate: entry.startDate.trim() || null,
         endDate: entry.endDate.trim() || null,
         isDraft: !entry.schoolName.trim(),
-        summary: entry.summary.trim() || null,
-      })),
+        summary: entry.summary.trim() || null
+      }))
   )
 
   const payload: CandidateProfile = {
@@ -422,9 +421,7 @@ export function buildProfilePayload(
         .filter((entry) => entry.question.trim() && entry.answer.trim())
         .map((entry) => ({
           id: entry.id,
-          kind: candidateAnswerKindValues.includes(entry.kind)
-            ? entry.kind
-            : 'other',
+          kind: candidateAnswerKindValues.includes(entry.kind) ? entry.kind : 'other',
           label: entry.label.trim() || entry.question.trim(),
           question: entry.question.trim(),
           answer: entry.answer.trim(),
@@ -485,30 +482,36 @@ export function buildProfilePayload(
       kind: entry.kind ? entry.kind : null,
       isDraft: !entry.label.trim() || !entry.url.trim()
     })),
-    projects: values.projects.filter((entry) => entry.name.trim()).map((entry) => ({
-      id: entry.id,
-      name: entry.name.trim(),
-      projectType: entry.projectType.trim() || null,
-      summary: entry.summary.trim() || null,
-      role: entry.role.trim() || null,
-      skills: parseListInput(entry.skills),
-      outcome: entry.outcome.trim() || null,
-      projectUrl: entry.projectUrl.trim() || null,
-      repositoryUrl: entry.repositoryUrl.trim() || null,
-      caseStudyUrl: entry.caseStudyUrl.trim() || null
-    })),
-    spokenLanguages: values.languages.filter((entry) => entry.language.trim()).map((entry) => ({
-      id: entry.id,
-      language: entry.language.trim(),
-      proficiency: entry.proficiency.trim() || null,
-      interviewPreference: entry.interviewPreference,
-      notes: entry.notes.trim() || null
-    }))
+    projects: values.projects
+      .filter((entry) => entry.name.trim())
+      .map((entry) => ({
+        id: entry.id,
+        name: entry.name.trim(),
+        projectType: entry.projectType.trim() || null,
+        summary: entry.summary.trim() || null,
+        role: entry.role.trim() || null,
+        skills: parseListInput(entry.skills),
+        outcome: entry.outcome.trim() || null,
+        projectUrl: entry.projectUrl.trim() || null,
+        repositoryUrl: entry.repositoryUrl.trim() || null,
+        caseStudyUrl: entry.caseStudyUrl.trim() || null
+      })),
+    spokenLanguages: values.languages
+      .filter((entry) => entry.language.trim())
+      .map((entry) => ({
+        id: entry.id,
+        language: entry.language.trim(),
+        proficiency: entry.proficiency.trim() || null,
+        interviewPreference: entry.interviewPreference,
+        notes: entry.notes.trim() || null
+      }))
   }
 
   const parsedPayload = CandidateProfileSchema.safeParse(payload)
   if (!parsedPayload.success) {
-    return { validationMessage: parsedPayload.error.issues[0]?.message ?? 'Profile data is invalid.' }
+    return {
+      validationMessage: parsedPayload.error.issues[0]?.message ?? 'Profile data is invalid.'
+    }
   }
 
   return { payload: parsedPayload.data }
@@ -518,6 +521,25 @@ export function buildSearchPreferencesPayload(
   searchPreferences: JobSearchPreferences,
   values: SearchPreferencesEditorValues
 ): { payload?: JobSearchPreferences; validationMessage?: string } {
+  const incompleteTarget = values.discoveryTargets.find((target) => {
+    if (!target.label.trim()) {
+      return true
+    }
+
+    try {
+      const url = new URL(target.startingUrl.trim())
+      return url.protocol !== 'http:' && url.protocol !== 'https:'
+    } catch {
+      return true
+    }
+  })
+
+  if (incompleteTarget) {
+    return {
+      validationMessage: `Complete the name and public http or https URL for "${incompleteTarget.label.trim() || 'New source'}" before saving.`,
+    }
+  }
+
   const invalidTargetStatus = values.discoveryTargets.find(
     (target) => !isValidSourceInstructionStatus(target.instructionStatus)
   )
@@ -542,6 +564,30 @@ export function buildSearchPreferencesPayload(
     }
   }
 
+  if (
+    parsedMinimumSalaryUsd !== null &&
+    parsedTargetSalaryUsd !== null &&
+    parsedTargetSalaryUsd < parsedMinimumSalaryUsd
+  ) {
+    return {
+      validationMessage: 'Maximum compensation must be greater than or equal to minimum compensation.'
+    }
+  }
+
+  const compensationCurrency = values.salaryCurrency.trim().toUpperCase() || null
+  if (compensationCurrency && !/^[A-Z]{3}$/.test(compensationCurrency)) {
+    return {
+      validationMessage: 'Compensation currency must be a three-letter code such as USD or EUR.'
+    }
+  }
+  const currencyStatus = compensationCurrency === searchPreferences.compensation.currency
+    ? searchPreferences.compensation.currencyStatus
+    : compensationCurrency
+      ? 'explicit' as const
+      : parsedMinimumSalaryUsd !== null || parsedTargetSalaryUsd !== null
+        ? 'needs_clarification' as const
+        : searchPreferences.compensation.currencyStatus
+
   const payload: JobSearchPreferences = {
     ...searchPreferences,
     targetRoles: parseListInput(values.targetRoles),
@@ -555,20 +601,29 @@ export function buildSearchPreferencesPayload(
     employmentTypes: parseListInput(values.employmentTypes),
     minimumSalaryUsd: parsedMinimumSalaryUsd,
     targetSalaryUsd: parsedTargetSalaryUsd,
-    salaryCurrency: values.salaryCurrency.trim() || null,
+    salaryCurrency: compensationCurrency,
+    compensation: {
+      minimum: parsedMinimumSalaryUsd,
+      maximum: parsedTargetSalaryUsd,
+      interval: values.compensationInterval,
+      currency: compensationCurrency,
+      currencyStatus,
+    },
     tailoringMode: values.tailoringMode,
     companyBlacklist: parseListInput(values.companyBlacklist),
     companyWhitelist: parseListInput(values.companyWhitelist),
     discovery: {
       ...searchPreferences.discovery,
       collectOnlyHardCriteriaMatches: values.collectOnlyHardCriteriaMatches,
-      targets: toDiscoveryTargets(values.discoveryTargets)
+      targets: toDiscoveryTargets(values.discoveryTargets, searchPreferences.discovery.targets)
     }
   }
 
   const parsedPayload = JobSearchPreferencesSchema.safeParse(payload)
   if (!parsedPayload.success) {
-    return { validationMessage: parsedPayload.error.issues[0]?.message ?? 'Search preferences are invalid.' }
+    return {
+      validationMessage: parsedPayload.error.issues[0]?.message ?? 'Search preferences are invalid.'
+    }
   }
 
   return { payload: parsedPayload.data }

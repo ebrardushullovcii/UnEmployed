@@ -473,4 +473,124 @@ describe("resume import reconciliation", () => {
     expect(reconciled.find((candidate) => candidate.id === structuredCandidate.id)?.resolution).toBe("auto_applied");
     expect(reconciled.some((candidate) => candidate.resolution === "needs_review")).toBe(false);
   });
+
+  test("rejects scalar, list, and education suggestions that already match the workspace", () => {
+    const baseSeed = createSeed();
+    const seed = {
+      ...baseSeed,
+      profile: { ...baseSeed.profile, targetRoles: ["Principal Designer"] },
+      searchPreferences: { ...baseSeed.searchPreferences, targetRoles: ["Principal Designer"] },
+    };
+    const common = {
+      runId: "resume_import_run_saved_values",
+      sourceKind: "model_background" as const,
+      resolution: "needs_review" as const,
+      createdAt: "2026-04-10T10:00:00.000Z",
+      resolvedAt: null,
+    };
+    const locationCandidate = ResumeImportFieldCandidateSchema.parse({
+      ...common,
+      ...createStageCandidate({
+        target: { section: "location", key: "currentLocation", recordId: null },
+        label: "Location",
+        value: "London, UK",
+        sourceBlockIds: ["block_location"],
+        confidence: 0.9,
+        overall: 0.9,
+        recommendation: "needs_review",
+      }),
+      id: "candidate_saved_location",
+    });
+    const rolesCandidate = ResumeImportFieldCandidateSchema.parse({
+      ...common,
+      ...createStageCandidate({
+        target: { section: "search_preferences", key: "targetRoles", recordId: null },
+        label: "Target roles",
+        value: ["Principal Designer"],
+        sourceBlockIds: ["block_roles"],
+        confidence: 0.9,
+        overall: 0.9,
+        recommendation: "needs_review",
+      }),
+      id: "candidate_saved_roles",
+    });
+    const educationCandidate = ResumeImportFieldCandidateSchema.parse({
+      ...common,
+      ...createStageCandidate({
+        target: { section: "education", key: "record", recordId: "education_1" },
+        label: "Royal College of Art",
+        value: {
+          schoolName: "Royal College of Art",
+          degree: "MA",
+          fieldOfStudy: "Design Products",
+          location: "London, UK",
+          startDate: "2012-09",
+          endDate: "2014-06",
+          summary: null,
+        },
+        sourceBlockIds: ["block_education"],
+        confidence: 0.9,
+        overall: 0.9,
+        recommendation: "needs_review",
+      }),
+      id: "candidate_saved_education",
+      evidenceText: "Royal College of Art MA Design Products London UK 2012 2014",
+    });
+
+    const reconciled = reconcileCandidates(seed.profile, seed.searchPreferences, [
+      locationCandidate,
+      rolesCandidate,
+      educationCandidate,
+    ]);
+
+    expect(reconciled).toHaveLength(3);
+    expect(reconciled.every((candidate) => candidate.resolution === "rejected")).toBe(true);
+    expect(reconciled.every((candidate) => candidate.resolutionReason === "already_matches_workspace_value")).toBe(true);
+  });
+
+  test("removes unsupported degree, field, and location values from education records", () => {
+    const baseSeed = createSeed();
+    const seed = {
+      ...baseSeed,
+      profile: { ...baseSeed.profile, education: [] },
+    };
+    const evidenceText = "Bachelor of Science in Computer Science — Oregon State University, 2018";
+    const educationCandidate = ResumeImportFieldCandidateSchema.parse({
+      runId: "resume_import_run_unsupported_education",
+      ...createStageCandidate({
+        target: { section: "education", key: "record", recordId: "education_1" },
+        label: "Oregon State University",
+        value: {
+          schoolName: "Oregon State University",
+          degree: "MBA",
+          fieldOfStudy: "Artificial Intelligence",
+          location: "Boston, MA",
+          startDate: null,
+          endDate: "2018",
+          summary: null,
+        },
+        sourceBlockIds: ["block_education"],
+        confidence: 0.9,
+        overall: 0.8,
+        recommendation: "needs_review",
+      }),
+      id: "candidate_unsupported_education",
+      sourceKind: "model_background",
+      evidenceText,
+      resolution: "needs_review",
+      createdAt: "2026-04-10T10:00:00.000Z",
+      resolvedAt: null,
+    });
+
+    expect(reconcileCandidates(seed.profile, seed.searchPreferences, [educationCandidate])[0]).toMatchObject({
+      resolution: "needs_review",
+      value: {
+        schoolName: "Oregon State University",
+        degree: null,
+        fieldOfStudy: null,
+        location: null,
+        endDate: "2018",
+      },
+    });
+  });
 });

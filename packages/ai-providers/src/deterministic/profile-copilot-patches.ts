@@ -6,6 +6,7 @@ import {
 import type { ReviseCandidateProfileInput } from "../shared";
 import { buildGenericExplicitFieldPatchGroup } from "./profile-copilot-field-updates";
 import { buildJobSourcePatchReply } from "./profile-copilot-job-sources";
+import { buildNaturalSearchPreferenceReply } from "./profile-copilot-natural-preferences";
 import { buildSpecializedPatchGroups } from "./profile-copilot-specialized-patches";
 import { buildUrlPatchReply } from "./profile-copilot-url-patches";
 
@@ -22,6 +23,11 @@ function normalizePatchReply(
 export function buildDeterministicPatchReply(
   input: ReviseCandidateProfileInput,
 ): ProfileCopilotPatchGroup[] | ProfileCopilotReply | null {
+  const naturalPreferenceReply = buildNaturalSearchPreferenceReply(input);
+  if (naturalPreferenceReply) {
+    return naturalPreferenceReply;
+  }
+
   const jobSourceReply = buildJobSourcePatchReply(input);
   const specializedPatchGroups = buildSpecializedPatchGroups(input);
   const urlPatchReply = buildUrlPatchReply(input);

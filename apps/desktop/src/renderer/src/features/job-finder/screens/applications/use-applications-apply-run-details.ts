@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApplyRunDetails } from "@unemployed/contracts";
 import { pickLatestIsoTimestamp } from "./applications-screen-helpers";
 
@@ -62,7 +62,9 @@ export function useApplicationsApplyRunDetails(
     const selectedRunUpdatedAtMs =
       runUpdatedAt == null ? Number.NaN : Date.parse(runUpdatedAt);
     const lastFetchedUpdatedAtMs =
-      lastFetchedUpdatedAt == null ? Number.NaN : Date.parse(lastFetchedUpdatedAt);
+      lastFetchedUpdatedAt == null
+        ? Number.NaN
+        : Date.parse(lastFetchedUpdatedAt);
     const hasValidParsedUpdatedAt =
       !Number.isNaN(selectedRunUpdatedAtMs) &&
       !Number.isNaN(lastFetchedUpdatedAtMs);
@@ -138,10 +140,35 @@ export function useApplicationsApplyRunDetails(
     };
   }, [jobId, onGetApplyRunDetails, runId, runUpdatedAt]);
 
+  const replaceApplyRunDetails = useCallback((details: ApplyRunDetails) => {
+    const nextJobId = details.result?.jobId ?? details.run.jobIds[0] ?? null;
+    if (!nextJobId) {
+      return;
+    }
+    const updatedAt = pickLatestIsoTimestamp(
+      details.run.updatedAt,
+      details.result?.updatedAt,
+    );
+    lastFetchedApplyRunRef.current = {
+      jobId: nextJobId,
+      runId: details.run.id,
+      updatedAt,
+    };
+    setApplyRunDetails(details);
+    setApplyRunDetailsTarget({
+      jobId: nextJobId,
+      runId: details.run.id,
+      runUpdatedAt: updatedAt,
+    });
+    setApplyRunDetailsStatus("ready");
+    setApplyRunDetailsError(null);
+  }, []);
+
   return {
     applyRunDetails,
     applyRunDetailsError,
     applyRunDetailsStatus,
     applyRunDetailsTarget,
+    replaceApplyRunDetails,
   };
 }

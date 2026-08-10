@@ -1,0 +1,48 @@
+Morgan Lee
+Senior Product Engineer
+Amsterdam, Netherlands
+morgan.lee@example.test
++31 20 555 0199
+https://www.linkedin.com/in/morgan-lee-test
+
+SUMMARY
+Product engineer focused on reliable workflow software and accessible frontend systems.
+
+EXPERIENCE
+Northstar Labs
+Senior Product Engineer
+Amsterdam, Netherlands
+March 2022 - Present
+Built TypeScript workflow tools for operations teams.
+- Reduced manual review time by 28% through a guided validation queue.
+- Led an accessibility remediation that reached WCAG 2.2 AA on core flows.
+
+Harbor Studio
+Frontend Engineer
+Rotterdam, Netherlands
+January 2019 - February 2022
+Delivered customer-facing React applications.
+- Shipped a reusable component library across four products.
+
+PROJECTS
+Queue Insight
+Lead Developer
+Open-source workflow diagnostics dashboard built with TypeScript.
+https://example.test/queue-insight
+
+CERTIFICATIONS
+AWS Certified Developer - Associate
+Amazon Web Services
+Issued June 2023
+
+EDUCATION
+Delft University of Technology
+BSc Computer Science
+2015 - 2018
+
+LANGUAGES
+English - Professional working proficiency
+Dutch - Native
+
+SKILLS
+TypeScript, React, Accessibility, AWS

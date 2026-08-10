@@ -1,6 +1,4 @@
-/* eslint-env node, browser */
-
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -261,6 +259,15 @@ async function auditProfile(profile) {
         discoveryOnly: true,
         resumeApplicationMode: "tailored_per_job",
       });
+      const now = new Date().toISOString();
+      await window.unemployed.jobFinder.saveProfileSetupState({
+        ...workspace.profileSetupState,
+        status: "completed",
+        currentStep: "ready_check",
+        startedAt: workspace.profileSetupState.startedAt ?? now,
+        completedAt: now,
+        lastResumedAt: now,
+      });
     });
     const discovered = await page.evaluate(() =>
       window.unemployed.jobFinder.runDiscovery(),
@@ -289,7 +296,7 @@ async function auditProfile(profile) {
       await firstResult.waitFor({ state: "visible", timeout: 10_000 });
       await firstResult.click();
       const evidenceLedger = page.getByRole("region", {
-        name: "Requirement evidence",
+        name: "Fit breakdown",
       });
       await evidenceLedger.waitFor({ state: "visible", timeout: 10_000 });
       await evidenceLedger.scrollIntoViewIfNeeded();
@@ -341,12 +348,26 @@ async function auditProfile(profile) {
         ),
       };
 
-      await page.evaluate((jobId) => {
-        window.location.hash = `#/job-finder/review-queue/${jobId}/resume`;
-      }, topJob.id);
+      // The queue/generation calls above intentionally cross IPC directly.
+      // Reload once so the renderer consumes their durable result before the
+      // visible Shortlisted -> Resume Studio journey.
       await page.reload();
+      await page.waitForLoadState("domcontentloaded");
+      await waitForBridge(page);
+      await page.evaluate(() => {
+        window.location.hash = "#/job-finder/review-queue";
+      });
       await page
-        .getByRole("heading", { name: topJob.title, level: 1 })
+        .getByRole("heading", { name: "Shortlisted jobs", level: 1 })
+        .waitFor({ state: "visible", timeout: 15_000 });
+      await page
+        .getByRole("button", { name: "Open resume workspace" })
+        .first()
+        .click();
+      await page
+        .locator("h1")
+        .filter({ hasText: topJob.title })
+        .first()
         .waitFor({ state: "visible", timeout: 15_000 });
       await page.screenshot({
         animations: "disabled",
@@ -401,9 +422,11 @@ async function auditProfile(profile) {
     return report;
   } finally {
     await app.close().catch(() => undefined);
+    await rm(userDataDirectory, { recursive: true, force: true });
   }
 }
 
+await rm(outputDir, { recursive: true, force: true });
 await mkdir(outputDir, { recursive: true });
 const reports = [];
 for (const profile of profiles) {

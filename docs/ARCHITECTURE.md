@@ -35,9 +35,11 @@ See [ADR 0007](adr/0007-source-generic-browser-workflows.md) for the source-gene
 - desktop: renderer -> preload -> Electron main -> package services
 - resume import: desktop ingress -> parser/text/vision branches -> review candidates -> accepted canonical writes
 - discovery/apply: `job-finder` orchestrates, `browser-agent` executes bounded discovery policy, and `browser-runtime` owns sessions plus the generic prepare-only form driver
+- product actions: schema-validated local tools call a narrow injected subset of the `job-finder` workspace service. They never expose raw IPC, browser primitives, arbitrary navigation, or filesystem access; proposal-only Profile Copilot calls persist reviewable patch groups without applying them
 - source-debug: `job-finder` orchestrates phases and artifacts, `browser-agent` returns structured attempts, `db` persists runs and evidence
 - browser visual evidence: `browser-runtime` owns screenshot capture and cleanup; `browser-agent` owns generic trigger policy and interpretation; `job-finder` persists only schema-validated summaries
 - interview live session: visible chat/audio UI -> typed preload -> Electron main-hosted `interview-helper` service -> typed AI/audio/screenshot adapters -> visible responses, source-labeled transcript, and post-session review
+- generative AI: domain services -> `packages/ai-providers` -> GPT-5.6 Luna through the Responses API by default; the adapter keeps structured output, image input, tool calls, and reasoning effort explicit, while local Codex bridges remain replaceable loopback development transports
 
 ## Resume Safety
 
