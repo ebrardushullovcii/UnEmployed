@@ -29,7 +29,7 @@ describe("ProfileCopilotRail", () => {
     vi.clearAllMocks();
   });
 
-  it("floats on the left without reserving page space and exposes a draggable open panel", () => {
+  it("floats at the right edge without reserving page space and exposes a draggable open panel", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -60,9 +60,11 @@ describe("ProfileCopilotRail", () => {
     const rail = bubble?.parentElement;
 
     expect(bubble).not.toBeNull();
-    expect(bubble?.className).toContain("cursor-grab");
+    expect(bubble?.className).toContain("cursor-pointer");
+    expect(bubble?.className).toContain("size-12");
     expect(rail?.className).toContain("fixed");
-    expect(rail?.style.left).toBe("16px");
+    expect(rail?.style.left).toBe("");
+    expect(rail?.style.right).toBe("16px");
     expect(rail?.style.bottom).toBe("16px");
     expect(rail?.style.top).toBe("");
     expect(container?.children).toHaveLength(0);
@@ -86,7 +88,7 @@ describe("ProfileCopilotRail", () => {
     expect(document.activeElement).toBe(
       document.getElementById(panel?.querySelector("textarea")?.id ?? ""),
     );
-    expect(rail?.style.left).toBe("16px");
+    expect(rail?.style.left).not.toBe("");
     expect(
       panel?.querySelector('button[aria-label="Maximize Profile Copilot"]'),
     ).not.toBeNull();
@@ -103,6 +105,9 @@ describe("ProfileCopilotRail", () => {
     });
 
     expect(panel?.getAttribute("data-profile-copilot-maximized")).toBe("true");
+    expect(rail?.style.width).toBe("calc(100vw - 32px)");
+    expect(rail?.style.maxWidth).toBe("calc(100vw - 32px)");
+    expect(panel?.style.width).toBe("100%");
     expect(
       panel?.querySelector('button[aria-label="Restore Profile Copilot"]'),
     ).not.toBeNull();
@@ -116,6 +121,9 @@ describe("ProfileCopilotRail", () => {
     });
 
     expect(panel?.getAttribute("data-profile-copilot-maximized")).toBe("false");
+    expect(rail?.style.width).toBe("");
+    expect(rail?.style.maxWidth).toBe("");
+    expect(panel?.style.width).not.toBe("100%");
 
     act(() => {
       panel
@@ -157,6 +165,132 @@ describe("ProfileCopilotRail", () => {
     expect(document.activeElement).toBe(
       document.body.querySelector('button[aria-haspopup="dialog"]'),
     );
+  });
+
+  it("lifts the launcher above a visible Profile action footer", () => {
+    const actions = document.createElement("div");
+    actions.setAttribute("data-profile-workspace-actions", "");
+    actions.getBoundingClientRect = () =>
+      ({
+        bottom: window.innerHeight,
+        height: 100,
+        left: 0,
+        right: window.innerWidth,
+        top: window.innerHeight - 100,
+        width: window.innerWidth,
+        x: 0,
+        y: window.innerHeight - 100,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    document.body.appendChild(actions);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(
+        <ProfileCopilotRail
+          busy={false}
+          context={{ surface: "profile", section: "basics" }}
+          emptyStateDescription="Ask why a field matters."
+          emptyStateTitle="No requests yet"
+          messages={[]}
+          onApplyPatchGroup={vi.fn()}
+          onRejectPatchGroup={vi.fn()}
+          onSendMessage={vi.fn()}
+          onUndoRevision={vi.fn()}
+          pendingContextKey={null}
+          placeholder="Ask for an edit"
+          revisions={[]}
+          title="Profile Copilot"
+        />,
+      );
+    });
+
+    const bubble = document.body.querySelector<HTMLButtonElement>(
+      'button[aria-haspopup="dialog"]',
+    );
+    expect(bubble?.parentElement?.style.bottom).toBe("116px");
+
+    actions.remove();
+  });
+
+  it("ignores old saved placement and keeps the collapsed launcher docked after maximize", () => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 1440,
+      writable: true,
+    });
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: 920,
+      writable: true,
+    });
+    window.localStorage.setItem(
+      "unemployed.profile-copilot-position-v7",
+      JSON.stringify({
+        x: 1168,
+        y: 840,
+        viewportHeight: 920,
+        viewportWidth: 1440,
+      }),
+    );
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(
+        <ProfileCopilotRail
+          busy={false}
+          context={{ surface: "profile", section: "basics" }}
+          emptyStateDescription="Ask why a field matters."
+          emptyStateTitle="No requests yet"
+          messages={[]}
+          onApplyPatchGroup={vi.fn()}
+          onRejectPatchGroup={vi.fn()}
+          onSendMessage={vi.fn()}
+          onUndoRevision={vi.fn()}
+          pendingContextKey={null}
+          placeholder="Ask for an edit"
+          revisions={[]}
+          title="Profile Copilot"
+        />,
+      );
+    });
+
+    const rail = document.body.querySelector<HTMLButtonElement>(
+      'button[aria-haspopup="dialog"]',
+    )?.parentElement;
+    expect(rail?.style.left).toBe("");
+    expect(rail?.style.top).toBe("");
+    expect(rail?.style.right).toBe("16px");
+    expect(rail?.style.bottom).toBe("16px");
+    expect(
+      window.localStorage.getItem("unemployed.profile-copilot-position-v7"),
+    ).toBeNull();
+
+    act(() => {
+      window.innerWidth = 1920;
+      window.innerHeight = 1033;
+      window.dispatchEvent(new Event("resize"));
+    });
+
+    expect(rail?.style.left).toBe("");
+    expect(rail?.style.top).toBe("");
+    expect(rail?.style.right).toBe("16px");
+    expect(rail?.style.bottom).toBe("16px");
+
+    act(() => {
+      window.innerWidth = 1440;
+      window.innerHeight = 920;
+      window.dispatchEvent(new Event("resize"));
+    });
+
+    expect(rail?.style.left).toBe("");
+    expect(rail?.style.top).toBe("");
+    expect(rail?.style.right).toBe("16px");
+    expect(rail?.style.bottom).toBe("16px");
   });
 
   it("lets Escape minimize an automatically opened pending conversation", () => {

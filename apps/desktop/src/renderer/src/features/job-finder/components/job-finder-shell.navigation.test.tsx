@@ -6,6 +6,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -35,6 +36,34 @@ function createWorkspace(): JobFinderWorkspaceSnapshot {
     reviewQueue: [],
     userActionRequests: [],
   } as unknown as JobFinderWorkspaceSnapshot;
+}
+
+function createWorkspaceWithActiveApplyRun(): JobFinderWorkspaceSnapshot {
+  const workspace = createWorkspace();
+  workspace.applyRuns = [
+    {
+      id: "apply_running",
+      mode: "copilot",
+      state: "running",
+      jobIds: ["job_1"],
+      currentJobId: "job_1",
+      createdAt: "2026-07-31T10:00:00.000Z",
+      updatedAt: "2026-07-31T10:00:04.000Z",
+      completedAt: null,
+      totalJobs: 1,
+      pendingJobs: 1,
+      blockedJobs: 0,
+      failedJobs: 0,
+    } as unknown as JobFinderWorkspaceSnapshot["applyRuns"][number],
+  ];
+  workspace.discoveryJobs = [
+    {
+      id: "job_1",
+      company: "Mercury",
+      title: "Software Engineer",
+    },
+  ] as JobFinderWorkspaceSnapshot["discoveryJobs"];
+  return workspace;
 }
 
 describe("JobFinderShell section navigation", () => {
@@ -225,6 +254,7 @@ describe("JobFinderShell section navigation", () => {
     const settingsMain = screen.getByRole("main", { name: "Settings" });
     expect(document.title).toBe("Settings | Job Finder | UnEmployed");
     expect(document.activeElement).toBe(settingsMain);
+    expect(settingsMain.className).toContain("outline-none");
     expect(screen.getByRole("status").textContent).toBe("Settings opened.");
     expect(scrollToMock).toHaveBeenCalledWith({ top: 0 });
   });
@@ -336,9 +366,7 @@ describe("JobFinderShell section navigation", () => {
     const actionGroup = screen.getByRole("group", {
       name: "Notifications and actions",
     });
-    const summary = within(actionGroup)
-      .getByText("Task center")
-      .closest("summary");
+    const summary = within(actionGroup).getByLabelText("Task center: 0 active");
     const taskCenter = summary?.closest("details");
 
     expect(taskCenter).toBeInstanceOf(HTMLDetailsElement);
@@ -346,5 +374,36 @@ describe("JobFinderShell section navigation", () => {
     expect(taskCenter?.className).not.toContain("fixed");
     expect(summary?.className).toContain("h-[3.125rem]");
     expect(summary?.className).toContain("bg-(--surface-panel)");
+  });
+
+  it("forwards a failed real-shell cancellation so Task center offers a retry", async () => {
+    const onCancelApplyRun = vi.fn(() => Promise.resolve(false));
+    render(
+      <MemoryRouter initialEntries={["/job-finder/applications"]}>
+        <JobFinderShell
+          onCancelApplyRun={onCancelApplyRun}
+          platform="win32"
+          workspace={createWorkspaceWithActiveApplyRun()}
+        >
+          <div>Applications</div>
+        </JobFinderShell>
+      </MemoryRouter>,
+    );
+
+    const applyTask = document.querySelector<HTMLElement>(
+      '[data-task-kind="apply"]',
+    );
+    expect(applyTask).not.toBeNull();
+    const cancelButton = within(
+      applyTask as HTMLElement,
+    ).getByRole<HTMLButtonElement>("button", { name: "Cancel task" });
+
+    fireEvent.click(cancelButton);
+
+    await waitFor(() => expect(cancelButton.disabled).toBe(false));
+    expect(onCancelApplyRun).toHaveBeenCalledWith("apply_running");
+    expect(
+      within(applyTask as HTMLElement).getByRole("status").textContent,
+    ).toContain("Cancellation did not complete");
   });
 });

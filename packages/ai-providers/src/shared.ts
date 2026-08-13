@@ -1,5 +1,6 @@
 import {
   type AgentProviderStatus,
+  AgentTaskExecutionReceiptSchema,
   BrowserVisualObservationSetSchema,
   type BrowserVisualAnalysisInput,
   type BrowserVisualObservationSet,
@@ -278,6 +279,7 @@ export interface CreateResumeDraftInput extends TailorResumeInput {
 export const ResumeAssistantReplySchema = z.object({
   content: NonEmptyStringSchema,
   patches: z.array(ResumeDraftPatchSchema).default([]),
+  executionReceipt: AgentTaskExecutionReceiptSchema.nullable().optional(),
 });
 export type ResumeAssistantReply = z.infer<typeof ResumeAssistantReplySchema>;
 

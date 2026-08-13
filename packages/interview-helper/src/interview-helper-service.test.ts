@@ -287,7 +287,7 @@ describe("interview helper service", () => {
     }
     await service.addTranscriptSegment({
       sessionId: activeSession.id,
-      source: "meeting_native_transcript",
+      source: "typed_question",
       text: "How do you isolate Electron IPC?",
       language: "en-US",
       engineKind: "platform_local",
@@ -319,6 +319,7 @@ describe("interview helper service", () => {
     });
     expect(exportResult.content).toContain("## Transcript Annotations");
     expect(exportResult.content).toContain("Electron IPC isolation");
+    expect(exportResult.content).toContain("[Typed question]");
   });
 
   test("ingests native live transcript segments and generates a cue", async () => {
@@ -391,6 +392,9 @@ describe("interview helper service", () => {
     expect(updated.activeSession?.cueCards).toHaveLength(cueCountBefore + 1);
     expect(updated.activeSession?.cueCards.at(-1)?.question).toBe(
       "Help me explain the architecture in this screenshot",
+    );
+    expect(updated.activeSession?.transcriptSegments.at(-1)?.source).toBe(
+      "typed_question",
     );
     expect(updated.activeSession?.chatConversation).toMatchObject({
       id: `interview_${session.id}`,

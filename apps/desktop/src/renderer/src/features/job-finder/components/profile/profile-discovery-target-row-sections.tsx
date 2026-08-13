@@ -1,38 +1,38 @@
-import type { ChangeEventHandler } from 'react'
-import { Button } from '@renderer/components/ui/button'
-import { CheckboxField } from '../checkbox-field'
-import { FieldLabel } from '@renderer/components/ui/field'
-import { ProfileInput, ProfileTextarea } from './profile-form-primitives'
-import { formatDuration } from '@renderer/features/job-finder/lib/job-finder-utils'
+import type { ChangeEventHandler } from "react";
+import { Button } from "@renderer/components/ui/button";
+import { CheckboxField } from "../checkbox-field";
+import { FieldLabel } from "@renderer/components/ui/field";
+import { ProfileInput, ProfileTextarea } from "./profile-form-primitives";
+import { formatDuration } from "@renderer/features/job-finder/lib/job-finder-utils";
 import type {
   SourceAccessPrompt,
   SourceDebugRunRecord,
-} from '@unemployed/contracts'
+} from "@unemployed/contracts";
 import type {
   LearnedInstructionIntelligenceSummary,
   LearnedInstructionField,
   LearnedInstructionSection,
-} from './profile-source-debug-instruction-utils'
-import { describeLearnedInstructionUsage } from './profile-source-debug-instruction-utils'
-import { ProfileLearnedInstructionsPanel } from './profile-learned-instructions-panel'
+} from "./profile-source-debug-instruction-utils";
+import { describeLearnedInstructionUsage } from "./profile-source-debug-instruction-utils";
+import { ProfileLearnedInstructionsPanel } from "./profile-learned-instructions-panel";
 
 interface DiscoveryTargetActionHeaderProps {
-  accessibleLabel: string
-  canRunDiscovery: boolean
-  canRunSourceDebug: boolean
-  displayName: string
-  index: number
-  isBrowserSessionPending: boolean
-  isLastTarget: boolean
-  isSourceDebugPending: boolean
-  isTargetDiscoveryPending: boolean
-  onMoveDown: () => void
-  onMoveUp: () => void
-  onOpenBrowserSession: () => void
-  onRemove: () => void
-  onRunDiscovery: (() => void) | undefined
-  onRunSourceDebug: () => void
-  sourceAccessPrompt: SourceAccessPrompt | null
+  accessibleLabel: string;
+  canRunDiscovery: boolean;
+  canRunSourceDebug: boolean;
+  displayName: string;
+  index: number;
+  isBrowserSessionPending: boolean;
+  isLastTarget: boolean;
+  isSourceDebugPending: boolean;
+  isTargetDiscoveryPending: boolean;
+  onMoveDown: () => void;
+  onMoveUp: () => void;
+  onOpenBrowserSession: () => void;
+  onRemove: () => void;
+  onRunDiscovery: (() => void) | undefined;
+  onRunSourceDebug: () => void;
+  sourceAccessPrompt: SourceAccessPrompt | null;
 }
 
 export function DiscoveryTargetActionHeader(
@@ -55,13 +55,17 @@ export function DiscoveryTargetActionHeader(
     onRunDiscovery,
     onRunSourceDebug,
     sourceAccessPrompt,
-  } = props
+  } = props;
 
   return (
     <header className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
       <div className="grid gap-1">
-        <h3 className="text-(length:--text-body) font-semibold text-(--text-headline)">{displayName}</h3>
-        <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Source {index + 1}</p>
+        <h3 className="text-(length:--text-body) font-semibold text-(--text-headline)">
+          {displayName}
+        </h3>
+        <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
+          Source {index + 1}
+        </p>
       </div>
       <div className="flex flex-wrap items-start gap-2 lg:justify-end">
         {sourceAccessPrompt ? (
@@ -71,7 +75,11 @@ export function DiscoveryTargetActionHeader(
             pending={isBrowserSessionPending}
             type="button"
             size="sm"
-            variant={sourceAccessPrompt.state === 'prompt_login_required' ? 'primary' : 'secondary'}
+            variant={
+              sourceAccessPrompt.state === "prompt_login_required"
+                ? "primary"
+                : "secondary"
+            }
           >
             {sourceAccessPrompt.actionLabel}
           </Button>
@@ -131,14 +139,14 @@ export function DiscoveryTargetActionHeader(
         </Button>
       </div>
     </header>
-  )
+  );
 }
 
 export function DiscoveryTargetAccessPrompt(props: {
-  sourceAccessPrompt: SourceAccessPrompt
-  signInToneClassName: string
+  sourceAccessPrompt: SourceAccessPrompt;
+  signInToneClassName: string;
 }) {
-  const { sourceAccessPrompt, signInToneClassName } = props
+  const { sourceAccessPrompt, signInToneClassName } = props;
 
   return (
     <div
@@ -147,11 +155,17 @@ export function DiscoveryTargetAccessPrompt(props: {
       role="status"
     >
       <p className="text-(length:--text-field-label) font-medium tracking-(--tracking-label)">
-        {sourceAccessPrompt.state === 'prompt_login_required' ? 'Sign-in required' : 'Sign-in recommended'}
+        {sourceAccessPrompt.state === "prompt_login_required"
+          ? "Sign-in required"
+          : "Sign-in recommended"}
       </p>
-      <p className="text-(length:--text-field) leading-6">{sourceAccessPrompt.summary}</p>
+      <p className="text-(length:--text-field) leading-6">
+        {sourceAccessPrompt.summary}
+      </p>
       {sourceAccessPrompt.detail ? (
-        <p className="text-(length:--text-description) leading-6 opacity-90">{sourceAccessPrompt.detail}</p>
+        <p className="text-(length:--text-description) leading-6 opacity-90">
+          {sourceAccessPrompt.detail}
+        </p>
       ) : null}
       {sourceAccessPrompt.rerunLabel ? (
         <p className="text-(length:--text-small) leading-6 opacity-80">
@@ -159,30 +173,32 @@ export function DiscoveryTargetAccessPrompt(props: {
         </p>
       ) : null}
     </div>
-  )
+  );
 }
 
 interface DiscoveryTargetFormFieldsProps {
-  customInstructions: string
-  labelValue: string
-  instructionStatusSummary: string
-  instructionsId: string
-  labelId: string
-  latestDebugRun: SourceDebugRunRecord | null
-  latestDebugRunLabel: string | null
-  onCustomInstructionsChange: ChangeEventHandler<HTMLTextAreaElement>
-  onLabelChange: ChangeEventHandler<HTMLInputElement>
-  onReviewLatestRun: () => void
-  onStartingUrlChange: ChangeEventHandler<HTMLInputElement>
-  startingUrl: string
-  startingUrlId: string
-  targetEnabled: boolean
-  onToggleEnabled: (checked: boolean) => void
-  isSourceDebugPending: boolean
-  reviewCheckAriaLabel: string
+  customInstructions: string;
+  labelValue: string;
+  instructionStatusSummary: string;
+  instructionsId: string;
+  labelId: string;
+  latestDebugRun: SourceDebugRunRecord | null;
+  latestDebugRunLabel: string | null;
+  onCustomInstructionsChange: ChangeEventHandler<HTMLTextAreaElement>;
+  onLabelChange: ChangeEventHandler<HTMLInputElement>;
+  onReviewLatestRun: () => void;
+  onStartingUrlChange: ChangeEventHandler<HTMLInputElement>;
+  startingUrl: string;
+  startingUrlId: string;
+  targetEnabled: boolean;
+  onToggleEnabled: (checked: boolean) => void;
+  isSourceDebugPending: boolean;
+  reviewCheckAriaLabel: string;
 }
 
-export function DiscoveryTargetFormFields(props: DiscoveryTargetFormFieldsProps) {
+export function DiscoveryTargetFormFields(
+  props: DiscoveryTargetFormFieldsProps,
+) {
   const {
     customInstructions,
     labelValue,
@@ -201,11 +217,13 @@ export function DiscoveryTargetFormFields(props: DiscoveryTargetFormFieldsProps)
     startingUrl,
     startingUrlId,
     targetEnabled,
-  } = props
-  const trimmedLatestDebugRunLabel = latestDebugRunLabel?.trim() || null
+  } = props;
+  const trimmedLatestDebugRunLabel = latestDebugRunLabel?.trim() || null;
   const latestDebugRunSummary = latestDebugRun
-    ? latestDebugRun.manualPrerequisiteSummary?.trim() || latestDebugRun.finalSummary?.trim() || null
-    : null
+    ? latestDebugRun.manualPrerequisiteSummary?.trim() ||
+      latestDebugRun.finalSummary?.trim() ||
+      null
+    : null;
 
   return (
     <>
@@ -228,7 +246,8 @@ export function DiscoveryTargetFormFields(props: DiscoveryTargetFormFieldsProps)
             value={startingUrl}
           />
           <p className="text-(length:--text-small) leading-5 text-foreground-muted">
-            Paste the public page that lists this company or board's open jobs. For example: https://job-boards.greenhouse.io/company
+            Paste the public page that lists this company or board's open jobs.
+            For example: https://job-boards.greenhouse.io/company
           </p>
         </div>
         <div className="grid h-full min-w-0 content-start gap-(--gap-field) lg:col-start-2 lg:row-span-2 lg:row-start-1">
@@ -248,7 +267,12 @@ export function DiscoveryTargetFormFields(props: DiscoveryTargetFormFieldsProps)
             label="Include this source in searches"
             onCheckedChange={onToggleEnabled}
           />
-          <p aria-live="polite" aria-atomic="true" className="text-(length:--text-description) leading-6 text-foreground-soft" role="status">
+          <p
+            aria-live="polite"
+            aria-atomic="true"
+            className="text-(length:--text-description) leading-6 text-foreground-soft"
+            role="status"
+          >
             <strong>{instructionStatusSummary}</strong>
           </p>
         </div>
@@ -270,7 +294,9 @@ export function DiscoveryTargetFormFields(props: DiscoveryTargetFormFieldsProps)
             </div>
             <div aria-live="polite" className="grid gap-1" role="status">
               {trimmedLatestDebugRunLabel ? (
-                <p className="text-(length:--text-field) leading-6 text-foreground">{trimmedLatestDebugRunLabel}</p>
+                <p className="text-(length:--text-field) leading-6 text-foreground">
+                  {trimmedLatestDebugRunLabel}
+                </p>
               ) : null}
               {latestDebugRunSummary ? (
                 <p className="text-(length:--text-description) leading-6 text-foreground-soft">
@@ -280,8 +306,12 @@ export function DiscoveryTargetFormFields(props: DiscoveryTargetFormFieldsProps)
               {latestDebugRun.timing ? (
                 <p className="text-(length:--text-small) leading-6 text-foreground-muted">
                   {`Duration: ${formatDuration(latestDebugRun.timing.totalDurationMs)}`}
-                  {latestDebugRun.timing.longestGapMs > 10000 ? ` · Longest quiet gap: ${formatDuration(latestDebugRun.timing.longestGapMs)}` : ''}
-                  {latestDebugRun.timing.finalReviewMs != null ? ` · AI review: ${formatDuration(latestDebugRun.timing.finalReviewMs)}` : ''}
+                  {latestDebugRun.timing.longestGapMs > 10000
+                    ? ` · Longest quiet gap: ${formatDuration(latestDebugRun.timing.longestGapMs)}`
+                    : ""}
+                  {latestDebugRun.timing.finalReviewMs != null
+                    ? ` · AI review: ${formatDuration(latestDebugRun.timing.finalReviewMs)}`
+                    : ""}
                 </p>
               ) : null}
             </div>
@@ -289,46 +319,55 @@ export function DiscoveryTargetFormFields(props: DiscoveryTargetFormFieldsProps)
         ) : null}
       </div>
     </>
-  )
+  );
 }
 
 interface DiscoveryTargetInstructionsProps {
-  editingInstruction: { field: LearnedInstructionField; normalizedKey: string } | null
-  editingInstructionValue: string
-  intelligenceSummaries: readonly LearnedInstructionIntelligenceSummary[]
-  instructionArtifact: Parameters<typeof describeLearnedInstructionUsage>[0]
-  isEditingInstructionPending: boolean
+  editingInstruction: {
+    field: LearnedInstructionField;
+    normalizedKey: string;
+  } | null;
+  editingInstructionValue: string;
+  intelligenceSummaries: readonly LearnedInstructionIntelligenceSummary[];
+  instructionArtifact: Parameters<typeof describeLearnedInstructionUsage>[0];
+  latestDebugRun: Parameters<typeof describeLearnedInstructionUsage>[1];
+  isEditingInstructionPending: boolean;
   isInstructionEditPending: (
     section: LearnedInstructionSection,
-    line: LearnedInstructionSection['lines'][number],
-  ) => boolean
+    line: LearnedInstructionSection["lines"][number],
+  ) => boolean;
   isInstructionRemovePending: (
     section: LearnedInstructionSection,
-    line: LearnedInstructionSection['lines'][number],
-  ) => boolean
-  isInstructionSavePending: boolean
+    line: LearnedInstructionSection["lines"][number],
+  ) => boolean;
+  isInstructionSavePending: boolean;
   onBeginEditingInstruction: (
     section: LearnedInstructionSection,
-    line: LearnedInstructionSection['lines'][number],
-  ) => void
-  onCancelEditingInstruction: () => void
-  onChangeEditingInstructionValue: (value: string) => void
-  onPersistEditedInstruction: () => void
+    line: LearnedInstructionSection["lines"][number],
+  ) => void;
+  onCancelEditingInstruction: () => void;
+  onChangeEditingInstructionValue: (value: string) => void;
+  onPersistEditedInstruction: () => void;
   onRemoveInstructionLine: (
     section: LearnedInstructionSection,
-    line: LearnedInstructionSection['lines'][number],
-  ) => void
-  sections: readonly LearnedInstructionSection[]
-  targetId: string
+    line: LearnedInstructionSection["lines"][number],
+  ) => void;
+  sections: readonly LearnedInstructionSection[];
+  targetId: string;
 }
 
-export function DiscoveryTargetInstructions(props: DiscoveryTargetInstructionsProps) {
+export function DiscoveryTargetInstructions(
+  props: DiscoveryTargetInstructionsProps,
+) {
   return (
     <ProfileLearnedInstructionsPanel
       editingInstruction={props.editingInstruction}
       editingInstructionValue={props.editingInstructionValue}
       intelligenceSummaries={props.intelligenceSummaries}
-      instructionArtifactDescription={describeLearnedInstructionUsage(props.instructionArtifact)}
+      instructionArtifactDescription={describeLearnedInstructionUsage(
+        props.instructionArtifact,
+        props.latestDebugRun,
+      )}
       isEditingInstructionPending={props.isEditingInstructionPending}
       isInstructionEditPending={props.isInstructionEditPending}
       isInstructionRemovePending={props.isInstructionRemovePending}
@@ -341,5 +380,5 @@ export function DiscoveryTargetInstructions(props: DiscoveryTargetInstructionsPr
       sections={props.sections}
       targetId={props.targetId}
     />
-  )
+  );
 }

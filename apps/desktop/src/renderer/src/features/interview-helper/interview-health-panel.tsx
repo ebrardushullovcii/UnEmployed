@@ -32,7 +32,11 @@ function HealthItem(props: {
           <p className="text-[0.7rem] font-semibold uppercase tracking-(--tracking-badge) text-muted-foreground">
             {props.label}
           </p>
-          <p className={"mt-1 text-[0.78rem] font-medium " + statusClass(props.status)}>
+          <p
+            className={
+              "mt-1 text-[0.78rem] font-medium " + statusClass(props.status)
+            }
+          >
             {props.value}
           </p>
           <p className="mt-1 text-[0.7rem] leading-5 text-muted-foreground">
@@ -44,9 +48,10 @@ function HealthItem(props: {
   );
 }
 
-function signalValue(
-  health: InterviewSessionHealth["microphone"],
-): string {
+function signalValue(health: InterviewSessionHealth["microphone"]): string {
+  if (health.detail === "Off by choice.") {
+    return "Off by choice";
+  }
   if (health.signal === "detected" && health.peakLevel !== null) {
     return "Signal " + health.peakLevel.toFixed(3);
   }
@@ -63,6 +68,10 @@ export function InterviewHealthPanel(props: {
     health.cue.lastLatencyMs === null
       ? "No cue yet"
       : health.cue.lastLatencyMs + " ms";
+  const textOnlyReady =
+    health.overallStatus === "healthy" &&
+    (health.transcription.detail?.startsWith("Text-only mode is ready") ??
+      false);
 
   return (
     <section
@@ -82,20 +91,31 @@ export function InterviewHealthPanel(props: {
             {props.sessionStatus.replaceAll("_", " ")}.
           </p>
         </div>
-        <span className={"text-[0.72rem] font-semibold uppercase " + statusClass(health.overallStatus)}>
-          {health.overallStatus}
+        <span
+          className={
+            "text-[0.72rem] font-semibold uppercase " +
+            statusClass(health.overallStatus)
+          }
+        >
+          {textOnlyReady ? "Text-only ready" : health.overallStatus}
         </span>
       </div>
 
       <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
         <HealthItem
-          detail={health.microphone.detail ?? "Run the microphone check to measure input."}
+          detail={
+            health.microphone.detail ??
+            "Run the microphone check to measure input."
+          }
           label="Microphone"
           status={health.microphone.status}
           value={signalValue(health.microphone)}
         />
         <HealthItem
-          detail={health.systemAudio.detail ?? "Run the system-audio check while audio is playing."}
+          detail={
+            health.systemAudio.detail ??
+            "Run the system-audio check while audio is playing."
+          }
           label="System audio"
           status={health.systemAudio.status}
           value={signalValue(health.systemAudio)}
@@ -115,7 +135,9 @@ export function InterviewHealthPanel(props: {
           }
         />
         <HealthItem
-          detail={health.cue.detail ?? "Generate a cue to measure response latency."}
+          detail={
+            health.cue.detail ?? "Generate a cue to measure response latency."
+          }
           label="Cue response"
           status={health.cue.status}
           value={(health.cue.fallbackActive ? "Fallback · " : "") + cueLatency}

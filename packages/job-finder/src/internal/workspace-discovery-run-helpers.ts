@@ -298,8 +298,8 @@ export function recoverInterruptedDiscoveryRun(
 }
 
 const MIN_DISCOVERY_TARGET_MAX_STEPS = 20;
-const SINGLE_TARGET_DISCOVERY_JOB_COUNT = 8;
-const SINGLE_TARGET_DISCOVERY_MAX_STEPS = 24;
+const SINGLE_TARGET_DISCOVERY_JOB_COUNT = 50;
+const SINGLE_TARGET_DISCOVERY_MAX_STEPS = 36;
 
 export function resolveDiscoveryTargetBudget(input: {
   targetsRemaining: number;

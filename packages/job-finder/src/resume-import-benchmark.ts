@@ -646,7 +646,9 @@ function normalizeComparableDateValue(value: unknown): string | null {
     return `${isoMonthMatch[1]}-${isoMonthMatch[2]}`;
   }
 
-  const numericMonthMatch = normalized.match(/^(0?[1-9]|1[0-2])\/((?:19|20)\d{2})$/);
+  const numericMonthMatch = normalized.match(
+    /^(0?[1-9]|1[0-2])\/((?:19|20)\d{2})$/,
+  );
   if (numericMonthMatch) {
     return `${numericMonthMatch[2]}-${numericMonthMatch[1]?.padStart(2, "0")}`;
   }
@@ -693,7 +695,8 @@ function normalizeComparableRecordValue(
       .sort(([left], [right]) => left.localeCompare(right))
       .flatMap(([key, entry]) =>
         normalizeComparableRecordValue(entry, key).map(
-          (normalized) => `${normalizeBenchmarkRecordString(key)}:${normalized}`,
+          (normalized) =>
+            `${normalizeBenchmarkRecordString(key)}:${normalized}`,
         ),
       );
   }
@@ -752,7 +755,9 @@ function scoreRecordDetailAccuracy(input: {
     );
 
     for (const key of input.detailKeys) {
-      if (normalizeComparableRecordValue(expectedRecord[key], key).length === 0) {
+      if (
+        normalizeComparableRecordValue(expectedRecord[key], key).length === 0
+      ) {
         continue;
       }
       comparedFields += 1;
@@ -906,9 +911,10 @@ export function buildCaseResult(input: {
     section: "project",
   });
   const expectedProjectRecords = input.benchmarkCase.expected.projectRecords;
-  const scoredProjectRecords = expectedProjectRecords !== undefined
-    ? [...projectRecords, ...input.profile.projects]
-    : projectRecords;
+  const scoredProjectRecords =
+    expectedProjectRecords !== undefined
+      ? [...projectRecords, ...input.profile.projects]
+      : projectRecords;
   const certificationRecords = getBenchmarkActualRecordValues({
     actual: input.candidates.filter(
       (candidate) => candidate.target.section === "certification",
@@ -925,9 +931,10 @@ export function buildCaseResult(input: {
     ),
     section: "language",
   });
-  const scoredLanguageRecords = input.benchmarkCase.expected.languageRecords !== undefined
-    ? [...languageRecords, ...input.profile.spokenLanguages]
-    : languageRecords;
+  const scoredLanguageRecords =
+    input.benchmarkCase.expected.languageRecords !== undefined
+      ? [...languageRecords, ...input.profile.spokenLanguages]
+      : languageRecords;
   const metrics: ResumeImportBenchmarkMetrics = {
     literalFieldPrecision: literalScores.literalFieldPrecision,
     literalFieldRecall: literalScores.literalFieldRecall,
@@ -1108,6 +1115,9 @@ function createBenchmarkContext(input: {
     activeSourceDebugExecutionIdRef: { current: null },
     activeSourceDebugAbortControllerRef: { current: null },
     activeSourceDebugPromiseRef: { current: null },
+    activeApplyRunAbortControllers: new Map<string, AbortController>(),
+    activeApplyRunPromises: new Map<string, Promise<void>>(),
+    applyRunTransitionTails: new Map<string, Promise<void>>(),
     activeResumeVisionRunIds: new Set<string>(),
     getWorkspaceSnapshot: () =>
       Promise.reject(

@@ -332,7 +332,7 @@ async function addListEditorValue(window, inputSelector, value) {
 }
 
 async function ensureProfileCopilotOpen(window) {
-  const requestField = window.getByLabel('Ask for an edit')
+  const requestField = window.getByRole('textbox', { name: 'Ask for an edit', exact: true })
 
   if (await requestField.isVisible().catch(() => false)) {
     return requestField

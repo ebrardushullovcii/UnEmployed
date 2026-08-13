@@ -17,6 +17,73 @@ describe("DiscoveryFiltersPanel", () => {
     vi.clearAllMocks();
   });
 
+  it("makes the current-search details an independent wheel and keyboard scroll region", () => {
+    const searchPreferences: JobSearchPreferences = {
+      targetRoles: ["Software Engineer"],
+      jobFamilies: [],
+      locations: ["Remote"],
+      excludedLocations: [],
+      workModes: ["remote"],
+      seniorityLevels: [],
+      targetIndustries: [],
+      targetCompanyStages: [],
+      employmentTypes: [],
+      minimumSalaryUsd: null,
+      targetSalaryUsd: null,
+      salaryCurrency: "USD",
+      compensation: {
+        minimum: null,
+        maximum: null,
+        interval: "year",
+        currency: "USD",
+        currencyStatus: "inherited",
+      },
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
+      companyBlacklist: [],
+      companyWhitelist: [],
+      discovery: { historyLimit: 5, targets: [] },
+    };
+
+    const { getByRole } = render(
+      <MemoryRouter>
+        <DiscoveryFiltersPanel
+          activeRun={null}
+          actionMessage={null}
+          browserSession={{
+            source: "target_site",
+            status: "unknown",
+            driver: "catalog_seed",
+            label: "Browser optional",
+            detail: "The browser is only needed for sign-in.",
+            lastCheckedAt: "2026-03-20T10:00:00.000Z",
+          }}
+          discoverySessions={[]}
+          isBrowserSessionPending={false}
+          isBrowserSessionPendingForTarget={() => false}
+          isDiscoveryAllPending={false}
+          isTargetPending={() => false}
+          onOpenBrowserSession={vi.fn()}
+          onOpenBrowserSessionForTarget={vi.fn()}
+          onRunAgentDiscovery={vi.fn()}
+          onViewProgress={vi.fn()}
+          searchPreferences={searchPreferences}
+          sourceAccessPrompts={[]}
+        />
+      </MemoryRouter>,
+    );
+
+    const scrollRegion = getByRole("region", {
+      name: "Current search details",
+    });
+    expect(
+      scrollRegion.getAttribute("data-locked-pane-scroll-region"),
+    ).not.toBeNull();
+    expect(scrollRegion.getAttribute("tabindex")).toBe("0");
+    expect(scrollRegion.className).toContain("overflow-y-auto");
+    expect(scrollRegion.className).toContain("overscroll-contain");
+  });
+
   it("shows a source-aware sign-in prompt near the search controls", () => {
     const onOpenBrowserSessionForTarget = vi.fn();
     const onRunDiscoveryForTarget = vi.fn();
@@ -595,8 +662,7 @@ describe("DiscoveryFiltersPanel", () => {
           description:
             "Add at least one target role in Profile so Find jobs can aim the next search.",
           actionLabel: "Edit search in Profile",
-          actionHref:
-            "#/job-finder/profile?section=preferences&focus=job-sources",
+          actionHref: "#/job-finder/profile?section=sources&focus=job-sources",
           nextStep: "Then search again.",
         }}
         selectedJob={null}
@@ -616,7 +682,7 @@ describe("DiscoveryFiltersPanel", () => {
           name: "Edit search in Profile",
         }) as HTMLAnchorElement
       ).getAttribute("href"),
-    ).toBe("#/job-finder/profile?section=preferences&focus=job-sources");
+    ).toBe("#/job-finder/profile?section=sources&focus=job-sources");
   });
 
   it("shows a ready first-search state before any completed run", () => {

@@ -10,6 +10,7 @@ export * from "./resume-import";
 export * from "./resume";
 export * from "./resume-preview-targets";
 export * from "./agent-compaction";
+export * from "./agent-task";
 export * from "./visual";
 export * from "./source-debug";
 export * from "./discovery";

@@ -53,6 +53,19 @@ const unsavedProfileSourceActionMessage =
 const unsavedProfileSourceSignInMessage =
   "Save this source before opening a sign-in session so the browser uses the latest saved source entry.";
 
+function parseProfileSection(value: string | null): ProfileSection | null {
+  switch (value) {
+    case "basics":
+    case "experience":
+    case "background":
+    case "preferences":
+    case "sources":
+      return value;
+    default:
+      return null;
+  }
+}
+
 type ProfileScreenPendingActions = {
   analyzeProfile: boolean;
   browserSession: (targetId: string) => boolean;
@@ -158,7 +171,7 @@ export function ProfileScreen(props: {
   const requestedSection = searchParams.get("section");
   const requestedFocus = searchParams.get("focus");
   const [activeSection, setActiveSection] = useState<ProfileSection>(
-    requestedSection === "preferences" ? "preferences" : "basics",
+    parseProfileSection(requestedSection) ?? "basics",
   );
   const pendingImportSuggestionRef =
     useRef<ResumeImportFieldCandidateSummary | null>(null);
@@ -218,27 +231,35 @@ export function ProfileScreen(props: {
   }, [activeSection, importSuggestionFocusRequest]);
 
   useEffect(() => {
-    if (requestedSection !== "preferences") {
+    const parsedSection = parseProfileSection(requestedSection);
+    if (!parsedSection) {
       return;
     }
 
-    if (requestedFocus !== "job-sources" && requestedFocus !== "target-roles") {
-      setActiveSection("preferences");
+    const requestedDeepLink =
+      requestedFocus === "job-sources" || requestedFocus === "target-roles"
+        ? (requestedFocus as ProfileDeepLinkFocus)
+        : null;
+    const destinationSection =
+      requestedDeepLink === "job-sources"
+        ? "sources"
+        : requestedDeepLink === "target-roles"
+          ? "preferences"
+          : parsedSection;
+
+    if (activeSection !== destinationSection) {
+      setActiveSection(destinationSection);
       return;
     }
 
-    if (activeSection !== "preferences") {
-      setActiveSection("preferences");
+    if (!requestedDeepLink) {
       return;
     }
 
     let focusFrame = 0;
     let attemptsRemaining = 12;
     const focusWhenReady = () => {
-      if (
-        focusProfileDeepLink(requestedFocus as ProfileDeepLinkFocus) ||
-        attemptsRemaining <= 0
-      ) {
+      if (focusProfileDeepLink(requestedDeepLink) || attemptsRemaining <= 0) {
         return;
       }
 
@@ -261,7 +282,7 @@ export function ProfileScreen(props: {
     pendingActions.importResume || pendingActions.analyzeProfile;
   const profileCopilotContext: ProfileCopilotContext = {
     surface: "profile",
-    section: activeSection === "preferences" ? "preferences" : activeSection,
+    section: activeSection === "sources" ? "preferences" : activeSection,
   };
 
   const visibleProfileCopilotMessages = profileCopilotMessages.filter(
@@ -275,7 +296,7 @@ export function ProfileScreen(props: {
   );
   const starterQuestion = buildProfileSectionStarterQuestion(
     profileSetupState.reviewItems,
-    activeSection,
+    activeSection === "sources" ? "preferences" : activeSection,
   );
 
   const savedTargetsById = new Map(
@@ -410,11 +431,14 @@ export function ProfileScreen(props: {
                   Profile ready
                 </p>
                 <p className="text-sm text-foreground-soft">
-                  Your saved profile is ready. Continue to Find jobs to run your configured sources.
+                  Your saved profile is ready. Continue to Find jobs to run your
+                  configured sources.
                 </p>
               </div>
               <Button asChild>
-                <a href={JOB_FINDER_ROUTE_HREFS.discovery}>Continue to Find jobs</a>
+                <a href={JOB_FINDER_ROUTE_HREFS.discovery}>
+                  Continue to Find jobs
+                </a>
               </Button>
             </div>
           )}
@@ -457,7 +481,6 @@ export function ProfileScreen(props: {
               the same time.
             </div>
           ) : null}
-
         </>
       }
     >
@@ -485,36 +508,38 @@ export function ProfileScreen(props: {
                   className="m-0 min-w-0 border-0 p-0 disabled:opacity-80"
                   disabled={resumeAnalysisPending}
                 >
-                <ProfileActiveSectionContent
-                  activeSection={activeSection}
-                  backgroundArrays={backgroundArrays}
-                  experienceArray={experienceArray}
-                  isBrowserSessionPending={pendingActions.browserSession}
-                  isProfileMutationPending={
-                    pendingActions.profileMutation || resumeAnalysisPending
-                  }
-                  isSourceDebugPending={pendingActions.sourceDebug}
-                  isSourceInstructionPending={pendingActions.sourceInstruction}
-                  isSourceInstructionVerifyPending={
-                    pendingActions.sourceInstructionVerify
-                  }
-                  isTargetDiscoveryPending={pendingActions.targetDiscovery}
-                  onGetSourceDebugRunDetails={onGetSourceDebugRunDetails}
-                  onOpenBrowserSessionForTarget={handleSignInForTarget}
-                  {...(onRunDiscoveryForTarget
-                    ? { onRunDiscoveryForTarget: handleRunDiscoveryForTarget }
-                    : {})}
-                  onRunSourceDebug={handleRunSourceDebug}
-                  onSaveSourceInstructionArtifact={
-                    onSaveSourceInstructionArtifact
-                  }
-                  onVerifySourceInstructions={onVerifySourceInstructions}
-                  preferencesForm={preferencesForm}
-                  profileForm={profileForm}
-                  recentSourceDebugRuns={recentSourceDebugRuns}
-                  sourceAccessPrompts={sourceAccessPrompts}
-                  sourceInstructionArtifacts={sourceInstructionArtifacts}
-                />
+                  <ProfileActiveSectionContent
+                    activeSection={activeSection}
+                    backgroundArrays={backgroundArrays}
+                    experienceArray={experienceArray}
+                    isBrowserSessionPending={pendingActions.browserSession}
+                    isProfileMutationPending={
+                      pendingActions.profileMutation || resumeAnalysisPending
+                    }
+                    isSourceDebugPending={pendingActions.sourceDebug}
+                    isSourceInstructionPending={
+                      pendingActions.sourceInstruction
+                    }
+                    isSourceInstructionVerifyPending={
+                      pendingActions.sourceInstructionVerify
+                    }
+                    isTargetDiscoveryPending={pendingActions.targetDiscovery}
+                    onGetSourceDebugRunDetails={onGetSourceDebugRunDetails}
+                    onOpenBrowserSessionForTarget={handleSignInForTarget}
+                    {...(onRunDiscoveryForTarget
+                      ? { onRunDiscoveryForTarget: handleRunDiscoveryForTarget }
+                      : {})}
+                    onRunSourceDebug={handleRunSourceDebug}
+                    onSaveSourceInstructionArtifact={
+                      onSaveSourceInstructionArtifact
+                    }
+                    onVerifySourceInstructions={onVerifySourceInstructions}
+                    preferencesForm={preferencesForm}
+                    profileForm={profileForm}
+                    recentSourceDebugRuns={recentSourceDebugRuns}
+                    sourceAccessPrompts={sourceAccessPrompts}
+                    sourceInstructionArtifacts={sourceInstructionArtifacts}
+                  />
                 </fieldset>
               </div>
             </div>
@@ -531,30 +556,32 @@ export function ProfileScreen(props: {
           </div>
         </div>
       </section>
-      <ProfileCopilotRail
-        busy={pendingActions.profileCopilotBusy}
-        actionsDisabledReason={
-          hasUserDraftChanges ? unsavedProfileCopilotActionsMessage : null
-        }
-        context={profileCopilotContext}
-        emptyStateDescription="Ask for a tighter headline, stronger summary, or another specific change. You review every proposal before anything is applied."
-        emptyStateTitle="No requests yet"
-        messages={visibleProfileCopilotMessages}
-        onApplyPatchGroup={onApplyProfileCopilotPatchGroup}
-        onRejectPatchGroup={onRejectProfileCopilotPatchGroup}
-        onSendMessage={onSendProfileCopilotMessage}
-        onUndoRevision={onUndoProfileRevision}
-        pendingContextKey={profileCopilotPendingContextKey}
-        placeholder={
-          'Example: update my headline to "Principal systems designer focused on workflow platforms"'
-        }
-        revisions={profileRevisions}
-        sendDisabledReason={
-          hasUserDraftChanges ? unsavedProfileCopilotMessage : null
-        }
-        starterQuestion={starterQuestion}
-        minBottomOffset={COPILOT_BOTTOM_OFFSET}
-      />
+      {activeSection !== "sources" ? (
+        <ProfileCopilotRail
+          busy={pendingActions.profileCopilotBusy}
+          actionsDisabledReason={
+            hasUserDraftChanges ? unsavedProfileCopilotActionsMessage : null
+          }
+          context={profileCopilotContext}
+          emptyStateDescription="Ask for a tighter headline, stronger summary, or another specific change. You review every proposal before anything is applied."
+          emptyStateTitle="No requests yet"
+          messages={visibleProfileCopilotMessages}
+          onApplyPatchGroup={onApplyProfileCopilotPatchGroup}
+          onRejectPatchGroup={onRejectProfileCopilotPatchGroup}
+          onSendMessage={onSendProfileCopilotMessage}
+          onUndoRevision={onUndoProfileRevision}
+          pendingContextKey={profileCopilotPendingContextKey}
+          placeholder={
+            'Example: update my headline to "Principal systems designer focused on workflow platforms"'
+          }
+          revisions={profileRevisions}
+          sendDisabledReason={
+            hasUserDraftChanges ? unsavedProfileCopilotMessage : null
+          }
+          starterQuestion={starterQuestion}
+          minBottomOffset={COPILOT_BOTTOM_OFFSET}
+        />
+      ) : null}
     </LockedScreenLayout>
   );
 }

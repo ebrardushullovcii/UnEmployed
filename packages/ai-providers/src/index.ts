@@ -8,6 +8,7 @@ export * from "./resume-import-fixtures";
 export * from "./deterministic/resume-parser";
 export * from "./deterministic";
 export * from "./openai-compatible";
+export * from "./agent-capabilities";
 export { completeTailoredResumeDraft } from "./openai-compatible-shared";
 
 export const aiProvidersPackageReady = true;

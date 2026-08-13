@@ -172,7 +172,10 @@ const SHORT_NON_SPEECH_ANNOTATION_PATTERN =
 
 function containsUsableSpeech(text: string) {
   const normalized = text.trim();
-  if (normalized.length === 0 || NON_SPEECH_TRANSCRIPT_PATTERN.test(normalized)) {
+  if (
+    normalized.length === 0 ||
+    NON_SPEECH_TRANSCRIPT_PATTERN.test(normalized)
+  ) {
     return false;
   }
 
@@ -523,7 +526,8 @@ function getLatestQuestion(
       .find(
         (segment) =>
           segment.source === "meeting_audio" ||
-          segment.source === "meeting_native_transcript",
+          segment.source === "meeting_native_transcript" ||
+          segment.source === "typed_question",
       )?.text ??
     segments.at(-1)?.text ??
     "What should I focus on in this answer?"
@@ -632,6 +636,21 @@ function buildCueDisclosure(input: {
   };
 }
 
+function formatTranscriptSourceForExport(
+  source: InterviewTranscriptSegment["source"],
+): string {
+  switch (source) {
+    case "microphone":
+      return "Your microphone";
+    case "meeting_audio":
+      return "System audio";
+    case "meeting_native_transcript":
+      return "Meeting transcript";
+    case "typed_question":
+      return "Typed question";
+  }
+}
+
 function buildMarkdownExport(session: InterviewLiveSession): string {
   const lines = [
     `# ${session.targetContext.label}`,
@@ -647,7 +666,8 @@ function buildMarkdownExport(session: InterviewLiveSession): string {
     "## Transcript",
     "",
     ...session.transcriptSegments.map(
-      (segment) => `- ${segment.startedAt} [${segment.source}] ${segment.text}`,
+      (segment) =>
+        `- ${segment.startedAt} [${formatTranscriptSourceForExport(segment.source)}] ${segment.text}`,
     ),
     ...(session.transcriptAnnotations.length > 0
       ? [
@@ -859,6 +879,19 @@ export function createInterviewHelperService(
     try {
       const cue = await options.cueCardProvider.generateCueCard(cueInput);
       normalizedCue = InterviewCueCardSchema.parse(cue);
+      if (normalizedCue.executionReceipt?.fallbackUsed) {
+        providerDiagnostics.push(
+          createDiagnostic({
+            sessionId: session.id,
+            kind: "provider",
+            severity: "warning",
+            label: "Cue provider used safe fallback",
+            detail:
+              "The configured AI could not finish this cue, so Interview Helper used its built-in grounded fallback.",
+            occurredAt: currentNow,
+          }),
+        );
+      }
     } catch (error) {
       normalizedCue = createCueProviderFailureCard(cueInput);
       providerDiagnostics.push(
@@ -1236,7 +1269,7 @@ export function createInterviewHelperService(
     const segment = InterviewTranscriptSegmentSchema.parse({
       id: createId("interview_chat_segment"),
       sessionId: activeSession.id,
-      source: "meeting_native_transcript",
+      source: "typed_question",
       state: "final",
       text: question,
       startedAt: currentNow,
@@ -2107,9 +2140,10 @@ export function createInterviewHelperService(
               await options.transcriptionProvider.transcribeAudioChunk(
                 audioInput,
               );
-            outcome = result && containsUsableSpeech(result.text)
-              ? { status: "transcribed", result }
-              : { status: "empty" };
+            outcome =
+              result && containsUsableSpeech(result.text)
+                ? { status: "transcribed", result }
+                : { status: "empty" };
           } catch (error) {
             outcome = {
               status: "failed",

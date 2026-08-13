@@ -34,7 +34,7 @@ import {
   getDefaultCopilotPosition,
   getDraggedCopilotPosition,
   getCopilotPanelDimensions,
-  parseCopilotPosition,
+  resizeCopilotPosition,
 } from "./profile-copilot-rail-layout";
 import {
   ProfileCopilotCollapsedBubble,
@@ -70,39 +70,15 @@ export function ProfileCopilotRail(props: {
   const [showRevisionTray, setShowRevisionTray] = useState(false);
   const [showProactivePrompt, setShowProactivePrompt] = useState(true);
   const [safeTopOffset, setSafeTopOffset] = useState(240);
-  const [position, setPosition] = useState(() => {
-    if (typeof window === "undefined") {
-      return getDefaultCopilotPosition();
-    }
-
-    try {
-      return (
-        parseCopilotPosition(
-          window.localStorage.getItem(COPILOT_POSITION_STORAGE_KEY),
-        ) ?? getDefaultCopilotPosition()
-      );
-    } catch {
-      return getDefaultCopilotPosition();
-    }
-  });
-  const [hasCustomCollapsedPosition, setHasCustomCollapsedPosition] = useState(
-    () => {
-      if (typeof window === "undefined") {
-        return false;
-      }
-
-      try {
-        return (
-          parseCopilotPosition(
-            window.localStorage.getItem(COPILOT_POSITION_STORAGE_KEY),
-          ) !== null
-        );
-      } catch {
-        return false;
-      }
-    },
+  const [workspaceActionClearance, setWorkspaceActionClearance] = useState(
+    COPILOT_BOTTOM_OFFSET,
   );
+  const [position, setPosition] = useState(() => getDefaultCopilotPosition());
   const collapsedPositionRef = useRef(position);
+  const viewportRef = useRef({
+    height: typeof window === "undefined" ? 0 : window.innerHeight,
+    width: typeof window === "undefined" ? 0 : window.innerWidth,
+  });
   const composerId = useId();
   const railRootRef = useRef<HTMLDivElement | null>(null);
   const wasOpenRef = useRef(false);
@@ -121,9 +97,14 @@ export function ProfileCopilotRail(props: {
   const suppressNextBubbleClickRef = useRef(false);
   const contextKey = getProfileCopilotContextKey(props.context);
   const isPendingHere = props.pendingContextKey === contextKey;
-  const minBottomOffset = props.minBottomOffset ?? COPILOT_BOTTOM_OFFSET;
-  const collapsedMinBottomOffset =
-    props.collapsedMinBottomOffset ?? COPILOT_BOTTOM_OFFSET;
+  const minBottomOffset = Math.max(
+    props.minBottomOffset ?? COPILOT_BOTTOM_OFFSET,
+    workspaceActionClearance,
+  );
+  const collapsedMinBottomOffset = Math.max(
+    props.collapsedMinBottomOffset ?? COPILOT_BOTTOM_OFFSET,
+    workspaceActionClearance,
+  );
   const panelDimensions = getCopilotPanelDimensions(safeTopOffset);
   const collapsedPreviewTitle = isPendingHere
     ? "Working on your last request"
@@ -175,17 +156,63 @@ export function ProfileCopilotRail(props: {
         Math.ceil(shellHeader.getBoundingClientRect().bottom + 16),
       );
     };
-    const observer = new ResizeObserver(updateSafeTopOffset);
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? undefined
+        : new ResizeObserver(updateSafeTopOffset);
 
     updateSafeTopOffset();
-    observer.observe(shellHeader);
+    observer?.observe(shellHeader);
     window.addEventListener("resize", updateSafeTopOffset);
 
     return () => {
-      observer.disconnect();
+      observer?.disconnect();
       window.removeEventListener("resize", updateSafeTopOffset);
     };
   }, []);
+
+  useLayoutEffect(() => {
+    const workspaceActions = document.querySelector<HTMLElement>(
+      "[data-profile-workspace-actions]",
+    );
+
+    if (!workspaceActions) {
+      setWorkspaceActionClearance(COPILOT_BOTTOM_OFFSET);
+      return;
+    }
+
+    const updateWorkspaceActionClearance = () => {
+      const rect = workspaceActions.getBoundingClientRect();
+      const isVisible = rect.bottom > 0 && rect.top < window.innerHeight;
+      setWorkspaceActionClearance(
+        isVisible
+          ? Math.max(
+              COPILOT_BOTTOM_OFFSET,
+              Math.ceil(window.innerHeight - rect.top + 16),
+            )
+          : COPILOT_BOTTOM_OFFSET,
+      );
+    };
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? undefined
+        : new ResizeObserver(updateWorkspaceActionClearance);
+
+    updateWorkspaceActionClearance();
+    observer?.observe(workspaceActions);
+    document.addEventListener("scroll", updateWorkspaceActionClearance, true);
+    window.addEventListener("resize", updateWorkspaceActionClearance);
+
+    return () => {
+      observer?.disconnect();
+      document.removeEventListener(
+        "scroll",
+        updateWorkspaceActionClearance,
+        true,
+      );
+      window.removeEventListener("resize", updateWorkspaceActionClearance);
+    };
+  }, [contextKey]);
 
   useEffect(() => {
     const wasPendingHere = wasPendingHereRef.current;
@@ -250,18 +277,33 @@ export function ProfileCopilotRail(props: {
   }, []);
 
   useEffect(() => {
+    try {
+      window.localStorage.removeItem(COPILOT_POSITION_STORAGE_KEY);
+    } catch {
+      // The launcher is safely docked even when local storage is unavailable.
+    }
+  }, []);
+
+  useEffect(() => {
     if (typeof window === "undefined") {
       return;
     }
 
     const handleResize = () => {
+      const previousViewport = viewportRef.current;
+      const nextViewport = {
+        height: window.innerHeight,
+        width: window.innerWidth,
+      };
+      viewportRef.current = nextViewport;
       setPosition((current) => {
-        const nextPosition = clampCopilotPosition({
-          x: current.x,
-          y: current.y,
+        const nextPosition = resizeCopilotPosition({
           isOpen,
           minBottomOffset: isOpen ? minBottomOffset : collapsedMinBottomOffset,
           minTopOffset: safeTopOffset,
+          nextViewport,
+          position: current,
+          previousViewport,
         });
 
         if (!isOpen) {
@@ -291,30 +333,6 @@ export function ProfileCopilotRail(props: {
       return nextPosition;
     });
   }, [collapsedMinBottomOffset, isOpen, minBottomOffset, safeTopOffset]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    if (isOpen) {
-      return;
-    }
-
-    try {
-      if (!hasCustomCollapsedPosition) {
-        window.localStorage.removeItem(COPILOT_POSITION_STORAGE_KEY);
-        return;
-      }
-
-      window.localStorage.setItem(
-        COPILOT_POSITION_STORAGE_KEY,
-        JSON.stringify(position),
-      );
-    } catch {
-      // Local placement persistence is a convenience; storage failures must not block Copilot.
-    }
-  }, [hasCustomCollapsedPosition, isOpen, position]);
 
   useEffect(() => {
     const transcript = transcriptRef.current;
@@ -401,13 +419,12 @@ export function ProfileCopilotRail(props: {
 
     event.preventDefault();
     const renderedBounds = event.currentTarget.getBoundingClientRect();
-    const useRenderedAnchor = !draggingOpen && !hasCustomCollapsedPosition;
     dragStateRef.current = {
       pointerId: event.pointerId,
       originX: event.clientX,
       originY: event.clientY,
-      startX: useRenderedAnchor ? renderedBounds.left : position.x,
-      startY: useRenderedAnchor ? renderedBounds.top : position.y,
+      startX: draggingOpen ? position.x : renderedBounds.left,
+      startY: draggingOpen ? position.y : renderedBounds.top,
       moved: false,
       isOpen: draggingOpen,
     };
@@ -469,9 +486,6 @@ export function ProfileCopilotRail(props: {
     }
 
     dragState.moved = true;
-    if (!dragState.isOpen) {
-      setHasCustomCollapsedPosition(true);
-    }
     setPosition(
       clampCopilotPosition({
         x: dragResult.position.x,
@@ -503,9 +517,6 @@ export function ProfileCopilotRail(props: {
 
     if (dragResult.moved) {
       dragState.moved = true;
-      if (!dragState.isOpen) {
-        setHasCustomCollapsedPosition(true);
-      }
       setPosition(
         clampCopilotPosition({
           x: dragResult.position.x,
@@ -593,30 +604,22 @@ export function ProfileCopilotRail(props: {
     toggleOpenFromBubble();
   }
 
-  function handleBubbleKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
-    if (event.key !== "Enter" && event.key !== " ") {
-      return;
-    }
-
-    event.preventDefault();
-    suppressNextBubbleClickRef.current = true;
-    toggleOpenFromBubble();
-  }
-
   return createPortal(
     <div
-      className="pointer-events-none fixed z-[80] flex max-w-[min(30rem,calc(100vw-2rem))] flex-col items-start gap-3"
+      className="pointer-events-none fixed z-[80] flex max-w-[min(30rem,calc(100vw-2rem))] flex-col items-end gap-3"
       ref={railRootRef}
       style={
         isOpen && isMaximized
           ? {
               left: `${COPILOT_BOTTOM_OFFSET}px`,
+              maxWidth: `calc(100vw - ${COPILOT_BOTTOM_OFFSET * 2}px)`,
               top: `${safeTopOffset}px`,
+              width: `calc(100vw - ${COPILOT_BOTTOM_OFFSET * 2}px)`,
             }
-          : !isOpen && !hasCustomCollapsedPosition
+          : !isOpen
             ? {
-                bottom: `${COPILOT_BOTTOM_OFFSET}px`,
-                left: `${COPILOT_BOTTOM_OFFSET}px`,
+                bottom: `${collapsedMinBottomOffset}px`,
+                right: `${COPILOT_BOTTOM_OFFSET}px`,
               }
             : { left: `${position.x}px`, top: `${position.y}px` }
       }
@@ -628,9 +631,7 @@ export function ProfileCopilotRail(props: {
           className="pointer-events-auto surface-panel-shell flex min-w-0 flex-col overflow-hidden rounded-(--radius-panel) border border-border/40 bg-card shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur"
           data-profile-copilot-maximized={isMaximized ? "true" : "false"}
           style={{
-            width: isMaximized
-              ? `calc(100vw - ${COPILOT_BOTTOM_OFFSET * 2}px)`
-              : `${panelDimensions.expandedWidth}px`,
+            width: isMaximized ? "100%" : `${panelDimensions.expandedWidth}px`,
             height: isMaximized
               ? `calc(100vh - ${safeTopOffset + COPILOT_BOTTOM_OFFSET}px)`
               : `${panelDimensions.expandedHeight}px`,
@@ -769,12 +770,11 @@ export function ProfileCopilotRail(props: {
       {!isOpen ? (
         <ProfileCopilotCollapsedBubble
           collapsedPreviewTitle={collapsedPreviewTitle}
-          isDraggable
+          isDraggable={false}
           isOpen={isOpen}
           isPendingHere={isPendingHere}
           messageCount={props.messages.length}
           onClick={handleBubbleClick}
-          onKeyDown={handleBubbleKeyDown}
           onPointerDown={handleBubblePointerDown}
           onPointerMove={handleBubblePointerMove}
           onPointerCancel={handleBubblePointerCancel}

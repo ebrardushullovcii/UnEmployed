@@ -303,7 +303,7 @@ describe("runAgentDiscovery deferred extraction behavior", () => {
     expect(result.steps).toBe(2);
   });
 
-  test("caps widened search-result review to the expanded budget instead of the full remaining target", async () => {
+  test("keeps the full seeded-search review budget through deterministic batch passes", async () => {
     const page = createPage() as Page;
     const llmClient: LLMClient = {
       chatWithTools: vi
@@ -342,12 +342,138 @@ describe("runAgentDiscovery deferred extraction behavior", () => {
 
     await runAgentDiscovery(page, config, llmClient, jobExtractor);
 
-    expect(jobExtractor.extractJobsFromPage).toHaveBeenCalledTimes(1);
-    expect(jobExtractor.extractJobsFromPage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        maxJobs: 16,
-        pageType: "search_results",
+    expect(jobExtractor.extractJobsFromPage).toHaveBeenCalledTimes(2);
+    for (const [input] of vi.mocked(jobExtractor.extractJobsFromPage).mock
+      .calls) {
+      expect(input).toEqual(
+        expect.objectContaining({
+          maxJobs: 50,
+          pageType: "search_results",
+        }),
+      );
+    }
+  });
+
+  test("advances bounded result pages after the active results pane reaches its end", async () => {
+    let currentUrl = "about:blank";
+    let pageNumber = 1;
+    const nextPageClick = vi.fn(async () => {
+      pageNumber += 1;
+      currentUrl = `https://jobs.example.com/search/?page=${pageNumber}`;
+    });
+    const matchingNextLocator = {
+      count: vi.fn(async () => 1),
+      nth: vi.fn(),
+      isVisible: vi.fn(async () => true),
+      click: nextPageClick,
+      textContent: vi.fn(async () => "Next"),
+      scrollIntoViewIfNeeded: vi.fn(async () => undefined),
+    };
+    matchingNextLocator.nth.mockReturnValue(matchingNextLocator);
+    const missingLocator = {
+      count: vi.fn(async () => 0),
+      nth: vi.fn(),
+      isVisible: vi.fn(async () => false),
+      click: vi.fn(async () => undefined),
+      textContent: vi.fn(async () => null),
+      scrollIntoViewIfNeeded: vi.fn(async () => undefined),
+    };
+    missingLocator.nth.mockReturnValue(missingLocator);
+    const basePage = createPage();
+    const page = {
+      ...basePage,
+      goto: vi.fn(async (url: string) => {
+        currentUrl = url;
+        return null as never;
       }),
+      url: vi.fn(() => currentUrl),
+      getByRole: vi.fn(
+        (
+          role: string,
+          options?: { name?: string | RegExp; exact?: boolean },
+        ) => {
+          const name = options?.name;
+          const matchesNext =
+            role === "button" &&
+            (typeof name === "string"
+              ? name === "View next page"
+              : name instanceof RegExp && name.test("View next page"));
+          return (matchesNext ? matchingNextLocator : missingLocator) as never;
+        },
+      ),
+      evaluate: vi.fn(async (callback: unknown, argument?: unknown) => {
+        const source = String(callback);
+        if (
+          argument &&
+          typeof argument === "object" &&
+          "scrollAmount" in argument
+        ) {
+          return {
+            previousScrollY: 400,
+            newScrollY: 400,
+            previousHeight: 900,
+            totalHeight: 900,
+            clientHeight: 500,
+            scrollContainer: "div[role=list]",
+          };
+        }
+        if (source.includes("previousScrollY")) {
+          return {
+            previousScrollY: 400,
+            newScrollY: 0,
+            totalHeight: 900,
+            scrollContainer: "div[role=list]",
+          };
+        }
+        return [];
+      }),
+    } as unknown as Page;
+    let extractionIndex = 0;
+    const jobExtractor: JobExtractor = {
+      extractJobsFromPage: vi.fn(async () => {
+        extractionIndex += 1;
+        return [
+          {
+            sourceJobId: `paged_job_${extractionIndex}`,
+            canonicalUrl: `https://jobs.example.com/jobs/paged_job_${extractionIndex}`,
+            title: `Workflow Engineer ${extractionIndex}`,
+            company: "Signal Systems",
+            location: "Remote",
+            workMode: ["remote" as const],
+            applyPath: "unknown" as const,
+            postedAt: null,
+            salaryText: null,
+            summary: "Paged search result.",
+            description: "Paged search result.",
+            easyApplyEligible: false,
+            keySkills: ["React"],
+            responsibilities: [],
+          },
+        ];
+      }),
+    };
+    const llmClient: LLMClient = {
+      chatWithTools: vi.fn(async () => ({
+        content: "No additional action needed.",
+        toolCalls: [],
+      })),
+    };
+    const config = createConfig();
+    config.maxSteps = 1;
+    config.targetJobCount = 50;
+    config.promptContext = { siteLabel: "Primary target" };
+    config.startingUrls = ["https://jobs.example.com/search/"];
+    config.navigationPolicy = { allowedHostnames: ["jobs.example.com"] };
+
+    const result = await runAgentDiscovery(
+      page,
+      config,
+      llmClient,
+      jobExtractor,
     );
+
+    expect(nextPageClick).toHaveBeenCalledTimes(2);
+    expect(jobExtractor.extractJobsFromPage).toHaveBeenCalledTimes(1);
+    expect(result.jobs).toHaveLength(1);
   });
 });

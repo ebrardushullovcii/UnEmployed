@@ -15,6 +15,10 @@ function createWorkspace(input?: {
     module: "interview-helper",
     generatedAt: NOW,
     setup: {
+      consent: {
+        microphoneCapture: true,
+        meetingAudioCapture: true,
+      },
       rehearsal: {
         status: "passed",
         microphoneEngine: {
@@ -164,7 +168,8 @@ describe("deriveInterviewHealthSummary", () => {
   it("clears the recoverable failure after capture recovers", () => {
     const failed = derive({
       systemAudioDetail: "Not checked in this renderer.",
-      systemRecorderDetail: "Display capture did not expose a system audio track.",
+      systemRecorderDetail:
+        "Display capture did not expose a system audio track.",
       systemRecorderStatus: "failed",
       systemStatus: "idle",
     });
@@ -181,5 +186,29 @@ describe("deriveInterviewHealthSummary", () => {
     });
     expect(recovered.systemAudio.status).toBe("healthy");
     expect(recovered.recoverableFailure).toBeNull();
+  });
+
+  it("treats an intentional text-only session as ready instead of degraded", () => {
+    const workspace = createWorkspace();
+    workspace.setup.consent.microphoneCapture = false;
+    workspace.setup.consent.meetingAudioCapture = false;
+
+    const health = derive({
+      audioTranscriptionAvailable: false,
+      microphoneStatus: "unavailable",
+      microphoneRecorderStatus: "idle",
+      systemStatus: "unavailable",
+      systemRecorderStatus: "idle",
+      workspace,
+    });
+
+    expect(health.overallStatus).toBe("healthy");
+    expect(health.microphone.detail).toBe("Off by choice.");
+    expect(health.systemAudio.detail).toBe("Off by choice.");
+    expect(health.transcription).toMatchObject({
+      status: "healthy",
+      detail: "Text-only mode is ready. Audio transcription is off by choice.",
+    });
+    expect(health.recoverableFailure).toBeNull();
   });
 });

@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { createResumeImportFixtureBundle } from "./resume-import-fixtures";
-import { createProfile, createPreferences, mockCapturingJsonFetch } from "./test-fixtures";
+import {
+  createProfile,
+  createPreferences,
+  mockCapturingJsonFetch,
+} from "./test-fixtures";
 import {
   createOpenAiCompatibleResumeVisionProvider,
   createResumeVisionProviderFromEnvironment,
@@ -108,7 +112,9 @@ describe("resume vision provider", () => {
         },
       });
 
-      const headline = result.candidates.find((candidate) => candidate.target.key === "headline");
+      const headline = result.candidates.find(
+        (candidate) => candidate.target.key === "headline",
+      );
       expect(result.analysisProviderKind).toBe("openai_compatible_vision");
       expect(headline?.confidence).toBe(0.84);
       expect(headline?.notes).toEqual(["visible near the top of the resume"]);
@@ -120,7 +126,11 @@ describe("resume vision provider", () => {
         regionHint: "top headline",
         confidence: 0.86,
       });
-      expect(result.candidates.some((candidate) => candidate.target.key === "ignored")).toBe(false);
+      expect(
+        result.candidates.some(
+          (candidate) => candidate.target.key === "ignored",
+        ),
+      ).toBe(false);
       expect(fetchMock.getCapturedBody()).toContain("image_url");
     } finally {
       fetchMock.restore();
@@ -153,10 +163,13 @@ describe("resume vision provider", () => {
     let capturedBody: unknown = null;
 
     globalThis.fetch = ((url, init) => {
-      capturedUrl = typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
+      capturedUrl =
+        typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
       const headers = new Headers(init?.headers);
       capturedAuthorization = headers.get("Authorization") ?? "";
-      capturedBody = JSON.parse(typeof init?.body === "string" ? init.body : "{}");
+      capturedBody = JSON.parse(
+        typeof init?.body === "string" ? init.body : "{}",
+      );
 
       return Promise.resolve(
         new Response(
@@ -257,7 +270,9 @@ describe("resume vision provider", () => {
     const provider = createResumeVisionProviderFromEnvironment({});
     const bundle = createResumeImportFixtureBundle({
       id: "role_headline_vision_fallback_bundle",
-      pageTexts: ["Senior Software Engineer\nTampa, FL\nmurphyaron12@gmail.com"],
+      pageTexts: [
+        "Senior Software Engineer\nTampa, FL\nmurphyaron12@gmail.com",
+      ],
       blocks: [
         {
           id: "block_1",
@@ -368,6 +383,26 @@ describe("resume vision provider", () => {
       ready: true,
       model: "shared-vision-model",
       baseUrl: "https://shared.example.com/v1",
+    });
+  });
+
+  test("keeps shared vision routing separate from a Chat Completions text provider", () => {
+    const provider = createResumeVisionProviderFromEnvironment({
+      UNEMPLOYED_AI_API_KEY: "go-test-key",
+      UNEMPLOYED_AI_BASE_URL: "https://text.example.com/v1",
+      UNEMPLOYED_AI_API_MODE: "chat_completions",
+      UNEMPLOYED_AI_REASONING_EFFORT: "max",
+      UNEMPLOYED_AI_VISION_BASE_URL: "https://vision.example.com/v1",
+      UNEMPLOYED_AI_VISION_MODEL: "gpt-5.6-luna",
+      UNEMPLOYED_AI_VISION_API_MODE: "responses",
+      UNEMPLOYED_AI_VISION_REASONING_EFFORT: "high",
+    });
+
+    expect(provider.getStatus()).toMatchObject({
+      kind: "openai_compatible_vision",
+      ready: true,
+      model: "gpt-5.6-luna",
+      baseUrl: "https://vision.example.com/v1",
     });
   });
 

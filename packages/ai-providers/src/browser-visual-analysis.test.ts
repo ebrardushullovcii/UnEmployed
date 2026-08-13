@@ -8,7 +8,9 @@ import {
   createOpenAiCompatibleBrowserVisualAnalysisProvider,
 } from "./browser-visual-analysis";
 
-function createInput(overrides: Partial<BrowserVisualAnalysisInput> = {}): BrowserVisualAnalysisInput {
+function createInput(
+  overrides: Partial<BrowserVisualAnalysisInput> = {},
+): BrowserVisualAnalysisInput {
   const base: BrowserVisualAnalysisInput = {
     snapshot: {
       id: "visual_snapshot_1",
@@ -155,7 +157,8 @@ describe("browser visual analysis providers", () => {
 
   test("openai-compatible provider calls fetch with expected JSON body and merges observation sets", async () => {
     const primarySummary = "Search controls and job cards are visible.";
-    const primaryControl = "Visible text includes a search control or search area.";
+    const primaryControl =
+      "Visible text includes a search control or search area.";
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -185,7 +188,9 @@ describe("browser visual analysis providers", () => {
     expect((calledInit as RequestInit).method).toBe("POST");
 
     // body includes snapshot id and context
-    const body = JSON.parse((calledInit as RequestInit).body as string) as Record<string, unknown>;
+    const body = JSON.parse(
+      (calledInit as RequestInit).body as string,
+    ) as Record<string, unknown>;
     expect(body).toHaveProperty("model", "vision-test");
     const messages = body.messages as { role: string; content: unknown }[];
     const userContent = messages.find((m) => m.role === "user")?.content;
@@ -197,6 +202,76 @@ describe("browser visual analysis providers", () => {
 
     // deterministic fallback observations are merged in from visibleTextSample ("search jobs. filter by location.")
     expect(result.visibleControls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("normalizes common model aliases and locally supplies observation metadata", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  summary: "A cookie dialog blocks the job cards.",
+                  observations: [
+                    {
+                      kind: "control",
+                      label: "Cookie choices",
+                      description: "Reject all and Accept buttons are visible.",
+                      confidence: 0.98,
+                      severity: "normal",
+                      tags: ["consent"],
+                    },
+                    {
+                      kind: "blocker",
+                      label: "Cookie dialog",
+                      description: "The dialog obscures the job cards.",
+                      confidence: 0.99,
+                      severity: "blocking",
+                      tags: ["overlay"],
+                    },
+                  ],
+                  reconciliations: [
+                    {
+                      targetKind: "page-content",
+                      status: "partially-obscured",
+                    },
+                  ],
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const provider = createOpenAiCompatibleBrowserVisualAnalysisProvider({
+      apiKey: "test-key",
+      baseUrl: "https://vision.example.com/v1",
+      model: "vision-test",
+    });
+
+    const result = await provider.analyzeBrowserVisualSnapshot(
+      createSourceDebugInput(),
+    );
+
+    expect(result.fallbackUsed, JSON.stringify(result, null, 2)).toBe(false);
+    expect(
+      result.observations.some(
+        (observation) =>
+          observation.id.startsWith("visual_observation_") &&
+          observation.kind === "visible_control" &&
+          observation.severity === "info",
+      ),
+    ).toBe(true);
+    expect(
+      result.observations.some(
+        (observation) =>
+          observation.kind === "blocker" && observation.severity === "critical",
+      ),
+    ).toBe(true);
+    expect(result.reconciliations).toEqual([]);
+    expect(result.rejectedOutputReasons).toEqual([]);
   });
 
   test("openai-compatible provider produces rejectedOutputReasons and deterministic fallback when response violates schema", async () => {
@@ -220,14 +295,24 @@ describe("browser visual analysis providers", () => {
       model: "vision-test",
     });
 
-    const result = await provider.analyzeBrowserVisualSnapshot(createSourceDebugInput());
+    const result = await provider.analyzeBrowserVisualSnapshot(
+      createSourceDebugInput(),
+    );
 
     // The schema-violating model value is stripped; deterministic fallback controls may still be merged in.
-    expect(result.visibleControls.some((value) => /#submit-button/i.test(value))).toBe(false);
-    expect(result.visibleControls.some((value) => /search control|filter control/i.test(value))).toBe(true);
+    expect(
+      result.visibleControls.some((value) => /#submit-button/i.test(value)),
+    ).toBe(false);
+    expect(
+      result.visibleControls.some((value) =>
+        /search control|filter control/i.test(value),
+      ),
+    ).toBe(true);
     // The rejectedOutputReasons record what was stripped
     expect(result.rejectedOutputReasons.length).toBeGreaterThan(0);
-    expect(result.rejectedOutputReasons.every((reason) => reason.trim().length > 0)).toBe(true);
+    expect(
+      result.rejectedOutputReasons.every((reason) => reason.trim().length > 0),
+    ).toBe(true);
     // Fields that did NOT fail validation are preserved where schema-safe; summary remains meaningful.
     expect(result.summary && result.summary.length > 0).toBe(true);
     expect(Array.isArray(result.fieldControls)).toBe(true);

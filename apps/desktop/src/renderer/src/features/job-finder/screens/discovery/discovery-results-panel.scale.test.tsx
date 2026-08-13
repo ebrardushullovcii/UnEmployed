@@ -136,6 +136,49 @@ describe("DiscoveryResultsPanel workspace scale", () => {
     expect(screen.getByText("1–50 of 1000")).toBeTruthy();
   });
 
+  it("resets only the result scroller while keeping pagination keyboard focus", () => {
+    const jobs = createJobs();
+    const { container } = renderResults(jobs, null);
+    const scrollRegion = container.querySelector<HTMLElement>(
+      "[data-job-results-scroll-region]",
+    );
+    const nextButton = screen.getByRole<HTMLButtonElement>("button", {
+      name: "Next",
+    });
+    expect(scrollRegion).not.toBeNull();
+    container.scrollTop = 120;
+    if (scrollRegion) {
+      scrollRegion.scrollTop = 640;
+    }
+    nextButton.focus();
+
+    fireEvent.click(nextButton);
+
+    expect(scrollRegion?.scrollTop).toBe(0);
+    expect(container.scrollTop).toBe(120);
+    expect(document.activeElement).toBe(nextButton);
+    expect(screen.getByText("51–100 of 1000")).toBeTruthy();
+  });
+
+  it("keeps pagination outside the scrolling result region", () => {
+    const jobs = createJobs();
+    const { container } = renderResults(jobs, null);
+    const scrollRegion = container.querySelector(
+      "[data-job-results-scroll-region]",
+    );
+    const resultStack = container.querySelector("[data-job-results-stack]");
+    const pagination = container.querySelector("[data-job-results-pagination]");
+
+    expect(resultStack).toBeTruthy();
+    expect(resultStack?.className).toContain("overflow-hidden");
+    expect(scrollRegion).toBeTruthy();
+    expect(pagination).toBeTruthy();
+    expect(scrollRegion?.contains(pagination)).toBe(false);
+    expect(pagination?.className).not.toContain("sticky");
+    expect(pagination?.className).toContain("shrink-0");
+    expect(pagination?.className).toContain("bg-(--surface-panel)");
+  });
+
   it("opens directly on page 20 when the selected job is the final result", () => {
     const jobs = createJobs();
     const { container } = renderResults(jobs, jobs[999] ?? null);
@@ -159,10 +202,17 @@ describe("DiscoveryResultsPanel workspace scale", () => {
 
   it("does not snap away from the current page when a refreshed job array keeps the same selection", () => {
     const jobs = createJobs();
-    const { container, rerender } = renderResults(jobs, null);
+    const { container, rerender } = renderResults(jobs, jobs[0] ?? null);
 
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByText("51–100 of 1000")).toBeTruthy();
+    const scrollRegion = container.querySelector<HTMLElement>(
+      "[data-job-results-scroll-region]",
+    );
+    expect(scrollRegion).not.toBeNull();
+    if (scrollRegion) {
+      scrollRegion.scrollTop = 640;
+    }
 
     const refreshedJobs = jobs.map((job) => ({ ...job }));
     rerender(
@@ -171,13 +221,64 @@ describe("DiscoveryResultsPanel workspace scale", () => {
         hasCompletedSearch
         jobs={refreshedJobs}
         onSelectJob={vi.fn()}
-        selectedJob={null}
+        selectedJob={refreshedJobs[0] ?? null}
       />,
     );
 
     const resultButtons = getRenderedJobButtons(container);
     expect(resultButtons[0]?.dataset.jobResultId).toBe("dom_scale_job_0050");
     expect(screen.getByText("51–100 of 1000")).toBeTruthy();
+    expect(scrollRegion?.scrollTop).toBe(640);
+  });
+
+  it("resets the result scroller when an external selection opens another page", () => {
+    const jobs = createJobs();
+    const { container, rerender } = renderResults(jobs, jobs[0] ?? null);
+    const scrollRegion = container.querySelector<HTMLElement>(
+      "[data-job-results-scroll-region]",
+    );
+    expect(scrollRegion).not.toBeNull();
+    if (scrollRegion) {
+      scrollRegion.scrollTop = 640;
+    }
+
+    rerender(
+      <DiscoveryResultsPanel
+        browserSession={browserSession}
+        hasCompletedSearch
+        jobs={jobs}
+        onSelectJob={vi.fn()}
+        selectedJob={jobs[999] ?? null}
+      />,
+    );
+
+    expect(screen.getByText("951–1000 of 1000")).toBeTruthy();
+    expect(scrollRegion?.scrollTop).toBe(0);
+  });
+
+  it("keeps the result scroll position when selection changes within the same page", () => {
+    const jobs = createJobs();
+    const { container, rerender } = renderResults(jobs, jobs[50] ?? null);
+    const scrollRegion = container.querySelector<HTMLElement>(
+      "[data-job-results-scroll-region]",
+    );
+    expect(scrollRegion).not.toBeNull();
+    if (scrollRegion) {
+      scrollRegion.scrollTop = 640;
+    }
+
+    rerender(
+      <DiscoveryResultsPanel
+        browserSession={browserSession}
+        hasCompletedSearch
+        jobs={jobs}
+        onSelectJob={vi.fn()}
+        selectedJob={jobs[51] ?? null}
+      />,
+    );
+
+    expect(screen.getByText("51–100 of 1000")).toBeTruthy();
+    expect(scrollRegion?.scrollTop).toBe(640);
   });
 
   it("explains an all-hidden result set and offers a working reveal action", () => {

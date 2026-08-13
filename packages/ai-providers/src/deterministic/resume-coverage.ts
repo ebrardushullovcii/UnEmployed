@@ -269,9 +269,7 @@ function buildExperienceText(
 function hasUsableWorkHistory(
   experience: CandidateProfile["experiences"][number],
 ): boolean {
-  return Boolean(
-    experience.title?.trim() && experience.companyName?.trim(),
-  );
+  return Boolean(experience.title?.trim() && experience.companyName?.trim());
 }
 
 function hasSkillPhraseOverlap(input: {
@@ -579,20 +577,25 @@ export function deriveResumeCoveragePlan(input: {
       entry.hasGroundedTechnicalEvidence
     ) {
       reasons.push("weak career-family fit with grounded technical evidence");
-      classification = hasUsableWorkHistory(entry.experience)
-        ? "compact"
-        : "suggested_hidden";
+      classification =
+        input.searchPreferences.tailoringMode === "aggressive"
+          ? "suggested_hidden"
+          : "compact";
     } else if (entry.careerFamilyFit === "weak") {
       reasons.push(
         "weak career-family fit without enough role-specific evidence",
       );
       classification = hasUsableWorkHistory(entry.experience)
-        ? "compact"
+        ? input.searchPreferences.tailoringMode === "aggressive"
+          ? "suggested_hidden"
+          : "compact"
         : "omitted";
     } else {
       reasons.push("no meaningful career-family fit or gap-coverage value");
       classification = hasUsableWorkHistory(entry.experience)
-        ? "compact"
+        ? input.searchPreferences.tailoringMode === "aggressive"
+          ? "suggested_hidden"
+          : "compact"
         : "omitted";
     }
 

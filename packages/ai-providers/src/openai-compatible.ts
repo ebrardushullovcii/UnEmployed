@@ -1,4 +1,5 @@
 import {
+  AgentTaskExecutionReceiptSchema,
   AgentProviderStatusSchema,
   ProfileCopilotReplySchema,
   ResumeDraftPatchSchema,
@@ -53,6 +54,10 @@ import {
 import type { ResumeImportExtractionStage } from "./resume-import";
 import { supplementExperienceStageCandidates } from "./resume-import-stage-supplement";
 import { createBrowserVisualAnalysisProviderFromEnvironment } from "./browser-visual-analysis";
+import {
+  runProfileCopilotAgentTask,
+  runResumeEditAgentTask,
+} from "./agent-capabilities";
 
 const DEFAULT_MODEL_TIMEOUT_MS = 60_000;
 const DEFAULT_RESUME_EXTRACTION_TIMEOUT_MS = 120_000;
@@ -67,17 +72,61 @@ const DEFAULT_RESUME_IMPORT_STAGE_TIMEOUT_MS: Record<
 const SEARCH_RESULTS_EXTRACTION_TIMEOUT_MS = 35_000;
 const SEARCH_RESULTS_EXTRACTION_PAGE_TEXT_LIMIT = 8_000;
 const JOB_DETAIL_EXTRACTION_PAGE_TEXT_LIMIT = 12_000;
-const SEARCH_RESULTS_MAX_MODEL_JOBS = 4;
+const SEARCH_RESULTS_MAX_MODEL_JOBS = 12;
 const DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS = 196_000;
+const TRANSIENT_MODEL_MAX_ATTEMPTS = 3;
 
-function buildResumeRewriteProposalPrompt(): string {
+function isTransientModelError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  return /timeout|timed out|429|rate.?limit|overload|temporar|fetch failed|network|econn|socket|dns|502|503|504/.test(
+    message,
+  );
+}
+
+async function waitForTransientModelRetry(
+  attempt: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  const delayMs = Math.min(2_000, 300 * 2 ** attempt) + attempt * 53;
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = () => signal?.removeEventListener("abort", abort);
+    const abort = () => {
+      clearTimeout(timer);
+      cleanup();
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    if (signal?.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, delayMs);
+    signal?.addEventListener("abort", abort, { once: true });
+  });
+}
+
+function buildResumeRewriteProposalPrompt(
+  tailoringMode: "conservative" | "balanced" | "aggressive",
+): string {
+  const modeGuidance =
+    tailoringMode === "aggressive"
+      ? "Aggressive mode: substantially rewrite, combine, and elaborate the cited candidate evidence into the strongest plausible job-tailored prose. When the cited evidence names the candidate's stack (for example JavaScript, TypeScript, Next.js) or product domain (for example restaurant management SaaS), infer and spell out realistic engineering details around them - typical features, implementation approaches, trade-offs, and effects consistent with that stack and domain - even when the cited wording omits them. You may connect an evidenced metric to plausible supporting work, but every number in your output must come verbatim from the cited evidence. Mark every proposal that elaborates beyond the cited wording with inferred:true. Never introduce: named technologies, frameworks, tools, services, or products that do not appear in the cited evidence (no Angular, Vue, Redis, or similar unless evidenced); employers, dates, titles, credentials, certifications, seniority, team size, or leadership not supported by the cited evidence; or any new number, percentage, count, or money."
+      : tailoringMode === "conservative"
+        ? "Conservative mode: stay very close to the cited wording and propose only clear, low-risk improvements."
+        : "Balanced mode: improve structure and relevance while keeping every factual statement directly supported by cited evidence.";
+
   return [
     "You propose only evidence-linked prose improvements for a tailored resume; the application deterministically owns the complete resume, identity metadata, chronology, coverage, skills, and rendering.",
     "Return one JSON object containing only material improvements. Return {} when the cited evidence is already as clear and professional as you can safely make it.",
-    'Use this sparse shape: {"summary":{"text":"...","evidenceRefs":["..."]},"experienceEntries":[{"profileRecordId":"...","summary":{"text":"...","evidenceRefs":["..."]},"bullets":[{"text":"...","evidenceRefs":["..."]}]}],"projectEntries":[{"profileRecordId":"...","summary":{"text":"...","evidenceRefs":["..."]},"outcome":{"text":"...","evidenceRefs":["..."]},"bullets":[{"text":"...","evidenceRefs":["..."]}]}]}. Omit every unchanged or unused field and entry.',
-    "Every proposed text must cite exact IDs from groundingEvidence.items. Experience and project proposals may cite only items with the same profileRecordId.",
-    "Use only claims, numbers, technologies, scope, and outcomes stated in the cited evidence. Do not add dates, titles, employers, credentials, seniority, leadership, causality, metrics, or absolutes.",
-    "Prefer concise reordering and active-voice phrasing. Keep distinctive evidence terms and exact metrics unchanged; do not add target-company or job-posting language unless it already appears in the cited candidate evidence.",
+    'Use this sparse shape: {"summary":{"text":"...","evidenceRefs":["..."]},"experienceEntries":[{"profileRecordId":"...","summary":{"text":"...","evidenceRefs":["..."]},"bullets":[{"text":"...","evidenceRefs":["..."],"inferred":true}]}],"projectEntries":[{"profileRecordId":"...","summary":{"text":"...","evidenceRefs":["..."]},"outcome":{"text":"...","evidenceRefs":["..."]},"bullets":[{"text":"...","evidenceRefs":["..."]}]}]}. Omit every unchanged or unused field and entry.',
+    "Every proposed text must cite exact IDs from groundingEvidence.items. Experience and project proposals may cite items with the same profileRecordId; in aggressive mode they may additionally cite profile-scope items (for example profile:skills, profile:skillGroup:coreSkills, profile:summary) to anchor stack- and domain-aware wording.",
+    "Outside aggressive mode, use only claims, numbers, technologies, scope, and outcomes stated in the cited evidence. In every mode, never add dates, titles, employers, credentials, seniority, causality, or absolutes, and never add leadership the cited evidence does not support.",
+    "Write for the exact target job. Make the candidate's supported match obvious in the opening lines, and prioritize the job's most important supported skills and accomplishments over generic career description.",
+    "Use concise accomplishment statements: action, specific work, and outcome. Keep distinctive evidence terms and exact metrics unchanged. Do not repeat the same claim or metric in multiple bullets.",
+    "Use job-description wording only when the candidate evidence supports the same skill or work. Never stuff keywords, copy employer language without evidence, or add target-company claims.",
+    modeGuidance,
     "Do not return a full resume, identity metadata, skills lists, compatibility scores, labels, notes, explanations, or uncited text.",
   ].join(" ");
 }
@@ -214,34 +263,50 @@ export function createOpenAiCompatibleJobFinderAiClient(
 
     try {
       const apiMode = validatedOptions.apiMode ?? "chat_completions";
-      const response = await fetch(
-        buildModelUrl(validatedOptions.baseUrl, apiMode),
-        {
-          method: "POST",
-          signal: controller.signal,
-          headers: {
-            Authorization: `Bearer ${validatedOptions.apiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(
-            buildModelRequestBody({
-              apiMode,
-              model: validatedOptions.model,
-              reasoningEffort: validatedOptions.reasoningEffort,
-              jsonOutput: true,
-              messages: [
-                { role: "system", content: systemPrompt },
-                {
-                  role: "user",
-                  content: JSON.stringify(compactedUserPayload),
-                },
-              ],
-            }),
-          ),
-        },
-      );
-
-      return parseModelJsonResponse(response, apiMode);
+      for (
+        let attempt = 0;
+        attempt < TRANSIENT_MODEL_MAX_ATTEMPTS;
+        attempt += 1
+      ) {
+        try {
+          const response = await fetch(
+            buildModelUrl(validatedOptions.baseUrl, apiMode),
+            {
+              method: "POST",
+              signal: controller.signal,
+              headers: {
+                Authorization: `Bearer ${validatedOptions.apiKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(
+                buildModelRequestBody({
+                  apiMode,
+                  model: validatedOptions.model,
+                  reasoningEffort: validatedOptions.reasoningEffort,
+                  jsonOutput: true,
+                  messages: [
+                    { role: "system", content: systemPrompt },
+                    {
+                      role: "user",
+                      content: JSON.stringify(compactedUserPayload),
+                    },
+                  ],
+                }),
+              ),
+            },
+          );
+          return await parseModelJsonResponse(response, apiMode);
+        } catch (error) {
+          if (
+            !isTransientModelError(error) ||
+            attempt === TRANSIENT_MODEL_MAX_ATTEMPTS - 1
+          ) {
+            throw error;
+          }
+          await waitForTransientModelRetry(attempt, options?.signal);
+        }
+      }
+      throw new Error("Model request exhausted transient retries.");
     } catch (error) {
       if (options?.signal?.aborted) {
         throw new DOMException("Aborted", "AbortError");
@@ -362,7 +427,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
     async createResumeDraft(input) {
       const payload = await fetchModelJson(
         "createResumeDraft",
-        buildResumeRewriteProposalPrompt(),
+        buildResumeRewriteProposalPrompt(input.searchPreferences.tailoringMode),
         buildGroundedResumeRewriteModelPayload(input),
       );
       return completeTailoredResumeDraft(payload, input);
@@ -438,7 +503,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
     async tailorResume(input) {
       const payload = await fetchModelJson(
         "tailorResume",
-        buildResumeRewriteProposalPrompt(),
+        buildResumeRewriteProposalPrompt(input.searchPreferences.tailoringMode),
         buildGroundedResumeRewriteModelPayload(input),
       );
       return completeTailoredResumeDraft(payload, {
@@ -545,55 +610,74 @@ export function createOpenAiCompatibleJobFinderAiClient(
 
       try {
         const apiMode = validatedOptions.apiMode ?? "chat_completions";
-        const response = await fetch(
-          buildModelUrl(validatedOptions.baseUrl, apiMode),
-          {
-            method: "POST",
-            signal: controller.signal,
-            headers: {
-              Authorization: `Bearer ${validatedOptions.apiKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(
-              buildModelRequestBody({
-                apiMode,
-                model: validatedOptions.model,
-                reasoningEffort: validatedOptions.reasoningEffort,
-                messages: messages.map((msg) => {
-                  const base = { role: msg.role, content: msg.content };
-                  if (msg.role === "assistant" && msg.toolCalls) {
-                    return {
-                      ...base,
-                      tool_calls: msg.toolCalls.map((tc) => ({
-                        id: tc.id,
-                        type: tc.type,
-                        function: tc.function,
-                      })),
-                    };
-                  }
-                  if (msg.role === "tool") {
-                    return {
-                      ...base,
-                      tool_call_id: msg.toolCallId,
-                    };
-                  }
-                  return base;
-                }),
-                tools: tools.map((tool) => ({
-                  type: tool.type,
-                  function: {
-                    name: tool.function.name,
-                    description: tool.function.description,
-                    parameters: tool.function.parameters,
-                  },
-                })),
-                maxOutputTokens: options?.maxOutputTokens,
-              }),
-            ),
-          },
+        const requestBody = JSON.stringify(
+          buildModelRequestBody({
+            apiMode,
+            model: validatedOptions.model,
+            reasoningEffort: validatedOptions.reasoningEffort,
+            messages: messages.map((msg) => {
+              const base = { role: msg.role, content: msg.content };
+              if (msg.role === "assistant" && msg.toolCalls) {
+                return {
+                  ...base,
+                  tool_calls: msg.toolCalls.map((tc) => ({
+                    id: tc.id,
+                    type: tc.type,
+                    function: tc.function,
+                  })),
+                };
+              }
+              if (msg.role === "tool") {
+                return { ...base, tool_call_id: msg.toolCallId };
+              }
+              return base;
+            }),
+            tools: tools.map((tool) => ({
+              type: tool.type,
+              function: {
+                name: tool.function.name,
+                description: tool.function.description,
+                parameters: tool.function.parameters,
+              },
+            })),
+            maxOutputTokens: options?.maxOutputTokens,
+          }),
         );
-
-        const payload = await parseResponsePayload(response, apiMode);
+        let payload: Awaited<ReturnType<typeof parseResponsePayload>> | null =
+          null;
+        for (
+          let attempt = 0;
+          attempt < TRANSIENT_MODEL_MAX_ATTEMPTS;
+          attempt += 1
+        ) {
+          try {
+            const response = await fetch(
+              buildModelUrl(validatedOptions.baseUrl, apiMode),
+              {
+                method: "POST",
+                signal: controller.signal,
+                headers: {
+                  Authorization: `Bearer ${validatedOptions.apiKey}`,
+                  "Content-Type": "application/json",
+                },
+                body: requestBody,
+              },
+            );
+            payload = await parseResponsePayload(response, apiMode);
+            break;
+          } catch (error) {
+            if (
+              !isTransientModelError(error) ||
+              attempt === TRANSIENT_MODEL_MAX_ATTEMPTS - 1
+            ) {
+              throw error;
+            }
+            await waitForTransientModelRetry(attempt, options?.signal);
+          }
+        }
+        if (!payload) {
+          throw new Error("Model request exhausted transient retries.");
+        }
 
         const message = payload.choices?.[0]?.message;
 
@@ -700,6 +784,27 @@ export function createJobFinderAiClientFromEnvironment(
   const fallbackClient = createDeterministicJobFinderAiClient(
     "The configured model is enabled, and deterministic fallbacks protect the app when a model call fails.",
   );
+  function createFallbackExecutionReceipt(
+    capability: string,
+    stopReason: "no_progress" | "permanent_failure",
+  ) {
+    const timestamp = new Date().toISOString();
+    return AgentTaskExecutionReceiptSchema.parse({
+      taskId: `${capability}_fallback_${Date.now()}`,
+      capability,
+      startedAt: timestamp,
+      completedAt: timestamp,
+      durationMs: 0,
+      model: primaryClient.getStatus().model ?? null,
+      reasoningEffort: null,
+      providerCalls: 0,
+      repairAttempts: 0,
+      fallbackUsed: true,
+      stopReason,
+      finalValidationIssues: [],
+      toolReceipts: [],
+    });
+  }
   return {
     getStatus() {
       return primaryClient.getStatus();
@@ -863,10 +968,29 @@ export function createJobFinderAiClientFromEnvironment(
     },
     async reviseResumeDraft(input) {
       try {
-        return await primaryClient.reviseResumeDraft(input);
+        const reply = await runResumeEditAgentTask({
+          client: primaryClient,
+          request: input,
+        });
+        if (reply.executionReceipt?.stopReason === "completed") return reply;
+        const fallback = await fallbackClient.reviseResumeDraft(input);
+        return {
+          ...fallback,
+          executionReceipt: createFallbackExecutionReceipt(
+            "resume_guided_edit",
+            "no_progress",
+          ),
+        };
       } catch (error) {
         logFallbackError("reviseResumeDraft", error);
-        return fallbackClient.reviseResumeDraft(input);
+        const fallback = await fallbackClient.reviseResumeDraft(input);
+        return {
+          ...fallback,
+          executionReceipt: createFallbackExecutionReceipt(
+            "resume_guided_edit",
+            "permanent_failure",
+          ),
+        };
       }
     },
     async reviseCandidateProfile(input) {
@@ -892,21 +1016,48 @@ export function createJobFinderAiClientFromEnvironment(
       }
 
       try {
-        const primaryReply = await primaryClient.reviseCandidateProfile(input);
+        const primaryReply = await runProfileCopilotAgentTask({
+          client: primaryClient,
+          request: input,
+        });
+
+        if (primaryReply.executionReceipt?.stopReason !== "completed") {
+          const fallback = await fallbackClient.reviseCandidateProfile(input);
+          return {
+            ...fallback,
+            executionReceipt: createFallbackExecutionReceipt(
+              "profile_copilot",
+              "no_progress",
+            ),
+          };
+        }
 
         if (primaryReply.patchGroups.length === 0) {
           const fallbackReply =
             await fallbackClient.reviseCandidateProfile(input);
 
           if (shouldUseDeterministicProfileReply(primaryReply, fallbackReply)) {
-            return fallbackReply;
+            return {
+              ...fallbackReply,
+              executionReceipt: createFallbackExecutionReceipt(
+                "profile_copilot",
+                "no_progress",
+              ),
+            };
           }
         }
 
         return primaryReply;
       } catch (error) {
         logFallbackError("reviseCandidateProfile", error);
-        return fallbackClient.reviseCandidateProfile(input);
+        const fallback = await fallbackClient.reviseCandidateProfile(input);
+        return {
+          ...fallback,
+          executionReceipt: createFallbackExecutionReceipt(
+            "profile_copilot",
+            "permanent_failure",
+          ),
+        };
       }
     },
     async tailorResume(input) {

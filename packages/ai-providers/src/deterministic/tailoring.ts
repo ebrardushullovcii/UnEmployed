@@ -27,20 +27,6 @@ function tokenizeForQuality(value: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
-function hasStrongRoleSignal(
-  value: string | null | undefined,
-  roleTarget: string,
-): boolean {
-  const tokens = new Set(tokenizeForQuality(value));
-  if (tokens.size === 0) {
-    return false;
-  }
-
-  return tokenizeForQuality(roleTarget).some(
-    (token) => token.length >= 4 && tokens.has(token),
-  );
-}
-
 function isProfessionalResumeNarrative(
   value: string | null | undefined,
 ): boolean {
@@ -62,17 +48,27 @@ function isProfessionalResumeNarrative(
   return !isLocationOnly && !(hasFirstPersonVoice && hasCareerChangeMeta);
 }
 
+function hasStrongRoleSignal(
+  value: string | null | undefined,
+  roleTarget: string,
+): boolean {
+  const valueTokens = new Set(tokenizeForQuality(value));
+  const roleTokens = uniqueStrings(tokenizeForQuality(roleTarget)).filter(
+    (token) => token.length >= 4,
+  );
+  const matchedRoleTokens = roleTokens.filter((token) =>
+    valueTokens.has(token),
+  );
+
+  return matchedRoleTokens.length >= Math.min(2, roleTokens.length);
+}
+
 function shouldPreferStoredSummary(input: {
   storedSummary: string | null | undefined;
   roleTarget: string;
 }): boolean {
-  if (!isProfessionalResumeNarrative(input.storedSummary)) {
-    return false;
-  }
-
-  const tokens = tokenizeForQuality(input.storedSummary);
   return (
-    tokens.length >= 12 ||
+    isProfessionalResumeNarrative(input.storedSummary) &&
     hasStrongRoleSignal(input.storedSummary, input.roleTarget)
   );
 }
@@ -282,10 +278,65 @@ function isDistinctQualityLine(
   value: string,
   existing: readonly string[],
 ): boolean {
+  const metricSignature = (line: string) =>
+    new Set(
+      line
+        .toLowerCase()
+        .match(/(?:\$\s?\d[\d,.]*|\b\d+(?:\.\d+)?\s?%|\b\d+\+)/g) ?? [],
+    );
+  const candidateMetrics = metricSignature(value);
+
   return existing.every((entry) => {
     const overlap = calculateQualityOverlap(value, entry);
-    return overlap < QUALITY_OVERLAP_THRESHOLD;
+    const repeatedMetric = [...candidateMetrics].some((metric) =>
+      metricSignature(entry).has(metric),
+    );
+    return overlap < QUALITY_OVERLAP_THRESHOLD && !repeatedMetric;
   });
+}
+
+function scoreTargetRelevance(
+  value: string | null | undefined,
+  targetTerms: readonly string[],
+): number {
+  const valueTokens = new Set(tokenizeForQuality(value));
+
+  return uniqueStrings(targetTerms)
+    .flatMap(tokenizeForQuality)
+    .filter((token) => token.length >= 3 && valueTokens.has(token)).length;
+}
+
+function buildTargetedSummary(input: {
+  profile: CandidateProfile;
+  roleTarget: string;
+  coreSkills: readonly string[];
+  targetTerms: readonly string[];
+}): string {
+  const experienceDepth = input.profile.yearsExperience
+    ? `${input.profile.yearsExperience}+ years of experience`
+    : "relevant professional experience";
+  const namedSkills = input.coreSkills.slice(0, 5).join(", ");
+  const strongestEvidence = input.profile.experiences
+    .flatMap((experience) => experience.achievements)
+    .map((claim) => ({
+      claim,
+      score:
+        scoreExperienceBullet(claim, input.targetTerms) +
+        scoreTargetRelevance(claim, input.targetTerms) * 2,
+    }))
+    .sort((left, right) => right.score - left.score)[0]?.claim;
+  const opening = namedSkills
+    ? `${input.roleTarget} with ${experienceDepth} building with ${namedSkills}.`
+    : `${input.roleTarget} with ${experienceDepth}.`;
+
+  if (
+    !strongestEvidence ||
+    scoreTargetRelevance(strongestEvidence, input.targetTerms) === 0
+  ) {
+    return opening;
+  }
+
+  return `${opening} ${strongestEvidence}`;
 }
 
 function buildExperienceBullets(input: {
@@ -627,9 +678,9 @@ export function buildDeterministicTailoredResume(input: TailorResumeInput) {
   const coreSkills = filterGroundedVisibleSkills(
     input.profile,
     [
+      ...input.job.keySkills,
       ...input.profile.skills.slice(0, 6),
       ...input.profile.skillGroups.coreSkills.slice(0, 6),
-      ...input.job.keySkills.slice(0, 6),
     ],
     8,
   );
@@ -663,14 +714,12 @@ export function buildDeterministicTailoredResume(input: TailorResumeInput) {
     input.job.title ||
     input.searchPreferences.targetRoles[0] ||
     "the target role";
-  const headline = input.profile.headline ?? roleTarget;
-  const experienceDepth = input.profile.yearsExperience
-    ? `${input.profile.yearsExperience}+ years of experience`
-    : "relevant professional experience";
-  const groundedSkillSummary = coreSkills.slice(0, 3).join(", ");
-  const synthesizedSummary = groundedSkillSummary
-    ? `${headline} with ${experienceDepth} across ${groundedSkillSummary}.`
-    : `${headline} with ${experienceDepth}.`;
+  const targetTerms = [
+    input.job.title,
+    ...input.job.keySkills,
+    ...input.job.responsibilities,
+    ...input.job.minimumQualifications,
+  ];
   const preferredStoredSummary =
     input.profile.professionalSummary.fullSummary ??
     input.profile.professionalSummary.shortValueProposition ??
@@ -680,8 +729,13 @@ export function buildDeterministicTailoredResume(input: TailorResumeInput) {
     storedSummary: preferredStoredSummary,
     roleTarget,
   })
-    ? (preferredStoredSummary ?? synthesizedSummary)
-    : synthesizedSummary;
+    ? (preferredStoredSummary ?? roleTarget)
+    : buildTargetedSummary({
+        profile: input.profile,
+        roleTarget,
+        coreSkills,
+        targetTerms,
+      });
   const experienceHighlights: string[] = [];
   const coverageMetadata = deriveResumeCoveragePlan({
     profile: input.profile,
@@ -708,7 +762,7 @@ export function buildDeterministicTailoredResume(input: TailorResumeInput) {
         experience,
         proofBank: input.profile.proofBank,
         maxBullets: isCompact ? 1 : 3,
-        targetTerms: [input.job.title, ...input.job.keySkills],
+        targetTerms,
         usedBulletSignatures,
       });
 
@@ -734,14 +788,33 @@ export function buildDeterministicTailoredResume(input: TailorResumeInput) {
         },
       ];
     });
-  const projectEntries = input.profile.projects.slice(0, 2).map((project) => ({
-    name: project.name,
-    role: project.role,
-    summary: project.summary,
-    outcome: project.outcome,
-    bullets: [],
-    profileRecordId: project.id,
-  }));
+  const projectEntries = input.profile.projects
+    .map((project, index) => ({
+      project,
+      index,
+      score: scoreTargetRelevance(
+        [
+          project.name,
+          project.role,
+          project.summary,
+          project.outcome,
+          ...project.skills,
+        ]
+          .filter(Boolean)
+          .join(" "),
+        targetTerms,
+      ),
+    }))
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .slice(0, 2)
+    .map(({ project }) => ({
+      name: project.name,
+      role: project.role,
+      summary: project.summary,
+      outcome: project.outcome,
+      bullets: [],
+      profileRecordId: project.id,
+    }));
   const educationEntries = input.profile.education.slice(0, 2).map((entry) => ({
     school: entry.schoolName,
     degree: entry.degree,
@@ -791,7 +864,14 @@ export function buildDeterministicTailoredResume(input: TailorResumeInput) {
     compatibilityScore: clampScore(
       78 + Math.min(input.job.keySkills.length * 3, 18),
     ),
-    notes: ["Used the built-in deterministic resume tailorer."],
+    notes: [
+      "Used the built-in deterministic resume tailorer.",
+      ...(input.searchPreferences.tailoringMode === "aggressive"
+        ? [
+            "Aggressive tailoring may include reasonable responsibility inferences from saved evidence. Review every generated line before approval.",
+          ]
+        : []),
+    ],
   });
 }
 

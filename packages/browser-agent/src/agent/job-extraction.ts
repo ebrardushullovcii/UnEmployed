@@ -75,6 +75,8 @@ export interface SearchResultCardCandidate {
   anchorText: string;
   headingText: string | null;
   lines: string[];
+  companyText?: string | null;
+  locationText?: string | null;
   sourceJobIdHint?: string | null;
   captureMeta?: SearchResultCardCaptureMeta | null;
 }
@@ -1258,7 +1260,9 @@ function normalizePotentialCompanyCandidate(value: string): string {
     return "";
   }
 
-  const withoutAtPrefix = cleanLine(normalized.replace(/^at\s+/i, ""));
+  const withoutAtPrefix = cleanLine(normalized.replace(/^at\s+/i, ""))
+    .replace(/[\s•·|–—-]+$/u, "")
+    .trim();
   return withoutAtPrefix || normalized;
 }
 
@@ -1584,7 +1588,7 @@ function removeLeadingTitleEcho(value: string, title: string): string {
   const escapedTitle = normalizedTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return cleanLine(
     normalizedValue.replace(
-      new RegExp(`^(?:${escapedTitle})(?:\\s+${escapedTitle})*\\s*`, "i"),
+      new RegExp(`^(?:${escapedTitle})(?:\\s*${escapedTitle})*\\s*`, "i"),
       "",
     ),
   );
@@ -1702,6 +1706,19 @@ function normalizeExtractedJobTitle(input: {
   location?: string | null | undefined;
 }): string {
   const normalized = cleanLine(input.value);
+  const workModeQualifiedRepeat = normalized.match(
+    /^(?<title>.+?)\s+(?:\((?:remote|hybrid|on[- ]?site|onsite)\)|[-–—|•·]\s*(?:remote|hybrid|on[- ]?site|onsite))\s+\k<title>$/iu,
+  );
+  const workModeQualifiedTitle = cleanLine(
+    workModeQualifiedRepeat?.groups?.title,
+  );
+  if (
+    workModeQualifiedTitle &&
+    scoreCardTitleCandidate(workModeQualifiedTitle) > 0
+  ) {
+    return workModeQualifiedTitle;
+  }
+
   const repeatedTitle = findRepeatedLeadingPhrase(normalized);
   if (!repeatedTitle || scoreCardTitleCandidate(repeatedTitle) <= 0) {
     return normalized;
@@ -1988,6 +2005,14 @@ function selectBestRawCardTitle(candidate: SearchResultCardCandidate): string {
         )[0] ?? null)
     : null;
 
+  // Search-result dismiss controls carry the clean visible job title even when
+  // the surrounding card's accessibility text repeats the title and appends
+  // verification/company/location metadata. Prefer that explicit label over
+  // all composite text heuristics.
+  if (dismissTitle && scoreCardTitleCandidate(dismissTitle) > 0) {
+    return dismissTitle;
+  }
+
   if (metadataRecoveredTitle) {
     const escapedRecoveredTitle = metadataRecoveredTitle.replace(
       /[.*+?^${}()|[\]\\]/g,
@@ -2034,6 +2059,88 @@ function selectBestRawCardTitle(candidate: SearchResultCardCandidate): string {
   }
 
   return headingTitle || cleanLine(candidate.anchorText);
+}
+
+function recoverSearchSurfaceCompositeMetadata(
+  lines: readonly string[],
+  title: string,
+): { company: string; location: string } | null {
+  const knownRemoteRegionPattern =
+    /\b(?:United States|United Kingdom|European Union|North America|Latin America|South America|Middle East|Asia Pacific|EMEA|APAC|Europe|Worldwide|Global|Anywhere|Remote)\s*\((?:Remote|Hybrid|On[- ]?site)\)/i;
+  const isPlausibleCompositeCompany = (value: string) =>
+    Boolean(value) &&
+    value.length <= 80 &&
+    !COMPANY_NOISE_PATTERN.test(value) &&
+    !POSTED_PATTERN.test(value) &&
+    !SALARY_PATTERN.test(value) &&
+    !isRoleLikePhrase(value);
+
+  for (const line of uniqueStrings(lines)) {
+    const cleaned = stripExtractionUiSuffix(line);
+    const withoutTitle = removeLeadingTitleEcho(cleaned, title)
+      .replace(
+        /^(?:with verification|verified job|recommended|promoted|viewed)\b\s*/i,
+        "",
+      )
+      .trim();
+    if (!withoutTitle || withoutTitle === cleaned) {
+      continue;
+    }
+
+    const workModeMatch = withoutTitle.match(
+      /\((?:Remote|Hybrid|On[- ]?site)\)/i,
+    );
+    if (!workModeMatch || workModeMatch.index === undefined) {
+      continue;
+    }
+
+    const throughWorkMode = cleanLine(
+      withoutTitle.slice(0, workModeMatch.index + workModeMatch[0].length),
+    );
+    const knownLocationMatch = knownRemoteRegionPattern.exec(throughWorkMode);
+    if (knownLocationMatch?.index !== undefined) {
+      const company = normalizePotentialCompanyCandidate(
+        throughWorkMode.slice(0, knownLocationMatch.index),
+      );
+      const location = cleanLine(knownLocationMatch[0]);
+      if (isPlausibleCompositeCompany(company)) {
+        return { company: stripCompanySuffix(company), location };
+      }
+    }
+
+    if (throughWorkMode.includes(",")) {
+      const tokens = throughWorkMode.split(/\s+/).filter(Boolean);
+      for (let splitIndex = 1; splitIndex < tokens.length; splitIndex += 1) {
+        const company = normalizePotentialCompanyCandidate(
+          tokens.slice(0, splitIndex).join(" "),
+        );
+        const location = cleanLine(tokens.slice(splitIndex).join(" "));
+        if (isPlausibleCompositeCompany(company) && location.includes(",")) {
+          return { company: stripCompanySuffix(company), location };
+        }
+      }
+      continue;
+    }
+
+    const singleTokenLocationMatch =
+      /\s(?<location>[A-Z][\p{L}.'’-]+\s*\((?:Remote|Hybrid|On[- ]?site)\))$/u.exec(
+        throughWorkMode,
+      );
+    if (
+      singleTokenLocationMatch?.index !== undefined &&
+      singleTokenLocationMatch.groups?.location
+    ) {
+      const company = normalizePotentialCompanyCandidate(
+        throughWorkMode.slice(0, singleTokenLocationMatch.index),
+      );
+      const location = cleanLine(singleTokenLocationMatch.groups.location);
+      if (isPlausibleCompositeCompany(company)) {
+        return { company: stripCompanySuffix(company), location };
+      }
+    }
+  }
+
+  return null;
 }
 
 function isLocationLike(
@@ -2807,6 +2914,11 @@ function buildJobFromCardCandidate(
   const candidateFingerprint = buildSearchResultCardFingerprint(candidate);
   const lines = uniqueStrings(candidate.lines);
   const rawHeadingOrAnchor = selectBestRawCardTitle(candidate);
+  const explicitDismissTitle =
+    collectDismissTitles(candidate).sort(
+      (left, right) =>
+        scoreCardTitleCandidate(right) - scoreCardTitleCandidate(left),
+    )[0] ?? null;
   const isSearchSurfaceCandidate = usesSearchSurfaceHeuristics(
     candidate.canonicalUrl,
   );
@@ -2822,12 +2934,27 @@ function buildJobFromCardCandidate(
   const rawTitle = sanitizeCardTitle(
     recoveredCardTitle ?? pollutedTitleCompanySplit.title,
   );
-  const compositeTitle = normalizeCompositeCardTitle(
-    stripExtractionUiSuffix(
-      recoveredCardTitle ?? pollutedTitleCompanySplit.title,
-    ),
-  );
-  const title = sanitizeCardTitle(compositeTitle.title) || rawTitle;
+  const compositeTitle = explicitDismissTitle
+    ? {
+        title: trimMalformedTrailingRoleRepeat(
+          stripExtractionUiSuffix(explicitDismissTitle)
+            .replace(/\(verified job\)/gi, " ")
+            .replace(
+              /\s*[|•·]\s*(?:Remote|Hybrid|On[- ]?site|Onsite)\s*$/i,
+              "",
+            ),
+        ),
+        location: null,
+        postedAtText: null,
+      }
+    : normalizeCompositeCardTitle(
+        stripExtractionUiSuffix(
+          recoveredCardTitle ?? pollutedTitleCompanySplit.title,
+        ),
+      );
+  const title = explicitDismissTitle
+    ? cleanLine(compositeTitle.title) || rawTitle
+    : sanitizeCardTitle(compositeTitle.title) || rawTitle;
   const excludedTitleLines = new Set(
     [rawHeadingOrAnchor, rawTitle, title]
       .map((value) => cleanLine(value).toLowerCase())
@@ -2845,7 +2972,12 @@ function buildJobFromCardCandidate(
   const verificationMetadata = isSearchSurfaceCandidate
     ? recoverVerificationMetadata(lines, title)
     : null;
+  const compositeMetadata = isSearchSurfaceCandidate
+    ? recoverSearchSurfaceCompositeMetadata(lines, title)
+    : null;
   const hardLocation =
+    trimToNull(candidate.locationText) ??
+    compositeMetadata?.location ??
     verificationMetadata?.location ??
     inferLocation(metadataLines, workMode, {
       allowSingleTokenGeneric: false,
@@ -2853,6 +2985,8 @@ function buildJobFromCardCandidate(
     compositeTitle.location;
   const urlCompany = inferCompanyFromCanonicalUrl(canonicalUrl);
   const initialCompany =
+    trimToNull(candidate.companyText) ??
+    compositeMetadata?.company ??
     inferCompany(
       metadataLines.filter(
         (line) =>

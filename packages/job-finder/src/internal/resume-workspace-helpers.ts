@@ -1754,24 +1754,23 @@ export function buildResumeCoverageComparison(input: {
       const match = entriesByRecordId.get(experience.id) ?? null;
       const entry = match?.entry ?? null;
       const metadata = coverageByRecordId.get(experience.id) ?? null;
-      const isVisible = Boolean(
-        experienceSection?.included && entry?.included,
-      );
+      const isVisible = Boolean(experienceSection?.included && entry?.included);
       const originalClaims = uniqueStrings(
         [experience.summary, ...experience.achievements].filter(
           (value): value is string => Boolean(value?.trim()),
         ),
       );
-      const tailoredClaims = entry && isVisible
-        ? uniqueStrings(
-            [
-              entry.summary,
-              ...entry.bullets
-                .filter((bullet) => bullet.included)
-                .map((bullet) => bullet.text),
-            ].filter((value): value is string => Boolean(value?.trim())),
-          )
-        : [];
+      const tailoredClaims =
+        entry && isVisible
+          ? uniqueStrings(
+              [
+                entry.summary,
+                ...entry.bullets
+                  .filter((bullet) => bullet.included)
+                  .map((bullet) => bullet.text),
+              ].filter((value): value is string => Boolean(value?.trim())),
+            )
+          : [];
       const removedClaimText = compareResumeTextSets(
         originalClaims,
         tailoredClaims,
@@ -1819,7 +1818,9 @@ export function buildResumeCoverageComparison(input: {
         ...(metadata?.reasons ?? []),
         ...(metadata?.reviewGuidance ?? []),
         ...(status === "hidden"
-          ? ["This role is saved in the draft but hidden from the exported resume."]
+          ? [
+              "This role is saved in the draft but hidden from the exported resume.",
+            ]
           : []),
         ...(status === "missing"
           ? ["This canonical role is not represented in the current draft."]
@@ -2119,6 +2120,7 @@ export function buildAssistantReplyMessage(input: {
   patches: readonly ResumeDraftPatch[];
   baseDraftUpdatedAt?: string | null;
   proposalError?: string | null;
+  executionAttribution?: ResumeAssistantMessage["executionAttribution"];
   createdAt?: string;
 }): ResumeAssistantMessage {
   return ResumeAssistantMessageSchema.parse({
@@ -2130,6 +2132,7 @@ export function buildAssistantReplyMessage(input: {
     proposalStatus: input.patches.length > 0 ? "pending" : "none",
     baseDraftUpdatedAt: input.baseDraftUpdatedAt ?? null,
     proposalError: input.proposalError ?? null,
+    executionAttribution: input.executionAttribution ?? null,
     createdAt: input.createdAt ?? new Date().toISOString(),
   });
 }

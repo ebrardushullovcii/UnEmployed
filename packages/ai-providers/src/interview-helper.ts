@@ -15,6 +15,7 @@ import type {
 } from "@unemployed/contracts";
 import { InterviewCueCardSchema } from "@unemployed/contracts";
 import { z } from "zod";
+import { classifyAgentTaskFailure } from "@unemployed/agent-runtime";
 import {
   buildAudioTranscriptionsUrl,
   buildModelRequestBody,
@@ -243,7 +244,8 @@ function pickQuestion(input: InterviewCueCardRequest): string {
     .find(
       (segment) =>
         segment.source === "meeting_audio" ||
-        segment.source === "meeting_native_transcript",
+        segment.source === "meeting_native_transcript" ||
+        segment.source === "typed_question",
     );
 
   return latestMeetingQuestion?.text ?? input.question;
@@ -501,6 +503,29 @@ export function createOpenAiCompatibleInterviewCueCardProvider(
   const deterministicFallback = createDeterministicInterviewCueCardProvider(
     "Model-backed Interview Helper cues are configured, with deterministic fallback on provider failure.",
   );
+  function buildCueExecutionReceipt(input: {
+    startedAtMs: number;
+    providerCalls: number;
+    fallbackUsed: boolean;
+    stopReason: "completed" | "permanent_failure";
+  }) {
+    const completedAtMs = Date.now();
+    return {
+      taskId: `interview_cue_${completedAtMs}`,
+      capability: "interview_cue",
+      startedAt: new Date(input.startedAtMs).toISOString(),
+      completedAt: new Date(completedAtMs).toISOString(),
+      durationMs: completedAtMs - input.startedAtMs,
+      model: validatedOptions?.model ?? null,
+      reasoningEffort: validatedOptions?.reasoningEffort ?? null,
+      providerCalls: input.providerCalls,
+      repairAttempts: 0,
+      fallbackUsed: input.fallbackUsed,
+      stopReason: input.stopReason,
+      finalValidationIssues: [],
+      toolReceipts: [],
+    } as const;
+  }
 
   async function fetchCueCard(
     input: InterviewCueCardRequest,
@@ -564,10 +589,13 @@ export function createOpenAiCompatibleInterviewCueCardProvider(
       };
     },
     async generateCueCard(input) {
+      const startedAtMs = Date.now();
       let lastError: unknown = null;
+      let providerCalls = 0;
 
       for (let attempt = 1; attempt <= 2; attempt += 1) {
         try {
+          providerCalls += 1;
           const payload = await fetchCueCard(input);
           const modelCue = InterviewModelCueCardOutputSchema.parse(payload);
 
@@ -580,16 +608,40 @@ export function createOpenAiCompatibleInterviewCueCardProvider(
             createdAt: input.createdAt,
             ...modelCue,
           });
-          return enforceGroundedCueCard(input, cue);
+          return InterviewCueCardSchema.parse({
+            ...enforceGroundedCueCard(input, cue),
+            executionReceipt: buildCueExecutionReceipt({
+              startedAtMs,
+              providerCalls,
+              fallbackUsed: false,
+              stopReason: "completed",
+            }),
+          });
         } catch (error) {
           lastError = error;
+          const failureKind = classifyAgentTaskFailure(error);
+          if (
+            failureKind !== "transient_network" &&
+            failureKind !== "transient_provider"
+          ) {
+            break;
+          }
         }
       }
 
       console.error(
         `[AI Provider] Interview Helper cue generation failed after one retry; falling back to deterministic provider. ${summarizeError(lastError)}`,
       );
-      return deterministicFallback.generateCueCard(input);
+      const fallback = await deterministicFallback.generateCueCard(input);
+      return InterviewCueCardSchema.parse({
+        ...fallback,
+        executionReceipt: buildCueExecutionReceipt({
+          startedAtMs,
+          providerCalls,
+          fallbackUsed: true,
+          stopReason: "permanent_failure",
+        }),
+      });
     },
   };
 }
@@ -1149,15 +1201,20 @@ export function createInterviewHelperProvidersFromEnvironment(
 ): InterviewHelperProviderBundle {
   const apiKey =
     env.UNEMPLOYED_INTERVIEW_AI_API_KEY ?? env.UNEMPLOYED_AI_API_KEY;
+  const visionApiKey =
+    env.UNEMPLOYED_INTERVIEW_VISION_API_KEY ??
+    env.UNEMPLOYED_AI_VISION_API_KEY ??
+    apiKey;
   const requestTimeoutMs = parseConfiguredTimeoutMs(
     env.UNEMPLOYED_INTERVIEW_AI_TIMEOUT_MS ?? env.UNEMPLOYED_AI_TIMEOUT_MS,
   );
-  const screenshotVisionProvider = apiKey
+  const screenshotVisionProvider = visionApiKey
     ? createOpenAiCompatibleInterviewScreenshotVisionProvider({
-        apiKey,
+        apiKey: visionApiKey,
         baseUrl:
-          env.UNEMPLOYED_INTERVIEW_AI_BASE_URL ??
+          env.UNEMPLOYED_INTERVIEW_VISION_BASE_URL ??
           env.UNEMPLOYED_AI_VISION_BASE_URL ??
+          env.UNEMPLOYED_INTERVIEW_AI_BASE_URL ??
           env.UNEMPLOYED_AI_BASE_URL ??
           DEFAULT_INTERVIEW_BASE_URL,
         model:
@@ -1169,11 +1226,16 @@ export function createInterviewHelperProvidersFromEnvironment(
           DEFAULT_INTERVIEW_MODEL,
         apiMode:
           parseModelApiMode(
-            env.UNEMPLOYED_INTERVIEW_AI_API_MODE ?? env.UNEMPLOYED_AI_API_MODE,
+            env.UNEMPLOYED_INTERVIEW_VISION_API_MODE ??
+              env.UNEMPLOYED_AI_VISION_API_MODE ??
+              env.UNEMPLOYED_INTERVIEW_AI_API_MODE ??
+              env.UNEMPLOYED_AI_API_MODE,
           ) ?? DEFAULT_MODEL_API_MODE,
         reasoningEffort:
           parseModelReasoningEffort(
-            env.UNEMPLOYED_INTERVIEW_REASONING_EFFORT ??
+            env.UNEMPLOYED_INTERVIEW_VISION_REASONING_EFFORT ??
+              env.UNEMPLOYED_AI_VISION_REASONING_EFFORT ??
+              env.UNEMPLOYED_INTERVIEW_REASONING_EFFORT ??
               env.UNEMPLOYED_AI_REASONING_EFFORT,
           ) ?? DEFAULT_MODEL_REASONING_EFFORT,
         label: "AI interview screenshot vision provider",

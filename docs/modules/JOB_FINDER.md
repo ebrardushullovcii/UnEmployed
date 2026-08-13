@@ -9,7 +9,9 @@ Owns profile, resume import, discovery, source-debug, resume workspace, review q
 - Guided setup and profile copilot create and maintain local-first candidate data.
 - Resume import uses parser/text/vision evidence, review candidates, and explicit user confirmation before canonical writes.
 - Discovery and source-debug stay source-generic and use typed target instructions.
+- Large source catalogs live in a dedicated Profile tab with catalog-wide search/status filters, 25-row pages, quick opt-in enablement, and one detailed source editor mounted at a time; imported records remain disabled until explicitly enabled.
 - Reusable provider adapters normalize public Ashby boards and exact Workday candidate-experience job endpoints; unsupported or authenticated paths remain explicit browser-owned human handoffs.
+- Lever provider inference selects the matching default or EU public API from the source hostname without introducing board-specific workflow policy.
 - Discovery fit review includes a persisted requirement-evidence ledger with listing quotations, exact profile/experience/project citations, hard-gap states, and conservative action recommendations.
 - API-backed sources start their independent inventory reads concurrently; limited result sets prefer distinct role options, use cleaned employer labels, keep unconstrained preferences score-neutral, and penalize unsupported requirements or adjacent titles instead of inflating them.
 - Resume Studio owns preview, export, approval, template selection, and manual experience ordering.

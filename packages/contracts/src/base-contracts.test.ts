@@ -15,6 +15,7 @@ import {
   ResumeApplicationModeSchema,
   SourceAccessPromptStateSchema,
   WorkModeListSchema,
+  annualizeCompensationAmount,
   applicationStatusValues,
   sourceAccessPromptStateValues,
 } from "./index";
@@ -168,6 +169,8 @@ describe("contracts base schemas", () => {
     expect(monthly.compensation.maximum).toBe(4_000);
     expect(monthly.minimumSalaryUsd).toBe(36_000);
     expect(monthly.targetSalaryUsd).toBe(48_000);
+    expect(annualizeCompensationAmount(2_000, "month")).toBe(24_000);
+    expect(annualizeCompensationAmount(50, "hour")).toBe(104_000);
   });
 
   test("keeps an ambiguous compensation currency unset instead of assuming USD", () => {
@@ -185,9 +188,7 @@ describe("contracts base schemas", () => {
     });
 
     expect(preferences.compensation.currency).toBeNull();
-    expect(preferences.compensation.currencyStatus).toBe(
-      "needs_clarification",
-    );
+    expect(preferences.compensation.currencyStatus).toBe("needs_clarification");
     expect(preferences.minimumSalaryUsd).toBeNull();
     expect(preferences.targetSalaryUsd).toBeNull();
     expect(preferences.salaryCurrency).toBeNull();

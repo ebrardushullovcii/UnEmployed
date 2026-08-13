@@ -1,6 +1,9 @@
 import { ok as assert } from "node:assert/strict";
 import { describe, expect, test, vi } from "vitest";
-import { createJobFinderAiClientFromEnvironment } from "./index";
+import {
+  createJobFinderAiClientFromEnvironment,
+  createOpenAiCompatibleJobFinderAiClient,
+} from "./index";
 import {
   inferCompanyFromCanonicalUrl,
   normalizeCompositeTitle,
@@ -141,6 +144,79 @@ describe("normalizeCompositeTitle", () => {
       title: "Manager Field Operations",
       location: null,
     });
+  });
+});
+
+describe("model transport recovery", () => {
+  test("retries a transient provider overload before returning extracted jobs", async () => {
+    const originalFetch = globalThis.fetch;
+    let requestCount = 0;
+    globalThis.fetch = (() => {
+      requestCount += 1;
+      if (requestCount === 1) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              error: {
+                code: "server_is_overloaded",
+                message: "The model server is temporarily overloaded.",
+              },
+            }),
+            { status: 503, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    jobs: [
+                      {
+                        title: "Backend Engineer",
+                        company: "Signal Systems",
+                        location: "Remote",
+                        canonicalUrl:
+                          "https://jobs.example.com/backend-engineer",
+                        sourceJobId: "job_retry",
+                        description: "Build reliable backend systems.",
+                        applyPath: "unknown",
+                        easyApplyEligible: false,
+                        workMode: ["remote"],
+                        keySkills: ["TypeScript"],
+                      },
+                    ],
+                  }),
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    }) as typeof fetch;
+
+    try {
+      const client = createOpenAiCompatibleJobFinderAiClient({
+        apiKey: "test-key",
+        baseUrl: "https://example.com/v1",
+        model: "test-model",
+      });
+      const jobs = await client.extractJobsFromPage({
+        pageText: "Backend Engineer at Signal Systems. Remote.",
+        pageUrl: "https://jobs.example.com/search",
+        pageType: "search_results",
+        maxJobs: 5,
+      });
+
+      expect(requestCount).toBe(2);
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]?.sourceJobId).toBe("job_retry");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
 
@@ -597,7 +673,9 @@ describe("job extraction with openai-compatible client", () => {
     });
 
     try {
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      const warnSpy = vi
+        .spyOn(console, "warn")
+        .mockImplementation(() => undefined);
       const client =
         createJobFinderAiClientFromEnvironment(createEnvironment());
 
@@ -857,16 +935,20 @@ describe("job extraction with openai-compatible client", () => {
       expect(capturedBody).not.toBeNull();
       assertCapturedRequestBody(capturedBody);
       const messages = capturedBody.messages ?? [];
-      expect(messages[0]?.content).toContain("Return at most 4 jobs.");
+      expect(messages[0]?.content).toContain("Return at most 12 jobs.");
       expect(messages[0]?.content).toContain(
         "If only a short search-results snippet is visible",
       );
-      const parsedUserPayload = JSON.parse(messages[1]?.content ?? "{}") as unknown;
+      const parsedUserPayload = JSON.parse(
+        messages[1]?.content ?? "{}",
+      ) as unknown;
       const pageText =
         parsedUserPayload && typeof parsedUserPayload === "object"
           ? (parsedUserPayload as { pageText?: unknown }).pageText
           : undefined;
-      expect(typeof pageText === "string" ? pageText.length : 0).toBeLessThanOrEqual(8000);
+      expect(
+        typeof pageText === "string" ? pageText.length : 0,
+      ).toBeLessThanOrEqual(8000);
     } finally {
       globalThis.fetch = originalFetch;
     }

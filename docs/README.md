@@ -29,11 +29,16 @@ Read `docs/ARCHITECTURE.md` before changing discovery or source-debug behavior.
 - `docs/exec-plans/active/`: detailed active plans
 - `docs/exec-plans/queued/`: detailed ready plans
 
-No internal feature implementation is currently active, and there are no active
-or queued execution plans. The approved Candidate Asset lifecycle and the
-resume visual/export refinement are integrated; current release state and
-remaining external acceptance are recorded in `docs/STATUS.md` and
-`docs/TRACKS.md`.
+There is no active or queued implementation plan. The completed AI capability
+reliability work is recorded in `docs/HISTORY.md`, the model-routing ADRs, and
+`docs/audits/LUNA_HIGH_AND_PRODUCTION_ACCEPTANCE_2026-08-12.html`. The approved
+Candidate Asset lifecycle and résumé visual/export refinement remain integrated;
+current release state and external acceptance are recorded in `docs/STATUS.md`
+and `docs/TRACKS.md`.
+
+The completed configured-model comparison is recorded in
+`docs/audits/AI_MODEL_CAPABILITY_BENCHMARK_FULL_2026-08-12.html`; scoped provider
+and browser-integration follow-ups are listed in `docs/TRACKS.md`.
 
 Current Job Finder product audit checklist: `docs/audits/JOB_FINDER_PRODUCT_DECISIONS_AND_AUDIT_CHECKLIST.md`.
 

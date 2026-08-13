@@ -75,6 +75,7 @@ import { assessJobPostingDetailQuality } from "./job-posting-detail-quality";
 
 const DISCOVERY_ACTIVITY_SAMPLE_LIMIT = 3;
 const LOW_YIELD_TECHNICAL_DISCOVERY_FLOOR = 6;
+const PUBLIC_API_PREFETCH_CONCURRENCY = 8;
 
 type PublicProviderJobsResult = Awaited<
   ReturnType<typeof collectPublicProviderJobs>
@@ -85,40 +86,60 @@ type SettledPublicProviderJobsResult =
 
 async function* iterateDiscoveryTargetsByReadiness(input: {
   targets: readonly JobDiscoveryTarget[];
-  prefetchedPublicApiResults: ReadonlyMap<
+  publicApiTargetIds: ReadonlySet<string>;
+  createPublicApiRequest: (
+    target: JobDiscoveryTarget,
+  ) => Promise<SettledPublicProviderJobsResult>;
+  signal: AbortSignal;
+}): AsyncGenerator<{
+  target: JobDiscoveryTarget;
+  prefetchedPublicApiResult: Promise<SettledPublicProviderJobsResult> | null;
+}> {
+  const apiTargets: JobDiscoveryTarget[] = [];
+  const serialTargets: JobDiscoveryTarget[] = [];
+  const readyApiTargets: Array<{
+    target: JobDiscoveryTarget;
+    request: Promise<SettledPublicProviderJobsResult>;
+  }> = [];
+  const activeApiRequests = new Map<
     string,
     Promise<SettledPublicProviderJobsResult>
-  >;
-  signal: AbortSignal;
-}): AsyncGenerator<JobDiscoveryTarget> {
-  const readyApiTargets: JobDiscoveryTarget[] = [];
-  const pendingApiTargetIds = new Set<string>();
-  const serialTargets: JobDiscoveryTarget[] = [];
+  >();
   let notifyReady: (() => void) | null = null;
 
   for (const target of input.targets) {
-    const request = input.prefetchedPublicApiResults.get(target.id);
-    if (!request) {
+    if (!input.publicApiTargetIds.has(target.id)) {
       serialTargets.push(target);
       continue;
     }
-
-    pendingApiTargetIds.add(target.id);
-    void request.then(() => {
-      if (!pendingApiTargetIds.has(target.id)) {
-        return;
-      }
-
-      readyApiTargets.push(target);
-      const notify = notifyReady;
-      notifyReady = null;
-      notify?.();
-    });
+    apiTargets.push(target);
   }
 
+  let nextApiTargetIndex = 0;
+  const startAvailableApiRequests = () => {
+    while (
+      activeApiRequests.size < PUBLIC_API_PREFETCH_CONCURRENCY &&
+      nextApiTargetIndex < apiTargets.length
+    ) {
+      const target = apiTargets[nextApiTargetIndex];
+      nextApiTargetIndex += 1;
+      if (!target) continue;
+      const request = input.createPublicApiRequest(target);
+      activeApiRequests.set(target.id, request);
+      void request.then(() => {
+        if (!activeApiRequests.has(target.id)) return;
+        readyApiTargets.push({ target, request });
+        const notify = notifyReady;
+        notifyReady = null;
+        notify?.();
+      });
+    }
+  };
+
+  startAvailableApiRequests();
   let serialTargetIndex = 0;
   while (
-    pendingApiTargetIds.size > 0 ||
+    activeApiRequests.size > 0 ||
     serialTargetIndex < serialTargets.length
   ) {
     if (input.signal.aborted) {
@@ -131,15 +152,19 @@ async function* iterateDiscoveryTargetsByReadiness(input: {
 
     const readyApiTarget = readyApiTargets.shift();
     if (readyApiTarget) {
-      pendingApiTargetIds.delete(readyApiTarget.id);
-      yield readyApiTarget;
+      activeApiRequests.delete(readyApiTarget.target.id);
+      startAvailableApiRequests();
+      yield {
+        target: readyApiTarget.target,
+        prefetchedPublicApiResult: readyApiTarget.request,
+      };
       continue;
     }
 
     const serialTarget = serialTargets[serialTargetIndex];
     if (serialTarget) {
       serialTargetIndex += 1;
-      yield serialTarget;
+      yield { target: serialTarget, prefetchedPublicApiResult: null };
       continue;
     }
 
@@ -216,7 +241,10 @@ export function selectDiscoveryBudgetPostings(input: {
       (left, right) =>
         compareMatchRecommendationPriority(left.assessment, right.assessment) ||
         Number(right.preferred) - Number(left.preferred) ||
-        compareMatchRoleSuitabilityPriority(left.assessment, right.assessment) ||
+        compareMatchRoleSuitabilityPriority(
+          left.assessment,
+          right.assessment,
+        ) ||
         compareMatchScores(left.assessment, right.assessment) ||
         right.postedAt - left.postedAt ||
         left.index - right.index,
@@ -362,6 +390,7 @@ function createInitialRunRecord(input: {
   id: string;
   targets: readonly JobDiscoveryTarget[];
   scope: DiscoveryRunScope;
+  previousRuns?: readonly DiscoveryRunRecord[];
 }): DiscoveryRunRecord {
   return DiscoveryRunRecordSchema.parse({
     id: input.id,
@@ -392,6 +421,13 @@ function createInitialRunRecord(input: {
       compactionState: null,
       compactionUsedFallbackTrigger: false,
       timing: null,
+      agentCheckpoint:
+        input.previousRuns
+          ?.flatMap((run) => run.targetExecutions)
+          .find(
+            (execution) =>
+              execution.targetId === target.id && execution.agentCheckpoint,
+          )?.agentCheckpoint ?? null,
     })),
     activity: [],
     summary: {
@@ -592,6 +628,12 @@ async function collectTargetJobs(input: {
   maxSteps: number;
   activeRun: DiscoveryRunRecord;
   emitActivity: (event: DiscoveryActivityEvent) => void;
+  onAgentCheckpoint: (
+    targetId: string,
+    checkpoint: NonNullable<
+      DiscoveryRunRecord["targetExecutions"][number]["agentCheckpoint"]
+    >,
+  ) => Promise<void>;
   signal?: AbortSignal;
   openedSessionSources: Set<JobSource>;
   useAgentRuntime: boolean;
@@ -735,6 +777,9 @@ async function collectTargetJobs(input: {
   const instructionLines = buildDiscoveryInstructionGuidance(activeInstruction);
 
   if (input.useAgentRuntime && ctx.browserRuntime.runAgentDiscovery) {
+    const resumeCheckpoint = input.activeRun.targetExecutions.find(
+      (execution) => execution.targetId === target.id,
+    )?.agentCheckpoint;
     const result = await ctx.browserRuntime.runAgentDiscovery(adapterKind, {
       userProfile: input.profile,
       searchPreferences: {
@@ -743,9 +788,17 @@ async function collectTargetJobs(input: {
             ? input.searchPreferences.targetRoles
             : [DEFAULT_ROLE],
         locations: input.searchPreferences.locations,
+        workModes: input.searchPreferences.workModes,
       },
       targetJobCount: input.targetJobCount,
       maxSteps: input.maxSteps,
+      runControl: {
+        timeBudgetMs: Math.max(120_000, input.maxSteps * 20_000),
+        noProgressStepLimit: Math.max(6, Math.ceil(input.maxSteps / 3)),
+      },
+      ...(resumeCheckpoint ? { resumeCheckpoint } : {}),
+      onCheckpoint: (checkpoint) =>
+        input.onAgentCheckpoint(target.id, checkpoint),
       startingUrls,
       agentHints: {
         widenReviewBudget: adapter.kind === "target_site",
@@ -966,6 +1019,7 @@ export function createWorkspaceDiscoveryMethods(
       id: runId,
       targets,
       scope: options.scope,
+      previousRuns: startingDiscovery.recentRuns,
     });
 
     const recordActivity = (event: DiscoveryActivityEvent) => {
@@ -1016,14 +1070,11 @@ export function createWorkspaceDiscoveryMethods(
         throw error;
       });
 
-    // Public inventories are independent network reads. Start them together;
-    // the readiness iterator below then processes each API target in settlement
-    // order. Every target remains a deterministic, durable publication batch,
-    // while browser-backed targets retain exclusive serial session ownership.
-    const prefetchedPublicApiResults = new Map<
-      string,
-      Promise<SettledPublicProviderJobsResult>
-    >();
+    // Public inventories are independent network reads, but starting hundreds
+    // at once can starve Electron's main process and retain every response until
+    // the run ends. The readiness iterator keeps a small rolling window and
+    // releases each response after its durable target batch is processed.
+    const publicApiTargetIds = new Set<string>();
     for (const target of targets) {
       const artifact = resolveActiveSourceInstructionArtifact(
         target,
@@ -1032,33 +1083,42 @@ export function createWorkspaceDiscoveryMethods(
       if (selectDiscoveryCollectionMethod(target, artifact) !== "api") {
         continue;
       }
-
-      const intelligence = inferSourceIntelligenceFromTarget({
-        target,
-        currentArtifact: artifact,
-      });
-      const request = collectPublicProviderJobs({
-        target,
-        artifact: { intelligence },
-        source: resolveAdapterKind(target),
-        signal: executionSignal,
-      }).then(
-        (result): SettledPublicProviderJobsResult => ({ result, error: null }),
-        (error: unknown): SettledPublicProviderJobsResult => ({
-          result: null,
-          error,
-        }),
-      );
-      prefetchedPublicApiResults.set(target.id, request);
+      publicApiTargetIds.add(target.id);
     }
 
     try {
       let executionIndex = 0;
-      for await (const target of iterateDiscoveryTargetsByReadiness({
+      for await (const readyTarget of iterateDiscoveryTargetsByReadiness({
         targets,
-        prefetchedPublicApiResults,
+        publicApiTargetIds,
+        createPublicApiRequest: (target) => {
+          const artifact = resolveActiveSourceInstructionArtifact(
+            target,
+            sourceInstructionArtifacts,
+          );
+          const intelligence = inferSourceIntelligenceFromTarget({
+            target,
+            currentArtifact: artifact,
+          });
+          return collectPublicProviderJobs({
+            target,
+            artifact: { intelligence },
+            source: resolveAdapterKind(target),
+            signal: executionSignal,
+          }).then(
+            (result): SettledPublicProviderJobsResult => ({
+              result,
+              error: null,
+            }),
+            (error: unknown): SettledPublicProviderJobsResult => ({
+              result: null,
+              error,
+            }),
+          );
+        },
         signal: executionSignal,
       })) {
+        const { target, prefetchedPublicApiResult } = readyTarget;
         const index = executionIndex;
         executionIndex += 1;
         if (executionSignal.aborted) {
@@ -1129,16 +1189,23 @@ export function createWorkspaceDiscoveryMethods(
             maxSteps: discoveryBudget.maxSteps,
             activeRun,
             emitActivity,
+            onAgentCheckpoint: async (targetId, checkpoint) => {
+              activeRun = updateTargetExecution(
+                activeRun,
+                targetId,
+                (entry) => ({ ...entry, agentCheckpoint: checkpoint }),
+              );
+              await ctx.persistDiscoveryState((current) => ({
+                ...current,
+                runState: "running",
+                activeRun,
+                recentRuns: current.recentRuns,
+              }));
+            },
             signal: executionSignal,
             openedSessionSources,
             useAgentRuntime: options.useAgentRuntime ?? false,
-            ...(prefetchedPublicApiResults.get(target.id)
-              ? {
-                  prefetchedPublicApiResult: prefetchedPublicApiResults.get(
-                    target.id,
-                  )!,
-                }
-              : {}),
+            ...(prefetchedPublicApiResult ? { prefetchedPublicApiResult } : {}),
           });
         } catch (error) {
           const interrupted =
@@ -1547,12 +1614,15 @@ export function createWorkspaceDiscoveryMethods(
         });
 
         const targetCompletedAt = new Date().toISOString();
+        const targetFailed = Boolean(
+          collected.result.warning && collectedJobs.length === 0,
+        );
         activeRun = completeTargetExecution(
           activeRun,
           target.id,
           targetCompletedAt,
           {
-            state: "completed",
+            state: targetFailed ? "failed" : "completed",
             requestedJobBudget: discoveryBudget.targetJobCount,
             jobsReviewed: budgetedPostings.length,
             jobsFound: mergeResult.validatedCount,
@@ -1583,7 +1653,7 @@ export function createWorkspaceDiscoveryMethods(
         const targetCompletedEvent = createDiscoveryEvent({
           runId,
           timestamp: targetCompletedAt,
-          kind: "success",
+          kind: targetFailed ? "error" : "success",
           stage: "target",
           waitReason: "persisting_results",
           targetId: target.id,
@@ -1591,8 +1661,10 @@ export function createWorkspaceDiscoveryMethods(
           resolvedAdapterKind: collected.adapterKind,
           collectionMethod: collected.collectionMethod,
           sourceIntelligenceProvider: collectedProviderKey,
-          terminalState: "completed",
-          message: `Finished ${target.label} (${index + 1}/${targets.length})`,
+          terminalState: targetFailed ? "failed" : "completed",
+          message: targetFailed
+            ? `Could not finish ${target.label}: ${collected.result.warning}`
+            : `Finished ${target.label} (${index + 1}/${targets.length})`,
           url: target.startingUrl,
           jobsFound: mergeResult.validatedCount,
           jobsPersisted,
@@ -1635,6 +1707,25 @@ export function createWorkspaceDiscoveryMethods(
           ),
         );
         publishActivity(targetCompletedEvent);
+
+        // Persistence and matching above can resolve entirely through
+        // microtasks for fast API sources. Give Electron a real event-loop turn
+        // so window messages and IPC remain responsive during large catalogs.
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
+
+      const completedTargets = activeRun.targetExecutions.filter(
+        (target) => target.state === "completed",
+      ).length;
+      const failedTargets = activeRun.targetExecutions.filter(
+        (target) => target.state === "failed",
+      );
+      if (completedTargets === 0 && failedTargets.length > 0) {
+        terminalStatus = "failed";
+        caughtError = new Error(
+          failedTargets[0]?.warning ??
+            "Discovery could not complete any configured source. Retry the failed source from Search history.",
+        );
       }
     } catch (error) {
       const interrupted =

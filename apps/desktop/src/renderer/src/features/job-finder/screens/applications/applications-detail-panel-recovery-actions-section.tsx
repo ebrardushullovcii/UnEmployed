@@ -3,6 +3,7 @@ import { Button } from "@renderer/components/ui";
 import { formatStatusLabel } from "@renderer/features/job-finder/lib/job-finder-utils";
 import { StatusBadge } from "../../components/status-badge";
 import {
+  applyResultNeedsResumeAttachment,
   getCustomerFacingApplyText,
   getQueueRecoveryTone,
   getQueueStateExplanation,
@@ -23,7 +24,9 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
   selectedQueueRecoveryJobIds: string[];
   selectedRecordJobId: string;
   selectedRun: JobFinderWorkspaceSnapshot["applyRuns"][number] | null;
-  visibleApplyResult: JobFinderWorkspaceSnapshot["applyJobResults"][number] | null;
+  visibleApplyResult:
+    | JobFinderWorkspaceSnapshot["applyJobResults"][number]
+    | null;
 }) {
   const {
     applyRunHistoryCount,
@@ -41,14 +44,10 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
     selectedRun,
     visibleApplyResult,
   } = props;
-  const isWaitingForSignIn = visibleApplyResult?.blockerReason === "auth_required";
-  const needsResumeAttachment = Boolean(
-    visibleApplyResult && /\b(?:resume|cv)\b/i.test([
-      visibleApplyResult.summary,
-      visibleApplyResult.detail,
-      visibleApplyResult.blockerSummary,
-    ].filter(Boolean).join(" ")),
-  );
+  const isWaitingForSignIn =
+    visibleApplyResult?.blockerReason === "auth_required";
+  const needsResumeAttachment =
+    applyResultNeedsResumeAttachment(visibleApplyResult);
 
   return (
     <>
@@ -61,11 +60,12 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
                 ? "Job Finder is waiting while you sign in in the open browser. It never handles or stores your credentials. Return here after sign-in and retry this application."
                 : needsResumeAttachment
                   ? "Your confirmed profile fields are still in the open application, but the approved CV was not attached. Retry below to approve that attachment. Job Finder will prepare the page and stop before the final submit control."
-                : "Start a fresh safe run for this job without leaving Applications. Each recovery action creates a new run and still stops before any final submit click."}
+                  : "Start a fresh safe run for this job without leaving Applications. Each recovery action creates a new run and still stops before any final submit click."}
             </p>
           </div>
           <StatusBadge tone={visibleApplyResult ? "active" : "muted"}>
-            {applyRunHistoryCount} run{applyRunHistoryCount === 1 ? "" : "s"} saved
+            {applyRunHistoryCount} run{applyRunHistoryCount === 1 ? "" : "s"}{" "}
+            saved
           </StatusBadge>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -104,15 +104,21 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
           </Button>
         </div>
         {isApplyPending ? (
-          <p aria-live="polite" className="text-(length:--text-small) leading-6 text-foreground-soft" role="status">
-            Preparing the application in the dedicated browser now. This can take up to a minute while Job Finder verifies every retained field. It will stop before the final submit control.
+          <p
+            aria-live="polite"
+            className="text-(length:--text-small) leading-6 text-foreground-soft"
+            role="status"
+          >
+            Preparing the application in the dedicated browser now. This can
+            take up to a minute while Job Finder verifies every retained field.
+            It will stop before the final submit control.
           </p>
         ) : null}
         <div className="grid gap-1 text-(length:--text-small) leading-6 text-foreground-soft">
           {!canRestageAutoRun ? (
             <p>
-              Auto-run restaging stays available only when this job is still in a
-              review-ready stage.
+              Auto-run restaging stays available only when this job is still in
+              a review-ready stage.
             </p>
           ) : null}
           {selectedRun?.mode === "queue_auto" ? (
@@ -145,10 +151,12 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
         <section className="surface-card-tint grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="grid gap-1">
-              <h3 className="label-mono-xs text-primary">Queue outcome summary</h3>
+              <h3 className="label-mono-xs text-primary">
+                Queue outcome summary
+              </h3>
               <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                Review how each job in the selected historical queue finished before
-                you restage anything.
+                Review how each job in the selected historical queue finished
+                before you restage anything.
               </p>
             </div>
             <StatusBadge tone={canRestageQueueRun ? "active" : "muted"}>
@@ -201,7 +209,9 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
                   </p>
                   {entry.runResult?.blockerSummary ? (
                     <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                      {getCustomerFacingApplyText(entry.runResult.blockerSummary)}
+                      {getCustomerFacingApplyText(
+                        entry.runResult.blockerSummary,
+                      )}
                     </p>
                   ) : null}
                 </div>
@@ -226,7 +236,7 @@ function QueueEntryList(props: {
     <div className="grid gap-2">
       <p className="label-mono-xs">{heading}</p>
       {entries.length ? (
-        entries.map((entry) => (
+        entries.map((entry) =>
           (() => {
             const resolvedState = entry.runResult?.state ?? statusFallback;
 
@@ -241,8 +251,8 @@ function QueueEntryList(props: {
                 </StatusBadge>
               </div>
             );
-          })()
-        ))
+          })(),
+        )
       ) : (
         <p>{emptyMessage}</p>
       )}

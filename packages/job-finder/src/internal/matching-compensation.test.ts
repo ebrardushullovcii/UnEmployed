@@ -39,6 +39,49 @@ describe("compensation normalization and fit truth", () => {
     });
   });
 
+  test("compares monthly and yearly amounts when explicit currencies match", () => {
+    const eurMonthlyPreference = {
+      minimum: 2_000,
+      maximum: 4_000,
+      interval: "month" as const,
+      currency: "EUR",
+      currencyStatus: "explicit" as const,
+    };
+
+    expect(
+      evaluateCompensationFit("EUR 30k/year", eurMonthlyPreference),
+    ).toMatchObject({
+      state: "meets_minimum",
+      listingCurrency: "EUR",
+      minimumSalaryUsd: null,
+      listingMinimumAnnualUsd: null,
+    });
+    expect(
+      evaluateCompensationFit("EUR 18k/year", eurMonthlyPreference),
+    ).toMatchObject({ state: "below_minimum", listingCurrency: "EUR" });
+    expect(
+      evaluateCompensationFit("€2,500 per month", eurMonthlyPreference),
+    ).toMatchObject({ state: "meets_minimum", listingCurrency: "EUR" });
+    expect(
+      evaluateCompensationFit("€1,500 monthly", eurMonthlyPreference),
+    ).toMatchObject({ state: "below_minimum", listingCurrency: "EUR" });
+  });
+
+  test("keeps cross-currency evidence neutral without guessing an exchange rate", () => {
+    expect(
+      evaluateCompensationFit("USD $100k/year", {
+        minimum: 2_000,
+        maximum: null,
+        interval: "month",
+        currency: "EUR",
+        currencyStatus: "explicit",
+      }),
+    ).toMatchObject({
+      state: "currency_incomparable",
+      listingCurrency: "USD",
+    });
+  });
+
   test("keeps missing, malformed, and secondary compensation neutral", () => {
     expect(evaluateCompensationFit(null, 120_000).state).toBe("unknown");
     expect(evaluateCompensationFit("Competitive", 120_000).state).toBe(

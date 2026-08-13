@@ -82,7 +82,7 @@ describe("JobFinderTaskCenter", () => {
       />,
     );
 
-    const summary = screen.getByText("Task center").closest("summary");
+    const summary = screen.getByLabelText("Task center: 2 active");
     expect(summary).toBeInstanceOf(HTMLElement);
     summary?.focus();
     expect(document.activeElement).toBe(summary);
@@ -184,7 +184,9 @@ describe("JobFinderTaskCenter", () => {
     expect(document.activeElement).toBe(summary);
 
     details.open = true;
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Outside control" }));
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "Outside control" }),
+    );
     expect(details.open).toBe(false);
 
     details.open = true;
@@ -218,7 +220,71 @@ describe("JobFinderTaskCenter", () => {
     );
     fireEvent.click(cancelButton);
     await waitFor(() => expect(cancelButton).toHaveProperty("disabled", false));
+    expect(
+      within(discoveryTask as HTMLElement).getByRole("status").textContent,
+    ).toContain(
+      "Cancellation did not complete. Check the task, then try again.",
+    );
     fireEvent.click(cancelButton);
     expect(onCancelDiscovery).toHaveBeenCalledTimes(2);
+  });
+
+  test("keeps the panel open and explains when task navigation fails", async () => {
+    const onNavigate = vi.fn(() => Promise.reject(new Error("route failed")));
+    const workspace = createWorkspace();
+    workspace.activeDiscoveryRun = null;
+    workspace.recentDiscoveryRuns = [
+      {
+        id: "discovery_failed",
+        state: "failed",
+        startedAt: "2026-07-31T10:00:00.000Z",
+        completedAt: "2026-07-31T10:00:02.000Z",
+        targetIds: ["source_1"],
+        targetExecutions: [],
+        activity: [],
+        summary: {
+          targetsPlanned: 1,
+          targetsCompleted: 0,
+          validJobsFound: 0,
+          durationMs: 2_000,
+        },
+      } as unknown as DiscoveryRunRecord,
+    ];
+    workspace.applyRuns = [];
+
+    render(
+      <JobFinderTaskCenter
+        isDiscoveryPending={false}
+        isResumeImportPending={false}
+        onNavigate={onNavigate}
+        workspace={workspace}
+      />,
+    );
+
+    const details = document.querySelector("details") as HTMLDetailsElement;
+    details.open = true;
+    fireEvent.click(screen.getByRole("button", { name: "Open Find jobs" }));
+
+    expect((await screen.findByRole("status")).textContent).toContain(
+      "That page could not open. Try again.",
+    );
+    expect(details.open).toBe(true);
+  });
+
+  test("shows useful progress without unavailable capability clutter", () => {
+    render(
+      <JobFinderTaskCenter
+        isDiscoveryPending
+        isResumeImportPending={false}
+        workspace={createWorkspace()}
+      />,
+    );
+
+    expect(screen.getByText("Task center", { selector: "h2" })).toBeInstanceOf(
+      HTMLElement,
+    );
+    expect(screen.getAllByText("Progress").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Pause")).toBeNull();
+    expect(screen.queryByText("Not available")).toBeNull();
   });
 });

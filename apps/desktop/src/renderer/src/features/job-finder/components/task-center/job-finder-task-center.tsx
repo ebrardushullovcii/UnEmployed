@@ -21,7 +21,9 @@ interface JobFinderTaskCenterProps {
   onCancelApplyRun?:
     | ((runId: string) => boolean | void | Promise<boolean | void>)
     | undefined;
-  onCancelDiscovery?: (() => boolean | void | Promise<boolean | void>) | undefined;
+  onCancelDiscovery?:
+    | (() => boolean | void | Promise<boolean | void>)
+    | undefined;
   onNavigate?: ((path: string) => void | Promise<void>) | undefined;
 }
 
@@ -58,6 +60,9 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
   const [cancelRequestedTaskIds, setCancelRequestedTaskIds] = useState<
     ReadonlySet<string>
   >(() => new Set());
+  const [taskFeedback, setTaskFeedback] = useState<
+    Readonly<Record<string, string>>
+  >({});
   const model = useMemo(
     () =>
       buildJobFinderTaskCenterModel({
@@ -137,18 +142,32 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
       return;
     }
 
+    setTaskFeedback((current) => {
+      const next = { ...current };
+      delete next[item.id];
+      return next;
+    });
     setCancelRequestedTaskIds((current) => new Set(current).add(item.id));
     try {
-      const result =
+      const cancelOperation =
         item.cancelKind === "discovery"
-          ? await props.onCancelDiscovery?.()
-          : await props.onCancelApplyRun?.(item.id);
+          ? props.onCancelDiscovery
+          : props.onCancelApplyRun
+            ? () => props.onCancelApplyRun?.(item.id)
+            : undefined;
+      const result = cancelOperation ? await cancelOperation() : false;
       if (result !== false) {
         return;
       }
     } catch {
-      // The owning page presents the operation error. Re-enable retry here.
+      // Keep the task available for another attempt and explain what happened here.
     }
+
+    setTaskFeedback((current) => ({
+      ...current,
+      [item.id]:
+        "Cancellation did not complete. Check the task, then try again.",
+    }));
 
     setCancelRequestedTaskIds((current) => {
       const next = new Set(current);
@@ -157,10 +176,29 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
     });
   }
 
-  async function navigateToTask(path: string) {
-    await props.onNavigate?.(path);
-    if (detailsRef.current) {
-      detailsRef.current.open = false;
+  async function navigateToTask(item: JobFinderTaskCenterItem) {
+    if (!item.resumeRoute) {
+      return;
+    }
+
+    setTaskFeedback((current) => {
+      const next = { ...current };
+      delete next[item.id];
+      return next;
+    });
+    try {
+      if (!props.onNavigate) {
+        throw new Error("Task navigation is unavailable");
+      }
+      await props.onNavigate(item.resumeRoute);
+      if (detailsRef.current) {
+        detailsRef.current.open = false;
+      }
+    } catch {
+      setTaskFeedback((current) => ({
+        ...current,
+        [item.id]: "That page could not open. Try again.",
+      }));
     }
   }
 
@@ -185,7 +223,7 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
         <div className="flex items-start justify-between gap-3">
           <div className="grid gap-1">
             <h2 className="font-display text-lg font-semibold text-(--text-headline)">
-              Workflow tasks
+              Task center
             </h2>
             <p className="text-(length:--text-small) leading-5 text-foreground-soft">
               Current and latest job-search, résumé, and application work.
@@ -241,7 +279,7 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
                   <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-(length:--text-small) leading-5">
                     <dt className="text-foreground-muted">Stage</dt>
                     <dd className="text-foreground">{item.stageLabel}</dd>
-                    <dt className="text-foreground-muted">Counts</dt>
+                    <dt className="text-foreground-muted">Progress</dt>
                     <dd className="text-foreground">{item.countLabel}</dd>
                     {item.historyEstimateLabel ? (
                       <>
@@ -255,40 +293,11 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
                     ) : null}
                   </dl>
 
-                  <div className="grid grid-cols-3 gap-2 text-[0.7rem] leading-4">
-                    <div className="rounded-md bg-(--input) px-2 py-1.5">
-                      <span className="block text-foreground-muted">Pause</span>
-                      <span className="text-foreground">
-                        {item.pauseAvailability}
-                      </span>
-                    </div>
-                    <div className="rounded-md bg-(--input) px-2 py-1.5">
-                      <span className="block text-foreground-muted">
-                        Cancel
-                      </span>
-                      <span className="text-foreground">
-                        {item.cancelAvailability}
-                      </span>
-                    </div>
-                    <div className="rounded-md bg-(--input) px-2 py-1.5">
-                      <span className="block text-foreground-muted">
-                        Resume
-                      </span>
-                      <span className="text-foreground">
-                        {item.resumeAvailability}
-                      </span>
-                    </div>
-                  </div>
-
                   {item.canCancel || item.resumeRoute ? (
                     <div className="flex flex-wrap justify-end gap-2">
                       {item.resumeRoute && item.resumeActionLabel ? (
                         <Button
-                          onClick={() =>
-                            void navigateToTask(
-                              item.resumeRoute ?? "/job-finder",
-                            )
-                          }
+                          onClick={() => void navigateToTask(item)}
                           size="sm"
                           type="button"
                           variant="secondary"
@@ -310,6 +319,14 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
                         </Button>
                       ) : null}
                     </div>
+                  ) : null}
+                  {taskFeedback[item.id] ? (
+                    <p
+                      className="rounded-md border border-(--warning-border) bg-(--warning-surface) px-3 py-2 text-(length:--text-small) leading-5 text-foreground-soft"
+                      role="status"
+                    >
+                      {taskFeedback[item.id]}
+                    </p>
                   ) : null}
                 </article>
               );

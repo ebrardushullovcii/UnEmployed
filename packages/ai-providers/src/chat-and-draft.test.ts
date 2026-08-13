@@ -1934,4 +1934,106 @@ describe("openai-compatible chat and draft behavior", () => {
       fetchMock.restore();
     }
   });
+
+  test("aggressive mode accepts stack-aware inferred rewrites and flags them for review", async () => {
+    const inferredBullet =
+      "Implemented code-splitting and lazy loading in Next.js, cutting dashboard load time by 15%.";
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              experienceEntries: [
+                {
+                  profileRecordId: "experience_platform",
+                  bullets: [
+                    {
+                      text: inferredBullet,
+                      evidenceRefs: [
+                        "experience:experience_platform:achievement:0",
+                        "profile:skills",
+                      ],
+                      inferred: true,
+                    },
+                  ],
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    });
+
+    try {
+      const client = createOpenAiCompatibleJobFinderAiClient({
+        apiKey: "test-key",
+        baseUrl: "https://example.com/v1",
+        model: "test-model",
+      });
+      const baseProfile = createProfile();
+      const result = await client.createResumeDraft({
+        profile: {
+          ...baseProfile,
+          skills: ["TypeScript", "Next.js"],
+          proofBank: [],
+          experiences: [
+            {
+              id: "experience_platform",
+              companyName: "Acme Labs",
+              companyUrl: null,
+              title: "Platform Engineer",
+              employmentType: null,
+              location: "Remote",
+              workMode: ["remote"],
+              startDate: "2022-01",
+              endDate: null,
+              isCurrent: true,
+              isDraft: false,
+              summary: "Built the customer dashboard.",
+              achievements: ["Made the customer dashboard 15% faster on load."],
+              skills: ["TypeScript", "Next.js"],
+              domainTags: [],
+              peopleManagementScope: null,
+              ownershipScope: null,
+            },
+          ],
+        },
+        searchPreferences: {
+          ...createPreferences(),
+          tailoringMode: "aggressive" as const,
+        },
+        settings: createSettings(),
+        job: {
+          ...createJobPosting(),
+          company: "ExampleCo",
+          keySkills: ["TypeScript", "Next.js"],
+        },
+        resumeText: "Resume text",
+        evidence: {
+          summary: [],
+          candidateSummary: [],
+          experience: [],
+          skills: ["TypeScript", "Next.js"],
+          keywords: ["TypeScript", "Next.js"],
+        },
+        researchContext: {
+          companyNotes: [],
+          domainVocabulary: [],
+          priorityThemes: [],
+        },
+      });
+
+      expect(result.experienceEntries[0]?.bullets).toContain(inferredBullet);
+      expect(result.fullText).toContain(inferredBullet);
+      expect(result.generationQuality).toMatchObject({
+        strategy: "evidence_linked",
+        acceptedRewriteCount: 1,
+      });
+      expect(result.notes).toContain(
+        "1 AI-inferred line came from aggressive tailoring. Review and confirm each inferred line before approving the resume.",
+      );
+    } finally {
+      restoreFetch();
+    }
+  });
 });

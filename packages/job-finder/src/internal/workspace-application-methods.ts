@@ -183,6 +183,30 @@ async function getLatestResumeRevisionId(
 export function createWorkspaceApplicationMethods(
   ctx: WorkspaceServiceContext,
 ): WorkspaceApplicationMethods {
+  async function withApplyRunTransition<T>(
+    runId: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const previous =
+      ctx.applyRunTransitionTails.get(runId) ?? Promise.resolve();
+    let releaseCurrent!: () => void;
+    const current = new Promise<void>((resolve) => {
+      releaseCurrent = resolve;
+    });
+    const tail = previous.catch(() => undefined).then(() => current);
+    ctx.applyRunTransitionTails.set(runId, tail);
+
+    await previous.catch(() => undefined);
+    try {
+      return await operation();
+    } finally {
+      releaseCurrent();
+      if (ctx.applyRunTransitionTails.get(runId) === tail) {
+        ctx.applyRunTransitionTails.delete(runId);
+      }
+    }
+  }
+
   function hasLockedResumeContent(draft: ResumeDraft): boolean {
     return draft.sections.some(
       (section) =>
@@ -646,10 +670,13 @@ export function createWorkspaceApplicationMethods(
     };
   }
 
-  async function executeSafeApplyRun(input: {
-    mode: "single_job_auto" | "queue_auto";
-    runId: string;
-  }): Promise<void> {
+  async function executeSafeApplyRunOwned(
+    input: {
+      mode: "single_job_auto" | "queue_auto";
+      runId: string;
+    },
+    executionController: AbortController,
+  ): Promise<void> {
     const [
       profile,
       searchPreferences,
@@ -722,7 +749,39 @@ export function createWorkspaceApplicationMethods(
         detail:
           "This safe development execution can fill and classify applications, but it still stops before any final submit action.",
       });
-    await ctx.repository.upsertApplyRun(currentRunState);
+    const executionSignal = executionController.signal;
+    const stopIfRunWasCancelled = async (): Promise<boolean> => {
+      if (executionSignal.aborted) {
+        return true;
+      }
+      const latestRun = (await ctx.repository.listApplyRuns()).find(
+        (entry) => entry.id === run.id,
+      );
+      if (latestRun?.state !== "cancelled") {
+        return false;
+      }
+      executionController.abort();
+      return true;
+    };
+
+    const persistRunUnlessCancelled = async (
+      nextRun: ReturnType<typeof ApplyRunSchema.parse>,
+    ): Promise<boolean> =>
+      withApplyRunTransition(run.id, async () => {
+        const latestRun = (await ctx.repository.listApplyRuns()).find(
+          (entry) => entry.id === run.id,
+        );
+        if (executionSignal.aborted || latestRun?.state === "cancelled") {
+          executionController.abort();
+          return false;
+        }
+        await ctx.repository.upsertApplyRun(nextRun);
+        return true;
+      });
+
+    if (!(await persistRunUnlessCancelled(currentRunState))) {
+      return;
+    }
 
     let submittedJobs = 0;
     let blockedJobs = 0;
@@ -737,6 +796,9 @@ export function createWorkspaceApplicationMethods(
     const keepSessionAlive = settings.keepSessionAlive;
     try {
       for (let index = 0; index < run.jobIds.length; index += 1) {
+        if (await stopIfRunWasCancelled()) {
+          return;
+        }
         const jobId = run.jobIds[index]!;
         const jobResult = results.find(
           (entry) => entry.runId === run.id && entry.jobId === jobId,
@@ -759,6 +821,9 @@ export function createWorkspaceApplicationMethods(
 
         const { job, resumeApplicationMode, resumeArtifact } =
           await resolveJobApplyPrerequisites(jobId);
+        if (await stopIfRunWasCancelled()) {
+          return;
+        }
         const recoverySeed = await buildApplyRecoveryContext(jobId);
         if (activeSource !== job.source) {
           if (activeSource && !keepSessionAlive) {
@@ -767,6 +832,9 @@ export function createWorkspaceApplicationMethods(
           await ctx.openRunBrowserSession(job.source);
           activeSource = job.source;
           shouldCloseActiveSessionOnExit = false;
+          if (await stopIfRunWasCancelled()) {
+            return;
+          }
         }
         const provenanceTargetId =
           job.provenance[job.provenance.length - 1]?.targetId ??
@@ -789,27 +857,34 @@ export function createWorkspaceApplicationMethods(
         ]);
 
         const executionResult = enforcePrepareOnlyExecutionResult(
-          await ctx.browserRuntime.executeApplicationFlow(job.source, {
-            job,
-            resumeArtifact,
-            profile,
-            settings: { ...settings, resumeApplicationMode },
-            mode: "prepare_only",
-            intermediateMutationsAuthorized: true,
-            accountCreationAuthorized: false,
-            submitAuthorized: false,
-            ...(recoverySeed.recoveryContext
-              ? { recoveryContext: recoverySeed.recoveryContext }
-              : {}),
-            ...(applyInstructions.length > 0
-              ? { instructions: applyInstructions }
-              : {}),
-            ...buildApplyVisualExecutionOptions({
-              enabled: currentRunState.visualCheckpointsEnabled,
-              source: job.source,
-            }),
-          }),
+          await ctx.browserRuntime.executeApplicationFlow(
+            job.source,
+            {
+              job,
+              resumeArtifact,
+              profile,
+              settings: { ...settings, resumeApplicationMode },
+              mode: "prepare_only",
+              intermediateMutationsAuthorized: true,
+              accountCreationAuthorized: false,
+              submitAuthorized: false,
+              ...(recoverySeed.recoveryContext
+                ? { recoveryContext: recoverySeed.recoveryContext }
+                : {}),
+              ...(applyInstructions.length > 0
+                ? { instructions: applyInstructions }
+                : {}),
+              ...buildApplyVisualExecutionOptions({
+                enabled: currentRunState.visualCheckpointsEnabled,
+                source: job.source,
+              }),
+            },
+            { signal: executionSignal },
+          ),
         );
+        if (await stopIfRunWasCancelled()) {
+          return;
+        }
         const detectedAt = new Date().toISOString();
         const sourceDebugEvidenceRefIds = buildEvidenceRefIdsFromInstruction({
           activeInstruction,
@@ -904,6 +979,10 @@ export function createWorkspaceApplicationMethods(
           privacyReceipt: runArtifacts.result.privacyReceipt,
         });
 
+        if (await stopIfRunWasCancelled()) {
+          return;
+        }
+
         await Promise.all([
           ctx.repository.upsertApplyJobResult(updatedResult),
           ...runArtifacts.questionRecords
@@ -953,6 +1032,10 @@ export function createWorkspaceApplicationMethods(
             ),
         ]);
 
+        if (await stopIfRunWasCancelled()) {
+          return;
+        }
+
         await persistApplicationUserAction({
           repository: ctx.repository,
           job,
@@ -964,6 +1047,10 @@ export function createWorkspaceApplicationMethods(
           blocker,
           occurredAt: detectedAt,
         });
+
+        if (await stopIfRunWasCancelled()) {
+          return;
+        }
 
         const attempt = ApplicationAttemptSchema.parse({
           id: `attempt_${jobId}_${Date.now()}`,
@@ -996,6 +1083,10 @@ export function createWorkspaceApplicationMethods(
           executionTimings: normalizedExecutionResult.executionTimings,
         });
         await ctx.repository.upsertApplicationAttempt(attempt);
+
+        if (await stopIfRunWasCancelled()) {
+          return;
+        }
 
         const jobState = updatedResult.state;
         if (jobState === "submitted") {
@@ -1084,9 +1175,7 @@ export function createWorkspaceApplicationMethods(
                 : "The current safe development execution filled and classified the application but still stopped before any final submit action.",
           completedAt:
             input.mode === "queue_auto"
-              ? pendingConsentRequests > 0 ||
-                pendingJobs > 0 ||
-                blockedJobs > 0
+              ? pendingConsentRequests > 0 || pendingJobs > 0 || blockedJobs > 0
                 ? null
                 : detectedAt
               : nextRunState === "completed" || nextRunState === "failed"
@@ -1098,13 +1187,21 @@ export function createWorkspaceApplicationMethods(
           blockedJobs,
           failedJobs,
         });
-        await ctx.repository.upsertApplyRun(currentRunState);
+        if (await stopIfRunWasCancelled()) {
+          return;
+        }
+        if (!(await persistRunUnlessCancelled(currentRunState))) {
+          return;
+        }
 
         if (input.mode === "single_job_auto") {
           break;
         }
       }
     } catch (error) {
+      if (await stopIfRunWasCancelled()) {
+        return;
+      }
       shouldCloseActiveSessionOnExit = Boolean(activeSource);
       const failedAt = new Date().toISOString();
       currentRunState = ApplyRunSchema.parse({
@@ -1123,12 +1220,14 @@ export function createWorkspaceApplicationMethods(
             ? error.message
             : "Unknown automatic apply failure.",
       });
-      await ctx.repository.upsertApplyRun(currentRunState);
+      await persistRunUnlessCancelled(currentRunState);
       throw error;
     } finally {
       if (
         activeSource &&
-        (!keepSessionAlive || shouldCloseActiveSessionOnExit)
+        (!keepSessionAlive ||
+          shouldCloseActiveSessionOnExit ||
+          executionSignal.aborted)
       ) {
         try {
           await ctx.closeRunBrowserSession(activeSource);
@@ -1137,6 +1236,36 @@ export function createWorkspaceApplicationMethods(
         }
       }
     }
+  }
+
+  function executeSafeApplyRun(input: {
+    mode: "single_job_auto" | "queue_auto";
+    runId: string;
+  }): Promise<void> {
+    if (ctx.activeApplyRunAbortControllers.has(input.runId)) {
+      return Promise.reject(
+        new Error(`Apply run '${input.runId}' is already executing.`),
+      );
+    }
+
+    const executionController = new AbortController();
+    ctx.activeApplyRunAbortControllers.set(input.runId, executionController);
+    const executionPromise = executeSafeApplyRunOwned(
+      input,
+      executionController,
+    ).finally(() => {
+      if (
+        ctx.activeApplyRunAbortControllers.get(input.runId) ===
+        executionController
+      ) {
+        ctx.activeApplyRunAbortControllers.delete(input.runId);
+      }
+      if (ctx.activeApplyRunPromises.get(input.runId) === executionPromise) {
+        ctx.activeApplyRunPromises.delete(input.runId);
+      }
+    });
+    ctx.activeApplyRunPromises.set(input.runId, executionPromise);
+    return executionPromise;
   }
 
   const resumeApplicationUserAction = createApplicationUserActionResumer(ctx, {
@@ -1342,7 +1471,9 @@ export function createWorkspaceApplicationMethods(
       const targetJob = savedJobs.find((job) => job.id === jobId) ?? null;
 
       if (!targetJob || targetJob.status !== "archived") {
-        throw new Error("Unable to restore unknown hidden job '" + jobId + "'.");
+        throw new Error(
+          "Unable to restore unknown hidden job '" + jobId + "'.",
+        );
       }
 
       const restoredJob = SavedJobSchema.parse({
@@ -1369,7 +1500,8 @@ export function createWorkspaceApplicationMethods(
         discoveryState: nextDiscoveryState,
       });
       return ctx.getWorkspaceSnapshot();
-    },    async generateResume(jobId) {
+    },
+    async generateResume(jobId) {
       const [profile, searchPreferences, settings, savedJobs, tailoredAssets] =
         await Promise.all([
           ctx.repository.getProfile(),
@@ -2225,21 +2357,35 @@ export function createWorkspaceApplicationMethods(
           targetEntryId: patch.targetEntryId ?? null,
         }),
       );
+      const invalidReplacementPatch = normalizedPatches.find(
+        (patch) =>
+          [
+            "replace_section_text",
+            "replace_entry_summary",
+            "update_bullet",
+          ].includes(patch.operation) && !patch.newText?.trim(),
+      );
+      const reviewablePatches = invalidReplacementPatch
+        ? []
+        : normalizedPatches;
       const assistantContent =
-        normalizedPatches.length > 0
-          ? `I prepared ${normalizedPatches.length} grounded resume edit${normalizedPatches.length === 1 ? "" : "s"} for your review. Nothing changed yet; select the changes you want and accept them explicitly.`
-          : assistantReply.content;
+        reviewablePatches.length > 0
+          ? `I prepared ${reviewablePatches.length} grounded resume edit${reviewablePatches.length === 1 ? "" : "s"} for your review. Nothing changed yet; select the changes you want and accept them explicitly.`
+          : invalidReplacementPatch
+            ? "I could not produce a usable replacement for that request, so no resume change was proposed. Try asking for the exact section and outcome you want."
+            : assistantReply.content;
       const assistantMessage = buildAssistantReplyMessage({
         jobId,
         content: assistantContent,
-        patches: normalizedPatches,
+        patches: reviewablePatches,
         baseDraftUpdatedAt: workspaceState.draft.updatedAt,
+        executionAttribution: assistantReply.executionReceipt,
         createdAt: assistantMessageTimestamp,
       });
 
       let candidateDraft = workspaceState.draft;
       try {
-        for (const patch of normalizedPatches) {
+        for (const patch of reviewablePatches) {
           const updatedAt = createMonotonicTimestamp(candidateDraft.updatedAt);
           candidateDraft = applyPatchToResumeDraft({
             draft: candidateDraft,
@@ -2257,6 +2403,7 @@ export function createWorkspaceApplicationMethods(
           content: `No assistant changes were applied. ${failureDetail}`,
           patches: [],
           proposalError: failureDetail,
+          executionAttribution: assistantReply.executionReceipt,
           createdAt: assistantMessageTimestamp,
         });
 
@@ -2270,15 +2417,10 @@ export function createWorkspaceApplicationMethods(
 
       return ctx.repository.listResumeAssistantMessages(jobId);
     },
-    async resolveResumeAssistantProposal(
-      jobId,
-      proposalId,
-      action,
-      patchIds,
-    ) {
-      const proposal = (await ctx.repository.listResumeAssistantMessages(jobId)).find(
-        (message) => message.id === proposalId,
-      );
+    async resolveResumeAssistantProposal(jobId, proposalId, action, patchIds) {
+      const proposal = (
+        await ctx.repository.listResumeAssistantMessages(jobId)
+      ).find((message) => message.id === proposalId);
       if (!proposal || proposal.role !== "assistant") {
         throw new Error(`Unable to find resume proposal '${proposalId}'.`);
       }
@@ -2301,7 +2443,9 @@ export function createWorkspaceApplicationMethods(
       }
 
       const uniquePatchIds = [...new Set(patchIds)];
-      const proposalPatchIds = new Set(proposal.patches.map((patch) => patch.id));
+      const proposalPatchIds = new Set(
+        proposal.patches.map((patch) => patch.id),
+      );
       if (
         uniquePatchIds.length === 0 ||
         uniquePatchIds.some((patchId) => !proposalPatchIds.has(patchId))
@@ -2338,7 +2482,9 @@ export function createWorkspaceApplicationMethods(
           });
         }
 
-        const finalUpdatedAt = createMonotonicTimestamp(candidateDraft.updatedAt);
+        const finalUpdatedAt = createMonotonicTimestamp(
+          candidateDraft.updatedAt,
+        );
         const sanitizedDraft = sanitizeResumeDraft({
           draft: candidateDraft,
           job: workspaceState.job,
@@ -2348,7 +2494,9 @@ export function createWorkspaceApplicationMethods(
           buildResumeDraftStateHash(workspaceState.draft) ===
           buildResumeDraftStateHash(sanitizedDraft)
         ) {
-          throw new Error("The selected proposal does not change the current resume.");
+          throw new Error(
+            "The selected proposal does not change the current resume.",
+          );
         }
 
         const revision = buildResumeDraftRevision({
@@ -3058,109 +3206,117 @@ export function createWorkspaceApplicationMethods(
       return ctx.getWorkspaceSnapshot();
     },
     async approveApplyRun(runId) {
-      const [runs, approvals] = await Promise.all([
-        ctx.repository.listApplyRuns(),
-        ctx.repository.listApplySubmitApprovals(),
-      ]);
-      const run = runs.find((entry) => entry.id === runId) ?? null;
+      const mode = await withApplyRunTransition(runId, async () => {
+        const [runs, approvals] = await Promise.all([
+          ctx.repository.listApplyRuns(),
+          ctx.repository.listApplySubmitApprovals(),
+        ]);
+        const run = runs.find((entry) => entry.id === runId) ?? null;
 
-      if (!run) {
-        throw new Error(`Unknown apply run '${runId}'.`);
-      }
+        if (!run) {
+          throw new Error(`Unknown apply run '${runId}'.`);
+        }
 
-      if (run.mode !== "single_job_auto" && run.mode !== "queue_auto") {
-        throw new Error(
-          `Apply run '${runId}' is not waiting on submit approval.`,
-        );
-      }
+        if (run.mode !== "single_job_auto" && run.mode !== "queue_auto") {
+          throw new Error(
+            `Apply run '${runId}' is not waiting on submit approval.`,
+          );
+        }
 
-      if (run.state !== "awaiting_submit_approval") {
-        throw new Error(
-          `Apply run '${runId}' is not currently awaiting submit approval.`,
-        );
-      }
+        if (run.state !== "awaiting_submit_approval") {
+          throw new Error(
+            `Apply run '${runId}' is not currently awaiting submit approval.`,
+          );
+        }
 
-      if (!run.submitApprovalId) {
-        throw new Error(
-          `Apply run '${runId}' does not have a submit approval record.`,
-        );
-      }
+        if (!run.submitApprovalId) {
+          throw new Error(
+            `Apply run '${runId}' does not have a submit approval record.`,
+          );
+        }
 
-      const approval =
-        approvals.find((entry) => entry.id === run.submitApprovalId) ?? null;
+        const approval =
+          approvals.find((entry) => entry.id === run.submitApprovalId) ?? null;
 
-      if (!approval) {
-        throw new Error(
-          `Missing submit approval '${run.submitApprovalId}' for run '${runId}'.`,
-        );
-      }
+        if (!approval) {
+          throw new Error(
+            `Missing submit approval '${run.submitApprovalId}' for run '${runId}'.`,
+          );
+        }
 
-      if (approval.status !== "pending") {
-        throw new Error(
-          `Submit approval for run '${runId}' is already ${approval.status}.`,
-        );
-      }
+        if (approval.status !== "pending") {
+          throw new Error(
+            `Submit approval for run '${runId}' is already ${approval.status}.`,
+          );
+        }
 
-      const now = new Date().toISOString();
-      const updatedApproval = ApplySubmitApprovalSchema.parse({
-        ...approval,
-        status: "approved",
-        approvedAt: now,
-        revokedAt: null,
-        detail:
-          "Submit approval was recorded for this run. Final submit remains disabled in the current safe development slice.",
+        const now = new Date().toISOString();
+        const updatedApproval = ApplySubmitApprovalSchema.parse({
+          ...approval,
+          status: "approved",
+          approvedAt: now,
+          revokedAt: null,
+          detail:
+            "Submit approval was recorded for this run. Final submit remains disabled in the current safe development slice.",
+        });
+        const updatedRun = ApplyRunSchema.parse({
+          ...run,
+          state: "paused_for_user_review",
+          updatedAt: now,
+          summary: "Submit approval captured for this automatic apply run.",
+          detail:
+            "This run is approved for later submit-enabled execution, but the current safe implementation still stops before the final submit action.",
+        });
+
+        await Promise.all([
+          ctx.repository.upsertApplySubmitApproval(updatedApproval),
+          ctx.repository.upsertApplyRun(updatedRun),
+        ]);
+        return run.mode;
       });
-      const updatedRun = ApplyRunSchema.parse({
-        ...run,
-        state: "paused_for_user_review",
-        updatedAt: now,
-        summary: "Submit approval captured for this automatic apply run.",
-        detail:
-          "This run is approved for later submit-enabled execution, but the current safe implementation still stops before the final submit action.",
-      });
-
-      await Promise.all([
-        ctx.repository.upsertApplySubmitApproval(updatedApproval),
-        ctx.repository.upsertApplyRun(updatedRun),
-      ]);
 
       await executeSafeApplyRun({
-        mode: run.mode,
+        mode,
         runId,
       });
 
       return ctx.getWorkspaceSnapshot();
     },
     async cancelApplyRun(runId) {
-      const [runs, applicationRecords] = await Promise.all([
-        ctx.repository.listApplyRuns(),
-        ctx.repository.listApplicationRecords(),
-      ]);
-      const run = runs.find((entry) => entry.id === runId) ?? null;
+      ctx.activeApplyRunAbortControllers.get(runId)?.abort();
+      const { run, updatedRun, applicationRecords, now } =
+        await withApplyRunTransition(runId, async () => {
+          const [runs, applicationRecords] = await Promise.all([
+            ctx.repository.listApplyRuns(),
+            ctx.repository.listApplicationRecords(),
+          ]);
+          const run = runs.find((entry) => entry.id === runId) ?? null;
 
-      if (!run) {
-        throw new Error(`Unknown apply run '${runId}'.`);
-      }
+          if (!run) {
+            throw new Error(`Unknown apply run '${runId}'.`);
+          }
 
-      if (
-        run.state === "completed" ||
-        run.state === "cancelled" ||
-        run.state === "failed"
-      ) {
-        throw new Error(`Apply run '${runId}' can no longer be cancelled.`);
-      }
+          if (
+            run.state === "completed" ||
+            run.state === "cancelled" ||
+            run.state === "failed"
+          ) {
+            throw new Error(`Apply run '${runId}' can no longer be cancelled.`);
+          }
 
-      const now = new Date().toISOString();
-      const updatedRun = ApplyRunSchema.parse({
-        ...run,
-        state: "cancelled",
-        updatedAt: now,
-        completedAt: now,
-        summary: "Automatic apply run cancelled.",
-        detail:
-          "The queued run was cancelled before final submit. Any completed preparation artifacts remain available for review.",
-      });
-      await ctx.repository.upsertApplyRun(updatedRun);
+          const now = new Date().toISOString();
+          const updatedRun = ApplyRunSchema.parse({
+            ...run,
+            state: "cancelled",
+            updatedAt: now,
+            completedAt: now,
+            summary: "Automatic apply run cancelled.",
+            detail:
+              "The queued run was cancelled before final submit. Any completed preparation artifacts remain available for review.",
+          });
+          await ctx.repository.upsertApplyRun(updatedRun);
+          return { run, updatedRun, applicationRecords, now };
+        });
 
       await Promise.all(
         run.jobIds.map(async (jobId) => {

@@ -11,6 +11,133 @@ import {
 } from "./test-fixtures";
 
 describe("resume generation quality", () => {
+  test("builds a genuinely job-targeted frontend resume instead of preserving a generic full-stack profile", () => {
+    const baseProfile = createProfile();
+    const profile: typeof baseProfile = {
+      ...baseProfile,
+      headline: "Senior Full-Stack Software Engineer",
+      summary:
+        "Senior full-stack engineer across React, Node.js, C#, .NET, SQL Server, AWS, and Azure.",
+      yearsExperience: 7,
+      skills: ["C#", ".NET", "React", "TypeScript", "JavaScript", "Node.js"],
+      skillGroups: {
+        ...baseProfile.skillGroups,
+        coreSkills: [
+          "C#",
+          ".NET",
+          "React",
+          "TypeScript",
+          "JavaScript",
+          "Node.js",
+        ],
+      },
+      experiences: [
+        {
+          id: "experience_frontend",
+          companyName: "Product Studio",
+          companyUrl: null,
+          title: "Senior Full-Stack Software Engineer",
+          employmentType: "Full-time",
+          location: "Remote",
+          workMode: ["remote"],
+          startDate: "2023-07",
+          endDate: null,
+          isCurrent: true,
+          isDraft: false,
+          summary: "Built product software with React and Node.js.",
+          achievements: [
+            "Built responsive React and Next.js interfaces that raised tablet task completion from 83% to 98%.",
+            "Implemented Node.js API routes for real-time test execution.",
+          ],
+          skills: ["React", "Next.js", "TypeScript", "JavaScript", "Node.js"],
+          domainTags: ["frontend"],
+          peopleManagementScope: null,
+          ownershipScope: null,
+        },
+        {
+          id: "experience_marketing",
+          companyName: "Brand Studio",
+          companyUrl: null,
+          title: "Digital Marketing Manager",
+          employmentType: "Full-time",
+          location: "Prishtina, Kosovo",
+          workMode: ["onsite"],
+          startDate: "2017-01",
+          endDate: "2018-01",
+          isCurrent: false,
+          isDraft: false,
+          summary: "Managed advertising campaigns.",
+          achievements: [
+            "Grew social reach by 120% through advertising campaigns.",
+          ],
+          skills: ["Marketing"],
+          domainTags: ["marketing"],
+          peopleManagementScope: null,
+          ownershipScope: null,
+        },
+      ],
+      projects: [
+        {
+          id: "project_cpp",
+          name: "ClipVault",
+          role: "Creator",
+          summary: "Desktop video capture software.",
+          outcome: null,
+          skills: ["C++"],
+          projectType: "personal",
+          projectUrl: null,
+          repositoryUrl: null,
+          caseStudyUrl: null,
+        },
+        {
+          id: "project_react",
+          name: "ShowTracker",
+          role: "Creator and frontend engineer",
+          summary: "Cross-platform React Native entertainment tracker.",
+          outcome: "Built responsive discovery and tracking interfaces.",
+          skills: ["React Native", "TypeScript"],
+          projectType: "personal",
+          projectUrl: null,
+          repositoryUrl: null,
+          caseStudyUrl: null,
+        },
+      ],
+    };
+    const job = {
+      ...createJobPosting(),
+      title: "JavaScript Frontend Developer",
+      keySkills: ["JavaScript", "React", "TypeScript", "Node.js"],
+      responsibilities: ["Build responsive client-side applications"],
+    };
+
+    const result = buildDeterministicStructuredResumeDraft({
+      profile,
+      searchPreferences: createPreferences(),
+      settings: createSettings(),
+      job,
+      resumeText: profile.baseResume.textContent,
+    });
+
+    expect(result.summary).toMatch(
+      /^JavaScript Frontend Developer with 7\+ years/,
+    );
+    expect(result.summary).toContain("responsive React and Next.js interfaces");
+    expect(result.summary).not.toContain("AWS");
+    expect(result.coreSkills.slice(0, 4)).toEqual([
+      "JavaScript",
+      "React",
+      "TypeScript",
+      "Node.js",
+    ]);
+    expect(result.projectEntries[0]?.profileRecordId).toBe("project_react");
+    expect(result.coverageMetadata).toContainEqual(
+      expect.objectContaining({
+        profileRecordId: "experience_marketing",
+        classification: "compact",
+      }),
+    );
+  });
+
   test("never accepts model-authored employment metadata for a canonical role", () => {
     const baseProfile = createProfile();
     const canonicalExperience = {
@@ -312,9 +439,11 @@ describe("resume generation quality", () => {
       profileRecordId: "experience_ops_tooling",
       title: "Operations Coordinator",
       employer: "OpsBridge",
-      bullets: [
-        "Built workflow automation dashboards that reduced manual QA checks by 30% using Airtable and SQL exports.",
-      ],
+    });
+    expect(balancedResult.coverageMetadata[0]).toMatchObject({
+      profileRecordId: "experience_ops_tooling",
+      classification: "compact",
+      careerFamilyFit: "weak",
     });
     expect(balancedResult.fullText).not.toMatch(
       /React.*OpsBridge|Frontend Engineer.*OpsBridge/,
@@ -414,11 +543,23 @@ describe("resume generation quality", () => {
       },
     });
 
-    for (const result of [
-      balancedResult,
-      aggressiveResult,
-      conservativeResult,
-    ]) {
+    for (const result of [aggressiveResult]) {
+      expect(result.experienceEntries).toEqual([]);
+      expect(result.coverageMetadata).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            profileRecordId: "experience_technical_support",
+            classification: "suggested_hidden",
+          }),
+          expect.objectContaining({
+            profileRecordId: "experience_call_center",
+            classification: "suggested_hidden",
+          }),
+        ]),
+      );
+    }
+
+    for (const result of [balancedResult, conservativeResult]) {
       expect(
         result.experienceEntries.map((entry) => entry.profileRecordId),
       ).toEqual(["experience_technical_support", "experience_call_center"]);
@@ -495,7 +636,9 @@ describe("resume generation quality", () => {
           isCurrent: false,
           isDraft: false,
           summary: "Maintained small-business websites.",
-          achievements: ["Delivered accessible websites for four local clients."],
+          achievements: [
+            "Delivered accessible websites for four local clients.",
+          ],
           skills: ["JavaScript"],
           domainTags: ["small business"],
           peopleManagementScope: null,
@@ -533,7 +676,9 @@ describe("resume generation quality", () => {
           isCurrent: false,
           isDraft: false,
           summary: "Coordinated daily delivery schedules.",
-          achievements: ["Reconciled daily delivery records for dispatch teams."],
+          achievements: [
+            "Reconciled daily delivery records for dispatch teams.",
+          ],
           skills: [],
           domainTags: [],
           peopleManagementScope: null,
@@ -601,15 +746,26 @@ describe("resume generation quality", () => {
         },
       });
 
-      expect(
-        result.experienceEntries.map((entry) => entry.profileRecordId),
-      ).toEqual(expectedRecordIds);
-      expect(
-        result.coverageMetadata.map((entry) => entry.classification),
-      ).not.toContain("omitted");
-      expect(
-        result.coverageMetadata.map((entry) => entry.classification),
-      ).not.toContain("suggested_hidden");
+      const visibleRecordIds = result.experienceEntries.map(
+        (entry) => entry.profileRecordId,
+      );
+      if (tailoringMode !== "aggressive") {
+        expect(visibleRecordIds).toEqual(expectedRecordIds);
+      } else {
+        expect(visibleRecordIds).toEqual(expectedRecordIds.slice(0, 4));
+        expect(result.coverageMetadata).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              profileRecordId: "experience_operations",
+              classification: "suggested_hidden",
+            }),
+            expect.objectContaining({
+              profileRecordId: "experience_retail",
+              classification: "suggested_hidden",
+            }),
+          ]),
+        );
+      }
       expect(
         result.experienceEntries.find(
           (entry) => entry.profileRecordId === "experience_contract_engineer",
@@ -619,16 +775,18 @@ describe("resume generation quality", () => {
         employer: "Northstar Labs",
         bullets: ["Shipped three customer portals on schedule."],
       });
-      expect(
-        result.experienceEntries.find(
-          (entry) => entry.profileRecordId === "experience_retail",
-        ),
-      ).toMatchObject({
-        title: "Retail Associate",
-        employer: "Market House",
-        summary: null,
-        bullets: [],
-      });
+      if (tailoringMode === "conservative") {
+        expect(
+          result.experienceEntries.find(
+            (entry) => entry.profileRecordId === "experience_retail",
+          ),
+        ).toMatchObject({
+          title: "Retail Associate",
+          employer: "Market House",
+          summary: null,
+          bullets: [],
+        });
+      }
       expect(result.fullText).not.toMatch(
         /React.*(?:CareDesk|City Logistics|Market House)/,
       );

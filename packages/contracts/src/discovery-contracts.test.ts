@@ -39,6 +39,7 @@ describe("discovery contracts", () => {
       jobsSkippedByTitleTriage: 0,
       duplicatesMerged: 0,
       invalidSkipped: 0,
+      agentCheckpoint: null,
       changeDigest: {
         new: 0,
         unchanged: 0,
@@ -48,6 +49,30 @@ describe("discovery contracts", () => {
         known: 0,
         skipped: 0,
       },
+    });
+  });
+
+  test("persists a resumable browser-agent checkpoint without weakening job validation", () => {
+    const execution = DiscoveryTargetExecutionSchema.parse({
+      targetId: "target_checkpoint",
+      adapterKind: "auto",
+      state: "running",
+      agentCheckpoint: {
+        revision: 2,
+        savedAt: "2026-08-12T10:00:00.000Z",
+        currentUrl: "https://example.com/jobs",
+        lastStableUrl: "https://example.com/jobs",
+        stepCount: 4,
+        collectedJobs: [postingInput],
+        visitedUrls: ["https://example.com/jobs"],
+        phaseEvidence: {},
+      },
+    });
+
+    expect(execution.agentCheckpoint).toMatchObject({
+      revision: 2,
+      stepCount: 4,
+      collectedJobs: [{ sourceJobId: "job_1" }],
     });
   });
 

@@ -7,6 +7,23 @@ function sortSummaries(values: readonly string[]) {
 }
 
 describe("deterministic ai client profile copilot preferences", () => {
+  test("answers an advisory target-role question without pretending it must edit the profile", async () => {
+    const client = createDeterministicJobFinderAiClient();
+
+    const reply = await client.reviseCandidateProfile({
+      profile: createProfile(),
+      searchPreferences: createPreferences(),
+      context: { surface: "profile", section: "preferences" },
+      relevantReviewItems: [],
+      request: "What target role or roles should I use for the job search?",
+    });
+
+    expect(reply.patchGroups).toEqual([]);
+    expect(reply.content).toContain("Based on your saved profile");
+    expect(reply.content).toContain("do not have to save a target title");
+    expect(reply.content).not.toContain("could not turn it into");
+  });
+
   test("can add common job sources from a simple request", async () => {
     const client = createDeterministicJobFinderAiClient();
 

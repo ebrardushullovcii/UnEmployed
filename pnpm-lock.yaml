@@ -163,8 +163,45 @@ importers:
         specifier: ^6.2.0
         version: 6.4.1(@types/node@24.12.0)(jiti@2.6.1)(lightningcss@1.32.0)(yaml@2.8.2)
 
+  packages/agent-runtime:
+    dependencies:
+      '@unemployed/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      zod:
+        specifier: ^3.24.2
+        version: 3.25.76
+
+  packages/ai-evals:
+    dependencies:
+      '@unemployed/ai-providers':
+        specifier: workspace:*
+        version: link:../ai-providers
+      '@unemployed/browser-agent':
+        specifier: workspace:*
+        version: link:../browser-agent
+      '@unemployed/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@unemployed/job-finder':
+        specifier: workspace:*
+        version: link:../job-finder
+      playwright:
+        specifier: 1.58.2
+        version: 1.58.2
+      zod:
+        specifier: 3.25.76
+        version: 3.25.76
+    devDependencies:
+      vite:
+        specifier: 6.4.1
+        version: 6.4.1(@types/node@24.12.0)(jiti@2.6.1)(lightningcss@1.32.0)(yaml@2.8.2)
+
   packages/ai-providers:
     dependencies:
+      '@unemployed/agent-runtime':
+        specifier: workspace:*
+        version: link:../agent-runtime
       '@unemployed/contracts':
         specifier: workspace:*
         version: link:../contracts
@@ -174,6 +211,9 @@ importers:
 
   packages/browser-agent:
     dependencies:
+      '@unemployed/agent-runtime':
+        specifier: workspace:*
+        version: link:../agent-runtime
       '@unemployed/contracts':
         specifier: workspace:*
         version: link:../contracts

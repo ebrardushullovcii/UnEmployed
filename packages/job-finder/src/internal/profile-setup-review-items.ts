@@ -58,8 +58,9 @@ function getCurrentTargetValue(
       }
 
       return (
-        profile.applicationIdentity as Record<string, unknown>
-      )[target.key] ?? null;
+        (profile.applicationIdentity as Record<string, unknown>)[target.key] ??
+        null
+      );
     case "work_eligibility":
       switch (target.key) {
         case "authorizedWorkCountries":
@@ -82,61 +83,73 @@ function getCurrentTargetValue(
         target.key as keyof CandidateProfile["professionalSummary"]
       ];
     case "search_preferences":
-      return searchPreferences[
-        target.key as keyof JobSearchPreferences
-      ];
+      return searchPreferences[target.key as keyof JobSearchPreferences];
     case "narrative":
-      return profile.narrative[target.key as keyof CandidateProfile["narrative"]];
+      return profile.narrative[
+        target.key as keyof CandidateProfile["narrative"]
+      ];
     case "answer_bank":
-      return profile.answerBank[target.key as keyof CandidateProfile["answerBank"]];
+      return profile.answerBank[
+        target.key as keyof CandidateProfile["answerBank"]
+      ];
     case "experience":
       if (target.key !== "record") {
         return null;
       }
       return target.recordId
-        ? profile.experiences.find((record) => record.id === target.recordId) ?? null
+        ? (profile.experiences.find(
+            (record) => record.id === target.recordId,
+          ) ?? null)
         : profile.experiences;
     case "education":
       if (target.key !== "record") {
         return null;
       }
       return target.recordId
-        ? profile.education.find((record) => record.id === target.recordId) ?? null
+        ? (profile.education.find((record) => record.id === target.recordId) ??
+            null)
         : profile.education;
     case "certification":
       if (target.key !== "record") {
         return null;
       }
       return target.recordId
-        ? profile.certifications.find((record) => record.id === target.recordId) ?? null
+        ? (profile.certifications.find(
+            (record) => record.id === target.recordId,
+          ) ?? null)
         : profile.certifications;
     case "project":
       if (target.key !== "record") {
         return null;
       }
       return target.recordId
-        ? profile.projects.find((record) => record.id === target.recordId) ?? null
+        ? (profile.projects.find((record) => record.id === target.recordId) ??
+            null)
         : profile.projects;
     case "link":
       if (target.key !== "record") {
         return null;
       }
       return target.recordId
-        ? profile.links.find((record) => record.id === target.recordId) ?? null
+        ? (profile.links.find((record) => record.id === target.recordId) ??
+            null)
         : profile.links;
     case "language":
       if (target.key !== "record") {
         return null;
       }
       return target.recordId
-        ? profile.spokenLanguages.find((record) => record.id === target.recordId) ?? null
+        ? (profile.spokenLanguages.find(
+            (record) => record.id === target.recordId,
+          ) ?? null)
         : profile.spokenLanguages;
     case "proof_point":
       if (target.key !== "record") {
         return null;
       }
       return target.recordId
-        ? profile.proofBank.find((record) => record.id === target.recordId) ?? null
+        ? (profile.proofBank.find((record) => record.id === target.recordId) ??
+            null)
         : profile.proofBank;
     default:
       return null;
@@ -212,15 +225,31 @@ function isReviewDraftAlreadySatisfied(input: {
   profile: CandidateProfile;
   searchPreferences: JobSearchPreferences;
 }): boolean {
-  if (!hasCurrentTargetValue(input.profile, input.searchPreferences, input.draft.target)) {
+  if (
+    !hasCurrentTargetValue(
+      input.profile,
+      input.searchPreferences,
+      input.draft.target,
+    )
+  ) {
     return false;
   }
 
   const currentSummary = normalizeComparableSummary(
-    summarizeValue(getCurrentTargetValue(input.profile, input.searchPreferences, input.draft.target)),
+    summarizeValue(
+      getCurrentTargetValue(
+        input.profile,
+        input.searchPreferences,
+        input.draft.target,
+      ),
+    ),
   );
-  const proposedSummary = normalizeComparableSummary(input.draft.proposedValue ?? null);
-  return Boolean(currentSummary && proposedSummary && currentSummary === proposedSummary);
+  const proposedSummary = normalizeComparableSummary(
+    input.draft.proposedValue ?? null,
+  );
+  return Boolean(
+    currentSummary && proposedSummary && currentSummary === proposedSummary,
+  );
 }
 
 export function resolvePendingReviewItemsAfterExplicitSave(input: {
@@ -259,17 +288,22 @@ export function resolvePendingReviewItemsAfterExplicitSave(input: {
         return item;
       }
 
-      const previousSummary = normalizeComparableSummary(summarizeValue(previousValue));
+      const previousSummary = normalizeComparableSummary(
+        summarizeValue(previousValue),
+      );
       const nextSummary = normalizeComparableSummary(summarizeValue(nextValue));
 
       if (!nextSummary || previousSummary === nextSummary) {
         return item;
       }
 
-      const proposedSummary = normalizeComparableSummary(item.proposedValue ?? null);
-      const nextStatus = proposedSummary && proposedSummary === nextSummary
-        ? "confirmed"
-        : "edited";
+      const proposedSummary = normalizeComparableSummary(
+        item.proposedValue ?? null,
+      );
+      const nextStatus =
+        proposedSummary && proposedSummary === nextSummary
+          ? "confirmed"
+          : "edited";
 
       return ProfileReviewItemSchema.parse({
         ...item,
@@ -294,9 +328,16 @@ function resolvePendingItemIfSatisfied(input: {
   );
   const currentSummary = summarizeValue(currentValue);
   const proposedSummary = input.draft.proposedValue ?? null;
-  const sourceCandidateId = input.draft.sourceCandidateId ?? input.item.sourceCandidateId;
+  const sourceCandidateId =
+    input.draft.sourceCandidateId ?? input.item.sourceCandidateId;
 
-  if (!hasCurrentTargetValue(input.profile, input.searchPreferences, input.draft.target)) {
+  if (
+    !hasCurrentTargetValue(
+      input.profile,
+      input.searchPreferences,
+      input.draft.target,
+    )
+  ) {
     return ProfileReviewItemSchema.parse({
       ...input.item,
       step: input.draft.step,
@@ -356,7 +397,9 @@ function hasMeaningfulText(value: string | null | undefined): boolean {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function hasMeaningfulStringList(values: readonly string[] | null | undefined): boolean {
+function hasMeaningfulStringList(
+  values: readonly string[] | null | undefined,
+): boolean {
   return values?.some((value) => hasMeaningfulText(value)) ?? false;
 }
 
@@ -365,8 +408,7 @@ function hasPlaceholderAwareIdentityValue(
   field: "headline" | "currentLocation",
 ): boolean {
   return Boolean(
-    hasMeaningfulText(value) &&
-      !hasProfileSetupPlaceholderValue(field, value),
+    hasMeaningfulText(value) && !hasProfileSetupPlaceholderValue(field, value),
   );
 }
 
@@ -415,7 +457,10 @@ function isEducationScalarCoveredByRecord(
   candidate: ResumeImportFieldCandidate,
   allCandidates: readonly ResumeImportFieldCandidate[],
 ): boolean {
-  if (candidate.target.section !== "education" || candidate.target.key === "record") {
+  if (
+    candidate.target.section !== "education" ||
+    candidate.target.key === "record"
+  ) {
     return false;
   }
 
@@ -473,7 +518,10 @@ function buildMissingFieldDrafts(
   }
 
   if (
-    !hasPlaceholderAwareIdentityValue(profile.currentLocation, "currentLocation") &&
+    !hasPlaceholderAwareIdentityValue(
+      profile.currentLocation,
+      "currentLocation",
+    ) &&
     !hasDraftForTarget(candidateDrafts, "identity", "currentLocation")
   ) {
     drafts.push({
@@ -525,7 +573,8 @@ function buildMissingFieldDrafts(
   if (
     !profile.experiences.some(
       (experience) =>
-        hasMeaningfulText(experience.companyName) || hasMeaningfulText(experience.title),
+        hasMeaningfulText(experience.companyName) ||
+        hasMeaningfulText(experience.title),
     ) &&
     !hasDraftForTarget(candidateDrafts, "experience", "record")
   ) {
@@ -535,25 +584,6 @@ function buildMissingFieldDrafts(
       label: "Work history",
       reason:
         "Add or confirm at least one meaningful experience record so resumes and fit scoring have grounded background to work from.",
-      severity: "critical",
-      proposedValue: null,
-      sourceSnippet: null,
-    });
-  }
-
-  if (
-    !hasMeaningfulStringList(searchPreferences.targetRoles) &&
-    !hasMeaningfulStringList(searchPreferences.jobFamilies) &&
-    !hasMeaningfulStringList(profile.targetRoles) &&
-    !hasDraftForTarget(candidateDrafts, "search_preferences", "targetRoles") &&
-    !hasDraftForTarget(candidateDrafts, "search_preferences", "jobFamilies")
-  ) {
-    drafts.push({
-      step: "targeting",
-      target: { domain: "search_preferences", key: "targetRoles", recordId: null },
-      label: "Target roles",
-      reason:
-        "Choose target roles or job families so discovery and resume tailoring are not generic.",
       severity: "critical",
       proposedValue: null,
       sourceSnippet: null,
@@ -581,7 +611,11 @@ function buildMissingFieldDrafts(
   ) {
     drafts.push({
       step: "targeting",
-      target: { domain: "work_eligibility", key: "authorizedWorkCountries", recordId: null },
+      target: {
+        domain: "work_eligibility",
+        key: "authorizedWorkCountries",
+        recordId: null,
+      },
       label: "Work eligibility",
       reason:
         "Capture work eligibility or location preferences so discovery and application defaults reflect real constraints.",
@@ -594,7 +628,9 @@ function buildMissingFieldDrafts(
   return drafts;
 }
 
-function reviewIdentityKey(item: Pick<ProfileReviewItem, "target" | "label">): string {
+function reviewIdentityKey(
+  item: Pick<ProfileReviewItem, "target" | "label">,
+): string {
   return normalizeText(
     `${item.target.domain}|${item.target.key}|${item.target.recordId ?? ""}|${item.label}`,
   );
@@ -633,7 +669,13 @@ function shouldReopenResolvedItem(input: {
   const proposedSummary = input.draft.proposedValue ?? null;
   const previousProposedSummary = input.item.proposedValue ?? null;
 
-  if (!hasCurrentTargetValue(input.profile, input.searchPreferences, input.draft.target)) {
+  if (
+    !hasCurrentTargetValue(
+      input.profile,
+      input.searchPreferences,
+      input.draft.target,
+    )
+  ) {
     return true;
   }
 
@@ -707,7 +749,8 @@ export function buildProfileSetupReviewItems(
   const unresolvedCandidateDrafts = input.candidates
     .filter(
       (candidate) =>
-        (candidate.resolution === "needs_review" || candidate.resolution === "abstained") &&
+        (candidate.resolution === "needs_review" ||
+          candidate.resolution === "abstained") &&
         shouldIncludeCandidateInSetupReview(candidate) &&
         !isEducationScalarCoveredByRecord(candidate, input.candidates),
     )
@@ -738,7 +781,10 @@ export function buildProfileSetupReviewItems(
   const nextItems: ProfileReviewItem[] = [];
 
   for (const draft of nextDrafts) {
-    const identity = reviewIdentityKey({ target: draft.target, label: draft.label });
+    const identity = reviewIdentityKey({
+      target: draft.target,
+      label: draft.label,
+    });
     if (seenIdentities.has(identity)) {
       continue;
     }
@@ -792,11 +838,7 @@ export function buildProfileSetupReviewItems(
     }
 
     if (
-      hasCurrentTargetValue(
-        input.profile,
-        input.searchPreferences,
-        item.target,
-      )
+      hasCurrentTargetValue(input.profile, input.searchPreferences, item.target)
     ) {
       nextItems.push(
         resolvePendingItemIfSatisfied({
@@ -820,5 +862,7 @@ export function buildProfileSetupReviewItems(
     }
   }
 
-  return nextItems.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  return nextItems.sort((left, right) =>
+    left.createdAt.localeCompare(right.createdAt),
+  );
 }

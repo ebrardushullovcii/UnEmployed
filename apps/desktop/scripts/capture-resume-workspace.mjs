@@ -939,8 +939,7 @@ async function captureResumeWorkspace() {
       .getByRole("button", { name: "Reset to chronology" })
       .evaluateAll((buttons) => {
         const resetButton = buttons.find(
-          (button) =>
-            button instanceof HTMLButtonElement && !button.disabled,
+          (button) => button instanceof HTMLButtonElement && !button.disabled,
         );
 
         if (!(resetButton instanceof HTMLButtonElement)) {
@@ -977,20 +976,17 @@ async function captureResumeWorkspace() {
     );
     const resetOrderWorkspace = await getResumeWorkspace(window, "job_ready");
     let resetPreviewOrder = [];
-    await waitForCondition(
-      async () => {
-        const resetPreviewHtml = await getPreviewSrcdoc(window);
-        resetPreviewOrder = getPreviewEntryOrder(
-          resetPreviewHtml,
-          beforeManualOrder,
-        );
-        return (
-          JSON.stringify(resetPreviewOrder) ===
-          JSON.stringify(getExperienceEntryIds(resetOrderWorkspace))
-        );
-      },
-      "visible reset preview order to match reset editor order",
-    );
+    await waitForCondition(async () => {
+      const resetPreviewHtml = await getPreviewSrcdoc(window);
+      resetPreviewOrder = getPreviewEntryOrder(
+        resetPreviewHtml,
+        beforeManualOrder,
+      );
+      return (
+        JSON.stringify(resetPreviewOrder) ===
+        JSON.stringify(getExperienceEntryIds(resetOrderWorkspace))
+      );
+    }, "visible reset preview order to match reset editor order");
     assert(
       JSON.stringify(resetPreviewOrder) ===
         JSON.stringify(getExperienceEntryIds(resetOrderWorkspace)),
@@ -1054,22 +1050,22 @@ async function captureResumeWorkspace() {
       "Shorten the summary for ATS readability.",
     );
     await window.getByRole("button", { name: "Send request" }).click();
-    await waitForCondition(async () => {
-      const messages = await getResumeAssistantMessages(window, "job_ready");
-      const lastAssistant = [...messages]
-        .reverse()
-        .find((message) => message.role === "assistant");
-      const sendButtonLabel = await window
-        .getByRole("button", { name: /Send request|Updating/i })
-        .textContent();
-      return (
-        messages.length > previousMessageCount &&
-        lastAssistant?.role === "assistant" &&
-        lastAssistant.content.trim().length > 0 &&
-        lastAssistant.content !== "Updating your draft..." &&
-        sendButtonLabel?.includes("Send request")
-      );
-    }, "assistant reply in resume workspace demo");
+    await waitForCondition(
+      async () => {
+        const messages = await getResumeAssistantMessages(window, "job_ready");
+        const lastAssistant = [...messages]
+          .reverse()
+          .find((message) => message.role === "assistant");
+        return (
+          messages.length > previousMessageCount &&
+          lastAssistant?.role === "assistant" &&
+          lastAssistant.content.trim().length > 0 &&
+          lastAssistant.content !== "Updating your draft..."
+        );
+      },
+      "assistant reply in resume workspace demo",
+      60_000,
+    );
     const proposedMessages = await getResumeAssistantMessages(
       window,
       "job_ready",
@@ -1148,7 +1144,10 @@ async function captureResumeWorkspace() {
     const latestExport = [...exportedWorkspace.exports].sort((left, right) =>
       right.exportedAt.localeCompare(left.exportedAt),
     )[0];
-    assert(latestExport, "Expected the exported resume artifact to be available.");
+    assert(
+      latestExport,
+      "Expected the exported resume artifact to be available.",
+    );
     await copyFile(
       latestExport.filePath,
       path.join(outputDir, "09-exported-resume.pdf"),

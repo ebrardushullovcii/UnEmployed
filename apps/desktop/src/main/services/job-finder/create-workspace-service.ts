@@ -210,13 +210,17 @@ export function createDesktopBrowserRuntime(
     ) {
       return {
         ...runtime,
-        executeApplicationFlow: (source, executionInput) =>
-          runtime.executeApplicationFlow(source, {
-            ...executionInput,
-            intermediateMutationsAuthorized: true,
-            accountCreationAuthorized: false,
-            submitAuthorized: false,
-          }),
+        executeApplicationFlow: (source, executionInput, executionOptions) =>
+          runtime.executeApplicationFlow(
+            source,
+            {
+              ...executionInput,
+              intermediateMutationsAuthorized: true,
+              accountCreationAuthorized: false,
+              submitAuthorized: false,
+            },
+            executionOptions,
+          ),
       };
     }
 

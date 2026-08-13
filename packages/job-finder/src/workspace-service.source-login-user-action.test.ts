@@ -56,7 +56,8 @@ describe("discovery source login UserActionRequest adoption", () => {
       kind: "login",
       state: "pending",
       requirement: "required",
-      actionUrl: "https://www.linkedin.com/jobs/search/",
+      actionUrl:
+        "https://www.linkedin.com/jobs/search/?keywords=Principal+Designer&location=Remote",
       displayOrigin: "https://www.linkedin.com/",
       credentialsPolicy: "browser_only",
       submitAuthorized: false,

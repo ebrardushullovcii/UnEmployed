@@ -1,45 +1,48 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState } from "react";
 import type {
   InterviewLiveSession,
   InterviewTranscriptAnnotationInput,
   InterviewWorkspaceSnapshot,
-} from '@unemployed/contracts'
-import { MessageSquarePlus } from 'lucide-react'
-import { Button } from '@renderer/components/ui/button'
+} from "@unemployed/contracts";
+import { MessageSquarePlus } from "lucide-react";
+import { Button } from "@renderer/components/ui/button";
+import { formatInterviewTranscriptSource } from "./interview-transcript-source-label";
 
 export function TranscriptAnnotationPanel(props: {
-  session: InterviewLiveSession
-  onWorkspaceChange: (workspace: InterviewWorkspaceSnapshot) => void
+  session: InterviewLiveSession;
+  onWorkspaceChange: (workspace: InterviewWorkspaceSnapshot) => void;
 }) {
-  const firstSegmentId = props.session.transcriptSegments[0]?.id ?? null
-  const [kind, setKind] = useState<InterviewTranscriptAnnotationInput['kind']>('correction')
-  const [segmentId, setSegmentId] = useState<string | null>(firstSegmentId)
-  const [body, setBody] = useState('')
-  const [pending, setPending] = useState(false)
+  const firstSegmentId = props.session.transcriptSegments[0]?.id ?? null;
+  const [kind, setKind] =
+    useState<InterviewTranscriptAnnotationInput["kind"]>("correction");
+  const [segmentId, setSegmentId] = useState<string | null>(firstSegmentId);
+  const [body, setBody] = useState("");
+  const [pending, setPending] = useState(false);
 
   useEffect(() => {
-    setSegmentId(firstSegmentId)
-    setBody('')
-  }, [firstSegmentId, props.session.id])
+    setSegmentId(firstSegmentId);
+    setBody("");
+  }, [firstSegmentId, props.session.id]);
 
   async function saveAnnotation() {
-    const trimmedBody = body.trim()
+    const trimmedBody = body.trim();
     if (!trimmedBody) {
-      return
+      return;
     }
 
-    setPending(true)
+    setPending(true);
     try {
-      const workspace = await window.unemployed.interviewHelper.addTranscriptAnnotation({
-        sessionId: props.session.id,
-        transcriptSegmentId: segmentId,
-        kind,
-        body: trimmedBody,
-      })
-      setBody('')
-      props.onWorkspaceChange(workspace)
+      const workspace =
+        await window.unemployed.interviewHelper.addTranscriptAnnotation({
+          sessionId: props.session.id,
+          transcriptSegmentId: segmentId,
+          kind,
+          body: trimmedBody,
+        });
+      setBody("");
+      props.onWorkspaceChange(workspace);
     } finally {
-      setPending(false)
+      setPending(false);
     }
   }
 
@@ -55,7 +58,9 @@ export function TranscriptAnnotationPanel(props: {
         <select
           className="h-9 rounded-sm border border-border-subtle bg-black/30 px-2 text-[0.78rem]"
           onChange={(event) => {
-            setKind(event.target.value as InterviewTranscriptAnnotationInput['kind'])
+            setKind(
+              event.target.value as InterviewTranscriptAnnotationInput["kind"],
+            );
           }}
           value={kind}
         >
@@ -65,14 +70,16 @@ export function TranscriptAnnotationPanel(props: {
         <select
           className="h-9 rounded-sm border border-border-subtle bg-black/30 px-2 text-[0.78rem]"
           onChange={(event) => {
-            setSegmentId(event.target.value === 'session' ? null : event.target.value)
+            setSegmentId(
+              event.target.value === "session" ? null : event.target.value,
+            );
           }}
-          value={segmentId ?? 'session'}
+          value={segmentId ?? "session"}
         >
           <option value="session">Session-level note</option>
           {props.session.transcriptSegments.map((segment, index) => (
             <option key={segment.id} value={segment.id}>
-              {index + 1}. {segment.source.replaceAll('_', ' ')}
+              {index + 1}. {formatInterviewTranscriptSource(segment.source)}
             </option>
           ))}
         </select>
@@ -80,7 +87,7 @@ export function TranscriptAnnotationPanel(props: {
       <textarea
         className="min-h-20 resize-y rounded-sm border border-border-subtle bg-black/30 p-2 text-[0.8rem] leading-5 outline-none focus:border-(--info-border)"
         onChange={(event) => {
-          setBody(event.target.value)
+          setBody(event.target.value);
         }}
         placeholder="Add a correction or review note without changing the original transcript."
         value={body}
@@ -88,7 +95,7 @@ export function TranscriptAnnotationPanel(props: {
       <Button
         disabled={!body.trim()}
         onClick={() => {
-          void saveAnnotation()
+          void saveAnnotation();
         }}
         pending={pending}
         size="compact"
@@ -100,12 +107,16 @@ export function TranscriptAnnotationPanel(props: {
       {props.session.transcriptAnnotations.length > 0 ? (
         <div className="grid max-h-28 gap-2 overflow-y-auto border-t border-border-subtle pt-2">
           {props.session.transcriptAnnotations.map((annotation) => (
-            <p className="text-[0.76rem] leading-5 text-muted-foreground" key={annotation.id}>
-              <span className="text-(--info-text)">{annotation.kind}</span> {annotation.body}
+            <p
+              className="text-[0.76rem] leading-5 text-muted-foreground"
+              key={annotation.id}
+            >
+              <span className="text-(--info-text)">{annotation.kind}</span>{" "}
+              {annotation.body}
             </p>
           ))}
         </div>
       ) : null}
     </div>
-  )
+  );
 }

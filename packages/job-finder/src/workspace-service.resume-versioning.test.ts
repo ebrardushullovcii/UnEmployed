@@ -208,7 +208,9 @@ describe("resume draft versioning", () => {
       "job_ready",
       "Offer a rewrite.",
     );
-    const proposal = messages.find((message) => message.proposalStatus === "pending")!;
+    const proposal = messages.find(
+      (message) => message.proposalStatus === "pending",
+    )!;
 
     await workspaceService.resolveResumeAssistantProposal(
       "job_ready",
@@ -217,15 +219,69 @@ describe("resume draft versioning", () => {
       [],
     );
 
-    expect((await workspaceService.getResumeWorkspace("job_ready")).draft).toEqual(
-      before.draft,
-    );
-    expect(await repository.listResumeDraftRevisions(before.draft.id)).toHaveLength(0);
+    expect(
+      (await workspaceService.getResumeWorkspace("job_ready")).draft,
+    ).toEqual(before.draft);
+    expect(
+      await repository.listResumeDraftRevisions(before.draft.id),
+    ).toHaveLength(0);
     expect(
       (await workspaceService.getResumeAssistantMessages("job_ready")).find(
         (message) => message.id === proposal.id,
       )?.proposalStatus,
     ).toBe("rejected");
+  });
+
+  test("does not offer an empty text replacement for approval", async () => {
+    const baseAiClient = createAiClient();
+    const { workspaceService } = createWorkspaceServiceHarness({
+      aiClient: {
+        ...baseAiClient,
+        reviseResumeDraft(input) {
+          const section = findEditableTextSection(input.draft.sections);
+          return Promise.resolve({
+            content: "Prepared a shorter summary.",
+            patches: [
+              {
+                id: "assistant_empty_replacement",
+                draftId: input.draft.id,
+                operation: "replace_section_text" as const,
+                targetSectionId: section.id,
+                targetEntryId: null,
+                anchorEntryId: null,
+                targetBulletId: null,
+                anchorBulletId: null,
+                position: null,
+                newText: null,
+                newIncluded: null,
+                newLocked: null,
+                newBullets: null,
+                appliedAt: new Date().toISOString(),
+                origin: "assistant" as const,
+                conflictReason: null,
+              },
+            ],
+          });
+        },
+      },
+    });
+    await workspaceService.generateResume("job_ready");
+    const before = await workspaceService.getResumeWorkspace("job_ready");
+
+    const messages = await workspaceService.sendResumeAssistantMessage(
+      "job_ready",
+      "Shorten the summary.",
+    );
+    const reply = messages.find((message) => message.role === "assistant");
+
+    expect(reply).toMatchObject({
+      proposalStatus: "none",
+      patches: [],
+    });
+    expect(reply?.content).toMatch(/no resume change was proposed/i);
+    expect(
+      (await workspaceService.getResumeWorkspace("job_ready")).draft,
+    ).toEqual(before.draft);
   });
 
   test("keeps a stale proposal pending and visible after a newer manual edit", async () => {

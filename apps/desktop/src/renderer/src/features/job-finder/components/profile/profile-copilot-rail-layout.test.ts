@@ -9,6 +9,7 @@ import {
   getDraggedCopilotPosition,
   getCopilotPanelDimensions,
   parseCopilotPosition,
+  resizeCopilotPosition,
 } from "./profile-copilot-rail-layout";
 
 describe("profile copilot rail layout", () => {
@@ -23,12 +24,12 @@ describe("profile copilot rail layout", () => {
     });
   }
 
-  test("defaults the collapsed chat to the bottom-left", () => {
+  test("defaults the collapsed chat flush to the bottom-right safe inset", () => {
     setViewportSize(1024, 720);
 
     expect(getDefaultCopilotPosition()).toEqual({
-      x: 16,
-      y: 640,
+      x: 960,
+      y: 656,
     });
   });
 
@@ -46,7 +47,7 @@ describe("profile copilot rail layout", () => {
     expect(getCopilotPanelDimensions().expandedHeight).toBe(464);
   });
 
-  test("lets the collapsed bubble move without leaving the viewport", () => {
+  test("keeps the compact collapsed bubble inside the viewport", () => {
     setViewportSize(1024, 720);
 
     const position = clampCopilotPosition({
@@ -56,7 +57,7 @@ describe("profile copilot rail layout", () => {
       minBottomOffset: COPILOT_BOTTOM_OFFSET,
     });
 
-    expect(position).toEqual({ x: 688, y: 640 });
+    expect(position).toEqual({ x: 900, y: 656 });
   });
 
   test("uses a shell-safe inset that clears the fixed navigation", () => {
@@ -86,5 +87,48 @@ describe("profile copilot rail layout", () => {
     });
     expect(parseCopilotPosition('{"x":"120","y":148}')).toBeNull();
     expect(parseCopilotPosition("not-json")).toBeNull();
+  });
+
+  test("keeps a compact launcher on the same viewport edges after maximize", () => {
+    expect(
+      resizeCopilotPosition({
+        isOpen: false,
+        minBottomOffset: COPILOT_BOTTOM_OFFSET,
+        minTopOffset: 112,
+        nextViewport: { width: 1920, height: 1033 },
+        position: { x: 16, y: 856 },
+        previousViewport: { width: 1440, height: 920 },
+      }),
+    ).toEqual({ x: 16, y: 969 });
+  });
+
+  test("keeps a compact launcher on the right edge after the window grows", () => {
+    expect(
+      resizeCopilotPosition({
+        isOpen: false,
+        minBottomOffset: COPILOT_BOTTOM_OFFSET,
+        minTopOffset: 112,
+        nextViewport: { width: 1920, height: 1033 },
+        position: { x: 1376, y: 856 },
+        previousViewport: { width: 1440, height: 920 },
+      }),
+    ).toEqual({ x: 1856, y: 969 });
+  });
+
+  test("restores viewport metadata when it is present and accepts old positions", () => {
+    expect(
+      parseCopilotPosition(
+        '{"x":120,"y":148,"viewportWidth":1440,"viewportHeight":920}',
+      ),
+    ).toEqual({
+      x: 120,
+      y: 148,
+      viewportHeight: 920,
+      viewportWidth: 1440,
+    });
+    expect(parseCopilotPosition('{"x":120,"y":148}')).toEqual({
+      x: 120,
+      y: 148,
+    });
   });
 });

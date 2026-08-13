@@ -7,6 +7,30 @@ import {
 } from "./openai-compatible-transport";
 
 describe("Responses API transport", () => {
+  test("preserves max reasoning for Chat Completions tool requests", () => {
+    const body = buildModelRequestBody({
+      apiMode: "chat_completions",
+      model: "deepseek-v4-flash",
+      reasoningEffort: "max",
+      messages: [{ role: "user", content: "Inspect the saved profile." }],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "read_profile",
+            parameters: { type: "object", properties: {} },
+          },
+        },
+      ],
+    });
+
+    expect(body).toMatchObject({
+      model: "deepseek-v4-flash",
+      reasoning_effort: "max",
+      tool_choice: "auto",
+    });
+  });
+
   test("builds a private Luna high structured request with vision input", () => {
     const body = buildModelRequestBody({
       apiMode: "responses",
@@ -18,7 +42,7 @@ describe("Responses API transport", () => {
         {
           role: "user",
           content: [
-            { type: "text", text: "{\"candidate\":\"Casey\"}" },
+            { type: "text", text: '{"candidate":"Casey"}' },
             {
               type: "image_url",
               image_url: {
@@ -44,7 +68,7 @@ describe("Responses API transport", () => {
         {
           role: "user",
           content: [
-            { type: "input_text", text: "{\"candidate\":\"Casey\"}" },
+            { type: "input_text", text: '{"candidate":"Casey"}' },
             {
               type: "input_image",
               image_url: "data:image/png;base64,AAAA",
@@ -70,13 +94,13 @@ describe("Responses API transport", () => {
             {
               id: "call_1",
               type: "function",
-              function: { name: "inspect_source", arguments: "{\"id\":1}" },
+              function: { name: "inspect_source", arguments: '{"id":1}' },
             },
           ],
         },
         {
           role: "tool",
-          content: "{\"status\":\"ready\"}",
+          content: '{"status":"ready"}',
           tool_call_id: "call_1",
         },
       ],
@@ -104,12 +128,12 @@ describe("Responses API transport", () => {
           type: "function_call",
           call_id: "call_1",
           name: "inspect_source",
-          arguments: "{\"id\":1}",
+          arguments: '{"id":1}',
         },
         {
           type: "function_call_output",
           call_id: "call_1",
-          output: "{\"status\":\"ready\"}",
+          output: '{"status":"ready"}',
         },
       ],
       tools: [
@@ -152,7 +176,7 @@ describe("Responses API transport", () => {
             type: "function_call",
             call_id: "call_2",
             name: "prepare_application",
-            arguments: "{\"jobId\":\"job_1\"}",
+            arguments: '{"jobId":"job_1"}',
           },
         ],
       }),
@@ -166,7 +190,7 @@ describe("Responses API transport", () => {
         type: "function",
         function: {
           name: "prepare_application",
-          arguments: "{\"jobId\":\"job_1\"}",
+          arguments: '{"jobId":"job_1"}',
         },
       },
     ]);

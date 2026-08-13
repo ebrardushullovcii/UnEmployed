@@ -81,7 +81,37 @@ export function parseSourceInstructionReviewOverride(
     }
 
     try {
-      return SourceIntelligenceArtifactSchema.parse(payload.intelligence);
+      const rawIntelligence = payload.intelligence;
+      if (
+        !rawIntelligence ||
+        typeof rawIntelligence !== "object" ||
+        Array.isArray(rawIntelligence)
+      ) {
+        return null;
+      }
+      const normalized = structuredClone(rawIntelligence) as Record<
+        string,
+        unknown
+      >;
+      const collection = normalized.collection;
+      if (
+        collection &&
+        typeof collection === "object" &&
+        !Array.isArray(collection) &&
+        (collection as Record<string, unknown>).preferredMethod === null
+      ) {
+        delete (collection as Record<string, unknown>).preferredMethod;
+      }
+      const apply = normalized.apply;
+      if (
+        apply &&
+        typeof apply === "object" &&
+        !Array.isArray(apply) &&
+        (apply as Record<string, unknown>).applyPath === null
+      ) {
+        delete (apply as Record<string, unknown>).applyPath;
+      }
+      return SourceIntelligenceArtifactSchema.parse(normalized);
     } catch (error) {
       if (process.env.NODE_ENV === "development") {
         console.warn(

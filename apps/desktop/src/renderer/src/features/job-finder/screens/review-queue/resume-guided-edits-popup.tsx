@@ -513,6 +513,12 @@ export function ResumeGuidedEditsPopup(props: {
                           <p className="whitespace-pre-wrap break-words">
                             {message.content}
                           </p>
+                          {message.executionAttribution?.fallbackUsed ? (
+                            <p className="mt-2 text-(length:--text-tiny) text-muted-foreground">
+                              AI was unavailable, so Guided Edits used the
+                              built-in safe fallback for this reply.
+                            </p>
+                          ) : null}
                           {isAssistant &&
                           props.draft &&
                           props.onResolveProposal &&

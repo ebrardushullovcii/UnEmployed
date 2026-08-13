@@ -129,6 +129,66 @@ afterEach(() => {
 });
 
 describe("progressive public API discovery", () => {
+  test("limits large public API catalogs to eight in-flight source requests", async () => {
+    const seed = createSeed();
+    seed.savedJobs = [];
+    seed.discovery.pendingDiscoveryJobs = [];
+    seed.discovery.discoveryLedger = [];
+    seed.settings.discoveryOnly = false;
+    seed.searchPreferences.companyWhitelist = [];
+    seed.searchPreferences.targetRoles = ["Senior Product Designer"];
+    seed.searchPreferences.discovery.targets = Array.from(
+      { length: 12 },
+      (_, index) => ({
+        id: `target_board_${index}`,
+        label: `Board ${index}`,
+        startingUrl: `https://job-boards.greenhouse.io/board${index}`,
+        enabled: true,
+        adapterKind: "auto" as const,
+        customInstructions: null,
+        instructionStatus: "missing" as const,
+        validatedInstructionId: null,
+        draftInstructionId: null,
+        lastDebugRunId: null,
+        lastVerifiedAt: null,
+        staleReason: null,
+      }),
+    );
+    const pendingResponse = createDeferred<Response>();
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockReturnValue(pendingResponse.promise);
+    const { workspaceService } = createWorkspaceServiceHarness({ seed });
+    const controller = new AbortController();
+    const runPromise = workspaceService.runAgentDiscovery(
+      undefined,
+      controller.signal,
+    );
+
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(8));
+    controller.abort();
+    const snapshot = await runPromise;
+
+    expect(fetchSpy).toHaveBeenCalledTimes(8);
+    expect(snapshot.recentDiscoveryRuns[0]?.summary.outcome).toBe("cancelled");
+    pendingResponse.resolve(createFailedResponse(503));
+  });
+
+  test("marks a run failed when every configured source fails", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(createFailedResponse(503));
+    const { repository, workspaceService } = createProgressiveApiHarness();
+
+    await expect(workspaceService.runDiscovery()).rejects.toThrow(/503/);
+
+    const discoveryState = await repository.getDiscoveryState();
+    const run = discoveryState.recentRuns[0];
+    expect(run?.summary.outcome).toBe("failed");
+    expect(run?.targetExecutions).toHaveLength(2);
+    expect(
+      run?.targetExecutions.every((target) => target.state === "failed"),
+    ).toBe(true);
+  });
+
   test("publishes a fast later API source while the first API source is still pending", async () => {
     const slowResponse = createDeferred<Response>();
     vi.spyOn(globalThis, "fetch").mockImplementation((request) => {
@@ -230,7 +290,7 @@ describe("progressive public API discovery", () => {
       "3003",
     );
     expect(slowExecution).toMatchObject({
-      state: "completed",
+      state: "failed",
       jobsPersisted: 0,
     });
     expect(slowExecution?.warning).toMatch(/returned 503/i);

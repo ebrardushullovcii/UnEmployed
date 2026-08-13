@@ -1,11 +1,11 @@
-import { Button } from '@renderer/components/ui/button'
+import { Button } from "@renderer/components/ui/button";
 
 interface ProfileSaveFooterProps {
-  actionMessage: string | null
-  hasUnsavedChanges: boolean
-  isSavePending: boolean
-  onSave: () => void
-  validationMessage: string | null
+  actionMessage: string | null;
+  hasUnsavedChanges: boolean;
+  isSavePending: boolean;
+  onSave: () => void;
+  validationMessage: string | null;
 }
 
 export function ProfileSaveFooter({
@@ -13,16 +13,19 @@ export function ProfileSaveFooter({
   hasUnsavedChanges,
   isSavePending,
   onSave,
-  validationMessage
+  validationMessage,
 }: ProfileSaveFooterProps) {
   return (
-    <div className="border-t border-(--surface-panel-border) bg-(--surface-fill-soft) px-4 py-4 sm:px-5">
+    <div
+      className="border-t border-(--surface-panel-border) bg-(--surface-fill-soft) px-4 py-4 sm:px-5"
+      data-profile-workspace-actions
+    >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="grid gap-2">
           <p className="text-(length:--text-description) leading-6 text-foreground-muted">
             {hasUnsavedChanges
-              ? 'Save your changes before leaving this page.'
-              : 'Your profile and job-search settings are up to date.'}
+              ? "Save your changes before leaving this page."
+              : "Your profile and job-search settings are up to date."}
           </p>
           {validationMessage ? (
             <p
@@ -46,10 +49,17 @@ export function ProfileSaveFooter({
           ) : null}
         </div>
 
-        <Button className="w-full sm:w-auto sm:shrink-0" disabled={!hasUnsavedChanges} pending={isSavePending} onClick={onSave} type="button" variant="primary">
+        <Button
+          className="w-full sm:w-auto sm:shrink-0"
+          disabled={!hasUnsavedChanges}
+          pending={isSavePending}
+          onClick={onSave}
+          type="button"
+          variant="primary"
+        >
           Save changes
         </Button>
       </div>
     </div>
-  )
+  );
 }

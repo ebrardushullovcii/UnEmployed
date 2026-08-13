@@ -1,67 +1,102 @@
-import type { CandidateProfile } from '@unemployed/contracts'
-import type { ProfileEditorValues, SearchPreferencesEditorValues } from './profile-editor'
+import type { CandidateProfile } from "@unemployed/contracts";
+import type {
+  ProfileEditorValues,
+  SearchPreferencesEditorValues,
+} from "./profile-editor";
 import {
   combineSectionProgress,
   countFilledFields,
   countFilledRecordFields,
   type ProfileSection,
-  type SectionProgress
-} from './profile-screen-progress'
+  type SectionProgress,
+} from "./profile-screen-progress";
 
 interface BuildProfileScreenViewModelInput {
-  applicationIdentityValues: ProfileEditorValues['applicationIdentity'] | undefined
-  answerBankValues: ProfileEditorValues['answerBank'] | undefined
-  certificationValues: ProfileEditorValues['records']['certifications'] | undefined
-  companyBlacklist: SearchPreferencesEditorValues['companyBlacklist']
-  companyWhitelist: SearchPreferencesEditorValues['companyWhitelist']
-  educationValues: ProfileEditorValues['records']['education'] | undefined
-  eligibilityValues: ProfileEditorValues['eligibility'] | undefined
-  employmentTypes: SearchPreferencesEditorValues['employmentTypes']
-  excludedLocations: SearchPreferencesEditorValues['excludedLocations']
-  experienceValues: ProfileEditorValues['records']['experiences'] | undefined
-  identityValues: ProfileEditorValues['identity'] | undefined
-  jobFamilies: SearchPreferencesEditorValues['jobFamilies']
-  languageValues: ProfileEditorValues['languages'] | undefined
-  linkValues: ProfileEditorValues['links'] | undefined
-  locations: SearchPreferencesEditorValues['locations']
-  minimumSalaryUsd: SearchPreferencesEditorValues['minimumSalaryUsd']
-  narrativeValues: ProfileEditorValues['narrative'] | undefined
-  profile: CandidateProfile
-  profileSkillValues: ProfileEditorValues['profileSkills'] | undefined
-  proofBankValues: ProfileEditorValues['proofBank'] | undefined
-  projectValues: ProfileEditorValues['projects'] | undefined
-  seniorityLevels: SearchPreferencesEditorValues['seniorityLevels']
-  skillGroupValues: ProfileEditorValues['skillGroups'] | undefined
-  summaryValues: ProfileEditorValues['summary'] | undefined
-  tailoringMode: SearchPreferencesEditorValues['tailoringMode']
-  targetCompanyStages: SearchPreferencesEditorValues['targetCompanyStages']
-  targetIndustries: SearchPreferencesEditorValues['targetIndustries']
-  targetRoles: SearchPreferencesEditorValues['targetRoles']
-  targetSalaryUsd: SearchPreferencesEditorValues['targetSalaryUsd']
-  workModes: SearchPreferencesEditorValues['workModes']
+  applicationIdentityValues:
+    | ProfileEditorValues["applicationIdentity"]
+    | undefined;
+  answerBankValues: ProfileEditorValues["answerBank"] | undefined;
+  certificationValues:
+    | ProfileEditorValues["records"]["certifications"]
+    | undefined;
+  companyBlacklist: SearchPreferencesEditorValues["companyBlacklist"];
+  companyWhitelist: SearchPreferencesEditorValues["companyWhitelist"];
+  educationValues: ProfileEditorValues["records"]["education"] | undefined;
+  discoveryTargets: SearchPreferencesEditorValues["discoveryTargets"];
+  eligibilityValues: ProfileEditorValues["eligibility"] | undefined;
+  employmentTypes: SearchPreferencesEditorValues["employmentTypes"];
+  excludedLocations: SearchPreferencesEditorValues["excludedLocations"];
+  experienceValues: ProfileEditorValues["records"]["experiences"] | undefined;
+  identityValues: ProfileEditorValues["identity"] | undefined;
+  jobFamilies: SearchPreferencesEditorValues["jobFamilies"];
+  languageValues: ProfileEditorValues["languages"] | undefined;
+  linkValues: ProfileEditorValues["links"] | undefined;
+  locations: SearchPreferencesEditorValues["locations"];
+  minimumSalaryUsd: SearchPreferencesEditorValues["minimumSalaryUsd"];
+  narrativeValues: ProfileEditorValues["narrative"] | undefined;
+  profile: CandidateProfile;
+  profileSkillValues: ProfileEditorValues["profileSkills"] | undefined;
+  proofBankValues: ProfileEditorValues["proofBank"] | undefined;
+  projectValues: ProfileEditorValues["projects"] | undefined;
+  seniorityLevels: SearchPreferencesEditorValues["seniorityLevels"];
+  skillGroupValues: ProfileEditorValues["skillGroups"] | undefined;
+  summaryValues: ProfileEditorValues["summary"] | undefined;
+  tailoringMode: SearchPreferencesEditorValues["tailoringMode"];
+  targetCompanyStages: SearchPreferencesEditorValues["targetCompanyStages"];
+  targetIndustries: SearchPreferencesEditorValues["targetIndustries"];
+  targetRoles: SearchPreferencesEditorValues["targetRoles"];
+  targetSalaryUsd: SearchPreferencesEditorValues["targetSalaryUsd"];
+  workModes: SearchPreferencesEditorValues["workModes"];
 }
 
-export function buildProfileScreenViewModel(input: BuildProfileScreenViewModelInput): {
-  overviewProfile: CandidateProfile
+export function buildJobSourceProgress(
+  targets: SearchPreferencesEditorValues["discoveryTargets"],
+): SectionProgress {
+  const total = targets.length;
+  const filled = targets.filter(
+    (target) =>
+      target.enabled &&
+      target.label.trim().length > 0 &&
+      /^https?:\/\//i.test(target.startingUrl.trim()),
+  ).length;
+
+  return {
+    filled,
+    percent: total === 0 ? 0 : Math.round((filled / total) * 100),
+    total,
+  };
+}
+
+export function buildProfileScreenViewModel(
+  input: BuildProfileScreenViewModelInput,
+): {
+  overviewProfile: CandidateProfile;
   sections: Array<{
-    id: ProfileSection
-    label: string
-    description: string
-    progress: SectionProgress
-  }>
+    id: ProfileSection;
+    label: string;
+    description: string;
+    progress: SectionProgress;
+  }>;
 } {
-  const snapshotDisplayName = input.identityValues?.preferredDisplayName || null
-  const snapshotFullName = [
-    input.identityValues?.firstName,
-    input.identityValues?.middleName,
-    input.identityValues?.lastName
-  ]
-    .filter(Boolean)
-    .join(' ') || input.profile.fullName
-  const snapshotHeadline = input.identityValues?.headline || input.profile.headline
-  const snapshotLocation = input.identityValues?.currentLocation || input.profile.currentLocation
-  const snapshotYearsExperience = input.identityValues?.yearsExperience
-  const parsedSnapshotYearsExperience = Number.parseInt(snapshotYearsExperience ?? '', 10)
+  const snapshotDisplayName =
+    input.identityValues?.preferredDisplayName || null;
+  const snapshotFullName =
+    [
+      input.identityValues?.firstName,
+      input.identityValues?.middleName,
+      input.identityValues?.lastName,
+    ]
+      .filter(Boolean)
+      .join(" ") || input.profile.fullName;
+  const snapshotHeadline =
+    input.identityValues?.headline || input.profile.headline;
+  const snapshotLocation =
+    input.identityValues?.currentLocation || input.profile.currentLocation;
+  const snapshotYearsExperience = input.identityValues?.yearsExperience;
+  const parsedSnapshotYearsExperience = Number.parseInt(
+    snapshotYearsExperience ?? "",
+    10,
+  );
 
   const overviewProfile: CandidateProfile = {
     ...input.profile,
@@ -71,43 +106,56 @@ export function buildProfileScreenViewModel(input: BuildProfileScreenViewModelIn
     currentLocation: snapshotLocation,
     yearsExperience: Number.isFinite(parsedSnapshotYearsExperience)
       ? parsedSnapshotYearsExperience
-      : input.profile.yearsExperience
-  }
+      : input.profile.yearsExperience,
+  };
 
-  const sectionProgress = buildProfileSectionProgress(input)
+  const sectionProgress = buildProfileSectionProgress(input);
 
   return {
     overviewProfile,
     sections: [
       {
-        id: 'basics',
-        label: 'Basics',
-        description: 'Review your contact info, summary, and skills in one place.',
-        progress: sectionProgress.basics
+        id: "basics",
+        label: "Basics",
+        description:
+          "Review your contact info, summary, and skills in one place.",
+        progress: sectionProgress.basics,
       },
       {
-        id: 'experience',
-        label: 'Experience',
-        description: 'Keep each role separate so resumes and forms stay accurate.',
-        progress: sectionProgress.experience
+        id: "experience",
+        label: "Experience",
+        description:
+          "Keep each role separate so resumes and forms stay accurate.",
+        progress: sectionProgress.experience,
       },
       {
-        id: 'background',
-        label: 'Background',
-        description: 'Manage education, certifications, projects, links, and languages.',
-        progress: sectionProgress.background
+        id: "background",
+        label: "Background",
+        description:
+          "Manage education, certifications, projects, links, and languages.",
+        progress: sectionProgress.background,
       },
       {
-        id: 'preferences',
-        label: 'Preferences',
-        description: 'Set screening answers, job preferences, and source setup for future searches and applications.',
-        progress: sectionProgress.preferences
-      }
-    ]
-  }
+        id: "preferences",
+        label: "Preferences",
+        description:
+          "Set screening answers and preferences for future searches and applications.",
+        progress: sectionProgress.preferences,
+      },
+      {
+        id: "sources",
+        label: "Job sources",
+        description:
+          "Manage the public careers pages and boards Job Finder can search.",
+        progress: sectionProgress.sources,
+      },
+    ],
+  };
 }
 
-function buildProfileSectionProgress(input: BuildProfileScreenViewModelInput): Record<ProfileSection, SectionProgress> {
+function buildProfileSectionProgress(
+  input: BuildProfileScreenViewModelInput,
+): Record<ProfileSection, SectionProgress> {
   const basics = countFilledFields([
     input.identityValues?.firstName,
     input.identityValues?.lastName,
@@ -137,19 +185,25 @@ function buildProfileSectionProgress(input: BuildProfileScreenViewModelInput): R
     input.skillGroupValues?.coreSkills,
     input.skillGroupValues?.tools,
     input.skillGroupValues?.languagesAndFrameworks,
-    input.skillGroupValues?.softSkills
-  ])
+    input.skillGroupValues?.softSkills,
+  ]);
 
-  const experience = countFilledRecordFields(input.experienceValues ?? [], ['id', 'isCurrent'])
+  const experience = countFilledRecordFields(input.experienceValues ?? [], [
+    "id",
+    "isCurrent",
+  ]);
 
   const background = combineSectionProgress(
-    countFilledRecordFields(input.educationValues ?? [], ['id']),
-    countFilledRecordFields(input.certificationValues ?? [], ['id']),
-    countFilledRecordFields(input.projectValues ?? [], ['id']),
-    countFilledRecordFields(input.linkValues ?? [], ['id']),
-    countFilledRecordFields(input.languageValues ?? [], ['id', 'interviewPreference']),
-    countFilledRecordFields(input.proofBankValues ?? [], ['id'])
-  )
+    countFilledRecordFields(input.educationValues ?? [], ["id"]),
+    countFilledRecordFields(input.certificationValues ?? [], ["id"]),
+    countFilledRecordFields(input.projectValues ?? [], ["id"]),
+    countFilledRecordFields(input.linkValues ?? [], ["id"]),
+    countFilledRecordFields(input.languageValues ?? [], [
+      "id",
+      "interviewPreference",
+    ]),
+    countFilledRecordFields(input.proofBankValues ?? [], ["id"]),
+  );
 
   const preferences = combineSectionProgress(
     countFilledFields([
@@ -187,10 +241,14 @@ function buildProfileSectionProgress(input: BuildProfileScreenViewModelInput): R
       input.workModes,
       input.tailoringMode,
       input.minimumSalaryUsd,
-      input.targetSalaryUsd
+      input.targetSalaryUsd,
     ]),
-    countFilledRecordFields(input.answerBankValues?.customAnswers ?? [], ['id'])
-  )
+    countFilledRecordFields(input.answerBankValues?.customAnswers ?? [], [
+      "id",
+    ]),
+  );
 
-  return { basics, experience, background, preferences }
+  const sources = buildJobSourceProgress(input.discoveryTargets);
+
+  return { basics, experience, background, preferences, sources };
 }

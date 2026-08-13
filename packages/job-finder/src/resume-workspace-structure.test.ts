@@ -8,6 +8,41 @@ import {
 import { createSeed } from "./workspace-service.test-support";
 
 describe("buildResumeRenderDocument", () => {
+  test("uses the exact target role as the generated resume headline and gives experienced candidates two pages", () => {
+    const seed = createSeed();
+    const job = {
+      ...seed.savedJobs[0]!,
+      title: "JavaScript Frontend Developer",
+    };
+    const draft = buildResumeDraftFromTailoredDraft({
+      job,
+      templateId: seed.settings.resumeTemplateId,
+      createdAt: "2026-03-20T10:04:00.000Z",
+      generationMethod: "deterministic",
+      profile: { ...seed.profile, yearsExperience: 7 },
+      draft: {
+        label: "Tailored Resume",
+        summary: "JavaScript frontend developer with React experience.",
+        experienceHighlights: [],
+        coreSkills: ["JavaScript", "React"],
+        targetedKeywords: ["JavaScript", "React"],
+        experienceEntries: [],
+        projectEntries: [],
+        educationEntries: [],
+        certificationEntries: [],
+        coverageMetadata: [],
+        additionalSkills: [],
+        languages: [],
+        fullText: "JavaScript frontend developer with React experience.",
+        compatibilityScore: 80,
+        notes: [],
+      },
+    });
+
+    expect(draft.identity?.headline).toBe("JavaScript Frontend Developer");
+    expect(draft.targetPageCount).toBe(2);
+  });
+
   test("renders experience entry metadata with tailored entry content", () => {
     const seed = createSeed();
     const profile = seed.profile;
@@ -97,7 +132,8 @@ describe("buildResumeRenderDocument", () => {
       startDate: "2020-01",
       endDate: null,
       isCurrent: true,
-      heading: "Senior systems designer — Signal Systems | London, UK | Jan 2020 – Present",
+      heading:
+        "Senior systems designer — Signal Systems | London, UK | Jan 2020 – Present",
       summary: "Tailored workflow platform summary.",
       bullets: [
         {
@@ -116,7 +152,9 @@ describe("buildResumeRenderDocument", () => {
       templateId: seed.settings.resumeTemplateId,
     });
 
-    const experience = draft.sections.find((section) => section.kind === "experience")?.entries[0];
+    const experience = draft.sections.find(
+      (section) => section.kind === "experience",
+    )?.entries[0];
 
     expect(experience?.dateRange).toMatch(/^[A-Z][a-z]{2} \d{4} – Present$/);
     expect(experience?.startDate).toMatch(/^\d{4}-\d{2}$/);
@@ -162,18 +200,25 @@ describe("buildResumeRenderDocument", () => {
       job: seed.savedJobs[0]!,
       templateId: seed.settings.resumeTemplateId,
     });
-    const experienceEntries = draft.sections.find((section) => section.kind === "experience")?.entries ?? [];
+    const experienceEntries =
+      draft.sections.find((section) => section.kind === "experience")
+        ?.entries ?? [];
     const documentEntries =
-      buildResumeRenderDocument(profile, draft).sections.find((section) => section.kind === "experience")?.entries ??
-      [];
+      buildResumeRenderDocument(profile, draft).sections.find(
+        (section) => section.kind === "experience",
+      )?.entries ?? [];
 
     expect(experienceEntries.map((entry) => entry.profileRecordId)).toEqual([
       "current_platform",
       "recent_dotnet",
       "older_dotnet",
     ]);
-    expect(experienceEntries.map((entry) => entry.sortOrder)).toEqual([0, 1, 2]);
-    expect(documentEntries.map((entry) => entry.id)).toEqual(experienceEntries.map((entry) => entry.id));
+    expect(experienceEntries.map((entry) => entry.sortOrder)).toEqual([
+      0, 1, 2,
+    ]);
+    expect(documentEntries.map((entry) => entry.id)).toEqual(
+      experienceEntries.map((entry) => entry.id),
+    );
   });
 
   test("buildResumeDraftFromTailoredDraft keeps suggested-hidden guidance out of rendered resume content", () => {
@@ -195,7 +240,9 @@ describe("buildResumeRenderDocument", () => {
           isCurrent: false,
           isDraft: false,
           summary: "Coordinated customer operations reporting.",
-          achievements: ["Prepared weekly pipeline reporting for account teams."],
+          achievements: [
+            "Prepared weekly pipeline reporting for account teams.",
+          ],
           skills: [],
           domainTags: [],
           peopleManagementScope: null,
@@ -248,8 +295,12 @@ describe("buildResumeRenderDocument", () => {
         notes: [],
       },
     });
-    const experienceSection = draft.sections.find((section) => section.kind === "experience");
-    const hiddenEntry = experienceSection?.entries.find((entry) => entry.profileRecordId === "experience_sales_bridge");
+    const experienceSection = draft.sections.find(
+      (section) => section.kind === "experience",
+    );
+    const hiddenEntry = experienceSection?.entries.find(
+      (entry) => entry.profileRecordId === "experience_sales_bridge",
+    );
     const document = buildResumeRenderDocument(profile, draft);
 
     expect(hiddenEntry).toMatchObject({
@@ -257,7 +308,9 @@ describe("buildResumeRenderDocument", () => {
       title: "Sales Operations Associate",
     });
     expect(JSON.stringify(document)).not.toContain("weaker career-family fit");
-    expect(JSON.stringify(document)).not.toContain("Sales Operations Associate");
+    expect(JSON.stringify(document)).not.toContain(
+      "Sales Operations Associate",
+    );
   });
 
   test("buildResumeDraftFromTailoredDraft does not append original bullets after grounded rewrites", () => {
@@ -378,15 +431,24 @@ describe("buildResumeRenderDocument", () => {
       },
     });
 
-    const entries = draft.sections.find((section) => section.kind === "experience")?.entries ?? [];
+    const entries =
+      draft.sections.find((section) => section.kind === "experience")
+        ?.entries ?? [];
 
     expect(entries.map((entry) => entry.profileRecordId)).toEqual([
       primaryExperience.id,
       "experience_omitted",
       "experience_missing_from_provider",
     ]);
-    expect(entries.find((entry) => entry.profileRecordId === "experience_omitted")?.included).toBe(false);
-    expect(entries.find((entry) => entry.profileRecordId === "experience_missing_from_provider")?.included).toBe(false);
+    expect(
+      entries.find((entry) => entry.profileRecordId === "experience_omitted")
+        ?.included,
+    ).toBe(false);
+    expect(
+      entries.find(
+        (entry) => entry.profileRecordId === "experience_missing_from_provider",
+      )?.included,
+    ).toBe(false);
   });
 
   test("buildResumeDraftFromTailoredDraft preserves imported dates and detail when tailored entries are thin", () => {
@@ -450,7 +512,9 @@ describe("buildResumeRenderDocument", () => {
     });
     const entry = draft.sections
       .find((section) => section.kind === "experience")
-      ?.entries.find((item) => item.profileRecordId === "experience_full_stack");
+      ?.entries.find(
+        (item) => item.profileRecordId === "experience_full_stack",
+      );
 
     expect(entry?.dateRange).toBe("Aug 2019 – Oct 2021");
     expect(entry?.startDate).toBe("2019-08");
@@ -554,7 +618,8 @@ describe("buildResumeRenderDocument", () => {
           startDate: "01/07/2023",
           endDate: null,
           isCurrent: true,
-          summary: "Led hands-on product engineering across order, kitchen, and billing workflows.",
+          summary:
+            "Led hands-on product engineering across order, kitchen, and billing workflows.",
           achievements: [
             "Project Lead (React, Next.js) – QA Management System",
             "Engineered a real-time restaurant order platform with React, Next.js, TailwindCSS & WebSockets, synchronizing POS and kitchen screens and eliminating manual order calls. Improved release confidence across kitchen workflows.",
@@ -599,7 +664,9 @@ describe("buildResumeRenderDocument", () => {
     });
     const entry = draft.sections
       .find((section) => section.kind === "experience")
-      ?.entries.find((item) => item.profileRecordId === "experience_operations_system");
+      ?.entries.find(
+        (item) => item.profileRecordId === "experience_operations_system",
+      );
 
     expect(entry?.dateRange).toBe("Jul 2023 – Present");
     expect(entry?.title).toBe("Operations Systems Engineer");
@@ -608,7 +675,9 @@ describe("buildResumeRenderDocument", () => {
     expect(entry?.startDate).toBe("01/07/2023");
     expect(entry?.endDate).toBeNull();
     expect(entry?.isCurrent).toBe(true);
-    expect(entry?.summary).toBe("Led hands-on product engineering across order, kitchen, and billing workflows.");
+    expect(entry?.summary).toBe(
+      "Led hands-on product engineering across order, kitchen, and billing workflows.",
+    );
     expect(entry?.bullets.map((bullet) => bullet.text)).toEqual([
       "React and WebSockets",
       "Engineered a real-time restaurant order platform with React, Next.js, TailwindCSS & WebSockets, synchronizing POS and kitchen screens and eliminating manual order calls.",
@@ -623,7 +692,8 @@ describe("buildResumeRenderDocument", () => {
       experiences: [
         {
           ...seed.profile.experiences[0]!,
-          summary: "After deciding to return to my passion for development, I transitioned back into a hands-on role.",
+          summary:
+            "After deciding to return to my passion for development, I transitioned back into a hands-on role.",
         },
       ],
     };
@@ -662,7 +732,9 @@ describe("buildResumeRenderDocument", () => {
         notes: [],
       },
     });
-    const entry = draft.sections.find((section) => section.kind === "experience")?.entries[0];
+    const entry = draft.sections.find(
+      (section) => section.kind === "experience",
+    )?.entries[0];
 
     expect(entry?.summary).toBeNull();
     expect(entry?.bullets.length).toBeGreaterThan(0);
@@ -751,14 +823,20 @@ describe("buildResumeRenderDocument", () => {
         notes: [],
       },
     });
-    const experienceEntries = draft.sections.find((section) => section.kind === "experience")?.entries ?? [];
+    const experienceEntries =
+      draft.sections.find((section) => section.kind === "experience")
+        ?.entries ?? [];
 
     expect(experienceEntries.map((entry) => entry.profileRecordId)).toEqual([
       "current_role",
       "hidden_middle",
       "older_role",
     ]);
-    expect(experienceEntries.find((entry) => entry.profileRecordId === "hidden_middle")?.included).toBe(false);
+    expect(
+      experienceEntries.find(
+        (entry) => entry.profileRecordId === "hidden_middle",
+      )?.included,
+    ).toBe(false);
   });
 
   test("surfaces preferred links and project URLs without turning project skills into bullets", () => {
@@ -803,7 +881,9 @@ describe("buildResumeRenderDocument", () => {
       templateId: seed.settings.resumeTemplateId,
     });
     const document = buildResumeRenderDocument(profile, draft);
-    const project = document.sections.find((section) => section.kind === "projects")?.entries[0];
+    const project = document.sections.find(
+      (section) => section.kind === "projects",
+    )?.entries[0];
 
     expect(document.contactItems).toEqual([
       { field: "email", text: "apply@example.com" },
@@ -826,8 +906,10 @@ describe("buildResumeRenderDocument", () => {
       startDate: null,
       endDate: null,
       isCurrent: false,
-      heading: "Workflow OS — Design lead | https://alex.example.com/workflow-os-case-study",
-      summary: "Scaled a workflow design system. Reduced release churn. Technologies: Figma, React.",
+      heading:
+        "Workflow OS — Design lead | https://alex.example.com/workflow-os-case-study",
+      summary:
+        "Scaled a workflow design system. Reduced release churn. Technologies: Figma, React.",
       bullets: [],
     });
   });

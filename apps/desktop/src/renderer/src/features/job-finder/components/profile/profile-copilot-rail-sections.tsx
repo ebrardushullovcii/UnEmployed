@@ -1,5 +1,4 @@
 import {
-  ChevronDown,
   MessageSquare,
   PanelBottomClose,
   PanelBottomOpen,
@@ -118,6 +117,12 @@ export function ProfileCopilotTranscript(props: {
                       {message.content}
                     </p>
                   )}
+                  {message.executionAttribution?.fallbackUsed ? (
+                    <p className="mt-2 text-(length:--text-tiny) text-muted-foreground">
+                      AI was unavailable, so Copilot used the built-in safe
+                      fallback for this reply.
+                    </p>
+                  ) : null}
 
                   {message.patchGroups.length > 0 ? (
                     <div className="mt-3 grid gap-2 border-t border-border/25 pt-3">
@@ -376,7 +381,6 @@ export function ProfileCopilotComposer(props: {
 
 export function ProfileCopilotCollapsedBubble(props: {
   onClick: () => void;
-  onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => void;
   collapsedPreviewTitle: string;
   isDraggable?: boolean;
   isOpen: boolean;
@@ -400,17 +404,23 @@ export function ProfileCopilotCollapsedBubble(props: {
       aria-expanded={props.isOpen}
       aria-haspopup="dialog"
       className={cn(
-        "pointer-events-auto h-16 min-h-16 touch-none select-none rounded-full px-4 py-3 shadow-[0_18px_48px_rgba(0,0,0,0.4)] max-sm:h-12 max-sm:min-h-12 max-sm:w-12 max-sm:p-0",
+        "pointer-events-auto size-12 min-h-12 touch-none select-none rounded-full p-0 shadow-[0_18px_48px_rgba(0,0,0,0.4)]",
         props.isDraggable === false
           ? "cursor-pointer"
           : "cursor-grab active:cursor-grabbing",
       )}
       onClick={props.onClick}
-      onKeyDown={props.onKeyDown}
-      onPointerDown={props.onPointerDown}
-      onPointerMove={props.onPointerMove}
-      onPointerCancel={props.onPointerCancel}
-      onPointerUp={props.onPointerUp}
+      onPointerDown={
+        props.isDraggable === false ? undefined : props.onPointerDown
+      }
+      onPointerMove={
+        props.isDraggable === false ? undefined : props.onPointerMove
+      }
+      onPointerCancel={
+        props.isDraggable === false ? undefined : props.onPointerCancel
+      }
+      onPointerUp={props.isDraggable === false ? undefined : props.onPointerUp}
+      title={`${props.title ?? "Profile Copilot"}: ${props.collapsedPreviewTitle}`}
       type="button"
       variant={
         props.messageCount > 0 || props.isPendingHere ? "primary" : "secondary"
@@ -419,32 +429,14 @@ export function ProfileCopilotCollapsedBubble(props: {
       <span className="flex size-9 items-center justify-center rounded-full border border-current/15 bg-background/15">
         <MessageSquare className="size-4" />
       </span>
-      <span className="grid text-left leading-tight max-sm:hidden">
-        <span className="text-sm font-semibold normal-case tracking-normal">
-          {props.title ?? "Profile Copilot"}
-        </span>
-        <span className="text-xs font-medium normal-case tracking-normal text-primary-foreground/80">
-          {props.isPendingHere
-            ? "Replying now"
-            : props.messageCount > 0
-              ? props.collapsedPreviewTitle
-              : "Ask for an edit"}
-        </span>
-      </span>
       {props.isPendingHere ? (
-        <ThinkingDots
-          className="rounded-full border border-current/15 bg-background/10 px-2 py-1 text-primary-foreground/85 max-sm:hidden"
-          label="Thinking"
-        />
+        <span
+          aria-hidden="true"
+          className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full border border-primary/30 bg-background text-primary shadow-sm"
+        >
+          <Sparkles className="size-3 animate-pulse" />
+        </span>
       ) : null}
-      <span className="rounded-full border border-current/15 bg-background/10 p-1 max-sm:hidden">
-        <ChevronDown
-          className={cn(
-            "size-3 transition-transform",
-            props.isOpen ? "rotate-180" : "rotate-0",
-          )}
-        />
-      </span>
     </Button>
   );
 }

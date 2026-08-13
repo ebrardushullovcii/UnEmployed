@@ -370,6 +370,24 @@ export function isWarmPageReusable(input: {
     return true;
   }
 
+  const hasConcreteStartingQuery = input.options.startingUrls.some(
+    (startingUrl) => {
+      const normalizedStartingUrl = normalizeWarmReuseUrl(startingUrl);
+      if (!normalizedStartingUrl) {
+        return false;
+      }
+
+      try {
+        return new URL(normalizedStartingUrl).searchParams.size > 0;
+      } catch {
+        return false;
+      }
+    },
+  );
+  if (hasConcreteStartingQuery) {
+    return false;
+  }
+
   const relevantUrlSubstrings =
     input.options.relevantUrlSubstrings
       ?.map((substring) => substring.trim().toLowerCase())

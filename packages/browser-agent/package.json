@@ -17,6 +17,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@unemployed/agent-runtime": "workspace:*",
     "@unemployed/contracts": "workspace:*",
     "playwright": "^1.52.0",
     "zod": "^3.23.8"

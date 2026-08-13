@@ -13,7 +13,7 @@ describe("focusProfileDeepLink", () => {
     vi.restoreAllMocks();
   });
 
-  it("resets the page and reveals the exact job-sources section inside Preferences", () => {
+  it("resets the page and reveals the exact Job Sources destination", () => {
     document.body.innerHTML = `
       <div class="screen-scroll-area">
         <div id="${PROFILE_SECTION_SCROLL_AREA_ID}">

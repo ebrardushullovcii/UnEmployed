@@ -9,7 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
-import type { Browser, BrowserContext, Page } from "playwright";
+import type { Browser, BrowserContext, CDPSession, Page } from "playwright";
 import {
   ApplyExecutionResultSchema,
   ApplyVisualCheckpointSchema,
@@ -323,6 +323,14 @@ export interface BrowserAgentRuntimeOptions {
   aiClient?: JobFinderAiClient;
 }
 
+interface ManagedBrowserWindowBounds {
+  height: number;
+  width: number;
+  x?: number;
+  y?: number;
+  windowState?: "normal" | "minimized" | "maximized" | "fullscreen";
+}
+
 async function resolveChromeExecutable(explicitPath?: string): Promise<string> {
   for (const candidate of buildChromeExecutableCandidates(explicitPath)) {
     if (await pathExists(candidate)) {
@@ -586,16 +594,30 @@ async function waitForDebuggerEndpoint(
   timeoutMs = 20_000,
 ): Promise<void> {
   const startedAt = Date.now();
+  let windowsLauncherExitedAt: number | null = null;
 
   while (Date.now() - startedAt < timeoutMs) {
     if (await isDebuggerEndpointReady(debugPort)) {
       return;
     }
 
-    if (chromeProcess && chromeProcess.exitCode !== null) {
+    if (
+      chromeProcess &&
+      chromeProcess.exitCode !== null &&
+      process.platform !== "win32"
+    ) {
       throw new Error(
         `Chrome exited before the remote debugging endpoint on port ${debugPort} became ready.`,
       );
+    }
+
+    if (chromeProcess?.exitCode !== null && process.platform === "win32") {
+      windowsLauncherExitedAt ??= Date.now();
+      if (Date.now() - windowsLauncherExitedAt >= 5_000) {
+        throw new Error(
+          `Chrome exited before the remote debugging endpoint on port ${debugPort} became ready.`,
+        );
+      }
     }
 
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -646,7 +668,12 @@ async function resolveLivePageForContext(
 
 async function resolveAutomationPageForContext(
   context: BrowserContext,
-  options: { targetUrl?: string | null; bringToFront?: boolean } = {},
+  options: {
+    targetUrl?: string | null;
+    bringToFront?: boolean;
+    closeOtherPages?: boolean;
+    onPageResolved?: (page: Page) => void;
+  } = {},
 ): Promise<Page> {
   const normalizedTargetUrl =
     typeof options.targetUrl === "string" ? options.targetUrl.trim() : "";
@@ -659,7 +686,21 @@ async function resolveAutomationPageForContext(
     : null;
   const blankPage =
     openPages.find((page) => !isHttpUrlLike(page.url())) ?? null;
-  const page = exactTargetPage ?? blankPage ?? (await context.newPage());
+  const reusableLivePage = selectLiveHttpPage(openPages);
+  const page =
+    exactTargetPage ??
+    blankPage ??
+    reusableLivePage ??
+    (await context.newPage());
+  options.onPageResolved?.(page);
+
+  if (options.closeOtherPages) {
+    await Promise.allSettled(
+      openPages
+        .filter((candidate) => candidate !== page)
+        .map(async (candidate) => candidate.close()),
+    );
+  }
 
   if (options.bringToFront !== false) {
     await bringPageToFrontBestEffort(page);
@@ -676,16 +717,27 @@ async function prepareAutomationPageForTarget(
     bringToFront?: boolean;
     navigationTimeoutMs?: number;
     acceptTargetOriginAfterTimeout?: boolean;
+    closeOtherPages?: boolean;
+    signal?: AbortSignal;
+    onPageResolved?: (page: Page) => void;
   },
 ): Promise<{
   page: Page;
   alreadyAtTarget: boolean;
   navigatedToTarget: boolean;
 }> {
+  options.signal?.throwIfAborted();
   const page = await resolveAutomationPageForContext(context, {
     targetUrl: options.targetUrl,
     bringToFront: false,
+    ...(options.closeOtherPages !== undefined
+      ? { closeOtherPages: options.closeOtherPages }
+      : {}),
+    ...(options.onPageResolved
+      ? { onPageResolved: options.onPageResolved }
+      : {}),
   });
+  options.signal?.throwIfAborted();
   const alreadyAtTarget = areStructurallyEquivalentHttpUrls(
     page.url(),
     options.targetUrl,
@@ -701,6 +753,7 @@ async function prepareAutomationPageForTarget(
           ? { timeout: options.navigationTimeoutMs }
           : {}),
       });
+      options.signal?.throwIfAborted();
     } catch (error) {
       const timeoutReached =
         error instanceof Error && error.name === "TimeoutError";
@@ -758,6 +811,103 @@ export function createBrowserAgentRuntime(
   let browserPromise: Promise<Browser> | null = null;
   let launchedChromeProcess: ChildProcess | null = null;
   let ownsChromeProcess = false;
+  const windowBoundsPath = join(
+    options.userDataDir,
+    "unemployed-browser-window-bounds.json",
+  );
+
+  function parseManagedBrowserWindowBounds(
+    value: unknown,
+  ): ManagedBrowserWindowBounds | null {
+    if (!isJsonRecord(value)) return null;
+    const width = value.width;
+    const height = value.height;
+    if (
+      typeof width !== "number" ||
+      typeof height !== "number" ||
+      !Number.isFinite(width) ||
+      !Number.isFinite(height) ||
+      width < 640 ||
+      height < 480
+    ) {
+      return null;
+    }
+    return {
+      width: Math.round(width),
+      height: Math.round(height),
+      ...(typeof value.x === "number" && Number.isFinite(value.x)
+        ? { x: Math.round(value.x) }
+        : {}),
+      ...(typeof value.y === "number" && Number.isFinite(value.y)
+        ? { y: Math.round(value.y) }
+        : {}),
+      ...(value.windowState === "normal" ||
+      value.windowState === "minimized" ||
+      value.windowState === "maximized" ||
+      value.windowState === "fullscreen"
+        ? { windowState: value.windowState }
+        : {}),
+    };
+  }
+
+  async function getBrowserWindowSession(browser: Browser): Promise<{
+    session: CDPSession;
+    windowId: number;
+    bounds: ManagedBrowserWindowBounds;
+  } | null> {
+    const page = browser.contexts().flatMap((context) => context.pages())[0];
+    if (!page) return null;
+    const session = await page.context().newCDPSession(page);
+    try {
+      const info = await session.send("Browser.getWindowForTarget");
+      const bounds = parseManagedBrowserWindowBounds(info.bounds);
+      if (!bounds) {
+        await session.detach().catch(() => undefined);
+        return null;
+      }
+      return {
+        session,
+        windowId: info.windowId,
+        bounds,
+      };
+    } catch (error) {
+      await session.detach().catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async function restoreBrowserWindowBounds(browser: Browser): Promise<void> {
+    if (options.headless) return;
+    const saved = await readFile(windowBoundsPath, "utf8")
+      .then((content) => parseManagedBrowserWindowBounds(JSON.parse(content)))
+      .catch(() => null);
+    const connection = await getBrowserWindowSession(browser).catch(() => null);
+    if (!connection) return;
+    try {
+      await connection.session.send("Browser.setWindowBounds", {
+        windowId: connection.windowId,
+        bounds: saved ?? { width: 1280, height: 820, windowState: "normal" },
+      });
+    } finally {
+      await connection.session.detach().catch(() => undefined);
+    }
+  }
+
+  async function persistBrowserWindowBounds(browser: Browser): Promise<void> {
+    if (options.headless) return;
+    const connection = await getBrowserWindowSession(browser).catch(() => null);
+    if (!connection) return;
+    try {
+      const parsed = parseManagedBrowserWindowBounds(connection.bounds);
+      if (!parsed) return;
+      await mkdir(options.userDataDir, { recursive: true });
+      const temporaryPath = `${windowBoundsPath}.tmp`;
+      await writeFile(temporaryPath, JSON.stringify(parsed), "utf8");
+      await rename(temporaryPath, windowBoundsPath);
+    } finally {
+      await connection.session.detach().catch(() => undefined);
+    }
+  }
   let currentSessionState = BrowserSessionStateSchema.parse({
     source: "target_site",
     status: "unknown",
@@ -919,6 +1069,7 @@ export function createBrowserAgentRuntime(
             timeout: 5_000,
           }),
         );
+        await restoreBrowserWindowBounds(browser).catch(() => undefined);
         return browser;
       } catch (error) {
         lastError = error;
@@ -991,7 +1142,12 @@ export function createBrowserAgentRuntime(
         });
         ownsChromeProcess = true;
         launchedChromeProcess.once("exit", () => {
-          resetBrowserConnection();
+          // Chrome on Windows can hand off from the short-lived process returned
+          // by spawn to a continuing browser process. The CDP connection owns the
+          // authoritative lifecycle after that handoff.
+          if (process.platform !== "win32") {
+            resetBrowserConnection();
+          }
         });
         launchedChromeProcess.unref();
 
@@ -1055,6 +1211,7 @@ export function createBrowserAgentRuntime(
     const prepared = await prepareAutomationPageForTarget(context, {
       targetUrl: navigationTarget,
       bringToFront: currentSessionState.status !== "ready",
+      closeOtherPages: true,
       setBlockedState: (detail) => {
         setSessionState(source, "blocked", "Browser navigation failed", detail);
       },
@@ -1078,6 +1235,7 @@ export function createBrowserAgentRuntime(
       await prepareAutomationPageForTarget(await getContext(), {
         targetUrl: normalizedTargetUrl,
         bringToFront: true,
+        closeOtherPages: true,
         navigationTimeoutMs: 8_000,
         acceptTargetOriginAfterTimeout: true,
         setBlockedState: (detail) => {
@@ -1230,6 +1388,7 @@ export function createBrowserAgentRuntime(
         if (browserPromise) {
           const browser = await browserPromise;
           if (shouldTerminateChromeProcess) {
+            await persistBrowserWindowBounds(browser).catch(() => undefined);
             const browserClosedGracefully = await browser.close().then(
               () => true,
               () => false,
@@ -1308,6 +1467,7 @@ export function createBrowserAgentRuntime(
     async executeApplicationFlow(
       source,
       input: ExecuteApplicationFlowInput,
+      options,
     ): Promise<ApplyExecutionResult> {
       const executionStartedAtMs = Date.now();
       const startedAt = new Date(executionStartedAtMs).toISOString();
@@ -1370,11 +1530,28 @@ export function createBrowserAgentRuntime(
       } else {
         const browserPreparationStartedAtMs = Date.now();
         let formPreparationStartedAtMs: number | null = null;
+        let workingPage: Page | null = null;
+        const closeWorkingPageOnAbort = () => {
+          if (workingPage) {
+            void workingPage.close().catch(() => undefined);
+          }
+        };
+        options?.signal?.addEventListener("abort", closeWorkingPageOnAbort, {
+          once: true,
+        });
         try {
           const context = await getContext();
           const prepared = await prepareAutomationPageForTarget(context, {
             targetUrl,
             bringToFront: true,
+            closeOtherPages: true,
+            ...(options?.signal ? { signal: options.signal } : {}),
+            onPageResolved: (page) => {
+              workingPage = page;
+              if (options?.signal?.aborted) {
+                closeWorkingPageOnAbort();
+              }
+            },
             setBlockedState: (detail) => {
               setSessionState(
                 source,
@@ -1384,6 +1561,7 @@ export function createBrowserAgentRuntime(
               );
             },
           });
+          options?.signal?.throwIfAborted();
           applicationPageOpened = true;
           recordExecutionTiming(
             "browser_preparation",
@@ -1401,9 +1579,14 @@ export function createBrowserAgentRuntime(
             page: prepared.page,
             executionInput: input,
             startedAt,
+            ...(options?.signal ? { signal: options.signal } : {}),
           });
+          options?.signal?.throwIfAborted();
           recordExecutionTiming("form_preparation", formPreparationStartedAtMs);
         } catch (error) {
+          if (options?.signal?.aborted) {
+            throw error;
+          }
           if (!applicationPageOpened) {
             recordExecutionTiming(
               "browser_preparation",
@@ -1441,6 +1624,19 @@ export function createBrowserAgentRuntime(
             now: new Date().toISOString(),
             nextActionLabel: "Inspect the application page manually",
           });
+        } finally {
+          options?.signal?.removeEventListener(
+            "abort",
+            closeWorkingPageOnAbort,
+          );
+          const pageToClose = workingPage as Page | null;
+          if (
+            options?.signal?.aborted &&
+            pageToClose &&
+            !pageToClose.isClosed()
+          ) {
+            await pageToClose.close().catch(() => undefined);
+          }
         }
       }
 
@@ -1553,11 +1749,21 @@ export function createBrowserAgentRuntime(
         const agentConfig: AgentConfig = {
           source,
           maxSteps: agentOptions.maxSteps,
+          ...(agentOptions.runControl
+            ? { runControl: agentOptions.runControl }
+            : {}),
+          ...(agentOptions.resumeCheckpoint
+            ? { resumeCheckpoint: agentOptions.resumeCheckpoint }
+            : {}),
+          ...(agentOptions.onCheckpoint
+            ? { onCheckpoint: agentOptions.onCheckpoint }
+            : {}),
           targetJobCount: agentOptions.targetJobCount,
           userProfile: agentOptions.userProfile,
           searchPreferences: {
             targetRoles: agentOptions.searchPreferences.targetRoles,
             locations: agentOptions.searchPreferences.locations,
+            workModes: agentOptions.searchPreferences.workModes ?? [],
           },
           startingUrls: agentOptions.startingUrls,
           ...(agentOptions.agentHints?.widenReviewBudget

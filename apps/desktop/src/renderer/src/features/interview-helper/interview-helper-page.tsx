@@ -50,6 +50,7 @@ import { InterviewMediaStreamProbes } from "./interview-media-stream-probes";
 import { InterviewNativeCaptionWatcher } from "./interview-native-caption-watcher";
 import { InterviewSessionPreferences } from "./interview-session-preferences";
 import { InterviewVisibleChat } from "./interview-visible-chat";
+import { formatInterviewTranscriptSource } from "./interview-transcript-source-label";
 
 type LoadState =
   | { status: "loading" }
@@ -212,7 +213,7 @@ export function InterviewHelperPage() {
     "setup" | "assist" | "review" | "settings"
   >("setup");
   const [transcriptSource, setTranscriptSource] =
-    useState<InterviewTranscriptSource>("meeting_native_transcript");
+    useState<InterviewTranscriptSource>("typed_question");
   const [transcriptDraft, setTranscriptDraft] = useState("");
   const [platform, setPlatform] = useState<"darwin" | "linux" | "win32">(() =>
     inferInterviewRendererPlatform(navigator.platform),
@@ -462,7 +463,8 @@ export function InterviewHelperPage() {
         source: transcriptSource,
         text,
         engineKind:
-          transcriptSource === "meeting_native_transcript"
+          transcriptSource === "meeting_native_transcript" ||
+          transcriptSource === "typed_question"
             ? "platform_local"
             : "browser_speech",
         language:
@@ -696,7 +698,6 @@ export function InterviewHelperPage() {
               <Link
                 className={cn(
                   "truncate font-display text-[1.45rem] font-black leading-none tracking-[-0.08em] text-(var(--headline-primary)) sm:text-[2rem]",
-                  isMac ? "xl:text-[2rem]" : "xl:text-[2.7rem]",
                 )}
                 style={noDragRegionStyle}
                 to="/job-finder/profile"
@@ -1085,6 +1086,8 @@ export function InterviewHelperPage() {
           {activeTab === "assist" ? (
             <InterviewVisibleChat
               audioTranscriptionAvailable={audioTranscriptionAvailable}
+              onGoToReview={() => setActiveTab("review")}
+              onGoToSetup={() => setActiveTab("setup")}
               onPerform={perform}
               onWorkspaceChange={applyWorkspaceSnapshot}
               pendingAction={pendingAction}
@@ -1092,7 +1095,9 @@ export function InterviewHelperPage() {
             />
           ) : null}
 
-          {advancedSurfaceUiEnabled && activeTab === "assist" ? (
+          {advancedSurfaceUiEnabled &&
+          activeTab === "assist" &&
+          isLiveSession ? (
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
               <div className="grid gap-4">
                 <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
@@ -1297,7 +1302,7 @@ export function InterviewHelperPage() {
                               }}
                               value={transcriptSource}
                             >
-                              <option value="meeting_native_transcript">
+                              <option value="typed_question">
                                 Interviewer question
                               </option>
                               <option value="meeting_audio">
@@ -1493,7 +1498,9 @@ export function InterviewHelperPage() {
                               key={segment.id}
                             >
                               <span className="text-(--warning-text)">
-                                {segment.source.replaceAll("_", " ")}
+                                {formatInterviewTranscriptSource(
+                                  segment.source,
+                                )}
                               </span>{" "}
                               {segment.text}
                             </p>

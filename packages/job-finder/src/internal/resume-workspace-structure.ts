@@ -13,7 +13,12 @@ import type {
   TailoredAsset,
 } from "@unemployed/contracts";
 import { ResumeDraftSchema } from "@unemployed/contracts";
-import { createEntry, createSection, createSourceRef, safeSnippet } from "./resume-workspace-primitives";
+import {
+  createEntry,
+  createSection,
+  createSourceRef,
+  safeSnippet,
+} from "./resume-workspace-primitives";
 import {
   normalizeResumeDraftSectionEntryOrdering,
   normalizeResumeDraftEntryOrdering,
@@ -22,8 +27,13 @@ import {
 import { buildJobContextText } from "./resume-workspace-primitives";
 import { normalizeText, uniqueStrings } from "./shared";
 
-function joinCompact(parts: ReadonlyArray<string | null | undefined>, separator: string): string | null {
-  const values = parts.filter((value): value is string => Boolean(value && value.trim()));
+function joinCompact(
+  parts: ReadonlyArray<string | null | undefined>,
+  separator: string,
+): string | null {
+  const values = parts.filter((value): value is string =>
+    Boolean(value && value.trim()),
+  );
   return values.length > 0 ? values.join(separator) : null;
 }
 
@@ -41,14 +51,20 @@ function normalizeContactIdentity(value: string): string {
   );
 }
 
-export function buildResumeDraftIdentity(profile: CandidateProfile): ResumeDraftIdentity {
+export function buildResumeDraftIdentity(
+  profile: CandidateProfile,
+): ResumeDraftIdentity {
   const preferredLinks = profile.applicationIdentity.preferredLinkIds
-    .map((linkId) => profile.links.find((link) => link.id === linkId && link.url))
+    .map((linkId) =>
+      profile.links.find((link) => link.id === linkId && link.url),
+    )
     .filter((link): link is NonNullable<typeof link> => Boolean(link?.url));
   const fallbackLinks = profile.links.filter(
     (link) =>
       link.url &&
-      ["portfolio", "github", "website", "case_study"].includes(link.kind ?? "") &&
+      ["portfolio", "github", "website", "case_study"].includes(
+        link.kind ?? "",
+      ) &&
       !preferredLinks.some((preferredLink) => preferredLink.id === link.id),
   );
 
@@ -67,9 +83,25 @@ export function buildResumeDraftIdentity(profile: CandidateProfile): ResumeDraft
       .filter(Boolean)
       .filter(
         (value, index, values) =>
-          values.findIndex((entry) => normalizeContactIdentity(entry) === normalizeContactIdentity(value)) === index,
+          values.findIndex(
+            (entry) =>
+              normalizeContactIdentity(entry) ===
+              normalizeContactIdentity(value),
+          ) === index,
       ),
   };
+}
+
+function buildJobTargetedHeadline(
+  profile: CandidateProfile,
+  job: SavedJob,
+): string | null {
+  const jobTitle = job.title.trim();
+  if (jobTitle) {
+    return jobTitle;
+  }
+
+  return profile.headline ?? null;
 }
 
 function buildResumeContactItems(
@@ -102,14 +134,21 @@ function buildResumeContactItems(
     })
     .filter(
       (value, index, values) =>
-        values.findIndex((entry) => normalizeContactIdentity(entry.text) === normalizeContactIdentity(value.text)) ===
-        index,
+        values.findIndex(
+          (entry) =>
+            normalizeContactIdentity(entry.text) ===
+            normalizeContactIdentity(value.text),
+        ) === index,
     );
 }
 
-function pickProjectLink(project: CandidateProfile["projects"][number] | null | undefined): string | null {
+function pickProjectLink(
+  project: CandidateProfile["projects"][number] | null | undefined,
+): string | null {
   return (
-    normalizeUrl(project?.caseStudyUrl) ?? normalizeUrl(project?.projectUrl) ?? normalizeUrl(project?.repositoryUrl)
+    normalizeUrl(project?.caseStudyUrl) ??
+    normalizeUrl(project?.projectUrl) ??
+    normalizeUrl(project?.repositoryUrl)
   );
 }
 
@@ -121,7 +160,9 @@ function formatProjectSummary(input: {
   return joinCompact(
     [
       joinCompact([input.summary, input.outcome], " "),
-      input.skills && input.skills.length > 0 ? `Technologies: ${uniqueStrings(input.skills).join(", ")}.` : null,
+      input.skills && input.skills.length > 0
+        ? `Technologies: ${uniqueStrings(input.skills).join(", ")}.`
+        : null,
     ],
     " ",
   );
@@ -142,7 +183,20 @@ function formatDateRange(
       return "Present";
     }
 
-    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const monthNames = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
     const monthByName: Record<string, number> = {
       jan: 1,
       january: 1,
@@ -172,7 +226,9 @@ function formatDateRange(
 
     const yearMonthMatch = /^(\d{4})-(\d{1,2})(?:-\d{1,2})?$/.exec(trimmed);
     const monthYearSlashMatch = /^(\d{1,2})\/(\d{4})$/.exec(trimmed);
-    const dayMonthYearSlashMatch = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(trimmed);
+    const dayMonthYearSlashMatch = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(
+      trimmed,
+    );
     const namedMonthMatch = /^([a-zA-Z]+)\.?\s+(\d{4})$/.exec(trimmed);
 
     if (/^\d{4}$/.test(trimmed)) {
@@ -189,7 +245,10 @@ function formatDateRange(
     }
 
     if (monthYearSlashMatch) {
-      return formatByMonth(Number(monthYearSlashMatch[1]), monthYearSlashMatch[2] ?? "");
+      return formatByMonth(
+        Number(monthYearSlashMatch[1]),
+        monthYearSlashMatch[2] ?? "",
+      );
     }
 
     if (dayMonthYearSlashMatch) {
@@ -209,7 +268,8 @@ function formatDateRange(
     }
 
     if (namedMonthMatch) {
-      const month = monthByName[namedMonthMatch[1]?.toLowerCase() ?? ""] ?? null;
+      const month =
+        monthByName[namedMonthMatch[1]?.toLowerCase() ?? ""] ?? null;
       return month ? formatByMonth(month, namedMonthMatch[2] ?? "") : null;
     }
 
@@ -234,7 +294,9 @@ function parseResumeDatePart(value: string | null | undefined): string | null {
     return null;
   }
 
-  return /^(?:[A-Z][a-z]{2}\s+\d{4}|\d{4}|Present)$/.test(trimmed) ? trimmed : null;
+  return /^(?:[A-Z][a-z]{2}\s+\d{4}|\d{4}|Present)$/.test(trimmed)
+    ? trimmed
+    : null;
 }
 
 function isPlausibleResumeDateRange(value: string | null | undefined): boolean {
@@ -245,7 +307,9 @@ function isPlausibleResumeDateRange(value: string | null | undefined): boolean {
 
   const parts = trimmed.split(/\s*[–—]\s*|\s+-\s+/).filter(Boolean);
   if (parts.length >= 2) {
-    return Boolean(parseResumeDatePart(parts[0]) && parseResumeDatePart(parts[1]));
+    return Boolean(
+      parseResumeDatePart(parts[0]) && parseResumeDatePart(parts[1]),
+    );
   }
 
   return Boolean(parseResumeDatePart(trimmed));
@@ -264,7 +328,9 @@ function parseResumeDateRange(value: string | null | undefined): {
   const parts = trimmed.split(/\s*[–—]\s*|\s+-\s+/).filter(Boolean);
   const startPart = parts[0] ?? trimmed;
   const endPart = parts.length >= 2 ? (parts.at(-1) ?? null) : null;
-  const endIsCurrent = Boolean(endPart && /^(present|current)$/i.test(endPart.trim()));
+  const endIsCurrent = Boolean(
+    endPart && /^(present|current)$/i.test(endPart.trim()),
+  );
 
   return {
     startDate: parseResumeDatePart(startPart),
@@ -279,7 +345,11 @@ function formatEntryDateRange(entry: {
   isCurrent?: boolean;
   startDate?: string | null;
 }): string | null {
-  return formatDateRange(entry.startDate, entry.endDate, entry.isCurrent) ?? entry.dateRange ?? null;
+  return (
+    formatDateRange(entry.startDate, entry.endDate, entry.isCurrent) ??
+    entry.dateRange ??
+    null
+  );
 }
 
 function toSectionPreviewLines(section: ResumeDraftSection): string[] {
@@ -295,7 +365,10 @@ function toSectionPreviewLines(section: ResumeDraftSection): string[] {
     .sort((left, right) => left.sortOrder - right.sortOrder)) {
     const entryDateRange = formatEntryDateRange(entry);
     const heading = joinCompact(
-      [joinCompact([entry.title, entry.subtitle], " — "), joinCompact([entry.location, entryDateRange], " | ")],
+      [
+        joinCompact([entry.title, entry.subtitle], " — "),
+        joinCompact([entry.location, entryDateRange], " | "),
+      ],
       " | ",
     );
 
@@ -377,7 +450,10 @@ function buildCoreAndAdditionalSkills(
     coreSkills: uniqueStrings(draftSkills).slice(0, 10),
     additionalSkills: allSkills
       .filter(
-        (skill) => !new Set(uniqueStrings(draftSkills).map((entry) => normalizeText(entry))).has(normalizeText(skill)),
+        (skill) =>
+          !new Set(
+            uniqueStrings(draftSkills).map((entry) => normalizeText(entry)),
+          ).has(normalizeText(skill)),
       )
       .slice(0, 10),
   };
@@ -400,7 +476,9 @@ function buildThinDraftSupportBullets(input: {
     input.draft.certificationEntries.length > 0 ||
     input.draft.languages.length > 0 ||
     input.draft.additionalSkills.length > 0;
-  const hasDenseSignal = input.draft.experienceHighlights.length > 1 || input.draft.coreSkills.length > 2;
+  const hasDenseSignal =
+    input.draft.experienceHighlights.length > 1 ||
+    input.draft.coreSkills.length > 2;
 
   if (hasStructuredSupport || hasDenseSignal) {
     return [];
@@ -409,7 +487,9 @@ function buildThinDraftSupportBullets(input: {
   return uniqueStrings(
     [
       profile.targetRoles[0] ? `Target role: ${profile.targetRoles[0]}.` : null,
-      profile.locations[0] ? `Preferred location: ${profile.locations[0]}.` : null,
+      profile.locations[0]
+        ? `Preferred location: ${profile.locations[0]}.`
+        : null,
       input.draft.coreSkills.length > 0
         ? `Core tool${input.draft.coreSkills.length === 1 ? "" : "s"}: ${input.draft.coreSkills.slice(0, 3).join(", ")}.`
         : null,
@@ -425,7 +505,9 @@ function selectCanonicalDateRange(input: {
     return input.profileDateRange;
   }
 
-  return isPlausibleResumeDateRange(input.generatedDateRange) ? (input.generatedDateRange?.trim() ?? null) : null;
+  return isPlausibleResumeDateRange(input.generatedDateRange)
+    ? (input.generatedDateRange?.trim() ?? null)
+    : null;
 }
 
 function tokenizeResumeDetail(value: string | null | undefined): string[] {
@@ -437,7 +519,9 @@ function tokenizeResumeDetail(value: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
-function isProfessionalResumeSummary(value: string | null | undefined): boolean {
+function isProfessionalResumeSummary(
+  value: string | null | undefined,
+): boolean {
   const trimmed = value?.trim() ?? "";
   if (!trimmed) {
     return false;
@@ -445,12 +529,20 @@ function isProfessionalResumeSummary(value: string | null | undefined): boolean 
 
   const normalized = normalizeText(trimmed);
   const hasFirstPersonVoice = /\b(?:i|i'm|i've|me|my|mine)\b/i.test(trimmed);
-  const hasCareerChangeMeta = /\b(?:decid(?:e|ed|ing)|passion|return(?:ed|ing)?|transition(?:ed|ing)?\s+back)\b/i.test(
-    trimmed,
-  );
-  const isLocationOnly = /^(?:remote|hybrid|onsite|on-site)(?:(?:\s+in)|\s*,)?\s*[a-z\s,-]+$/i.test(trimmed);
+  const hasCareerChangeMeta =
+    /\b(?:decid(?:e|ed|ing)|passion|return(?:ed|ing)?|transition(?:ed|ing)?\s+back)\b/i.test(
+      trimmed,
+    );
+  const isLocationOnly =
+    /^(?:remote|hybrid|onsite|on-site)(?:(?:\s+in)|\s*,)?\s*[a-z\s,-]+$/i.test(
+      trimmed,
+    );
 
-  return Boolean(normalized && !isLocationOnly && !(hasFirstPersonVoice && hasCareerChangeMeta));
+  return Boolean(
+    normalized &&
+    !isLocationOnly &&
+    !(hasFirstPersonVoice && hasCareerChangeMeta),
+  );
 }
 
 function isWeakGeneratedSummary(input: {
@@ -471,11 +563,20 @@ function isWeakGeneratedSummary(input: {
   }
 
   const normalizedGenerated = normalizeText(generated);
-  const metadataValues = [input.title, input.subtitle, input.location, input.dateRange]
+  const metadataValues = [
+    input.title,
+    input.subtitle,
+    input.location,
+    input.dateRange,
+  ]
     .filter((value): value is string => Boolean(value?.trim()))
     .map((value) => normalizeText(value));
-  const combinedMetadataTokens = new Set(metadataValues.flatMap((value) => tokenizeResumeDetail(value)));
-  const repeatsMetadataOnly = tokens.length <= 10 && tokens.every((token) => combinedMetadataTokens.has(token));
+  const combinedMetadataTokens = new Set(
+    metadataValues.flatMap((value) => tokenizeResumeDetail(value)),
+  );
+  const repeatsMetadataOnly =
+    tokens.length <= 10 &&
+    tokens.every((token) => combinedMetadataTokens.has(token));
 
   return metadataValues.includes(normalizedGenerated) || repeatsMetadataOnly;
 }
@@ -490,8 +591,12 @@ function selectEntrySummary(input: {
 }): string | null {
   const generatedCandidate = input.generated?.trim() || null;
   const profileCandidate = input.profile?.trim() || null;
-  const generated = isProfessionalResumeSummary(generatedCandidate) ? generatedCandidate : null;
-  const profile = isProfessionalResumeSummary(profileCandidate) ? profileCandidate : null;
+  const generated = isProfessionalResumeSummary(generatedCandidate)
+    ? generatedCandidate
+    : null;
+  const profile = isProfessionalResumeSummary(profileCandidate)
+    ? profileCandidate
+    : null;
 
   if (!profile) {
     return generated;
@@ -538,8 +643,12 @@ function mergeEntryBullets(
   profileBullets: readonly string[],
   maxBullets = 3,
 ): string[] {
-  const normalizedTailoredBullets = tailoredBullets.flatMap(splitResumeDetailLine);
-  const normalizedProfileBullets = profileBullets.flatMap(splitResumeDetailLine);
+  const normalizedTailoredBullets = tailoredBullets.flatMap(
+    splitResumeDetailLine,
+  );
+  const normalizedProfileBullets = profileBullets.flatMap(
+    splitResumeDetailLine,
+  );
   const ignoredClaimTokens = new Set([
     "and",
     "for",
@@ -556,9 +665,7 @@ function mergeEntryBullets(
     new Set(
       normalizeText(value)
         .split(/[^\p{L}\p{N}+#.]+/u)
-        .filter(
-          (token) => token.length >= 3 && !ignoredClaimTokens.has(token),
-        ),
+        .filter((token) => token.length >= 3 && !ignoredClaimTokens.has(token)),
     );
   const isCoveredByTailoredClaim = (profileClaim: string) => {
     const normalizedProfileClaim = normalizeText(profileClaim);
@@ -597,14 +704,22 @@ function mergeEntryBullets(
     ...uncoveredProfileBullets,
   ]);
   const narrativeBullets = canonicalBullets.filter(
-    (bullet) => !/^[^.!?]{2,80}\([^)]{2,80}\)\s*[–—]\s*[^.!?]{2,120}$/u.test(bullet),
+    (bullet) =>
+      !/^[^.!?]{2,80}\([^)]{2,80}\)\s*[–—]\s*[^.!?]{2,120}$/u.test(bullet),
   );
 
-  return (narrativeBullets.length > 0 ? narrativeBullets : canonicalBullets).slice(0, maxBullets);
+  return (
+    narrativeBullets.length > 0 ? narrativeBullets : canonicalBullets
+  ).slice(0, maxBullets);
 }
 
 function resolveCoverageMetadataByRecordId(draft: TailoredResumeDraft) {
-  return new Map(draft.coverageMetadata.map((metadata) => [metadata.profileRecordId, metadata]));
+  return new Map(
+    draft.coverageMetadata.map((metadata) => [
+      metadata.profileRecordId,
+      metadata,
+    ]),
+  );
 }
 
 function buildDraftSectionsFromStructuredTailoredDraft(input: {
@@ -633,58 +748,77 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
     }),
   );
 
-  const visibleExperienceEntries = draft.experienceEntries.map((entry, index) => {
-    const profileExperience = entry.profileRecordId
-      ? profile?.experiences.find((experience) => experience.id === entry.profileRecordId)
-      : null;
-    const profileDateRange = profileExperience
-      ? formatDateRange(profileExperience.startDate, profileExperience.endDate, profileExperience.isCurrent)
-      : null;
-    const canonicalDateRange = selectCanonicalDateRange({
-      profileDateRange,
-      generatedDateRange: entry.dateRange,
-    });
-    const generatedDates = parseResumeDateRange(entry.dateRange);
-    const canonicalTitle = profileExperience
-      ? profileExperience.title
-      : entry.title;
-    const canonicalEmployer = profileExperience
-      ? profileExperience.companyName
-      : entry.employer;
-    const canonicalLocation = profileExperience
-      ? profileExperience.location
-      : entry.location ?? null;
-    const createdEntry = createEntry({
-      id: entry.profileRecordId ? `experience_${entry.profileRecordId}` : `experience_entry_${index + 1}`,
-      entryType: "experience",
-      title: canonicalTitle,
-      subtitle: canonicalEmployer,
-      location: canonicalLocation,
-      dateRange: canonicalDateRange,
-      startDate: profileExperience?.startDate ?? generatedDates.startDate,
-      endDate: profileExperience?.endDate ?? generatedDates.endDate,
-      isCurrent: profileExperience?.isCurrent ?? generatedDates.isCurrent,
-      summary: selectEntrySummary({
-        generated: entry.summary,
-        profile: profileExperience?.summary,
+  const visibleExperienceEntries = draft.experienceEntries.map(
+    (entry, index) => {
+      const profileExperience = entry.profileRecordId
+        ? profile?.experiences.find(
+            (experience) => experience.id === entry.profileRecordId,
+          )
+        : null;
+      const profileDateRange = profileExperience
+        ? formatDateRange(
+            profileExperience.startDate,
+            profileExperience.endDate,
+            profileExperience.isCurrent,
+          )
+        : null;
+      const canonicalDateRange = selectCanonicalDateRange({
+        profileDateRange,
+        generatedDateRange: entry.dateRange,
+      });
+      const generatedDates = parseResumeDateRange(entry.dateRange);
+      const canonicalTitle = profileExperience
+        ? profileExperience.title
+        : entry.title;
+      const canonicalEmployer = profileExperience
+        ? profileExperience.companyName
+        : entry.employer;
+      const canonicalLocation = profileExperience
+        ? profileExperience.location
+        : (entry.location ?? null);
+      const createdEntry = createEntry({
+        id: entry.profileRecordId
+          ? `experience_${entry.profileRecordId}`
+          : `experience_entry_${index + 1}`,
+        entryType: "experience",
         title: canonicalTitle,
         subtitle: canonicalEmployer,
         location: canonicalLocation,
-        dateRange: canonicalDateRange ?? entry.dateRange,
-      }),
-      bullets: mergeEntryBullets(entry.bullets, profileExperience?.achievements ?? []),
-      updatedAt: createdAt,
-      origin,
-      sortOrder: index,
-      profileRecordId: entry.profileRecordId,
-      sourceRefs: sharedRefs,
-    });
-    const coverage = entry.profileRecordId ? coverageMetadataByRecordId.get(entry.profileRecordId) : null;
+        dateRange: canonicalDateRange,
+        startDate: profileExperience?.startDate ?? generatedDates.startDate,
+        endDate: profileExperience?.endDate ?? generatedDates.endDate,
+        isCurrent: profileExperience?.isCurrent ?? generatedDates.isCurrent,
+        summary: selectEntrySummary({
+          generated: entry.summary,
+          profile: profileExperience?.summary,
+          title: canonicalTitle,
+          subtitle: canonicalEmployer,
+          location: canonicalLocation,
+          dateRange: canonicalDateRange ?? entry.dateRange,
+        }),
+        bullets: mergeEntryBullets(
+          entry.bullets,
+          profileExperience?.achievements ?? [],
+        ),
+        updatedAt: createdAt,
+        origin,
+        sortOrder: index,
+        profileRecordId: entry.profileRecordId,
+        sourceRefs: sharedRefs,
+      });
+      const coverage = entry.profileRecordId
+        ? coverageMetadataByRecordId.get(entry.profileRecordId)
+        : null;
 
-    return coverage?.classification === "suggested_hidden" ? { ...createdEntry, included: false } : createdEntry;
-  });
+      return coverage?.classification === "suggested_hidden"
+        ? { ...createdEntry, included: false }
+        : createdEntry;
+    },
+  );
   const visibleExperienceRecordIds = new Set(
-    visibleExperienceEntries.map((entry) => entry.profileRecordId).filter((value): value is string => Boolean(value)),
+    visibleExperienceEntries
+      .map((entry) => entry.profileRecordId)
+      .filter((value): value is string => Boolean(value)),
   );
   const hiddenProfileEntries = (profile?.experiences ?? [])
     .filter((experience) => !visibleExperienceRecordIds.has(experience.id))
@@ -715,7 +849,10 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
         included: false,
       };
     });
-  const experienceEntries = orderEntriesNewestFirst([...visibleExperienceEntries, ...hiddenProfileEntries]);
+  const experienceEntries = orderEntriesNewestFirst([
+    ...visibleExperienceEntries,
+    ...hiddenProfileEntries,
+  ]);
 
   if (experienceEntries.length > 0 || draft.experienceHighlights.length > 0) {
     sections.push(
@@ -750,10 +887,14 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
 
   const projectEntries = orderEntriesNewestFirst(
     draft.projectEntries.map((entry, index) => {
-      const profileProject = profile?.projects.find((project) => project.id === entry.profileRecordId);
+      const profileProject = profile?.projects.find(
+        (project) => project.id === entry.profileRecordId,
+      );
 
       return createEntry({
-        id: entry.profileRecordId ? `project_${entry.profileRecordId}` : `project_entry_${index + 1}`,
+        id: entry.profileRecordId
+          ? `project_${entry.profileRecordId}`
+          : `project_entry_${index + 1}`,
         entryType: "project",
         title: entry.name,
         subtitle: entry.role,
@@ -794,14 +935,18 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
   const educationEntries = orderEntriesNewestFirst(
     draft.educationEntries.map((entry, index) => {
       const profileEducation = entry.profileRecordId
-        ? profile?.education.find((education) => education.id === entry.profileRecordId)
+        ? profile?.education.find(
+            (education) => education.id === entry.profileRecordId,
+          )
         : null;
       const profileDateRange = profileEducation
         ? formatDateRange(profileEducation.startDate, profileEducation.endDate)
         : null;
       const parsedDates = parseResumeDateRange(entry.dateRange);
       return createEntry({
-        id: entry.profileRecordId ? `education_${entry.profileRecordId}` : `education_entry_${index + 1}`,
+        id: entry.profileRecordId
+          ? `education_${entry.profileRecordId}`
+          : `education_entry_${index + 1}`,
         entryType: "education",
         title: entry.school,
         subtitle: joinCompact([entry.degree, entry.fieldOfStudy], ", "),
@@ -841,14 +986,21 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
   const certificationEntries = orderEntriesNewestFirst(
     draft.certificationEntries.map((entry, index) => {
       const profileCertification = entry.profileRecordId
-        ? profile?.certifications.find((certification) => certification.id === entry.profileRecordId)
+        ? profile?.certifications.find(
+            (certification) => certification.id === entry.profileRecordId,
+          )
         : null;
       const profileDateRange = profileCertification
-        ? formatDateRange(profileCertification.issueDate, profileCertification.expiryDate)
+        ? formatDateRange(
+            profileCertification.issueDate,
+            profileCertification.expiryDate,
+          )
         : null;
       const parsedDates = parseResumeDateRange(entry.dateRange);
       return createEntry({
-        id: entry.profileRecordId ? `certification_${entry.profileRecordId}` : `certification_entry_${index + 1}`,
+        id: entry.profileRecordId
+          ? `certification_${entry.profileRecordId}`
+          : `certification_entry_${index + 1}`,
         entryType: "certification",
         title: entry.name,
         subtitle: entry.issuer,
@@ -883,7 +1035,10 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
     );
   }
 
-  const additionalSkills = uniqueStrings([...draft.additionalSkills, ...draftSkills.additionalSkills]).slice(0, 10);
+  const additionalSkills = uniqueStrings([
+    ...draft.additionalSkills,
+    ...draftSkills.additionalSkills,
+  ]).slice(0, 10);
   if (additionalSkills.length > 0) {
     sections.push(
       createSection({
@@ -931,11 +1086,16 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
   }
 
   return sections.filter(
-    (section) => Boolean(section.text) || section.bullets.length > 0 || section.entries.length > 0,
+    (section) =>
+      Boolean(section.text) ||
+      section.bullets.length > 0 ||
+      section.entries.length > 0,
   );
 }
 
-export function buildPreviewSectionsFromResumeDraft(draft: ResumeDraft): Array<{ heading: string; lines: string[] }> {
+export function buildPreviewSectionsFromResumeDraft(
+  draft: ResumeDraft,
+): Array<{ heading: string; lines: string[] }> {
   const orderedDraft = normalizeResumeDraftEntryOrdering(draft);
 
   return [...orderedDraft.sections]
@@ -961,7 +1121,13 @@ export function buildTailoredResumeTextFromResumeDraft(
   return [
     identity.fullName ?? profile.fullName,
     identity.headline ?? profile.headline,
-    joinCompact([identity.location, ...buildResumeContactItems(identity).map((item) => item.text)], " | "),
+    joinCompact(
+      [
+        identity.location,
+        ...buildResumeContactItems(identity).map((item) => item.text),
+      ],
+      " | ",
+    ),
     "",
     `${job.title} at ${job.company}`,
     "",
@@ -1017,7 +1183,10 @@ export function buildResumeRenderDocument(
               endDate: entry.endDate?.trim() || null,
               isCurrent: entry.isCurrent,
               heading: joinCompact(
-                [joinCompact([entry.title, entry.subtitle], " — "), joinCompact([entry.location, dateRange], " | ")],
+                [
+                  joinCompact([entry.title, entry.subtitle], " — "),
+                  joinCompact([entry.location, dateRange], " | "),
+                ],
                 " | ",
               ),
               summary: entry.summary?.trim() || null,
@@ -1031,7 +1200,12 @@ export function buildResumeRenderDocument(
             };
           }),
       }))
-      .filter((section) => Boolean(section.text) || section.bullets.length > 0 || section.entries.length > 0),
+      .filter(
+        (section) =>
+          Boolean(section.text) ||
+          section.bullets.length > 0 ||
+          section.entries.length > 0,
+      ),
   };
 }
 
@@ -1046,7 +1220,14 @@ export function buildResumeDraftFromTailoredDraft(input: {
   profile?: CandidateProfile;
   research?: readonly ResumeResearchArtifact[];
 }): ResumeDraft {
-  const { createdAt, draft, existingDraftId, generationMethod, job, templateId } = input;
+  const {
+    createdAt,
+    draft,
+    existingDraftId,
+    generationMethod,
+    job,
+    templateId,
+  } = input;
   const updatedAt = input.updatedAt ?? createdAt;
   const jobRef = createSourceRef(
     "job",
@@ -1054,14 +1235,27 @@ export function buildResumeDraftFromTailoredDraft(input: {
     safeSnippet(job.description || job.summary || buildJobContextText(job)),
   );
   const resumeRef = input.profile?.baseResume.textContent
-    ? createSourceRef("resume", input.profile.baseResume.id, safeSnippet(input.profile.baseResume.textContent))
+    ? createSourceRef(
+        "resume",
+        input.profile.baseResume.id,
+        safeSnippet(input.profile.baseResume.textContent),
+      )
     : null;
-  const firstResearch = input.research?.find((artifact) => artifact.fetchStatus === "success") ?? null;
+  const firstResearch =
+    input.research?.find((artifact) => artifact.fetchStatus === "success") ??
+    null;
   const researchRef = firstResearch
-    ? createSourceRef("research", firstResearch.id, safeSnippet(firstResearch.companyNotes))
+    ? createSourceRef(
+        "research",
+        firstResearch.id,
+        safeSnippet(firstResearch.companyNotes),
+      )
     : null;
-  const sharedRefs = [jobRef, resumeRef, researchRef].filter((value): value is ResumeDraftSourceRef => value !== null);
-  const origin = generationMethod === "ai" ? "ai_generated" : "deterministic_fallback";
+  const sharedRefs = [jobRef, resumeRef, researchRef].filter(
+    (value): value is ResumeDraftSourceRef => value !== null,
+  );
+  const origin =
+    generationMethod === "ai" ? "ai_generated" : "deterministic_fallback";
 
   return ResumeDraftSchema.parse(
     normalizeResumeDraftEntryOrdering({
@@ -1069,7 +1263,12 @@ export function buildResumeDraftFromTailoredDraft(input: {
       jobId: job.id,
       status: "needs_review",
       templateId,
-      identity: input.profile ? buildResumeDraftIdentity(input.profile) : null,
+      identity: input.profile
+        ? {
+            ...buildResumeDraftIdentity(input.profile),
+            headline: buildJobTargetedHeadline(input.profile, job),
+          }
+        : null,
       sections: buildDraftSectionsFromStructuredTailoredDraft({
         createdAt: updatedAt,
         draft,
@@ -1077,7 +1276,7 @@ export function buildResumeDraftFromTailoredDraft(input: {
         profile: input.profile,
         sharedRefs,
       }),
-      targetPageCount: 1,
+      targetPageCount: (input.profile?.yearsExperience ?? 0) >= 5 ? 2 : 1,
       generationMethod,
       approvedAt: null,
       approvedExportId: null,
@@ -1116,10 +1315,17 @@ export function seedResumeDraft(input: {
                       ? "summary"
                       : "experience",
           label: section.heading,
-          text: normalizeText(section.heading).includes("summary") ? (section.lines[0] ?? null) : null,
-          bullets: normalizeText(section.heading).includes("summary") ? section.lines.slice(1) : section.lines,
+          text: normalizeText(section.heading).includes("summary")
+            ? (section.lines[0] ?? null)
+            : null,
+          bullets: normalizeText(section.heading).includes("summary")
+            ? section.lines.slice(1)
+            : section.lines,
           updatedAt: now,
-          origin: tailoredAsset.generationMethod === "ai_assisted" ? "ai_generated" : "deterministic_fallback",
+          origin:
+            tailoredAsset.generationMethod === "ai_assisted"
+              ? "ai_generated"
+              : "deterministic_fallback",
           sortOrder: index,
         }),
       )
@@ -1135,7 +1341,10 @@ export function seedResumeDraft(input: {
           identity: buildResumeDraftIdentity(input.profile),
           sections: seededSections,
           targetPageCount: 1,
-          generationMethod: tailoredAsset.generationMethod === "ai_assisted" ? "ai" : "deterministic",
+          generationMethod:
+            tailoredAsset.generationMethod === "ai_assisted"
+              ? "ai"
+              : "deterministic",
           approvedAt: null,
           approvedExportId: null,
           staleReason: null,
@@ -1154,7 +1363,12 @@ export function seedResumeDraft(input: {
   const additionalSkills = uniqueStrings([
     ...input.profile.skillGroups.languagesAndFrameworks,
     ...input.profile.skillGroups.highlightedSkills,
-  ]).filter((skill) => !coreSkills.some((coreSkill) => normalizeText(coreSkill) === normalizeText(skill)));
+  ]).filter(
+    (skill) =>
+      !coreSkills.some(
+        (coreSkill) => normalizeText(coreSkill) === normalizeText(skill),
+      ),
+  );
   const experienceEntries = orderEntriesNewestFirst(
     input.profile.experiences.map((experience, index) =>
       createEntry({
@@ -1163,7 +1377,11 @@ export function seedResumeDraft(input: {
         title: experience.title,
         subtitle: experience.companyName,
         location: experience.location,
-        dateRange: formatDateRange(experience.startDate, experience.endDate, experience.isCurrent),
+        dateRange: formatDateRange(
+          experience.startDate,
+          experience.endDate,
+          experience.isCurrent,
+        ),
         startDate: experience.startDate,
         endDate: experience.endDate,
         isCurrent: experience.isCurrent,
@@ -1227,7 +1445,10 @@ export function seedResumeDraft(input: {
         entryType: "certification",
         title: certification.name,
         subtitle: certification.issuer,
-        dateRange: formatDateRange(certification.issueDate, certification.expiryDate),
+        dateRange: formatDateRange(
+          certification.issueDate,
+          certification.expiryDate,
+        ),
         startDate: certification.issueDate,
         endDate: certification.expiryDate,
         isCurrent: false,
@@ -1338,7 +1559,12 @@ export function seedResumeDraft(input: {
                 bullets: input.profile.spokenLanguages
                   .map(
                     (language) =>
-                      joinCompact([language.language, language.proficiency], " — ") ?? language.language ?? "",
+                      joinCompact(
+                        [language.language, language.proficiency],
+                        " — ",
+                      ) ??
+                      language.language ??
+                      "",
                   )
                   .filter(Boolean),
                 updatedAt: now,
@@ -1347,7 +1573,12 @@ export function seedResumeDraft(input: {
               }),
             ]
           : []),
-      ].filter((section) => Boolean(section.text) || section.bullets.length > 0 || section.entries.length > 0),
+      ].filter(
+        (section) =>
+          Boolean(section.text) ||
+          section.bullets.length > 0 ||
+          section.entries.length > 0,
+      ),
       targetPageCount: 1,
       generationMethod: "manual",
       approvedAt: null,

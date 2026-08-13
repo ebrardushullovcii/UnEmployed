@@ -14,6 +14,7 @@
     "source-generic:check": "node scripts/check-source-generic-discovery.mjs",
     "hotspots": "node scripts/repo-hotspots.mjs",
     "job-finder:fit-calibration": "node scripts/run-fit-calibration-benchmark.cjs --baseline packages/job-finder/test-fixtures/fit-calibration-baseline-v4.json",
+    "ai:benchmark": "node packages/ai-evals/scripts/run.mjs",
     "lsp:typescript": "typescript-language-server --stdio",
     "typecheck": "node scripts/run-turbo.mjs typecheck",
     "verify:quick": "node scripts/repo-context.mjs check-docs && node scripts/check-source-generic-discovery.mjs && node scripts/check-structure.mjs && node scripts/run-turbo.mjs lint && node scripts/run-turbo.mjs typecheck",

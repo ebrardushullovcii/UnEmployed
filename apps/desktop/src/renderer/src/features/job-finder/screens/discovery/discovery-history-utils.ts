@@ -46,7 +46,8 @@ function createPlannedExecution(target: DiscoveryTargetConfig): DiscoveryTargetE
     warning: null,
     compactionState: null,
     compactionUsedFallbackTrigger: false,
-    timing: null
+    timing: null,
+    agentCheckpoint: null
   }
 }
 
@@ -73,7 +74,8 @@ function createSyntheticExecution(event: DiscoveryActivityEvent): DiscoveryTarge
     warning: null,
     compactionState: null,
     compactionUsedFallbackTrigger: false,
-    timing: null
+    timing: null,
+    agentCheckpoint: null
   }
 }
 

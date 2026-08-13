@@ -1,6 +1,6 @@
 import type { JobPosting, JobSearchPreferences } from '@unemployed/contracts'
 import type { CatalogSessionAgentDiscoveryOptions } from './session-agent'
-import { matchesAnyPhrase, normalizeText, parseSalaryFloor } from './shared'
+import { matchesAnyPhrase, meetsCompensationMinimum, normalizeText } from './shared'
 
 export function buildDiscoveryQuerySummary(searchPreferences: JobSearchPreferences): string {
   const roles = searchPreferences.targetRoles.join(', ') || 'all roles'
@@ -33,11 +33,10 @@ export function filterCatalogDiscoveryJobs(
       searchPreferences.workModes.length === 0 ||
       searchPreferences.workModes.includes('flexible') ||
       job.workMode.some((mode) => searchPreferences.workModes.includes(mode))
-    const salaryFloor = parseSalaryFloor(job.salaryText)
-    const meetsSalaryExpectation =
-      searchPreferences.minimumSalaryUsd === null ||
-      salaryFloor === null ||
-      salaryFloor >= searchPreferences.minimumSalaryUsd
+    const meetsSalaryExpectation = meetsCompensationMinimum(
+      job.salaryText,
+      searchPreferences.compensation,
+    )
 
     return matchesRole && matchesLocation && matchesWorkMode && meetsSalaryExpectation
   })

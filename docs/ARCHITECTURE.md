@@ -39,7 +39,7 @@ See [ADR 0007](adr/0007-source-generic-browser-workflows.md) for the source-gene
 - source-debug: `job-finder` orchestrates phases and artifacts, `browser-agent` returns structured attempts, `db` persists runs and evidence
 - browser visual evidence: `browser-runtime` owns screenshot capture and cleanup; `browser-agent` owns generic trigger policy and interpretation; `job-finder` persists only schema-validated summaries
 - interview live session: visible chat/audio UI -> typed preload -> Electron main-hosted `interview-helper` service -> typed AI/audio/screenshot adapters -> visible responses, source-labeled transcript, and post-session review
-- generative AI: domain services -> `packages/ai-providers` -> GPT-5.6 Luna through the Responses API by default; the adapter keeps structured output, image input, tool calls, and reasoning effort explicit, while local Codex bridges remain replaceable loopback development transports
+- generative AI: domain services -> a small product-specific agent harness -> `packages/ai-providers` -> OpenCode Go. DeepSeek V4 Flash handles normal text/tool work through Chat Completions with requested `max` reasoning; GPT-5.6 Luna handles image-only work through Responses with `high` reasoning. The harness gives the model narrow typed read/write/validate tools over a temporary task transaction, records every call, and separates direct work, correction, validation, fallback, and final product output. Domain code still owns canonical state and user-review rules. Local Codex bridges remain replaceable loopback development transports. Audio transcription stays a separate local Whisper or explicit audio-model role.
 
 ## Resume Safety
 
@@ -58,6 +58,8 @@ See [ADR 0007](adr/0007-source-generic-browser-workflows.md) for the source-gene
 Interview Helper defaults to the ordinary visible main window. Advanced overlay windows and global/tray controls initialize only when `UNEMPLOYED_INTERVIEW_ADVANCED_SURFACES=1`. When enabled, overlay capture exclusion remains adapter-owned capability state: Electron `BrowserWindow.setContentProtection(true)` is a request, while real platform-specific verification and any future authorized stronger capture-exclusion path must stay behind `packages/os-integration`.
 
 See [ADR 0003](adr/0003-interview-helper-live-session-architecture.md) and [ADR 0008](adr/0008-visible-first-interview-helper.md).
+
+See [ADR 0009](adr/0009-luna-high-default-and-capability-contracts.md) for configured model routing and the contract-first AI boundary.
 
 ## Known Debt
 

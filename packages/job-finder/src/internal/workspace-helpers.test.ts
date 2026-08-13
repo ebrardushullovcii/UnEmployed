@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   buildDiscoveryInstructionGuidance,
+  enrichSearchPreferencesFromProfile,
   invalidateChangedSourceGuidance,
 } from "./workspace-helpers";
 import {
@@ -30,6 +31,45 @@ function createPreferencesWithValidatedSource(startingUrl: string) {
   return preferences;
 }
 
+describe("workspace profile-inferred search intent", () => {
+  test("uses saved experience titles when explicit target roles are empty", () => {
+    const seed = createSeed();
+    const preferences = {
+      ...seed.searchPreferences,
+      targetRoles: [],
+      jobFamilies: [],
+    };
+    const profile = {
+      ...seed.profile,
+      targetRoles: [],
+      experiences: [
+        { ...seed.profile.experiences[0]!, title: "Operations Coordinator" },
+        { ...seed.profile.experiences[0]!, id: "experience_2", title: null },
+      ],
+    };
+
+    expect(
+      enrichSearchPreferencesFromProfile(preferences, profile).targetRoles,
+    ).toEqual(["Operations Coordinator", "Senior systems designer"]);
+  });
+
+  test("does not turn the current address into a search constraint for remote-only discovery", () => {
+    const seed = createSeed();
+    const preferences = {
+      ...seed.searchPreferences,
+      locations: [],
+      workModes: ["remote" as const],
+    };
+    const profile = {
+      ...seed.profile,
+      currentLocation: "Prishtina, Kosovo",
+    };
+
+    expect(
+      enrichSearchPreferencesFromProfile(preferences, profile).locations,
+    ).toEqual([]);
+  });
+});
 
 describe("workspace source guidance invalidation", () => {
   test("clears guidance references when a saved source URL changes", () => {

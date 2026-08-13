@@ -84,6 +84,7 @@ export async function runAgentDiscovery(
   onProgress?: (progress: AgentProgress) => void,
   signal?: AbortSignal,
 ): Promise<AgentResult> {
+  const runStartedAtMs = Date.now();
   console.log(
     `[Agent] Starting discovery: ${config.targetJobCount} jobs target`,
   );
@@ -112,17 +113,18 @@ export async function runAgentDiscovery(
         content: createUserPrompt(config),
       }),
     ],
-    collectedJobs: [],
+    collectedJobs: config.resumeCheckpoint?.collectedJobs ?? [],
     deferredSearchExtractions: new Map(),
     failedInteractionAttempts: new Map(),
-    visitedUrls: new Set(),
-    stepCount: 0,
-    currentUrl: "",
-    lastStableUrl: "",
+    visitedUrls: new Set(config.resumeCheckpoint?.visitedUrls ?? []),
+    stepCount: config.resumeCheckpoint?.stepCount ?? 0,
+    currentUrl: config.resumeCheckpoint?.currentUrl ?? "",
+    lastStableUrl: config.resumeCheckpoint?.lastStableUrl ?? "",
     visualObservationSets: [],
     visualSnapshots: [],
     isRunning: true,
-    phaseEvidence: createEmptyPhaseEvidence(),
+    phaseEvidence:
+      config.resumeCheckpoint?.phaseEvidence ?? createEmptyPhaseEvidence(),
     compactionState: null,
     compactionStatus: createAgentCompactionStatus(),
   };
@@ -140,6 +142,20 @@ export async function runAgentDiscovery(
 
   const tools = getToolDefinitions();
   const emitProgress = createProgressEmitter(state, config, onProgress);
+  let checkpointRevision = config.resumeCheckpoint?.revision ?? 0;
+  const saveRunCheckpoint = async () => {
+    if (!config.onCheckpoint) return;
+    await config.onCheckpoint({
+      revision: ++checkpointRevision,
+      savedAt: new Date().toISOString(),
+      currentUrl: state.currentUrl,
+      lastStableUrl: state.lastStableUrl,
+      stepCount: state.stepCount,
+      collectedJobs: state.collectedJobs,
+      visitedUrls: [...state.visitedUrls],
+      phaseEvidence: state.phaseEvidence,
+    });
+  };
   const recordEvidenceProgress = () => {
     const nextEvidenceSignalCount = getEvidenceSignalCount(state);
 
@@ -473,7 +489,231 @@ export async function runAgentDiscovery(
     ]);
     console.log(`[Agent] Started at: ${state.currentUrl}`);
 
-    while (state.stepCount < config.maxSteps && state.isRunning) {
+    if (!requiresExplicitFinish && config.targetJobCount >= 20) {
+      const maxBatchPasses = Math.min(
+        28,
+        Math.max(8, Math.ceil(config.targetJobCount / 5) + 12),
+      );
+      const maxAutomaticPageAdvances = Math.min(
+        4,
+        Math.max(1, Math.ceil(config.targetJobCount / 20) - 1),
+      );
+      let automaticPageAdvances = 0;
+
+      for (let passIndex = 0; passIndex < maxBatchPasses; passIndex += 1) {
+        if (signal?.aborted) {
+          break;
+        }
+
+        const jobsBeforePass = state.collectedJobs.length;
+        emitProgress({
+          currentUrl: state.currentUrl,
+          jobsFound: jobsBeforePass,
+          stepCount: 0,
+          currentAction: "batch_extract_search_results",
+          message: `Collecting visible job cards in batch ${passIndex + 1}/${maxBatchPasses}.`,
+          waitReason: "extracting_jobs",
+        });
+        const extractionResult = await executeToolCall(
+          {
+            id: `auto_batch_extract_${passIndex + 1}`,
+            type: "function",
+            function: {
+              name: "extract_jobs",
+              arguments: JSON.stringify({
+                pageType: "search_results",
+                maxJobs: Math.max(
+                  1,
+                  config.targetJobCount - state.collectedJobs.length,
+                ),
+              }),
+            },
+          },
+          pageRef,
+          state,
+          config,
+          jobExtractor,
+          onProgress,
+          signal,
+        );
+        recordExtractionPassSummary(
+          summarizeExtractionPassResult(extractionResult),
+        );
+
+        if (state.collectedJobs.length >= config.targetJobCount) {
+          console.log(
+            `[Agent] Target reached during batch collection: ${state.collectedJobs.length} jobs`,
+          );
+          return await buildDiscoveryResult({
+            phaseCompletionMode: null,
+            phaseCompletionReason: null,
+            phaseEvidence: null,
+            debugFindings: pendingDebugFindings,
+          });
+        }
+        const scrollResult = await executeToolCall(
+          {
+            id: `auto_batch_scroll_${passIndex + 1}`,
+            type: "function",
+            function: {
+              name: "scroll_down",
+              arguments: JSON.stringify({ amount: 1200, delayMs: 900 }),
+            },
+          },
+          pageRef,
+          state,
+          config,
+          jobExtractor,
+          onProgress,
+          signal,
+        );
+        const scrollResultRecord =
+          scrollResult && typeof scrollResult === "object"
+            ? (scrollResult as Record<string, unknown>)
+            : null;
+        const rawScrollData = scrollResultRecord?.data;
+        const scrollData =
+          scrollResultRecord?.success === true &&
+          rawScrollData &&
+          typeof rawScrollData === "object"
+            ? (rawScrollData as Record<string, unknown>)
+            : null;
+        const scrolledPixels =
+          typeof scrollData?.scrolledPixels === "number" &&
+          Number.isFinite(scrollData.scrolledPixels)
+            ? scrollData.scrolledPixels
+            : 0;
+        const canScrollMore = scrollData?.canScrollMore !== false;
+        if (scrolledPixels <= 0 || !canScrollMore) {
+          if (automaticPageAdvances >= maxAutomaticPageAdvances) {
+            break;
+          }
+
+          let advancedToNextPage = false;
+          for (const accessibleName of [
+            "View next page",
+            "Next page",
+            "Next",
+          ]) {
+            const paginationResult = await executeToolCall(
+              {
+                id: `auto_batch_next_page_${automaticPageAdvances + 1}_${accessibleName.replace(/\s+/g, "_").toLowerCase()}`,
+                type: "function",
+                function: {
+                  name: "click",
+                  arguments: JSON.stringify({
+                    role: "button",
+                    name: accessibleName,
+                    retryIfNotVisible: false,
+                  }),
+                },
+              },
+              pageRef,
+              state,
+              config,
+              jobExtractor,
+              onProgress,
+              signal,
+            );
+            const paginationResultRecord =
+              paginationResult && typeof paginationResult === "object"
+                ? (paginationResult as Record<string, unknown>)
+                : null;
+            if (paginationResultRecord?.success === true) {
+              advancedToNextPage = true;
+              break;
+            }
+          }
+
+          if (!advancedToNextPage) {
+            break;
+          }
+
+          automaticPageAdvances += 1;
+          await executeToolCall(
+            {
+              id: `auto_batch_next_page_top_${automaticPageAdvances}`,
+              type: "function",
+              function: {
+                name: "scroll_to_top",
+                arguments: JSON.stringify({ delayMs: 900 }),
+              },
+            },
+            pageRef,
+            state,
+            config,
+            jobExtractor,
+            onProgress,
+            signal,
+          );
+        }
+      }
+
+      if (state.deferredSearchExtractions.size > 0) {
+        const flushSummary = await flushDeferredSearchExtractions({
+          state,
+          config,
+          jobExtractor,
+          emitProgress,
+          mode: "batch",
+          ...(signal ? { signal } : {}),
+        });
+        recordExtractionPassSummary(flushSummary);
+      }
+
+      if (state.collectedJobs.length > 0) {
+        appendConversationMessage(state, {
+          role: "user",
+          content: `Automatic results-surface collection gathered ${state.collectedJobs.length} job cards before AI planning. Continue with pagination, recovery, or selective detail enrichment; do not reopen every collected card one by one.`,
+        });
+      }
+    }
+
+    const emergencyCeiling = config.runControl
+      ? Math.max(config.maxSteps, 64)
+      : config.maxSteps;
+    const timeBudgetMs = Math.max(
+      30_000,
+      config.runControl?.timeBudgetMs ?? 10 * 60_000,
+    );
+    const noProgressStepLimit = Math.max(
+      3,
+      config.runControl?.noProgressStepLimit ?? 8,
+    );
+    while (state.stepCount < emergencyCeiling && state.isRunning) {
+      if (Date.now() - runStartedAtMs >= timeBudgetMs) {
+        return await buildDiscoveryResult({
+          incomplete: true,
+          error:
+            "Discovery paused after reaching its elapsed-time budget. Saved jobs and progress remain available for an explicit resume.",
+          phaseCompletionMode: requiresExplicitFinish ? "interrupted" : null,
+          phaseCompletionReason: requiresExplicitFinish
+            ? "Elapsed-time budget reached after saving progress."
+            : null,
+          phaseEvidence: requiresExplicitFinish ? state.phaseEvidence : null,
+          debugFindings: pendingDebugFindings,
+        });
+      }
+      const lastUsefulProgressStep = requiresExplicitFinish
+        ? lastEvidenceGrowthStep
+        : lastJobGainStep;
+      if (
+        state.stepCount > 0 &&
+        state.stepCount - lastUsefulProgressStep >= noProgressStepLimit &&
+        state.deferredSearchExtractions.size === 0
+      ) {
+        return await buildDiscoveryResult({
+          incomplete: true,
+          error:
+            "Discovery stopped because repeated actions produced no new jobs, page evidence, or useful state changes.",
+          phaseCompletionMode: requiresExplicitFinish ? "interrupted" : null,
+          phaseCompletionReason: requiresExplicitFinish
+            ? "No measurable progress remained after repeated actions."
+            : null,
+          phaseEvidence: requiresExplicitFinish ? state.phaseEvidence : null,
+          debugFindings: pendingDebugFindings,
+        });
+      }
       if (signal?.aborted) {
         return buildAgentResult(state, {
           incomplete: true,
@@ -585,7 +825,9 @@ export async function runAgentDiscovery(
         jobsFound: state.collectedJobs.length,
         stepCount: state.stepCount,
         currentAction: "thinking",
-        message: `Planning the next browser action (step ${state.stepCount}/${config.maxSteps}).`,
+        message: requiresExplicitFinish
+          ? `Reviewing source evidence: ${getEvidenceSignalCount(state)} useful signal${getEvidenceSignalCount(state) === 1 ? "" : "s"} recorded.`
+          : `Searching this source: ${state.collectedJobs.length} distinct job${state.collectedJobs.length === 1 ? "" : "s"} kept so far.`,
         waitReason: "waiting_on_ai",
       });
 
@@ -848,6 +1090,31 @@ export async function runAgentDiscovery(
           config.promptContext.taskPacket?.phase,
         );
         recordEvidenceProgress();
+        if (
+          !requiresExplicitFinish &&
+          ["navigate", "click", "go_back"].includes(toolCall.function.name) &&
+          (
+            result as {
+              success?: boolean;
+              data?: { navigated?: boolean; newUrl?: string; url?: string };
+            }
+          ).success === true &&
+          ((result as { data?: { navigated?: boolean } }).data?.navigated ===
+            true ||
+            Boolean(
+              (result as { data?: { newUrl?: string; url?: string } }).data
+                ?.newUrl ??
+              (result as { data?: { newUrl?: string; url?: string } }).data
+                ?.url,
+            ))
+        ) {
+          // Reaching a different results/detail surface is useful discovery
+          // progress even before that surface's extraction occurs. Reset the
+          // stagnation window so pagination is not stopped between the click
+          // and the next planning/extraction turn.
+          lastJobGainStep = state.stepCount;
+        }
+        await saveRunCheckpoint();
 
         if (
           ["navigate", "click", "fill", "select_option", "go_back"].includes(

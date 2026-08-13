@@ -180,7 +180,7 @@ const SELECT_ACTION_PATTERN =
 const OPEN_ACTION_PATTERN =
   /(?:^|[.!?]\s+)open\s+(?:the\s+|an?\s+|this\s+|that\s+)?(?:easy\s+apply|apply|application|form|link|page|job|listing)\b/i;
 const SUBMIT_ACTION_PATTERN =
-  /(?:^|[.!?]\s+)submit\s+(?:the\s+)?(?:application|form|answer|response)\b|\bfinal[-\s]?submit\b/i;
+  /(?:^|[.!?]\s+)(?:click|press|tap|activate|use|choose|select)\s+(?:the\s+)?(?:submit|final[-\s]?submit)(?:\s+(?:application|form|answer|response))?\b|(?:^|[.!?]\s+)(?:you\s+(?:should|must|can)|next,?)\s+submit\s+(?:the\s+)?(?:application|form|answer|response)\b/i;
 const SAVE_JOB_PATTERN =
   /(?:^|[.!?]\s+)save\s+(?:this\s+|the\s+|a\s+)?job\b|\bsave-job\b|\bsaved-job\b/i;
 const GENERATED_ANSWER_PATTERN =
@@ -190,9 +190,7 @@ const GENERATED_ANSWER_PATTERN =
 const SITE_SPECIFIC_WORKFLOW_RULE_PATTERN =
   /\b(?:linkedin|greenhouse|workday|ashby|smartrecruiters|icims|bamboohr|jobvite|kosovajob|wellfound|glassdoor|ziprecruiter)\b|(?:on|at|via|through|using)\s+(?:indeed|lever)\b|\b(?:indeed|lever)\.com\b/i;
 
-export function validateBrowserVisualObservationText(
-  value: string,
-): string[] {
+export function validateBrowserVisualObservationText(value: string): string[] {
   const issues: string[] = [];
 
   if (CSS_SELECTOR_PATTERN.test(value)) {
@@ -355,6 +353,7 @@ export const BrowserVisualObservationSetSchema = z
     uncertainty: z.array(NonEmptyStringSchema).default([]),
     reconciliations: z.array(BrowserVisualReconciliationSchema).default([]),
     rejectedOutputReasons: z.array(NonEmptyStringSchema).default([]),
+    fallbackUsed: z.boolean().optional(),
   })
   .superRefine((value, ctx) => {
     addVisualTextIssues(ctx, ["summary"], value.summary);
@@ -409,39 +408,39 @@ export type BrowserVisualAnalysisContext = z.infer<
   typeof BrowserVisualAnalysisContextSchema
 >;
 
-export const ApplyVisualCheckpointSchema = z.object({
-  id: NonEmptyStringSchema,
-  label: NonEmptyStringSchema,
-  purpose: BrowserVisualSnapshotPurposeSchema,
-  snapshotId: NonEmptyStringSchema,
-  observationSetId: NonEmptyStringSchema,
-  summary: NonEmptyStringSchema,
-  capturedAt: IsoDateTimeSchema,
-  retained: z.boolean().default(false),
-  storagePath: NonEmptyStringSchema.nullable().default(null),
-  blockers: z.array(NonEmptyStringSchema).default([]),
-  fieldControls: z.array(NonEmptyStringSchema).default([]),
-  validationErrors: z.array(NonEmptyStringSchema).default([]),
-  buttonStates: z.array(NonEmptyStringSchema).default([]),
-  questionContextIds: z.array(NonEmptyStringSchema).default([]),
-  reconciliations: z.array(BrowserVisualReconciliationSchema).default([]),
-}).superRefine((value, ctx) => {
-  addVisualTextIssues(ctx, ["summary"], value.summary);
-  const textArrays = [
-    ["blockers", value.blockers],
-    ["fieldControls", value.fieldControls],
-    ["validationErrors", value.validationErrors],
-    ["buttonStates", value.buttonStates],
-  ] as const;
-  for (const [key, entries] of textArrays) {
-    entries.forEach((text, index) => {
-      addVisualTextIssues(ctx, [key, index], text);
-    });
-  }
-});
-export type ApplyVisualCheckpoint = z.infer<
-  typeof ApplyVisualCheckpointSchema
->;
+export const ApplyVisualCheckpointSchema = z
+  .object({
+    id: NonEmptyStringSchema,
+    label: NonEmptyStringSchema,
+    purpose: BrowserVisualSnapshotPurposeSchema,
+    snapshotId: NonEmptyStringSchema,
+    observationSetId: NonEmptyStringSchema,
+    summary: NonEmptyStringSchema,
+    capturedAt: IsoDateTimeSchema,
+    retained: z.boolean().default(false),
+    storagePath: NonEmptyStringSchema.nullable().default(null),
+    blockers: z.array(NonEmptyStringSchema).default([]),
+    fieldControls: z.array(NonEmptyStringSchema).default([]),
+    validationErrors: z.array(NonEmptyStringSchema).default([]),
+    buttonStates: z.array(NonEmptyStringSchema).default([]),
+    questionContextIds: z.array(NonEmptyStringSchema).default([]),
+    reconciliations: z.array(BrowserVisualReconciliationSchema).default([]),
+  })
+  .superRefine((value, ctx) => {
+    addVisualTextIssues(ctx, ["summary"], value.summary);
+    const textArrays = [
+      ["blockers", value.blockers],
+      ["fieldControls", value.fieldControls],
+      ["validationErrors", value.validationErrors],
+      ["buttonStates", value.buttonStates],
+    ] as const;
+    for (const [key, entries] of textArrays) {
+      entries.forEach((text, index) => {
+        addVisualTextIssues(ctx, [key, index], text);
+      });
+    }
+  });
+export type ApplyVisualCheckpoint = z.infer<typeof ApplyVisualCheckpointSchema>;
 
 export const BrowserVisualAnalysisInputSchema = z.object({
   snapshot: BrowserVisualSnapshotRefSchema,
@@ -451,43 +450,45 @@ export type BrowserVisualAnalysisInput = z.infer<
   typeof BrowserVisualAnalysisInputSchema
 >;
 
-export const BrowserVisualEvidenceSummarySchema = z.object({
-  snapshotId: NonEmptyStringSchema,
-  observationSetId: NonEmptyStringSchema,
-  summary: NonEmptyStringSchema,
-  capturedAt: IsoDateTimeSchema,
-  storagePath: NonEmptyStringSchema.nullable().default(null),
-  retention: BrowserVisualRetentionKindSchema,
-  redactionLevel: BrowserVisualRedactionLevelSchema,
-  confidence: z.number().min(0).max(1).default(0.5),
-  reconciliationStatus: BrowserVisualReconciliationStatusSchema.nullable().default(
-    null,
-  ),
-}).superRefine((value, ctx) => {
-  addVisualTextIssues(ctx, ["summary"], value.summary);
-});
+export const BrowserVisualEvidenceSummarySchema = z
+  .object({
+    snapshotId: NonEmptyStringSchema,
+    observationSetId: NonEmptyStringSchema,
+    summary: NonEmptyStringSchema,
+    capturedAt: IsoDateTimeSchema,
+    storagePath: NonEmptyStringSchema.nullable().default(null),
+    retention: BrowserVisualRetentionKindSchema,
+    redactionLevel: BrowserVisualRedactionLevelSchema,
+    confidence: z.number().min(0).max(1).default(0.5),
+    reconciliationStatus:
+      BrowserVisualReconciliationStatusSchema.nullable().default(null),
+  })
+  .superRefine((value, ctx) => {
+    addVisualTextIssues(ctx, ["summary"], value.summary);
+  });
 export type BrowserVisualEvidenceSummary = z.infer<
   typeof BrowserVisualEvidenceSummarySchema
 >;
 
-export const SourceDebugVisualFindingSchema = z.object({
-  id: NonEmptyStringSchema,
-  phase: SourceDebugPhaseSchema,
-  snapshotId: NonEmptyStringSchema,
-  observationSetId: NonEmptyStringSchema,
-  kind: BrowserVisualObservationKindSchema.default("recovery_note"),
-  summary: NonEmptyStringSchema,
-  capturedAt: IsoDateTimeSchema,
-  storagePath: NonEmptyStringSchema.nullable().default(null),
-  retention: BrowserVisualRetentionKindSchema,
-  redactionLevel: BrowserVisualRedactionLevelSchema,
-  confidence: z.number().min(0).max(1).default(0.5),
-  reconciliationStatus: BrowserVisualReconciliationStatusSchema.nullable().default(
-    null,
-  ),
-}).superRefine((value, ctx) => {
-  addVisualTextIssues(ctx, ["summary"], value.summary);
-});
+export const SourceDebugVisualFindingSchema = z
+  .object({
+    id: NonEmptyStringSchema,
+    phase: SourceDebugPhaseSchema,
+    snapshotId: NonEmptyStringSchema,
+    observationSetId: NonEmptyStringSchema,
+    kind: BrowserVisualObservationKindSchema.default("recovery_note"),
+    summary: NonEmptyStringSchema,
+    capturedAt: IsoDateTimeSchema,
+    storagePath: NonEmptyStringSchema.nullable().default(null),
+    retention: BrowserVisualRetentionKindSchema,
+    redactionLevel: BrowserVisualRedactionLevelSchema,
+    confidence: z.number().min(0).max(1).default(0.5),
+    reconciliationStatus:
+      BrowserVisualReconciliationStatusSchema.nullable().default(null),
+  })
+  .superRefine((value, ctx) => {
+    addVisualTextIssues(ctx, ["summary"], value.summary);
+  });
 export type SourceDebugVisualFinding = z.infer<
   typeof SourceDebugVisualFindingSchema
 >;

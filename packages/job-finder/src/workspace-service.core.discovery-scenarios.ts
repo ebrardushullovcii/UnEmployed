@@ -715,7 +715,7 @@ describe("createJobFinderWorkspaceService", () => {
     expect(discoveryState.recentRuns[0]?.state).toBe("cancelled");
   });
 
-  test("agent discovery does not throw when the configured AI client lacks tool calling", async () => {
+  test("agent discovery fails honestly when the configured AI client lacks tool calling", async () => {
     const discoveryResult =
       await createWorkspaceServiceHarness().browserRuntime.runDiscovery(
         "target_site",
@@ -738,19 +738,24 @@ describe("createJobFinderWorkspaceService", () => {
         });
       },
     };
-    const { workspaceService } = createWorkspaceServiceHarness({
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
       seed: createDiscoveryOnlySeed(),
       browserRuntime,
       aiClient: createAiClient(),
     });
 
-    const snapshot = await workspaceService.runAgentDiscovery(
-      () => {},
-      new AbortController().signal,
+    await expect(
+      workspaceService.runAgentDiscovery(
+        () => {},
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow(
+      "AI client does not support tool calling. Cannot run agent discovery.",
     );
 
-    expect(snapshot.discoveryJobs).toHaveLength(0);
-    expect(snapshot.recentDiscoveryRuns[0]?.targetExecutions[0]?.warning).toBe(
+    const discoveryState = await repository.getDiscoveryState();
+    expect(discoveryState.recentRuns[0]?.state).toBe("failed");
+    expect(discoveryState.recentRuns[0]?.targetExecutions[0]?.warning).toBe(
       "AI client does not support tool calling. Cannot run agent discovery.",
     );
   });
@@ -853,11 +858,11 @@ describe("createJobFinderWorkspaceService", () => {
     );
 
     expect(capturedBudgets).toEqual([
-      { targetJobCount: 7, maxSteps: 42 },
-      { targetJobCount: 7, maxSteps: 42 },
-      { targetJobCount: 6, maxSteps: 20 },
+      { targetJobCount: 34, maxSteps: 60 },
+      { targetJobCount: 33, maxSteps: 60 },
+      { targetJobCount: 33, maxSteps: 36 },
     ]);
-    expect(snapshot.recentDiscoveryRuns[0]?.summary.validJobsFound).toBe(20);
+    expect(snapshot.recentDiscoveryRuns[0]?.summary.validJobsFound).toBe(100);
   });
 
   test("budgets later sources from distinct retained jobs and reports staged deltas", async () => {
@@ -963,7 +968,7 @@ describe("createJobFinderWorkspaceService", () => {
     );
     const run = snapshot.recentDiscoveryRuns[0];
 
-    expect(capturedBudgets).toEqual([7, 10, 8]);
+    expect(capturedBudgets).toEqual([34, 50, 49]);
     expect(
       run?.targetExecutions.map((target) => ({
         requestedJobBudget: target.requestedJobBudget,
@@ -977,30 +982,30 @@ describe("createJobFinderWorkspaceService", () => {
       })),
     ).toEqual([
       {
-        requestedJobBudget: 7,
-        jobsReviewed: 7,
-        jobsFound: 7,
+        requestedJobBudget: 34,
+        jobsReviewed: 34,
+        jobsFound: 34,
         jobsStaged: 1,
         jobsSkippedByLedger: 0,
         jobsSkippedByTitleTriage: 0,
-        duplicatesMerged: 6,
+        duplicatesMerged: 33,
         invalidSkipped: 0,
       },
       {
-        requestedJobBudget: 10,
-        jobsReviewed: 10,
-        jobsFound: 10,
-        jobsStaged: 10,
+        requestedJobBudget: 50,
+        jobsReviewed: 50,
+        jobsFound: 50,
+        jobsStaged: 50,
         jobsSkippedByLedger: 0,
         jobsSkippedByTitleTriage: 0,
         duplicatesMerged: 0,
         invalidSkipped: 0,
       },
       {
-        requestedJobBudget: 8,
-        jobsReviewed: 8,
-        jobsFound: 8,
-        jobsStaged: 8,
+        requestedJobBudget: 49,
+        jobsReviewed: 49,
+        jobsFound: 49,
+        jobsStaged: 49,
         jobsSkippedByLedger: 0,
         jobsSkippedByTitleTriage: 0,
         duplicatesMerged: 0,
@@ -1017,13 +1022,13 @@ describe("createJobFinderWorkspaceService", () => {
       ),
     ).toEqual(run?.targetExecutions.map((target) => target.jobsReviewed));
     expect(run?.summary).toMatchObject({
-      validJobsFound: 25,
-      jobsStaged: 19,
-      duplicatesMerged: 6,
+      validJobsFound: 133,
+      jobsStaged: 100,
+      duplicatesMerged: 33,
     });
-    expect(snapshot.discoveryJobs).toHaveLength(19);
+    expect(snapshot.discoveryJobs).toHaveLength(100);
   });
-  test("single-target agent discovery uses a tighter product budget", async () => {
+  test("single-target agent discovery requests a useful batch of jobs", async () => {
     const capturedBudgets: Array<{ targetJobCount: number; maxSteps: number }> =
       [];
     const browserRuntime: BrowserSessionRuntime = {
@@ -1069,7 +1074,7 @@ describe("createJobFinderWorkspaceService", () => {
       "target_linkedin_default",
     );
 
-    expect(capturedBudgets).toEqual([{ targetJobCount: 8, maxSteps: 24 }]);
+    expect(capturedBudgets).toEqual([{ targetJobCount: 50, maxSteps: 36 }]);
   });
 
   test("single-target agent discovery passes the provider-aware LinkedIn query-first starting url", async () => {
@@ -1115,7 +1120,10 @@ describe("createJobFinderWorkspaceService", () => {
     );
 
     expect(capturedStartingUrls).toEqual([
-      ["https://www.linkedin.com/jobs/search/"],
+      [
+        "https://www.linkedin.com/jobs/search/?keywords=Principal+Designer&location=Remote",
+        "https://www.linkedin.com/jobs/search/",
+      ],
     ]);
   });
 
@@ -1215,7 +1223,7 @@ describe("createJobFinderWorkspaceService", () => {
           completedAt: "2026-03-20T10:00:05.000Z",
           querySummary: "Early-stop discovery test run",
           warning: null,
-          jobs: Array.from({ length: 20 }, (_, index) =>
+          jobs: Array.from({ length: 200 }, (_, index) =>
             JobPostingSchema.parse({
               source: "target_site",
               sourceJobId: `job_${callNumber}_${index}`,
@@ -1283,8 +1291,8 @@ describe("createJobFinderWorkspaceService", () => {
       snapshot.recentDiscoveryRuns[0]?.targetExecutions.map(
         (entry) => entry.jobsFound,
       ),
-    ).toEqual([7, 7, 6]);
-    expect(snapshot.recentDiscoveryRuns[0]?.summary.validJobsFound).toBe(20);
+    ).toEqual([34, 33, 33]);
+    expect(snapshot.recentDiscoveryRuns[0]?.summary.validJobsFound).toBe(100);
   });
 
   test("applies source budgets after title triage so relevant jobs later in a provider inventory survive", async () => {
@@ -1448,7 +1456,7 @@ describe("createJobFinderWorkspaceService", () => {
       "source navigation failed",
     );
     expect(run?.targetExecutions[0]).toMatchObject({
-      requestedJobBudget: 10,
+      requestedJobBudget: 50,
       jobsReviewed: 0,
       jobsFound: 0,
       jobsPersisted: 0,
@@ -1748,12 +1756,31 @@ describe("createJobFinderWorkspaceService", () => {
     ];
 
     const requestedLabels: string[] = [];
+    const resumedRevisions: Array<number | null> = [];
     const browserRuntime: BrowserSessionRuntime = {
       ...createAgentBrowserRuntime([]),
-      runAgentDiscovery(source, options) {
+      async runAgentDiscovery(source, options) {
         requestedLabels.push(options.siteLabel);
+        resumedRevisions.push(options.resumeCheckpoint?.revision ?? null);
+        await options.onCheckpoint?.({
+          revision: 1,
+          savedAt: "2026-03-20T10:00:03.000Z",
+          currentUrl: "https://example.com/jobs/two?page=2",
+          lastStableUrl: "https://example.com/jobs/two?page=2",
+          stepCount: 3,
+          collectedJobs: [],
+          visitedUrls: ["https://example.com/jobs/two?page=2"],
+          phaseEvidence: {
+            warnings: [],
+            visibleControls: [],
+            successfulInteractions: [],
+            routeSignals: [],
+            attemptedControls: [],
+            visualFindings: [],
+          },
+        });
 
-        return Promise.resolve({
+        return {
           source,
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:05.000Z",
@@ -1791,7 +1818,7 @@ describe("createJobFinderWorkspaceService", () => {
             }),
           ],
           agentMetadata: null,
-        });
+        };
       },
     };
 
@@ -1814,5 +1841,15 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.discoveryJobs[0]?.provenance[0]?.targetId).toBe(
       "target_two",
     );
+    expect(
+      snapshot.recentDiscoveryRuns[0]?.targetExecutions[0]?.agentCheckpoint,
+    ).toMatchObject({ revision: 1, stepCount: 3 });
+
+    await workspaceService.runDiscoveryForTarget(
+      "target_two",
+      () => {},
+      new AbortController().signal,
+    );
+    expect(resumedRevisions).toEqual([null, 1]);
   });
 });

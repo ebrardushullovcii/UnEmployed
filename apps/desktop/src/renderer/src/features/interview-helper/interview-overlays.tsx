@@ -92,6 +92,8 @@ function formatSource(source: InterviewTranscriptSegment["source"]) {
       return "You";
     case "meeting_native_transcript":
       return "Meeting";
+    case "typed_question":
+      return "Typed question";
   }
 }
 
@@ -143,9 +145,7 @@ export function AnswerCueOverlay(props: {
         {...createInterviewPopupDragProps(!props.framed)}
         data-surface-kind={props.snapshot.surfaceKind}
       >
-        <div
-          className="flex items-center gap-2"
-        >
+        <div className="flex items-center gap-2">
           <Sparkles className="size-4 text-(--warning-text)" />
           <div className="grid gap-0.5">
             <span className="text-[11px] font-bold uppercase tracking-(--tracking-badge)">
@@ -198,6 +198,12 @@ export function AnswerCueOverlay(props: {
                   </li>
                 ))}
               </ul>
+              {cue.executionReceipt?.fallbackUsed ? (
+                <p className="text-xs text-muted-foreground">
+                  AI could not finish this cue; a built-in grounded fallback was
+                  used.
+                </p>
+              ) : null}
             </div>
 
             {cue.supportingPoints.length > 0 && !compact ? (
@@ -271,9 +277,7 @@ export function TranscriptOverlay(props: {
         {...createInterviewPopupDragProps(!props.framed)}
         data-surface-kind={props.snapshot.surfaceKind}
       >
-        <div
-          className="flex items-center gap-2"
-        >
+        <div className="flex items-center gap-2">
           <Mic className="size-4 text-(--info-text)" />
           <div className="grid gap-0.5">
             <span className="text-[11px] font-bold uppercase tracking-(--tracking-badge)">

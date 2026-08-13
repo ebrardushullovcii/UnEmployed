@@ -183,9 +183,70 @@ export function getCompactionBudgetWindow(
 }
 
 export function compactToolContent(content: string, maxLength: number): string {
-  return content.length <= maxLength
-    ? content
-    : `${content.slice(0, Math.max(0, maxLength - 12))}...[trimmed]`;
+  if (content.length <= maxLength) return content;
+
+  try {
+    const value: unknown = JSON.parse(content);
+    const compact = compactStructuredToolValue(value, maxLength);
+    return JSON.stringify(compact);
+  } catch {
+    return JSON.stringify({
+      truncated: true,
+      originalLength: content.length,
+      preview: content.slice(0, Math.max(0, maxLength - 96)),
+      instruction:
+        "The original tool result was larger than the conversation budget; rerun a narrower read instead of inferring missing content.",
+    });
+  }
+}
+
+function compactStructuredToolValue(
+  value: unknown,
+  maxLength: number,
+): unknown {
+  if (!value || typeof value !== "object") {
+    return {
+      truncated: true,
+      originalLength: JSON.stringify(value).length,
+      preview: String(value).slice(0, Math.max(0, maxLength - 96)),
+    };
+  }
+
+  if (Array.isArray(value)) {
+    const items: unknown[] = [];
+    for (const item of value) {
+      const candidate = {
+        truncated: true,
+        totalItems: value.length,
+        items: [...items, item],
+        nextCursor: String(items.length + 1),
+      };
+      if (JSON.stringify(candidate).length > maxLength) break;
+      items.push(item);
+    }
+    return {
+      truncated: true,
+      totalItems: value.length,
+      items,
+      nextCursor: items.length < value.length ? String(items.length) : null,
+      instruction:
+        "Request the next result page instead of guessing omitted items.",
+    };
+  }
+
+  const record = value as Record<string, unknown>;
+  const summary: Record<string, unknown> = {
+    truncated: true,
+    originalKeys: Object.keys(record),
+  };
+  for (const [key, nested] of Object.entries(record)) {
+    const candidate = { ...summary, [key]: nested };
+    if (JSON.stringify(candidate).length > maxLength) continue;
+    summary[key] = nested;
+  }
+  summary.instruction =
+    "Rerun a narrower tool read for omitted fields instead of inferring them.";
+  return summary;
 }
 
 function isForcedCloseoutUserMessage(message: AgentMessage): boolean {

@@ -47,14 +47,28 @@ export function enrichSearchPreferencesFromProfile(
   const targetRoles = [...searchPreferences.targetRoles];
 
   if (targetRoles.length === 0) {
-    if (profile.headline && profile.headline !== PROFILE_PLACEHOLDER_HEADLINE) {
-      targetRoles.push(profile.headline);
-    }
-
     for (const role of profile.targetRoles) {
       if (targetRoles.length < DEFAULT_MAX_TARGET_ROLES) {
         targetRoles.push(role);
       }
+    }
+
+    for (const experience of profile.experiences) {
+      const experienceTitle = experience.title?.trim() ?? "";
+      if (
+        targetRoles.length < DEFAULT_MAX_TARGET_ROLES &&
+        experienceTitle.length > 0
+      ) {
+        targetRoles.push(experienceTitle);
+      }
+    }
+
+    if (
+      targetRoles.length < DEFAULT_MAX_TARGET_ROLES &&
+      profile.headline &&
+      profile.headline !== PROFILE_PLACEHOLDER_HEADLINE
+    ) {
+      targetRoles.push(profile.headline);
     }
   }
 
@@ -62,6 +76,7 @@ export function enrichSearchPreferencesFromProfile(
 
   if (
     locations.length === 0 &&
+    !searchPreferences.workModes.includes("remote") &&
     profile.currentLocation &&
     profile.currentLocation !== PROFILE_PLACEHOLDER_LOCATION
   ) {
@@ -158,19 +173,19 @@ export function normalizeJobFinderSettings(
   const isApplySafeTemplate = (template: ResumeTemplateDefinition) =>
     getResumeTemplateDeliveryLane(template) === "apply_safe" &&
     isResumeTemplateApplyEligible(template);
-  const defaultApplySafeTemplate = availableResumeTemplates.find(
-    (template) =>
-      isApplySafeTemplate(template),
+  const defaultApplySafeTemplate = availableResumeTemplates.find((template) =>
+    isApplySafeTemplate(template),
   );
   const fallbackTemplateId = defaultApplySafeTemplate?.id ?? "classic_ats";
   const selectedTemplateAvailable = availableResumeTemplates.some(
-    (template) => template.id === settings.resumeTemplateId && isApplySafeTemplate(template),
+    (template) =>
+      template.id === settings.resumeTemplateId &&
+      isApplySafeTemplate(template),
   );
 
   return JobFinderSettingsSchema.parse({
     ...settings,
-    resumeApplicationMode:
-      settings.resumeApplicationMode ?? "tailored_per_job",
+    resumeApplicationMode: settings.resumeApplicationMode ?? "tailored_per_job",
     resumeFormat: "pdf",
     resumeTemplateId: selectedTemplateAvailable
       ? settings.resumeTemplateId
@@ -185,7 +200,9 @@ export function wasResumeDraftApproved(
     | undefined,
 ): boolean {
   return Boolean(
-    draft?.status === "approved" || draft?.approvedAt || draft?.approvedExportId,
+    draft?.status === "approved" ||
+    draft?.approvedAt ||
+    draft?.approvedExportId,
   );
 }
 

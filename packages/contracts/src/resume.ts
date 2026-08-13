@@ -5,6 +5,7 @@ import {
   NonEmptyStringSchema,
   ResumeTemplateIdSchema,
 } from "./base";
+import { AgentTaskMessageAttributionSchema } from "./agent-task";
 
 const ProbabilitySchema = z.number().min(0).max(1);
 
@@ -700,6 +701,7 @@ export const ResumeAssistantMessageSchema = z.object({
   resolvedPatchIds: z.array(NonEmptyStringSchema).default([]),
   resolvedAt: IsoDateTimeSchema.nullable().default(null),
   proposalError: NonEmptyStringSchema.nullable().default(null),
+  executionAttribution: AgentTaskMessageAttributionSchema.nullable().optional(),
   createdAt: IsoDateTimeSchema,
 });
 export type ResumeAssistantMessage = z.infer<
@@ -796,7 +798,9 @@ export type ResumeQualityBenchmarkCaseResult = z.infer<
 export const ResumeQualityBenchmarkReportSchema = z.object({
   benchmarkVersion: NonEmptyStringSchema,
   generatedAt: IsoDateTimeSchema,
-  providerMode: z.enum(["deterministic", "configured"]).default("deterministic"),
+  providerMode: z
+    .enum(["deterministic", "configured"])
+    .default("deterministic"),
   templates: z.array(ResumeTemplateIdSchema).default([]),
   persistedArtifactsDirectory: NonEmptyStringSchema.nullable().default(null),
   cases: z.array(ResumeQualityBenchmarkCaseResultSchema).default([]),

@@ -265,7 +265,8 @@ describe("createJobFinderWorkspaceService source access prompts", () => {
     expect(snapshot.sourceAccessPrompts).toEqual([
       expect.objectContaining({
         targetId: "target_linkedin_default",
-        targetUrl: "https://www.linkedin.com/jobs/collections/recommended/",
+        targetUrl:
+          "https://www.linkedin.com/jobs/search/?keywords=Principal+Designer&location=Remote",
         state: "prompt_login_recommended",
         summary:
           "Open the browser for LinkedIn if you want better search coverage on the next run.",
@@ -385,7 +386,8 @@ describe("createJobFinderWorkspaceService source access prompts", () => {
     });
 
     expect(openSession).toHaveBeenCalledWith("target_site", {
-      targetUrl: "https://www.linkedin.com/jobs/collections/recommended/",
+      targetUrl:
+        "https://www.linkedin.com/jobs/search/?keywords=Principal+Designer&location=Remote",
     });
   });
 

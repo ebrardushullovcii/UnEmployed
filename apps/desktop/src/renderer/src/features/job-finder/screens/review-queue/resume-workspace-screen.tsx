@@ -107,6 +107,19 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
     hasUnsavedChanges,
     workspace: props.workspace,
   });
+  const blockingClaimCount =
+    props.workspace?.validation?.claimAssessments.filter(
+      (assessment) =>
+        assessment.status === "unsupported" ||
+        (assessment.status === "review" &&
+          (assessment.claimOrigin === "ai_generated" ||
+            assessment.claimOrigin === "assistant_edited" ||
+            assessment.claimOrigin === "deterministic_fallback")),
+    ).length ?? 0;
+  const exportBlockedReason =
+    !hasUnsavedChanges && blockingClaimCount > 0
+      ? `${blockingClaimCount} generated or unsupported claim${blockingClaimCount === 1 ? "" : "s"} must be removed, rewritten, or grounded in candidate evidence before this resume can be exported.`
+      : null;
 
   const runWithSavedDraft = useCallback(
     (next: () => void | Promise<void>, successMessage?: string | null) => {
@@ -437,6 +450,7 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
           )}
           canClearApproval={Boolean(draft.approvedExportId)}
           editorPanel={editorPanel}
+          exportBlockedReason={exportBlockedReason}
           hasUnsavedChanges={hasUnsavedChanges}
           historyPanel={historyPanel}
           isWorkspacePending={props.isWorkspacePending}
@@ -471,6 +485,16 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
               "Saved your draft before refreshing it.",
             )
           }
+          onReviewBlockingIssues={() => {
+            const details = document.getElementById(
+              "resume-proof-details",
+            ) as HTMLDetailsElement | null;
+            if (details) {
+              details.open = true;
+              details.scrollIntoView({ behavior: "smooth", block: "start" });
+              details.querySelector("summary")?.focus();
+            }
+          }}
           onSaveDraft={() => props.onSaveDraft(draft)}
           onSetMobileStudioTab={setMobileStudioTab}
           previewPane={previewPane}

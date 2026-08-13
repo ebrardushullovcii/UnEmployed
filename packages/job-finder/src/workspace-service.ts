@@ -34,6 +34,7 @@ import { createWorkspaceDiscoveryMethods } from "./internal/workspace-discovery-
 import { createWorkspaceSourceDebugMethods } from "./internal/workspace-source-debug-methods";
 import { createWorkspaceApplicationMethods } from "./internal/workspace-application-methods";
 import { createWorkspaceApplyRunStoreMethods } from "./internal/workspace-apply-run-store-methods";
+import { recoverInterruptedApplyRun } from "./internal/workspace-apply-run-recovery";
 import { createWorkspaceApplicationAnswerMethods } from "./internal/workspace-application-answer-methods";
 import { createWorkspaceUserActionMethods } from "./internal/workspace-user-action-methods";
 import { toDiscoverySessionState } from "./internal/discovery-state";
@@ -98,6 +99,9 @@ export function createJobFinderWorkspaceService(
   const activeSourceDebugPromiseRef = {
     current: null as Promise<unknown> | null,
   };
+  const activeApplyRunAbortControllers = new Map<string, AbortController>();
+  const activeApplyRunPromises = new Map<string, Promise<void>>();
+  const applyRunTransitionTails = new Map<string, Promise<void>>();
   const activeResumeVisionRunIds = new Set<string>();
   const shutdownPromiseRef = {
     current: null as Promise<void> | null,
@@ -116,6 +120,9 @@ export function createJobFinderWorkspaceService(
     activeSourceDebugExecutionIdRef,
     activeSourceDebugAbortControllerRef,
     activeSourceDebugPromiseRef,
+    activeApplyRunAbortControllers,
+    activeApplyRunPromises,
+    applyRunTransitionTails,
     activeResumeVisionRunIds,
     getWorkspaceSnapshot: () =>
       Promise.reject(new Error("Workspace snapshot method not initialized.")),
@@ -400,15 +407,38 @@ export function createJobFinderWorkspaceService(
     }
 
     shutdownPromiseRef.current = (async () => {
+      const activeApplyRunIds = [...activeApplyRunAbortControllers.keys()];
       activeDiscoveryAbortControllerRef.current?.abort();
       activeSourceDebugAbortControllerRef.current?.abort();
+      for (const controller of activeApplyRunAbortControllers.values()) {
+        controller.abort();
+      }
 
       await Promise.allSettled(
         [
           activeDiscoveryPromiseRef.current,
           activeSourceDebugPromiseRef.current,
+          ...activeApplyRunPromises.values(),
         ].filter((value): value is Promise<unknown> => value != null),
       );
+
+      if (activeApplyRunIds.length > 0) {
+        const activeApplyRunIdSet = new Set(activeApplyRunIds);
+        const applyRuns = await repository.listApplyRuns().catch(() => []);
+        const completedAt = new Date().toISOString();
+        await Promise.allSettled(
+          applyRuns
+            .filter(
+              (run) =>
+                activeApplyRunIdSet.has(run.id) && run.state === "running",
+            )
+            .map((run) =>
+              repository.upsertApplyRun(
+                recoverInterruptedApplyRun(run, completedAt),
+              ),
+            ),
+        );
+      }
 
       const discoveryState = await repository
         .getDiscoveryState()

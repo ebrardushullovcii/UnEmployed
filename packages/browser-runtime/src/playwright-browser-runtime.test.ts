@@ -381,6 +381,17 @@ describe("playwright browser runtime", () => {
     try {
       const chromeExecutablePath = join(userDataDir, "chrome.exe");
       await writeFile(chromeExecutablePath, "", "utf8");
+      await writeFile(
+        join(userDataDir, "unemployed-browser-window-bounds.json"),
+        JSON.stringify({
+          width: 1180,
+          height: 780,
+          x: 180,
+          y: 90,
+          windowState: "normal",
+        }),
+        "utf8",
+      );
       const profileDirectory = join(userDataDir, "Default");
       const preferencesPath = join(profileDirectory, "Preferences");
       await mkdir(profileDirectory, { recursive: true });
@@ -402,10 +413,41 @@ describe("playwright browser runtime", () => {
 
       const fakePage = {
         bringToFront: vi.fn().mockResolvedValue(undefined),
+        context: () => fakeContext,
         isClosed: () => false,
         url: () => "https://example.com/jobs",
       };
+      let currentBounds = {
+        width: 1040,
+        height: 760,
+        x: 120,
+        y: 80,
+        windowState: "normal" as const,
+      };
+      const setWindowBounds = vi.fn(
+        (params: { bounds: typeof currentBounds }) => {
+          currentBounds = { ...currentBounds, ...params.bounds };
+        },
+      );
+      const cdpSession = {
+        detach: vi.fn().mockResolvedValue(undefined),
+        send: vi.fn(
+          (method: string, params?: { bounds: typeof currentBounds }) => {
+            if (method === "Browser.getWindowForTarget") {
+              return Promise.resolve({ windowId: 7, bounds: currentBounds });
+            }
+            if (method === "Browser.setWindowBounds" && params) {
+              setWindowBounds(params);
+              return Promise.resolve({});
+            }
+            return Promise.reject(
+              new Error(`Unexpected CDP method: ${method}`),
+            );
+          },
+        ),
+      };
       const fakeContext = {
+        newCDPSession: vi.fn().mockResolvedValue(cdpSession),
         pages: () => [fakePage],
       };
       const fakeBrowser = {
@@ -499,6 +541,100 @@ describe("playwright browser runtime", () => {
           name: "Managed browser",
         },
       });
+      expect(setWindowBounds).toHaveBeenCalledWith({
+        windowId: 7,
+        bounds: {
+          width: 1180,
+          height: 780,
+          x: 180,
+          y: 90,
+          windowState: "normal",
+        },
+      });
+      expect(
+        JSON.parse(
+          await readFile(
+            join(userDataDir, "unemployed-browser-window-bounds.json"),
+            "utf8",
+          ),
+        ),
+      ).toMatchObject({ width: 1180, height: 780, x: 180, y: 90 });
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  test("connects after the Windows Chrome launcher hands off to a continuing process", async () => {
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-windows-handoff-"),
+    );
+
+    try {
+      const chromeExecutablePath = join(userDataDir, "chrome.exe");
+      await writeFile(chromeExecutablePath, "", "utf8");
+      const debugPort = await reserveFreePort();
+      const launchedChromeProcess = createMockChildProcess({
+        pid: 42425,
+        emitExit: true,
+      });
+      const fakePage = {
+        bringToFront: vi.fn().mockResolvedValue(undefined),
+        isClosed: () => false,
+        url: () => "about:blank",
+      };
+      const fakeContext = {
+        pages: () => [fakePage],
+      };
+      const fakeBrowser = {
+        close: vi.fn(),
+        contexts: () => [fakeContext],
+        isConnected: () => true,
+        once: vi.fn(() => fakeBrowser),
+      };
+      let debuggerReadyChecks = 0;
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => {
+          debuggerReadyChecks += 1;
+          if (debuggerReadyChecks === 1) {
+            return Promise.reject(new Error("debugger not ready yet"));
+          }
+
+          return Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                webSocketDebuggerUrl: `ws://127.0.0.1:${debugPort}/devtools/browser/test`,
+              }),
+          } as Response);
+        }),
+      );
+      execFileMock.mockImplementation((...args: unknown[]) => {
+        maybeInvokeExecFileCallback(args);
+      });
+      spawnMock.mockReturnValue(launchedChromeProcess);
+      connectOverCDPMock.mockResolvedValue(fakeBrowser);
+
+      const { createBrowserAgentRuntime } =
+        await import("./playwright-browser-runtime");
+      const runtime = createBrowserAgentRuntime({
+        userDataDir,
+        chromeExecutablePath,
+        debugPort,
+      });
+
+      await withPlatform("win32", async () => {
+        await expect(runtime.openSession("target_site")).resolves.toEqual(
+          expect.objectContaining({ status: "ready" }),
+        );
+      });
+
+      expect(launchedChromeProcess.exitCode).toBe(0);
+      expect(connectOverCDPMock).toHaveBeenCalledWith(
+        `ws://127.0.0.1:${debugPort}/devtools/browser/test`,
+        { timeout: 5_000 },
+      );
     } finally {
       await rm(userDataDir, { recursive: true, force: true });
     }
@@ -702,8 +838,17 @@ describe("playwright browser runtime", () => {
         viewportSize: () => ({ width: 1440, height: 900 }),
         screenshot: vi.fn().mockResolvedValue(Buffer.from("apply-png")),
       };
+      let staleAutomationPageClosed = false;
+      const staleAutomationPage = {
+        isClosed: () => staleAutomationPageClosed,
+        url: () => "https://example.com/apply/previous-job",
+        close: vi.fn(() => {
+          staleAutomationPageClosed = true;
+          return Promise.resolve();
+        }),
+      };
       const fakeContext = {
-        pages: () => [fakePage],
+        pages: () => [fakePage, staleAutomationPage],
       };
       const fakeBrowser = {
         close: vi.fn().mockResolvedValue(undefined),
@@ -796,6 +941,7 @@ describe("playwright browser runtime", () => {
         input,
       );
 
+      expect(staleAutomationPage.close).toHaveBeenCalledTimes(1);
       expect(defaultResult.visualEvidence).toEqual([]);
       expect(defaultResult.visualObservationSets).toEqual([]);
       expect(defaultResult.visualCheckpoints).toEqual([]);
@@ -1148,6 +1294,7 @@ describe("playwright browser runtime", () => {
       let blankPageUrl = "about:blank";
       const blankPage = {
         bringToFront: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
         goto: vi.fn((url: string) => {
           blankPageUrl = url;
           return Promise.resolve(undefined);
@@ -1157,6 +1304,7 @@ describe("playwright browser runtime", () => {
       };
       const backgroundLivePage = {
         bringToFront: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
         goto: vi.fn().mockResolvedValue(undefined),
         isClosed: () => false,
         url: () => "https://previous.example/jobs",
@@ -1239,6 +1387,7 @@ describe("playwright browser runtime", () => {
       expect(blankPage.bringToFront).toHaveBeenCalled();
       expect(backgroundLivePage.goto).not.toHaveBeenCalled();
       expect(backgroundLivePage.bringToFront).not.toHaveBeenCalled();
+      expect(backgroundLivePage.close).toHaveBeenCalledTimes(1);
     } finally {
       await rm(userDataDir, { recursive: true, force: true });
     }
@@ -1258,6 +1407,7 @@ describe("playwright browser runtime", () => {
       let blankPageUrl = "about:blank";
       const blankPage = {
         bringToFront: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
         goto: vi.fn((url: string) => {
           blankPageUrl = url;
           return Promise.resolve(undefined);
@@ -1267,6 +1417,7 @@ describe("playwright browser runtime", () => {
       };
       const backgroundTargetPage = {
         bringToFront: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
         goto: vi.fn().mockResolvedValue(undefined),
         isClosed: () => false,
         url: () => "https://example.com/jobs",
@@ -1353,8 +1504,10 @@ describe("playwright browser runtime", () => {
         "https://example.com/jobs",
         { waitUntil: "domcontentloaded" },
       );
-      // The blank tab is left completely untouched
+      // The matching page becomes the one working tab for this source.
       expect(blankPage.goto).not.toHaveBeenCalled();
+      expect(blankPage.close).toHaveBeenCalledTimes(1);
+      expect(backgroundTargetPage.close).not.toHaveBeenCalled();
       expect(backgroundTargetPage.bringToFront).not.toHaveBeenCalled();
       expect(blankPage.bringToFront).not.toHaveBeenCalled();
     } finally {

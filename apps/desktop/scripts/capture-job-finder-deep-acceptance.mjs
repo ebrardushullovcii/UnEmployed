@@ -1117,19 +1117,23 @@ async function run() {
         const startY = dragBox.y + dragBox.height / 2;
         await page.mouse.move(startX, startY);
         await page.mouse.down();
-        await page.mouse.move(startX + 180, Math.max(32, startY - 80), {
+        await page.mouse.move(Math.max(32, startX - 180), startY, {
           steps: 8,
         });
         await page.mouse.up();
         const afterDrag = await guidedDialog.boundingBox();
+        const moved =
+          Boolean(afterDrag) &&
+          (Math.abs((afterDrag?.x ?? beforeDrag.x) - beforeDrag.x) > 5 ||
+            Math.abs((afterDrag?.y ?? beforeDrag.y) - beforeDrag.y) > 5);
         report.scenarios.guidedEditsDrag = {
           before: beforeDrag,
           after: afterDrag,
-          moved:
-            Boolean(afterDrag) &&
-            (Math.abs((afterDrag?.x ?? beforeDrag.x) - beforeDrag.x) > 5 ||
-              Math.abs((afterDrag?.y ?? beforeDrag.y) - beforeDrag.y) > 5),
+          moved,
         };
+        if (!moved) {
+          throw new Error("Guided Edits did not move after a leftward drag.");
+        }
         await capture(page, "resume-studio-guided-edits-dragged", {
           scenario: "guided-edits-viewport",
         });

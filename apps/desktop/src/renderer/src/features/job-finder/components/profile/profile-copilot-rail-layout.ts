@@ -1,11 +1,11 @@
 const COPILOT_PANEL_MAX_WIDTH = 480;
 const COPILOT_PANEL_OFFSET = 16;
-const COPILOT_COLLAPSED_WIDTH = 320;
-const COPILOT_COLLAPSED_HEIGHT = 64;
+const COPILOT_COLLAPSED_WIDTH = 48;
+const COPILOT_COLLAPSED_HEIGHT = 48;
 export const COPILOT_BOTTOM_OFFSET = 16;
 export const COPILOT_NAV_SAFE_OFFSET = 112;
 export const COPILOT_POSITION_STORAGE_KEY =
-  "unemployed.profile-copilot-position-v6";
+  "unemployed.profile-copilot-position-v7";
 
 function getCopilotShellSafeTopOffset(): number {
   return 240;
@@ -14,6 +14,16 @@ function getCopilotShellSafeTopOffset(): number {
 export interface CopilotPosition {
   x: number;
   y: number;
+}
+
+export interface CopilotViewport {
+  height: number;
+  width: number;
+}
+
+export interface PersistedCopilotPosition extends CopilotPosition {
+  viewportHeight?: number;
+  viewportWidth?: number;
 }
 
 export function getDefaultCopilotPosition(
@@ -30,20 +40,26 @@ export function getDefaultCopilotPosition(
         );
 
   return {
-    x: COPILOT_PANEL_OFFSET,
+    x:
+      typeof window === "undefined"
+        ? COPILOT_PANEL_OFFSET
+        : Math.max(
+            COPILOT_PANEL_OFFSET,
+            window.innerWidth - COPILOT_COLLAPSED_WIDTH - COPILOT_PANEL_OFFSET,
+          ),
     y: defaultY,
   };
 }
 
 export function parseCopilotPosition(
   value: string | null,
-): CopilotPosition | null {
+): PersistedCopilotPosition | null {
   if (!value) {
     return null;
   }
 
   try {
-    const parsed = JSON.parse(value) as Partial<CopilotPosition>;
+    const parsed = JSON.parse(value) as Partial<PersistedCopilotPosition>;
 
     if (
       typeof parsed.x !== "number" ||
@@ -54,10 +70,108 @@ export function parseCopilotPosition(
       return null;
     }
 
-    return { x: parsed.x, y: parsed.y };
+    const viewportWidth =
+      typeof parsed.viewportWidth === "number" &&
+      Number.isFinite(parsed.viewportWidth) &&
+      parsed.viewportWidth > 0
+        ? parsed.viewportWidth
+        : undefined;
+    const viewportHeight =
+      typeof parsed.viewportHeight === "number" &&
+      Number.isFinite(parsed.viewportHeight) &&
+      parsed.viewportHeight > 0
+        ? parsed.viewportHeight
+        : undefined;
+
+    return {
+      x: parsed.x,
+      y: parsed.y,
+      ...(viewportWidth !== undefined && viewportHeight !== undefined
+        ? { viewportHeight, viewportWidth }
+        : {}),
+    };
   } catch {
     return null;
   }
+}
+
+function getCopilotPositionBounds(input: {
+  isOpen: boolean;
+  minBottomOffset: number;
+  minTopOffset: number;
+  viewport: CopilotViewport;
+}) {
+  const collapsedWidth = Math.min(
+    COPILOT_COLLAPSED_WIDTH,
+    Math.max(COPILOT_COLLAPSED_WIDTH, input.viewport.width - 32),
+  );
+  const expandedWidth = Math.min(
+    COPILOT_PANEL_MAX_WIDTH,
+    Math.max(320, input.viewport.width - 32),
+  );
+  const expandedHeight = Math.min(
+    672,
+    Math.max(
+      320,
+      input.viewport.height - input.minTopOffset - COPILOT_PANEL_OFFSET,
+    ),
+  );
+  const width = input.isOpen ? expandedWidth : collapsedWidth;
+  const height = input.isOpen ? expandedHeight : COPILOT_COLLAPSED_HEIGHT;
+
+  return {
+    maxX: Math.max(
+      COPILOT_PANEL_OFFSET,
+      input.viewport.width - width - COPILOT_PANEL_OFFSET,
+    ),
+    maxY: Math.max(
+      input.minTopOffset,
+      input.viewport.height -
+        height -
+        Math.max(input.minBottomOffset, COPILOT_PANEL_OFFSET),
+    ),
+    minX: COPILOT_PANEL_OFFSET,
+    minY: input.minTopOffset,
+  };
+}
+
+export function resizeCopilotPosition(input: {
+  isOpen: boolean;
+  minBottomOffset: number;
+  minTopOffset: number;
+  nextViewport: CopilotViewport;
+  position: CopilotPosition;
+  previousViewport: CopilotViewport;
+}): CopilotPosition {
+  const previousBounds = getCopilotPositionBounds({
+    isOpen: input.isOpen,
+    minBottomOffset: input.minBottomOffset,
+    minTopOffset: input.minTopOffset,
+    viewport: input.previousViewport,
+  });
+  const nextBounds = getCopilotPositionBounds({
+    isOpen: input.isOpen,
+    minBottomOffset: input.minBottomOffset,
+    minTopOffset: input.minTopOffset,
+    viewport: input.nextViewport,
+  });
+  const leftOffset = Math.max(0, input.position.x - previousBounds.minX);
+  const rightOffset = Math.max(0, previousBounds.maxX - input.position.x);
+  const topOffset = Math.max(0, input.position.y - previousBounds.minY);
+  const bottomOffset = Math.max(0, previousBounds.maxY - input.position.y);
+  const x =
+    rightOffset < leftOffset
+      ? nextBounds.maxX - rightOffset
+      : nextBounds.minX + leftOffset;
+  const y =
+    bottomOffset < topOffset
+      ? nextBounds.maxY - bottomOffset
+      : nextBounds.minY + topOffset;
+
+  return {
+    x: Math.max(nextBounds.minX, Math.min(x, nextBounds.maxX)),
+    y: Math.max(nextBounds.minY, Math.min(y, nextBounds.maxY)),
+  };
 }
 
 export function getDraggedCopilotPosition(input: {
@@ -103,7 +217,7 @@ export function getCopilotPanelDimensions(
     ),
     collapsedWidth: Math.min(
       COPILOT_COLLAPSED_WIDTH,
-      Math.max(220, window.innerWidth - 32),
+      Math.max(COPILOT_COLLAPSED_WIDTH, window.innerWidth - 32),
     ),
     collapsedHeight: COPILOT_COLLAPSED_HEIGHT,
   };

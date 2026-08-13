@@ -74,7 +74,9 @@ function hasValidPatchValues(patchGroup: ProfileCopilotPatchGroup): boolean {
       }
 
       return [operation.value.minimum, operation.value.maximum]
-        .filter((entry): entry is number => entry !== undefined && entry !== null)
+        .filter(
+          (entry): entry is number => entry !== undefined && entry !== null,
+        )
         .every((entry) => Number.isInteger(entry) && entry >= 0);
     }
 
@@ -482,6 +484,7 @@ export function createWorkspaceProfileCopilotMethods(input: {
           autoApplySafeGroups ? storedMode : "needs_review",
         );
       }),
+      executionAttribution: assistantReply.executionReceipt ?? null,
       createdAt: new Date().toISOString(),
     };
 
@@ -634,7 +637,8 @@ export function createWorkspaceProfileCopilotMethods(input: {
           const hasLegacyCompensationAmount =
             operation.value.minimumSalaryUsd !== undefined ||
             operation.value.targetSalaryUsd !== undefined;
-          const hasLegacyCurrency = operation.value.salaryCurrency !== undefined;
+          const hasLegacyCurrency =
+            operation.value.salaryCurrency !== undefined;
           const requestedCurrency = hasLegacyCurrency
             ? (operation.value.salaryCurrency?.trim().toUpperCase() ?? null)
             : hasLegacyCompensationAmount
@@ -655,7 +659,9 @@ export function createWorkspaceProfileCopilotMethods(input: {
                       ...(operation.value.targetSalaryUsd !== undefined
                         ? { maximum: operation.value.targetSalaryUsd }
                         : {}),
-                      ...(hasLegacyCompensationAmount ? { interval: "year" } : {}),
+                      ...(hasLegacyCompensationAmount
+                        ? { interval: "year" }
+                        : {}),
                       currency: requestedCurrency,
                       currencyStatus:
                         requestedCurrency === null

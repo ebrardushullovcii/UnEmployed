@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AgentTaskExecutionReceiptSchema } from "./agent-task";
 
 import { IsoDateTimeSchema, NonEmptyStringSchema } from "./base";
 import { InterviewChatConversationSchema } from "./interview-chat";
@@ -35,6 +36,7 @@ export const InterviewTranscriptSourceSchema = z.enum([
   "microphone",
   "meeting_audio",
   "meeting_native_transcript",
+  "typed_question",
 ]);
 export type InterviewTranscriptSource = z.infer<
   typeof InterviewTranscriptSourceSchema
@@ -349,6 +351,7 @@ export const InterviewCueCardSchema = z.object({
   disclosure: InterviewCueInputDisclosureSchema,
   createdAt: IsoDateTimeSchema,
   rating: z.enum(["up", "down"]).nullable().default(null),
+  executionReceipt: AgentTaskExecutionReceiptSchema.nullable().optional(),
 });
 export type InterviewCueCard = z.infer<typeof InterviewCueCardSchema>;
 
@@ -358,9 +361,7 @@ export const InterviewHealthStatusSchema = z.enum([
   "degraded",
   "failed",
 ]);
-export type InterviewHealthStatus = z.infer<
-  typeof InterviewHealthStatusSchema
->;
+export type InterviewHealthStatus = z.infer<typeof InterviewHealthStatusSchema>;
 
 export const InterviewAudioSignalStateSchema = z.enum([
   "not_checked",
@@ -423,7 +424,8 @@ export const InterviewPopupHealthSchema = z.object({
   status: InterviewHealthStatusSchema.default("unknown"),
   answerVisible: z.boolean().default(false),
   transcriptVisible: z.boolean().default(false),
-  answerProtectionState: InterviewCaptureProtectionStateSchema.default("unknown"),
+  answerProtectionState:
+    InterviewCaptureProtectionStateSchema.default("unknown"),
   transcriptProtectionState:
     InterviewCaptureProtectionStateSchema.default("unknown"),
   detail: NonEmptyStringSchema.nullable().default(null),
@@ -452,7 +454,8 @@ export const InterviewSessionHealthSchema = z.object({
   transcription: InterviewTranscriptionHealthSchema.default({}),
   cue: InterviewCueHealthSchema.default({}),
   popups: InterviewPopupHealthSchema.default({}),
-  recoverableFailure: InterviewRecoverableFailureSchema.nullable().default(null),
+  recoverableFailure:
+    InterviewRecoverableFailureSchema.nullable().default(null),
   updatedAt: IsoDateTimeSchema.nullable().default(null),
 });
 export type InterviewSessionHealth = z.infer<

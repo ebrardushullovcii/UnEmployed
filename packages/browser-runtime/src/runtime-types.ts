@@ -17,6 +17,7 @@ import type {
   JobSource,
   ApplicationResumeArtifact,
   ApplicationQuestionKind,
+  BrowserAgentRunCheckpoint,
   SourceDebugPhase,
   SharedAgentCompactionPolicy,
   SavedJob,
@@ -124,6 +125,7 @@ export interface BrowserSessionRuntime {
   executeApplicationFlow(
     source: JobSource,
     input: ExecuteApplicationFlowInput,
+    options?: BrowserApplicationExecutionOptions,
   ): Promise<ApplyExecutionResult>;
   captureVisualSnapshot?(
     source: JobSource,
@@ -135,14 +137,27 @@ export interface BrowserSessionRuntime {
   ): Promise<DiscoveryRunResult>;
 }
 
+export interface BrowserApplicationExecutionOptions {
+  signal?: AbortSignal;
+}
+
 export interface AgentDiscoveryOptions {
   userProfile: CandidateProfile;
   searchPreferences: {
     targetRoles: string[];
     locations: string[];
+    workModes?: string[];
   };
   targetJobCount: number;
   maxSteps: number;
+  runControl?: {
+    timeBudgetMs?: number;
+    noProgressStepLimit?: number;
+  };
+  resumeCheckpoint?: BrowserAgentRunCheckpoint;
+  onCheckpoint?: (
+    checkpoint: BrowserAgentRunCheckpoint,
+  ) => Promise<void> | void;
   startingUrls: string[];
   agentHints?: {
     widenReviewBudget?: boolean;

@@ -181,9 +181,14 @@ type SourceCapabilityRule = {
     suffixes?: readonly string[];
     contains?: readonly string[];
   };
-  resolve: (url: URL) => (Omit<ResolvedSourceCapability, "key" | "label" | "confidence" | "apiAvailability"> & {
-    apiAvailability?: ResolvedSourceCapability["apiAvailability"];
-  }) | null;
+  resolve: (url: URL) =>
+    | (Omit<
+        ResolvedSourceCapability,
+        "key" | "label" | "confidence" | "apiAvailability"
+      > & {
+        apiAvailability?: ResolvedSourceCapability["apiAvailability"];
+      })
+    | null;
 };
 
 const PUBLIC_API_RESPONSE_ADAPTERS = {
@@ -289,9 +294,14 @@ const SOURCE_CAPABILITY_RULES = [
       if (!boardKey) {
         return null;
       }
+      const apiHostname = url.hostname
+        .toLocaleLowerCase()
+        .endsWith(".eu.lever.co")
+        ? "api.eu.lever.co"
+        : "api.lever.co";
 
       return {
-        publicApiUrlTemplate: `https://api.lever.co/v0/postings/${boardKey}?mode=json`,
+        publicApiUrlTemplate: `https://${apiHostname}/v0/postings/${boardKey}?mode=json`,
         boardToken: null,
         boardSlug: boardKey,
         providerIdentifier: boardKey,
@@ -350,10 +360,14 @@ const SOURCE_CAPABILITY_RULES = [
       const jobSegmentIndex = pathSegments.findIndex(
         (segment) => segment.toLowerCase() === "job",
       );
-      const siteId = jobSegmentIndex > 0 ? pathSegments[jobSegmentIndex - 1] ?? null : null;
-      const jobPath = jobSegmentIndex >= 0
-        ? pathSegments.slice(jobSegmentIndex + 1).join("/")
-        : "";
+      const siteId =
+        jobSegmentIndex > 0
+          ? (pathSegments[jobSegmentIndex - 1] ?? null)
+          : null;
+      const jobPath =
+        jobSegmentIndex >= 0
+          ? pathSegments.slice(jobSegmentIndex + 1).join("/")
+          : "";
       const tenant = hostname.split(".")[0] ?? null;
       const hasExactJobApi = Boolean(tenant && siteId && jobPath);
       return {
@@ -394,14 +408,14 @@ function matchesSourceCapabilityHostname(
   const normalizedHostname = hostname.toLowerCase();
   return Boolean(
     rule.hostnames.exact?.includes(normalizedHostname) ||
-      rule.hostnames.suffixes?.some(
-        (suffix) =>
-          normalizedHostname === suffix ||
-          normalizedHostname.endsWith(`.${suffix}`),
-      ) ||
-      rule.hostnames.contains?.some((fragment) =>
-        normalizedHostname.includes(fragment),
-      ),
+    rule.hostnames.suffixes?.some(
+      (suffix) =>
+        normalizedHostname === suffix ||
+        normalizedHostname.endsWith(`.${suffix}`),
+    ) ||
+    rule.hostnames.contains?.some((fragment) =>
+      normalizedHostname.includes(fragment),
+    ),
   );
 }
 
@@ -426,8 +440,19 @@ const LISTING_ROUTE_KEYWORDS = [
   "apliko",
 ];
 
-const GENERIC_KEYWORD_QUERY_PARAM_NAMES = ["keywords", "keyword", "q", "query", "search"] as const;
-const GENERIC_LOCATION_QUERY_PARAM_NAMES = ["location", "loc", "city", "region"] as const;
+const GENERIC_KEYWORD_QUERY_PARAM_NAMES = [
+  "keywords",
+  "keyword",
+  "q",
+  "query",
+  "search",
+] as const;
+const GENERIC_LOCATION_QUERY_PARAM_NAMES = [
+  "location",
+  "loc",
+  "city",
+  "region",
+] as const;
 
 function parseOptionalString(value: unknown): { value: string } | null {
   return typeof value === "string" ? { value } : null;
@@ -455,7 +480,10 @@ function parseNullableStringOrNumber(
   return typeof value === "number" && Number.isFinite(value) ? { value } : null;
 }
 
-function getValueAtPath(value: unknown, path: readonly string[] | null): unknown {
+function getValueAtPath(
+  value: unknown,
+  path: readonly string[] | null,
+): unknown {
   if (path == null) {
     return value;
   }
@@ -500,7 +528,11 @@ function parsePublicApiRecordArray(
   }
 
   if (adapter.itemsShape === "single") {
-    if (!itemsValue || typeof itemsValue !== "object" || Array.isArray(itemsValue)) {
+    if (
+      !itemsValue ||
+      typeof itemsValue !== "object" ||
+      Array.isArray(itemsValue)
+    ) {
       throw new Error(adapter.invalidPayloadMessage);
     }
     return [itemsValue as Record<string, unknown>];
@@ -524,9 +556,13 @@ function parsePublicApiJobRecords(
   adapter: PublicApiResponseAdapter,
 ): NormalizedPublicApiJobRecord[] {
   return parsePublicApiRecordArray(value, adapter).map((record) => {
-    const sourceJobIdValue = getFirstValueAtPaths(record, adapter.fields.sourceJobId);
+    const sourceJobIdValue = getFirstValueAtPaths(
+      record,
+      adapter.fields.sourceJobId,
+    );
     const sourceJobId =
-      typeof sourceJobIdValue === "string" || typeof sourceJobIdValue === "number"
+      typeof sourceJobIdValue === "string" ||
+      typeof sourceJobIdValue === "number"
         ? String(sourceJobIdValue)
         : null;
 
@@ -544,25 +580,41 @@ function parsePublicApiJobRecords(
 
     return {
       sourceJobId,
-      title: parseOptionalString(getFirstValueAtPaths(record, adapter.fields.title))?.value ?? null,
+      title:
+        parseOptionalString(getFirstValueAtPaths(record, adapter.fields.title))
+          ?.value ?? null,
       canonicalUrl:
-        parseOptionalString(getFirstValueAtPaths(record, adapter.fields.canonicalUrl))?.value ?? null,
+        parseOptionalString(
+          getFirstValueAtPaths(record, adapter.fields.canonicalUrl),
+        )?.value ?? null,
       applicationUrl:
-        parseNullableString(getFirstValueAtPaths(record, adapter.fields.applicationUrl))?.value ?? null,
+        parseNullableString(
+          getFirstValueAtPaths(record, adapter.fields.applicationUrl),
+        )?.value ?? null,
       location:
-        parseNullableString(getFirstValueAtPaths(record, adapter.fields.location))?.value ?? null,
+        parseNullableString(
+          getFirstValueAtPaths(record, adapter.fields.location),
+        )?.value ?? null,
       description: descriptionParts.join("\n\n") || null,
       workplaceType:
         parseNullableString(
           getFirstValueAtPaths(record, adapter.fields.workplaceType),
         )?.value ?? null,
       postedAtValue:
-        parseNullableStringOrNumber(getFirstValueAtPaths(record, adapter.fields.postedAt))?.value ?? null,
+        parseNullableStringOrNumber(
+          getFirstValueAtPaths(record, adapter.fields.postedAt),
+        )?.value ?? null,
       employmentType:
-        parseNullableString(getFirstValueAtPaths(record, adapter.fields.employmentType))?.value ?? null,
+        parseNullableString(
+          getFirstValueAtPaths(record, adapter.fields.employmentType),
+        )?.value ?? null,
       department:
-        parseNullableString(getFirstValueAtPaths(record, adapter.fields.department))?.value ?? null,
-      team: parseNullableString(getFirstValueAtPaths(record, adapter.fields.team))?.value ?? null,
+        parseNullableString(
+          getFirstValueAtPaths(record, adapter.fields.department),
+        )?.value ?? null,
+      team:
+        parseNullableString(getFirstValueAtPaths(record, adapter.fields.team))
+          ?.value ?? null,
     };
   });
 }
@@ -612,7 +664,10 @@ function extractUrlsFromText(text: string): string[] {
   );
 }
 
-function extractSameHostUrls(target: JobDiscoveryTarget, lines: readonly string[]) {
+function extractSameHostUrls(
+  target: JobDiscoveryTarget,
+  lines: readonly string[],
+) {
   const anchorUrl = tryParseUrl(target.startingUrl);
   if (!anchorUrl) {
     return [] as string[];
@@ -679,7 +734,10 @@ function decodeRoutePathname(pathname: string): string {
   }
 }
 
-function isBrokenOrTemplatedRoutePath(pathname: string, search: string): boolean {
+function isBrokenOrTemplatedRoutePath(
+  pathname: string,
+  search: string,
+): boolean {
   const routeText = `${pathname}${search}`;
   return (
     /(^|\/)404($|\/)/.test(pathname) ||
@@ -702,7 +760,11 @@ function inferRouteKind(url: string): ReusableRouteKind {
     return "detail";
   }
 
-  if (pathname.includes("search") || pathname.includes("filter") || search.includes("search")) {
+  if (
+    pathname.includes("search") ||
+    pathname.includes("filter") ||
+    search.includes("search")
+  ) {
     return "search";
   }
 
@@ -720,9 +782,16 @@ function inferRouteKind(url: string): ReusableRouteKind {
 
   if (
     pathname.includes("/view/") ||
-    (["job", "jobs", "opening", "openings", "position", "positions", "role", "roles"].includes(
-      parentSegment,
-    ) &&
+    ([
+      "job",
+      "jobs",
+      "opening",
+      "openings",
+      "position",
+      "positions",
+      "role",
+      "roles",
+    ].includes(parentSegment) &&
       ![
         "search",
         "filter",
@@ -826,7 +895,11 @@ export function shouldKeepRouteForReuse(input: {
     return true;
   }
 
-  return input.kind === "search" || input.kind === "collection" || input.kind === "listing";
+  return (
+    input.kind === "search" ||
+    input.kind === "collection" ||
+    input.kind === "listing"
+  );
 }
 
 function uniqueRoutes(
@@ -867,7 +940,11 @@ function inferPreferredCollectionMethod(
     return "listing_route";
   }
 
-  if (routes.some((route) => route.kind === "listing" || route.kind === "collection")) {
+  if (
+    routes.some(
+      (route) => route.kind === "listing" || route.kind === "collection",
+    )
+  ) {
     return "careers_page";
   }
 
@@ -885,11 +962,17 @@ function inferApplyPath(
     ].join(" "),
   );
 
-  if (combinedText.includes("easy apply") || combinedText.includes("inline apply")) {
+  if (
+    combinedText.includes("easy apply") ||
+    combinedText.includes("inline apply")
+  ) {
     return "easy_apply" as const;
   }
 
-  if (combinedText.includes("redirect") || combinedText.includes("company site")) {
+  if (
+    combinedText.includes("redirect") ||
+    combinedText.includes("company site")
+  ) {
     return "external_redirect" as const;
   }
 
@@ -917,13 +1000,18 @@ export function buildSourceIntelligenceArtifact(input: {
       kind: inferRouteKind(input.target.startingUrl),
       confidence: 0.6,
     },
-    ...((input.currentArtifact?.intelligence.collection.startingRoutes ?? []).flatMap((route) => {
+    ...(
+      input.currentArtifact?.intelligence.collection.startingRoutes ?? []
+    ).flatMap((route) => {
       const normalizedUrl = canonicalizeRouteForReuse(route.url, anchorUrl);
       if (!normalizedUrl) {
         return [];
       }
 
-      const normalizedKind = resolveRouteKindForReuse(normalizedUrl, route.kind);
+      const normalizedKind = resolveRouteKindForReuse(
+        normalizedUrl,
+        route.kind,
+      );
       return shouldKeepRouteForReuse({
         url: normalizedUrl,
         kind: normalizedKind,
@@ -931,7 +1019,7 @@ export function buildSourceIntelligenceArtifact(input: {
       })
         ? [{ ...route, url: normalizedUrl, kind: normalizedKind }]
         : [];
-    })),
+    }),
     ...discoveredUrls.flatMap((url) => {
       const normalizedUrl = canonicalizeRouteForReuse(url, anchorUrl);
       if (!normalizedUrl) {
@@ -944,12 +1032,14 @@ export function buildSourceIntelligenceArtifact(input: {
         kind,
         targetStartingUrl: input.target.startingUrl,
       })
-        ? [{
-            url: normalizedUrl,
-            label: "Observed route",
-            kind,
-            confidence: 0.84,
-          }]
+        ? [
+            {
+              url: normalizedUrl,
+              label: "Observed route",
+              kind,
+              confidence: 0.84,
+            },
+          ]
         : [];
     }),
   ]);
@@ -962,7 +1052,9 @@ export function buildSourceIntelligenceArtifact(input: {
     input.currentArtifact,
   );
   const stableControlNames = uniqueStrings(
-    input.attempts.flatMap((attempt) => attempt.phaseEvidence?.visibleControls ?? []),
+    input.attempts.flatMap(
+      (attempt) => attempt.phaseEvidence?.visibleControls ?? [],
+    ),
   );
   const warnings = uniqueStrings(
     input.attempts.flatMap((attempt) => [
@@ -975,25 +1067,33 @@ export function buildSourceIntelligenceArtifact(input: {
     provider,
     collection: {
       preferredMethod,
-      rankedMethods: uniqueStrings([
-        input.currentArtifact?.intelligence.overrides.forceMethod ?? null,
-        preferredMethod,
-        provider?.apiAvailability === "available" ? "api" : null,
-        searchRouteTemplates.length > 0 ? "listing_route" : null,
-        startingRoutes.some(
-          (route) => route.kind === "listing" || route.kind === "collection",
-        )
-          ? "careers_page"
-          : null,
-        "fallback_search",
-      ].filter((value): value is JobDiscoveryCollectionMethod => value !== null)),
+      rankedMethods: uniqueStrings(
+        [
+          input.currentArtifact?.intelligence.overrides.forceMethod ?? null,
+          preferredMethod,
+          provider?.apiAvailability === "available" ? "api" : null,
+          searchRouteTemplates.length > 0 ? "listing_route" : null,
+          startingRoutes.some(
+            (route) => route.kind === "listing" || route.kind === "collection",
+          )
+            ? "careers_page"
+            : null,
+          "fallback_search",
+        ].filter(
+          (value): value is JobDiscoveryCollectionMethod => value !== null,
+        ),
+      ),
       startingRoutes,
       searchRouteTemplates,
       detailRoutePatterns:
-        input.currentArtifact?.intelligence.collection.detailRoutePatterns ?? [],
+        input.currentArtifact?.intelligence.collection.detailRoutePatterns ??
+        [],
       listingMarkers: uniqueStrings([
-        ...stableControlNames.filter((value) => /job|listing|result|card/i.test(value)),
-        ...(input.currentArtifact?.intelligence.collection.listingMarkers ?? []),
+        ...stableControlNames.filter((value) =>
+          /job|listing|result|card/i.test(value),
+        ),
+        ...(input.currentArtifact?.intelligence.collection.listingMarkers ??
+          []),
       ]),
     },
     apply: {
@@ -1008,7 +1108,9 @@ export function buildSourceIntelligenceArtifact(input: {
       ),
       questionSurfaceHints: uniqueStrings(
         input.attempts.flatMap((attempt) =>
-          attempt.confirmedFacts.filter((fact) => /question|screening/i.test(fact)),
+          attempt.confirmedFacts.filter((fact) =>
+            /question|screening/i.test(fact),
+          ),
         ),
       ),
       resumeUploadHints: uniqueStrings(
@@ -1026,7 +1128,8 @@ export function buildSourceIntelligenceArtifact(input: {
         ...(input.currentArtifact?.verification?.outcome === "passed"
           ? ["Replay verification succeeded."]
           : []),
-        ...(input.currentArtifact?.intelligence.reliability.freshnessNotes ?? []),
+        ...(input.currentArtifact?.intelligence.reliability.freshnessNotes ??
+          []),
       ]),
     },
     overrides: input.currentArtifact?.intelligence.overrides ?? {
@@ -1042,7 +1145,9 @@ export function inferSourceIntelligenceFromTarget(input: {
   currentArtifact: SourceInstructionArtifact | null;
 }): SourceIntelligenceArtifact {
   if (input.currentArtifact?.intelligence) {
-    return SourceIntelligenceArtifactSchema.parse(input.currentArtifact.intelligence);
+    return SourceIntelligenceArtifactSchema.parse(
+      input.currentArtifact.intelligence,
+    );
   }
 
   const provider = detectProvider(input.target, []);
@@ -1061,19 +1166,23 @@ export function inferSourceIntelligenceFromTarget(input: {
         [startingRoute],
         input.currentArtifact,
       ),
-      rankedMethods: uniqueStrings([
-        provider?.apiAvailability === "available" ? "api" : null,
-        startingRoute.kind === "search"
-          ? "listing_route"
-          : null,
-        startingRoute.kind === "listing" || startingRoute.kind === "collection"
-          ? "careers_page"
-          : null,
-        "careers_page",
-        "fallback_search",
-      ].filter((value): value is JobDiscoveryCollectionMethod => value !== null)),
+      rankedMethods: uniqueStrings(
+        [
+          provider?.apiAvailability === "available" ? "api" : null,
+          startingRoute.kind === "search" ? "listing_route" : null,
+          startingRoute.kind === "listing" ||
+          startingRoute.kind === "collection"
+            ? "careers_page"
+            : null,
+          "careers_page",
+          "fallback_search",
+        ].filter(
+          (value): value is JobDiscoveryCollectionMethod => value !== null,
+        ),
+      ),
       startingRoutes: [startingRoute],
-      searchRouteTemplates: startingRoute.kind === "search" ? [startingRoute] : [],
+      searchRouteTemplates:
+        startingRoute.kind === "search" ? [startingRoute] : [],
       detailRoutePatterns: [],
       listingMarkers: [],
     },
@@ -1089,7 +1198,9 @@ export function inferSourceIntelligenceFromTarget(input: {
       stableControlNames: [],
       failureFingerprints: [],
       verifiedAt: null,
-      freshnessNotes: ["Derived from the current target URL before source-debug validation."],
+      freshnessNotes: [
+        "Derived from the current target URL before source-debug validation.",
+      ],
     },
     overrides: {
       forceMethod: null,
@@ -1104,12 +1215,22 @@ export function buildDiscoveryStartingUrls(
   artifact: SourceInstructionArtifact | null,
   searchPreferences?: JobSearchPreferences | null,
 ): string[] {
+  const providerSearchRoute = buildKnownProviderDiscoverySearchUrl(
+    target,
+    searchPreferences,
+  );
+
   if (!artifact) {
-    return [target.startingUrl];
+    return uniqueStrings(
+      [providerSearchRoute, target.startingUrl].filter(
+        (value): value is string => Boolean(value),
+      ),
+    );
   }
 
   const anchorUrl = tryParseUrl(target.startingUrl);
-  const normalizeRoute = (url: string) => canonicalizeRouteForReuse(url, anchorUrl);
+  const normalizeRoute = (url: string) =>
+    canonicalizeRouteForReuse(url, anchorUrl);
   const deniedRoutes = resolveDeniedDiscoveryRoutes(artifact, anchorUrl);
   const isDeniedRoute = (url: string | null) =>
     url != null && deniedRoutes.some((deniedRoute) => deniedRoute === url);
@@ -1118,41 +1239,57 @@ export function buildDiscoveryStartingUrls(
     artifact,
     searchPreferences,
   );
-  const overrideRoutes = (artifact.intelligence.overrides.extraStartingRoutes ?? []).flatMap(
-    (route) => {
-      const normalized = normalizeRoute(route);
-      const kind = normalized ? inferRouteKind(normalized) : null;
-      return normalized && kind && shouldKeepRouteForReuse({
+  const overrideRoutes = (
+    artifact.intelligence.overrides.extraStartingRoutes ?? []
+  ).flatMap((route) => {
+    const normalized = normalizeRoute(route);
+    const kind = normalized ? inferRouteKind(normalized) : null;
+    return normalized &&
+      kind &&
+      shouldKeepRouteForReuse({
         url: normalized,
         kind,
         targetStartingUrl: target.startingUrl,
-      }) && !isDeniedRoute(normalized)
+      }) &&
+      !isDeniedRoute(normalized)
+      ? [normalized]
+      : [];
+  });
+  const searchRoutes =
+    artifact.intelligence.collection.searchRouteTemplates.flatMap((route) => {
+      const normalized = normalizeRoute(route.url);
+      const kind = normalized
+        ? resolveRouteKindForReuse(normalized, route.kind)
+        : null;
+      return normalized &&
+        kind &&
+        shouldKeepRouteForReuse({
+          url: normalized,
+          kind,
+          targetStartingUrl: target.startingUrl,
+        }) &&
+        !isDeniedRoute(normalized)
         ? [normalized]
         : [];
-    },
-  );
-  const searchRoutes = artifact.intelligence.collection.searchRouteTemplates.flatMap((route) => {
-    const normalized = normalizeRoute(route.url);
-    const kind = normalized ? resolveRouteKindForReuse(normalized, route.kind) : null;
-    return normalized && kind && shouldKeepRouteForReuse({
-      url: normalized,
-      kind,
-      targetStartingUrl: target.startingUrl,
-    }) && !isDeniedRoute(normalized)
-      ? [normalized]
-      : [];
-  });
-  const learnedStartingRoutes = artifact.intelligence.collection.startingRoutes.flatMap((route) => {
-    const normalized = normalizeRoute(route.url);
-    const kind = normalized ? resolveRouteKindForReuse(normalized, route.kind) : null;
-    return normalized && kind && shouldKeepRouteForReuse({
-      url: normalized,
-      kind,
-      targetStartingUrl: target.startingUrl,
-    }) && !isDeniedRoute(normalized) && normalized !== target.startingUrl
-      ? [normalized]
-      : [];
-  });
+    });
+  const learnedStartingRoutes =
+    artifact.intelligence.collection.startingRoutes.flatMap((route) => {
+      const normalized = normalizeRoute(route.url);
+      const kind = normalized
+        ? resolveRouteKindForReuse(normalized, route.kind)
+        : null;
+      return normalized &&
+        kind &&
+        shouldKeepRouteForReuse({
+          url: normalized,
+          kind,
+          targetStartingUrl: target.startingUrl,
+        }) &&
+        !isDeniedRoute(normalized) &&
+        normalized !== target.startingUrl
+        ? [normalized]
+        : [];
+    });
   const preferredMethod =
     artifact.intelligence.overrides.forceMethod ??
     artifact.intelligence.collection.preferredMethod;
@@ -1163,29 +1300,31 @@ export function buildDiscoveryStartingUrls(
       : [];
 
   const routes = uniqueStrings(
-    (
-      synthesizedSearchRoute && !isDeniedRoute(synthesizedSearchRoute)
+    (synthesizedSearchRoute && !isDeniedRoute(synthesizedSearchRoute)
+      ? [
+          providerSearchRoute,
+          synthesizedSearchRoute,
+          ...overrideRoutes,
+          ...searchRoutes,
+          ...learnedStartingRoutes,
+          ...startingUrlRoute,
+        ]
+      : preferredMethod === "careers_page"
         ? [
-            synthesizedSearchRoute,
+            providerSearchRoute,
+            ...overrideRoutes,
+            ...learnedStartingRoutes,
+            ...searchRoutes,
+            ...startingUrlRoute,
+          ]
+        : [
+            providerSearchRoute,
             ...overrideRoutes,
             ...searchRoutes,
             ...learnedStartingRoutes,
             ...startingUrlRoute,
           ]
-        : preferredMethod === "careers_page"
-          ? [
-              ...overrideRoutes,
-              ...learnedStartingRoutes,
-              ...searchRoutes,
-              ...startingUrlRoute,
-            ]
-          : [
-              ...overrideRoutes,
-              ...searchRoutes,
-              ...learnedStartingRoutes,
-              ...startingUrlRoute,
-            ]
-    ).filter(Boolean),
+    ).filter((value): value is string => Boolean(value)),
   );
 
   if (routes.length > 0) {
@@ -1193,6 +1332,54 @@ export function buildDiscoveryStartingUrls(
   }
 
   return startingUrlRoute;
+}
+
+function buildKnownProviderDiscoverySearchUrl(
+  target: JobDiscoveryTarget,
+  searchPreferences?: JobSearchPreferences | null,
+): string | null {
+  if (!searchPreferences) {
+    return null;
+  }
+
+  const anchorUrl = tryParseUrl(target.startingUrl);
+  if (
+    !anchorUrl ||
+    !(
+      anchorUrl.hostname.toLowerCase() === "linkedin.com" ||
+      anchorUrl.hostname.toLowerCase().endsWith(".linkedin.com")
+    )
+  ) {
+    return null;
+  }
+
+  const keyword =
+    searchPreferences.targetRoles.find((value) => value.trim().length > 0) ??
+    searchPreferences.jobFamilies.find((value) => value.trim().length > 0) ??
+    null;
+  if (!keyword) {
+    return null;
+  }
+
+  const searchUrl = new URL("/jobs/search/", anchorUrl);
+  searchUrl.searchParams.set("keywords", keyword.trim());
+  const explicitLocation =
+    searchPreferences.locations.find((value) => value.trim().length > 0) ??
+    null;
+  if (explicitLocation) {
+    searchUrl.searchParams.set("location", explicitLocation.trim());
+  } else {
+    searchUrl.searchParams.set("location", "Worldwide");
+    searchUrl.searchParams.set("geoId", "92000000");
+  }
+  if (
+    searchPreferences.workModes.length === 1 &&
+    searchPreferences.workModes[0] === "remote"
+  ) {
+    searchUrl.searchParams.set("f_WT", "2");
+  }
+
+  return canonicalizeRouteForReuse(searchUrl.toString(), anchorUrl);
 }
 
 function resolveDeniedDiscoveryRoutes(
@@ -1206,17 +1393,20 @@ function resolveDeniedDiscoveryRoutes(
     }
 
     if (normalizedValue.startsWith("/") && anchorUrl) {
-      return canonicalizeRouteForReuse(new URL(normalizedValue, anchorUrl).toString(), anchorUrl);
+      return canonicalizeRouteForReuse(
+        new URL(normalizedValue, anchorUrl).toString(),
+        anchorUrl,
+      );
     }
 
     return canonicalizeRouteForReuse(normalizedValue, anchorUrl);
   };
-  const deniedRouteOverrides = (artifact.intelligence.overrides.deniedRoutePatterns ?? []).flatMap(
-    (pattern) => {
-      const normalized = normalizeDeniedRoute(pattern);
-      return normalized ? [normalized] : [];
-    },
-  );
+  const deniedRouteOverrides = (
+    artifact.intelligence.overrides.deniedRoutePatterns ?? []
+  ).flatMap((pattern) => {
+    const normalized = normalizeDeniedRoute(pattern);
+    return normalized ? [normalized] : [];
+  });
   const deniedRouteHints = [
     ...artifact.searchGuidance,
     ...artifact.navigationGuidance,
@@ -1234,14 +1424,17 @@ function resolveDeniedDiscoveryRoutes(
     }
 
     const implicitDeniedRoutes = [
-      normalizedLine.includes("search route") || normalizedLine.includes("search endpoint")
+      normalizedLine.includes("search route") ||
+      normalizedLine.includes("search endpoint")
         ? normalizeDeniedRoute("/search")
         : null,
     ].filter((value): value is string => value !== null);
 
     const absoluteUrlMatches = line.match(/https?:\/\/[^\s)\]>",]+/gi) ?? [];
     const relativePathMatches =
-      line.match(/(?:^|[\s(])((?:\/[A-Za-z0-9._~!$&'()*+,;=:@%-]+)+(?:\/)?(?:\?[^\s)\]>",]+)?)/g) ?? [];
+      line.match(
+        /(?:^|[\s(])((?:\/[A-Za-z0-9._~!$&'()*+,;=:@%-]+)+(?:\/)?(?:\?[^\s)\]>",]+)?)/g,
+      ) ?? [];
 
     return uniqueStrings([
       ...implicitDeniedRoutes,
@@ -1300,17 +1493,18 @@ function deriveGenericSearchKeyword(
 
   const keywordTokens = normalizeText(explicitKeyword)
     .split(/\s+/)
-    .filter((token) =>
-      token.length >= 4 &&
-      ![
-        "senior",
-        "junior",
-        "lead",
-        "staff",
-        "principal",
-        "remote",
-        "hybrid",
-      ].includes(token),
+    .filter(
+      (token) =>
+        token.length >= 4 &&
+        ![
+          "senior",
+          "junior",
+          "lead",
+          "staff",
+          "principal",
+          "remote",
+          "hybrid",
+        ].includes(token),
     );
 
   return keywordTokens[0] ?? null;
@@ -1334,10 +1528,13 @@ function buildGuidedDiscoverySearchUrl(
     supportedQueryParams,
     GENERIC_LOCATION_QUERY_PARAM_NAMES,
   );
-  const keyword = keywordParam ? deriveGenericSearchKeyword(searchPreferences) : null;
+  const keyword = keywordParam
+    ? deriveGenericSearchKeyword(searchPreferences)
+    : null;
   const location =
     locationParam &&
-    (searchPreferences.locations.find((value) => value.trim().length > 0) ?? null);
+    (searchPreferences.locations.find((value) => value.trim().length > 0) ??
+      null);
 
   if (!keywordParam && !locationParam) {
     return null;
@@ -1413,7 +1610,9 @@ function findGuidedSearchQueryParamName(
   preferredNames: readonly string[],
 ): string | null {
   return (
-    preferredNames.find((paramName) => supportedQueryParams.includes(paramName)) ?? null
+    preferredNames.find((paramName) =>
+      supportedQueryParams.includes(paramName),
+    ) ?? null
   );
 }
 
@@ -1490,7 +1689,9 @@ function normalizeProviderDateTime(
     }
 
     const numericDate = new Date(value);
-    return Number.isNaN(numericDate.getTime()) ? null : numericDate.toISOString();
+    return Number.isNaN(numericDate.getTime())
+      ? null
+      : numericDate.toISOString();
   }
 
   const trimmed = value.trim();
@@ -1505,7 +1706,9 @@ function normalizeProviderDateTime(
     }
 
     const numericDate = new Date(numericValue);
-    return Number.isNaN(numericDate.getTime()) ? null : numericDate.toISOString();
+    return Number.isNaN(numericDate.getTime())
+      ? null
+      : numericDate.toISOString();
   }
 
   const parsedAt = Date.parse(trimmed);
@@ -1517,7 +1720,9 @@ function normalizeProviderDateTime(
   return Number.isNaN(parsedDate.getTime()) ? null : parsedDate.toISOString();
 }
 
-function inferWorkModes(location: string | null | undefined): JobPosting["workMode"] {
+function inferWorkModes(
+  location: string | null | undefined,
+): JobPosting["workMode"] {
   const normalized = normalizeText(location ?? "");
   if (!normalized) {
     return [];
@@ -1531,7 +1736,7 @@ function inferWorkModes(location: string | null | undefined): JobPosting["workMo
   return [];
 }
 
-const PROVIDER_API_TIMEOUT_MS = 10_000;
+const PROVIDER_API_TIMEOUT_MS = 30_000;
 const SUMMARY_MAX_LENGTH = 280;
 
 function escapeRegularExpression(value: string): string {
@@ -1565,12 +1770,18 @@ function resolveProviderCompanyLabel(input: {
 }
 
 function createProviderApiTimeoutSignal() {
-  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+  if (
+    typeof AbortSignal !== "undefined" &&
+    typeof AbortSignal.timeout === "function"
+  ) {
     return { signal: AbortSignal.timeout(PROVIDER_API_TIMEOUT_MS) };
   }
 
   const controller = new AbortController();
-  const timeoutHandle = setTimeout(() => controller.abort(), PROVIDER_API_TIMEOUT_MS);
+  const timeoutHandle = setTimeout(
+    () => controller.abort(),
+    PROVIDER_API_TIMEOUT_MS,
+  );
   return {
     signal: controller.signal,
     cleanup: () => clearTimeout(timeoutHandle),
@@ -1620,7 +1831,9 @@ function isAbortError(error: unknown): boolean {
     : error instanceof Error && error.name === "AbortError";
 }
 
-function normalizeProviderJobUrl(value: string | null | undefined): string | null {
+function normalizeProviderJobUrl(
+  value: string | null | undefined,
+): string | null {
   const parsed = tryParseUrl(value ?? "");
   if (!parsed) {
     return null;
@@ -1665,9 +1878,11 @@ function isExactProviderJobTarget(
       .filter(Boolean)
       .some((segment) => {
         const normalizedSegment = segment.toLowerCase();
-        return normalizedSegment === sourceJobId ||
+        return (
+          normalizedSegment === sourceJobId ||
           normalizedSegment.endsWith(`_${sourceJobId}`) ||
-          normalizedSegment.endsWith(`-${sourceJobId}`);
+          normalizedSegment.endsWith(`-${sourceJobId}`)
+        );
       }),
   );
 }
@@ -1687,7 +1902,10 @@ export async function collectPublicProviderJobs(input: {
   }
 
   try {
-    const responseAdapter = PUBLIC_API_RESPONSE_ADAPTERS[provider.key as keyof typeof PUBLIC_API_RESPONSE_ADAPTERS];
+    const responseAdapter =
+      PUBLIC_API_RESPONSE_ADAPTERS[
+        provider.key as keyof typeof PUBLIC_API_RESPONSE_ADAPTERS
+      ];
     if (responseAdapter && provider.publicApiUrlTemplate) {
       const timeout = createProviderApiTimeoutSignal();
       const composedSignal = composeAbortSignals(timeout.signal, input.signal);
@@ -1717,7 +1935,10 @@ export async function collectPublicProviderJobs(input: {
 
             const description = htmlToText(job.description);
             const applicationUrl = job.applicationUrl ?? job.canonicalUrl;
-            const canonicalUrl = isExactProviderJobTarget(job, input.target.startingUrl)
+            const canonicalUrl = isExactProviderJobTarget(
+              job,
+              input.target.startingUrl,
+            )
               ? input.target.startingUrl
               : job.canonicalUrl;
             const location = job.location?.trim() || "Unknown";
@@ -1788,11 +2009,9 @@ export async function collectPublicProviderJobs(input: {
 
     return {
       jobs: [],
-      warning:
-        isAbortError(error)
-          ? `Public provider API collection failed: ${provider.label} API request timed out.`
-          :
-        error instanceof Error
+      warning: isAbortError(error)
+        ? `Public provider API collection failed: ${provider.label} API request timed out.`
+        : error instanceof Error
           ? `Public provider API collection failed: ${error.message}`
           : "Public provider API collection failed.",
     };
@@ -1828,7 +2047,10 @@ export function applyDiscoveryTitleTriage(input: {
 
   if (
     searchPreferences.excludedLocations.length > 0 &&
-    matchesLocationPreference(posting.location, searchPreferences.excludedLocations)
+    matchesLocationPreference(
+      posting.location,
+      searchPreferences.excludedLocations,
+    )
   ) {
     return {
       outcome: "skip_location" as const,
@@ -1920,20 +2142,26 @@ function buildPostingEvidenceText(posting: JobPosting): string {
 
 function matchesTechnicalRoleSignal(value: string): boolean {
   const normalized = normalizeText(value);
-  return technicalRoleSignalPatterns.some((pattern) => pattern.test(normalized));
+  return technicalRoleSignalPatterns.some((pattern) =>
+    pattern.test(normalized),
+  );
 }
 
 function matchesAdjacentTechnicalRoleSignal(value: string): boolean {
   const normalized = normalizeText(value);
-  return adjacentTechnicalRoleSignalPatterns.some((pattern) => pattern.test(normalized));
+  return adjacentTechnicalRoleSignalPatterns.some((pattern) =>
+    pattern.test(normalized),
+  );
 }
 
 function collectTechnicalRoleFamilies(value: string): Set<TechnicalRoleFamily> {
   const normalized = normalizeText(value);
   return new Set(
-    (Object.entries(technicalRoleFamilyPatterns) as Array<
-      [TechnicalRoleFamily, readonly RegExp[]]
-    >).flatMap(([family, patterns]) =>
+    (
+      Object.entries(technicalRoleFamilyPatterns) as Array<
+        [TechnicalRoleFamily, readonly RegExp[]]
+      >
+    ).flatMap(([family, patterns]) =>
       patterns.some((pattern) => pattern.test(normalized)) ? [family] : [],
     ),
   );
@@ -1948,9 +2176,7 @@ function hasCompatibleTechnicalRoleFamily(
     targetRoles.flatMap((role) => [...collectTechnicalRoleFamilies(role)]),
   );
 
-  if (
-    [...candidateFamilies].some((family) => targetFamilies.has(family))
-  ) {
+  if ([...candidateFamilies].some((family) => targetFamilies.has(family))) {
     return true;
   }
 
@@ -1958,13 +2184,13 @@ function hasCompatibleTechnicalRoleFamily(
     [...candidateFamilies].some((family) =>
       productEngineeringFamilies.has(family),
     ) &&
-    [...targetFamilies].some((family) =>
-      productEngineeringFamilies.has(family),
-    )
+    [...targetFamilies].some((family) => productEngineeringFamilies.has(family))
   );
 }
 
-function hasTechnicalTargetRolePreference(searchPreferences: JobSearchPreferences): boolean {
+function hasTechnicalTargetRolePreference(
+  searchPreferences: JobSearchPreferences,
+): boolean {
   return searchPreferences.targetRoles.some(matchesTechnicalRoleSignal);
 }
 
@@ -1991,7 +2217,8 @@ function matchesTechnicalRoleFallback(input: {
     return false;
   }
 
-  const postingEvidenceText = input.postingEvidenceText ?? buildPostingEvidenceText(posting);
+  const postingEvidenceText =
+    input.postingEvidenceText ?? buildPostingEvidenceText(posting);
   if (matchesAdjacentTechnicalRoleSignal(posting.title)) {
     return hasCompatibleTechnicalRoleFamily(
       posting.title,
@@ -2001,12 +2228,12 @@ function matchesTechnicalRoleFallback(input: {
 
   return Boolean(
     posting.providerKey === null &&
-      /\bdismiss\b.{0,160}\bjob\b/iu.test(postingEvidenceText) &&
-      matchesAdjacentTechnicalRoleSignal(postingEvidenceText) &&
-      hasCompatibleTechnicalRoleFamily(
-        postingEvidenceText,
-        searchPreferences.targetRoles,
-      ),
+    /\bdismiss\b.{0,160}\bjob\b/iu.test(postingEvidenceText) &&
+    matchesAdjacentTechnicalRoleSignal(postingEvidenceText) &&
+    hasCompatibleTechnicalRoleFamily(
+      postingEvidenceText,
+      searchPreferences.targetRoles,
+    ),
   );
 }
 
@@ -2021,7 +2248,8 @@ function matchesRemoteFriendlyTechnicalLocationFallback(input: {
     return false;
   }
 
-  const postingEvidenceText = input.postingEvidenceText ?? buildPostingEvidenceText(posting);
+  const postingEvidenceText =
+    input.postingEvidenceText ?? buildPostingEvidenceText(posting);
   if (
     !matchesTechnicalRoleFallback({
       posting,
@@ -2085,7 +2313,9 @@ export function selectLowYieldTechnicalFallbackPostings(input: {
     return [];
   }
 
-  const profileSkillSignals = profile ? collectProfileSkillSignals(profile) : [];
+  const profileSkillSignals = profile
+    ? collectProfileSkillSignals(profile)
+    : [];
   const rescueLimit = Math.max(0, input.limit ?? 6);
 
   return skippedPostings
@@ -2098,8 +2328,11 @@ export function selectLowYieldTechnicalFallbackPostings(input: {
       }
 
       const postingEvidenceText = buildPostingEvidenceText(posting);
-      const titleHasTechnicalSignal = matchesAdjacentTechnicalRoleSignal(posting.title);
-      const evidenceHasTechnicalSignal = matchesAdjacentTechnicalRoleSignal(postingEvidenceText);
+      const titleHasTechnicalSignal = matchesAdjacentTechnicalRoleSignal(
+        posting.title,
+      );
+      const evidenceHasTechnicalSignal =
+        matchesAdjacentTechnicalRoleSignal(postingEvidenceText);
       const profileAlignedTechnicalRole = matchesTechnicalRoleFallback({
         posting,
         profile,
@@ -2122,10 +2355,11 @@ export function selectLowYieldTechnicalFallbackPostings(input: {
         posting.location,
         searchPreferences.locations,
       );
-      const remoteFriendlyLocation = matchesRemoteFriendlyTechnicalLocationFallback({
-        posting,
-        searchPreferences,
-      });
+      const remoteFriendlyLocation =
+        matchesRemoteFriendlyTechnicalLocationFallback({
+          posting,
+          searchPreferences,
+        });
       const titleMatched = matchesTitlePreference(
         posting.title,
         searchPreferences.targetRoles,
@@ -2185,7 +2419,10 @@ export function selectLowYieldTechnicalFallbackPostings(input: {
         },
       ];
     })
-    .sort((left, right) => right.priority - left.priority || left.index - right.index)
+    .sort(
+      (left, right) =>
+        right.priority - left.priority || left.index - right.index,
+    )
     .slice(0, rescueLimit)
     .map((entry) => entry.posting);
 }

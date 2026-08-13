@@ -1,32 +1,46 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { BrowserSessionState, ResumeApplicationMode, ResumeSourceDocument, ReviewQueueItem, SavedJob, TailoredAsset } from '@unemployed/contracts'
-import { LockedScreenLayout } from '../../components/locked-screen-layout'
-import { PageHeader } from '../../components/page-header'
-import { getDisplayedResumeProgress, getNextDisplayedResumeProgress, rememberDisplayedResumeProgress } from './review-queue-progress'
-import { ReviewQueueListPanel } from './review-queue-list-panel'
-import { ReviewQueueMissionPanel } from './review-queue-mission-panel'
-import { ReviewQueuePreviewPanel } from './review-queue-preview-panel'
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type {
+  BrowserSessionState,
+  ResumeApplicationMode,
+  ResumeSourceDocument,
+  ReviewQueueItem,
+  SavedJob,
+  TailoredAsset,
+} from "@unemployed/contracts";
+import { LockedScreenLayout } from "../../components/locked-screen-layout";
+import { PageHeader } from "../../components/page-header";
+import {
+  getDisplayedResumeProgress,
+  getNextDisplayedResumeProgress,
+  rememberDisplayedResumeProgress,
+} from "./review-queue-progress";
+import { ReviewQueueListPanel } from "./review-queue-list-panel";
+import { ReviewQueueMissionPanel } from "./review-queue-mission-panel";
+import { ReviewQueuePreviewPanel } from "./review-queue-preview-panel";
 
 export function ReviewQueueScreen(props: {
-  actionState: { message: string | null }
-  browserSession: BrowserSessionState
-  isApplyPending: boolean
-  isJobPending: (jobId: string) => boolean
-  onStartAutoApplyQueue: (jobIds: string[]) => void
-  onStartApplyCopilot: (jobId: string) => void
-  onEditResumeWorkspace: (jobId: string) => void
-  onGenerateResume: (jobId: string) => void
-  onOpenBrowserSession: () => void
-  onOpenJobDetails: (jobId: string) => void
-  onOpenProfile: () => void
-  onRemoveReviewJob: (jobId: string) => void
-  onSetJobResumeApplicationMode: (jobId: string, resumeApplicationMode: ResumeApplicationMode) => void
-  onSelectItem: (jobId: string) => void
-  originalResume: ResumeSourceDocument
-  queue: readonly ReviewQueueItem[]
-  selectedAsset: TailoredAsset | null
-  selectedItem: ReviewQueueItem | null
-  selectedJob: SavedJob | null
+  actionState: { message: string | null };
+  browserSession: BrowserSessionState;
+  isApplyPending: boolean;
+  isJobPending: (jobId: string) => boolean;
+  onStartAutoApplyQueue: (jobIds: string[]) => void;
+  onStartApplyCopilot: (jobId: string) => void;
+  onEditResumeWorkspace: (jobId: string) => void;
+  onGenerateResume: (jobId: string) => void;
+  onOpenBrowserSession: () => void;
+  onOpenJobDetails: (jobId: string) => void;
+  onOpenProfile: () => void;
+  onRemoveReviewJob: (jobId: string) => void;
+  onSetJobResumeApplicationMode: (
+    jobId: string,
+    resumeApplicationMode: ResumeApplicationMode,
+  ) => void;
+  onSelectItem: (jobId: string) => void;
+  originalResume: ResumeSourceDocument;
+  queue: readonly ReviewQueueItem[];
+  selectedAsset: TailoredAsset | null;
+  selectedItem: ReviewQueueItem | null;
+  selectedJob: SavedJob | null;
 }) {
   const {
     actionState,
@@ -47,56 +61,86 @@ export function ReviewQueueScreen(props: {
     queue,
     selectedAsset,
     selectedItem,
-    selectedJob
-  } = props
+    selectedJob,
+  } = props;
   const previewState =
-    selectedItem && selectedItem.resumeApplicationMode !== 'original_resume' && !selectedAsset && selectedItem.assetStatus === 'ready' ? 'missing' : null
-  const [queueSelection, setQueueSelection] = useState<readonly string[]>([])
-  const selectedJobPending = selectedItem ? isJobPending(selectedItem.jobId) : false
-  const [displayedProgress, setDisplayedProgress] = useState(() => getDisplayedResumeProgress(selectedItem, selectedJobPending))
-  const queueJobIds = useMemo(() => queue.map((item) => item.jobId), [queue])
+    selectedItem &&
+    selectedItem.resumeApplicationMode !== "original_resume" &&
+    !selectedAsset &&
+    selectedItem.assetStatus === "ready"
+      ? "missing"
+      : null;
+  const [queueSelection, setQueueSelection] = useState<readonly string[]>([]);
+  const selectedJobPending = selectedItem
+    ? isJobPending(selectedItem.jobId)
+    : false;
+  const [displayedProgress, setDisplayedProgress] = useState(() =>
+    getDisplayedResumeProgress(selectedItem, selectedJobPending),
+  );
+  const actionMessageScopeRef = useRef<{
+    jobId: string | null;
+    message: string | null;
+  }>({ jobId: selectedItem?.jobId ?? null, message: actionState.message });
+  if (actionMessageScopeRef.current.message !== actionState.message) {
+    actionMessageScopeRef.current = {
+      jobId: selectedItem?.jobId ?? null,
+      message: actionState.message,
+    };
+  }
+  const scopedActionMessage =
+    actionMessageScopeRef.current.jobId === (selectedItem?.jobId ?? null)
+      ? actionState.message
+      : null;
+  const queueJobIds = useMemo(() => queue.map((item) => item.jobId), [queue]);
 
   useEffect(() => {
-    setDisplayedProgress(getDisplayedResumeProgress(selectedItem, selectedJobPending))
-  }, [selectedItem, selectedJobPending])
+    setDisplayedProgress(
+      getDisplayedResumeProgress(selectedItem, selectedJobPending),
+    );
+  }, [selectedItem, selectedJobPending]);
 
   useEffect(() => {
     if (!selectedJobPending) {
-      return
+      return;
     }
 
     const timer = window.setInterval(() => {
       setDisplayedProgress((current) => {
-        const nextProgress = getNextDisplayedResumeProgress(current)
-        rememberDisplayedResumeProgress(selectedItem, nextProgress)
+        const nextProgress = getNextDisplayedResumeProgress(current);
+        rememberDisplayedResumeProgress(selectedItem, nextProgress);
 
-        return nextProgress
-      })
-    }, 650)
+        return nextProgress;
+      });
+    }, 650);
 
-    return () => window.clearInterval(timer)
-  }, [selectedItem, selectedJobPending])
+    return () => window.clearInterval(timer);
+  }, [selectedItem, selectedJobPending]);
 
   useEffect(() => {
     setQueueSelection((current) => {
-      const nextSelection = current.filter((jobId) => queueJobIds.includes(jobId))
+      const nextSelection = current.filter((jobId) =>
+        queueJobIds.includes(jobId),
+      );
 
-      return nextSelection.length === current.length ? current : nextSelection
-    })
-  }, [queueJobIds])
+      return nextSelection.length === current.length ? current : nextSelection;
+    });
+  }, [queueJobIds]);
 
-  const handleToggleQueueSelection = useCallback((jobId: string, checked: boolean) => {
-    setQueueSelection((current) => {
-      if (checked) {
-        return current.includes(jobId) ? current : [...current, jobId]
-      }
+  const handleToggleQueueSelection = useCallback(
+    (jobId: string, checked: boolean) => {
+      setQueueSelection((current) => {
+        if (checked) {
+          return current.includes(jobId) ? current : [...current, jobId];
+        }
 
-      return current.filter((entry) => entry !== jobId)
-    })
-  }, [])
+        return current.filter((entry) => entry !== jobId);
+      });
+    },
+    [],
+  );
   const handleClearQueueSelection = useCallback(() => {
-    setQueueSelection([])
-  }, [])
+    setQueueSelection([]);
+  }, []);
 
   return (
     <LockedScreenLayout
@@ -108,9 +152,9 @@ export function ReviewQueueScreen(props: {
           eyebrow="Shortlisted"
           title="Shortlisted jobs"
           description={
-            selectedItem?.resumeApplicationMode === 'original_resume'
-              ? 'Review the original CV you imported, then choose whether Apply Copilot should use it unchanged.'
-              : 'Review each saved job, approve its PDF, and start Apply Copilot when you are ready.'
+            selectedItem?.resumeApplicationMode === "original_resume"
+              ? "Review the original CV you imported, then choose whether Apply Copilot should use it unchanged."
+              : "Review each saved job, approve its PDF, and start Apply Copilot when you are ready."
           }
         />
       }
@@ -137,7 +181,7 @@ export function ReviewQueueScreen(props: {
           selectedJob={selectedJob}
         />
         <ReviewQueueMissionPanel
-          actionMessage={actionState.message}
+          actionMessage={scopedActionMessage}
           browserSession={browserSession}
           displayedProgress={displayedProgress}
           isApplyPending={isApplyPending}
@@ -160,5 +204,5 @@ export function ReviewQueueScreen(props: {
         />
       </div>
     </LockedScreenLayout>
-  )
+  );
 }

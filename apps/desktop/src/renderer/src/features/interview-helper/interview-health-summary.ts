@@ -28,8 +28,10 @@ function signalFromAudio(
   if (detail.toLowerCase().includes("signal detected")) {
     return { signal: "detected" as const, peakLevel };
   }
-  if (detail.toLowerCase().includes("no input signal") ||
-      detail.toLowerCase().includes("no system audio signal")) {
+  if (
+    detail.toLowerCase().includes("no input signal") ||
+    detail.toLowerCase().includes("no system audio signal")
+  ) {
     return { signal: "quiet" as const, peakLevel };
   }
   if (probe === "failed" || recorder === "failed") {
@@ -43,16 +45,22 @@ function signalFromAudio(
   if (probe === "unavailable") {
     return { signal: "unavailable" as const, peakLevel: null };
   }
-  if (probe === "checking" || recorder === "starting" || recorder === "recording") {
+  if (
+    probe === "checking" ||
+    recorder === "starting" ||
+    recorder === "recording"
+  ) {
     return { signal: "detecting" as const, peakLevel: null };
   }
   return { signal: "not_checked" as const, peakLevel: null };
 }
 
 function latestRecoverableDiagnostic(workspace: InterviewWorkspaceSnapshot) {
-  return [...(workspace.activeSession?.diagnostics ?? [])]
-    .reverse()
-    .find((event) => event.severity !== "info") ?? null;
+  return (
+    [...(workspace.activeSession?.diagnostics ?? [])]
+      .reverse()
+      .find((event) => event.severity !== "info") ?? null
+  );
 }
 
 function activeAudioDetail(
@@ -137,6 +145,9 @@ export function deriveInterviewHealthSummary(input: {
   workspace: InterviewWorkspaceSnapshot;
 }) {
   const session = input.workspace.activeSession;
+  const microphoneEnabled = input.workspace.setup.consent.microphoneCapture;
+  const systemAudioEnabled = input.workspace.setup.consent.meetingAudioCapture;
+  const audioCaptureEnabled = microphoneEnabled || systemAudioEnabled;
   const rehearsal = input.workspace.setup.rehearsal;
   const microphoneDetail = activeAudioDetail(
     input.microphoneDetail,
@@ -190,8 +201,22 @@ export function deriveInterviewHealthSummary(input: {
   const popupHealthy =
     input.workspace.answerOverlay.visible &&
     input.workspace.transcriptOverlay.visible;
-  const diagnostic = latestRecoverableDiagnostic(input.workspace);
-  const localFailure = localCaptureFailure(input);
+  const rawDiagnostic = latestRecoverableDiagnostic(input.workspace);
+  const diagnostic =
+    !audioCaptureEnabled && rawDiagnostic?.kind === "capability"
+      ? null
+      : rawDiagnostic;
+  const localFailure = localCaptureFailure({
+    ...input,
+    microphoneStatus: microphoneEnabled ? input.microphoneStatus : "idle",
+    microphoneRecorderStatus: microphoneEnabled
+      ? input.microphoneRecorderStatus
+      : "idle",
+    systemStatus: systemAudioEnabled ? input.systemStatus : "idle",
+    systemRecorderStatus: systemAudioEnabled
+      ? input.systemRecorderStatus
+      : "idle",
+  });
   const recoverableFailure = localFailure
     ? {
         ...localFailure,
@@ -199,12 +224,14 @@ export function deriveInterviewHealthSummary(input: {
       }
     : diagnostic
       ? {
-          kind: diagnostic.kind === "provider"
-            ? ("provider" as const)
-            : ("transcription" as const),
-          source: diagnostic.kind === "cue"
-            ? ("cue" as const)
-            : ("transcription" as const),
+          kind:
+            diagnostic.kind === "provider"
+              ? ("provider" as const)
+              : ("transcription" as const),
+          source:
+            diagnostic.kind === "cue"
+              ? ("cue" as const)
+              : ("transcription" as const),
           message: diagnostic.detail ?? diagnostic.label,
           recoveryAction:
             diagnostic.kind === "provider"
@@ -216,36 +243,47 @@ export function deriveInterviewHealthSummary(input: {
 
   const summary = InterviewSessionHealthSchema.parse({
     microphone: {
-      status: statusFromAudio(
-        input.microphoneStatus,
-        input.microphoneRecorderStatus,
-      ),
-      ...microphoneSignal,
-      detail: microphoneDetail,
+      status: microphoneEnabled
+        ? statusFromAudio(
+            input.microphoneStatus,
+            input.microphoneRecorderStatus,
+          )
+        : "unknown",
+      ...(microphoneEnabled
+        ? microphoneSignal
+        : { signal: "not_checked" as const, peakLevel: null }),
+      detail: microphoneEnabled ? microphoneDetail : "Off by choice.",
       updatedAt: input.workspace.generatedAt,
     },
     systemAudio: {
-      status: statusFromAudio(input.systemStatus, input.systemRecorderStatus),
-      ...systemSignal,
-      detail: systemAudioDetail,
+      status: systemAudioEnabled
+        ? statusFromAudio(input.systemStatus, input.systemRecorderStatus)
+        : "unknown",
+      ...(systemAudioEnabled
+        ? systemSignal
+        : { signal: "not_checked" as const, peakLevel: null }),
+      detail: systemAudioEnabled ? systemAudioDetail : "Off by choice.",
       updatedAt: input.workspace.generatedAt,
     },
     transcription: {
-      status: !providerReady
-        ? "failed"
-        : input.queue.pending >= input.queue.maxPending
-          ? "degraded"
-          : "healthy",
-      providerLabel:
-        engines.map((engine) => engine.label).join(" / ") || null,
+      status: !audioCaptureEnabled
+        ? "healthy"
+        : !providerReady
+          ? "failed"
+          : input.queue.pending >= input.queue.maxPending
+            ? "degraded"
+            : "healthy",
+      providerLabel: engines.map((engine) => engine.label).join(" / ") || null,
       providerReady,
       fallbackActive: transcriptionFallback,
       backlog: input.queue,
-      detail: !providerReady
-        ? "No configured transcription path is ready. Manual transcript input remains available."
-        : input.queue.pending > 0
-          ? "Audio chunks are waiting for transcription."
-          : "Transcription is ready with no queued chunks.",
+      detail: !audioCaptureEnabled
+        ? "Text-only mode is ready. Audio transcription is off by choice."
+        : !providerReady
+          ? "No configured transcription path is ready. Manual transcript input remains available."
+          : input.queue.pending > 0
+            ? "Audio chunks are waiting for transcription."
+            : "Transcription is ready with no queued chunks.",
       updatedAt: input.workspace.generatedAt,
     },
     cue: {
@@ -283,8 +321,8 @@ export function deriveInterviewHealthSummary(input: {
     updatedAt: input.workspace.generatedAt,
   });
   const statuses = [
-    summary.microphone.status,
-    summary.systemAudio.status,
+    ...(microphoneEnabled ? [summary.microphone.status] : []),
+    ...(systemAudioEnabled ? [summary.systemAudio.status] : []),
     summary.transcription.status,
     summary.cue.status,
     summary.popups.status,

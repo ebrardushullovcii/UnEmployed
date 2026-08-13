@@ -10,6 +10,7 @@ const EvidenceReferenceListSchema = z
 const EvidenceLinkedTextSchema = z.object({
   text: z.string().trim().min(1).max(1_000),
   evidenceRefs: EvidenceReferenceListSchema,
+  inferred: z.boolean().optional(),
 });
 
 export type ResumeGenerationInput = CreateResumeDraftInput | TailorResumeInput;
@@ -31,12 +32,14 @@ export interface ResumeGenerationEvidenceItem {
 export interface ParsedEvidenceLinkedText {
   text: string;
   evidenceRefs: string[];
+  inferred: boolean;
 }
 
 export interface ResumeRewriteSelection {
   text: string;
   kind: "canonical" | "grounded_rewrite";
   referencedEvidenceText: string[];
+  inferred: boolean;
 }
 
 const RESUME_STOP_WORDS = new Set([
@@ -86,6 +89,8 @@ const RESUME_TOKEN_SYNONYMS = new Map<string, string>(
 const UNSUPPORTED_ABSOLUTE_CLAIM_PATTERN =
   /\b(?:best[- ]in[- ]class|industry[- ]leading|unparalleled|visionary|world[- ]class|guaranteed|mastered every|expert in every)\b/i;
 const FIRST_PERSON_PATTERN = /\b(?:i|me|my|mine|we|our|ours)\b/i;
+const LEADERSHIP_CLAIM_PATTERN =
+  /\b(?:lead(?!\s+time)|led|leads|leading|manage|manages|managed|managing|direct|directs|directed|directing|own|owns|owned|supervise|supervises|supervised|supervising|oversee|oversees|oversaw|head|heads|headed|mentor|mentors|mentored|mentoring)\b/i;
 const NUMBER_OR_METRIC_PATTERN =
   /(?:[$€£]\s*)?\d+(?:[.,]\d+)*(?:\s*(?:%|x|k|m|b|million|billion|thousand))?/gi;
 
@@ -227,6 +232,25 @@ export function buildResumeGenerationEvidenceCatalog(
   input.profile.narrative.differentiators.forEach((text, index) => {
     addProfileEvidence(`profile:narrative:differentiator:${index}`, text);
   });
+  addProfileEvidence(
+    "profile:skills",
+    input.profile.skills.length > 0 ? input.profile.skills.join(", ") : null,
+  );
+  for (const [group, skills] of [
+    ["coreSkills", input.profile.skillGroups.coreSkills],
+    ["tools", input.profile.skillGroups.tools],
+    [
+      "languagesAndFrameworks",
+      input.profile.skillGroups.languagesAndFrameworks,
+    ],
+    ["softSkills", input.profile.skillGroups.softSkills],
+    ["highlightedSkills", input.profile.skillGroups.highlightedSkills],
+  ] as const) {
+    addProfileEvidence(
+      `profile:skillGroup:${group}`,
+      skills.length > 0 ? skills.join(", ") : null,
+    );
+  }
 
   input.profile.experiences.forEach((experience) => {
     pushEvidenceItem(items, seenIds, {
@@ -243,6 +267,21 @@ export function buildResumeGenerationEvidenceCatalog(
         profileRecordId: experience.id,
       });
     });
+    pushEvidenceItem(items, seenIds, {
+      id: `experience:${experience.id}:skills`,
+      text: experience.skills.length > 0 ? experience.skills.join(", ") : null,
+      scope: "experience",
+      profileRecordId: experience.id,
+    });
+    pushEvidenceItem(items, seenIds, {
+      id: `experience:${experience.id}:domainTags`,
+      text:
+        experience.domainTags.length > 0
+          ? experience.domainTags.join(", ")
+          : null,
+      scope: "experience",
+      profileRecordId: experience.id,
+    });
   });
 
   input.profile.projects.forEach((project) => {
@@ -255,6 +294,18 @@ export function buildResumeGenerationEvidenceCatalog(
     pushEvidenceItem(items, seenIds, {
       id: `project:${project.id}:outcome`,
       text: project.outcome,
+      scope: "project",
+      profileRecordId: project.id,
+    });
+    pushEvidenceItem(items, seenIds, {
+      id: `project:${project.id}:skills`,
+      text: project.skills.length > 0 ? project.skills.join(", ") : null,
+      scope: "project",
+      profileRecordId: project.id,
+    });
+    pushEvidenceItem(items, seenIds, {
+      id: `project:${project.id}:projectType`,
+      text: project.projectType,
       scope: "project",
       profileRecordId: project.id,
     });
@@ -288,6 +339,17 @@ export function buildResumeGenerationEvidenceCatalog(
           scope: "import_evidence",
           profileRecordId: null,
         });
+      });
+    }
+    for (const field of ["skills", "keywords"] as const) {
+      pushEvidenceItem(items, seenIds, {
+        id: `importEvidence:${field}`,
+        text:
+          input.evidence[field].length > 0
+            ? input.evidence[field].join(", ")
+            : null,
+        scope: "import_evidence",
+        profileRecordId: null,
       });
     }
   }
@@ -328,6 +390,7 @@ export function parseEvidenceLinkedText(
     return {
       text: structured.data.text,
       evidenceRefs: Array.from(new Set(structured.data.evidenceRefs)),
+      inferred: structured.data.inferred === true,
     };
   }
 
@@ -344,6 +407,7 @@ export function parseEvidenceLinkedText(
     evidenceRefs: parsedRefs.success
       ? Array.from(new Set(parsedRefs.data))
       : [],
+    inferred: false,
   };
 }
 
@@ -352,6 +416,7 @@ function isRewriteGrounded(input: {
   evidence: readonly ResumeGenerationEvidenceItem[];
   jobCompany: string;
   jobSkills: readonly string[];
+  allowReasonableInference: boolean;
 }): boolean {
   const trimmed = input.text.trim();
   if (
@@ -367,6 +432,20 @@ function isRewriteGrounded(input: {
   const evidenceMetrics = new Set(normalizedMetrics(evidenceText));
   if (
     normalizedMetrics(trimmed).some((metric) => !evidenceMetrics.has(metric))
+  ) {
+    return false;
+  }
+
+  // Named words are capitalized tokens that are not plain sentence starts:
+  // technologies, frameworks, tools, services, products, employers, and other
+  // proper nouns. They must come from the cited evidence in every mode. This
+  // keeps aggressive elaboration safe: the model may invent plain-language
+  // work details, but never a named technology, product, or company.
+  const evidenceLowercaseText = evidenceText.toLowerCase();
+  if (
+    capitalizedNamedWords(trimmed).some(
+      (word) => !evidenceLowercaseText.includes(word),
+    )
   ) {
     return false;
   }
@@ -391,9 +470,9 @@ function isRewriteGrounded(input: {
     (token) => !evidenceTokens.has(token),
   );
   const matchedTokens = generatedTokens.length - unmatchedTokens.length;
-  const leadershipClaimToken = RESUME_TOKEN_SYNONYMS.get("lead") ?? "lead";
   if (
-    unmatchedTokens.includes(leadershipClaimToken) ||
+    (LEADERSHIP_CLAIM_PATTERN.test(trimmed) &&
+      !LEADERSHIP_CLAIM_PATTERN.test(evidenceText)) ||
     (/\b(?:certified|licensed|fluent|native proficiency|subject[- ]matter expert)\b/i.test(
       trimmed,
     ) &&
@@ -404,10 +483,40 @@ function isRewriteGrounded(input: {
     return false;
   }
 
-  return (
-    matchedTokens >= Math.min(2, generatedTokens.length) &&
-    unmatchedTokens.length === 0
-  );
+  if (matchedTokens < Math.min(2, generatedTokens.length)) {
+    return false;
+  }
+
+  if (!input.allowReasonableInference) {
+    return unmatchedTokens.length === 0;
+  }
+
+  // Aggressive tailoring may elaborate beyond the cited wording. Every
+  // concrete anchor is already protected above: numbers and metrics, named
+  // technologies and products, job-only skills, leadership claims, and
+  // credentials must all come from the cited evidence. The unmatched
+  // remainder is plain-language elaboration (features, implementation
+  // approaches, effects), which the user reviews before approving the
+  // resume, so no proportional cap applies in aggressive mode.
+  return true;
+}
+
+function capitalizedNamedWords(value: string): string[] {
+  const matches = Array.from(value.matchAll(/[A-Za-z][A-Za-z0-9+#.%-]*/g));
+  const named: string[] = [];
+  matches.forEach((match, index) => {
+    const word = match[0];
+    if (!/^[A-Z]/.test(word)) {
+      return;
+    }
+    const prefix = value.slice(0, match.index ?? 0);
+    const trimmedPrefix = prefix.trimEnd();
+    if (index === 0 || /[.!?:;\n\u2013\u2014]\s*$/.test(trimmedPrefix)) {
+      return;
+    }
+    named.push(word.toLowerCase());
+  });
+  return named;
 }
 
 export function selectResumeRewrite(input: {
@@ -423,6 +532,7 @@ export function selectResumeRewrite(input: {
     | undefined;
   jobCompany: string;
   jobSkills: readonly string[];
+  allowReasonableInference?: boolean;
 }): ResumeRewriteSelection | null {
   const parsed = parseEvidenceLinkedText(
     input.generated,
@@ -441,6 +551,7 @@ export function selectResumeRewrite(input: {
       text: canonical,
       kind: "canonical",
       referencedEvidenceText: [canonical],
+      inferred: false,
     };
   }
 
@@ -459,15 +570,21 @@ export function selectResumeRewrite(input: {
     return null;
   }
 
-  if (
-    input.allowedScope &&
-    referencedEvidence.some(
-      (item) =>
-        item.scope !== input.allowedScope?.scope ||
-        item.profileRecordId !== input.allowedScope.profileRecordId,
-    )
-  ) {
-    return null;
+  if (input.allowedScope) {
+    const supplementScopes = input.allowReasonableInference
+      ? new Set<ResumeGenerationEvidenceScope>(["profile", "import_evidence"])
+      : null;
+    const outOfScope = referencedEvidence.some((item) => {
+      const matchesRecord =
+        item.scope === input.allowedScope!.scope &&
+        item.profileRecordId === input.allowedScope!.profileRecordId;
+      const supplementsScope =
+        supplementScopes !== null && supplementScopes.has(item.scope);
+      return !matchesRecord && !supplementsScope;
+    });
+    if (outOfScope) {
+      return null;
+    }
   }
 
   if (
@@ -476,6 +593,7 @@ export function selectResumeRewrite(input: {
       evidence: referencedEvidence,
       jobCompany: input.jobCompany,
       jobSkills: input.jobSkills,
+      allowReasonableInference: input.allowReasonableInference ?? false,
     })
   ) {
     return null;
@@ -485,5 +603,6 @@ export function selectResumeRewrite(input: {
     text: parsed.text.trim(),
     kind: "grounded_rewrite",
     referencedEvidenceText: referencedEvidence.map((item) => item.text),
+    inferred: parsed.inferred,
   };
 }

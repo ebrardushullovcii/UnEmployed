@@ -1220,7 +1220,7 @@ export function createMatchAssessment<
   );
   const compensationFit = evaluateCompensationFit(
     posting.salaryText,
-    searchPreferences.minimumSalaryUsd,
+    searchPreferences.compensation,
   );
   const isPreferredCompany = searchPreferences.companyWhitelist.some(
     (company) => normalizeText(company) === normalizeText(posting.company),
@@ -1586,8 +1586,7 @@ export function mergeDiscoveredJob(
     matchAssessment,
     discoveryFeedback: existingJob?.discoveryFeedback ?? null,
     resumeApplicationMode: existingJob?.resumeApplicationMode ?? null,
-    latestMatchAssessmentAudit:
-      existingJob?.latestMatchAssessmentAudit ?? null,
+    latestMatchAssessmentAudit: existingJob?.latestMatchAssessmentAudit ?? null,
   });
 }
 

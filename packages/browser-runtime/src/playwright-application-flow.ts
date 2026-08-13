@@ -2857,6 +2857,7 @@ export async function runGenericApplicationPreparation(input: {
   context: BrowserContext;
   page: Page;
   executionInput: ExecuteApplicationFlowInput;
+  signal?: AbortSignal;
   startedAt: string;
 }): Promise<ApplyExecutionResult> {
   const { executionInput, startedAt } = input;
@@ -2969,6 +2970,7 @@ export async function runGenericApplicationPreparation(input: {
   };
 
   for (let step = 0; step < MAX_APPLICATION_PREPARATION_STEPS; step += 1) {
+    input.signal?.throwIfAborted();
     try {
       const guard = await ensurePrepareOnlyMutationGuard(
         currentPage,
@@ -3094,6 +3096,7 @@ export async function runGenericApplicationPreparation(input: {
     const filledControlSignatures = new Set<string>();
     const mismatchedQuestions: ApplicationAttemptQuestion[] = [];
     for (const control of inspection.controls) {
+      input.signal?.throwIfAborted();
       const resumeUploadControl = isResumeUploadControl(control);
       if (
         (!control.visible && !resumeUploadControl) ||
@@ -3294,11 +3297,11 @@ export async function runGenericApplicationPreparation(input: {
               ? ("resume_attachment" as const)
               : control.inputType === "file"
                 ? ("application_answer" as const)
-              : ["personal_info", "location", "portfolio"].includes(
-                    question.kind,
-                  )
-                ? ("profile_field" as const)
-                : ("application_answer" as const);
+                : ["personal_info", "location", "portfolio"].includes(
+                      question.kind,
+                    )
+                  ? ("profile_field" as const)
+                  : ("application_answer" as const);
           if (
             !externalWrites.some(
               (entry) =>

@@ -355,6 +355,7 @@ export const ResumeVisionExtractionResultSchema = z.object({
   notes: z.array(NonEmptyStringSchema).default([]),
   warnings: z.array(NonEmptyStringSchema).default([]),
   primaryErrorMessage: NonEmptyStringSchema.nullable().default(null),
+  fallbackUsed: z.boolean().optional(),
 });
 export type ResumeVisionExtractionResult = z.infer<
   typeof ResumeVisionExtractionResultSchema

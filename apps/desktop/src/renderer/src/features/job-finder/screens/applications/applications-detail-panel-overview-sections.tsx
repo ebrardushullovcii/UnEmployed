@@ -11,6 +11,7 @@ import {
 } from "@renderer/features/job-finder/lib/job-finder-utils";
 import { StatusBadge } from "../../components/status-badge";
 import {
+  applyResultNeedsResumeAttachment,
   formatVisibleRunId,
   getCustomerFacingApplyText,
 } from "./applications-detail-panel-helpers";
@@ -23,19 +24,31 @@ import {
 export function ApplicationsDetailPanelOverviewSections(props: {
   selectedAttempt: ApplicationAttempt | null;
   selectedRecord: ApplicationRecord;
-  visibleApplyResult: JobFinderWorkspaceSnapshot["applyJobResults"][number] | null;
+  visibleApplyResult:
+    | JobFinderWorkspaceSnapshot["applyJobResults"][number]
+    | null;
   visibleApplyRunId: string | null;
 }) {
-  const { selectedAttempt, selectedRecord, visibleApplyResult, visibleApplyRunId } = props;
+  const {
+    selectedAttempt,
+    selectedRecord,
+    visibleApplyResult,
+    visibleApplyRunId,
+  } = props;
   const highlightedNextStep =
     selectedAttempt?.nextActionLabel ?? selectedRecord.nextActionLabel ?? null;
-  const readableHighlightedNextStep =
-    getApplicationReadableNextStepLabel(highlightedNextStep) ?? highlightedNextStep;
+  const needsResumeAttachment =
+    applyResultNeedsResumeAttachment(visibleApplyResult);
+  const readableHighlightedNextStep = needsResumeAttachment
+    ? "The approved CV is prepared but was not attached. Approve and retry the CV attachment before reviewing the final form."
+    : (getApplicationReadableNextStepLabel(highlightedNextStep) ??
+      highlightedNextStep);
   const attemptSummary = getCustomerFacingApplyText(selectedAttempt?.summary);
   const attemptDetail = getCustomerFacingApplyText(selectedAttempt?.detail);
   const savedNextStepLabel = getApplicationNextStepLabel(selectedRecord);
   const readableSavedNextStepLabel =
-    getApplicationReadableNextStepLabel(savedNextStepLabel) ?? savedNextStepLabel;
+    getApplicationReadableNextStepLabel(savedNextStepLabel) ??
+    savedNextStepLabel;
   const selectedStage = getApplicationStagePresentation(selectedRecord);
 
   return (
@@ -54,7 +67,9 @@ export function ApplicationsDetailPanelOverviewSections(props: {
           <strong className="block max-w-full whitespace-normal break-words text-(length:--text-body) leading-7 text-(--text-headline)">
             {readableHighlightedNextStep}
           </strong>
-          {readableHighlightedNextStep !== highlightedNextStep && highlightedNextStep ? (
+          {!needsResumeAttachment &&
+          readableHighlightedNextStep !== highlightedNextStep &&
+          highlightedNextStep ? (
             <p className="text-(length:--text-small) leading-6 text-foreground-soft">
               Saved follow-up: {highlightedNextStep}
             </p>
@@ -99,7 +114,9 @@ export function ApplicationsDetailPanelOverviewSections(props: {
         <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
           <span className="card-heading-sm">Stage</span>
           <div className="mt-2">
-            <StatusBadge tone={selectedStage.tone}>{selectedStage.label}</StatusBadge>
+            <StatusBadge tone={selectedStage.tone}>
+              {selectedStage.label}
+            </StatusBadge>
           </div>
           {selectedRecord.lastActionLabel ? (
             <p className="mt-3 text-(length:--text-small) leading-6 text-foreground-soft">
@@ -112,7 +129,8 @@ export function ApplicationsDetailPanelOverviewSections(props: {
           <strong className="mt-2 block max-w-full whitespace-normal break-words text-(length:--text-field) font-semibold leading-6 text-foreground">
             {readableSavedNextStepLabel ?? "No saved next step"}
           </strong>
-          {readableSavedNextStepLabel !== savedNextStepLabel && savedNextStepLabel ? (
+          {readableSavedNextStepLabel !== savedNextStepLabel &&
+          savedNextStepLabel ? (
             <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">
               {savedNextStepLabel}
             </p>
@@ -166,7 +184,8 @@ export function ApplicationsDetailPanelOverviewSections(props: {
           </p>
           {selectedRecord.replaySummary.evidenceCount > 0 ? (
             <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">
-              {selectedRecord.replaySummary.evidenceCount} retained evidence item
+              {selectedRecord.replaySummary.evidenceCount} retained evidence
+              item
               {selectedRecord.replaySummary.evidenceCount === 1 ? "" : "s"}
             </p>
           ) : null}
@@ -188,7 +207,10 @@ export function ApplicationsDetailPanelOverviewSections(props: {
             {visibleApplyResult.visualCheckpoints.length ? (
               <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">
                 {visibleApplyResult.visualCheckpoints.length} visual checkpoint
-                {visibleApplyResult.visualCheckpoints.length === 1 ? "" : "s"} saved for review
+                {visibleApplyResult.visualCheckpoints.length === 1
+                  ? ""
+                  : "s"}{" "}
+                saved for review
               </p>
             ) : null}
             {visibleApplyResult.blockerSummary ? (
@@ -197,7 +219,10 @@ export function ApplicationsDetailPanelOverviewSections(props: {
               </p>
             ) : null}
             <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">
-              Run {formatVisibleRunId(visibleApplyRunId ?? visibleApplyResult.runId)}
+              Run{" "}
+              {formatVisibleRunId(
+                visibleApplyRunId ?? visibleApplyResult.runId,
+              )}
             </p>
           </div>
         ) : null}

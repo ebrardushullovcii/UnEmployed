@@ -30,6 +30,7 @@ describe("ResumeWorkspaceStudioShell", () => {
         canApproveCurrentPdf={false}
         canClearApproval={false}
         editorPanel={<div>Editor</div>}
+        exportBlockedReason={null}
         hasUnsavedChanges={false}
         historyPanel={<div>History</div>}
         isWorkspacePending={false}
@@ -38,6 +39,7 @@ describe("ResumeWorkspaceStudioShell", () => {
         onClearApproval={vi.fn()}
         onContinueToShortlisted={vi.fn()}
         onExportPdf={onExportPdf}
+        onReviewBlockingIssues={vi.fn()}
         onRegenerateDraft={vi.fn()}
         onSaveDraft={vi.fn()}
         onSetMobileStudioTab={onSetMobileStudioTab}
@@ -73,5 +75,51 @@ describe("ResumeWorkspaceStudioShell", () => {
     expect(
       document.activeElement?.hasAttribute("data-resume-template-chooser"),
     ).toBe(true);
+  });
+
+  it("blocks every export entry point and links directly to unsupported claims", () => {
+    const onExportPdf = vi.fn();
+    const onReviewBlockingIssues = vi.fn();
+
+    render(
+      <ResumeWorkspaceStudioShell
+        approvalStateLabel={null}
+        assistantRail={<div>Assistant</div>}
+        canApproveCurrentPdf={false}
+        canClearApproval={false}
+        editorPanel={<div>Editor</div>}
+        exportBlockedReason="2 generated or unsupported claims must be grounded before export."
+        hasUnsavedChanges={false}
+        historyPanel={<div>History</div>}
+        isWorkspacePending={false}
+        mobileStudioTab="preview"
+        onApproveCurrentPdf={vi.fn()}
+        onClearApproval={vi.fn()}
+        onContinueToShortlisted={vi.fn()}
+        onExportPdf={onExportPdf}
+        onRegenerateDraft={vi.fn()}
+        onReviewBlockingIssues={onReviewBlockingIssues}
+        onSaveDraft={vi.fn()}
+        onSetMobileStudioTab={vi.fn()}
+        previewPane={<div>Preview</div>}
+        selectedTemplateApprovalEligible
+        studioStatusMessage="Review claims"
+        templatePanel={<div>Templates</div>}
+      />,
+    );
+
+    expect(screen.getByRole("alert").textContent).toContain(
+      "2 generated or unsupported claims",
+    );
+    const exportButtons = screen.getAllByRole("button", { name: "Export PDF" });
+    expect(exportButtons.length).toBeGreaterThanOrEqual(2);
+    expect(
+      exportButtons.every((button) => button.hasAttribute("disabled")),
+    ).toBe(true);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review blocked claims" }),
+    );
+    expect(onReviewBlockingIssues).toHaveBeenCalledOnce();
+    expect(onExportPdf).not.toHaveBeenCalled();
   });
 });

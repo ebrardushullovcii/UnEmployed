@@ -25,9 +25,6 @@ export interface JobFinderTaskCenterItem {
   sourceLabel: string;
   countLabel: string;
   historyEstimateLabel: string | null;
-  pauseAvailability: string;
-  cancelAvailability: string;
-  resumeAvailability: string;
   canCancel: boolean;
   cancelKind: "discovery" | "apply" | null;
   resumeRoute: string | null;
@@ -258,13 +255,6 @@ function buildDiscoveryTask(
             "similar completed searches",
           )
         : null,
-    pauseAvailability: "Not available",
-    cancelAvailability: canCancel ? "Available" : "Not available",
-    resumeAvailability: canRunAgain
-      ? "Run again from Find jobs"
-      : status === "active"
-        ? "Automatic"
-        : "Not needed",
     canCancel,
     cancelKind: canCancel ? "discovery" : null,
     resumeRoute: canRunAgain ? "/job-finder/discovery" : null,
@@ -351,13 +341,6 @@ function buildResumeTask(
             "previous completed imports",
           )
         : null,
-    pauseAvailability: "Not available",
-    cancelAvailability: "Not available",
-    resumeAvailability: canRestart
-      ? "Start a new import from Profile"
-      : status === "active"
-        ? "Automatic"
-        : "Not needed",
     canCancel: false,
     cancelKind: null,
     resumeRoute: canRestart ? "/job-finder/profile" : null,
@@ -479,15 +462,6 @@ function buildApplyTask(
             " (total time, including pauses)",
           )
         : null,
-    pauseAvailability: "Not available",
-    cancelAvailability: canCancel ? "Available" : "Not available",
-    resumeAvailability: needsReview
-      ? "After required review"
-      : canRestage
-        ? "Restage from Applications"
-        : status === "active"
-          ? "Automatic"
-          : "Not needed",
     canCancel,
     cancelKind: canCancel ? "apply" : null,
     resumeRoute: needsReview || canRestage ? "/job-finder/applications" : null,

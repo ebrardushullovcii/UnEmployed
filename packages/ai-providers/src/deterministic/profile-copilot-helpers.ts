@@ -204,6 +204,40 @@ export function buildNoChangeReply(input: ReviseCandidateProfileInput) {
   const reviewSummary = buildReviewSummary(input);
   const request = input.request.trim();
   const quotedRequest = request.length > 0 ? `“${request}”` : "that request";
+  const isQuestion =
+    request.endsWith("?") ||
+    /^(what|which|who|where|when|why|how|should|could|can|do|does|is|are|would)\b/i.test(
+      request,
+    );
+
+  if (isQuestion) {
+    const asksAboutRoles = /\b(role|roles|job|jobs|career|search)\b/i.test(
+      request,
+    );
+    const groundedRoles = Array.from(
+      new Set(
+        [
+          ...input.searchPreferences.targetRoles,
+          ...input.searchPreferences.jobFamilies,
+          ...input.profile.targetRoles,
+          ...input.profile.experiences.map((experience) => experience.title),
+        ]
+          .map((value) => value?.trim() ?? "")
+          .filter(Boolean),
+      ),
+    ).slice(0, 4);
+
+    return ProfileCopilotReplySchema.parse({
+      content: asksAboutRoles
+        ? groundedRoles.length > 0
+          ? `Based on your saved profile, I would start with ${groundedRoles.join(", ")}. You do not have to save a target title: Find jobs can infer a starting search from your experience, and explicit roles are only useful when you want to narrow it.`
+          : "You do not need to choose a target title before searching. Find jobs can use your saved experience as the starting point; add a role only when you want to narrow the search."
+        : reviewSummary
+          ? `Based on the saved ${contextLabel} context, the clearest next items are ${reviewSummary}. I can answer questions here without changing your profile, or propose a structured edit when you ask for one.`
+          : `I can answer questions about the saved ${contextLabel} context without changing your profile. I do not have enough grounded evidence to answer that specific question yet; add the missing detail or ask me to review a particular saved section.`,
+      patchGroups: [],
+    });
+  }
 
   return ProfileCopilotReplySchema.parse({
     content: reviewSummary

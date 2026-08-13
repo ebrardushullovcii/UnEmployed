@@ -34,6 +34,7 @@ import {
   hasResumeAffectingSettingsChange,
 } from "./resume-workspace-staleness";
 import { selectLatestApplyRunId } from "./workspace-apply-run-support";
+import { recoverInterruptedApplyRun } from "./workspace-apply-run-recovery";
 import { recoverInterruptedDiscoveryRun } from "./workspace-discovery-run-helpers";
 import {
   deriveSourceAccessPrompts,
@@ -83,6 +84,55 @@ export function createWorkspaceSnapshotProfileMethods(
     createWorkspaceProfileSetupContextHelpers(ctx);
 
   let interruptedDiscoveryRecoveryPromise: Promise<void> | null = null;
+  let interruptedApplyRecoveryPromise: Promise<void> | null = null;
+
+  async function recoverInterruptedApplyRunsOnLoad(): Promise<void> {
+    if (
+      ctx.activeApplyRunAbortControllers.size > 0 ||
+      ctx.activeApplyRunPromises.size > 0
+    ) {
+      return;
+    }
+
+    if (interruptedApplyRecoveryPromise) {
+      await interruptedApplyRecoveryPromise;
+      return;
+    }
+
+    const recoveryPromise = (async () => {
+      const runs = await ctx.repository.listApplyRuns();
+
+      if (
+        ctx.activeApplyRunAbortControllers.size > 0 ||
+        ctx.activeApplyRunPromises.size > 0
+      ) {
+        return;
+      }
+
+      const interruptedRuns = runs.filter((run) => run.state === "running");
+      if (interruptedRuns.length === 0) {
+        return;
+      }
+
+      const completedAt = new Date().toISOString();
+      await Promise.all(
+        interruptedRuns.map((run) =>
+          ctx.repository.upsertApplyRun(
+            recoverInterruptedApplyRun(run, completedAt),
+          ),
+        ),
+      );
+    })();
+
+    interruptedApplyRecoveryPromise = recoveryPromise;
+    try {
+      await recoveryPromise;
+    } finally {
+      if (interruptedApplyRecoveryPromise === recoveryPromise) {
+        interruptedApplyRecoveryPromise = null;
+      }
+    }
+  }
 
   async function recoverInterruptedDiscoveryStateOnLoad(): Promise<void> {
     if (
@@ -170,7 +220,10 @@ export function createWorkspaceSnapshotProfileMethods(
   }
 
   async function getWorkspaceSnapshot(): Promise<JobFinderWorkspaceSnapshot> {
-    await recoverInterruptedDiscoveryStateOnLoad();
+    await Promise.all([
+      recoverInterruptedDiscoveryStateOnLoad(),
+      recoverInterruptedApplyRunsOnLoad(),
+    ]);
 
     if (!ctx.activeSourceDebugExecutionIdRef.current) {
       const discoveryState = await ctx.repository.getDiscoveryState();
@@ -274,8 +327,7 @@ export function createWorkspaceSnapshotProfileMethods(
     const persistedDiscoveryJobs = buildDiscoveryJobs(savedJobs);
     const dismissedDiscoveryJobs = savedJobs
       .filter(
-        (job) =>
-          job.status === "archived" && job.discoveryFeedback !== null,
+        (job) => job.status === "archived" && job.discoveryFeedback !== null,
       )
       .sort(compareDiscoveryJobs);
     const savedJobIds = new Set(savedJobs.map((job) => job.id));

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { BrowserSessionState, SavedJob } from "@unemployed/contracts";
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
@@ -202,6 +202,7 @@ export function DiscoveryResultsPanel({
   searchSetupBlocker = null,
   selectedJob,
 }: DiscoveryResultsPanelProps) {
+  const resultsScrollRegionRef = useRef<HTMLDivElement | null>(null);
   const jobCount = jobs.length;
   const pageCount = Math.max(
     1,
@@ -212,15 +213,26 @@ export function DiscoveryResultsPanel({
     page: getSelectedJobPage(jobs, selectedJobId),
     selectedJobId,
   }));
+  const currentPage = Math.min(Math.max(0, pagination.page), pageCount - 1);
 
-  if (pagination.selectedJobId !== selectedJobId) {
+  useLayoutEffect(() => {
+    if (pagination.selectedJobId === selectedJobId) {
+      return;
+    }
+
+    const selectedJobPage = getSelectedJobPage(jobs, selectedJobId);
     setPagination({
-      page: getSelectedJobPage(jobs, selectedJobId),
+      page: selectedJobPage,
       selectedJobId,
     });
-  }
+    if (
+      selectedJobPage !== currentPage &&
+      resultsScrollRegionRef.current
+    ) {
+      resultsScrollRegionRef.current.scrollTop = 0;
+    }
+  }, [currentPage, jobs, pagination.selectedJobId, selectedJobId]);
 
-  const currentPage = Math.min(Math.max(0, pagination.page), pageCount - 1);
   const visibleJobs = getDiscoveryResultsPage(jobs, currentPage);
   const firstVisibleJobNumber =
     jobCount === 0 ? 0 : currentPage * DISCOVERY_RESULTS_PAGE_SIZE + 1;
@@ -228,6 +240,16 @@ export function DiscoveryResultsPanel({
     jobCount,
     firstVisibleJobNumber + visibleJobs.length - 1,
   );
+
+  function moveToPage(page: number) {
+    setPagination((current) => ({
+      ...current,
+      page,
+    }));
+    if (resultsScrollRegionRef.current) {
+      resultsScrollRegionRef.current.scrollTop = 0;
+    }
+  }
 
   const sessionNeedsAttention =
     browserSession.status === "login_required" ||
@@ -440,105 +462,112 @@ export function DiscoveryResultsPanel({
       ) : null}
 
       {jobs.length > 0 ? (
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-4">
-          <ul
-            aria-label="Results"
-            className="m-0 grid min-h-full list-none content-start gap-3 p-0"
+        <div
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          data-job-results-stack
+        >
+          <div
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-5 pt-4"
+            data-locked-pane-scroll-region
+            data-job-results-scroll-region
+            ref={resultsScrollRegionRef}
           >
-            {visibleJobs.map((job) => {
-              const isSelected = selectedJob?.id === job.id;
-              const recommendation =
-                fitRecommendationCopy[
-                  job.matchAssessment.recommendation ?? "review_before_applying"
-                ];
+            <ul
+              aria-label="Results"
+              className="m-0 grid min-h-full list-none content-start gap-3 p-0"
+            >
+              {visibleJobs.map((job) => {
+                const isSelected = selectedJob?.id === job.id;
+                const recommendation =
+                  fitRecommendationCopy[
+                    job.matchAssessment.recommendation ??
+                      "review_before_applying"
+                  ];
 
-              return (
-                <li key={job.id} className="min-w-0">
-                  <button
-                    aria-controls={DISCOVERY_DETAIL_REGION_ID}
-                    aria-current={isSelected ? "true" : undefined}
-                    data-job-result-id={job.id}
-                    className={cn(
-                      baseButtonClasses,
-                      "w-full",
-                      isSelected
-                        ? "surface-card-tint"
-                        : "bg-transparent hover:bg-(--surface-panel-raised)",
-                    )}
-                    onClick={(event) => {
-                      onSelectJob(job.id);
-                      if (event.detail === 0) {
-                        focusDiscoveryDetailAfterKeyboardSelection();
-                      }
-                    }}
-                    type="button"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="grid gap-1">
-                        <strong className="text-(length:--text-section-title) text-(--text-headline)">
-                          {job.title}
-                        </strong>
-                        <span className="text-(length:--text-description) text-foreground-muted">
-                          {job.company} • {job.location}
+                return (
+                  <li key={job.id} className="min-w-0">
+                    <button
+                      aria-controls={DISCOVERY_DETAIL_REGION_ID}
+                      aria-current={isSelected ? "true" : undefined}
+                      data-job-result-id={job.id}
+                      className={cn(
+                        baseButtonClasses,
+                        "w-full",
+                        isSelected
+                          ? "surface-card-tint"
+                          : "bg-transparent hover:bg-(--surface-panel-raised)",
+                      )}
+                      onClick={(event) => {
+                        onSelectJob(job.id);
+                        if (event.detail === 0) {
+                          focusDiscoveryDetailAfterKeyboardSelection();
+                        }
+                      }}
+                      type="button"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="grid gap-1">
+                          <strong className="text-(length:--text-section-title) text-(--text-headline)">
+                            {job.title}
+                          </strong>
+                          <span className="text-(length:--text-description) text-foreground-muted">
+                            {job.company} • {job.location}
+                          </span>
+                        </div>
+                        <span
+                          aria-label={`Overall fit: ${job.matchAssessment.score} percent`}
+                          className="text-(length:--text-body) font-semibold text-(--text-headline)"
+                        >
+                          {job.matchAssessment.score}% fit
                         </span>
                       </div>
-                      <span
-                        aria-label={`Overall fit: ${job.matchAssessment.score} percent`}
-                        className="text-(length:--text-body) font-semibold text-(--text-headline)"
-                      >
-                        {job.matchAssessment.score}% fit
-                      </span>
-                    </div>
 
-                    <div className="flex flex-wrap gap-2">
-                      <StatusBadge tone={recommendation.tone}>
-                        {recommendation.label}
-                      </StatusBadge>
-                      {job.status === "shortlisted" ||
-                      job.status === "submitted" ? (
-                        <StatusBadge tone={getApplicationTone(job.status)}>
-                          {formatStatusLabel(job.status)}
+                      <div className="flex flex-wrap gap-2">
+                        <StatusBadge tone={recommendation.tone}>
+                          {recommendation.label}
                         </StatusBadge>
-                      ) : null}
-                      <Badge variant="outline">
-                        {getApplyPathLabel(job.applyPath)}
-                      </Badge>
-                      {job.salaryText ? (
-                        <Badge variant="outline">{job.salaryText}</Badge>
-                      ) : null}
-                      {job.workMode.length > 0 ? (
+                        {job.status === "shortlisted" ||
+                        job.status === "submitted" ? (
+                          <StatusBadge tone={getApplicationTone(job.status)}>
+                            {formatStatusLabel(job.status)}
+                          </StatusBadge>
+                        ) : null}
                         <Badge variant="outline">
-                          {job.workMode.join(", ")}
+                          {getApplyPathLabel(job.applyPath)}
                         </Badge>
-                      ) : null}
-                      {job.postedAt || job.postedAtText ? (
-                        <Badge variant="outline">
-                          Posted{" "}
-                          {formatOptionalDateOnly(
-                            job.postedAt,
-                            job.postedAtText,
-                          )}
-                        </Badge>
-                      ) : null}
-                    </div>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+                        {job.salaryText ? (
+                          <Badge variant="outline">{job.salaryText}</Badge>
+                        ) : null}
+                        {job.workMode.length > 0 ? (
+                          <Badge variant="outline">
+                            {job.workMode.join(", ")}
+                          </Badge>
+                        ) : null}
+                        {job.postedAt || job.postedAtText ? (
+                          <Badge variant="outline">
+                            Posted{" "}
+                            {formatOptionalDateOnly(
+                              job.postedAt,
+                              job.postedAtText,
+                            )}
+                          </Badge>
+                        ) : null}
+                      </div>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
           {pageCount > 1 ? (
             <nav
               aria-label="Job result pages"
-              className="sticky bottom-0 mt-3 flex items-center justify-between gap-3 border-t border-(--surface-panel-border) bg-(--surface-panel) py-3"
+              className="relative z-10 flex shrink-0 items-center justify-between gap-3 border-t border-(--surface-panel-border) bg-(--surface-panel) px-5 py-3"
+              data-job-results-pagination
             >
               <Button
                 disabled={currentPage === 0}
-                onClick={() =>
-                  setPagination((current) => ({
-                    ...current,
-                    page: Math.max(0, currentPage - 1),
-                  }))
-                }
+                onClick={() => moveToPage(Math.max(0, currentPage - 1))}
                 size="sm"
                 type="button"
                 variant="outline"
@@ -554,10 +583,7 @@ export function DiscoveryResultsPanel({
               <Button
                 disabled={currentPage >= pageCount - 1}
                 onClick={() =>
-                  setPagination((current) => ({
-                    ...current,
-                    page: Math.min(pageCount - 1, currentPage + 1),
-                  }))
+                  moveToPage(Math.min(pageCount - 1, currentPage + 1))
                 }
                 size="sm"
                 type="button"

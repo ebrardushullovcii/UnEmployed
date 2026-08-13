@@ -139,9 +139,9 @@ describe("known-job ledger repeated-source performance", () => {
 
     expect(inventoryCalls).toBe(2);
     expect(initialTarget).toMatchObject({
-      jobsReviewed: 8,
+      jobsReviewed: 50,
       jobsSkippedByLedger: 0,
-      jobsStaged: 8,
+      jobsStaged: 50,
     });
     expect(repeatedTarget).toMatchObject({
       jobsReviewed: 0,
@@ -151,7 +151,7 @@ describe("known-job ledger repeated-source performance", () => {
       duplicatesMerged: 0,
       invalidSkipped: 0,
     });
-    expect(repeatedSnapshot.discoveryJobs).toHaveLength(8);
+    expect(repeatedSnapshot.discoveryJobs).toHaveLength(50);
     expect(repeatedDurationMs).toBeLessThan(REPEATED_SOURCE_BUDGET_MS);
   }, 15_000);
 });

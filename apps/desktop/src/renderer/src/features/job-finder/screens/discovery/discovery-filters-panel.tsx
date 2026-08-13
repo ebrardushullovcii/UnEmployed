@@ -13,9 +13,9 @@ import {
   DiscoveryRunOneSourceSection,
   DiscoverySearchSections,
   DiscoverySessionSummary,
-} from './discovery-filters-panel-sections'
-import { getDiscoverySearchReadiness } from './discovery-search-readiness'
-import { JOB_FINDER_ROUTE_HREFS } from '../../lib/job-finder-route-hrefs'
+} from "./discovery-filters-panel-sections";
+import { getDiscoverySearchReadiness } from "./discovery-search-readiness";
+import { JOB_FINDER_ROUTE_HREFS } from "../../lib/job-finder-route-hrefs";
 
 const NEUTRAL_SESSION_SNAPSHOT: BrowserSessionState = {
   source: "target_site",
@@ -112,10 +112,12 @@ export function DiscoveryFiltersPanel({
       },
       {
         label: "Sources",
-        values: searchPreferences.discovery.targets.filter((target) => target.enabled).map((target) => ({
-          key: target.id,
-          label: target.label,
-        })),
+        values: searchPreferences.discovery.targets
+          .filter((target) => target.enabled)
+          .map((target) => ({
+            key: target.id,
+            label: target.label,
+          })),
         empty: "No sources added yet.",
       },
     ],
@@ -158,10 +160,12 @@ export function DiscoveryFiltersPanel({
   const needsLogin = displaySessionSnapshot.status === "login_required";
   const isBlocked = displaySessionSnapshot.status === "blocked";
   const canRunDiscovery =
-    Boolean(onRunAgentDiscovery) && searchReadiness.ready && !isDiscoveryAllPending;
+    Boolean(onRunAgentDiscovery) &&
+    searchReadiness.ready &&
+    !isDiscoveryAllPending;
   const activeTargetId =
     activeRun?.state === "running" && activeRun.scope === "single_target"
-      ? activeRun.targetIds[0] ?? null
+      ? (activeRun.targetIds[0] ?? null)
       : null;
   const primarySourceAccessPrompt =
     enabledSourceAccessPrompts.find(
@@ -185,17 +189,17 @@ export function DiscoveryFiltersPanel({
 
       <div className="surface-card-tint flex min-h-106 min-w-0 flex-1 flex-col overflow-hidden rounded-(--radius-panel) border border-(--surface-panel-border) xl:min-h-0">
         <div className="grid min-w-0 gap-3 border-b border-(--surface-panel-border) px-4 py-4">
-            <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-              <StatusBadge tone={getSessionTone(displaySessionSnapshot)}>
-                {getBrowserStatusLabel(
-                  displaySessionSnapshot.status,
-                  isBrowserSessionPending,
-                )}
-              </StatusBadge>
-                <span className="rounded-full border border-(--surface-panel-border) px-2.5 py-1 text-(length:--text-count) uppercase tracking-(--tracking-label) text-foreground-muted">
-                  {isBrowserSessionVisible ? "Browser" : "Search"}
-                </span>
-              </div>
+          <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+            <StatusBadge tone={getSessionTone(displaySessionSnapshot)}>
+              {getBrowserStatusLabel(
+                displaySessionSnapshot.status,
+                isBrowserSessionPending,
+              )}
+            </StatusBadge>
+            <span className="rounded-full border border-(--surface-panel-border) px-2.5 py-1 text-(length:--text-count) uppercase tracking-(--tracking-label) text-foreground-muted">
+              {isBrowserSessionVisible ? "Browser" : "Search"}
+            </span>
+          </div>
           <DiscoverySessionSummary
             hasRecommendedSourceAccessPrompt={hasRecommendedSourceAccessPrompt}
             isBlocked={isBlocked}
@@ -217,11 +221,7 @@ export function DiscoveryFiltersPanel({
           actionMessage={actionMessage}
           canRunDiscovery={canRunDiscovery}
           searchDisabledReason={searchReadiness.reason}
-          searchSetupHref={
-            searchReadiness.hasSearchRoles
-              ? JOB_FINDER_ROUTE_HREFS.profileSources
-              : JOB_FINDER_ROUTE_HREFS.profileTargetRoles
-          }
+          searchSetupHref={JOB_FINDER_ROUTE_HREFS.profileSources}
           isBrowserSessionPending={isBrowserSessionPending}
           isBrowserSessionPendingForTarget={isBrowserSessionPendingForTarget}
           isDiscoveryAllPending={isDiscoveryAllPending}
@@ -233,7 +233,13 @@ export function DiscoveryFiltersPanel({
           primarySourceAccessPrompt={primarySourceAccessPrompt}
         />
 
-        <div className="grid min-h-0 min-w-0 flex-1 content-start gap-0 overflow-y-auto">
+        <div
+          aria-label="Current search details"
+          className="grid min-h-0 min-w-0 flex-1 content-start gap-0 overflow-y-auto overscroll-contain"
+          data-locked-pane-scroll-region
+          role="region"
+          tabIndex={0}
+        >
           <DiscoverySearchSections
             sectionHeadingPrefix={sectionHeadingPrefix}
             sections={sections}
@@ -247,7 +253,9 @@ export function DiscoveryFiltersPanel({
                 id: target.id,
                 label: target.label,
               }))}
-              isBrowserSessionPendingForTarget={isBrowserSessionPendingForTarget}
+              isBrowserSessionPendingForTarget={
+                isBrowserSessionPendingForTarget
+              }
               isTargetPending={isTargetPending}
               onOpenBrowserSessionForTarget={onOpenBrowserSessionForTarget}
               onConfirmSignedInForTarget={onRunDiscoveryForTarget}
@@ -257,7 +265,6 @@ export function DiscoveryFiltersPanel({
             />
           ) : null}
         </div>
-
       </div>
     </section>
   );

@@ -21,6 +21,7 @@ import {
 import { Button } from "@renderer/components/ui/button";
 import { cn } from "@renderer/lib/cn";
 import { InterviewMediaStreamProbes } from "./interview-media-stream-probes";
+import { formatInterviewTranscriptSource } from "./interview-transcript-source-label";
 
 interface PendingImage {
   id: string;
@@ -31,6 +32,8 @@ interface PendingImage {
 interface InterviewVisibleChatProps {
   audioTranscriptionAvailable: boolean;
   onPerform: (action: InterviewHotkeyAction) => Promise<void>;
+  onGoToReview: () => void;
+  onGoToSetup: () => void;
   onWorkspaceChange: (workspace: InterviewWorkspaceSnapshot) => void;
   pendingAction: string | null;
   workspace: InterviewWorkspaceSnapshot;
@@ -55,12 +58,6 @@ function readFileAsBase64(file: File): Promise<string> {
     };
     reader.readAsDataURL(file);
   });
-}
-
-function formatSource(source: string) {
-  if (source === "meeting_audio") return "System audio";
-  if (source === "microphone") return "Your microphone";
-  return "Typed question";
 }
 
 export function InterviewVisibleChat(props: InterviewVisibleChatProps) {
@@ -208,6 +205,39 @@ export function InterviewVisibleChat(props: InterviewVisibleChatProps) {
   const recentTranscript = session?.transcriptSegments.slice(-8) ?? [];
   const queuedScreenCaptures =
     props.workspace.answerOverlay.queuedScreenshotCount;
+
+  if (!session || session.status === "ended") {
+    return (
+      <section className="surface-panel-shell grid min-h-[32rem] place-items-center rounded-(--radius-panel) border p-8 text-center">
+        <div className="grid max-w-lg gap-4">
+          <div className="mx-auto grid size-12 place-items-center rounded-2xl border border-(--info-border) bg-(--info-surface)">
+            <Headphones className="size-5 text-(--info-text)" />
+          </div>
+          <h2 className="text-[1.15rem] font-semibold">
+            No interview is active
+          </h2>
+          <p className="text-[0.84rem] leading-6 text-muted-foreground">
+            Start a new interview from Setup, or return to Review to work with
+            the most recently ended session.
+          </p>
+          <div className="flex flex-wrap justify-center gap-2">
+            <Button onClick={props.onGoToSetup} type="button">
+              Start a new interview
+            </Button>
+            {props.workspace.recentSessions.length > 0 ? (
+              <Button
+                onClick={props.onGoToReview}
+                type="button"
+                variant="secondary"
+              >
+                Review last session
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <div className="grid h-[calc(100vh-10rem)] min-h-[40rem] gap-4 xl:grid-cols-[minmax(0,1fr)_23rem]">
@@ -441,7 +471,6 @@ export function InterviewVisibleChat(props: InterviewVisibleChatProps) {
       </section>
 
       <aside className="grid content-start gap-4">
-
         <section className="surface-card-tint rounded-(--radius-panel) border p-4">
           <div className="mb-4 flex items-center justify-between gap-2">
             <h2 className="text-[0.75rem] font-bold uppercase tracking-(--tracking-badge)">
@@ -490,7 +519,7 @@ export function InterviewVisibleChat(props: InterviewVisibleChatProps) {
                   key={segment.id}
                 >
                   <p className="text-[0.65rem] font-semibold uppercase tracking-(--tracking-badge) text-muted-foreground">
-                    {formatSource(segment.source)}
+                    {formatInterviewTranscriptSource(segment.source)}
                   </p>
                   <p className="mt-1 text-[0.78rem] leading-5 text-foreground-soft">
                     {segment.text}

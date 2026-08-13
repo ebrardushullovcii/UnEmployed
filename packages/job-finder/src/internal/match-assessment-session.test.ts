@@ -156,8 +156,8 @@ describe("match assessment session", () => {
       scorerVersion: MATCH_ASSESSMENT_SCORER_VERSION,
       contextFingerprint: session.contextFingerprint,
     });
-    expect(first.postingFingerprint).toMatch(/^match_posting_v4_logic3_/u);
-    expect(session.contextFingerprint).toMatch(/^match_context_v4_logic3_/u);
+    expect(first.postingFingerprint).toMatch(/^match_posting_v4_logic4_/u);
+    expect(session.contextFingerprint).toMatch(/^match_context_v4_logic4_/u);
   });
 
   test.each(
@@ -181,12 +181,12 @@ describe("match assessment session", () => {
       calculate,
     });
 
-    expect(
-      createMatchAssessmentPostingFingerprint(changedPosting),
-    ).not.toBe(persisted.postingFingerprint);
-    expect(
-      resumedSession.assessPersisted(changedPosting, persisted),
-    ).not.toBe(persisted);
+    expect(createMatchAssessmentPostingFingerprint(changedPosting)).not.toBe(
+      persisted.postingFingerprint,
+    );
+    expect(resumedSession.assessPersisted(changedPosting, persisted)).not.toBe(
+      persisted,
+    );
     expect(calculate).toHaveBeenCalledTimes(1);
   });
 

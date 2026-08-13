@@ -198,6 +198,13 @@ const annualMultiplierByInterval: Record<CompensationInterval, number> = {
   year: 1,
 };
 
+export function annualizeCompensationAmount(
+  amount: number,
+  interval: CompensationInterval,
+): number {
+  return Math.round(amount * annualMultiplierByInterval[interval]);
+}
+
 function normalizeCompensationCompatibility(
   value: z.infer<typeof JobSearchPreferencesObjectSchema>,
 ): z.infer<typeof JobSearchPreferencesObjectSchema> {
@@ -219,19 +226,24 @@ function normalizeCompensationCompatibility(
   const comparableAsUsd =
     compensation.currency === "USD" &&
     compensation.currencyStatus !== "needs_clarification";
-  const multiplier = annualMultiplierByInterval[compensation.interval];
 
   return {
     ...value,
     minimumSalaryUsd:
       comparableAsUsd && compensation.minimum !== null
-        ? Math.round(compensation.minimum * multiplier)
+        ? annualizeCompensationAmount(
+            compensation.minimum,
+            compensation.interval,
+          )
         : compensationWasProvided
           ? null
           : value.minimumSalaryUsd,
     targetSalaryUsd:
       comparableAsUsd && compensation.maximum !== null
-        ? Math.round(compensation.maximum * multiplier)
+        ? annualizeCompensationAmount(
+            compensation.maximum,
+            compensation.interval,
+          )
         : compensationWasProvided
           ? null
           : value.targetSalaryUsd,
@@ -1512,6 +1524,32 @@ export type DiscoverySourceHealthSummary = z.infer<
   typeof DiscoverySourceHealthSummarySchema
 >;
 
+export interface BrowserAgentRunCheckpoint {
+  revision: number;
+  savedAt: string;
+  currentUrl: string;
+  lastStableUrl: string;
+  stepCount: number;
+  collectedJobs: JobPosting[];
+  visitedUrls: string[];
+  phaseEvidence: z.infer<typeof SourceDebugPhaseEvidenceSchema>;
+}
+
+export const BrowserAgentRunCheckpointSchema: z.ZodType<
+  BrowserAgentRunCheckpoint,
+  z.ZodTypeDef,
+  unknown
+> = z.object({
+  revision: z.number().int().nonnegative(),
+  savedAt: IsoDateTimeSchema,
+  currentUrl: z.string(),
+  lastStableUrl: z.string(),
+  stepCount: z.number().int().nonnegative(),
+  collectedJobs: z.array(JobPostingSchema).default([]),
+  visitedUrls: z.array(UrlStringSchema).default([]),
+  phaseEvidence: SourceDebugPhaseEvidenceSchema,
+});
+
 export const DiscoveryTargetExecutionSchema = z.object({
   targetId: NonEmptyStringSchema,
   adapterKind: JobSourceAdapterKindSchema,
@@ -1536,6 +1574,7 @@ export const DiscoveryTargetExecutionSchema = z.object({
   compactionState: SharedAgentCompactionSnapshotSchema.nullable().default(null),
   compactionUsedFallbackTrigger: z.boolean().default(false),
   timing: DiscoveryTimingSummarySchema.nullable().default(null),
+  agentCheckpoint: BrowserAgentRunCheckpointSchema.nullable().default(null),
 });
 export type DiscoveryTargetExecution = z.infer<
   typeof DiscoveryTargetExecutionSchema

@@ -121,7 +121,6 @@ describe("buildJobFinderTaskCenterModel", () => {
     expect(task.sourceLabel).toBe("Mercury careers and Aircall careers");
     expect(task.countLabel).toBe("1 of 2 sources finished · 7 jobs found");
     expect(task.canCancel).toBe(true);
-    expect(task.pauseAvailability).toBe("Not available");
     expect(task.historyEstimateLabel).toBe(
       "about 10s from 1 similar completed search",
     );
@@ -154,7 +153,6 @@ describe("buildJobFinderTaskCenterModel", () => {
     expect(task.status).toBe("interrupted");
     expect(task.stageLabel).toBe("Import interrupted");
     expect(task.canCancel).toBe(false);
-    expect(task.resumeAvailability).toBe("Start a new import from Profile");
     expect(task.resumeRoute).toBe("/job-finder/profile");
     expect(task.historyEstimateLabel).toBeNull();
   });
@@ -221,7 +219,6 @@ describe("buildJobFinderTaskCenterModel", () => {
     expect(task.stageLabel).toBe("Paused for consent");
     expect(task.countLabel).toBe("1 of 3 jobs finished · 1 blocked · 0 failed");
     expect(task.canCancel).toBe(true);
-    expect(task.resumeAvailability).toBe("After required review");
     expect(task.resumeRoute).toBe("/job-finder/applications");
     expect(task.historyEstimateLabel).toBeNull();
   });

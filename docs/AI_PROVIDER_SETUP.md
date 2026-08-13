@@ -1,27 +1,51 @@
 # AI provider setup
 
-UnEmployed uses GPT-5.6 Luna at `high` reasoning for generative text and
-vision work. The adapter uses the Responses API because Job Finder combines
-reasoning, structured output, image input, and function tools. Audio
-transcription remains a separate local Whisper or audio-model concern because
-Luna does not accept audio input.
+UnEmployed uses a mixed OpenCode Go route:
+
+- DeepSeek V4 Flash with `max` reasoning handles normal text and tool-based
+  agent work through Chat Completions.
+- GPT-5.6 Luna with `high` reasoning handles image-only résumé, browser, and
+  Interview Helper analysis through the Responses API.
+- Audio transcription remains local Whisper or an explicit audio-model concern.
+
+This supersedes the earlier Luna-for-everything provider selection while
+preserving the contract-first agent boundaries from ADR 0009. See ADR 0010.
 
 ## Recommended production setup
 
-Use the official OpenAI API:
+Create an OpenCode Go key, then use the same key for both text and vision:
 
 ```dotenv
-UNEMPLOYED_AI_API_KEY=your-project-api-key
-UNEMPLOYED_AI_BASE_URL=https://api.openai.com/v1
-UNEMPLOYED_AI_MODEL=gpt-5.6-luna
-UNEMPLOYED_AI_API_MODE=responses
-UNEMPLOYED_AI_REASONING_EFFORT=high
+UNEMPLOYED_AI_API_KEY=your-opencode-go-key
+UNEMPLOYED_AI_BASE_URL=https://opencode.ai/zen/go/v1
+UNEMPLOYED_AI_MODEL=deepseek-v4-flash
+UNEMPLOYED_AI_API_MODE=chat_completions
+UNEMPLOYED_AI_REASONING_EFFORT=max
+
+UNEMPLOYED_AI_VISION_BASE_URL=https://opencode.ai/zen/go/v1
+UNEMPLOYED_AI_VISION_MODEL=gpt-5.6-luna
+UNEMPLOYED_AI_VISION_API_MODE=responses
+UNEMPLOYED_AI_VISION_REASONING_EFFORT=high
+UNEMPLOYED_RESUME_VISION_MODEL=gpt-5.6-luna
+UNEMPLOYED_RESUME_VISION_REASONING_EFFORT=high
+UNEMPLOYED_BROWSER_VISION_MODEL=gpt-5.6-luna
+UNEMPLOYED_BROWSER_VISION_REASONING_EFFORT=high
+UNEMPLOYED_INTERVIEW_AI_MODEL=deepseek-v4-flash
+UNEMPLOYED_INTERVIEW_AI_API_MODE=chat_completions
+UNEMPLOYED_INTERVIEW_REASONING_EFFORT=max
+UNEMPLOYED_INTERVIEW_VISION_MODEL=gpt-5.6-luna
+UNEMPLOYED_INTERVIEW_VISION_API_MODE=responses
+UNEMPLOYED_INTERVIEW_VISION_REASONING_EFFORT=high
 ```
 
-The request adapter sends `store: false`. Provider output is still parsed and
-schema-validated locally before it can modify Job Finder state. The app keeps
-its existing conservative prompt budgets instead of filling Luna's full
-context window, which protects latency and cost.
+Use the raw API model IDs shown above. The `opencode-go/...` prefix is only for
+OpenCode's own configuration file, not direct HTTP API requests. Provider
+output remains locally parsed and schema-validated before it can modify Job
+Finder state.
+
+Audio configuration is intentionally not included in this mixed provider routing.
+Keep local Whisper or an explicit audio-capable transcription model configured
+for Interview Helper audio.
 
 ## Local Codex subscription proxy
 
@@ -58,10 +82,11 @@ Before using it with candidate data:
 - verify gpt-5.6-luna appears in /v1/models;
 - verify text, image input, structured output, tools, and high reasoning using
   synthetic data;
-- keep the official OpenAI API as the production deployment path;
+- do not use this bridge for the normal OpenCode Go production route;
 - stop the local proxy when it is no longer needed:
 
-    npx --yes openai-oauth@2.0.0 stop
+  npx --yes openai-oauth@2.0.0 stop
+
 ## Compatibility fallback
 
 A legacy provider can still be used explicitly:
@@ -70,17 +95,17 @@ A legacy provider can still be used explicitly:
 UNEMPLOYED_AI_API_MODE=chat_completions
 ```
 
-That mode exists for compatibility, not for the Luna `high` default. Do not
-combine Chat Completions function tools with Luna `high`; use Responses for
-the Job Finder agent loop.
+That mode is now the intended DeepSeek text route. Keep Luna image work on the
+separate Responses route.
 
 ## Verification
 
-With a configured key or local bridge:
+With a configured OpenCode Go key:
 
-1. start the provider and confirm `POST /v1/responses` is reachable;
+1. confirm `GET https://opencode.ai/zen/go/v1/models` is reachable;
 2. run `pnpm validate:package ai-providers`;
-3. open Settings and confirm the provider reports `gpt-5.6-luna`;
+3. open Settings and confirm the normal provider reports
+   `deepseek-v4-flash`;
 4. use synthetic candidate data for the first resume, vision, and tool-loop
    smoke checks;
 5. preserve the application safety boundary: final submission authorization

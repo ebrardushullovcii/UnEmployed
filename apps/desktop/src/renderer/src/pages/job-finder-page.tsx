@@ -167,10 +167,10 @@ export function JobFinderPage() {
           jobFinderPendingActions.profileImport(),
         )}
         liveDiscoveryEvents={context.liveDiscoveryEvents}
-        onCancelApplyRun={(runId) => {
-          void context.onCancelApplyRun(runId);
-        }}
-        onCancelDiscovery={() => window.unemployed.jobFinder.cancelAgentDiscovery()}
+        onCancelApplyRun={context.onCancelApplyRun}
+        onCancelDiscovery={() =>
+          window.unemployed.jobFinder.cancelAgentDiscovery()
+        }
         onDismissSavedStatus={dismissSavedStatus}
         onNavigate={navigateFromShell}
         onRetrySave={retryLastSave}

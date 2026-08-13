@@ -65,7 +65,9 @@ async function stageSelectedQueue(window) {
 }
 
 async function approveCurrentRun(window) {
-  const approveButton = window.getByRole('button', { name: 'Record submit approval' })
+  const approveButton = window.getByRole('button', {
+    name: /^Approve safe preparation/,
+  })
   await approveButton.waitFor({ timeout: 10000 })
   await approveButton.click()
 }

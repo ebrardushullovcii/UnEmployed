@@ -111,7 +111,7 @@ describe("getDiscoveryConfiguredFilters", () => {
 });
 
 describe("getDiscoverySearchReadiness", () => {
-  it("requires both a search target and an enabled valid source", () => {
+  it("can infer search intent from the profile but still requires an enabled source", () => {
     const noRole = getDiscoverySearchReadiness(
       createSearchPreferences({
         discovery: {
@@ -139,8 +139,9 @@ describe("getDiscoverySearchReadiness", () => {
       createSearchPreferences({ targetRoles: ["Engineer"] }),
     );
 
-    expect(noRole.ready).toBe(false);
-    expect(noRole.reason).toContain("target role");
+    expect(noRole.ready).toBe(true);
+    expect(noRole.hasSearchRoles).toBe(false);
+    expect(noRole.reason).toBeNull();
     expect(noSource.ready).toBe(false);
     expect(noSource.reason).toContain("job-source URL");
   });

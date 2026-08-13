@@ -459,6 +459,29 @@ describe("Interview Helper AI providers", () => {
     });
   });
 
+  test("routes cue text and screenshot vision through separate model endpoints", () => {
+    const providers = createInterviewHelperProvidersFromEnvironment(
+      createEnvironment({
+        UNEMPLOYED_AI_API_KEY: "go-test-key",
+        UNEMPLOYED_AI_BASE_URL: "https://opencode.example/go/v1",
+        UNEMPLOYED_AI_MODEL: "deepseek-v4-flash",
+        UNEMPLOYED_AI_API_MODE: "chat_completions",
+        UNEMPLOYED_AI_REASONING_EFFORT: "max",
+        UNEMPLOYED_AI_VISION_BASE_URL: "https://vision.example/v1",
+        UNEMPLOYED_AI_VISION_MODEL: "gpt-5.6-luna",
+        UNEMPLOYED_AI_VISION_API_MODE: "responses",
+        UNEMPLOYED_AI_VISION_REASONING_EFFORT: "high",
+      }),
+    );
+
+    const cueStatus = providers.cueCardProvider.getStatus();
+    const visionStatus = providers.screenshotVisionProvider.getStatus();
+    expect(cueStatus.ready).toBe(true);
+    expect(cueStatus.detail).toContain("deepseek-v4-flash");
+    expect(visionStatus.ready).toBe(true);
+    expect(visionStatus.detail).toContain("gpt-5.6-luna");
+  });
+
   test("uses an explicit Interview Helper STT model for audio transcription", () => {
     const providers = createInterviewHelperProvidersFromEnvironment(
       createEnvironment({

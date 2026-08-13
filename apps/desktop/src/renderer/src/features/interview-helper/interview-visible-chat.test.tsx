@@ -79,6 +79,8 @@ describe("InterviewVisibleChat capture controls", () => {
     const rendered = render(
       <InterviewVisibleChat
         audioTranscriptionAvailable
+        onGoToReview={() => undefined}
+        onGoToSetup={() => undefined}
         onPerform={onPerform}
         onWorkspaceChange={() => undefined}
         pendingAction={null}
@@ -100,5 +102,45 @@ describe("InterviewVisibleChat capture controls", () => {
       pauseGate.resolve();
       await pauseGate.promise;
     });
+  });
+
+  test("replaces ended Assist controls with deliberate next-step navigation", () => {
+    const baseWorkspace = createWorkspace();
+    const endedSession = {
+      ...baseWorkspace.activeSession!,
+      status: "ended" as const,
+      listening: false,
+    };
+    const workspace = {
+      ...baseWorkspace,
+      activeSession: endedSession,
+      recentSessions: [endedSession],
+    } as InterviewWorkspaceSnapshot;
+    const onGoToReview = vi.fn();
+    const onGoToSetup = vi.fn();
+
+    const rendered = render(
+      <InterviewVisibleChat
+        audioTranscriptionAvailable
+        onGoToReview={onGoToReview}
+        onGoToSetup={onGoToSetup}
+        onPerform={vi.fn()}
+        onWorkspaceChange={() => undefined}
+        pendingAction={null}
+        workspace={workspace}
+      />,
+    );
+
+    expect(rendered.getByText("No interview is active")).toBeTruthy();
+    expect(rendered.queryByRole("button", { name: "Pause" })).toBeNull();
+    expect(rendered.queryByRole("button", { name: "End session" })).toBeNull();
+    fireEvent.click(
+      rendered.getByRole("button", { name: "Review last session" }),
+    );
+    expect(onGoToReview).toHaveBeenCalledOnce();
+    fireEvent.click(
+      rendered.getByRole("button", { name: "Start a new interview" }),
+    );
+    expect(onGoToSetup).toHaveBeenCalledOnce();
   });
 });

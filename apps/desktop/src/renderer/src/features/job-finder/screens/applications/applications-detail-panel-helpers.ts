@@ -33,13 +33,32 @@ export function getCustomerFacingApplyText(
   return "The application page could not safely save this prepared step. Review the open application and retry; Job Finder will still stop before final submit.";
 }
 
+export function applyResultNeedsResumeAttachment(
+  result: JobFinderWorkspaceSnapshot["applyJobResults"][number] | null,
+): boolean {
+  if (!result || (result.state !== "blocked" && result.state !== "failed")) {
+    return false;
+  }
+
+  const text = [result.summary, result.detail, result.blockerSummary]
+    .filter(Boolean)
+    .join(" ");
+  return (
+    /\b(?:resume|cv)\b/i.test(text) &&
+    /\b(?:not attached|attach(?:ment)? needs|could not be attached|retry.*attach|upload.*failed)\b/i.test(
+      text,
+    )
+  );
+}
+
 export function buildQueueEntries(input: {
   applicationRecords: readonly ApplicationRecord[];
   applyJobResults: JobFinderWorkspaceSnapshot["applyJobResults"];
   discoveryJobs: JobFinderWorkspaceSnapshot["discoveryJobs"];
   selectedRun: JobFinderWorkspaceSnapshot["applyRuns"][number] | null;
 }): QueueEntry[] {
-  const { applicationRecords, applyJobResults, discoveryJobs, selectedRun } = input;
+  const { applicationRecords, applyJobResults, discoveryJobs, selectedRun } =
+    input;
 
   if (!selectedRun) {
     return [];

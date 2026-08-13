@@ -148,9 +148,7 @@ describe("DiscoveryDetailPanel", () => {
     );
 
     const actionRegion = getByTestId("discovery-detail-actions");
-    const primaryActionRegion = getByTestId(
-      "discovery-detail-primary-action",
-    );
+    const primaryActionRegion = getByTestId("discovery-detail-primary-action");
     const detailScrollArea = getByTestId("discovery-detail-scroll-area");
 
     const fitBreakdown = getByRole("region", { name: "Fit breakdown" });
@@ -166,6 +164,9 @@ describe("DiscoveryDetailPanel", () => {
     expect(detailRegion.contains(detailHeading)).toBe(true);
     expect(primaryActionRegion.className).toContain("shrink-0");
     expect(detailScrollArea.className).toContain("overflow-y-auto");
+    expect(
+      detailScrollArea.getAttribute("data-locked-pane-scroll-region"),
+    ).not.toBeNull();
     expect(
       primaryActionRegion.compareDocumentPosition(detailScrollArea) &
         Node.DOCUMENT_POSITION_FOLLOWING,
@@ -201,9 +202,7 @@ describe("DiscoveryDetailPanel", () => {
     expect(recommendationBadge.className).toContain("min-w-0");
     expect(recommendationBadge.className).toContain("whitespace-normal");
     expect(recommendationBadge.className).toContain("break-words");
-    expect(recommendationBadge.className).toContain(
-      "[overflow-wrap:anywhere]",
-    );
+    expect(recommendationBadge.className).toContain("[overflow-wrap:anywhere]");
     expect(recommendationBadge.className).toContain("shrink");
     expect(recommendationBadge.className).not.toMatch(
       /(?:^|\s)whitespace-nowrap(?:\s|$)/u,
@@ -219,7 +218,11 @@ describe("DiscoveryDetailPanel", () => {
     expect(getByText("Duplicate role gap")).toBeTruthy();
     expect(getByRole("button", { name: "Shortlist job" })).toBeTruthy();
     fireEvent.click(getByRole("button", { name: "Not interested" }));
-    expect(getByText("Optional feedback stays local. It hides this result but never changes job facts or fit scoring.")).toBeTruthy();
+    expect(
+      getByText(
+        "Optional feedback stays local. It hides this result but never changes job facts or fit scoring.",
+      ),
+    ).toBeTruthy();
     const locationReason = getByRole("button", { name: "Location" });
     fireEvent.click(locationReason);
     expect(locationReason.getAttribute("aria-pressed")).toBe("true");

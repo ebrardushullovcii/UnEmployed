@@ -43,6 +43,8 @@ interface SearchResultCardCandidate {
   anchorText: string;
   headingText: string | null;
   lines: string[];
+  companyText?: string | null;
+  locationText?: string | null;
   sourceJobIdHint?: string | null;
   captureMeta?: SearchResultCardCaptureMeta | null;
 }
@@ -124,6 +126,8 @@ const RawSearchResultCardCandidateSchema = z.object({
   anchorText: z.string(),
   headingText: z.string().nullable(),
   lines: z.array(z.string()),
+  companyText: z.string().optional().nullable(),
+  locationText: z.string().optional().nullable(),
   sourceJobIdHint: z.string().optional().nullable(),
   captureMeta: CardCaptureMetaSchema.optional().nullable(),
 });
@@ -433,6 +437,10 @@ function mergeRawCardCandidate(
     headingText:
       selectLongerCardText(current.headingText, next.headingText) ?? null,
     lines: uniqueCardStrings([...current.lines, ...next.lines]).slice(0, 12),
+    companyText:
+      selectLongerCardText(current.companyText, next.companyText) ?? null,
+    locationText:
+      selectLongerCardText(current.locationText, next.locationText) ?? null,
     ...(sourceJobIdHint !== undefined ? { sourceJobIdHint } : {}),
     ...(preferredCaptureMeta !== undefined
       ? { captureMeta: preferredCaptureMeta }
@@ -1100,6 +1108,15 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                   return true;
                 }
 
+                if (
+                  element.matches('button, [role="button"]') &&
+                  /\bdismiss\b[\s\S]*\bjob\b/i.test(
+                    `${toText(element.getAttribute("aria-label"))} ${toText(element.innerText)}`,
+                  )
+                ) {
+                  return true;
+                }
+
                 return collectAccessibleCardLabels(element).length > 0;
               };
               const addCardCandidate = (
@@ -1110,18 +1127,41 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                   findSearchSurfaceRouteRuleForHostname(
                     window.location.hostname,
                   );
-                const readJobIdHint = (candidate: HTMLElement | null): string =>
-                  toText(
+                const readJobIdHint = (
+                  candidate: HTMLElement | null,
+                ): string => {
+                  const rawValue = toText(
                     candidate?.getAttribute("data-job-id") ??
                       candidate?.getAttribute("data-jobid") ??
                       candidate?.getAttribute("data-occludable-job-id") ??
+                      candidate?.getAttribute("data-entity-urn") ??
+                      candidate?.getAttribute("data-entity-id") ??
                       null,
                   );
+                  return rawValue.match(/\d{5,}/)?.[0] ?? rawValue;
+                };
                 const findScopedJobIdHint = (): string | null => {
                   const directHint =
                     readJobIdHint(element) || readJobIdHint(anchor);
                   if (directHint) {
                     return directHint;
+                  }
+
+                  const descendantWithJobId =
+                    element.querySelector<HTMLElement>(
+                      '[data-job-id], [data-jobid], [data-occludable-job-id], [data-entity-urn*="job" i], [data-entity-id*="job" i]',
+                    );
+                  const descendantHint = readJobIdHint(descendantWithJobId);
+                  if (descendantHint) {
+                    return descendantHint;
+                  }
+
+                  const closestCardWithJobId = element.closest<HTMLElement>(
+                    '[data-job-id], [data-jobid], [data-occludable-job-id], [data-entity-urn*="job" i], [data-entity-id*="job" i]',
+                  );
+                  const closestCardHint = readJobIdHint(closestCardWithJobId);
+                  if (closestCardHint) {
+                    return closestCardHint;
                   }
 
                   let current = anchor?.parentElement ?? null;
@@ -1225,6 +1265,21 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                       ?.textContent ?? null,
                   ) || null;
                 const anchorText = anchorLabel || headingText || lines[0] || "";
+                const readScopedCardText = (
+                  selectors: string,
+                ): string | null => {
+                  const value = toText(
+                    element.querySelector<HTMLElement>(selectors)?.innerText ??
+                      null,
+                  );
+                  return value && value.length <= 120 ? value : null;
+                };
+                const companyText = readScopedCardText(
+                  '[data-company], [itemprop="hiringOrganization"], .job-card-container__primary-description, .artdeco-entity-lockup__subtitle, [class*="company-name"], [class*="employer-name"]',
+                );
+                const locationText = readScopedCardText(
+                  '[data-location], [itemprop="jobLocation"], .job-card-container__metadata-item, .artdeco-entity-lockup__caption, [class*="job-location"], [class*="location-name"]',
+                );
                 const hasDismissLabel = lines.some((line) =>
                   /\bdismiss\b.*\bjob\b/i.test(line),
                 );
@@ -1292,6 +1347,8 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                   anchorText,
                   headingText,
                   lines,
+                  companyText,
+                  locationText,
                   sourceJobIdHint,
                   captureMeta: {
                     domOrder: cardCandidates.length,
@@ -1501,29 +1558,45 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
 
                 const supplementalRoots = Array.from(
                   document.querySelectorAll<HTMLElement>(
-                    '.jobs-search-results__list-item, .job-card-container, [role="listitem"], li, article, [data-job-id], [data-jobid], [data-occludable-job-id]',
+                    '.jobs-search-results__list-item, .job-card-container, [role="listitem"], li, article, [data-job-id], [data-jobid], [data-occludable-job-id], button, [role="button"]',
                   ),
                 );
 
                 for (const root of supplementalRoots) {
+                  const rootAccessibleText = `${collectAccessibleCardLabels(root).join(" ")} ${toText(root.innerText)}`;
+                  const isDismissJobControl =
+                    root.matches('button, [role="button"]') &&
+                    /\bdismiss\b[\s\S]*\bjob\b/i.test(rootAccessibleText);
+                  const candidateRoot = isDismissJobControl
+                    ? (root.closest<HTMLElement>(
+                        '[data-job-id], [data-jobid], [data-occludable-job-id], [data-entity-urn*="job" i], [data-entity-id*="job" i], [role="listitem"], li, article',
+                      ) ?? root)
+                    : root;
                   if (
                     cardCandidates.length >= input.maxInPageCardCandidates ||
-                    scannedRoots.has(root) ||
-                    !looksLikeSearchSurfaceResultCard(root)
+                    scannedRoots.has(candidateRoot) ||
+                    (!looksLikeSearchSurfaceResultCard(candidateRoot) &&
+                      !isDismissJobControl)
                   ) {
                     continue;
                   }
 
-                  const anchor = selectSupplementalSearchSurfaceAnchor(root);
+                  const anchor =
+                    selectSupplementalSearchSurfaceAnchor(candidateRoot);
                   if (
                     !anchor &&
-                    !root.querySelector('h1, h2, h3, h4, [role="heading"]')
+                    !candidateRoot.querySelector(
+                      'h1, h2, h3, h4, [role="heading"]',
+                    ) &&
+                    !/\bdismiss\b[\s\S]*\bjob\b/i.test(
+                      `${collectAccessibleCardLabels(candidateRoot).join(" ")} ${toText(candidateRoot.innerText)}`,
+                    )
                   ) {
                     continue;
                   }
 
-                  scannedRoots.add(root);
-                  addCardCandidate(root, anchor);
+                  scannedRoots.add(candidateRoot);
+                  addCardCandidate(candidateRoot, anchor);
                 }
               }
 

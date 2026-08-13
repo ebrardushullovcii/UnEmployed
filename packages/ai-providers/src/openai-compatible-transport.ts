@@ -338,15 +338,10 @@ export function buildModelRequestBody(input: {
       ...(!input.reasoningEffort ? { temperature: 0.2 } : {}),
       ...(input.reasoningEffort
         ? {
-            reasoning_effort:
-              input.tools && input.tools.length > 0
-                ? "none"
-                : input.reasoningEffort,
+            reasoning_effort: input.reasoningEffort,
           }
         : {}),
-      ...(input.jsonOutput
-        ? { response_format: { type: "json_object" } }
-        : {}),
+      ...(input.jsonOutput ? { response_format: { type: "json_object" } } : {}),
       messages: input.messages,
       ...(input.tools && input.tools.length > 0
         ? { tools: input.tools, tool_choice: "auto" }
@@ -364,9 +359,7 @@ export function buildModelRequestBody(input: {
       effort: input.reasoningEffort ?? DEFAULT_MODEL_REASONING_EFFORT,
     },
     input: toResponsesInput(input.messages),
-    ...(input.jsonOutput
-      ? { text: { format: { type: "json_object" } } }
-      : {}),
+    ...(input.jsonOutput ? { text: { format: { type: "json_object" } } } : {}),
     ...(input.tools && input.tools.length > 0
       ? {
           tools: input.tools.map((tool) => ({
@@ -398,10 +391,7 @@ export function parseModelReasoningEffort(
   return modelReasoningEfforts.find((effort) => effort === normalized);
 }
 
-export function buildModelUrl(
-  baseUrl: string,
-  apiMode: ModelApiMode,
-): string {
+export function buildModelUrl(baseUrl: string, apiMode: ModelApiMode): string {
   const normalizedBaseUrl = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
   return new URL(
     apiMode === "responses" ? "responses" : "chat/completions",

@@ -4,6 +4,7 @@ import type {
   BrowserVisualObservationSet,
   BrowserVisualSnapshotRef,
   BrowserVisualSnapshotRequest,
+  BrowserAgentRunCheckpoint,
   JobPosting,
   CandidateProfile,
   AgentDiscoveryProgress,
@@ -31,6 +32,7 @@ export type { Tool, ToolCall };
 export interface AgentSearchPreferences {
   targetRoles: string[];
   locations: string[];
+  workModes?: string[];
 }
 
 export interface AgentNavigationPolicy {
@@ -108,6 +110,11 @@ export interface AgentCompactionStatus {
 export interface AgentConfig {
   source: JobSource;
   maxSteps: number;
+  /** Legacy-compatible emergency ceiling. Normal completion is progress based. */
+  runControl?: {
+    timeBudgetMs?: number;
+    noProgressStepLimit?: number;
+  };
   targetJobCount: number;
   userProfile: CandidateProfile;
   searchPreferences: AgentSearchPreferences;
@@ -126,6 +133,10 @@ export interface AgentConfig {
   compactionCapability?: AgentCompactionCapability;
   resolveLivePage?: () => Promise<Page>;
   visualAnalysis?: AgentVisualAnalysisCapability;
+  resumeCheckpoint?: BrowserAgentRunCheckpoint;
+  onCheckpoint?: (
+    checkpoint: BrowserAgentRunCheckpoint,
+  ) => Promise<void> | void;
 }
 
 export type AgentVisualAnalysisCapability =

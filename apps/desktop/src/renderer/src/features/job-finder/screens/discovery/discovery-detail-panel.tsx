@@ -256,7 +256,8 @@ export function DiscoveryDetailPanel({
           </div>
 
           <div
-            className="min-h-0 flex-1 overflow-y-auto px-6 pb-5 pt-5"
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pb-5 pt-5"
+            data-locked-pane-scroll-region
             data-testid="discovery-detail-scroll-area"
             ref={detailScrollAreaRef}
           >
@@ -528,7 +529,8 @@ export function DiscoveryDetailPanel({
                   Not interested because…
                 </legend>
                 <p className="text-(length:--text-tiny) leading-5 text-foreground-muted">
-                  Optional feedback stays local. It hides this result but never changes job facts or fit scoring.
+                  Optional feedback stays local. It hides this result but never
+                  changes job facts or fit scoring.
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {discoveryFeedbackOptions.map((option) => {
@@ -540,7 +542,9 @@ export function DiscoveryDetailPanel({
                         onClick={() =>
                           setFeedbackReasons((current) =>
                             selected
-                              ? current.filter((reason) => reason !== option.value)
+                              ? current.filter(
+                                  (reason) => reason !== option.value,
+                                )
                               : [...current, option.value],
                           )
                         }
@@ -555,7 +559,9 @@ export function DiscoveryDetailPanel({
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button
-                    disabled={isSelectedJobPending || feedbackReasons.length === 0}
+                    disabled={
+                      isSelectedJobPending || feedbackReasons.length === 0
+                    }
                     onClick={() => {
                       onDismissJob(selectedJob.id, feedbackReasons);
                       setFeedbackJobId(null);

@@ -115,6 +115,7 @@ interface ResumeGenerationQualityAccumulator {
   acceptedRewriteCount: number;
   rejectedRewriteCount: number;
   acceptedRewriteCharacters: number;
+  acceptedInferredRewriteCount: number;
 }
 
 interface ResumeRewriteContext {
@@ -122,6 +123,7 @@ interface ResumeRewriteContext {
   jobCompany: string;
   jobSkills: readonly string[];
   quality: ResumeGenerationQualityAccumulator;
+  allowReasonableInference: boolean;
 }
 
 function normalizeComparableText(value: string | null | undefined): string {
@@ -131,7 +133,9 @@ function normalizeComparableText(value: string | null | undefined): string {
     .trim();
 }
 
-function canonicalizeComparableDatePart(value: string | null | undefined): string | null {
+function canonicalizeComparableDatePart(
+  value: string | null | undefined,
+): string | null {
   const trimmed = value?.trim() ?? "";
   if (!trimmed) {
     return null;
@@ -148,7 +152,9 @@ function canonicalizeComparableDatePart(value: string | null | undefined): strin
   const yearMonthMatch = /^(\d{4})-(\d{2})(?:-\d{2})?$/.exec(trimmed);
   if (yearMonthMatch) {
     const month = Number(yearMonthMatch[2]);
-    return month >= 1 && month <= 12 ? `${yearMonthMatch[1]}-${yearMonthMatch[2]}` : null;
+    return month >= 1 && month <= 12
+      ? `${yearMonthMatch[1]}-${yearMonthMatch[2]}`
+      : null;
   }
 
   const monthYearSlashMatch = /^(\d{1,2})\/(\d{4})$/.exec(trimmed);
@@ -196,7 +202,9 @@ function canonicalizeComparableDatePart(value: string | null | undefined): strin
   return normalizeComparableText(trimmed) || null;
 }
 
-function canonicalizeComparableDateRange(value: string | null | undefined): string | null {
+function canonicalizeComparableDateRange(
+  value: string | null | undefined,
+): string | null {
   const trimmed = value?.trim() ?? "";
   if (!trimmed) {
     return null;
@@ -263,14 +271,16 @@ function selectGroundedResumeText(input: {
   fallback: string | null | undefined;
   canonical: string | null | undefined;
   rewriteContext: ResumeRewriteContext;
-  allowedScope?: {
-    scope: "experience" | "project";
-    profileRecordId: string;
-  } | undefined;
+  allowedScope?:
+    | {
+        scope: "experience" | "project";
+        profileRecordId: string;
+      }
+    | undefined;
 }): string | null {
   const candidates = uniqueStrings(
-    [input.fallback, input.canonical].filter(
-      (value): value is string => Boolean(value?.trim()),
+    [input.fallback, input.canonical].filter((value): value is string =>
+      Boolean(value?.trim()),
     ),
   );
   const parsedGenerated = parseEvidenceLinkedText(
@@ -288,6 +298,7 @@ function selectGroundedResumeText(input: {
     allowedScope: input.allowedScope,
     jobCompany: input.rewriteContext.jobCompany,
     jobSkills: input.rewriteContext.jobSkills,
+    allowReasonableInference: input.rewriteContext.allowReasonableInference,
   });
 
   if (parsedGenerated && !isCanonical) {
@@ -296,6 +307,9 @@ function selectGroundedResumeText(input: {
       input.rewriteContext.quality.acceptedRewriteCount += 1;
       input.rewriteContext.quality.acceptedRewriteCharacters +=
         selection.text.length;
+      if (selection.inferred) {
+        input.rewriteContext.quality.acceptedInferredRewriteCount += 1;
+      }
     } else {
       input.rewriteContext.quality.rejectedRewriteCount += 1;
     }
@@ -314,10 +328,12 @@ function selectGroundedResumeBullets(
   fallbackBullets: readonly string[],
   canonicalBullets: readonly string[],
   rewriteContext: ResumeRewriteContext,
-  allowedScope: {
-    scope: "experience" | "project";
-    profileRecordId: string;
-  } | undefined,
+  allowedScope:
+    | {
+        scope: "experience" | "project";
+        profileRecordId: string;
+      }
+    | undefined,
   maxBullets = 3,
 ): string[] {
   const canonicalCandidates = uniqueStrings([
@@ -350,6 +366,7 @@ function selectGroundedResumeBullets(
         allowedScope,
         jobCompany: rewriteContext.jobCompany,
         jobSkills: rewriteContext.jobSkills,
+        allowReasonableInference: rewriteContext.allowReasonableInference,
       });
 
       if (!isCanonical) {
@@ -358,6 +375,9 @@ function selectGroundedResumeBullets(
           rewriteContext.quality.acceptedRewriteCount += 1;
           rewriteContext.quality.acceptedRewriteCharacters +=
             selection.text.length;
+          if (selection.inferred) {
+            rewriteContext.quality.acceptedInferredRewriteCount += 1;
+          }
           selection.referencedEvidenceText.forEach((text) => {
             replacedCanonicalText.add(normalizeComparableText(text));
           });
@@ -385,10 +405,7 @@ function selectCanonicalStringList(
 ): string[] {
   const selectedValues = uniqueStrings(
     sanitizeStringArray(generatedValues).flatMap((generatedValue) => {
-      const canonicalValue = findCanonicalProse(
-        generatedValue,
-        fallbackValues,
-      );
+      const canonicalValue = findCanonicalProse(generatedValue, fallbackValues);
       return canonicalValue ? [canonicalValue] : [];
     }),
   );
@@ -409,7 +426,9 @@ function entryMatchesFallback(
   const entryEmployer = normalizeComparableText(entry.employer);
   const fallbackEmployer = normalizeComparableText(fallbackEntry.employer);
   const entryDateRange = canonicalizeComparableDateRange(entry.dateRange);
-  const fallbackDateRange = canonicalizeComparableDateRange(fallbackEntry.dateRange);
+  const fallbackDateRange = canonicalizeComparableDateRange(
+    fallbackEntry.dateRange,
+  );
 
   if (
     entryTitle &&
@@ -458,7 +477,9 @@ function entryConflictsWithFallback(
   }
 
   const entryDateRange = canonicalizeComparableDateRange(entry.dateRange);
-  const fallbackDateRange = canonicalizeComparableDateRange(fallbackEntry.dateRange);
+  const fallbackDateRange = canonicalizeComparableDateRange(
+    fallbackEntry.dateRange,
+  );
   if (
     isPlausibleResumeDateRange(entry.dateRange) &&
     isPlausibleResumeDateRange(fallbackEntry.dateRange) &&
@@ -487,10 +508,7 @@ function normalizeExperienceEntries(
   fallbackEntries: ReturnType<
     typeof buildDeterministicStructuredResumeDraft
   >["experienceEntries"],
-  canonicalEvidenceByRecordId: ReadonlyMap<
-    string,
-    CanonicalExperienceEvidence
-  >,
+  canonicalEvidenceByRecordId: ReadonlyMap<string, CanonicalExperienceEvidence>,
   rewriteContext: ResumeRewriteContext,
 ) {
   const knownFallbackIds = new Set(
@@ -503,7 +521,7 @@ function normalizeExperienceEntries(
       entry.profileRecordId ? [[entry.profileRecordId, entry] as const] : [],
     ),
   );
-  const entriesByFallbackId = new Map<string, typeof entries[number]>();
+  const entriesByFallbackId = new Map<string, (typeof entries)[number]>();
   const usedEntryIndexes = new Set<number>();
 
   entries.forEach((entry, index) => {
@@ -524,7 +542,10 @@ function normalizeExperienceEntries(
   });
 
   fallbackEntries.forEach((fallbackEntry) => {
-    if (!fallbackEntry.profileRecordId || entriesByFallbackId.has(fallbackEntry.profileRecordId)) {
+    if (
+      !fallbackEntry.profileRecordId ||
+      entriesByFallbackId.has(fallbackEntry.profileRecordId)
+    ) {
       return;
     }
 
@@ -542,7 +563,10 @@ function normalizeExperienceEntries(
     });
 
     if (matchedIndex >= 0) {
-      entriesByFallbackId.set(fallbackEntry.profileRecordId, entries[matchedIndex]!);
+      entriesByFallbackId.set(
+        fallbackEntry.profileRecordId,
+        entries[matchedIndex]!,
+      );
       usedEntryIndexes.add(matchedIndex);
     }
   });
@@ -550,17 +574,23 @@ function normalizeExperienceEntries(
   let nextUnusedEntryIndex = 0;
 
   return fallbackEntries.map((fallbackEntry, index) => {
-    let matchedEntry: typeof entries[number] | null;
+    let matchedEntry: (typeof entries)[number] | null;
 
     if (fallbackEntry.profileRecordId) {
-      matchedEntry = entriesByFallbackId.get(fallbackEntry.profileRecordId) ?? null;
+      matchedEntry =
+        entriesByFallbackId.get(fallbackEntry.profileRecordId) ?? null;
     } else {
-      const directMatch = usedEntryIndexes.has(index) ? null : entries[index] ?? null;
+      const directMatch = usedEntryIndexes.has(index)
+        ? null
+        : (entries[index] ?? null);
       if (directMatch) {
         usedEntryIndexes.add(index);
         matchedEntry = directMatch;
       } else {
-        while (nextUnusedEntryIndex < entries.length && usedEntryIndexes.has(nextUnusedEntryIndex)) {
+        while (
+          nextUnusedEntryIndex < entries.length &&
+          usedEntryIndexes.has(nextUnusedEntryIndex)
+        ) {
           nextUnusedEntryIndex += 1;
         }
 
@@ -641,9 +671,7 @@ function normalizeProjectEntries(
   const entriesByProfileRecordId = new Map(
     entries.flatMap((entry) => {
       const profileRecordId = normalizeNullableString(entry.profileRecordId);
-      return profileRecordId
-        ? ([[profileRecordId, entry]] as const)
-        : [];
+      return profileRecordId ? ([[profileRecordId, entry]] as const) : [];
     }),
   );
 
@@ -766,12 +794,15 @@ export function completeTailoredResumeDraft(
     acceptedRewriteCount: 0,
     rejectedRewriteCount: 0,
     acceptedRewriteCharacters: 0,
+    acceptedInferredRewriteCount: 0,
   };
   const rewriteContext: ResumeRewriteContext = {
     evidenceCatalog: buildResumeGenerationEvidenceCatalog(fallbackInput),
     jobCompany: fallbackInput.job.company,
     jobSkills: fallbackInput.job.keySkills,
     quality,
+    allowReasonableInference:
+      fallbackInput.searchPreferences.tailoringMode === "aggressive",
   };
   const label = fallback.label;
   const summary =
@@ -814,7 +845,7 @@ export function completeTailoredResumeDraft(
         (coreSkill) => coreSkill.toLowerCase() === skill.toLowerCase(),
       ),
   );
-  const notes = fallback.notes;
+  const notes = [...fallback.notes];
   const canonicalExperienceEvidenceByRecordId = new Map(
     fallbackInput.profile.experiences.map((experience) => [
       experience.id,
@@ -824,14 +855,15 @@ export function completeTailoredResumeDraft(
       } satisfies CanonicalExperienceEvidence,
     ]),
   );
-  const experienceEntries = sanitizedExperienceEntries.length > 0
-    ? normalizeExperienceEntries(
-        sanitizedExperienceEntries,
-        fallback.experienceEntries,
-        canonicalExperienceEvidenceByRecordId,
-        rewriteContext,
-      )
-    : fallback.experienceEntries;
+  const experienceEntries =
+    sanitizedExperienceEntries.length > 0
+      ? normalizeExperienceEntries(
+          sanitizedExperienceEntries,
+          fallback.experienceEntries,
+          canonicalExperienceEvidenceByRecordId,
+          rewriteContext,
+        )
+      : fallback.experienceEntries;
   const projectEntries =
     sanitizedProjectEntries.length > 0
       ? normalizeProjectEntries(
@@ -840,6 +872,11 @@ export function completeTailoredResumeDraft(
           rewriteContext,
         )
       : fallback.projectEntries;
+  if (quality.acceptedInferredRewriteCount > 0) {
+    notes.push(
+      `${quality.acceptedInferredRewriteCount} AI-inferred ${quality.acceptedInferredRewriteCount === 1 ? "line" : "lines"} came from aggressive tailoring. Review and confirm each inferred line before approving the resume.`,
+    );
+  }
   const fullText = composeDeterministicFullText({
     label,
     summary,
@@ -876,9 +913,7 @@ export function completeTailoredResumeDraft(
         : fallback.compatibilityScore,
     generationQuality: {
       strategy:
-        quality.acceptedRewriteCount > 0
-          ? "evidence_linked"
-          : "deterministic",
+        quality.acceptedRewriteCount > 0 ? "evidence_linked" : "deterministic",
       ...quality,
     },
     notes,

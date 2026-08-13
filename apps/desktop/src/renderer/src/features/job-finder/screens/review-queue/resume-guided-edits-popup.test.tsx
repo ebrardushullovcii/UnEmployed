@@ -294,22 +294,22 @@ describe("ResumeGuidedEditsPopup", () => {
 
     fireEvent.pointerDown(header, {
       button: 0,
-      clientX: 24,
+      clientX: 824,
       clientY: 160,
       isPrimary: true,
       pointerId: 1,
     });
     fireEvent.pointerMove(header, {
       button: 0,
-      clientX: 124,
-      clientY: 210,
+      clientX: 624,
+      clientY: 160,
       isPrimary: true,
       pointerId: 1,
     });
     fireEvent.pointerUp(header, {
       button: 0,
-      clientX: 124,
-      clientY: 210,
+      clientX: 624,
+      clientY: 160,
       isPrimary: true,
       pointerId: 1,
     });

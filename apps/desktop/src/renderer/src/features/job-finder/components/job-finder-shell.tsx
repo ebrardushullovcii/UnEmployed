@@ -36,7 +36,7 @@ interface JobFinderShellProps {
   isDiscoveryPending?: boolean;
   isResumeImportPending?: boolean;
   liveDiscoveryEvents?: readonly DiscoveryActivityEvent[];
-  onCancelApplyRun?: (runId: string) => void;
+  onCancelApplyRun?: (runId: string) => Promise<boolean>;
   onCancelDiscovery?: () => void;
   onDismissSavedStatus?: () => void;
   onNavigate?: (path: string) => void;
@@ -559,7 +559,7 @@ export function JobFinderShell({
         <main
           aria-label={activeScreenLabel}
           className={cn(
-            "flex-1 overflow-x-hidden",
+            "flex-1 overflow-x-hidden outline-none",
             usesLockedScreenLayout
               ? "overflow-hidden px-2 pb-4 pt-0 sm:px-4"
               : "screen-scroll-area overflow-y-auto px-4 pb-12 pt-8 sm:px-6",

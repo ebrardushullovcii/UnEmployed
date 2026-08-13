@@ -108,9 +108,11 @@ export type ProfileSetupReviewAction = z.infer<
   typeof ProfileSetupReviewActionSchema
 >;
 
-export const ProfileSetupReviewActionOptionsSchema = z.object({
-  selectedConflictChoiceId: NonEmptyStringSchema.optional(),
-}).default({});
+export const ProfileSetupReviewActionOptionsSchema = z
+  .object({
+    selectedConflictChoiceId: NonEmptyStringSchema.optional(),
+  })
+  .default({});
 export type ProfileSetupReviewActionOptions = z.infer<
   typeof ProfileSetupReviewActionOptionsSchema
 >;
@@ -171,7 +173,8 @@ function getHighestPriorityPendingStep(
   const pendingItems = reviewItems
     .filter((item) => item.status === "pending")
     .sort((left, right) => {
-      const leftIndex = profileSetupStepOrder.get(left.step) ?? Number.MAX_SAFE_INTEGER;
+      const leftIndex =
+        profileSetupStepOrder.get(left.step) ?? Number.MAX_SAFE_INTEGER;
       const rightIndex =
         profileSetupStepOrder.get(right.step) ?? Number.MAX_SAFE_INTEGER;
 
@@ -193,10 +196,14 @@ function hasMeaningfulText(value: string | null | undefined): boolean {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function hasMeaningfulStringList(values: readonly string[] | null | undefined): boolean {
+function hasMeaningfulStringList(
+  values: readonly string[] | null | undefined,
+): boolean {
   return (
     Array.isArray(values) &&
-    values.some((value) => typeof value === "string" && hasMeaningfulText(value))
+    values.some(
+      (value) => typeof value === "string" && hasMeaningfulText(value),
+    )
   );
 }
 
@@ -204,10 +211,10 @@ function hasMeaningfulExperience(profile: CandidateProfile): boolean {
   return profile.experiences.some((experience) =>
     Boolean(
       hasMeaningfulText(experience.companyName) ||
-        hasMeaningfulText(experience.title) ||
-        hasMeaningfulText(experience.summary) ||
-        hasMeaningfulStringList(experience.achievements) ||
-        hasMeaningfulStringList(experience.skills),
+      hasMeaningfulText(experience.title) ||
+      hasMeaningfulText(experience.summary) ||
+      hasMeaningfulStringList(experience.achievements) ||
+      hasMeaningfulStringList(experience.skills),
     ),
   );
 }
@@ -216,10 +223,10 @@ function hasMeaningfulProject(profile: CandidateProfile): boolean {
   return profile.projects.some((project) =>
     Boolean(
       hasMeaningfulText(project.name) ||
-        hasMeaningfulText(project.summary) ||
-        hasMeaningfulText(project.role) ||
-        hasMeaningfulText(project.outcome) ||
-        hasMeaningfulStringList(project.skills),
+      hasMeaningfulText(project.summary) ||
+      hasMeaningfulText(project.role) ||
+      hasMeaningfulText(project.outcome) ||
+      hasMeaningfulStringList(project.skills),
     ),
   );
 }
@@ -227,17 +234,17 @@ function hasMeaningfulProject(profile: CandidateProfile): boolean {
 function hasMeaningfulNarrative(profile: CandidateProfile): boolean {
   return Boolean(
     hasMeaningfulText(profile.professionalSummary.shortValueProposition) ||
-      hasMeaningfulText(profile.professionalSummary.fullSummary) ||
-      hasMeaningfulStringList(profile.professionalSummary.careerThemes) ||
-      hasMeaningfulText(profile.professionalSummary.leadershipSummary) ||
-      hasMeaningfulText(profile.professionalSummary.domainFocusSummary) ||
-      hasMeaningfulStringList(profile.professionalSummary.strengths) ||
-      hasMeaningfulText(profile.narrative.professionalStory) ||
-      hasMeaningfulText(profile.narrative.nextChapterSummary) ||
-      hasMeaningfulText(profile.narrative.careerTransitionSummary) ||
-      hasMeaningfulStringList(profile.narrative.differentiators) ||
-      hasMeaningfulStringList(profile.narrative.motivationThemes) ||
-      profile.proofBank.length > 0,
+    hasMeaningfulText(profile.professionalSummary.fullSummary) ||
+    hasMeaningfulStringList(profile.professionalSummary.careerThemes) ||
+    hasMeaningfulText(profile.professionalSummary.leadershipSummary) ||
+    hasMeaningfulText(profile.professionalSummary.domainFocusSummary) ||
+    hasMeaningfulStringList(profile.professionalSummary.strengths) ||
+    hasMeaningfulText(profile.narrative.professionalStory) ||
+    hasMeaningfulText(profile.narrative.nextChapterSummary) ||
+    hasMeaningfulText(profile.narrative.careerTransitionSummary) ||
+    hasMeaningfulStringList(profile.narrative.differentiators) ||
+    hasMeaningfulStringList(profile.narrative.motivationThemes) ||
+    profile.proofBank.length > 0,
   );
 }
 
@@ -246,16 +253,16 @@ function hasMeaningfulAnswerBank(profile: CandidateProfile): boolean {
 
   return Boolean(
     hasMeaningfulText(answerBank.workAuthorization) ||
-      hasMeaningfulText(answerBank.visaSponsorship) ||
-      hasMeaningfulText(answerBank.relocation) ||
-      hasMeaningfulText(answerBank.travel) ||
-      hasMeaningfulText(answerBank.noticePeriod) ||
-      hasMeaningfulText(answerBank.availability) ||
-      hasMeaningfulText(answerBank.salaryExpectations) ||
-      hasMeaningfulText(answerBank.selfIntroduction) ||
-      hasMeaningfulText(answerBank.careerTransition) ||
-      (Array.isArray(answerBank.customAnswers) &&
-        answerBank.customAnswers.length > 0),
+    hasMeaningfulText(answerBank.visaSponsorship) ||
+    hasMeaningfulText(answerBank.relocation) ||
+    hasMeaningfulText(answerBank.travel) ||
+    hasMeaningfulText(answerBank.noticePeriod) ||
+    hasMeaningfulText(answerBank.availability) ||
+    hasMeaningfulText(answerBank.salaryExpectations) ||
+    hasMeaningfulText(answerBank.selfIntroduction) ||
+    hasMeaningfulText(answerBank.careerTransition) ||
+    (Array.isArray(answerBank.customAnswers) &&
+      answerBank.customAnswers.length > 0),
   );
 }
 
@@ -284,12 +291,12 @@ export function evaluateProfileSetupReadiness(
   const hasResumeText = hasMeaningfulText(profile.baseResume.textContent);
   const hasCoreIdentity = Boolean(
     hasMeaningfulText(profile.fullName) &&
-      hasMeaningfulText(profile.headline) &&
-      hasMeaningfulText(profile.currentLocation) &&
-      (!freshStart || profile.yearsExperience > 0) &&
-      (!freshStart ||
-        profile.headline.trim().toLowerCase() !== FRESH_START_HEADLINE ||
-        profile.currentLocation.trim().toLowerCase() !== FRESH_START_LOCATION),
+    hasMeaningfulText(profile.headline) &&
+    hasMeaningfulText(profile.currentLocation) &&
+    (!freshStart || profile.yearsExperience > 0) &&
+    (!freshStart ||
+      profile.headline.trim().toLowerCase() !== FRESH_START_HEADLINE ||
+      profile.currentLocation.trim().toLowerCase() !== FRESH_START_LOCATION),
   );
   const hasContactPath = Boolean(
     hasMeaningfulText(profile.email) || hasMeaningfulText(profile.phone),
@@ -298,24 +305,27 @@ export function evaluateProfileSetupReadiness(
     hasMeaningfulExperience(profile) || hasMeaningfulProject(profile);
   const hasTargeting = Boolean(
     hasMeaningfulStringList(searchPreferences.targetRoles) ||
-      hasMeaningfulStringList(searchPreferences.jobFamilies) ||
-      hasMeaningfulStringList(profile.targetRoles),
+    hasMeaningfulStringList(searchPreferences.jobFamilies) ||
+    hasMeaningfulStringList(profile.targetRoles) ||
+    hasMeaningfulBackground,
   );
   const hasDiscoverySource = searchPreferences.discovery.targets.some(
     isRunnableJobDiscoveryTarget,
   );
   const hasEligibilityPreferences = Boolean(
     hasMeaningfulStringList(profile.workEligibility.authorizedWorkCountries) ||
-      profile.workEligibility.requiresVisaSponsorship !== null ||
-      profile.workEligibility.willingToRelocate !== null ||
-      hasMeaningfulStringList(profile.workEligibility.preferredRelocationRegions) ||
-      profile.workEligibility.willingToTravel !== null ||
-      profile.workEligibility.remoteEligible !== null ||
-      profile.workEligibility.noticePeriodDays !== null ||
-      hasMeaningfulText(profile.workEligibility.availableStartDate) ||
-      hasMeaningfulText(profile.workEligibility.securityClearance) ||
-      hasMeaningfulStringList(searchPreferences.locations) ||
-      hasMeaningfulStringList(searchPreferences.workModes),
+    profile.workEligibility.requiresVisaSponsorship !== null ||
+    profile.workEligibility.willingToRelocate !== null ||
+    hasMeaningfulStringList(
+      profile.workEligibility.preferredRelocationRegions,
+    ) ||
+    profile.workEligibility.willingToTravel !== null ||
+    profile.workEligibility.remoteEligible !== null ||
+    profile.workEligibility.noticePeriodDays !== null ||
+    hasMeaningfulText(profile.workEligibility.availableStartDate) ||
+    hasMeaningfulText(profile.workEligibility.securityClearance) ||
+    hasMeaningfulStringList(searchPreferences.locations) ||
+    hasMeaningfulStringList(searchPreferences.workModes),
   );
   const hasNarrative = hasMeaningfulNarrative(profile);
   const hasAnswerBank = hasMeaningfulAnswerBank(profile);
@@ -328,13 +338,13 @@ export function evaluateProfileSetupReadiness(
     hasDiscoverySource;
   const started = Boolean(
     hasResumeText ||
-      hasCoreIdentity ||
-      hasContactPath ||
-      hasMeaningfulBackground ||
-      hasTargeting ||
-      hasEligibilityPreferences ||
-      hasNarrative ||
-      hasAnswerBank,
+    hasCoreIdentity ||
+    hasContactPath ||
+    hasMeaningfulBackground ||
+    hasTargeting ||
+    hasEligibilityPreferences ||
+    hasNarrative ||
+    hasAnswerBank,
   );
 
   let recommendedStep: ProfileSetupStep = "ready_check";
@@ -344,11 +354,7 @@ export function evaluateProfileSetupReadiness(
     recommendedStep = "essentials";
   } else if (!hasMeaningfulBackground) {
     recommendedStep = "background";
-  } else if (
-    !hasTargeting ||
-    !hasEligibilityPreferences ||
-    !hasDiscoverySource
-  ) {
+  } else if (!hasEligibilityPreferences || !hasDiscoverySource) {
     recommendedStep = "targeting";
   } else if (!hasNarrative) {
     recommendedStep = "narrative";
@@ -383,9 +389,8 @@ export function deriveProfileSetupState(
     ? ProfileSetupStateSchema.parse(options.currentState)
     : null;
   const pendingReviewItems = currentState?.reviewItems ?? [];
-  const highestPriorityPendingStep = getHighestPriorityPendingStep(
-    pendingReviewItems,
-  );
+  const highestPriorityPendingStep =
+    getHighestPriorityPendingStep(pendingReviewItems);
 
   const canBeCompleted =
     readiness.materiallyComplete &&
@@ -409,14 +414,14 @@ export function deriveProfileSetupState(
         ? "import"
         : currentState?.status === "in_progress"
           ? currentState.currentStep
-          : highestPriorityPendingStep ?? readiness.recommendedStep;
+          : (highestPriorityPendingStep ?? readiness.recommendedStep);
 
   return ProfileSetupStateSchema.parse({
     status,
     currentStep,
     completedAt:
       status === "completed"
-        ? currentState?.completedAt ?? options.now ?? null
+        ? (currentState?.completedAt ?? options.now ?? null)
         : null,
     reviewItems: currentState?.reviewItems ?? [],
     lastResumedAt: currentState?.lastResumedAt ?? null,

@@ -95,11 +95,15 @@ describe("contracts source-debug schemas", () => {
     expect(discovery.agentMetadata?.compactionState?.triggerKind).toBe(
       "token_budget",
     );
-    expect(discovery.agentMetadata?.compactionState?.estimatedTokensBefore).toBe(130000);
-    expect(discovery.agentMetadata?.compactionState?.estimatedTokensAfter).toBe(82000);
-    expect(discovery.agentMetadata?.compactionState?.stickyWorkflowState).toEqual([
-      "Phase goal: Verify search route",
-    ]);
+    expect(
+      discovery.agentMetadata?.compactionState?.estimatedTokensBefore,
+    ).toBe(130000);
+    expect(discovery.agentMetadata?.compactionState?.estimatedTokensAfter).toBe(
+      82000,
+    );
+    expect(
+      discovery.agentMetadata?.compactionState?.stickyWorkflowState,
+    ).toEqual(["Phase goal: Verify search route"]);
     expect(discovery.agentMetadata?.compactionUsedFallbackTrigger).toBe(false);
     expect(
       discovery.agentMetadata?.debugFindings?.reliableControls[0],
@@ -291,12 +295,15 @@ describe("contracts source-debug schemas", () => {
           id: "visual_observation_item_1",
           kind: "visible_control",
           label: "Keyword search form",
-          description: "A keyword search form is visible near the top of the jobs page.",
+          description:
+            "A keyword search form is visible near the top of the jobs page.",
           confidence: 0.74,
         },
       ],
       visibleControls: ["Keyword search form near the page header"],
-      jobCardClues: ["Several job-card shaped rows are visible below the filter area"],
+      jobCardClues: [
+        "Several job-card shaped rows are visible below the filter area",
+      ],
     });
     const evidence = SourceDebugEvidenceRefSchema.parse({
       id: "source_debug_visual_evidence_1",
@@ -351,6 +358,31 @@ describe("contracts source-debug schemas", () => {
         visibleControls: ["Shows a [Required] badge beside the email field"],
       }),
     ).not.toThrow();
+
+    expect(() =>
+      BrowserVisualObservationSetSchema.parse({
+        id: "visual_observation_submit_label",
+        snapshotId: "visual_snapshot_submit_label",
+        observedAt: "2026-03-20T10:01:00.000Z",
+        purpose: "apply_checkpoint",
+        providerKind: "openai_compatible_vision",
+        providerLabel: "Configured browser visual analysis",
+        summary:
+          "Submit application is visible; its disabled state is not indicated.",
+      }),
+    ).not.toThrow();
+
+    expect(() =>
+      BrowserVisualObservationSetSchema.parse({
+        id: "visual_observation_submit_instruction",
+        snapshotId: "visual_snapshot_submit_instruction",
+        observedAt: "2026-03-20T10:01:00.000Z",
+        purpose: "apply_checkpoint",
+        providerKind: "openai_compatible_vision",
+        providerLabel: "Configured browser visual analysis",
+        summary: "Click Submit application to finish.",
+      }),
+    ).toThrow(/cannot direct browser actions/i);
 
     expect(() =>
       BrowserVisualObservationSetSchema.parse({
@@ -420,7 +452,8 @@ describe("contracts source-debug schemas", () => {
         purpose: "source_debug",
         providerKind: "deterministic",
         providerLabel: "Deterministic browser visual analysis",
-        summary: "LinkedIn-specific apply flow should use the board's special route.",
+        summary:
+          "LinkedIn-specific apply flow should use the board's special route.",
       }),
     ).toThrow(/site-specific workflow rules/i);
   });

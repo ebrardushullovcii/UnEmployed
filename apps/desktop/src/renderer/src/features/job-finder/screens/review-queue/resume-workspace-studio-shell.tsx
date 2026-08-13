@@ -22,6 +22,7 @@ interface ResumeWorkspaceStudioShellProps {
   canApproveCurrentPdf: boolean;
   canClearApproval: boolean;
   editorPanel: ReactNode;
+  exportBlockedReason: string | null;
   hasUnsavedChanges: boolean;
   historyPanel: ReactNode;
   isWorkspacePending: boolean;
@@ -31,6 +32,7 @@ interface ResumeWorkspaceStudioShellProps {
   onContinueToShortlisted: () => void;
   onExportPdf: () => void;
   onRegenerateDraft: () => void;
+  onReviewBlockingIssues: () => void;
   onSaveDraft: () => void;
   onSetMobileStudioTab: (tab: "preview" | "editor" | "assistant") => void;
   previewPane: ReactNode;
@@ -50,7 +52,14 @@ export function ResumeWorkspaceStudioShell(
     !props.canApproveCurrentPdf &&
     !props.selectedTemplateApprovalEligible;
   const exportDisabled =
-    props.isWorkspacePending || !props.selectedTemplateApprovalEligible;
+    props.isWorkspacePending ||
+    !props.selectedTemplateApprovalEligible ||
+    Boolean(props.exportBlockedReason);
+  const primaryActionIsExport =
+    !props.hasUnsavedChanges &&
+    !props.canClearApproval &&
+    !props.canApproveCurrentPdf &&
+    props.selectedTemplateApprovalEligible;
 
   function focusTemplateChooser() {
     props.onSetMobileStudioTab("editor");
@@ -104,9 +113,11 @@ export function ResumeWorkspaceStudioShell(
                 ? "This exact PDF is approved and ready for application preparation."
                 : props.canApproveCurrentPdf
                   ? "Approve the exported PDF you just reviewed."
-                  : props.selectedTemplateApprovalEligible
-                    ? "Export a PDF, review it, then approve that exact file."
-                    : "Choose an apply-safe template before exporting."}
+                  : props.exportBlockedReason
+                    ? "Resolve the blocked claims before exporting."
+                    : props.selectedTemplateApprovalEligible
+                      ? "Export a PDF, review it, then approve that exact file."
+                      : "Choose an apply-safe template before exporting."}
           </strong>
           <p className="text-(length:--text-small) leading-5 text-foreground-soft">
             Review → export → approve → return to Shortlisted. Final application
@@ -115,7 +126,10 @@ export function ResumeWorkspaceStudioShell(
         </div>
         <Button
           className="w-full justify-center lg:w-auto"
-          disabled={props.isWorkspacePending}
+          disabled={
+            props.isWorkspacePending ||
+            (primaryActionIsExport && Boolean(props.exportBlockedReason))
+          }
           onClick={
             props.hasUnsavedChanges
               ? props.onSaveDraft
@@ -143,6 +157,23 @@ export function ResumeWorkspaceStudioShell(
           <ArrowRight className="size-4" />
         </Button>
       </section>
+
+      {props.exportBlockedReason ? (
+        <div
+          className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-(--warning-border) bg-(--warning-surface) px-4 py-3 text-sm text-(--warning-text)"
+          role="alert"
+        >
+          <span>{props.exportBlockedReason}</span>
+          <Button
+            onClick={props.onReviewBlockingIssues}
+            size="compact"
+            type="button"
+            variant="secondary"
+          >
+            Review blocked claims
+          </Button>
+        </div>
+      ) : null}
 
       <div className="grid gap-3 border-b border-(--surface-panel-border) px-4 py-3 xl:hidden">
         <div className="flex flex-wrap items-start justify-between gap-3">

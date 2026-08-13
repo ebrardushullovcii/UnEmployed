@@ -58,6 +58,15 @@ function createLeverTarget(): JobDiscoveryTarget {
   };
 }
 
+function createEuropeanLeverTarget(): JobDiscoveryTarget {
+  return {
+    ...createLeverTarget(),
+    id: "lever_olx_europe",
+    label: "OLX Lever Europe",
+    startingUrl: "https://jobs.eu.lever.co/olx",
+  };
+}
+
 function createAshbyTarget(): JobDiscoveryTarget {
   return {
     ...createGreenhouseTarget(),
@@ -111,7 +120,9 @@ function createSearchSurfaceTarget(): JobDiscoveryTarget {
   };
 }
 
-function createSearchPreferences(overrides: Partial<JobSearchPreferences> = {}): JobSearchPreferences {
+function createSearchPreferences(
+  overrides: Partial<JobSearchPreferences> = {},
+): JobSearchPreferences {
   return {
     targetRoles: [],
     jobFamilies: [],
@@ -283,19 +294,21 @@ async function collectGreenhouseJobs(updatedAt: string | null) {
 
   vi.spyOn(globalThis, "fetch").mockResolvedValue({
     ok: true,
-    json: () => Promise.resolve({
-      jobs: [
-        {
-          id: 4622190,
-          title: "SEI Instructor Lead",
-          absolute_url: "https://job-boards.greenhouse.io/remote/jobs/4622190",
-          location: { name: "New York, NY" },
-          updated_at: updatedAt,
-          content: "<p>Teach software engineering.</p>",
-        },
-      ],
+    json: () =>
+      Promise.resolve({
+        jobs: [
+          {
+            id: 4622190,
+            title: "SEI Instructor Lead",
+            absolute_url:
+              "https://job-boards.greenhouse.io/remote/jobs/4622190",
+            location: { name: "New York, NY" },
+            updated_at: updatedAt,
+            content: "<p>Teach software engineering.</p>",
+          },
+        ],
       }),
-    } as Response);
+  } as Response);
 
   return collectPublicProviderJobs({
     target,
@@ -307,24 +320,31 @@ async function collectGreenhouseJobs(updatedAt: string | null) {
 describe("collectPublicProviderJobs", () => {
   test("collects current Ashby board jobs through the reusable posting API", async () => {
     const target = createAshbyTarget();
-    const intelligence = inferSourceIntelligenceFromTarget({ target, currentArtifact: null });
+    const intelligence = inferSourceIntelligenceFromTarget({
+      target,
+      currentArtifact: null,
+    });
     vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({
-        jobs: [{
-          id: "ashby_job_1",
-          title: "Software Engineer: Core",
-          location: "Remote - EMEA",
-          publishedAt: "2026-06-04T12:01:47.857+02:00",
-          workplaceType: "Remote",
-          employmentType: "FullTime",
-          department: "Engineering",
-          team: "Core",
-          jobUrl: "https://jobs.ashbyhq.com/constructor/ashby_job_1",
-          applyUrl: "https://jobs.ashbyhq.com/constructor/ashby_job_1/application",
-          descriptionPlain: "Build high-availability backend systems.",
-        }],
-      }),
+      json: () =>
+        Promise.resolve({
+          jobs: [
+            {
+              id: "ashby_job_1",
+              title: "Software Engineer: Core",
+              location: "Remote - EMEA",
+              publishedAt: "2026-06-04T12:01:47.857+02:00",
+              workplaceType: "Remote",
+              employmentType: "FullTime",
+              department: "Engineering",
+              team: "Core",
+              jobUrl: "https://jobs.ashbyhq.com/constructor/ashby_job_1",
+              applyUrl:
+                "https://jobs.ashbyhq.com/constructor/ashby_job_1/application",
+              descriptionPlain: "Build high-availability backend systems.",
+            },
+          ],
+        }),
     } as Response);
 
     const result = await collectPublicProviderJobs({
@@ -337,14 +357,16 @@ describe("collectPublicProviderJobs", () => {
       key: "ashby",
       apiAvailability: "available",
       boardSlug: "constructor",
-      publicApiUrlTemplate: "https://api.ashbyhq.com/posting-api/job-board/constructor",
+      publicApiUrlTemplate:
+        "https://api.ashbyhq.com/posting-api/job-board/constructor",
     });
     expect(result.warning).toBeNull();
     expect(result.jobs[0]).toMatchObject({
       sourceJobId: "ashby_job_1",
       company: "Constructor",
       canonicalUrl: target.startingUrl,
-      applicationUrl: "https://jobs.ashbyhq.com/constructor/ashby_job_1/application",
+      applicationUrl:
+        "https://jobs.ashbyhq.com/constructor/ashby_job_1/application",
       providerKey: "ashby",
       workMode: ["remote"],
     });
@@ -352,21 +374,25 @@ describe("collectPublicProviderJobs", () => {
 
   test("collects an exact Workday job through its public candidate-experience endpoint", async () => {
     const target = createWorkdayTarget();
-    const intelligence = inferSourceIntelligenceFromTarget({ target, currentArtifact: null });
+    const intelligence = inferSourceIntelligenceFromTarget({
+      target,
+      currentArtifact: null,
+    });
     vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({
-        jobPostingInfo: {
-          jobReqId: "R2612079",
-          title: "Software Engineer",
-          location: "Singapore,SGP",
-          externalUrl:
-            "https://amat.wd1.myworkdayjobs.com/External/job/SingaporeSGP/Software-Engineer_R2612079",
-          jobDescription: "<p>Build software for semiconductor systems.</p>",
-          startDate: "2026-02-02",
-          timeType: "Full time",
-        },
-      }),
+      json: () =>
+        Promise.resolve({
+          jobPostingInfo: {
+            jobReqId: "R2612079",
+            title: "Software Engineer",
+            location: "Singapore,SGP",
+            externalUrl:
+              "https://amat.wd1.myworkdayjobs.com/External/job/SingaporeSGP/Software-Engineer_R2612079",
+            jobDescription: "<p>Build software for semiconductor systems.</p>",
+            startDate: "2026-02-02",
+            timeType: "Full time",
+          },
+        }),
     } as Response);
 
     const result = await collectPublicProviderJobs({
@@ -464,27 +490,29 @@ describe("collectPublicProviderJobs", () => {
 
     vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve([
-        {
-          id: "lever_job_1",
-          text: "Senior Engineer",
-          createdAt: "1721851681000",
-          hostedUrl: "https://jobs.lever.co/aircall/lever_job_1",
-          applyUrl: null,
-          descriptionPlain: "Build platform features.",
-          additionalPlain: "Remote-friendly engineering culture.",
-          workplaceType: "hybrid",
-          lists: [
-            {
-              text: "What we're looking for",
-              content: "<p>Production experience with React and TypeScript.</p>",
+      json: () =>
+        Promise.resolve([
+          {
+            id: "lever_job_1",
+            text: "Senior Engineer",
+            createdAt: "1721851681000",
+            hostedUrl: "https://jobs.lever.co/aircall/lever_job_1",
+            applyUrl: null,
+            descriptionPlain: "Build platform features.",
+            additionalPlain: "Remote-friendly engineering culture.",
+            workplaceType: "hybrid",
+            lists: [
+              {
+                text: "What we're looking for",
+                content:
+                  "<p>Production experience with React and TypeScript.</p>",
+              },
+            ],
+            categories: {
+              location: "Madrid Office",
             },
-          ],
-          categories: {
-            location: "Madrid Office",
           },
-        },
-      ]),
+        ]),
     } as Response);
 
     const result = await collectPublicProviderJobs({
@@ -502,9 +530,31 @@ describe("collectPublicProviderJobs", () => {
     expect(result.jobs[0]?.workMode).toContain("hybrid");
   });
 
+  test("uses the European Lever API for EU-hosted boards", () => {
+    const intelligence = inferSourceIntelligenceFromTarget({
+      target: createEuropeanLeverTarget(),
+      currentArtifact: null,
+    });
+    const provider = intelligence.provider;
+
+    expect(provider).not.toBeNull();
+    if (!provider) {
+      throw new Error("Expected EU Lever source intelligence.");
+    }
+
+    expect(provider.key).toBe("lever");
+    expect(provider.publicApiUrlTemplate).toBe(
+      "https://api.eu.lever.co/v0/postings/olx?mode=json",
+    );
+  });
+
   test("returns a clear timeout warning when the Greenhouse API hangs", async () => {
-    vi.spyOn(AbortSignal, "timeout").mockReturnValue(new AbortController().signal);
-    vi.spyOn(globalThis, "fetch").mockRejectedValue(new DOMException("Timed out", "AbortError"));
+    vi.spyOn(AbortSignal, "timeout").mockReturnValue(
+      new AbortController().signal,
+    );
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(
+      new DOMException("Timed out", "AbortError"),
+    );
 
     const target = createGreenhouseTarget();
     const intelligence = inferSourceIntelligenceFromTarget({
@@ -525,8 +575,12 @@ describe("collectPublicProviderJobs", () => {
   });
 
   test("returns a clear timeout warning when the Lever API hangs", async () => {
-    vi.spyOn(AbortSignal, "timeout").mockReturnValue(new AbortController().signal);
-    vi.spyOn(globalThis, "fetch").mockRejectedValue(new DOMException("Timed out", "AbortError"));
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockReturnValue(new AbortController().signal);
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(
+      new DOMException("Timed out", "AbortError"),
+    );
 
     const target = createLeverTarget();
     const intelligence = inferSourceIntelligenceFromTarget({
@@ -544,6 +598,7 @@ describe("collectPublicProviderJobs", () => {
     expect(result.warning).toBe(
       "Public provider API collection failed: Lever API request timed out.",
     );
+    expect(timeoutSpy).toHaveBeenCalledWith(30_000);
   });
 
   test("normalizes Lever createdAt timestamps when present", async () => {
@@ -555,19 +610,20 @@ describe("collectPublicProviderJobs", () => {
 
     vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve([
-        {
-          id: "lever_job_1",
-          text: "Senior Engineer",
-          createdAt: "2024-07-24T16:08:01-04:00",
-          hostedUrl: "https://jobs.lever.co/aircall/lever_job_1",
-          applyUrl: null,
-          descriptionPlain: "Build platform features.",
-          categories: {
-            location: "Remote",
+      json: () =>
+        Promise.resolve([
+          {
+            id: "lever_job_1",
+            text: "Senior Engineer",
+            createdAt: "2024-07-24T16:08:01-04:00",
+            hostedUrl: "https://jobs.lever.co/aircall/lever_job_1",
+            applyUrl: null,
+            descriptionPlain: "Build platform features.",
+            categories: {
+              location: "Remote",
+            },
           },
-        },
-      ]),
+        ]),
     } as Response);
 
     const result = await collectPublicProviderJobs({
@@ -601,7 +657,8 @@ describe("collectPublicProviderJobs", () => {
       acceptedAt: null,
       basedOnRunId: "debug_run_unknown_careers",
       basedOnAttemptIds: ["debug_attempt_unknown_careers"],
-      notes: "Prefer learned jobs routes before the generic careers landing page.",
+      notes:
+        "Prefer learned jobs routes before the generic careers landing page.",
       navigationGuidance: [],
       searchGuidance: [],
       detailGuidance: [],
@@ -864,11 +921,30 @@ describe("collectPublicProviderJobs", () => {
       locations: ["Prishtina, Kosovo"],
     });
 
-    expect(buildDiscoveryStartingUrls(target, artifact, searchPreferences)).toEqual([
+    expect(
+      buildDiscoveryStartingUrls(target, artifact, searchPreferences),
+    ).toEqual([
+      "https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo",
       "https://www.linkedin.com/jobs/search/",
       "https://www.linkedin.com/jobs/collections/recommended/",
       "https://www.linkedin.com/jobs/",
     ]);
+  });
+
+  test("seeds a remote LinkedIn query without inventing a location when no source guidance exists", () => {
+    const target = createSearchSurfaceTarget();
+    const searchPreferences = createSearchPreferences({
+      targetRoles: ["Senior Full-Stack Software Engineer"],
+      locations: [],
+      workModes: ["remote"],
+    });
+
+    expect(buildDiscoveryStartingUrls(target, null, searchPreferences)).toEqual(
+      [
+        "https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Worldwide&geoId=92000000&f_WT=2",
+        "https://www.linkedin.com/jobs/",
+      ],
+    );
   });
 
   test("prefers a guided homepage query url when source-debug proves a generic q filter", () => {
@@ -954,10 +1030,9 @@ describe("collectPublicProviderJobs", () => {
       locations: ["Prishtina, Kosovo"],
     });
 
-    expect(buildDiscoveryStartingUrls(target, artifact, searchPreferences)).toEqual([
-      "https://kosovajob.com/?q=software",
-      "https://kosovajob.com/",
-    ]);
+    expect(
+      buildDiscoveryStartingUrls(target, artifact, searchPreferences),
+    ).toEqual(["https://kosovajob.com/?q=software", "https://kosovajob.com/"]);
   });
 
   test("does not reuse search routes that the instruction guidance explicitly disproved", () => {
@@ -1076,7 +1151,9 @@ describe("collectPublicProviderJobs", () => {
       basedOnAttemptIds: ["debug_attempt_unknown_careers_denied_starting_url"],
       notes: null,
       navigationGuidance: [],
-      searchGuidance: ["https://example.com/careers returns 404 and should not be reused."],
+      searchGuidance: [
+        "https://example.com/careers returns 404 and should not be reused.",
+      ],
       detailGuidance: [],
       applyGuidance: [],
       warnings: [],
@@ -1277,8 +1354,10 @@ describe("collectPublicProviderJobs", () => {
       locations: ["Prishtina, Kosovo"],
     });
 
-    expect(buildDiscoveryStartingUrls(target, artifact, searchPreferences)[0]).toBe(
-      "https://www.linkedin.com/jobs/search/?keywords=software&location=Prishtina%2C+Kosovo",
+    expect(
+      buildDiscoveryStartingUrls(target, artifact, searchPreferences)[0],
+    ).toBe(
+      "https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo",
     );
   });
 
@@ -1313,11 +1392,13 @@ describe("applyDiscoveryTitleTriage", () => {
     const posting = createPosting({
       title: "Back-End Engineer",
       keySkills: ["TypeScript", "Node.js"],
-      description: "Build backend services with Node.js, TypeScript, and PostgreSQL.",
+      description:
+        "Build backend services with Node.js, TypeScript, and PostgreSQL.",
     });
 
     expect(
-      applyDiscoveryTitleTriage({ posting, profile, searchPreferences }).outcome,
+      applyDiscoveryTitleTriage({ posting, profile, searchPreferences })
+        .outcome,
     ).toBe("pass");
   });
 
@@ -1355,11 +1436,13 @@ describe("applyDiscoveryTitleTriage", () => {
     const posting = createPosting({
       title: "Category Manager, Fashion, Sports & Outdoor (E-Commerce)",
       keySkills: ["Merchandising", "Retail Operations"],
-      description: "Own category planning, retail assortment, and commercial performance.",
+      description:
+        "Own category planning, retail assortment, and commercial performance.",
     });
 
     expect(
-      applyDiscoveryTitleTriage({ posting, profile, searchPreferences }).outcome,
+      applyDiscoveryTitleTriage({ posting, profile, searchPreferences })
+        .outcome,
     ).toBe("skip_title");
   });
 
@@ -1433,11 +1516,13 @@ describe("applyDiscoveryTitleTriage", () => {
     const posting = createPosting({
       title: "Platform Engineer",
       keySkills: [],
-      description: "Build cloud platform services and backend infrastructure for product teams.",
+      description:
+        "Build cloud platform services and backend infrastructure for product teams.",
     });
 
     expect(
-      applyDiscoveryTitleTriage({ posting, profile, searchPreferences }).outcome,
+      applyDiscoveryTitleTriage({ posting, profile, searchPreferences })
+        .outcome,
     ).toBe("pass");
   });
 
@@ -1498,7 +1583,8 @@ describe("applyDiscoveryTitleTriage", () => {
       company: "Odiin",
       location: "Kosovo (Remote)",
       workMode: ["remote"],
-      description: "Build frontend product experiences with React and TypeScript.",
+      description:
+        "Build frontend product experiences with React and TypeScript.",
       keySkills: ["React", "TypeScript"],
     });
 
@@ -1547,7 +1633,8 @@ describe("applyDiscoveryTitleTriage", () => {
       title: "Senior Platform Engineer (Infrastructure)",
       location: "Pristina (Hybrid)",
       workMode: ["hybrid"],
-      description: "Build cloud infrastructure, delivery pipelines, and platform services.",
+      description:
+        "Build cloud infrastructure, delivery pipelines, and platform services.",
       keySkills: ["AWS", "Docker"],
     });
 
@@ -1571,7 +1658,8 @@ describe("applyDiscoveryTitleTriage", () => {
       title: "Operations Manager",
       location: "EMEA Remote",
       workMode: ["remote"],
-      description: "Own operations planning and team coordination across regions.",
+      description:
+        "Own operations planning and team coordination across regions.",
       keySkills: ["Operations", "Planning"],
     });
 
@@ -1595,7 +1683,8 @@ describe("applyDiscoveryTitleTriage", () => {
       title: "Frontend Engineer",
       location: "Europe Remote",
       workMode: ["remote"],
-      description: "Build frontend product experiences with React and TypeScript.",
+      description:
+        "Build frontend product experiences with React and TypeScript.",
     });
 
     const triage = applyDiscoveryTitleTriage({
@@ -1620,7 +1709,8 @@ describe("applyDiscoveryTitleTriage", () => {
       title: "Frontend Engineer",
       location: "Kosovo (Hybrid)",
       workMode: ["hybrid"],
-      description: "Build frontend product experiences with React and TypeScript.",
+      description:
+        "Build frontend product experiences with React and TypeScript.",
     });
 
     expect(
@@ -1642,7 +1732,8 @@ describe("applyDiscoveryTitleTriage", () => {
       title: "Senior Frontend Engineer",
       location: "Berlin, Germany",
       workMode: ["onsite"],
-      description: "Build frontend product experiences with React and TypeScript.",
+      description:
+        "Build frontend product experiences with React and TypeScript.",
     });
 
     const triage = applyDiscoveryTitleTriage({
@@ -1673,7 +1764,8 @@ describe("selectLowYieldTechnicalFallbackPostings", () => {
           location: "Kosovo (Remote)",
           workMode: ["remote"],
           keySkills: ["React", "TypeScript"],
-          description: "Build frontend product experiences with React and TypeScript.",
+          description:
+            "Build frontend product experiences with React and TypeScript.",
           titleTriageOutcome: "skip_title",
         }),
         createPosting({
@@ -1707,7 +1799,8 @@ describe("selectLowYieldTechnicalFallbackPostings", () => {
     const rescued = selectLowYieldTechnicalFallbackPostings({
       skippedPostings: [
         createPosting({
-          title: ".NET Software Developer .NET Software Developer Quipu GmbH Pristina,",
+          title:
+            ".NET Software Developer .NET Software Developer Quipu GmbH Pristina,",
           company: "District of",
           canonicalUrl: "https://example.com/jobs/dotnet-software-developer",
           providerKey: null,
@@ -1715,19 +1808,22 @@ describe("selectLowYieldTechnicalFallbackPostings", () => {
           location: "Kosovo",
           workMode: [],
           keySkills: [],
-          description: "Build software systems with ASP.NET Core, SQL, and backend APIs.",
+          description:
+            "Build software systems with ASP.NET Core, SQL, and backend APIs.",
           titleTriageOutcome: "skip_title",
         }),
         createPosting({
           title: "Senior Fullstack (MERN) Developer",
           company: "Proxify",
-          canonicalUrl: "https://example.com/jobs/senior-fullstack-mern-developer",
+          canonicalUrl:
+            "https://example.com/jobs/senior-fullstack-mern-developer",
           providerKey: null,
           sourceIntelligence: null,
           location: "Kosovo",
           workMode: [],
           keySkills: [],
-          description: "Remote fullstack developer role building React and Node.js products.",
+          description:
+            "Remote fullstack developer role building React and Node.js products.",
           titleTriageOutcome: "skip_location",
         }),
       ],
@@ -1736,7 +1832,10 @@ describe("selectLowYieldTechnicalFallbackPostings", () => {
     });
 
     expect(rescued).toHaveLength(2);
-    expect(rescued.map((posting) => posting.titleTriageOutcome)).toEqual(["pass", "pass"]);
+    expect(rescued.map((posting) => posting.titleTriageOutcome)).toEqual([
+      "pass",
+      "pass",
+    ]);
   });
 
   test("rescues technical jobs from skipped collection cards", () => {
@@ -1756,7 +1855,8 @@ describe("selectLowYieldTechnicalFallbackPostings", () => {
           location: "Kosovo (Remote)",
           workMode: ["remote"],
           keySkills: ["React", "TypeScript"],
-          description: "Build frontend product experiences with React and TypeScript.",
+          description:
+            "Build frontend product experiences with React and TypeScript.",
           titleTriageOutcome: "skip_title",
         }),
       ],
@@ -1813,7 +1913,8 @@ describe("selectLowYieldTechnicalFallbackPostings", () => {
           location: "Kosovo (Remote)",
           workMode: ["remote"],
           keySkills: ["React", "TypeScript"],
-          description: "Build frontend product experiences with React and TypeScript.",
+          description:
+            "Build frontend product experiences with React and TypeScript.",
           titleTriageOutcome: "skip_title",
         }),
       ],

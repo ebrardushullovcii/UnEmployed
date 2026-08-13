@@ -30,36 +30,38 @@ describe("createJobFinderWorkspaceService", () => {
     const browserRuntime: BrowserSessionRuntime = {
       ...baseRuntime,
       runAgentDiscovery(source) {
-        return Promise.resolve(createDiscoveryRunResult({
-          source,
-          startedAt: "2026-03-20T10:00:00.000Z",
-          completedAt: "2026-03-20T10:01:00.000Z",
-          querySummary: "Agent discovery test run",
-          warning:
-            "Login required: Sign in before source debugging can continue.",
-          jobs: [],
-          agentMetadata: {
-            steps: 1,
-            incomplete: false,
-            transcriptMessageCount: 3,
-            reviewTranscript: [],
-            compactionState: null,
-            compactionUsedFallbackTrigger: false,
-            phaseCompletionMode: "blocked_auth",
-            phaseCompletionReason:
+        return Promise.resolve(
+          createDiscoveryRunResult({
+            source,
+            startedAt: "2026-03-20T10:00:00.000Z",
+            completedAt: "2026-03-20T10:01:00.000Z",
+            querySummary: "Agent discovery test run",
+            warning:
               "Login required: Sign in before source debugging can continue.",
-            phaseEvidence: null,
-            debugFindings: {
-              summary:
-                "Login wall blocks further source debugging until the user signs in.",
-              reliableControls: [],
-              trickyFilters: [],
-              navigationTips: [],
-              applyTips: [],
-              warnings: ["Sign in before continuing the source-debug run."],
+            jobs: [],
+            agentMetadata: {
+              steps: 1,
+              incomplete: false,
+              transcriptMessageCount: 3,
+              reviewTranscript: [],
+              compactionState: null,
+              compactionUsedFallbackTrigger: false,
+              phaseCompletionMode: "blocked_auth",
+              phaseCompletionReason:
+                "Login required: Sign in before source debugging can continue.",
+              phaseEvidence: null,
+              debugFindings: {
+                summary:
+                  "Login wall blocks further source debugging until the user signs in.",
+                reliableControls: [],
+                trickyFilters: [],
+                navigationTips: [],
+                applyTips: [],
+                warnings: ["Sign in before continuing the source-debug run."],
+              },
             },
-          },
-        }));
+          }),
+        );
       },
     };
     const { repository, workspaceService } = createWorkspaceServiceHarness({
@@ -118,36 +120,38 @@ describe("createJobFinderWorkspaceService", () => {
         });
       },
       runAgentDiscovery(source) {
-        return Promise.resolve(createDiscoveryRunResult({
-          source,
-          startedAt: "2026-03-20T10:00:00.000Z",
-          completedAt: "2026-03-20T10:01:00.000Z",
-          querySummary: "Agent discovery test run",
-          warning:
-            "Login required: Sign in before source debugging can continue.",
-          jobs: [],
-          agentMetadata: {
-            steps: 1,
-            incomplete: false,
-            transcriptMessageCount: 3,
-            reviewTranscript: [],
-            compactionState: null,
-            compactionUsedFallbackTrigger: false,
-            phaseCompletionMode: "blocked_auth",
-            phaseCompletionReason:
+        return Promise.resolve(
+          createDiscoveryRunResult({
+            source,
+            startedAt: "2026-03-20T10:00:00.000Z",
+            completedAt: "2026-03-20T10:01:00.000Z",
+            querySummary: "Agent discovery test run",
+            warning:
               "Login required: Sign in before source debugging can continue.",
-            phaseEvidence: null,
-            debugFindings: {
-              summary:
-                "Login wall blocks further source debugging until the user signs in.",
-              reliableControls: [],
-              trickyFilters: [],
-              navigationTips: [],
-              applyTips: [],
-              warnings: ["Sign in before continuing the source-debug run."],
+            jobs: [],
+            agentMetadata: {
+              steps: 1,
+              incomplete: false,
+              transcriptMessageCount: 3,
+              reviewTranscript: [],
+              compactionState: null,
+              compactionUsedFallbackTrigger: false,
+              phaseCompletionMode: "blocked_auth",
+              phaseCompletionReason:
+                "Login required: Sign in before source debugging can continue.",
+              phaseEvidence: null,
+              debugFindings: {
+                summary:
+                  "Login wall blocks further source debugging until the user signs in.",
+                reliableControls: [],
+                trickyFilters: [],
+                navigationTips: [],
+                applyTips: [],
+                warnings: ["Sign in before continuing the source-debug run."],
+              },
             },
-          },
-        }));
+          }),
+        );
       },
     };
     const { workspaceService } = createWorkspaceServiceHarness({
@@ -209,28 +213,30 @@ describe("createJobFinderWorkspaceService", () => {
       },
       runAgentDiscovery(source, options) {
         skipSessionValidationFlags.push(options.skipSessionValidation === true);
-        return Promise.resolve(createDiscoveryRunResult({
-          source,
-          startedAt: "2026-03-20T10:00:00.000Z",
-          completedAt: "2026-03-20T10:01:00.000Z",
-          querySummary: "Agent discovery test run",
-          warning:
-            "Discovery encountered an error: LLM call failed after 3 attempts: temporary upstream failure",
-          jobs: [],
-          agentMetadata: {
-            steps: 2,
-            incomplete: false,
-            transcriptMessageCount: 5,
-            reviewTranscript: [],
-            compactionState: null,
-            compactionUsedFallbackTrigger: false,
-            phaseCompletionMode: "runtime_failed",
-            phaseCompletionReason:
+        return Promise.resolve(
+          createDiscoveryRunResult({
+            source,
+            startedAt: "2026-03-20T10:00:00.000Z",
+            completedAt: "2026-03-20T10:01:00.000Z",
+            querySummary: "Agent discovery test run",
+            warning:
               "Discovery encountered an error: LLM call failed after 3 attempts: temporary upstream failure",
-            phaseEvidence: null,
-            debugFindings: null,
-          },
-        }));
+            jobs: [],
+            agentMetadata: {
+              steps: 2,
+              incomplete: false,
+              transcriptMessageCount: 5,
+              reviewTranscript: [],
+              compactionState: null,
+              compactionUsedFallbackTrigger: false,
+              phaseCompletionMode: "runtime_failed",
+              phaseCompletionReason:
+                "Discovery encountered an error: LLM call failed after 3 attempts: temporary upstream failure",
+              phaseEvidence: null,
+              debugFindings: null,
+            },
+          }),
+        );
       },
     };
     const { repository, workspaceService } = createWorkspaceServiceHarness({
@@ -243,12 +249,14 @@ describe("createJobFinderWorkspaceService", () => {
       aiClient: createAgentAiClient(),
     });
 
+    const artifactCountBefore = (
+      await repository.listSourceInstructionArtifacts()
+    ).length;
     const snapshot = await workspaceService.runSourceDebug(
       "target_linkedin_default",
     );
-    const latestArtifact = (
-      await repository.listSourceInstructionArtifacts()
-    ).at(-1);
+    const artifactsAfter = await repository.listSourceInstructionArtifacts();
+    const latestArtifact = artifactsAfter.at(-1);
     const learnedLines = [
       ...(latestArtifact?.navigationGuidance ?? []),
       ...(latestArtifact?.searchGuidance ?? []),
@@ -262,6 +270,17 @@ describe("createJobFinderWorkspaceService", () => {
     expect(skipSessionValidationFlags.length).toBeGreaterThan(0);
     expect(skipSessionValidationFlags.every(Boolean)).toBe(true);
     expect(snapshot.recentSourceDebugRuns[0]?.state).toBe("failed");
+    expect(artifactsAfter).toHaveLength(artifactCountBefore);
+    expect(
+      snapshot.searchPreferences.discovery.targets.find(
+        (target) => target.id === "target_linkedin_default",
+      ),
+    ).toMatchObject({
+      lastVerifiedAt: null,
+      validatedInstructionId: null,
+      draftInstructionId: null,
+      lastDebugRunId: snapshot.recentSourceDebugRuns[0]?.id,
+    });
     expect(learnedLines.toLowerCase()).not.toContain("agent runtime failed");
     expect(learnedLines.toLowerCase()).not.toContain("llm call failed");
     expect(learnedLines.toLowerCase()).not.toContain(
@@ -531,81 +550,83 @@ describe("createJobFinderWorkspaceService", () => {
         const phase = options.taskPacket?.phase ?? "replay_verification";
         phaseCalls.push(phase);
 
-        return Promise.resolve(createDiscoveryRunResult({
-          source,
-          startedAt: "2026-03-20T10:00:00.000Z",
-          completedAt: "2026-03-20T10:00:10.000Z",
-          querySummary: `Phase ${phase}`,
-          warning:
-            phase === "access_auth_probe"
-              ? "Auth restriction: guest session has limited visibility and sign in is needed for broader access."
-              : null,
-          jobs: [
-            JobPostingSchema.parse({
-              source,
-              sourceJobId: `job_${phase}`,
-              discoveryMethod: "browser_agent",
-              canonicalUrl: `https://www.linkedin.com/jobs/view/${phase}`,
-              title: "Senior Full Stack Engineer",
-              company: "Signal Systems",
-              location: "Remote",
-              workMode: ["remote"],
-              applyPath: "unknown",
-              easyApplyEligible: false,
-              postedAt: "2026-03-20T09:00:00.000Z",
-              postedAtText: null,
-              discoveredAt: "2026-03-20T10:04:00.000Z",
-              salaryText: null,
-              summary: `Evidence from ${phase}`,
-              description: `Evidence from ${phase}`,
-              keySkills: ["TypeScript"],
-              responsibilities: [],
-              minimumQualifications: [],
-              preferredQualifications: [],
-              seniority: null,
-              employmentType: null,
-              department: null,
-              team: null,
-              employerWebsiteUrl: null,
-              employerDomain: null,
-              benefits: [],
-            }),
-          ],
-          agentMetadata: {
-            steps: 3,
-            incomplete: false,
-            transcriptMessageCount: 4,
-            reviewTranscript: [],
-            compactionState: null,
-            compactionUsedFallbackTrigger: false,
-            phaseCompletionMode: "forced_finish",
-            phaseCompletionReason:
+        return Promise.resolve(
+          createDiscoveryRunResult({
+            source,
+            startedAt: "2026-03-20T10:00:00.000Z",
+            completedAt: "2026-03-20T10:00:10.000Z",
+            querySummary: `Phase ${phase}`,
+            warning:
               phase === "access_auth_probe"
-                ? "Phase goal satisfied: auth-limited guest surface was proven."
-                : `Phase ${phase} proved enough reusable evidence.`,
-            phaseEvidence: null,
-            debugFindings: {
-              summary:
+                ? "Auth restriction: guest session has limited visibility and sign in is needed for broader access."
+                : null,
+            jobs: [
+              JobPostingSchema.parse({
+                source,
+                sourceJobId: `job_${phase}`,
+                discoveryMethod: "browser_agent",
+                canonicalUrl: `https://www.linkedin.com/jobs/view/${phase}`,
+                title: "Senior Full Stack Engineer",
+                company: "Signal Systems",
+                location: "Remote",
+                workMode: ["remote"],
+                applyPath: "unknown",
+                easyApplyEligible: false,
+                postedAt: "2026-03-20T09:00:00.000Z",
+                postedAtText: null,
+                discoveredAt: "2026-03-20T10:04:00.000Z",
+                salaryText: null,
+                summary: `Evidence from ${phase}`,
+                description: `Evidence from ${phase}`,
+                keySkills: ["TypeScript"],
+                responsibilities: [],
+                minimumQualifications: [],
+                preferredQualifications: [],
+                seniority: null,
+                employmentType: null,
+                department: null,
+                team: null,
+                employerWebsiteUrl: null,
+                employerDomain: null,
+                benefits: [],
+              }),
+            ],
+            agentMetadata: {
+              steps: 3,
+              incomplete: false,
+              transcriptMessageCount: 4,
+              reviewTranscript: [],
+              compactionState: null,
+              compactionUsedFallbackTrigger: false,
+              phaseCompletionMode: "forced_finish",
+              phaseCompletionReason:
                 phase === "access_auth_probe"
-                  ? "Guest session reaches jobs but broader access is restricted by sign-in prompts."
-                  : `Summary for ${phase}`,
-              reliableControls:
-                phase === "search_filter_probe"
-                  ? ["Search by title control works on the listing route."]
-                  : [],
-              trickyFilters: [],
-              navigationTips:
-                phase === "site_structure_mapping"
-                  ? ["Use the recommended jobs collection route first."]
-                  : [],
-              applyTips: [],
-              warnings:
-                phase === "access_auth_probe"
-                  ? ["Sign in is needed for broader visibility."]
-                  : [],
+                  ? "Phase goal satisfied: auth-limited guest surface was proven."
+                  : `Phase ${phase} proved enough reusable evidence.`,
+              phaseEvidence: null,
+              debugFindings: {
+                summary:
+                  phase === "access_auth_probe"
+                    ? "Guest session reaches jobs but broader access is restricted by sign-in prompts."
+                    : `Summary for ${phase}`,
+                reliableControls:
+                  phase === "search_filter_probe"
+                    ? ["Search by title control works on the listing route."]
+                    : [],
+                trickyFilters: [],
+                navigationTips:
+                  phase === "site_structure_mapping"
+                    ? ["Use the recommended jobs collection route first."]
+                    : [],
+                applyTips: [],
+                warnings:
+                  phase === "access_auth_probe"
+                    ? ["Sign in is needed for broader visibility."]
+                    : [],
+              },
             },
-          },
-        }));
+          }),
+        );
       },
     };
 
@@ -662,72 +683,74 @@ describe("createJobFinderWorkspaceService", () => {
         const phase = options.taskPacket?.phase ?? "replay_verification";
         phaseCalls.push(phase);
 
-        return Promise.resolve(createDiscoveryRunResult({
-          source,
-          startedAt: "2026-03-20T10:00:00.000Z",
-          completedAt: "2026-03-20T10:00:10.000Z",
-          querySummary: `Phase ${phase}`,
-          warning: null,
-          jobs: [
-            JobPostingSchema.parse({
-              source,
-              sourceJobId: `job_${phase}`,
-              discoveryMethod: "browser_agent",
-              canonicalUrl: `https://www.linkedin.com/jobs/view/${phase}`,
-              title: "Senior Full Stack Engineer",
-              company: "Signal Systems",
-              location: "Remote",
-              workMode: ["remote"],
-              applyPath:
-                phase === "apply_path_validation"
-                  ? "external_redirect"
-                  : "unknown",
-              easyApplyEligible: false,
-              postedAt: "2026-03-20T09:00:00.000Z",
-              postedAtText: null,
-              discoveredAt: "2026-03-20T10:04:00.000Z",
-              salaryText: null,
-              summary: `Evidence from ${phase}`,
-              description: `Evidence from ${phase}`,
-              keySkills: ["TypeScript"],
-              responsibilities: [],
-              minimumQualifications: [],
-              preferredQualifications: [],
-              seniority: null,
-              employmentType: null,
-              department: null,
-              team: null,
-              employerWebsiteUrl: null,
-              employerDomain: null,
-              benefits: [],
-            }),
-          ],
-          agentMetadata: {
-            steps: 3,
-            incomplete: false,
-            transcriptMessageCount: 4,
-            reviewTranscript: [],
-            compactionState: null,
-            compactionUsedFallbackTrigger: false,
-            phaseCompletionMode: "forced_finish",
-            phaseCompletionReason: `Phase ${phase} proved enough reusable evidence.`,
-            phaseEvidence: null,
-            debugFindings: {
-              summary: `Summary for ${phase}`,
-              reliableControls:
-                phase === "search_filter_probe"
-                  ? ["Search by title control works on the listing route."]
-                  : [],
-              trickyFilters: [],
-              navigationTips:
-                phase === "site_structure_mapping"
-                  ? ["Use the recommended jobs collection route first."]
-                  : [],
-              applyTips: [],
-              warnings: [],
+        return Promise.resolve(
+          createDiscoveryRunResult({
+            source,
+            startedAt: "2026-03-20T10:00:00.000Z",
+            completedAt: "2026-03-20T10:00:10.000Z",
+            querySummary: `Phase ${phase}`,
+            warning: null,
+            jobs: [
+              JobPostingSchema.parse({
+                source,
+                sourceJobId: `job_${phase}`,
+                discoveryMethod: "browser_agent",
+                canonicalUrl: `https://www.linkedin.com/jobs/view/${phase}`,
+                title: "Senior Full Stack Engineer",
+                company: "Signal Systems",
+                location: "Remote",
+                workMode: ["remote"],
+                applyPath:
+                  phase === "apply_path_validation"
+                    ? "external_redirect"
+                    : "unknown",
+                easyApplyEligible: false,
+                postedAt: "2026-03-20T09:00:00.000Z",
+                postedAtText: null,
+                discoveredAt: "2026-03-20T10:04:00.000Z",
+                salaryText: null,
+                summary: `Evidence from ${phase}`,
+                description: `Evidence from ${phase}`,
+                keySkills: ["TypeScript"],
+                responsibilities: [],
+                minimumQualifications: [],
+                preferredQualifications: [],
+                seniority: null,
+                employmentType: null,
+                department: null,
+                team: null,
+                employerWebsiteUrl: null,
+                employerDomain: null,
+                benefits: [],
+              }),
+            ],
+            agentMetadata: {
+              steps: 3,
+              incomplete: false,
+              transcriptMessageCount: 4,
+              reviewTranscript: [],
+              compactionState: null,
+              compactionUsedFallbackTrigger: false,
+              phaseCompletionMode: "forced_finish",
+              phaseCompletionReason: `Phase ${phase} proved enough reusable evidence.`,
+              phaseEvidence: null,
+              debugFindings: {
+                summary: `Summary for ${phase}`,
+                reliableControls:
+                  phase === "search_filter_probe"
+                    ? ["Search by title control works on the listing route."]
+                    : [],
+                trickyFilters: [],
+                navigationTips:
+                  phase === "site_structure_mapping"
+                    ? ["Use the recommended jobs collection route first."]
+                    : [],
+                applyTips: [],
+                warnings: [],
+              },
             },
-          },
-        }));
+          }),
+        );
       },
     };
 
@@ -783,13 +806,115 @@ describe("createJobFinderWorkspaceService", () => {
         phaseCalls.push(phase);
 
         if (phase === "apply_path_validation") {
-          return Promise.resolve(createDiscoveryRunResult({
+          return Promise.resolve(
+            createDiscoveryRunResult({
+              source,
+              startedAt: "2026-03-20T10:00:00.000Z",
+              completedAt: "2026-03-20T10:00:10.000Z",
+              querySummary: `Phase ${phase}`,
+              warning:
+                "Apply path was visible but not stable enough to prove yet.",
+              jobs: [
+                JobPostingSchema.parse({
+                  source,
+                  sourceJobId: `job_${phase}`,
+                  discoveryMethod: "browser_agent",
+                  canonicalUrl: `https://www.linkedin.com/jobs/view/${phase}`,
+                  title: "Senior Full Stack Engineer",
+                  company: "Signal Systems",
+                  location: "Remote",
+                  workMode: ["remote"],
+                  applyPath: "unknown",
+                  easyApplyEligible: false,
+                  postedAt: "2026-03-20T09:00:00.000Z",
+                  postedAtText: null,
+                  discoveredAt: "2026-03-20T10:04:00.000Z",
+                  salaryText: null,
+                  summary: `Evidence from ${phase}`,
+                  description: `Evidence from ${phase}`,
+                  keySkills: ["TypeScript"],
+                  responsibilities: [],
+                  minimumQualifications: [],
+                  preferredQualifications: [],
+                  seniority: null,
+                  employmentType: null,
+                  department: null,
+                  team: null,
+                  employerWebsiteUrl: null,
+                  employerDomain: null,
+                  benefits: [],
+                }),
+              ],
+              agentMetadata: {
+                steps: 3,
+                incomplete: false,
+                transcriptMessageCount: 4,
+                reviewTranscript: [],
+                compactionState: null,
+                compactionUsedFallbackTrigger: false,
+                phaseCompletionMode: "timed_out_with_partial_evidence",
+                phaseCompletionReason:
+                  "Apply path was visible but not stable enough to prove yet.",
+                phaseEvidence: null,
+                debugFindings: {
+                  summary: "Apply entry still needs replay verification.",
+                  reliableControls: [],
+                  trickyFilters: [],
+                  navigationTips: [],
+                  applyTips: [],
+                  warnings: [
+                    "Apply path was visible but not stable enough to prove yet.",
+                  ],
+                },
+              },
+            }),
+          );
+        }
+
+        if (phase === "replay_verification") {
+          return Promise.resolve(
+            createDiscoveryRunResult({
+              source,
+              startedAt: "2026-03-20T10:00:00.000Z",
+              completedAt: "2026-03-20T10:00:10.000Z",
+              querySummary: `Phase ${phase}`,
+              warning:
+                "Replay verification could not prove the route from scratch.",
+              jobs: [],
+              agentMetadata: {
+                steps: 3,
+                incomplete: true,
+                transcriptMessageCount: 4,
+                reviewTranscript: [],
+                compactionState: null,
+                compactionUsedFallbackTrigger: false,
+                phaseCompletionMode: "timed_out_with_partial_evidence",
+                phaseCompletionReason:
+                  "Replay verification could not prove the route from scratch.",
+                phaseEvidence: null,
+                debugFindings: {
+                  summary:
+                    "Replay could not reproduce the earlier path cleanly.",
+                  reliableControls: [],
+                  trickyFilters: [],
+                  navigationTips: [],
+                  applyTips: [],
+                  warnings: [
+                    "Replay verification could not prove the route from scratch.",
+                  ],
+                },
+              },
+            }),
+          );
+        }
+
+        return Promise.resolve(
+          createDiscoveryRunResult({
             source,
             startedAt: "2026-03-20T10:00:00.000Z",
             completedAt: "2026-03-20T10:00:10.000Z",
             querySummary: `Phase ${phase}`,
-            warning:
-              "Apply path was visible but not stable enough to prove yet.",
+            warning: null,
             jobs: [
               JobPostingSchema.parse({
                 source,
@@ -828,121 +953,26 @@ describe("createJobFinderWorkspaceService", () => {
               reviewTranscript: [],
               compactionState: null,
               compactionUsedFallbackTrigger: false,
-              phaseCompletionMode: "timed_out_with_partial_evidence",
-              phaseCompletionReason:
-                "Apply path was visible but not stable enough to prove yet.",
+              phaseCompletionMode: "forced_finish",
+              phaseCompletionReason: `Phase ${phase} proved enough reusable evidence.`,
               phaseEvidence: null,
               debugFindings: {
-                summary: "Apply entry still needs replay verification.",
-                reliableControls: [],
+                summary: `Summary for ${phase}`,
+                reliableControls:
+                  phase === "search_filter_probe"
+                    ? ["Search by title control works on the listing route."]
+                    : [],
                 trickyFilters: [],
-                navigationTips: [],
+                navigationTips:
+                  phase === "site_structure_mapping"
+                    ? ["Use the recommended jobs collection route first."]
+                    : [],
                 applyTips: [],
-                warnings: [
-                  "Apply path was visible but not stable enough to prove yet.",
-                ],
+                warnings: [],
               },
             },
-          }));
-        }
-
-        if (phase === "replay_verification") {
-          return Promise.resolve(createDiscoveryRunResult({
-            source,
-            startedAt: "2026-03-20T10:00:00.000Z",
-            completedAt: "2026-03-20T10:00:10.000Z",
-            querySummary: `Phase ${phase}`,
-            warning:
-              "Replay verification could not prove the route from scratch.",
-            jobs: [],
-            agentMetadata: {
-              steps: 3,
-              incomplete: true,
-              transcriptMessageCount: 4,
-              reviewTranscript: [],
-              compactionState: null,
-              compactionUsedFallbackTrigger: false,
-              phaseCompletionMode: "timed_out_with_partial_evidence",
-              phaseCompletionReason:
-                "Replay verification could not prove the route from scratch.",
-              phaseEvidence: null,
-              debugFindings: {
-                summary: "Replay could not reproduce the earlier path cleanly.",
-                reliableControls: [],
-                trickyFilters: [],
-                navigationTips: [],
-                applyTips: [],
-                warnings: [
-                  "Replay verification could not prove the route from scratch.",
-                ],
-              },
-            },
-          }));
-        }
-
-        return Promise.resolve(createDiscoveryRunResult({
-          source,
-          startedAt: "2026-03-20T10:00:00.000Z",
-          completedAt: "2026-03-20T10:00:10.000Z",
-          querySummary: `Phase ${phase}`,
-          warning: null,
-          jobs: [
-            JobPostingSchema.parse({
-              source,
-              sourceJobId: `job_${phase}`,
-              discoveryMethod: "browser_agent",
-              canonicalUrl: `https://www.linkedin.com/jobs/view/${phase}`,
-              title: "Senior Full Stack Engineer",
-              company: "Signal Systems",
-              location: "Remote",
-              workMode: ["remote"],
-              applyPath: "unknown",
-              easyApplyEligible: false,
-              postedAt: "2026-03-20T09:00:00.000Z",
-              postedAtText: null,
-              discoveredAt: "2026-03-20T10:04:00.000Z",
-              salaryText: null,
-              summary: `Evidence from ${phase}`,
-              description: `Evidence from ${phase}`,
-              keySkills: ["TypeScript"],
-              responsibilities: [],
-              minimumQualifications: [],
-              preferredQualifications: [],
-              seniority: null,
-              employmentType: null,
-              department: null,
-              team: null,
-              employerWebsiteUrl: null,
-              employerDomain: null,
-              benefits: [],
-            }),
-          ],
-          agentMetadata: {
-            steps: 3,
-            incomplete: false,
-            transcriptMessageCount: 4,
-            reviewTranscript: [],
-            compactionState: null,
-            compactionUsedFallbackTrigger: false,
-            phaseCompletionMode: "forced_finish",
-            phaseCompletionReason: `Phase ${phase} proved enough reusable evidence.`,
-            phaseEvidence: null,
-            debugFindings: {
-              summary: `Summary for ${phase}`,
-              reliableControls:
-                phase === "search_filter_probe"
-                  ? ["Search by title control works on the listing route."]
-                  : [],
-              trickyFilters: [],
-              navigationTips:
-                phase === "site_structure_mapping"
-                  ? ["Use the recommended jobs collection route first."]
-                  : [],
-              applyTips: [],
-              warnings: [],
-            },
-          },
-        }));
+          }),
+        );
       },
     };
 
@@ -1101,80 +1131,82 @@ describe("createJobFinderWorkspaceService", () => {
     const browserRuntime: BrowserSessionRuntime = {
       ...baseRuntime,
       runAgentDiscovery(source) {
-        return Promise.resolve(createDiscoveryRunResult({
-          source,
-          startedAt: "2026-03-20T10:00:00.000Z",
-          completedAt: "2026-03-20T10:01:00.000Z",
-          querySummary: "Agent discovery test run",
-          warning: "Agent discovery stopped after 12 steps. Found 0 jobs.",
-          jobs: [
-            JobPostingSchema.parse({
-              source: "target_site",
-              sourceJobId: "linkedin_noise_case",
-              discoveryMethod: "catalog_seed",
-              canonicalUrl:
-                "https://www.linkedin.com/jobs/view/linkedin_noise_case",
-              title: "Frontend Developer",
-              company: "Signal Systems",
-              location: "Remote",
-              workMode: ["remote"],
-              applyPath: "easy_apply",
-              easyApplyEligible: true,
-              postedAt: "2026-03-20T09:00:00.000Z",
-              postedAtText: null,
-              discoveredAt: "2026-03-20T10:04:00.000Z",
-              salaryText: null,
-              summary: "Noise filter case.",
-              description: "Noise filter case.",
-              keySkills: ["React"],
-              responsibilities: [],
-              minimumQualifications: [],
-              preferredQualifications: [],
-              seniority: null,
-              employmentType: null,
-              department: null,
-              team: null,
-              employerWebsiteUrl: null,
-              employerDomain: null,
-              benefits: [],
-            }),
-          ],
-          agentMetadata: {
-            steps: 12,
-            incomplete: true,
-            transcriptMessageCount: 7,
-            reviewTranscript: [],
-            compactionState: null,
-            compactionUsedFallbackTrigger: false,
-            phaseCompletionMode: "timed_out_with_partial_evidence",
-            phaseCompletionReason:
-              "The phase timed out before the worker returned a structured finish call.",
-            phaseEvidence: null,
-            debugFindings: {
-              summary:
-                "Use the jobs route and reusable show-all collection path.",
-              reliableControls: [
-                "Recommendation rows expose show-all links that open reusable prefiltered job lists.",
-                "Location encoding: Use %2C for comma and %20 for spaces.",
-                "Jobs landing URL: https://www.linkedin.com/jobs/search/?location=Prishtina%2C%20Kosovo&geoId=103175575",
-              ],
-              trickyFilters: [
-                "Job availability may change frequently - verify current postings before applying.",
-                "Direct URL navigation with query parameters bypasses the need to use the search box manually.",
-                "CurrentJobId appears in the URL after viewing a listing.",
-              ],
-              navigationTips: [
-                "Start from the jobs hub and recommendation collections rather than the homepage.",
-              ],
-              applyTips: [
-                "Use the on-site apply entry when the detail page exposes it.",
-              ],
-              warnings: [
-                "Agent discovery stopped after 12 steps. Found 0 jobs.",
-              ],
+        return Promise.resolve(
+          createDiscoveryRunResult({
+            source,
+            startedAt: "2026-03-20T10:00:00.000Z",
+            completedAt: "2026-03-20T10:01:00.000Z",
+            querySummary: "Agent discovery test run",
+            warning: "Agent discovery stopped after 12 steps. Found 0 jobs.",
+            jobs: [
+              JobPostingSchema.parse({
+                source: "target_site",
+                sourceJobId: "linkedin_noise_case",
+                discoveryMethod: "catalog_seed",
+                canonicalUrl:
+                  "https://www.linkedin.com/jobs/view/linkedin_noise_case",
+                title: "Frontend Developer",
+                company: "Signal Systems",
+                location: "Remote",
+                workMode: ["remote"],
+                applyPath: "easy_apply",
+                easyApplyEligible: true,
+                postedAt: "2026-03-20T09:00:00.000Z",
+                postedAtText: null,
+                discoveredAt: "2026-03-20T10:04:00.000Z",
+                salaryText: null,
+                summary: "Noise filter case.",
+                description: "Noise filter case.",
+                keySkills: ["React"],
+                responsibilities: [],
+                minimumQualifications: [],
+                preferredQualifications: [],
+                seniority: null,
+                employmentType: null,
+                department: null,
+                team: null,
+                employerWebsiteUrl: null,
+                employerDomain: null,
+                benefits: [],
+              }),
+            ],
+            agentMetadata: {
+              steps: 12,
+              incomplete: true,
+              transcriptMessageCount: 7,
+              reviewTranscript: [],
+              compactionState: null,
+              compactionUsedFallbackTrigger: false,
+              phaseCompletionMode: "timed_out_with_partial_evidence",
+              phaseCompletionReason:
+                "The phase timed out before the worker returned a structured finish call.",
+              phaseEvidence: null,
+              debugFindings: {
+                summary:
+                  "Use the jobs route and reusable show-all collection path.",
+                reliableControls: [
+                  "Recommendation rows expose show-all links that open reusable prefiltered job lists.",
+                  "Location encoding: Use %2C for comma and %20 for spaces.",
+                  "Jobs landing URL: https://www.linkedin.com/jobs/search/?location=Prishtina%2C%20Kosovo&geoId=103175575",
+                ],
+                trickyFilters: [
+                  "Job availability may change frequently - verify current postings before applying.",
+                  "Direct URL navigation with query parameters bypasses the need to use the search box manually.",
+                  "CurrentJobId appears in the URL after viewing a listing.",
+                ],
+                navigationTips: [
+                  "Start from the jobs hub and recommendation collections rather than the homepage.",
+                ],
+                applyTips: [
+                  "Use the on-site apply entry when the detail page exposes it.",
+                ],
+                warnings: [
+                  "Agent discovery stopped after 12 steps. Found 0 jobs.",
+                ],
+              },
             },
-          },
-        }));
+          }),
+        );
       },
     };
     const { repository, workspaceService } = createWorkspaceServiceHarness({

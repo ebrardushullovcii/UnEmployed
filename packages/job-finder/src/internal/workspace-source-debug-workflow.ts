@@ -367,6 +367,7 @@ export async function runSourceDebugWorkflow(
     });
 
   const attempts: SourceDebugWorkerAttempt[] = [];
+  const internalRuntimeFailureAttemptIds = new Set<string>();
   const strategyFingerprints: string[] = [];
   const finalReviewContextsByAttemptId = new Map<
     string,
@@ -615,6 +616,10 @@ export async function runSourceDebugWorkflow(
             },
             targetJobCount: getSourceDebugTargetJobCount(phase),
             maxSteps: phaseMaxSteps,
+            runControl: {
+              timeBudgetMs: Math.max(90_000, phaseMaxSteps * 20_000),
+              noProgressStepLimit: Math.max(5, Math.ceil(phaseMaxSteps / 2)),
+            },
             startingUrls: phaseStartingUrls,
             agentHints: {
               widenReviewBudget: adapter.kind === "target_site",
@@ -660,16 +665,21 @@ export async function runSourceDebugWorkflow(
             },
           },
         );
-
         if (!debugResult) {
           throw new Error(
             "Browser runtime does not support agent discovery for source debugging.",
           );
         }
+        const internalRuntimeFailure = isInternalSourceDebugFailure(
+          debugResult.warning,
+        );
 
         const outcome = classifySourceDebugAttemptOutcome(debugResult, phase);
         const completion = resolveSourceDebugCompletion(debugResult);
         const attemptId = `source_debug_attempt_${phase}_${Date.now()}`;
+        if (internalRuntimeFailure) {
+          internalRuntimeFailureAttemptIds.add(attemptId);
+        }
         const debugFindings = debugResult.agentMetadata?.debugFindings ?? null;
         const visualArtifacts = buildSourceDebugVisualArtifacts({
           attemptId,
@@ -974,7 +984,10 @@ export async function runSourceDebugWorkflow(
           phaseSummaries: [...run.phaseSummaries, phaseSummary],
         });
 
-        if (phase !== "replay_verification") {
+        if (
+          phase !== "replay_verification" &&
+          !internalRuntimeFailureAttemptIds.has(attempt.id)
+        ) {
           const nextSynthesizedInstruction =
             synthesizeSourceInstructionArtifact(
               normalizedTarget,
@@ -1017,6 +1030,42 @@ export async function runSourceDebugWorkflow(
 
     const settings = await ctx.repository.getSettings();
     shouldKeepBrowserSessionOpen = settings.keepSessionAlive;
+
+    const onlyInternalRuntimeFailures =
+      attempts.length > 0 &&
+      attempts.every((attempt) => attempt.outcome !== "succeeded") &&
+      attempts.every((attempt) =>
+        internalRuntimeFailureAttemptIds.has(attempt.id),
+      );
+    if (onlyInternalRuntimeFailures) {
+      const completedAt = new Date().toISOString();
+      run = SourceDebugRunRecordSchema.parse({
+        ...run,
+        state: "failed",
+        updatedAt: completedAt,
+        completedAt,
+        activePhase: null,
+        finalSummary:
+          "Source check could not run because the agent service was unavailable. Existing saved guidance was left unchanged; retry this source when the service is available.",
+        timing: buildSourceDebugRunTimingSummary({
+          events: progressEvents,
+          run,
+          completedAt,
+          browserSetupMs,
+          finalReviewMs,
+          finalizationMs,
+        }),
+      });
+      await ctx.persistSourceDebugRun(run);
+      await ctx.saveDiscoveryTargetUpdate(
+        normalizedTarget.id,
+        (currentTarget) => ({
+          ...currentTarget,
+          lastDebugRunId: run.id,
+        }),
+      );
+      return ctx.getWorkspaceSnapshot();
+    }
 
     const verification = SourceInstructionVerificationSchema.parse({
       id: `source_instruction_verification_${run.id}`,

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { JobSearchPreferencesSchema } from "@unemployed/contracts";
 
 import {
   createMatchAssessment,
@@ -349,7 +350,8 @@ describe("matching helpers", () => {
       company: "Example employer",
       location: "Remote - United States",
       workMode: ["remote" as const],
-      description: "Own this function and partner with teams across the company.",
+      description:
+        "Own this function and partner with teams across the company.",
       keySkills: [],
       keywordSignals: [],
       responsibilities: [],
@@ -754,10 +756,17 @@ describe("matching helpers", () => {
       salaryText: null,
       easyApplyEligible: false,
     };
-    const preferences = {
+    const preferences = JobSearchPreferencesSchema.parse({
       ...seed.searchPreferences,
       minimumSalaryUsd: null,
-    };
+      compensation: {
+        minimum: null,
+        maximum: null,
+        interval: "year",
+        currency: "USD",
+        currencyStatus: "inherited",
+      },
+    });
 
     const withoutMinimum = createMatchAssessment(
       seed.profile,
@@ -766,10 +775,16 @@ describe("matching helpers", () => {
     );
     const withMinimum = createMatchAssessment(
       seed.profile,
-      {
+      JobSearchPreferencesSchema.parse({
         ...preferences,
-        minimumSalaryUsd: 120_000,
-      },
+        compensation: {
+          minimum: 120_000,
+          maximum: null,
+          interval: "year",
+          currency: "USD",
+          currencyStatus: "explicit",
+        },
+      }),
       posting,
     );
 
@@ -783,12 +798,18 @@ describe("matching helpers", () => {
 
   test("caps an explicitly below-minimum listing below strong or original-ready recommendations", () => {
     const seed = createSeed();
-    const preferences = {
+    const preferences = JobSearchPreferencesSchema.parse({
       ...seed.searchPreferences,
-      minimumSalaryUsd: 120_000,
       locations: [],
       workModes: [],
-    };
+      compensation: {
+        minimum: 120_000,
+        maximum: null,
+        interval: "year",
+        currency: "USD",
+        currencyStatus: "explicit",
+      },
+    });
     const basePosting = {
       ...seed.savedJobs[0]!,
       easyApplyEligible: false,
@@ -818,10 +839,16 @@ describe("matching helpers", () => {
 
   test("keeps foreign or unspecified currencies incomparable with a USD minimum", () => {
     const seed = createSeed();
-    const preferences = {
+    const preferences = JobSearchPreferencesSchema.parse({
       ...seed.searchPreferences,
-      minimumSalaryUsd: 120_000,
-    };
+      compensation: {
+        minimum: 120_000,
+        maximum: null,
+        interval: "year",
+        currency: "USD",
+        currencyStatus: "explicit",
+      },
+    });
     const basePosting = {
       ...seed.savedJobs[0]!,
       easyApplyEligible: false,
@@ -845,6 +872,39 @@ describe("matching helpers", () => {
     expect(unspecified.score).toBe(unknown.score);
   });
 
+  test("compares a saved EUR monthly floor with EUR annual listings", () => {
+    const seed = createSeed();
+    const preferences = JobSearchPreferencesSchema.parse({
+      ...seed.searchPreferences,
+      locations: [],
+      workModes: [],
+      compensation: {
+        minimum: 2_000,
+        maximum: 4_000,
+        interval: "month",
+        currency: "EUR",
+        currencyStatus: "explicit",
+      },
+    });
+    const basePosting = {
+      ...seed.savedJobs[0]!,
+      easyApplyEligible: false,
+    };
+
+    const meetsMinimum = createMatchAssessment(seed.profile, preferences, {
+      ...basePosting,
+      salaryText: "EUR 30k/year",
+    });
+    const belowMinimum = createMatchAssessment(seed.profile, preferences, {
+      ...basePosting,
+      salaryText: "EUR 18k/year",
+    });
+
+    expect(meetsMinimum.compensationFit.state).toBe("meets_minimum");
+    expect(belowMinimum.compensationFit.state).toBe("below_minimum");
+    expect(belowMinimum.score).toBeLessThan(meetsMinimum.score);
+  });
+
   test("gives comparable above-minimum pay only the bounded preference effect", () => {
     const seed = createSeed();
     const posting = {
@@ -854,12 +914,30 @@ describe("matching helpers", () => {
     };
     const withoutMinimum = createMatchAssessment(
       seed.profile,
-      { ...seed.searchPreferences, minimumSalaryUsd: null },
+      JobSearchPreferencesSchema.parse({
+        ...seed.searchPreferences,
+        compensation: {
+          minimum: null,
+          maximum: null,
+          interval: "year",
+          currency: "USD",
+          currencyStatus: "inherited",
+        },
+      }),
       posting,
     );
     const withMinimum = createMatchAssessment(
       seed.profile,
-      { ...seed.searchPreferences, minimumSalaryUsd: 120_000 },
+      JobSearchPreferencesSchema.parse({
+        ...seed.searchPreferences,
+        compensation: {
+          minimum: 120_000,
+          maximum: null,
+          interval: "year",
+          currency: "USD",
+          currencyStatus: "explicit",
+        },
+      }),
       posting,
     );
 

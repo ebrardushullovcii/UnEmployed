@@ -130,28 +130,24 @@ export function ProfileSetupStepEditor(props: {
   if (!readiness.hasMeaningfulBackground) {
     readinessBlockers.push({
       label: "Add work history",
-      reason: "Add at least one meaningful role or project so job fit can use real evidence.",
+      reason:
+        "Add at least one meaningful role or project so job fit can use real evidence.",
       step: "background",
-    });
-  }
-  if (!readiness.hasTargeting) {
-    readinessBlockers.push({
-      label: "Choose a target role",
-      reason: "Add at least one target role or related role area.",
-      step: "targeting",
     });
   }
   if (!readiness.hasEligibilityPreferences) {
     readinessBlockers.push({
       label: "Confirm work constraints",
-      reason: "Set the locations, work modes, or eligibility rules that discovery should respect.",
+      reason:
+        "Set the locations, work modes, or eligibility rules that discovery should respect.",
       step: "targeting",
     });
   }
   if (!readiness.hasDiscoverySource) {
     readinessBlockers.push({
       label: "Add a job source",
-      reason: "Include at least one valid public careers or job-board URL so Find jobs has somewhere to search.",
+      reason:
+        "Include at least one valid public careers or job-board URL so Find jobs has somewhere to search.",
       step: "targeting",
     });
   }
@@ -208,7 +204,10 @@ export function ProfileSetupStepEditor(props: {
     primaryLabel?: string;
   }) {
     return (
-      <div className="flex flex-col gap-3 border-t border-border/30 pt-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+      <div
+        className="flex flex-col gap-3 border-t border-border/30 pt-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
+        data-profile-workspace-actions
+      >
         <div className="grid gap-2">
           <p className="text-sm leading-6 text-foreground-soft">
             {props.hasUnsavedChanges

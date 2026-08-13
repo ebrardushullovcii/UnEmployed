@@ -8,7 +8,7 @@ export function ResumeWorkspaceContextDisclosure(props: {
   statusLabel: string;
 }) {
   return (
-    <details className="group min-w-0">
+    <details className="group min-w-0" id="resume-proof-details">
       <summary className="surface-panel-shell flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-3 outline-none [&::-webkit-details-marker]:hidden focus-visible:ring-[3px] focus-visible:ring-ring/40">
         <span className="grid min-w-0 gap-1">
           <span className="font-display text-(length:--text-label) font-bold uppercase tracking-(--tracking-caps) text-primary">
