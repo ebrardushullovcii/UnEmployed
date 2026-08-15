@@ -482,6 +482,22 @@ describe("Interview Helper AI providers", () => {
     expect(visionStatus.detail).toContain("gpt-5.6-luna");
   });
 
+  test("does not inherit the DeepSeek text model for screenshot vision", () => {
+    const providers = createInterviewHelperProvidersFromEnvironment({
+      UNEMPLOYED_AI_API_KEY: "go-test-key",
+      UNEMPLOYED_AI_MODEL: "deepseek-v4-flash",
+      UNEMPLOYED_AI_API_MODE: "chat_completions",
+      UNEMPLOYED_AI_REASONING_EFFORT: "max",
+    });
+
+    expect(providers.cueCardProvider.getStatus().detail).toContain(
+      "deepseek-v4-flash",
+    );
+    expect(providers.screenshotVisionProvider.getStatus().detail).toContain(
+      "gpt-5.6-luna",
+    );
+  });
+
   test("uses an explicit Interview Helper STT model for audio transcription", () => {
     const providers = createInterviewHelperProvidersFromEnvironment(
       createEnvironment({

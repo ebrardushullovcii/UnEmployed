@@ -8,6 +8,7 @@ import {
   type DiscoveryRunResult,
   type DiscoveryRunScope,
   type JobDiscoveryTarget,
+  type JobFinderWorkspaceSnapshot,
   type JobPosting,
   type JobSearchPreferences,
   type JobSource,
@@ -52,6 +53,7 @@ import {
 import { createDiscoveryRefreshDecision } from "./workspace-discovery-refresh-schedule";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
 import type {
+  CampaignRunContext,
   DiscoveryTargetPipelineOptions,
   JobFinderWorkspaceService,
 } from "./workspace-service-contracts";
@@ -388,12 +390,14 @@ function getDiscoveryProviderKey(input: {
 
 function createInitialRunRecord(input: {
   id: string;
+  campaignId: string | null;
   targets: readonly JobDiscoveryTarget[];
   scope: DiscoveryRunScope;
   previousRuns?: readonly DiscoveryRunRecord[];
 }): DiscoveryRunRecord {
   return DiscoveryRunRecordSchema.parse({
     id: input.id,
+    campaignId: input.campaignId,
     state: "running",
     scope: input.scope,
     startedAt: new Date().toISOString(),
@@ -893,7 +897,11 @@ export function createWorkspaceDiscoveryMethods(
 ): Pick<
   JobFinderWorkspaceService,
   "runDiscovery" | "runAgentDiscovery" | "runDiscoveryForTarget"
-> {
+> & {
+  runCampaignDiscovery(
+    campaign: CampaignRunContext,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+} {
   function trackDiscoveryPromise<T>(promise: Promise<T>): Promise<T> {
     ctx.activeDiscoveryPromiseRef.current = promise;
     void promise
@@ -952,7 +960,7 @@ export function createWorkspaceDiscoveryMethods(
       throw error;
     });
     const enrichedPreferences = enrichSearchPreferencesFromProfile(
-      searchPreferences,
+      options.campaign?.searchPreferences ?? searchPreferences,
       profile,
     );
     const assessmentSession = createMatchAssessmentSession({
@@ -1017,6 +1025,8 @@ export function createWorkspaceDiscoveryMethods(
     const keepSessionAlive = settings.keepSessionAlive;
     let activeRun = createInitialRunRecord({
       id: runId,
+      campaignId:
+        options.campaign?.campaignId ?? (await ctx.getActiveCampaignId()),
       targets,
       scope: options.scope,
       previousRuns: startingDiscovery.recentRuns,
@@ -1861,6 +1871,20 @@ export function createWorkspaceDiscoveryMethods(
           ...(signal ? { signal } : {}),
           allowInactiveMarking: false,
           useAgentRuntime: true,
+        }),
+      );
+    },
+    async runCampaignDiscovery(campaign) {
+      // Campaign runs are discovery-only and always cover every enabled target
+      // of the supplied campaign using that campaign's own preferences. The
+      // run record is tagged with the campaign id while the active campaign and
+      // the global search preferences are left untouched.
+      return trackDiscoveryPromise(
+        executeDiscoveryPipeline({
+          scope: "run_all",
+          campaign,
+          allowInactiveMarking: true,
+          useAgentRuntime: false,
         }),
       );
     },

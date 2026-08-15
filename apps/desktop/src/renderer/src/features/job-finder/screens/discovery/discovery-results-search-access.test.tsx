@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SavedJob } from "@unemployed/contracts";
 
@@ -27,6 +33,8 @@ const resultJob = {
   matchAssessment: {
     score: 88,
     recommendation: "strong_fit",
+    reasons: ["Strong role and skill match."],
+    gaps: [],
   },
   status: "discovered",
   applyPath: "external_redirect",
@@ -38,6 +46,7 @@ const resultJob = {
 
 afterEach(() => {
   cleanup();
+  window.localStorage.clear();
   vi.clearAllMocks();
 });
 
@@ -142,5 +151,71 @@ describe("DiscoveryResultsPanel narrow search access", () => {
       expect(document.activeElement).toBe(detailHeading);
     });
     expect(onSelectJob).toHaveBeenCalledTimes(2);
+  });
+
+  it("searches the current result pool without changing the selected job", () => {
+    const secondJob = {
+      ...resultJob,
+      id: "job_backend",
+      title: "Backend Engineer",
+      company: "Northstar",
+    } as SavedJob;
+
+    render(
+      <DiscoveryResultsPanel
+        browserSession={browserSession}
+        hasCompletedSearch
+        jobs={[resultJob, secondJob]}
+        onSelectJob={vi.fn()}
+        selectedJob={resultJob}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Find a job" }), {
+      target: { value: "Northstar" },
+    });
+
+    expect(screen.getByText("1 of 2 results")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /Backend Engineer/i }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /Senior Product Designer/i }),
+    ).toBeNull();
+  });
+
+  it("compares the strongest jobs side by side and opens the chosen job", () => {
+    const onSelectJob = vi.fn();
+    const secondJob = {
+      ...resultJob,
+      id: "job_backend_compare",
+      title: "Backend Engineer",
+      company: "Northstar",
+      matchAssessment: {
+        ...resultJob.matchAssessment,
+        score: 81,
+      },
+    } as SavedJob;
+
+    render(
+      <DiscoveryResultsPanel
+        browserSession={browserSession}
+        hasCompletedSearch
+        jobs={[resultJob, secondJob]}
+        onSelectJob={onSelectJob}
+        selectedJob={resultJob}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Compare top jobs" }));
+    const comparison = screen.getByRole("region", {
+      name: "Top job comparison",
+    });
+    expect(comparison.textContent).toContain("88% fit");
+    expect(comparison.textContent).toContain("81% fit");
+    fireEvent.click(
+      within(comparison).getByRole("button", { name: /Backend Engineer/i }),
+    );
+    expect(onSelectJob).toHaveBeenCalledWith("job_backend_compare");
   });
 });

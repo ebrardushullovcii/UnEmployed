@@ -1,0 +1,218 @@
+import type { JobFinderResumeWorkspaceStrategyContext } from "@unemployed/contracts";
+import {
+  resumeCoveragePolicyLabels,
+  resumeHeadlinePolicyLabels,
+  resumeSkillsPolicyLabels,
+  resumeTailoringStrengthLabels,
+  resumeTemplateLabels,
+} from "../resume-strategies/resume-strategy-presentation";
+
+function SourceBadge(props: { children: string }) {
+  return (
+    <span className="inline-flex h-5 items-center rounded-full bg-(--input) px-2 text-[0.65rem] font-medium text-foreground">
+      {props.children}
+    </span>
+  );
+}
+
+export function ResumeStrategyContextPanel(props: {
+  context: JobFinderResumeWorkspaceStrategyContext | null;
+}) {
+  const { context } = props;
+
+  if (!context) {
+    return (
+      <details className="group min-w-0">
+        <summary className="surface-panel-shell flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-3 outline-none [&::-webkit-details-marker]:hidden focus-visible:ring-[3px] focus-visible:ring-ring/40">
+          <span className="grid min-w-0 gap-1">
+            <span className="font-display text-(length:--text-label) font-bold uppercase tracking-(--tracking-caps) text-primary">
+              Resume strategy
+            </span>
+            <span className="text-(length:--text-small) leading-5 text-foreground-soft">
+              No resume strategy context for this job.
+            </span>
+          </span>
+        </summary>
+      </details>
+    );
+  }
+
+  const hasRecommendation = Boolean(context.recommendedStrategyId);
+  const hasSelection = Boolean(context.selectedStrategyId);
+
+  return (
+    <details className="group min-w-0">
+      <summary className="surface-panel-shell flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-3 outline-none [&::-webkit-details-marker]:hidden focus-visible:ring-[3px] focus-visible:ring-ring/40">
+        <span className="grid min-w-0 gap-1">
+          <span className="font-display text-(length:--text-label) font-bold uppercase tracking-(--tracking-caps) text-primary">
+            Resume strategy
+          </span>
+          <span className="text-(length:--text-small) leading-5 text-foreground-soft">
+            {hasRecommendation
+              ? `Recommended: ${context.recommendedStrategyName ?? "a strategy"}. Advisory only — it never approves this résumé.`
+              : "No strategy recommended for this job. Advisory only — it never approves this résumé."}
+          </span>
+        </span>
+      </summary>
+      <div className="grid gap-3 pt-2">
+        <div className="surface-panel-shell grid min-w-0 gap-3 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
+          {hasRecommendation ? (
+            <div className="grid gap-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">
+                  Why this was recommended
+                </span>
+                <SourceBadge>
+                  {context.recommendationSource === "role_family"
+                    ? "Role-family match"
+                    : context.recommendationSource === "campaign_default"
+                      ? "Campaign default"
+                      : "No match"}
+                </SourceBadge>
+              </div>
+              <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+                {context.recommendationReason}
+              </p>
+              {context.roleFamily ? (
+                <p className="text-(length:--text-small) leading-5 text-foreground-soft">
+                  Matched role family: {context.roleFamily}
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <div className="grid gap-1">
+              <span className="text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">
+                No recommendation
+              </span>
+              <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+                {context.recommendationReason ??
+                  "No enabled strategy matches this job's role family and no campaign default is set."}
+              </p>
+            </div>
+          )}
+
+          {hasSelection ? (
+            <div className="grid gap-1 rounded-(--radius-small) border border-border-subtle bg-background/35 px-3 py-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">
+                  Your choice
+                </span>
+                <SourceBadge>
+                  {context.selectionSource === "user"
+                    ? "Manual"
+                    : context.selectionSource === "campaign_default"
+                      ? "Campaign default"
+                      : context.selectionSource === "rule_match"
+                        ? "Role-family match"
+                        : "Selection"}
+                </SourceBadge>
+              </div>
+              <p className="text-(length:--text-small) font-semibold text-(--text-headline)">
+                {context.selectedStrategyName ?? context.selectedStrategyId}
+              </p>
+              <p className="text-(length:--text-small) leading-5 text-foreground-soft">
+                {context.selectionReason}
+              </p>
+              {context.selectedAt ? (
+                <p className="text-(length:--text-tiny) leading-5 text-foreground-muted">
+                  Selected {new Date(context.selectedAt).toLocaleString()}
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <p className="text-(length:--text-small) leading-5 text-foreground-soft">
+              No strategy is selected for this job yet. You can choose one on
+              the Shortlisted job panel.
+            </p>
+          )}
+
+          {context.templateId ||
+          context.headlinePolicy ||
+          context.evidenceBoundaries ? (
+            <dl className="grid gap-2 text-sm sm:grid-cols-2">
+              {context.templateId ? (
+                <div>
+                  <dt className="text-(length:--text-tiny) uppercase tracking-(--tracking-badge) text-foreground-muted">
+                    Template default
+                  </dt>
+                  <dd className="text-foreground-soft">
+                    {resumeTemplateLabels[context.templateId] ??
+                      context.templateId}
+                  </dd>
+                </div>
+              ) : null}
+              {context.tailoringStrength ? (
+                <div>
+                  <dt className="text-(length:--text-tiny) uppercase tracking-(--tracking-badge) text-foreground-muted">
+                    Tailoring strength
+                  </dt>
+                  <dd className="text-foreground-soft">
+                    {resumeTailoringStrengthLabels[context.tailoringStrength]}
+                  </dd>
+                </div>
+              ) : null}
+              {context.headlinePolicy ? (
+                <div>
+                  <dt className="text-(length:--text-tiny) uppercase tracking-(--tracking-badge) text-foreground-muted">
+                    Headline policy
+                  </dt>
+                  <dd className="text-foreground-soft">
+                    {resumeHeadlinePolicyLabels[context.headlinePolicy]}
+                  </dd>
+                </div>
+              ) : null}
+              {context.skillsPolicy ? (
+                <div>
+                  <dt className="text-(length:--text-tiny) uppercase tracking-(--tracking-badge) text-foreground-muted">
+                    Skills policy
+                  </dt>
+                  <dd className="text-foreground-soft">
+                    {resumeSkillsPolicyLabels[context.skillsPolicy]}
+                  </dd>
+                </div>
+              ) : null}
+              {context.coveragePolicy ? (
+                <div>
+                  <dt className="text-(length:--text-tiny) uppercase tracking-(--tracking-badge) text-foreground-muted">
+                    Coverage policy
+                  </dt>
+                  <dd className="text-foreground-soft">
+                    {resumeCoveragePolicyLabels[context.coveragePolicy]}
+                  </dd>
+                </div>
+              ) : null}
+              {context.evidenceBoundaries ? (
+                <div className="sm:col-span-2">
+                  <dt className="text-(length:--text-tiny) uppercase tracking-(--tracking-badge) text-foreground-muted">
+                    Evidence boundaries
+                  </dt>
+                  <dd className="text-foreground-soft">
+                    {[
+                      context.evidenceBoundaries.allowExactClaims
+                        ? "Exact claims allowed"
+                        : "Exact claims blocked",
+                      context.evidenceBoundaries.allowParaphrasedClaims
+                        ? "Paraphrased claims allowed"
+                        : "Paraphrased claims blocked",
+                      `Up to ${context.evidenceBoundaries.maxEvidenceRefsPerBullet} evidence refs per bullet`,
+                      context.evidenceBoundaries.requireVerifierPass
+                        ? "Verifier pass required"
+                        : "Verifier pass not required",
+                    ].join(" · ")}
+                  </dd>
+                </div>
+              ) : null}
+            </dl>
+          ) : null}
+
+          <p className="text-(length:--text-tiny) leading-5 text-foreground-muted">
+            Reusing a strategy never approves this résumé, never makes an
+            artifact application-ready, and never marks a document current. The
+            per-job approval, digest, and staleness checks shown elsewhere on
+            this screen remain authoritative.
+          </p>
+        </div>
+      </div>
+    </details>
+  );
+}

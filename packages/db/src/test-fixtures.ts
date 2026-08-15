@@ -1,4 +1,5 @@
 import type { JobFinderRepositorySeed } from "./index";
+import { JobFinderIntelligenceStateSchema } from "@unemployed/contracts";
 
 export function createSeed(): JobFinderRepositorySeed {
   return {
@@ -199,5 +200,10 @@ export function createSeed(): JobFinderRepositorySeed {
       discoveryLedger: [],
       pendingDiscoveryJobs: [],
     },
+    campaigns: [],
+    activeCampaignId: null,
+    campaignNotifications: [],
+    activityControl: { paused: false, pausedAt: null, reason: null },
+    intelligence: JobFinderIntelligenceStateSchema.parse({}),
   };
 }

@@ -1,5 +1,7 @@
 import {
+  type ApplicationCrmSettings,
   type JobDiscoveryTarget,
+  ApplicationCrmSettingsSchema,
   CandidateProfileSchema,
   JobFinderDiscoveryStateSchema,
   JobFinderWorkspaceSnapshotSchema,
@@ -18,6 +20,7 @@ import {
 } from "@unemployed/contracts";
 import type { JobFinderRepositorySeed } from "@unemployed/db";
 
+import { runApplicationNoResponseAutomation } from "./application-crm";
 import {
   buildApplicationRecords,
   buildDiscoveryJobs,
@@ -55,6 +58,13 @@ import { createWorkspaceProfileCopilotMethods } from "./workspace-profile-copilo
 import { createWorkspaceProfileSetupContextHelpers } from "./workspace-profile-setup-context";
 import { createWorkspaceProfileSetupReviewMethods } from "./workspace-profile-setup-review-methods";
 import type { JobFinderWorkspaceService } from "./workspace-service-contracts";
+import {
+  deriveCampaignProgress,
+  deriveDashboardSummary,
+  ensureCampaignState,
+} from "./campaign-dashboard";
+
+const NO_RESPONSE_AUTOMATION_MIN_INTERVAL_MS = 5 * 60 * 1000;
 
 export function createWorkspaceSnapshotProfileMethods(
   ctx: WorkspaceServiceContext,
@@ -85,6 +95,69 @@ export function createWorkspaceSnapshotProfileMethods(
 
   let interruptedDiscoveryRecoveryPromise: Promise<void> | null = null;
   let interruptedApplyRecoveryPromise: Promise<void> | null = null;
+  let lastNoResponseAutomationRunAt: number | null = null;
+
+  async function runNoResponseAutomationIfDue(options?: {
+    settings?: ApplicationCrmSettings;
+    force?: boolean;
+  }): Promise<void> {
+    const now = Date.now();
+    if (
+      !options?.force &&
+      lastNoResponseAutomationRunAt !== null &&
+      now - lastNoResponseAutomationRunAt <
+        NO_RESPONSE_AUTOMATION_MIN_INTERVAL_MS
+    ) {
+      return;
+    }
+
+    const settings =
+      options?.settings ??
+      normalizeJobFinderSettings(
+        await ctx.repository.getSettings(),
+        ctx.documentManager.listResumeTemplates(),
+      ).applicationCrm ??
+      ApplicationCrmSettingsSchema.parse({});
+    try {
+      await ctx.withApplicationCrmTransition(() =>
+        runApplicationNoResponseAutomation({
+          repository: ctx.repository,
+          settings,
+        }),
+      );
+    } catch (error) {
+      console.warn(
+        "[JobFinderWorkspace] No-response automation skipped.",
+        error,
+      );
+    }
+    lastNoResponseAutomationRunAt = now;
+  }
+
+  async function syncActiveCampaignPreferences(
+    searchPreferences: JobSearchPreferences,
+  ): Promise<void> {
+    const campaignState = await ensureCampaignState({
+      repository: ctx.repository,
+      searchPreferences,
+    });
+    const now = new Date().toISOString();
+    await ctx.repository.saveCampaignState({
+      ...campaignState,
+      campaigns: campaignState.campaigns.map((campaign) =>
+        campaign.id === campaignState.activeCampaignId
+          ? {
+              ...campaign,
+              searchPreferences,
+              sourceTargetIds: searchPreferences.discovery.targets
+                .filter((target) => target.enabled)
+                .map((target) => target.id),
+              updatedAt: now,
+            }
+          : campaign,
+      ),
+    });
+  }
 
   async function recoverInterruptedApplyRunsOnLoad(): Promise<void> {
     if (
@@ -148,10 +221,12 @@ export function createWorkspaceSnapshotProfileMethods(
     }
 
     const recoveryPromise = (async () => {
-      const [discoveryState, searchPreferences] = await Promise.all([
-        ctx.repository.getDiscoveryState(),
-        ctx.repository.getSearchPreferences(),
-      ]);
+      const [discoveryState, searchPreferences, campaignState] =
+        await Promise.all([
+          ctx.repository.getDiscoveryState(),
+          ctx.repository.getSearchPreferences(),
+          ctx.repository.getCampaignState(),
+        ]);
 
       if (
         ctx.activeDiscoveryAbortControllerRef.current ||
@@ -166,10 +241,19 @@ export function createWorkspaceSnapshotProfileMethods(
       }
 
       const completedAt = new Date().toISOString();
-      const recoveredRun =
+      const recoveredRunBase =
         activeRun?.state === "running"
           ? recoverInterruptedDiscoveryRun(activeRun, completedAt)
           : activeRun;
+      const recoveredRun = recoveredRunBase
+        ? {
+            ...recoveredRunBase,
+            campaignId:
+              recoveredRunBase.campaignId ??
+              campaignState?.activeCampaignId ??
+              null,
+          }
+        : null;
       const historyLimit =
         normalizeSearchPreferences(searchPreferences).discovery.historyLimit;
 
@@ -220,6 +304,8 @@ export function createWorkspaceSnapshotProfileMethods(
   }
 
   async function getWorkspaceSnapshot(): Promise<JobFinderWorkspaceSnapshot> {
+    await runNoResponseAutomationIfDue();
+
     await Promise.all([
       recoverInterruptedDiscoveryStateOnLoad(),
       recoverInterruptedApplyRunsOnLoad(),
@@ -276,6 +362,8 @@ export function createWorkspaceSnapshotProfileMethods(
       discovery,
       userActionRequests,
       userActionEvents,
+      activityControl,
+      intelligence,
     ] = await Promise.all([
       getCurrentSetupStateContext(),
       ctx.repository.listSavedJobs(),
@@ -295,13 +383,21 @@ export function createWorkspaceSnapshotProfileMethods(
       ctx.repository.getDiscoveryState(),
       ctx.repository.listUserActionRequests(),
       ctx.repository.listUserActionEvents(),
+      ctx.repository.getActivityControl(),
+      ctx.repository.getIntelligenceState(),
     ]);
 
     const availableResumeTemplates = ctx.documentManager.listResumeTemplates();
-    const settings = normalizeJobFinderSettings(
+    const normalizedSettings = normalizeJobFinderSettings(
       rawSettings,
       availableResumeTemplates,
     );
+    const settings: JobFinderSettings = normalizedSettings.applicationCrm
+      ? normalizedSettings
+      : {
+          ...normalizedSettings,
+          applicationCrm: ApplicationCrmSettingsSchema.parse({}),
+        };
     const normalizedResumeDrafts = resumeDrafts.map((draft) =>
       normalizeResumeDraftTemplate(draft, availableResumeTemplates),
     );
@@ -348,6 +444,100 @@ export function createWorkspaceSnapshotProfileMethods(
     );
     const orderedApplicationRecords =
       buildApplicationRecords(applicationRecords);
+    let campaignState = await ensureCampaignState({
+      repository: ctx.repository,
+      searchPreferences: setupContext.searchPreferences,
+      now: generatedAt,
+    });
+    const activeCampaign = campaignState.campaigns.find(
+      (campaign) => campaign.id === campaignState.activeCampaignId,
+    );
+    if (!activeCampaign) {
+      throw new Error("The active job search campaign is unavailable.");
+    }
+    const activeCampaignJobIds = new Set(activeCampaign.jobIds);
+    const activeCampaignTargetIds = new Set(activeCampaign.sourceTargetIds);
+    const campaignSavedJobs = savedJobs.filter((job) =>
+      activeCampaignJobIds.has(job.id),
+    );
+    const campaignReviewQueue = reviewQueue.filter((item) =>
+      activeCampaignJobIds.has(item.jobId),
+    );
+    const campaignApplicationRecords = orderedApplicationRecords.filter(
+      (record) => activeCampaignJobIds.has(record.jobId),
+    );
+    const campaignApplyRuns = applyRuns.filter((run) =>
+      run.jobIds.some((jobId) => activeCampaignJobIds.has(jobId)),
+    );
+    const campaignUserActionRequests = userActionRequests.filter((request) =>
+      request.scope.type === "application"
+        ? activeCampaignJobIds.has(request.scope.jobId)
+        : activeCampaignTargetIds.has(request.scope.targetId),
+    );
+    const campaignUnresolvedActionCount = campaignUserActionRequests.filter(
+      (request) =>
+        !["resolved", "skipped", "cancelled", "expired", "superseded"].includes(
+          request.state,
+        ),
+    ).length;
+    const activeCampaignRunIds = new Set(
+      activeCampaign.history.flatMap((entry) =>
+        entry.discoveryRunId ? [entry.discoveryRunId] : [],
+      ),
+    );
+    const activeCampaignRecentRuns = discovery.recentRuns.filter(
+      (run) =>
+        run.campaignId === activeCampaign.id ||
+        activeCampaignRunIds.has(run.id),
+    );
+    const activeCampaignActiveRun =
+      discovery.activeRun?.campaignId === activeCampaign.id
+        ? discovery.activeRun
+        : null;
+    const nextProgress = deriveCampaignProgress({
+      campaign: activeCampaign,
+      savedJobs: campaignSavedJobs,
+      reviewQueue: campaignReviewQueue,
+      applicationRecords: campaignApplicationRecords,
+      applyRuns: campaignApplyRuns,
+      unresolvedActions: campaignUnresolvedActionCount,
+      lastRunAt:
+        activeCampaignActiveRun?.startedAt ??
+        activeCampaignRecentRuns[0]?.startedAt ??
+        null,
+      now: generatedAt,
+    });
+    const comparableProgress = (progress: typeof nextProgress) => ({
+      ...progress,
+      lastUpdatedAt: "",
+    });
+    const campaignProgressChanged =
+      JSON.stringify(comparableProgress(activeCampaign.progress)) !==
+      JSON.stringify(comparableProgress(nextProgress));
+    if (campaignProgressChanged) {
+      campaignState = {
+        ...campaignState,
+        campaigns: campaignState.campaigns.map((campaign) =>
+          campaign.id === activeCampaign.id
+            ? { ...campaign, progress: nextProgress, updatedAt: generatedAt }
+            : campaign,
+        ),
+      };
+    }
+    if (campaignProgressChanged) {
+      await ctx.repository.saveCampaignState(campaignState);
+    }
+    const dashboard = deriveDashboardSummary({
+      generatedAt,
+      campaigns: campaignState,
+      savedJobs: campaignSavedJobs,
+      reviewQueue: campaignReviewQueue,
+      applicationRecords: campaignApplicationRecords,
+      applyRuns: campaignApplyRuns,
+      userActionRequests: campaignUserActionRequests,
+      discovery,
+      searchPreferences: activeCampaign.searchPreferences,
+    });
 
     return JobFinderWorkspaceSnapshotSchema.parse({
       module: "job-finder",
@@ -363,7 +553,7 @@ export function createWorkspaceSnapshotProfileMethods(
       discoverySessions,
       discoveryRunState: discovery.runState,
       activeDiscoveryRun: discovery.activeRun,
-      recentDiscoveryRuns: discovery.recentRuns,
+      recentDiscoveryRuns: activeCampaignRecentRuns,
       activeSourceDebugRun: discovery.activeSourceDebugRun,
       recentSourceDebugRuns: discovery.recentSourceDebugRuns,
       discoveryJobs,
@@ -390,6 +580,12 @@ export function createWorkspaceSnapshotProfileMethods(
       settings,
       userActionRequests,
       userActionEvents,
+      campaigns: campaignState.campaigns,
+      activeCampaignId: campaignState.activeCampaignId,
+      campaignNotifications: campaignState.notifications,
+      dashboard,
+      activityControl,
+      intelligence,
     });
   }
 
@@ -556,6 +752,7 @@ export function createWorkspaceSnapshotProfileMethods(
         nextProfile,
         nextSearchPreferences,
       );
+      await syncActiveCampaignPreferences(nextSearchPreferences);
       await deriveAndPersistProfileSetupState(ctx, {
         persistedState: nextProfileSetupState,
         profile: nextProfile,
@@ -655,6 +852,7 @@ export function createWorkspaceSnapshotProfileMethods(
         ),
       );
       await ctx.repository.saveSearchPreferences(nextSearchPreferences);
+      await syncActiveCampaignPreferences(nextSearchPreferences);
       await deriveAndPersistProfileSetupState(ctx, {
         persistedState: currentProfileSetupState,
         profile: currentProfile,
@@ -758,6 +956,11 @@ export function createWorkspaceSnapshotProfileMethods(
           ? Promise.resolve()
           : ctx.repository.replaceSavedJobs(jobsWithPreservedChoices),
       ]);
+      await runNoResponseAutomationIfDue({
+        settings:
+          nextSettings.applicationCrm ?? ApplicationCrmSettingsSchema.parse({}),
+        force: true,
+      });
       return getWorkspaceSnapshot();
     },
   };

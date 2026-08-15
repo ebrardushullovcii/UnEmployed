@@ -9,6 +9,11 @@ export type {
   UserActionTransitionCommitResult,
   UserActionTransitionInput,
 } from "./user-action-repository-types";
+export type {
+  CommitGroupedManualAnswerInput,
+  CommitGroupedManualAnswerResult,
+  GroupedManualAnswerCommitFailure,
+} from "./grouped-manual-answer-types";
 export { createInMemoryJobFinderRepository } from "./in-memory-repository";
 export { createFileJobFinderRepository } from "./file-repository";
 export {

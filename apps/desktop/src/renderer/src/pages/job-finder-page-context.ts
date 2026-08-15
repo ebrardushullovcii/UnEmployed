@@ -1,7 +1,13 @@
 import type {
+  ApplicationCrmExportFormat,
+  ApplicationCrmMutationInput,
+  ApplicationCrmSettings,
+  ApplyGroupedManualAnswerInput,
   ApplyRunDetails,
+  CampaignRuleFunnelProjection,
   ClearApplicationAnswerCommandInput,
   CandidateProfile,
+  CompanyIntelligenceMutationInput,
   DiscoveryActivityEvent,
   DiscoveryFeedbackReason,
   EditableSourceInstructionArtifact,
@@ -16,10 +22,24 @@ import type {
   ProfileCopilotContext,
   ProfileSetupReviewActionOptions,
   ProfileSetupStep,
+  ProjectGroupedManualAnswerCommand,
+  RapidReviewMutationInput,
+  RecommendResumeStrategyInput,
+  RecordOutcomeInput,
+  ResumeStrategyRecommendation,
   ResumeImportProgressEvent,
   ResumeApplicationMode,
   ResumeTimelineRepairAction,
   SaveApplicationAnswerCommandInput,
+  SaveCampaignRuleInput,
+  SaveJobSearchCampaignInput,
+  SaveResumeStrategyInput,
+  SafeguardMutationInput,
+  SelectResumeStrategyInput,
+  SetCampaignResumeStrategyDefaultInput,
+  SetJobFinderActivityControlInput,
+  SetOutcomeSuggestionEnabledInput,
+  SnoozeGroupedDecisionInput,
   ResumeAssistantMessage,
   ResumeDraft,
   ResumeDraftPatch,
@@ -41,6 +61,7 @@ export interface JobFinderPageContext {
   saveState: JobFinderSaveState;
   liveDiscoveryEvents: readonly DiscoveryActivityEvent[];
   onAnalyzeProfileFromResume: () => void;
+  onApplyGroupedManualAnswer: (input: ApplyGroupedManualAnswerInput) => void;
   onApproveApplyRun: (runId: string) => void;
   onApproveApply: (jobId: string) => void;
   onCancelApplyRun: (runId: string) => Promise<boolean>;
@@ -74,6 +95,8 @@ export interface JobFinderPageContext {
   onEditResumeWorkspace: (jobId: string) => void;
   onGenerateResume: (jobId: string) => void;
   onRemoveReviewJob: (jobId: string) => void;
+  onMutateRapidReview: (input: RapidReviewMutationInput) => Promise<void>;
+  onMutateSafeguards: (input: SafeguardMutationInput) => Promise<boolean>;
   onApproveResume: (jobId: string, exportId: string) => void;
   onClearResumeApproval: (jobId: string) => void;
   onExportResumePdf: (jobId: string) => void;
@@ -89,12 +112,35 @@ export interface JobFinderPageContext {
     command: ClearApplicationAnswerCommandInput,
   ) => Promise<ApplyRunDetails>;
   onExportApplicationPacket: (runId: string, jobId: string) => Promise<void>;
+  onExportApplicationCrm: (
+    format: ApplicationCrmExportFormat,
+    recordId: string,
+  ) => Promise<void>;
+  onMutateApplicationCrm: (
+    command: ApplicationCrmMutationInput,
+  ) => Promise<void>;
+  onRefreshCompanyIntelligence: () => Promise<void>;
+  onMutateCompanyIntelligence: (
+    command: CompanyIntelligenceMutationInput,
+  ) => Promise<void>;
+  onSetCompanyPreference: (input: {
+    companyId: string;
+    preference: "neutral" | "follow" | "prefer" | "review" | "exclude";
+  }) => Promise<void>;
+  onReviewCompanyMerge: (input: {
+    companyId: string;
+    candidateId: string;
+    decision: "accepted" | "rejected";
+  }) => Promise<void>;
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>;
   onImportResume: () => void;
   onOpenBrowserSession: (input?: JobFinderOpenBrowserSessionInput) => void;
   onOpenProfile: () => void;
   onNavigateSafely: (path: string) => void;
   onPerformUserAction: (command: UserActionCommandInput) => void;
+  onProjectGroupedManualAnswer: (
+    command: ProjectGroupedManualAnswerCommand,
+  ) => void;
   onProfileSurfaceDirtyChange: (dirty: boolean) => void;
   profileCopilotPendingContextKey: string | null;
   onQueueJob: (jobId: string) => void;
@@ -145,20 +191,61 @@ export interface JobFinderPageContext {
   ) => void;
   onUndoProfileRevision: (revisionId: string) => void;
   onRunSourceDebug: (targetId: string) => void;
+  onRecordOutcome: (input: RecordOutcomeInput) => Promise<boolean>;
+  onSetOutcomeSuggestionEnabled: (
+    input: SetOutcomeSuggestionEnabledInput,
+  ) => Promise<boolean>;
+  onSaveResumeStrategy: (input: SaveResumeStrategyInput) => void;
+  onDisableResumeStrategy: (strategyId: string) => void;
+  onSelectResumeStrategy: (input: SelectResumeStrategyInput) => void;
+  onRecommendResumeStrategy: (
+    input: RecommendResumeStrategyInput,
+  ) => Promise<ResumeStrategyRecommendation | null>;
+  onSetCampaignResumeStrategyDefault: (
+    input: SetCampaignResumeStrategyDefaultInput,
+  ) => void;
   onSaveAll: (
     profile: CandidateProfile,
     searchPreferences: JobSearchPreferences,
   ) => void;
+  onSaveCampaign: (campaign: SaveJobSearchCampaignInput) => Promise<boolean>;
+  onRunCampaignNow: (campaignId?: string | null) => Promise<boolean>;
+  onMarkCampaignNotificationRead: (notificationId: string) => void;
+  onMarkAllCampaignNotificationsRead: () => void;
+  onSaveCampaignRule: (
+    campaignId: string,
+    rule: SaveCampaignRuleInput,
+  ) => Promise<boolean>;
+  onDeleteCampaignRule: (
+    campaignId: string,
+    ruleId: string,
+  ) => Promise<boolean>;
+  onToggleCampaignRule: (
+    campaignId: string,
+    ruleId: string,
+    enabled: boolean,
+  ) => Promise<boolean>;
+  onProjectCampaignRuleFunnel: (
+    campaignId: string,
+  ) => Promise<CampaignRuleFunnelProjection>;
   onSaveProfile: (profile: CandidateProfile) => void;
   onSaveSearchPreferences: (searchPreferences: JobSearchPreferences) => void;
-  onSaveSettings: (settings: JobFinderSettings) => void;
+  onSaveApplicationCrmSettings: (
+    settings: ApplicationCrmSettings,
+  ) => Promise<void>;
+  onSaveSettings: (settings: JobFinderSettings) => Promise<boolean>;
   onSaveSourceInstructionArtifact: (
     targetId: string,
     artifact: EditableSourceInstructionArtifact,
   ) => void;
   onSelectApplicationRecord: (recordId: string) => void;
+  onSelectCampaign: (campaignId: string) => Promise<boolean>;
   onSelectDiscoveryJob: (jobId: string) => void;
   onSelectReviewItem: (jobId: string) => void;
+  onSetActivityControl: (
+    input: SetJobFinderActivityControlInput,
+  ) => Promise<boolean>;
+  onSnoozeGroupedDecision: (input: SnoozeGroupedDecisionInput) => void;
   onVerifySourceInstructions: (targetId: string, instructionId: string) => void;
   selectedApplicationAttempt:
     | JobFinderWorkspaceSnapshot["applicationAttempts"][number]

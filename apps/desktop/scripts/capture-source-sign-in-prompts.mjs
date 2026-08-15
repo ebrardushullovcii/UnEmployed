@@ -65,22 +65,6 @@ async function writeJson(fileName, value) {
   );
 }
 
-async function waitForHeading(page, headings, options) {
-  const allowedHeadings = Array.isArray(headings) ? headings : [headings];
-
-  await page.waitForFunction(
-    (nextAllowedHeadings) => {
-      const heading = document.querySelector("h1");
-      const text = heading?.textContent ?? "";
-      return nextAllowedHeadings.some((allowedHeading) =>
-        text.includes(allowedHeading),
-      );
-    },
-    allowedHeadings,
-    { timeout: 10000, ...options },
-  );
-}
-
 async function clickNavigationControl(page, name) {
   for (const role of ["button", "tab"]) {
     const control = page.getByRole(role, { name }).first();
@@ -96,8 +80,8 @@ async function clickNavigationControl(page, name) {
   );
 }
 
-async function clickProfilePreferencesTab(page) {
-  const tabPatterns = [/^Preferences$/, /Preferences/i];
+async function clickProfileJobSourcesTab(page) {
+  const tabPatterns = [/^Job sources$/, /Job sources/i];
 
   for (const pattern of tabPatterns) {
     const tab = page.getByRole("tab", { name: pattern }).first();
@@ -110,7 +94,7 @@ async function clickProfilePreferencesTab(page) {
 
   await page
     .locator('[role="tab"]')
-    .filter({ hasText: "Preferences" })
+    .filter({ hasText: "Job sources" })
     .first()
     .click();
 }
@@ -183,28 +167,41 @@ async function captureProfilePreferences(page, viewport, report) {
   await page
     .getByRole("heading", { level: 1, name: "Your profile" })
     .waitFor({ timeout: 10000 });
-  await clickProfilePreferencesTab(page);
+  await clickProfileJobSourcesTab(page);
   await scrollAreaToTop(page);
 
   const jobSourcesHeading = page
     .getByText("Job sources", { exact: true })
     .first();
   await scrollIntoView(jobSourcesHeading);
+
+  await page.getByRole("button", { name: "Edit LinkedIn Jobs" }).click();
   await page
     .getByText("Sign-in required", { exact: true })
     .first()
     .waitFor({ timeout: 10000 });
+
+  const requiredFileName = `profile-job-sources-sign-in-required-${viewport.slug}.png`;
+  await page.screenshot({
+    animations: "disabled",
+    path: path.join(outputDir, requiredFileName),
+  });
+
+  await page.getByRole("button", { name: "Edit Wellfound" }).click();
   await page
     .getByText("Sign-in recommended", { exact: true })
     .first()
     .waitFor({ timeout: 10000 });
 
-  const fileName = `profile-preferences-${viewport.slug}.png`;
+  const recommendedFileName = `profile-job-sources-sign-in-recommended-${viewport.slug}.png`;
   await page.screenshot({
     animations: "disabled",
-    path: path.join(outputDir, fileName),
+    path: path.join(outputDir, recommendedFileName),
   });
-  report.profilePreferences[viewport.slug] = fileName;
+  report.profilePreferences[viewport.slug] = {
+    required: requiredFileName,
+    recommended: recommendedFileName,
+  };
 }
 
 async function captureFindJobsTop(page, viewport, report) {

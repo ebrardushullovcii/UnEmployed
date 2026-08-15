@@ -6,7 +6,9 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   CandidateProfileSchema,
   JobFinderWorkspaceSnapshotSchema,
+  JobSearchCampaignSchema,
   ResumeImportVisionArtifactSchema,
+  getDefaultCampaignConfiguration,
   type ResumeDocumentBundle,
   type ResumeImportProgressEvent,
   type ResumeSourceDocument,
@@ -147,9 +149,23 @@ function createTestBundle(fullText: string): ResumeDocumentBundle {
 
 function createSnapshot(baseResume: ResumeSourceDocument) {
   const state = createEmptyJobFinderRepositoryState();
+  const generatedAt = "2026-04-10T00:00:00.000Z";
+  const campaign = JobSearchCampaignSchema.parse({
+    id: "campaign-test",
+    name: "Test campaign",
+    mode: "precision",
+    status: "active",
+    createdAt: generatedAt,
+    updatedAt: generatedAt,
+    searchPreferences: state.searchPreferences,
+    sourceTargetIds: [],
+    ...getDefaultCampaignConfiguration("precision"),
+    schedule: {},
+    progress: { lastUpdatedAt: generatedAt },
+  });
   return JobFinderWorkspaceSnapshotSchema.parse({
     module: "job-finder",
-    generatedAt: "2026-04-10T00:00:00.000Z",
+    generatedAt,
     agentProvider: {
       kind: "deterministic",
       role: "chat",
@@ -204,6 +220,35 @@ function createSnapshot(baseResume: ResumeSourceDocument) {
     profileRevisions: [],
     selectedApplyRunId: null,
     selectedApplicationRecordId: null,
+    campaigns: [campaign],
+    activeCampaignId: campaign.id,
+    dashboard: {
+      generatedAt,
+      activeCampaignId: campaign.id,
+      activeCampaignCount: 1,
+      jobsFoundToday: 0,
+      jobsAwaitingReview: 0,
+      applicationsReadyForApproval: 0,
+      applicationsAppliedToday: 0,
+      applicationsAppliedThisWeek: 0,
+      needsYouCount: 0,
+      upcomingInterviews: 0,
+      upcomingFollowUps: 0,
+      responseRate: null,
+      interviewRate: null,
+      sourceHealth: {
+        healthy: 0,
+        needsAttention: 0,
+        running: 0,
+        total: 0,
+      },
+      backgroundOperationCount: 0,
+      recommendedNextAction: {
+        label: "Find jobs",
+        detail: "Start the test campaign.",
+        route: "/job-finder/discovery",
+      },
+    },
     settings: state.settings,
   });
 }

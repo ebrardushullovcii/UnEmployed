@@ -49,8 +49,12 @@ export interface WorkspaceServiceContext {
   activeApplyRunAbortControllers: Map<string, AbortController>;
   activeApplyRunPromises: Map<string, Promise<void>>;
   applyRunTransitionTails: Map<string, Promise<void>>;
+  withApplicationCrmTransition<T>(operation: () => Promise<T>): Promise<T>;
+  withIntelligenceTransition<T>(operation: () => Promise<T>): Promise<T>;
+  withCampaignTransition<T>(operation: () => Promise<T>): Promise<T>;
   activeResumeVisionRunIds: Set<string>;
   getWorkspaceSnapshot: () => Promise<JobFinderWorkspaceSnapshot>;
+  getActiveCampaignId: () => Promise<string | null>;
   resumeApplicationUserAction: (request: UserActionRequest) => Promise<void>;
   runSourceDebugWorkflow: (
     targetId: string,

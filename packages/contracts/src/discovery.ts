@@ -50,6 +50,7 @@ import {
   BrowserVisualObservationSetSchema,
   ApplyVisualCheckpointSchema,
 } from "./visual";
+import { ApplicationCrmDataSchema } from "./application-crm";
 
 export const JobDiscoveryTargetSchema = z.object({
   id: NonEmptyStringSchema,
@@ -1628,6 +1629,7 @@ export type DiscoveryRunSummary = z.infer<typeof DiscoveryRunSummarySchema>;
 
 export const DiscoveryRunRecordSchema = z.object({
   id: NonEmptyStringSchema,
+  campaignId: NonEmptyStringSchema.nullable().default(null),
   state: DiscoveryRunStateSchema,
   scope: DiscoveryRunScopeSchema.default("run_all"),
   startedAt: IsoDateTimeSchema,
@@ -1655,6 +1657,7 @@ export const ApplicationRecordSchema = z.object({
   consentSummary: ApplicationAttemptConsentSummarySchema.default({}),
   replaySummary: ApplicationAttemptReplaySummarySchema.default({}),
   events: z.array(ApplicationEventSchema).default([]),
+  crm: ApplicationCrmDataSchema.nullable().default(null),
 });
 export type ApplicationRecord = z.infer<typeof ApplicationRecordSchema>;
 

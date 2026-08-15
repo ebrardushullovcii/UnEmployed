@@ -4,13 +4,17 @@ import type {
 } from "@unemployed/browser-runtime";
 import {
   JobFinderDiscoveryStateSchema,
+  JobFinderActivityControlSchema,
+  SetJobFinderActivityControlInputSchema,
   JobSourceSchema,
   SavedJobSchema,
   type JobFinderDiscoveryState,
+  type JobFinderWorkspaceSnapshot,
   type JobDiscoveryTarget,
   type JobSearchPreferences,
   type JobSource,
   type SavedJob,
+  type SetJobFinderActivityControlInput,
   type SourceDebugRunRecord,
 } from "@unemployed/contracts";
 import { mergeSessionStates } from "./internal/workspace-service-helpers";
@@ -36,10 +40,20 @@ import { createWorkspaceApplicationMethods } from "./internal/workspace-applicat
 import { createWorkspaceApplyRunStoreMethods } from "./internal/workspace-apply-run-store-methods";
 import { recoverInterruptedApplyRun } from "./internal/workspace-apply-run-recovery";
 import { createWorkspaceApplicationAnswerMethods } from "./internal/workspace-application-answer-methods";
+import { createWorkspaceGroupedAnswerMethods } from "./internal/workspace-grouped-answer-methods";
+import { createWorkspaceCrmMethods } from "./internal/workspace-crm-methods";
+import { createWorkspaceIntelligenceMethods } from "./internal/workspace-intelligence-methods";
+import { createWorkspaceSafeguardMethods } from "./internal/workspace-safeguard-methods";
 import { createWorkspaceUserActionMethods } from "./internal/workspace-user-action-methods";
 import { toDiscoverySessionState } from "./internal/discovery-state";
 import { uniqueStrings } from "./internal/shared";
 import { persistDiscoveryLoginUserAction } from "./internal/workspace-source-user-action";
+import {
+  createWorkspaceCampaignMethods,
+  recordCampaignDiscoveryResult,
+} from "./internal/workspace-campaign-methods";
+import { assertCampaignCanRun } from "./internal/campaign-dashboard";
+import { ensureCampaignState } from "./internal/campaign-dashboard";
 
 export {
   DEFAULT_DISCOVERY_HISTORY_LIMIT,
@@ -102,6 +116,9 @@ export function createJobFinderWorkspaceService(
   const activeApplyRunAbortControllers = new Map<string, AbortController>();
   const activeApplyRunPromises = new Map<string, Promise<void>>();
   const applyRunTransitionTails = new Map<string, Promise<void>>();
+  let applicationCrmTransitionTail: Promise<void> = Promise.resolve();
+  let intelligenceTransitionTail: Promise<void> = Promise.resolve();
+  let campaignTransitionTail: Promise<void> = Promise.resolve();
   const activeResumeVisionRunIds = new Set<string>();
   const shutdownPromiseRef = {
     current: null as Promise<void> | null,
@@ -123,9 +140,35 @@ export function createJobFinderWorkspaceService(
     activeApplyRunAbortControllers,
     activeApplyRunPromises,
     applyRunTransitionTails,
+    withApplicationCrmTransition<T>(operation: () => Promise<T>): Promise<T> {
+      const result = applicationCrmTransitionTail.then(operation, operation);
+      applicationCrmTransitionTail = result.then(
+        () => undefined,
+        () => undefined,
+      );
+      return result;
+    },
+    withIntelligenceTransition<T>(operation: () => Promise<T>): Promise<T> {
+      const result = intelligenceTransitionTail.then(operation, operation);
+      intelligenceTransitionTail = result.then(
+        () => undefined,
+        () => undefined,
+      );
+      return result;
+    },
+    withCampaignTransition<T>(operation: () => Promise<T>): Promise<T> {
+      const result = campaignTransitionTail.then(operation, operation);
+      campaignTransitionTail = result.then(
+        () => undefined,
+        () => undefined,
+      );
+      return result;
+    },
     activeResumeVisionRunIds,
     getWorkspaceSnapshot: () =>
       Promise.reject(new Error("Workspace snapshot method not initialized.")),
+    getActiveCampaignId: async () =>
+      (await repository.getCampaignState())?.activeCampaignId ?? null,
     resumeApplicationUserAction: () =>
       Promise.reject(
         new Error("Application user action resumer not initialized."),
@@ -377,21 +420,209 @@ export function createJobFinderWorkspaceService(
     }
   }
 
+  async function resumeVerifyingUserActionsAfterCommit(): Promise<void> {
+    // A grouped apply commits verifying request transitions after an earlier
+    // snapshot may already have completed a recovery run, so the cached
+    // recovery promise must not suppress this fresh resume. Concurrent
+    // callers share this single in-flight recovery run, and a crash between
+    // the grouped commit and this resume still recovers on the next restart
+    // because the recovery promise is only ever held in memory.
+    userActionRecoveryPromise = userActionMethods.resumeVerifyingUserActions();
+
+    try {
+      await userActionRecoveryPromise;
+    } catch (error) {
+      userActionRecoveryPromise = null;
+      throw error;
+    }
+  }
+
   async function getWorkspaceSnapshot() {
     await resumeVerifyingUserActions();
     return snapshotProfileMethods.getWorkspaceSnapshot();
   }
 
   context.getWorkspaceSnapshot = getWorkspaceSnapshot;
+  const crmMethods = createWorkspaceCrmMethods({
+    ctx: context,
+    getWorkspaceSnapshot,
+  });
+  const intelligenceMethods = createWorkspaceIntelligenceMethods({
+    ctx: context,
+    getWorkspaceSnapshot,
+    callbacks: {
+      shortlist: applicationMethods.queueJobForReview,
+      reject: (jobId) =>
+        applicationMethods.dismissDiscoveryJob({
+          jobId,
+          reasons: ["other"],
+        }),
+      restore: async (jobId) => {
+        const job = (await repository.listSavedJobs()).find(
+          (candidate) => candidate.id === jobId,
+        );
+        if (job?.status === "archived") {
+          await applicationMethods.restoreDismissedDiscoveryJob(jobId);
+        } else if (job && job.status !== "discovered") {
+          await applicationMethods.removeJobFromReview(jobId);
+        }
+      },
+    },
+  });
+  const safeguardMethods = createWorkspaceSafeguardMethods({
+    ctx: context,
+    getWorkspaceSnapshot,
+  });
 
   const sourceDebugMethods = createWorkspaceSourceDebugMethods(context);
   context.runSourceDebugWorkflow = sourceDebugMethods.runSourceDebugWorkflow;
   const discoveryMethods = createWorkspaceDiscoveryMethods(context);
+  const campaignMethods = createWorkspaceCampaignMethods({
+    ctx: context,
+    getWorkspaceSnapshot,
+    runCampaignDiscovery: async (campaignContext) => {
+      await requireDiscoverySafeguardClearance();
+      return discoveryMethods.runCampaignDiscovery(campaignContext);
+    },
+    afterCampaignRun: () => intelligenceMethods.refreshCompanyIntelligence(),
+  });
+
+  async function runCampaignScopedDiscovery(
+    executor: () => Promise<JobFinderWorkspaceSnapshot>,
+  ) {
+    await requireDiscoverySafeguardClearance();
+    let [campaignState, savedJobs] = await Promise.all([
+      repository.getCampaignState(),
+      repository.listSavedJobs(),
+    ]);
+    if (!campaignState) {
+      campaignState = await ensureCampaignState({
+        repository,
+        searchPreferences: await repository.getSearchPreferences(),
+      });
+      savedJobs = await repository.listSavedJobs();
+    }
+    const campaignId = campaignState.activeCampaignId;
+    const campaign = campaignState.campaigns.find(
+      (candidate) => candidate.id === campaignId,
+    );
+    if (!campaign) {
+      throw new Error("The active job search campaign is unavailable.");
+    }
+    assertCampaignCanRun(campaign);
+    await executor();
+    await recordCampaignDiscoveryResult({
+      ctx: context,
+      campaignId,
+      beforeJobProvenanceFingerprints: new Map(
+        savedJobs.map((job) => [job.id, JSON.stringify(job.provenance)]),
+      ),
+    });
+    return intelligenceMethods.refreshCompanyIntelligence();
+  }
+
+  const ACTIVITY_PAUSED_MESSAGE =
+    "Browser and application activity is paused. Resume it from the Job Finder command center before starting new work.";
+
+  async function requireActivityEnabled(): Promise<void> {
+    if ((await repository.getActivityControl()).paused) {
+      throw new Error(ACTIVITY_PAUSED_MESSAGE);
+    }
+  }
+
+  async function requireCampaignPreparationCapacity(
+    jobIds: readonly string[],
+  ): Promise<void> {
+    const state = await repository.getCampaignState();
+    const campaign = state?.campaigns.find(
+      (candidate) => candidate.id === state.activeCampaignId,
+    );
+    if (!campaign) return;
+    const unscopedJobId = jobIds.find(
+      (jobId) => !campaign.jobIds.includes(jobId),
+    );
+    if (unscopedJobId) {
+      throw new Error(
+        "That job is not retained in the active campaign. Select its campaign before preparing an application.",
+      );
+    }
+    if (jobIds.length > campaign.limits.preparationBatchSize) {
+      throw new Error(
+        `This campaign allows ${campaign.limits.preparationBatchSize} jobs per preparation batch.`,
+      );
+    }
+    if (campaign.limits.dailyPreparationLimit !== null) {
+      const today = new Date().toISOString().slice(0, 10);
+      const preparedToday = (await repository.listApplyRuns())
+        .filter((run) => run.createdAt.slice(0, 10) === today)
+        .reduce((total, run) => total + run.totalJobs, 0);
+      if (
+        preparedToday + jobIds.length >
+        campaign.limits.dailyPreparationLimit
+      ) {
+        throw new Error(
+          `This campaign has reached its daily preparation limit of ${campaign.limits.dailyPreparationLimit} jobs.`,
+        );
+      }
+    }
+  }
+
+  async function requireApplicationSafeguardClearance(
+    jobIds: readonly string[],
+  ): Promise<void> {
+    const blockers =
+      await safeguardMethods.evaluateApplicationPreparationBlockers(jobIds);
+    await safeguardMethods.requireNoBlockers(blockers);
+  }
+
+  async function requireDiscoverySafeguardClearance(): Promise<void> {
+    const blockers =
+      await safeguardMethods.evaluateGlobalDiscoveryBlockers();
+    await safeguardMethods.requireNoBlockers(blockers);
+  }
+
+  async function setActivityControl(
+    rawInput: SetJobFinderActivityControlInput,
+  ) {
+    const input = SetJobFinderActivityControlInputSchema.parse(rawInput);
+    const now = new Date().toISOString();
+    await repository.saveActivityControl(
+      JobFinderActivityControlSchema.parse({
+        paused: input.paused,
+        pausedAt: input.paused ? now : null,
+        reason: input.paused ? (input.reason ?? null) : null,
+      }),
+    );
+    if (input.paused) {
+      const activeRunIds = [...activeApplyRunAbortControllers.keys()];
+      activeDiscoveryAbortControllerRef.current?.abort();
+      activeSourceDebugAbortControllerRef.current?.abort();
+      for (const controller of activeApplyRunAbortControllers.values()) {
+        controller.abort();
+      }
+      await Promise.allSettled(
+        [
+          activeDiscoveryPromiseRef.current,
+          activeSourceDebugPromiseRef.current,
+          ...activeApplyRunPromises.values(),
+        ].filter((value): value is Promise<unknown> => value != null),
+      );
+      await Promise.allSettled(
+        activeRunIds.map((runId) => applicationMethods.cancelApplyRun(runId)),
+      );
+    }
+    return getWorkspaceSnapshot();
+  }
   const applyRunStoreMethods = createWorkspaceApplyRunStoreMethods(context);
   const applicationAnswerMethods = createWorkspaceApplicationAnswerMethods(
     context,
     applyRunStoreMethods.getApplyRunDetails,
   );
+  const groupedAnswerMethods = createWorkspaceGroupedAnswerMethods({
+    ctx: context,
+    getWorkspaceSnapshot,
+    resumeVerifyingUserActions: resumeVerifyingUserActionsAfterCommit,
+  });
 
   function isJobSource(value: unknown): value is JobSource {
     return JobSourceSchema.safeParse(value).success;
@@ -470,12 +701,81 @@ export function createJobFinderWorkspaceService(
   return {
     shutdown,
     ...snapshotProfileMethods,
+    openBrowserSession: async (input) => {
+      await requireActivityEnabled();
+      return snapshotProfileMethods.openBrowserSession(input);
+    },
+    ...campaignMethods,
+    ...intelligenceMethods,
+    setActivityControl,
     getWorkspaceSnapshot,
+    mutateSafeguards: safeguardMethods.mutateSafeguards,
+    getSafeguardsOverview: safeguardMethods.getSafeguardsOverview,
+    evaluateApplicationSafeguardBlockers:
+      safeguardMethods.evaluateApplicationPreparationBlockers,
+    evaluateDiscoverySafeguardBlockers:
+      safeguardMethods.evaluateGlobalDiscoveryBlockers,
     ...discoveryMethods,
+    runDiscovery: async (targetId) => {
+      await requireActivityEnabled();
+      return runCampaignScopedDiscovery(() =>
+        discoveryMethods.runDiscovery(targetId),
+      );
+    },
+    runAgentDiscovery: async (onActivity, signal, targetId) => {
+      await requireActivityEnabled();
+      return runCampaignScopedDiscovery(() =>
+        discoveryMethods.runAgentDiscovery(onActivity, signal, targetId),
+      );
+    },
+    runDiscoveryForTarget: async (targetId, onActivity, signal) => {
+      await requireActivityEnabled();
+      return runCampaignScopedDiscovery(() =>
+        discoveryMethods.runDiscoveryForTarget(targetId, onActivity, signal),
+      );
+    },
     ...sourceDebugMethods,
+    runSourceDebug: async (targetId, signal, onProgress) => {
+      await requireActivityEnabled();
+      return sourceDebugMethods.runSourceDebug(targetId, signal, onProgress);
+    },
+    verifySourceInstructions: async (
+      targetId,
+      instructionId,
+      signal,
+      onProgress,
+    ) => {
+      await requireActivityEnabled();
+      return sourceDebugMethods.verifySourceInstructions(
+        targetId,
+        instructionId,
+        signal,
+        onProgress,
+      );
+    },
     ...applyRunStoreMethods,
     ...applicationAnswerMethods,
+    ...groupedAnswerMethods,
     performUserAction: userActionMethods.performUserAction,
     ...applicationMethods,
+    startApplyCopilotRun: async (jobId, options) => {
+      await requireActivityEnabled();
+      await requireCampaignPreparationCapacity([jobId]);
+      await requireApplicationSafeguardClearance([jobId]);
+      return applicationMethods.startApplyCopilotRun(jobId, options);
+    },
+    startAutoApplyRun: async (jobId) => {
+      await requireActivityEnabled();
+      await requireCampaignPreparationCapacity([jobId]);
+      await requireApplicationSafeguardClearance([jobId]);
+      return applicationMethods.startAutoApplyRun(jobId);
+    },
+    startAutoApplyQueueRun: async (jobIds) => {
+      await requireActivityEnabled();
+      await requireCampaignPreparationCapacity(jobIds);
+      await requireApplicationSafeguardClearance(jobIds);
+      return applicationMethods.startAutoApplyQueueRun(jobIds);
+    },
+    ...crmMethods,
   };
 }

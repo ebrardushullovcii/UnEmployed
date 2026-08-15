@@ -169,9 +169,7 @@ function createScaleSeed(): JobFinderRepositorySeed {
         },
         title: "Sign in to continue",
         summary: "Complete sign-in in the managed browser.",
-        instructions: [
-          "Sign in without sharing credentials with Job Finder.",
-        ],
+        instructions: ["Sign in without sharing credentials with Job Finder."],
         actionUrl: savedJobs[index]!.applicationUrl,
         displayOrigin: "https://jobs.example.com/",
         credentialsPolicy: "browser_only",
@@ -232,6 +230,10 @@ function serializeStableSnapshot(snapshot: JobFinderWorkspaceSnapshot): string {
   return JSON.stringify({
     ...snapshot,
     generatedAt: "<generated-at>",
+    dashboard: {
+      ...snapshot.dashboard,
+      generatedAt: "<generated-at>",
+    },
   });
 }
 
@@ -245,91 +247,85 @@ afterEach(async () => {
 });
 
 describe("workspace snapshot scale", () => {
-  test(
-    "serializes and restores a realistic 1,000-job workspace",
-    async () => {
-      const directory = await mkdtemp(
-        path.join(os.tmpdir(), "unemployed-workspace-scale-"),
-      );
-      temporaryDirectories.add(directory);
-      const filePath = path.join(directory, "job-finder-state.sqlite");
-      const seed = createScaleSeed();
+  test("serializes and restores a realistic 1,000-job workspace", async () => {
+    const directory = await mkdtemp(
+      path.join(os.tmpdir(), "unemployed-workspace-scale-"),
+    );
+    temporaryDirectories.add(directory);
+    const filePath = path.join(directory, "job-finder-state.sqlite");
+    const seed = createScaleSeed();
 
-      const initializeStartedAt = performance.now();
-      let repository = await createFileJobFinderRepository({ filePath, seed });
-      const initializeMs = performance.now() - initializeStartedAt;
-      let service = createWorkspaceService(repository);
+    const initializeStartedAt = performance.now();
+    let repository = await createFileJobFinderRepository({ filePath, seed });
+    const initializeMs = performance.now() - initializeStartedAt;
+    let service = createWorkspaceService(repository);
 
-      const initialReadStartedAt = performance.now();
-      const initialSnapshot = await service.getWorkspaceSnapshot();
-      const initialReadMs = performance.now() - initialReadStartedAt;
+    const initialReadStartedAt = performance.now();
+    const initialSnapshot = await service.getWorkspaceSnapshot();
+    const initialReadMs = performance.now() - initialReadStartedAt;
 
-      const initialSerializeStartedAt = performance.now();
-      const initialSerialized = serializeStableSnapshot(initialSnapshot);
-      const initialSerializeMs =
-        performance.now() - initialSerializeStartedAt;
-      const serializedBytes = Buffer.byteLength(initialSerialized, "utf8");
+    const initialSerializeStartedAt = performance.now();
+    const initialSerialized = serializeStableSnapshot(initialSnapshot);
+    const initialSerializeMs = performance.now() - initialSerializeStartedAt;
+    const serializedBytes = Buffer.byteLength(initialSerialized, "utf8");
 
-      await repository.close();
+    await repository.close();
 
-      const restartStartedAt = performance.now();
-      repository = await createFileJobFinderRepository({ filePath, seed });
-      const restartOpenMs = performance.now() - restartStartedAt;
-      service = createWorkspaceService(repository);
+    const restartStartedAt = performance.now();
+    repository = await createFileJobFinderRepository({ filePath, seed });
+    const restartOpenMs = performance.now() - restartStartedAt;
+    service = createWorkspaceService(repository);
 
-      const restartReadStartedAt = performance.now();
-      const restartedSnapshot = JobFinderWorkspaceSnapshotSchema.parse(
-        await service.getWorkspaceSnapshot(),
-      );
-      const restartReadMs = performance.now() - restartReadStartedAt;
+    const restartReadStartedAt = performance.now();
+    const restartedSnapshot = JobFinderWorkspaceSnapshotSchema.parse(
+      await service.getWorkspaceSnapshot(),
+    );
+    const restartReadMs = performance.now() - restartReadStartedAt;
 
-      const restartSerializeStartedAt = performance.now();
-      const restartedSerialized = serializeStableSnapshot(restartedSnapshot);
-      const restartSerializeMs =
-        performance.now() - restartSerializeStartedAt;
-      const sqliteBytes = (await stat(filePath)).size;
+    const restartSerializeStartedAt = performance.now();
+    const restartedSerialized = serializeStableSnapshot(restartedSnapshot);
+    const restartSerializeMs = performance.now() - restartSerializeStartedAt;
+    const sqliteBytes = (await stat(filePath)).size;
 
-      await repository.close();
+    await repository.close();
 
-      const metrics = {
-        savedJobs: restartedSnapshot.discoveryJobs.length,
-        reviewQueueItems: restartedSnapshot.reviewQueue.length,
-        applicationRecords: restartedSnapshot.applicationRecords.length,
-        applicationAttempts: restartedSnapshot.applicationAttempts.length,
-        applyRuns: restartedSnapshot.applyRuns.length,
-        applyJobResults: restartedSnapshot.applyJobResults.length,
-        userActionRequests: restartedSnapshot.userActionRequests.length,
-        userActionEvents: restartedSnapshot.userActionEvents.length,
-        serializedBytes,
-        sqliteBytes,
-        initializeMs: Math.round(initializeMs),
-        initialReadMs: Math.round(initialReadMs),
-        initialSerializeMs: Math.round(initialSerializeMs),
-        restartOpenMs: Math.round(restartOpenMs),
-        restartReadMs: Math.round(restartReadMs),
-        restartSerializeMs: Math.round(restartSerializeMs),
-      };
+    const metrics = {
+      savedJobs: restartedSnapshot.discoveryJobs.length,
+      reviewQueueItems: restartedSnapshot.reviewQueue.length,
+      applicationRecords: restartedSnapshot.applicationRecords.length,
+      applicationAttempts: restartedSnapshot.applicationAttempts.length,
+      applyRuns: restartedSnapshot.applyRuns.length,
+      applyJobResults: restartedSnapshot.applyJobResults.length,
+      userActionRequests: restartedSnapshot.userActionRequests.length,
+      userActionEvents: restartedSnapshot.userActionEvents.length,
+      serializedBytes,
+      sqliteBytes,
+      initializeMs: Math.round(initializeMs),
+      initialReadMs: Math.round(initialReadMs),
+      initialSerializeMs: Math.round(initialSerializeMs),
+      restartOpenMs: Math.round(restartOpenMs),
+      restartReadMs: Math.round(restartReadMs),
+      restartSerializeMs: Math.round(restartSerializeMs),
+    };
 
-      console.info("workspace-scale-benchmark", metrics);
+    console.info("workspace-scale-benchmark", metrics);
 
-      expect(metrics).toMatchObject({
-        savedJobs: SAVED_JOB_COUNT,
-        reviewQueueItems: SAVED_JOB_COUNT - SHORTLISTED_JOB_COUNT,
-        applicationRecords: APPLICATION_COUNT,
-        applicationAttempts: APPLICATION_COUNT,
-        applyRuns: APPLICATION_COUNT,
-        applyJobResults: APPLICATION_COUNT,
-        userActionRequests: USER_ACTION_COUNT,
-        userActionEvents: USER_ACTION_COUNT,
-      });
-      expect(serializedBytes).toBeGreaterThan(1_000_000);
-      expect(restartedSerialized).toBe(initialSerialized);
-      expect(initialReadMs).toBeLessThan(SCALE_BUDGET_MS);
-      expect(initialSerializeMs).toBeLessThan(SCALE_BUDGET_MS);
-      expect(restartOpenMs).toBeLessThan(SCALE_BUDGET_MS);
-      expect(restartReadMs).toBeLessThan(SCALE_BUDGET_MS);
-      expect(restartSerializeMs).toBeLessThan(SCALE_BUDGET_MS);
-    },
-    30_000,
-  );
+    expect(metrics).toMatchObject({
+      savedJobs: SAVED_JOB_COUNT,
+      reviewQueueItems: SAVED_JOB_COUNT - SHORTLISTED_JOB_COUNT,
+      applicationRecords: APPLICATION_COUNT,
+      applicationAttempts: APPLICATION_COUNT,
+      applyRuns: APPLICATION_COUNT,
+      applyJobResults: APPLICATION_COUNT,
+      userActionRequests: USER_ACTION_COUNT,
+      userActionEvents: USER_ACTION_COUNT,
+    });
+    expect(serializedBytes).toBeGreaterThan(1_000_000);
+    expect(restartedSerialized).toBe(initialSerialized);
+    expect(initialReadMs).toBeLessThan(SCALE_BUDGET_MS);
+    expect(initialSerializeMs).toBeLessThan(SCALE_BUDGET_MS);
+    expect(restartOpenMs).toBeLessThan(SCALE_BUDGET_MS);
+    expect(restartReadMs).toBeLessThan(SCALE_BUDGET_MS);
+    expect(restartSerializeMs).toBeLessThan(SCALE_BUDGET_MS);
+  }, 30_000);
 });

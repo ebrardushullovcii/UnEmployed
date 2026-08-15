@@ -27,13 +27,13 @@
     "validate:browser-runtime": "node scripts/validate-package.mjs browser-runtime",
     "validate:contracts": "node scripts/validate-package.mjs contracts",
     "knip": "knip",
-    "test": "vitest run",
-    "test:unit": "vitest run",
+    "test": "vitest run --exclude packages/job-finder/src/workspace-service.discovery-ledger-performance.test.ts && vitest run packages/job-finder/src/workspace-service.discovery-ledger-performance.test.ts --maxWorkers=1 --minWorkers=1",
+    "test:unit": "pnpm test",
     "test:smoke": "vitest run --dir packages/contracts/src",
     "agents:sync": "node scripts/repo-context.mjs sync",
     "agents:check": "node scripts/repo-context.mjs check-agents",
     "docs:check": "node scripts/repo-context.mjs check-docs",
-    "verify": "node scripts/repo-context.mjs check-agents && node scripts/repo-context.mjs check-docs && node scripts/check-source-generic-discovery.mjs && node scripts/check-structure.mjs && node scripts/run-turbo.mjs lint && node scripts/run-turbo.mjs typecheck && node scripts/run-fit-calibration-benchmark.cjs --baseline packages/job-finder/test-fixtures/fit-calibration-baseline-v4.json && vitest run"
+    "verify": "node scripts/repo-context.mjs check-agents && node scripts/repo-context.mjs check-docs && node scripts/check-source-generic-discovery.mjs && node scripts/check-structure.mjs && node scripts/run-turbo.mjs lint && node scripts/run-turbo.mjs typecheck && node scripts/run-fit-calibration-benchmark.cjs --baseline packages/job-finder/test-fixtures/fit-calibration-baseline-v4.json && pnpm test"
   },
   "devDependencies": {
     "@eslint/js": "^9.22.0",

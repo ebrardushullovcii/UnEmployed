@@ -1,6 +1,7 @@
 import {
   JobFinderResumeWorkspaceSchema,
   type JobFinderResumeWorkspace,
+  type JobFinderResumeWorkspaceStrategyContext,
   type JobFinderResumePreview,
   type CandidateProfile,
   type ResumeDraft,
@@ -17,11 +18,38 @@ import {
 } from "./resume-workspace-helpers";
 import { buildResumeDraftIdentity } from "./resume-workspace-structure";
 import {
+  buildResumeStrategyContext,
+  resolveCampaignDefaultResumeStrategyId,
+} from "./resume-strategy-application";
+import {
   normalizeJobFinderSettings,
   normalizeResumeDraftTemplate,
   wasResumeDraftApproved,
 } from "./workspace-helpers";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
+
+async function resolveResumeStrategyContextForJob(
+  ctx: WorkspaceServiceContext,
+  jobId: string,
+): Promise<JobFinderResumeWorkspaceStrategyContext | null> {
+  const [intelligenceState, campaignState, savedJobs] = await Promise.all([
+    ctx.repository.getIntelligenceState(),
+    ctx.repository.getCampaignState(),
+    ctx.repository.listSavedJobs(),
+  ]);
+  const job = savedJobs.find((entry) => entry.id === jobId);
+
+  if (!job) {
+    return null;
+  }
+
+  return buildResumeStrategyContext({
+    state: intelligenceState,
+    job,
+    campaignDefaultResumeStrategyId:
+      resolveCampaignDefaultResumeStrategyId(campaignState, jobId),
+  });
+}
 
 function countVisibleEntries(draft: ResumeDraft): number {
   return draft.sections
@@ -279,10 +307,16 @@ export async function ensureResumeDraft(
     };
   }
 
+  // A fresh draft may start from the strategy's template default, but the
+  // strategy never approves or readies anything: the seeded draft is created
+  // unapproved and the exact per-job approval/staleness checks stay
+  // authoritative.
+  const strategyContext = await resolveResumeStrategyContextForJob(ctx, jobId);
   const seededDraft = seedResumeDraft({
     profile: state.profile,
     job: state.job,
-    templateId: state.settings.resumeTemplateId,
+    templateId:
+      strategyContext?.templateId ?? state.settings.resumeTemplateId,
     tailoredAsset: state.tailoredAsset,
   });
   const sanitizedDraft = sanitizeResumeDraft({
@@ -460,13 +494,14 @@ export async function buildResumeWorkspace(
     ctx,
     jobId,
   );
-  const [validations, exports, research, assistantMessages, revisions] =
+  const [validations, exports, research, assistantMessages, revisions, strategyContext] =
     await Promise.all([
       ctx.repository.listResumeValidationResults(draft.id),
       ctx.repository.listResumeExportArtifacts({ jobId }),
       ctx.repository.listResumeResearchArtifacts(jobId),
       ctx.repository.listResumeAssistantMessages(jobId),
       ctx.repository.listResumeDraftRevisions(draft.id),
+      resolveResumeStrategyContextForJob(ctx, jobId),
     ]);
   const normalizedExports = exports.map((artifact) => ({
     ...artifact,
@@ -491,5 +526,6 @@ export async function buildResumeWorkspace(
         draft,
         validation: validations[0] ?? null,
       }),
+    strategyContext,
   });
 }

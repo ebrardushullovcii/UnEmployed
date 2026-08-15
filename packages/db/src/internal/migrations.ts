@@ -1,5 +1,9 @@
 import { chmod } from "node:fs/promises";
 import type { DatabaseSync } from "node:sqlite";
+import {
+  JobSearchPreferencesSchema,
+  getDefaultCampaignConfiguration,
+} from "@unemployed/contracts";
 
 export function secureDatabaseFile(filePath: string): Promise<void> {
   if (process.platform === "win32") {
@@ -84,6 +88,91 @@ export function runMigrations(database: DatabaseSync): void {
         )
         .get(tableName),
     );
+  }
+
+  function ensureDefaultCampaignState(): void {
+    const existing = database
+      .prepare("SELECT value FROM singleton_state WHERE key = ?")
+      .get("campaign_state");
+    if (existing) return;
+
+    const preferencesRow = database
+      .prepare("SELECT value FROM singleton_state WHERE key = ?")
+      .get("search_preferences") as { value?: unknown } | undefined;
+    if (typeof preferencesRow?.value !== "string") return;
+
+    const searchPreferences = JobSearchPreferencesSchema.parse(
+      JSON.parse(preferencesRow.value) as unknown,
+    );
+    const now = new Date().toISOString();
+    const campaignId = "campaign_default";
+    const discoveryRow = database
+      .prepare("SELECT value FROM singleton_state WHERE key = ?")
+      .get("discovery_state") as { value?: unknown } | undefined;
+    const legacyRuns =
+      typeof discoveryRow?.value === "string"
+        ? (
+            ((JSON.parse(discoveryRow.value) as { recentRuns?: unknown[] })
+              .recentRuns ?? []) as Array<{
+              id?: unknown;
+              startedAt?: unknown;
+              completedAt?: unknown;
+            }>
+          ).filter(
+            (
+              run,
+            ): run is { id: string; startedAt: string; completedAt?: string } =>
+              typeof run.id === "string" && typeof run.startedAt === "string",
+          )
+        : [];
+    const campaign = {
+      id: campaignId,
+      name: "My job search",
+      description: "Your existing Job Finder workspace.",
+      mode: "precision" as const,
+      status: "active" as const,
+      createdAt: now,
+      updatedAt: now,
+      searchPreferences,
+      sourceTargetIds: searchPreferences.discovery.targets
+        .filter((target) => target.enabled)
+        .map((target) => target.id),
+      jobIds: (
+        database
+          .prepare("SELECT id FROM saved_jobs ORDER BY id")
+          .all() as Array<{
+          id: string;
+        }>
+      ).map((row) => row.id),
+      minimumFitScore: null,
+      ...getDefaultCampaignConfiguration("precision"),
+      schedule: {},
+      progress: { lastUpdatedAt: now },
+      history: [
+        ...legacyRuns.map((run) => ({
+          id: `campaign_history_discovery_${run.id}`,
+          campaignId,
+          kind: "discovery_run" as const,
+          occurredAt: run.completedAt ?? run.startedAt,
+          summary: `Imported discovery run ${run.id}.`,
+          discoveryRunId: run.id,
+        })),
+        {
+          id: "campaign_history_default_created",
+          campaignId,
+          kind: "created" as const,
+          occurredAt: now,
+          summary: "Existing workspace moved into the default campaign.",
+          discoveryRunId: null,
+        },
+      ],
+    };
+    database
+      .prepare("INSERT INTO singleton_state (key, value) VALUES (?, ?)")
+      .run(
+        "campaign_state",
+        JSON.stringify({ activeCampaignId: campaignId, campaigns: [campaign] }),
+      );
   }
 
   function ensureResumeImportTables(): void {
@@ -578,8 +667,7 @@ export function runMigrations(database: DatabaseSync): void {
       !hasTable("application_replay_checkpoints") ||
       !hasTable("application_consent_requests");
     const userActionTablesMissing =
-      !hasTable("user_action_requests") ||
-      !hasTable("user_action_events");
+      !hasTable("user_action_requests") || !hasTable("user_action_events");
     // Migration rows can be removed independently while reproducing or
     // repairing legacy databases. Do not let a later version hide a missing
     // earlier migration merely because MAX(version) is newer.
@@ -588,6 +676,7 @@ export function runMigrations(database: DatabaseSync): void {
     const needsApplyFoundationIndexMigration = !appliedVersions.has(7);
     const needsProfileAchievementRepairMigration = !appliedVersions.has(8);
     const needsUserActionMigration = !appliedVersions.has(9);
+    const needsCampaignMigration = !appliedVersions.has(10);
 
     if (
       resumeImportTablesMissing ||
@@ -598,7 +687,8 @@ export function runMigrations(database: DatabaseSync): void {
       needsApplyFoundationIndexMigration ||
       needsProfileAchievementRepairMigration ||
       userActionTablesMissing ||
-      needsUserActionMigration
+      needsUserActionMigration ||
+      needsCampaignMigration
     ) {
       database.exec("BEGIN IMMEDIATE");
       try {
@@ -668,6 +758,15 @@ export function runMigrations(database: DatabaseSync): void {
               "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
             )
             .run(9, "job_finder_user_actions");
+        }
+
+        if (needsCampaignMigration) {
+          ensureDefaultCampaignState();
+          database
+            .prepare(
+              "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
+            )
+            .run(10, "job_search_campaigns");
         }
 
         database.exec("COMMIT");
@@ -864,6 +963,13 @@ export function runMigrations(database: DatabaseSync): void {
       database
         .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
         .run(9, "job_finder_user_actions");
+    }
+
+    if (currentVersion < 10) {
+      ensureDefaultCampaignState();
+      database
+        .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+        .run(10, "job_search_campaigns");
     }
 
     database.exec("COMMIT");

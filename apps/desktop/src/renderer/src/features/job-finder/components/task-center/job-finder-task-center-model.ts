@@ -6,8 +6,13 @@ import type {
   ResumeImportProgressEvent,
   ResumeImportRun,
 } from "@unemployed/contracts";
+import { countActiveSafeguardBlockers } from "../../lib/safeguards-blocker-count";
 
-export type JobFinderTaskKind = "discovery" | "resume_import" | "apply";
+export type JobFinderTaskKind =
+  | "discovery"
+  | "resume_import"
+  | "apply"
+  | "safeguards";
 export type JobFinderTaskStatus =
   | "active"
   | "paused"
@@ -473,6 +478,43 @@ function buildApplyTask(
   };
 }
 
+function buildSafeguardTask(
+  input: BuildJobFinderTaskCenterModelInput,
+): JobFinderTaskCenterItem | null {
+  const blockerCount = countActiveSafeguardBlockers(
+    input.workspace.intelligence?.safeguards ??
+      {
+        companyApplicationCaps: [],
+        simultaneousApplicationConflicts: [],
+        listingSignals: [],
+        abnormalFailurePauses: [],
+        preparedBatchSampleReviews: [],
+        contradictoryAnswerDetections: [],
+        safeguardDismissals: [],
+        updatedAt: null,
+      },
+  );
+  if (blockerCount === 0) {
+    return null;
+  }
+
+  return {
+    id: "safeguards-active",
+    kind: "safeguards",
+    title: "Safeguards need attention",
+    status: "paused",
+    stageLabel: "Automatic quality pause",
+    sourceLabel:
+      "Discovery and application preparation are paused until these are resolved.",
+    countLabel: `${blockerCount} active blocker${blockerCount === 1 ? "" : "s"}`,
+    historyEstimateLabel: null,
+    canCancel: false,
+    cancelKind: null,
+    resumeRoute: "/job-finder/safeguards",
+    resumeActionLabel: "Open Safeguards",
+  };
+}
+
 export function buildJobFinderTaskCenterModel(
   input: BuildJobFinderTaskCenterModelInput,
 ): JobFinderTaskCenterModel {
@@ -480,6 +522,7 @@ export function buildJobFinderTaskCenterModel(
     buildDiscoveryTask(input),
     buildResumeTask(input),
     buildApplyTask(input),
+    buildSafeguardTask(input),
   ].filter((item): item is JobFinderTaskCenterItem => item !== null);
 
   return {

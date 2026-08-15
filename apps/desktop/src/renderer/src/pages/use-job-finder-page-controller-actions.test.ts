@@ -182,6 +182,52 @@ describe("createActionRunners", () => {
 });
 
 describe("createPrimaryPageActions", () => {
+  it("preserves application tracker settings when saving other defaults", async () => {
+    const snapshot = {} as JobFinderWorkspaceSnapshot;
+    const saveSettings = vi
+      .fn<JobFinderShellActions["saveSettings"]>()
+      .mockResolvedValue(snapshot);
+    const runSaveAction = vi.fn(
+      async (input: { action: () => Promise<unknown> }) => {
+        await input.action();
+        return true;
+      },
+    );
+    const existingSettings = {
+      resumeFormat: "pdf",
+      resumeTemplateId: "classic_ats",
+      fontPreset: "inter_requisite",
+      appearanceTheme: "system",
+      humanReviewRequired: true,
+      allowAutoSubmitOverride: false,
+      keepSessionAlive: false,
+      discoveryOnly: false,
+      applicationCrm: {
+        noResponseAutomation: { enabled: false, afterDays: 30 },
+        customStages: [],
+      },
+    } as JobFinderWorkspaceSnapshot["settings"];
+    type PrimaryPageActionArgs = Parameters<typeof createPrimaryPageActions>[0];
+    const pageActions = createPrimaryPageActions({
+      actions: { saveSettings } as unknown as JobFinderShellActions,
+      runSaveAction,
+      workspace: { settings: existingSettings } as JobFinderWorkspaceSnapshot,
+    } as unknown as PrimaryPageActionArgs);
+
+    const { applicationCrm: _applicationCrm, ...editableDefaults } =
+      existingSettings;
+    void _applicationCrm;
+    await pageActions.onSaveSettings({
+      ...editableDefaults,
+      resumeTemplateId: "modern_split",
+    } as JobFinderWorkspaceSnapshot["settings"]);
+
+    expect(saveSettings).toHaveBeenCalledWith({
+      ...existingSettings,
+      resumeTemplateId: "modern_split",
+    });
+  });
+
   it("describes a staged automatic run as fill-only preparation without granting submit authority", () => {
     const startAutoApplyRun = vi
       .fn<JobFinderShellActions["startAutoApplyRun"]>()
@@ -206,9 +252,9 @@ describe("createPrimaryPageActions", () => {
       ),
       { scope: jobFinderPendingActions.apply() },
     );
-    expect(
-      runAction.mock.calls[0]?.[2] as string,
-    ).not.toMatch(/automatic submit/i);
+    expect(runAction.mock.calls[0]?.[2] as string).not.toMatch(
+      /automatic submit/i,
+    );
   });
 
   it("starts the Review Queue apply copilot without visual checkpoints or the legacy approval path", async () => {
@@ -259,5 +305,113 @@ describe("createPrimaryPageActions", () => {
       expect(navigate).toHaveBeenCalledWith("/job-finder/applications");
     });
     expect(approveApply).not.toHaveBeenCalled();
+  });
+
+  it("recommends a resume strategy with a pending scope and returns the reason", async () => {
+    const recommendation = {
+      jobId: "job_1",
+      campaignId: "campaign_1",
+      roleFamily: "Backend Engineering",
+      strategyId: "strategy_1",
+      strategyName: "Backend",
+      source: "role_family",
+      reason: "Exact role family match.",
+    };
+    const recommendResumeStrategy = vi
+      .fn<JobFinderShellActions["recommendResumeStrategy"]>()
+      .mockResolvedValue(recommendation as never);
+    type PrimaryPageActionArgs = Parameters<typeof createPrimaryPageActions>[0];
+    const setActionState = vi.fn();
+    const setPendingActionState = vi.fn();
+    const { runAction, runResumeWorkspaceAction, runSaveAction, withPendingScope } =
+      createActionRunners({ setActionState, setPendingActionState });
+    const pageActions = createPrimaryPageActions({
+      actions: { recommendResumeStrategy } as unknown as JobFinderShellActions,
+      runAction,
+      runResumeWorkspaceAction,
+      runSaveAction,
+      setActionState,
+      setPendingActionState,
+      withPendingScope,
+    } as unknown as PrimaryPageActionArgs);
+
+    const result = await pageActions.onRecommendResumeStrategy({
+      jobId: "job_1",
+    });
+
+    expect(recommendResumeStrategy).toHaveBeenCalledWith({ jobId: "job_1" });
+    expect(result).toMatchObject({ strategyId: "strategy_1" });
+    expect(result?.reason).toBe("Exact role family match.");
+  });
+
+  it("reports a failed recommendation honestly without throwing", async () => {
+    const recommendResumeStrategy = vi
+      .fn<JobFinderShellActions["recommendResumeStrategy"]>()
+      .mockRejectedValue(new Error("That job is no longer available."));
+    type PrimaryPageActionArgs = Parameters<typeof createPrimaryPageActions>[0];
+    const setActionState = vi.fn();
+    const setPendingActionState = vi.fn();
+    const { runAction, runResumeWorkspaceAction, runSaveAction, withPendingScope } =
+      createActionRunners({ setActionState, setPendingActionState });
+    const pageActions = createPrimaryPageActions({
+      actions: { recommendResumeStrategy } as unknown as JobFinderShellActions,
+      runAction,
+      runResumeWorkspaceAction,
+      runSaveAction,
+      setActionState,
+      setPendingActionState,
+      withPendingScope,
+    } as unknown as PrimaryPageActionArgs);
+
+    const result = await pageActions.onRecommendResumeStrategy({
+      jobId: "job_1",
+    });
+
+    expect(result).toBeNull();
+    expect(setActionState).toHaveBeenCalledWith({
+      message: "That job is no longer available.",
+    });
+  });
+
+  it("selects a resume strategy and explains that reuse never approves the résumé", async () => {
+    const selectResumeStrategy = vi
+      .fn<JobFinderShellActions["selectResumeStrategy"]>()
+      .mockResolvedValue({} as JobFinderWorkspaceSnapshot);
+    type PrimaryPageActionArgs = Parameters<typeof createPrimaryPageActions>[0];
+    const setActionState = vi.fn();
+    const setPendingActionState = vi.fn();
+    const { runAction, runResumeWorkspaceAction, runSaveAction, withPendingScope } =
+      createActionRunners({ setActionState, setPendingActionState });
+    const pageActions = createPrimaryPageActions({
+      actions: { selectResumeStrategy } as unknown as JobFinderShellActions,
+      runAction,
+      runResumeWorkspaceAction,
+      runSaveAction,
+      setActionState,
+      setPendingActionState,
+      withPendingScope,
+    } as unknown as PrimaryPageActionArgs);
+
+    pageActions.onSelectResumeStrategy({
+      jobId: "job_1",
+      campaignId: "campaign_1",
+      strategyId: "strategy_1",
+      source: "manual",
+      reason: "Picked by the user.",
+    });
+
+    await vi.waitFor(() => {
+      expect(selectResumeStrategy).toHaveBeenCalledWith({
+        jobId: "job_1",
+        campaignId: "campaign_1",
+        strategyId: "strategy_1",
+        source: "manual",
+        reason: "Picked by the user.",
+      });
+    });
+    expect(setActionState).toHaveBeenLastCalledWith({
+      message:
+        "Strategy chosen for this job. The job's resume still needs its own review and approval before it can be used.",
+    });
   });
 });

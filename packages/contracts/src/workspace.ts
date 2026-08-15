@@ -16,7 +16,9 @@ import {
   ResumeTemplateIdSchema,
   SourceAccessPromptStateSchema,
   SourceDebugPhaseSchema,
+  TailoringModeSchema,
 } from "./base";
+import { ApplicationCrmSettingsSchema } from "./application-crm";
 import {
   ApplyJobResultSchema,
   ApplyJobResultSummarySchema,
@@ -82,6 +84,20 @@ import {
   ResumeTimelineRepairActionSchema,
 } from "./resume-import";
 import { UserActionEventSchema, UserActionRequestSchema } from "./user-action";
+import {
+  JobFinderActivityControlSchema,
+  JobFinderDashboardSummarySchema,
+  JobSearchCampaignSchema,
+} from "./job-search-campaigns";
+import { CampaignNotificationSchema } from "./campaign-operations";
+import {
+  JobFinderIntelligenceStateSchema,
+  ResumeStrategyCoveragePolicySchema,
+  ResumeStrategyEvidenceBoundariesSchema,
+  ResumeStrategyHeadlinePolicySchema,
+  ResumeStrategyRecommendationSourceSchema,
+  ResumeStrategySkillsPolicySchema,
+} from "./job-finder-intelligence";
 
 export const JobFinderJobActionInputSchema = z.object({
   jobId: NonEmptyStringSchema,
@@ -488,6 +504,7 @@ export const JobFinderSettingsSchema = z.object({
   keepSessionAlive: z.boolean(),
   discoveryOnly: z.boolean().default(false),
   resumeApplicationMode: ResumeApplicationModeSchema.optional(),
+  applicationCrm: ApplicationCrmSettingsSchema.default({}).optional(),
 });
 export type JobFinderSettings = z.infer<typeof JobFinderSettingsSchema>;
 
@@ -505,7 +522,7 @@ export type JobFinderDiscoveryState = z.infer<
   typeof JobFinderDiscoveryStateSchema
 >;
 
-export const JobFinderRepositoryStateSchema = z.object({
+const JobFinderRepositoryStateShape = {
   profile: CandidateProfileSchema,
   searchPreferences: JobSearchPreferencesSchema,
   profileSetupState: ProfileSetupStateSchema.default({}),
@@ -550,7 +567,15 @@ export const JobFinderRepositoryStateSchema = z.object({
     .default([]),
   settings: JobFinderSettingsSchema,
   discovery: JobFinderDiscoveryStateSchema.default({}),
-});
+  campaigns: z.array(JobSearchCampaignSchema).default([]),
+  activeCampaignId: NonEmptyStringSchema.nullable().default(null),
+  campaignNotifications: z.array(CampaignNotificationSchema).default([]),
+  activityControl: JobFinderActivityControlSchema.default({}),
+  intelligence: JobFinderIntelligenceStateSchema.default({}),
+} satisfies z.ZodRawShape;
+export const JobFinderRepositoryStateSchema: z.ZodObject<
+  typeof JobFinderRepositoryStateShape
+> = z.object(JobFinderRepositoryStateShape);
 export type JobFinderRepositoryState = z.infer<
   typeof JobFinderRepositoryStateSchema
 >;
@@ -582,6 +607,50 @@ export type JobFinderResumeWorkspaceSharedProfile = z.infer<
   typeof JobFinderResumeWorkspaceSharedProfileSchema
 >;
 
+/**
+ * Read-only strategy context shown inside Resume Studio. It is deliberately
+ * advisory: it carries recommendation/selection provenance and the strategy's
+ * policy fields, but never an approval, digest, application-readiness, or
+ * current-artifact flag. Reusing a strategy therefore can never make a stale
+ * or unapproved artifact application-ready; the per-job draft approval and
+ * staleness checks remain the only authority.
+ */
+export const JobFinderResumeWorkspaceStrategyContextSchema = z
+  .object({
+    roleFamily: NonEmptyStringSchema.nullable().default(null),
+    recommendedStrategyId: NonEmptyStringSchema.nullable().default(null),
+    recommendedStrategyName: NonEmptyStringSchema.nullable().default(null),
+    recommendationSource: ResumeStrategyRecommendationSourceSchema.default(
+      "none",
+    ),
+    recommendationReason: NonEmptyStringSchema.nullable().default(null),
+    selectedStrategyId: NonEmptyStringSchema.nullable().default(null),
+    selectedStrategyName: NonEmptyStringSchema.nullable().default(null),
+    selectionSource: z
+      .enum(["user", "campaign_default", "rule_match"])
+      .nullable()
+      .default(null),
+    selectionReason: NonEmptyStringSchema.nullable().default(null),
+    selectedAt: IsoDateTimeSchema.nullable().default(null),
+    // Policy fields of the strategy that is currently recommended/selected for
+    // this job. They are presentation defaults only (for example the template
+    // used when a fresh draft is seeded); they never grant approval.
+    templateId: ResumeTemplateIdSchema.nullable().default(null),
+    headlinePolicy: ResumeStrategyHeadlinePolicySchema.nullable().default(null),
+    skillsPolicy: ResumeStrategySkillsPolicySchema.nullable().default(null),
+    coveragePolicy: ResumeStrategyCoveragePolicySchema.nullable().default(
+      null,
+    ),
+    tailoringStrength: TailoringModeSchema.nullable().default(null),
+    evidenceBoundaries: ResumeStrategyEvidenceBoundariesSchema.nullable().default(
+      null,
+    ),
+  })
+  .strict();
+export type JobFinderResumeWorkspaceStrategyContext = z.infer<
+  typeof JobFinderResumeWorkspaceStrategyContextSchema
+>;
+
 export const JobFinderResumeWorkspaceSchema = z.object({
   job: SavedJobSchema,
   draft: ResumeDraftSchema,
@@ -595,6 +664,8 @@ export const JobFinderResumeWorkspaceSchema = z.object({
   workHistoryReviewSuggestions: z
     .array(WorkHistoryReviewSuggestionSchema)
     .default([]),
+  strategyContext: JobFinderResumeWorkspaceStrategyContextSchema.nullable()
+    .default(null),
 });
 export type JobFinderResumeWorkspace = z.infer<
   typeof JobFinderResumeWorkspaceSchema
@@ -651,6 +722,12 @@ export const JobFinderWorkspaceSnapshotSchema = z.object({
   selectedApplyRunId: NonEmptyStringSchema.nullable().default(null),
   selectedApplicationRecordId: NonEmptyStringSchema.nullable(),
   settings: JobFinderSettingsSchema,
+  campaigns: z.array(JobSearchCampaignSchema).min(1),
+  activeCampaignId: NonEmptyStringSchema,
+  campaignNotifications: z.array(CampaignNotificationSchema).default([]),
+  dashboard: JobFinderDashboardSummarySchema,
+  activityControl: JobFinderActivityControlSchema.default({}),
+  intelligence: JobFinderIntelligenceStateSchema.default({}),
 });
 export type JobFinderWorkspaceSnapshot = z.infer<
   typeof JobFinderWorkspaceSnapshotSchema
@@ -724,6 +801,12 @@ export const JobFinderWorkspaceDeltaSchema = z
     discoverySessions: z.array(DiscoveryAdapterSessionStateSchema).default([]),
     sourceAccessPrompts: z.array(SourceAccessPromptSchema).default([]),
     latestResumeImportRun: ResumeImportRunSchema.nullable(),
+    campaigns: z.array(JobSearchCampaignSchema).min(1),
+    activeCampaignId: NonEmptyStringSchema,
+    campaignNotifications: z.array(CampaignNotificationSchema).default([]),
+    dashboard: JobFinderDashboardSummarySchema,
+    activityControl: JobFinderActivityControlSchema,
+    intelligence: JobFinderIntelligenceStateSchema,
     selectedDiscoveryJobId: NonEmptyStringSchema.nullable(),
     selectedReviewJobId: NonEmptyStringSchema.nullable(),
     selectedApplyRunId: NonEmptyStringSchema.nullable(),

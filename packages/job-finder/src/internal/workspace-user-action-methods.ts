@@ -1,5 +1,6 @@
 import {
   ApplicationAnswerRecordSchema,
+  type ApplicationAnswerRecord,
   type SubmitUserActionManualAnswerCommand,
   UserActionCommandSchema,
   type UserActionCommand,
@@ -46,6 +47,63 @@ function getApplicationResumptionFlightKey(request: UserActionRequest): string {
   const targetRevision =
     request.state === "verifying" ? request.revision + 1 : request.revision;
   return `${request.id}:${targetRevision}`;
+}
+
+/**
+ * Deterministic recency ordering for answer records: revision desc, then
+ * createdAt desc, then id desc. Revisions are unique per question in a
+ * well-formed store, but the tie-breaks keep the latest selection stable.
+ */
+function compareAnswerRecency(
+  left: ApplicationAnswerRecord,
+  right: ApplicationAnswerRecord,
+): number {
+  return (
+    right.revision - left.revision ||
+    Date.parse(right.createdAt) - Date.parse(left.createdAt) ||
+    right.id.localeCompare(left.id)
+  );
+}
+
+/** Latest persisted answer record for a question, with a deterministic tie-break. */
+function latestAnswerForQuestion(
+  records: readonly ApplicationAnswerRecord[],
+  questionId: string,
+): ApplicationAnswerRecord | null {
+  let latest: ApplicationAnswerRecord | null = null;
+  for (const record of records) {
+    if (record.questionId !== questionId) continue;
+    if (latest === null || compareAnswerRecency(record, latest) < 0) {
+      latest = record;
+    }
+  }
+  return latest;
+}
+
+/**
+ * Proves the caller's exact `submit_manual_answer` command event is already
+ * persisted. The event id is the caller's commandId, so a grouped apply event
+ * (which uses its own deterministic id) can never be mistaken for the caller's
+ * command; the previous/resulting revisions pin the exact transition.
+ */
+async function hasPersistedExactSubmitManualAnswerEvent(input: {
+  ctx: WorkspaceServiceContext;
+  command: SubmitUserActionManualAnswerCommand;
+  request: UserActionRequest;
+}): Promise<boolean> {
+  const events = await input.ctx.repository.listUserActionEvents({
+    requestId: input.request.id,
+    operation: "submit_manual_answer",
+  });
+  return events.some(
+    (event) =>
+      event.id === input.command.commandId &&
+      event.requestId === input.request.id &&
+      event.operation === "submit_manual_answer" &&
+      event.previousRevision === input.command.expectedRevision &&
+      event.resultingRevision === input.command.expectedRevision + 1 &&
+      event.resultingState === "verifying",
+  );
 }
 
 async function persistManualAnswer(input: {
@@ -116,33 +174,59 @@ async function persistManualAnswer(input: {
     }
   }
 
-  await input.ctx.repository.upsertApplicationAnswerRecord(
-    ApplicationAnswerRecordSchema.parse({
-      id: `manual_answer_${input.request.id}_${input.resultingRevision}`,
-      runId: scope.runId,
-      jobId: scope.jobId,
-      resultId: scope.resultId,
-      questionId: question.id,
-      status: "suggested",
-      text: answer,
-      sourceKind: "user",
-      sourceId: input.request.id,
-      confidenceLabel: "User-provided for this exact question",
-      provenance: [
-        {
-          id: `manual_answer_provenance_${input.request.id}_${input.resultingRevision}`,
-          sourceKind: "user",
-          sourceId: input.request.id,
-          label: input.command.saveForFuture
-            ? "Entered in Action inbox and saved to Profile"
-            : "Entered in Action inbox for this application only",
-          snippet: question.prompt,
-        },
-      ],
-      createdAt: now,
-      submittedAt: null,
-    }),
-  );
+  const recordId = `manual_answer_${input.request.id}_${input.resultingRevision}`;
+  const records = await input.ctx.repository.listApplicationAnswerRecords();
+  const existingById = records.find((record) => record.id === recordId) ?? null;
+  // The exact retry reuses the already-persisted record as the basis of the
+  // revision chain, so the deterministic id stays idempotent: the retry never
+  // creates another revision and never rewrites createdAt.
+  const baseRecords = existingById
+    ? records.filter((record) => record.id !== recordId)
+    : records;
+  const latest = latestAnswerForQuestion(baseRecords, question.id);
+
+  const record = ApplicationAnswerRecordSchema.parse({
+    id: recordId,
+    runId: scope.runId,
+    jobId: scope.jobId,
+    resultId: scope.resultId,
+    questionId: question.id,
+    status: "suggested",
+    text: answer,
+    sourceKind: "user",
+    sourceId: input.request.id,
+    confidenceLabel: "User-provided for this exact question",
+    provenance: [
+      {
+        id: `manual_answer_provenance_${input.request.id}_${input.resultingRevision}`,
+        sourceKind: "user",
+        sourceId: input.request.id,
+        label: input.command.saveForFuture
+          ? "Entered in Action inbox and saved to Profile"
+          : "Entered in Action inbox for this application only",
+        snippet: question.prompt,
+      },
+    ],
+    // Monotonically increasing revision based on the actual latest persisted
+    // record for the question, never a fixed revision-1 write that could
+    // clobber a newer answer (for example one created by a grouped apply).
+    revision: (latest?.revision ?? 0) + 1,
+    supersedesAnswerId: latest?.id ?? null,
+    createdAt: existingById?.createdAt ?? now,
+    submittedAt: null,
+  });
+
+  if (existingById) {
+    if (JSON.stringify(existingById) === JSON.stringify(record)) {
+      // Exact idempotent retry of the deterministic record id.
+      return;
+    }
+    throw new Error(
+      `Answer record '${recordId}' already exists with different data.`,
+    );
+  }
+
+  await input.ctx.repository.upsertApplicationAnswerRecord(record);
 }
 export function createWorkspaceUserActionMethods(
   ctx: WorkspaceServiceContext,
@@ -245,12 +329,26 @@ export function createWorkspaceUserActionMethods(
         request.state === "verifying" &&
         request.revision === command.expectedRevision + 1
       ) {
-        await persistManualAnswer({
-          command,
-          ctx,
-          request,
-          resultingRevision: request.revision,
-        });
+        // A verifying request at the expected resulting revision is not by
+        // itself proof the caller's command applied: a grouped apply or any
+        // other writer moves manual-answer requests to verifying too. Persist
+        // only when listUserActionEvents proves the exact commandId event
+        // exists with operation submit_manual_answer and the expected and
+        // resulting revisions; a grouped event id is never the caller's id.
+        if (
+          await hasPersistedExactSubmitManualAnswerEvent({
+            ctx,
+            command,
+            request,
+          })
+        ) {
+          await persistManualAnswer({
+            command,
+            ctx,
+            request,
+            resultingRevision: request.revision,
+          });
+        }
       }
       if (
         command.action === "confirm_done" ||
@@ -284,6 +382,31 @@ export function createWorkspaceUserActionMethods(
       request: reduction.request,
       event: reduction.event,
     });
+
+    if (commandCommit.status === "stale") {
+      // The reducer saw the current revision but a concurrent writer advanced
+      // the request before this commit, so the caller's transition did not
+      // apply and the answer must not be persisted. Only "applied" and
+      // "duplicate" prove the exact command event is persisted. The current
+      // verifying request still resumes so a lost response to an earlier
+      // successful commit of the same command recovers through the
+      // single-flight resumer.
+      if (
+        command.action === "confirm_done" ||
+        command.action === "submit_manual_answer"
+      ) {
+        const current = commandCommit.request;
+        if (
+          current.state === "verifying" &&
+          isSourceAccessUserAction(current)
+        ) {
+          await verifySingleFlight(current);
+        } else if (isApplicationResumptionAction(current)) {
+          await resumeApplicationSingleFlight(current);
+        }
+      }
+      return ctx.getWorkspaceSnapshot();
+    }
 
     if (command.action === "submit_manual_answer") {
       await persistManualAnswer({

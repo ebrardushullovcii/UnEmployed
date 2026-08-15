@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, ipcMain } from "electron";
+import { app, BrowserWindow, Menu, ipcMain, powerMonitor } from "electron";
 import { appendFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,6 +20,10 @@ import {
   getJobFinderWorkspaceService,
   shutdownJobFinderWorkspaceService,
 } from "./services/job-finder";
+import {
+  createCampaignScheduler,
+  type CampaignScheduler,
+} from "./services/job-finder/campaign-scheduler";
 import { getCandidateAssetLibrary } from "./services/job-finder/candidate-asset-library-instance";
 import {
   getInterviewHelperService,
@@ -98,7 +102,10 @@ void app
     configureInterviewMediaPermissions();
 
     void Promise.resolve()
-      .then(() => getJobFinderWorkspaceService())
+      .then(async () => {
+        await getJobFinderWorkspaceService();
+        startCampaignScheduler();
+      })
       .catch((error) => {
         console.error(
           "[Desktop] Failed to initialize Job Finder workspace service.",
@@ -150,6 +157,31 @@ void app
 
 let jobFinderShutdownInFlight = false;
 
+let campaignScheduler: CampaignScheduler | null = null;
+const onPowerSuspend = () => campaignScheduler?.suspend();
+const onPowerResume = () => campaignScheduler?.resume();
+
+function startCampaignScheduler(): void {
+  if (campaignScheduler) {
+    return;
+  }
+  campaignScheduler = createCampaignScheduler();
+  powerMonitor.on("suspend", onPowerSuspend);
+  powerMonitor.on("resume", onPowerResume);
+  campaignScheduler.start();
+}
+
+async function stopCampaignScheduler(): Promise<void> {
+  const scheduler = campaignScheduler;
+  campaignScheduler = null;
+  if (!scheduler) {
+    return;
+  }
+  powerMonitor.removeListener("suspend", onPowerSuspend);
+  powerMonitor.removeListener("resume", onPowerResume);
+  await scheduler.stop();
+}
+
 app.on("before-quit", (event) => {
   if (jobFinderShutdownInFlight) {
     return;
@@ -168,7 +200,7 @@ app.on("before-quit", (event) => {
   });
   void Promise.race([
     Promise.all([
-      shutdownJobFinderWorkspaceService(),
+      stopCampaignScheduler().then(() => shutdownJobFinderWorkspaceService()),
       shutdownInterviewHelperService(),
     ]).then(() => undefined),
     shutdownTimeout,

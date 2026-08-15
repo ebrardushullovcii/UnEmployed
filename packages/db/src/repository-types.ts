@@ -16,8 +16,11 @@ import type {
   ApplicationReplayCheckpointInput,
   CandidateProfile,
   JobFinderDiscoveryState,
+  JobFinderActivityControl,
   JobFinderRepositoryState,
+  JobFinderIntelligenceState,
   JobFinderSettings,
+  JobSearchCampaignCollection,
   JobSearchPreferences,
   ProfileCopilotMessage,
   ProfileRevision,
@@ -50,6 +53,10 @@ import type {
   UserActionTransitionCommitResult,
   UserActionTransitionInput,
 } from "./user-action-repository-types";
+import type {
+  CommitGroupedManualAnswerInput,
+  CommitGroupedManualAnswerResult,
+} from "./grouped-manual-answer-types";
 
 export type JobFinderRepositorySeed = JobFinderRepositoryState;
 
@@ -213,6 +220,9 @@ export interface JobFinderRepository {
   commitUserActionTransition(
     input: UserActionTransitionInput,
   ): Promise<UserActionTransitionCommitResult>;
+  commitGroupedManualAnswer(
+    input: CommitGroupedManualAnswerInput,
+  ): Promise<CommitGroupedManualAnswerResult>;
   saveResumeDraftWithValidation(input: {
     draft: ResumeDraft;
     validation: ResumeValidationResult;
@@ -269,6 +279,12 @@ export interface JobFinderRepository {
   saveSettings(settings: JobFinderSettings): Promise<void>;
   getDiscoveryState(): Promise<JobFinderDiscoveryState>;
   saveDiscoveryState(discoveryState: JobFinderDiscoveryState): Promise<void>;
+  getCampaignState(): Promise<JobSearchCampaignCollection | null>;
+  saveCampaignState(campaignState: JobSearchCampaignCollection): Promise<void>;
+  getIntelligenceState(): Promise<JobFinderIntelligenceState>;
+  saveIntelligenceState(state: JobFinderIntelligenceState): Promise<void>;
+  getActivityControl(): Promise<JobFinderActivityControl>;
+  saveActivityControl(activityControl: JobFinderActivityControl): Promise<void>;
 }
 
 export interface FileJobFinderRepositoryOptions {
@@ -281,7 +297,10 @@ export type StateTableKey =
   | "search_preferences"
   | "profile_setup_state"
   | "settings"
-  | "discovery_state";
+  | "discovery_state"
+  | "campaign_state"
+  | "intelligence_state"
+  | "activity_control";
 
 export interface SchemaParser<TValue> {
   parse: (value: unknown) => TValue;

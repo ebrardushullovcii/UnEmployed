@@ -133,9 +133,9 @@ async function selectApplicationByJobId(window, jobId) {
 
   const buttons = await debugVisibleApplicationTitles(window)
   const matchingButton = window
-    .locator('button')
-    .filter({ has: window.getByText(record.title, { exact: true }) })
-    .filter({ has: window.getByText(record.company, { exact: true }) })
+    .getByRole('button', {
+      name: `View details for ${record.title} at ${record.company}`,
+    })
     .first()
 
   try {

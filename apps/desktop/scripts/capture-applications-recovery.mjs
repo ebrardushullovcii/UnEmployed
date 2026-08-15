@@ -58,6 +58,11 @@ async function waitForProfileOrSetupHeading(window) {
   await window.evaluate(() => {
     window.location.hash = "#/job-finder/profile";
   });
+  const profileNavigation = window
+    .getByRole("button", { name: /^Profile$/ })
+    .first();
+  await profileNavigation.waitFor({ state: "visible", timeout: 15000 });
+  await profileNavigation.click();
   await window.waitForFunction(
     () => {
       const heading = document.querySelector("h1");
@@ -235,7 +240,7 @@ async function approveResumeForReadyJob(window) {
 
 async function startInitialCopilotRun(window) {
   const startApplyCopilotButton = window.getByRole("button", {
-    name: "Start apply copilot",
+    name: /^(?:Start apply copilot|Prepare application)$/,
   });
   await startApplyCopilotButton.waitFor({ timeout: 10000 });
   await startApplyCopilotButton.click();

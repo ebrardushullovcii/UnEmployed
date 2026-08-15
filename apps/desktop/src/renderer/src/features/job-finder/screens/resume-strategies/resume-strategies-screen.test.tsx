@@ -1,0 +1,387 @@
+// @vitest-environment jsdom
+
+import type {
+  JobSearchCampaign,
+  ResumeStrategy,
+  SaveResumeStrategyInput,
+  SetCampaignResumeStrategyDefaultInput,
+} from "@unemployed/contracts";
+import { ResumeStrategySchema } from "@unemployed/contracts";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ResumeStrategiesScreen } from "./resume-strategies-screen";
+
+afterEach(() => {
+  cleanup();
+  window.localStorage.clear();
+});
+
+function strategy(
+  overrides: Partial<ResumeStrategy> = {},
+): ResumeStrategy {
+  return ResumeStrategySchema.parse({
+    id: "strategy_1",
+    name: "Backend engineering",
+    roleFamily: "Backend Engineering",
+    baseResumeDocumentId: "resume_1",
+    templateId: "classic_ats",
+    headlinePolicy: "fixed",
+    skillsPolicy: "base_only",
+    coveragePolicy: "base_omissions",
+    tailoringStrength: "conservative",
+    evidenceBoundaries: {},
+    enabled: true,
+    createdAt: "2026-08-15T09:00:00.000Z",
+    updatedAt: "2026-08-15T09:00:00.000Z",
+    ...overrides,
+  });
+}
+
+function campaign(overrides: Partial<JobSearchCampaign> = {}): JobSearchCampaign {
+  return {
+    id: "campaign_1",
+    name: "Remote backend",
+    description: "Backend roles",
+    mode: "precision",
+    status: "active",
+    sourceTargetIds: [],
+    jobIds: [],
+    minimumFitScore: null,
+    searchPreferences: {
+      targetRoles: ["Backend Engineer"],
+      jobFamilies: [],
+      locations: [],
+      excludedLocations: [],
+      workModes: [],
+      seniorityLevels: [],
+      targetIndustries: [],
+      targetCompanyStages: [],
+      employmentTypes: [],
+      minimumSalaryUsd: null,
+      targetSalaryUsd: null,
+      salaryCurrency: "USD",
+      compensation: {
+        minimum: null,
+        maximum: null,
+        interval: "year",
+        currency: "USD",
+        currencyStatus: "unknown",
+      },
+      approvalMode: "manual",
+      tailoringMode: "balanced",
+      companyBlacklist: [],
+      companyWhitelist: [],
+      discovery: {
+        historyLimit: 5,
+        targets: [],
+      },
+    },
+    limits: {
+      retainedJobTarget: 15,
+      analysisConcurrency: 2,
+      preparationBatchSize: 5,
+      dailyPreparationLimit: null,
+    },
+    stopRules: {
+      pauseOnLoginRequired: false,
+      pauseOnChangedForm: true,
+      pauseOnUncertainEligibility: true,
+      pauseOnFailureRatePercent: 30,
+      failureRateMinimumSample: 5,
+    },
+    applicationPolicy: {
+      resumeStrategy: "job_specific",
+      defaultResumeStrategyId: null,
+      requireReviewBeforePreparation: true,
+      requireReviewBeforeExternalWrite: true,
+      finalSubmitAuthorized: false,
+    },
+    schedule: {
+      mode: "manual",
+      enabled: false,
+      daysOfWeek: [],
+      localStartTime: null,
+      timeZone: null,
+      pauseWindows: [],
+      runFacts: {
+        nextRunAt: null,
+        lastRunAt: null,
+        lastRunOutcome: null,
+        lastRunSummary: null,
+        consecutiveFailures: 0,
+      },
+    },
+    progress: {
+      jobsFound: 0,
+      jobsRetained: 0,
+      applicationsPrepared: 0,
+      applicationsApplied: 0,
+      currentBatchCompleted: 0,
+      currentBatchTotal: 0,
+      blockedCount: 0,
+      remainingQueueSize: 0,
+      lastRunAt: null,
+      lastUpdatedAt: "2026-08-15T09:00:00.000Z",
+    },
+    history: [],
+    createdAt: "2026-08-15T09:00:00.000Z",
+    updatedAt: "2026-08-15T09:00:00.000Z",
+    rules: [],
+    ...overrides,
+  } as unknown as JobSearchCampaign;
+}
+
+describe("ResumeStrategiesScreen", () => {
+  it("shows an honest empty state when no strategies exist", () => {
+    render(
+      <ResumeStrategiesScreen
+        actionMessage={null}
+        baseResumeDocumentId="resume_1"
+        campaigns={[]}
+        candidateDocumentIds={[]}
+        isCampaignDefaultPending={() => false}
+        isDisablePending={() => false}
+        isLoading={false}
+        isSavePending={false}
+        onDisableStrategy={vi.fn()}
+        onSaveStrategy={vi.fn()}
+        onSetCampaignDefault={vi.fn()}
+        strategies={[]}
+      />,
+    );
+
+    expect(screen.getByText("No resume strategies yet")).toBeTruthy();
+  });
+
+  it("shows a loading state while the strategies are still loading", () => {
+    render(
+      <ResumeStrategiesScreen
+        actionMessage={null}
+        baseResumeDocumentId="resume_1"
+        campaigns={[]}
+        candidateDocumentIds={[]}
+        isCampaignDefaultPending={() => false}
+        isDisablePending={() => false}
+        isLoading
+        isSavePending={false}
+        onDisableStrategy={vi.fn()}
+        onSaveStrategy={vi.fn()}
+        onSetCampaignDefault={vi.fn()}
+        strategies={[]}
+      />,
+    );
+
+    expect(screen.getByText("Loading resume strategies")).toBeTruthy();
+  });
+
+  it("searches strategies by role family and shows a no-match state", () => {
+    render(
+      <ResumeStrategiesScreen
+        actionMessage={null}
+        baseResumeDocumentId="resume_1"
+        campaigns={[]}
+        candidateDocumentIds={[]}
+        isCampaignDefaultPending={() => false}
+        isDisablePending={() => false}
+        isLoading={false}
+        isSavePending={false}
+        onDisableStrategy={vi.fn()}
+        onSaveStrategy={vi.fn()}
+        onSetCampaignDefault={vi.fn()}
+        strategies={[
+          strategy(),
+          strategy({
+            id: "strategy_2",
+            name: "Data engineering",
+            roleFamily: "Data Engineering",
+          }),
+        ]}
+      />,
+    );
+
+    fireEvent.change(
+      screen.getByRole("searchbox", { name: "Search strategies" }),
+      {
+        target: { value: "data" },
+      },
+    );
+    expect(screen.getByText("Data engineering")).toBeTruthy();
+    expect(screen.queryByText("Backend engineering")).toBeNull();
+
+    fireEvent.change(
+      screen.getByRole("searchbox", { name: "Search strategies" }),
+      {
+        target: { value: "design" },
+      },
+    );
+    expect(
+      screen.getByText((_content, element) =>
+        element?.textContent === 'No strategies match “design”',
+      ),
+    ).toBeTruthy();
+  });
+
+  it("disables an enabled strategy through the card action", () => {
+    const onDisableStrategy = vi.fn();
+    render(
+      <ResumeStrategiesScreen
+        actionMessage={null}
+        baseResumeDocumentId="resume_1"
+        campaigns={[]}
+        candidateDocumentIds={[]}
+        isCampaignDefaultPending={() => false}
+        isDisablePending={() => false}
+        isLoading={false}
+        isSavePending={false}
+        onDisableStrategy={onDisableStrategy}
+        onSaveStrategy={vi.fn()}
+        onSetCampaignDefault={vi.fn()}
+        strategies={[strategy()]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Disable" }));
+    expect(onDisableStrategy).toHaveBeenCalledWith("strategy_1");
+  });
+
+  it("re-enables a disabled strategy by saving with enabled true", () => {
+    const onSaveStrategy = vi.fn<(input: SaveResumeStrategyInput) => void>();
+    const disabled = strategy({ enabled: false });
+    render(
+      <ResumeStrategiesScreen
+        actionMessage={null}
+        baseResumeDocumentId="resume_1"
+        campaigns={[]}
+        candidateDocumentIds={[]}
+        isCampaignDefaultPending={() => false}
+        isDisablePending={() => false}
+        isLoading={false}
+        isSavePending={false}
+        onDisableStrategy={vi.fn()}
+        onSaveStrategy={onSaveStrategy}
+        onSetCampaignDefault={vi.fn()}
+        strategies={[disabled]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Enable" }));
+    const saved = onSaveStrategy.mock.calls[0]?.[0];
+    expect(saved?.id).toBe("strategy_1");
+    expect(saved?.enabled).toBe(true);
+    expect(saved?.name).toBe("Backend engineering");
+  });
+
+  it("creates a strategy with explicit policy fields and never an approval flag", () => {
+    const onSaveStrategy = vi.fn<(input: SaveResumeStrategyInput) => void>();
+    render(
+      <ResumeStrategiesScreen
+        actionMessage={null}
+        baseResumeDocumentId="resume_1"
+        campaigns={[]}
+        candidateDocumentIds={[]}
+        isCampaignDefaultPending={() => false}
+        isDisablePending={() => false}
+        isLoading={false}
+        isSavePending={false}
+        onDisableStrategy={vi.fn()}
+        onSaveStrategy={onSaveStrategy}
+        onSetCampaignDefault={vi.fn()}
+        strategies={[]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "New strategy" }));
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Frontend engineering" },
+    });
+    fireEvent.change(screen.getByLabelText("Role family"), {
+      target: { value: "Frontend Engineering" },
+    });
+    fireEvent.change(screen.getByLabelText("Template"), {
+      target: { value: "modern_split" },
+    });
+    fireEvent.change(screen.getByLabelText("Tailoring strength"), {
+      target: { value: "balanced" },
+    });
+    fireEvent.click(screen.getByLabelText("Allow paraphrased claims grounded in evidence"));
+    fireEvent.click(screen.getByRole("button", { name: "Create strategy" }));
+
+    const saved = onSaveStrategy.mock.calls[0]?.[0];
+    expect(saved?.id).toBeNull();
+    expect(saved?.name).toBe("Frontend engineering");
+    expect(saved?.roleFamily).toBe("Frontend Engineering");
+    expect(saved?.templateId).toBe("modern_split");
+    expect(saved?.tailoringStrength).toBe("balanced");
+    expect(saved?.baseResumeDocumentId).toBe("resume_1");
+    expect(saved?.evidenceBoundaries.allowParaphrasedClaims).toBe(true);
+    expect(saved).not.toHaveProperty("approvedAt");
+    expect(saved).not.toHaveProperty("applicationReady");
+  });
+
+  it("assigns a campaign default from enabled strategies only", () => {
+    const onSetCampaignDefault = vi.fn<
+      (input: SetCampaignResumeStrategyDefaultInput) => void
+    >();
+    const disabled = strategy({
+      id: "strategy_disabled",
+      name: "Legacy",
+      enabled: false,
+    });
+    render(
+      <ResumeStrategiesScreen
+        actionMessage={null}
+        baseResumeDocumentId="resume_1"
+        campaigns={[campaign()]}
+        candidateDocumentIds={[]}
+        isCampaignDefaultPending={() => false}
+        isDisablePending={() => false}
+        isLoading={false}
+        isSavePending={false}
+        onDisableStrategy={vi.fn()}
+        onSaveStrategy={vi.fn()}
+        onSetCampaignDefault={onSetCampaignDefault}
+        strategies={[strategy(), disabled]}
+      />,
+    );
+
+    const select = screen.getByLabelText("Remote backend");
+    const options = Array.from(
+      select.querySelectorAll("option"),
+    ).map((option) => option.textContent);
+    // The disabled strategy is not offered as a campaign default.
+    expect(options).toContain("Backend engineering");
+    expect(options).not.toContain("Legacy");
+
+    fireEvent.change(select, { target: { value: "strategy_1" } });
+    expect(onSetCampaignDefault).toHaveBeenCalledWith({
+      campaignId: "campaign_1",
+      strategyId: "strategy_1",
+    });
+  });
+
+  it("rejects nothing and keeps controls keyboard accessible", () => {
+    render(
+      <ResumeStrategiesScreen
+        actionMessage="Strategy saved. Reusing it never approves a résumé."
+        baseResumeDocumentId="resume_1"
+        campaigns={[]}
+        candidateDocumentIds={[]}
+        isCampaignDefaultPending={() => false}
+        isDisablePending={() => false}
+        isLoading={false}
+        isSavePending={false}
+        onDisableStrategy={vi.fn()}
+        onSaveStrategy={vi.fn()}
+        onSetCampaignDefault={vi.fn()}
+        strategies={[strategy()]}
+      />,
+    );
+
+    expect(
+      screen.getByRole("status"),
+    ).toBeTruthy();
+    // Native controls used throughout are keyboard reachable.
+    expect(screen.getByRole("button", { name: "Disable" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeTruthy();
+  });
+});

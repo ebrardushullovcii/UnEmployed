@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
+  ApplicationCrmExportFormat,
+  ApplicationCrmMutationInput,
+  ApplicationCrmSettings,
   ApplicationAttempt,
   ApplicationRecord,
   ApplyRunDetails,
   ClearApplicationAnswerCommandInput,
+  CompanyEntity,
   JobFinderWorkspaceSnapshot,
+  RecordOutcomeInput,
   SaveApplicationAnswerCommandInput,
 } from "@unemployed/contracts";
+import { Button } from "@renderer/components/ui/button";
 import { LockedScreenLayout } from "../../components/locked-screen-layout";
 import { PageHeader } from "../../components/page-header";
 import { ApplicationsDetailPanel } from "./applications-detail-panel";
@@ -22,12 +28,18 @@ import {
 import { useApplicationsApplyRunDetails } from "./use-applications-apply-run-details";
 import { ApplicationsRecordsPanel } from "./applications-records-panel";
 import { StatusBadge } from "../../components/status-badge";
+import {
+  ApplicationsCrmViews,
+  type ApplicationCrmView,
+} from "./applications-crm-views";
+import { ApplicationsCrmDetail } from "./applications-crm-detail";
 
 export function ApplicationsScreen(props: {
   applicationAttempts: readonly ApplicationAttempt[];
   applicationRecords: readonly ApplicationRecord[];
   applyRuns: JobFinderWorkspaceSnapshot["applyRuns"];
   applyJobResults: JobFinderWorkspaceSnapshot["applyJobResults"];
+  companies?: readonly CompanyEntity[];
   discoveryJobs: JobFinderWorkspaceSnapshot["discoveryJobs"];
   isApplyPending: boolean;
   isApplyRequestPending: (requestId: string) => boolean;
@@ -53,10 +65,24 @@ export function ApplicationsScreen(props: {
   onStartAutoApplyQueue: (jobIds: string[]) => void;
   onStartApplyCopilot: (jobId: string) => void;
   onStartAutoApply: (jobId: string) => void;
+  onOpenCompany?: (companyId: string) => void;
   selectedApplyRunId: string | null;
   onSelectRecord: (recordId: string) => void;
   selectedAttempt: ApplicationAttempt | null;
   selectedRecord: ApplicationRecord | null;
+  crmSettings?: ApplicationCrmSettings;
+  onMutateApplicationCrm?: (
+    command: ApplicationCrmMutationInput,
+  ) => Promise<void>;
+  onExportApplicationCrm?: (
+    format: ApplicationCrmExportFormat,
+    recordId: string,
+  ) => Promise<void>;
+  onRecordOutcome?: (input: RecordOutcomeInput) => Promise<void>;
+  isRecordOutcomePending?: (jobId: string) => boolean;
+  getOutcomeResumeStrategyId?: (jobId: string) => string | null;
+  safeguardsBlockerCount?: number;
+  onOpenSafeguards?: () => void;
 }) {
   const {
     applicationAttempts,
@@ -85,6 +111,10 @@ export function ApplicationsScreen(props: {
   } = props;
   const [activeFilter, setActiveFilter] =
     useState<ApplicationsViewFilter>("all");
+  const [workspaceView, setWorkspaceView] = useState<"workflow" | "crm">(
+    "workflow",
+  );
+  const [crmView, setCrmView] = useState<ApplicationCrmView>("table");
   const [selectedApplyRunIdByJobId, setSelectedApplyRunIdByJobId] = useState<
     Record<string, string>
   >({});
@@ -312,6 +342,29 @@ export function ApplicationsScreen(props: {
             title="Applications"
             description="See what needs attention, review the latest attempt, and keep each application moving."
           />
+          {props.safeguardsBlockerCount !== undefined &&
+          props.safeguardsBlockerCount > 0 ? (
+            <section
+              aria-label="Active safeguards"
+              className="flex flex-wrap items-center justify-between gap-4 rounded-(--radius-field) border border-destructive/30 bg-destructive/10 px-4 py-3"
+            >
+              <p className="min-w-0 text-(length:--text-small) leading-6 text-foreground">
+                {props.safeguardsBlockerCount} active safeguard{" "}
+                {props.safeguardsBlockerCount === 1 ? "blocker" : "blockers"}{" "}
+                are pausing discovery and application preparation.
+              </p>
+              {props.onOpenSafeguards ? (
+                <Button
+                  onClick={props.onOpenSafeguards}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  Open Safeguards
+                </Button>
+              ) : null}
+            </section>
+          ) : null}
           {latestFinishedAutomaticRun ? (
             <section className="flex flex-wrap items-center justify-between gap-4 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) px-4 py-3">
               <div className="min-w-0">
@@ -340,56 +393,153 @@ export function ApplicationsScreen(props: {
               </StatusBadge>
             </section>
           ) : null}
+          <div
+            aria-label="Applications workspace view"
+            className="flex w-fit gap-1 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) p-1"
+            role="group"
+          >
+            <Button
+              aria-pressed={workspaceView === "workflow"}
+              onClick={() => setWorkspaceView("workflow")}
+              size="sm"
+              type="button"
+              variant={workspaceView === "workflow" ? "secondary" : "ghost"}
+            >
+              Preparation
+            </Button>
+            <Button
+              aria-pressed={workspaceView === "crm"}
+              onClick={() => setWorkspaceView("crm")}
+              size="sm"
+              type="button"
+              variant={workspaceView === "crm" ? "secondary" : "ghost"}
+            >
+              Tracker
+            </Button>
+          </div>
         </div>
       }
     >
       <div className="grid min-h-124 min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(22rem,0.95fr)_minmax(30rem,1.45fr)] xl:overflow-hidden">
-        <ApplicationsRecordsPanel
-          activeFilter={activeFilter}
-          applicationRecords={filteredApplicationRecords}
-          filterCounts={filterCounts}
-          hasAnyApplications={applicationRecords.length > 0}
-          onFilterChange={setActiveFilter}
-          onSelectRecord={onSelectRecord}
-          selectedRecord={effectiveSelectedRecord}
-        />
-        <ApplicationsDetailPanel
-          activeFilter={activeFilter}
-          applyRunDetails={applyRunDetails}
-          applyRunDetailsTarget={applyRunDetailsTarget}
-          applyRunDetailsError={applyRunDetailsError}
-          applyRunDetailsStatus={applyRunDetailsStatus}
-          applicationRecords={applicationRecords}
-          applyJobResults={applyJobResults}
-          discoveryJobs={discoveryJobs}
-          applyRunHistory={applyRunHistory}
-          effectiveSelectedApplyResult={effectiveSelectedApplyResult}
-          hasAnyApplications={applicationRecords.length > 0}
-          hasVisibleApplications={filteredApplicationRecords.length > 0}
-          isApplyPending={isApplyPending}
-          isApplyRequestPending={isApplyRequestPending}
-          isApplyRunPending={isApplyRunPending}
-          onApproveApplyRun={onApproveApplyRun}
-          onCancelApplyRun={onCancelApplyRun}
-          onExportApplicationPacket={onExportApplicationPacket}
-          onSaveApplicationAnswer={async (command) => {
-            replaceApplyRunDetails(await onSaveApplicationAnswer(command));
-          }}
-          onClearApplicationAnswer={async (command) => {
-            replaceApplyRunDetails(await onClearApplicationAnswer(command));
-          }}
-          onResolveApplyConsentRequest={onResolveApplyConsentRequest}
-          onRevokeApplyRunApproval={onRevokeApplyRunApproval}
-          onStartAutoApplyQueue={onStartAutoApplyQueue}
-          onSelectApplyRun={handleSelectApplyRun}
-          onStartApplyCopilot={onStartApplyCopilot}
-          onStartAutoApply={onStartAutoApply}
-          selectedApplyRunId={effectiveSelectedApplyRunId}
-          selectedAttempt={
-            showLatestAttemptDetails ? effectiveSelectedAttempt : null
-          }
-          selectedRecord={effectiveSelectedRecord}
-        />
+        {workspaceView === "crm" ? (
+          <ApplicationsCrmViews
+            {...(props.onMutateApplicationCrm
+              ? {
+                  onBulkStageChange: async (recordIds, stage) => {
+                    for (const recordId of recordIds) {
+                      const record = applicationRecords.find(
+                        (candidate) => candidate.id === recordId,
+                      );
+                      if (!record) continue;
+                      await props.onMutateApplicationCrm?.({
+                        applicationRecordId: record.id,
+                        expectedRevision: record.crm?.revision ?? 0,
+                        mutation: {
+                          type: "set_stage",
+                          stage,
+                          customStageId: null,
+                          note: "Updated from the application tracker bulk action.",
+                        },
+                      });
+                    }
+                  },
+                }
+              : {})}
+            onSelectRecord={onSelectRecord}
+            onViewChange={setCrmView}
+            records={applicationRecords}
+            selectedRecordId={effectiveSelectedRecord?.id ?? null}
+            view={crmView}
+          />
+        ) : (
+          <ApplicationsRecordsPanel
+            activeFilter={activeFilter}
+            applicationRecords={filteredApplicationRecords}
+            filterCounts={filterCounts}
+            hasAnyApplications={applicationRecords.length > 0}
+            onFilterChange={setActiveFilter}
+            onSelectRecord={onSelectRecord}
+            selectedRecord={effectiveSelectedRecord}
+          />
+        )}
+        {workspaceView === "crm" &&
+        effectiveSelectedRecord &&
+        props.crmSettings &&
+        props.onMutateApplicationCrm &&
+        props.onExportApplicationCrm ? (
+          <div className="min-h-0 overflow-auto pr-1">
+            <ApplicationsCrmDetail
+              isRecordOutcomePending={
+                props.isRecordOutcomePending?.(effectiveSelectedRecord.jobId) ??
+                false
+              }
+              onExport={props.onExportApplicationCrm}
+              onMutate={props.onMutateApplicationCrm}
+              {...(props.onRecordOutcome
+                ? { onRecordOutcome: props.onRecordOutcome }
+                : {})}
+              outcomeResumeStrategyId={
+                props.getOutcomeResumeStrategyId?.(
+                  effectiveSelectedRecord.jobId,
+                ) ?? null
+              }
+              record={effectiveSelectedRecord}
+              settings={props.crmSettings}
+            />
+          </div>
+        ) : (
+          <ApplicationsDetailPanel
+            activeFilter={activeFilter}
+            applyRunDetails={applyRunDetails}
+            applyRunDetailsTarget={applyRunDetailsTarget}
+            applyRunDetailsError={applyRunDetailsError}
+            applyRunDetailsStatus={applyRunDetailsStatus}
+            applicationRecords={applicationRecords}
+            applyJobResults={applyJobResults}
+            discoveryJobs={discoveryJobs}
+            applyRunHistory={applyRunHistory}
+            effectiveSelectedApplyResult={effectiveSelectedApplyResult}
+            hasAnyApplications={applicationRecords.length > 0}
+            hasVisibleApplications={filteredApplicationRecords.length > 0}
+            isApplyPending={isApplyPending}
+            isApplyRequestPending={isApplyRequestPending}
+            isApplyRunPending={isApplyRunPending}
+            onApproveApplyRun={onApproveApplyRun}
+            onCancelApplyRun={onCancelApplyRun}
+            {...(props.onOpenCompany
+              ? { onOpenCompany: props.onOpenCompany }
+              : {})}
+            selectedRecordCompanyId={
+              effectiveSelectedRecord
+                ? ((props.companies ?? []).find(
+                    (company) =>
+                      company.applicationRecordIds.includes(
+                        effectiveSelectedRecord.id,
+                      ) ||
+                      company.jobIds.includes(effectiveSelectedRecord.jobId),
+                  )?.id ?? null)
+                : null
+            }
+            onExportApplicationPacket={onExportApplicationPacket}
+            onSaveApplicationAnswer={async (command) => {
+              replaceApplyRunDetails(await onSaveApplicationAnswer(command));
+            }}
+            onClearApplicationAnswer={async (command) => {
+              replaceApplyRunDetails(await onClearApplicationAnswer(command));
+            }}
+            onResolveApplyConsentRequest={onResolveApplyConsentRequest}
+            onRevokeApplyRunApproval={onRevokeApplyRunApproval}
+            onStartAutoApplyQueue={onStartAutoApplyQueue}
+            onSelectApplyRun={handleSelectApplyRun}
+            onStartApplyCopilot={onStartApplyCopilot}
+            onStartAutoApply={onStartAutoApply}
+            selectedApplyRunId={effectiveSelectedApplyRunId}
+            selectedAttempt={
+              showLatestAttemptDetails ? effectiveSelectedAttempt : null
+            }
+            selectedRecord={effectiveSelectedRecord}
+          />
+        )}
       </div>
     </LockedScreenLayout>
   );

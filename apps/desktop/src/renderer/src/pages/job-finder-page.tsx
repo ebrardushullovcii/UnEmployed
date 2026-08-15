@@ -15,13 +15,20 @@ import {
 
 export {
   JobFinderActionsRoute,
+  JobFinderAnalyticsRoute,
   JobFinderApplicationsRoute,
+  JobFinderCampaignsRoute,
+  JobFinderCompaniesRoute,
+  JobFinderCompanyDetailRoute,
   JobFinderDiscoveryRoute,
+  JobFinderHomeRoute,
   JobFinderProfileRoute,
   JobFinderProfileSetupRoute,
+  JobFinderResumeStrategiesRoute,
   JobFinderRouteErrorBoundary,
   JobFinderResumeWorkspaceRoute,
   JobFinderReviewQueueRoute,
+  JobFinderSafeguardsRoute,
   JobFinderSettingsRoute,
 } from "./job-finder-page-routes";
 export type { JobFinderPageContext } from "./job-finder-page-context";

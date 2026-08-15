@@ -2,11 +2,42 @@ import { describe, expect, test } from "vitest";
 import {
   buildModelRequestBody,
   buildModelUrl,
+  DEFAULT_OPENCODE_GO_BASE_URL,
+  DEFAULT_TEXT_MODEL,
+  DEFAULT_TEXT_MODEL_API_MODE,
+  DEFAULT_TEXT_MODEL_REASONING_EFFORT,
+  DEFAULT_VISION_MODEL,
+  DEFAULT_VISION_MODEL_API_MODE,
+  DEFAULT_VISION_MODEL_REASONING_EFFORT,
   parseModelJsonResponse,
   parseResponsePayload,
 } from "./openai-compatible-transport";
 
 describe("Responses API transport", () => {
+  test("keeps ordinary text and image-only defaults on separate OpenCode Go routes", () => {
+    expect(DEFAULT_OPENCODE_GO_BASE_URL).toBe(
+      "https://opencode.ai/zen/go/v1",
+    );
+    expect({
+      model: DEFAULT_TEXT_MODEL,
+      apiMode: DEFAULT_TEXT_MODEL_API_MODE,
+      reasoningEffort: DEFAULT_TEXT_MODEL_REASONING_EFFORT,
+    }).toEqual({
+      model: "deepseek-v4-flash",
+      apiMode: "chat_completions",
+      reasoningEffort: "max",
+    });
+    expect({
+      model: DEFAULT_VISION_MODEL,
+      apiMode: DEFAULT_VISION_MODEL_API_MODE,
+      reasoningEffort: DEFAULT_VISION_MODEL_REASONING_EFFORT,
+    }).toEqual({
+      model: "gpt-5.6-luna",
+      apiMode: "responses",
+      reasoningEffort: "high",
+    });
+  });
+
   test("preserves max reasoning for Chat Completions tool requests", () => {
     const body = buildModelRequestBody({
       apiMode: "chat_completions",

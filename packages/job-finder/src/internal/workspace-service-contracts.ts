@@ -4,10 +4,18 @@ import type {
 } from "@unemployed/ai-providers";
 import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
 import type {
+  ApplicationCrmExportInput,
+  ApplicationCrmExportResult,
+  ApplicationCrmMutationInput,
+  ApplicationCrmSettings,
   ApplicationPacket,
+  CampaignRuleFunnelProjection,
   CandidateAsset,
   ClearApplicationAnswerCommandInput,
+  CompanyIntelligenceMutationInput,
   ApplyRunDetails,
+  ApplyGroupedManualAnswerInput,
+  DeleteCampaignRuleInput,
   DiscoveryRunScope,
   CandidateProfile,
   DiscoveryActivityEvent,
@@ -28,10 +36,29 @@ import type {
   JobFinderSettings,
   JobFinderWorkspaceSnapshot,
   JobSearchPreferences,
+  MarkAllCampaignNotificationsReadInput,
+  MarkCampaignNotificationReadInput,
   ProfileCopilotContext,
   ProfileSetupState,
   ProfileSetupReviewAction,
   ProfileSetupReviewActionOptions,
+  ProjectCampaignRuleFunnelInput,
+  ProjectGroupedManualAnswerCommand,
+  RapidReviewMutationInput,
+  RecommendResumeStrategyInput,
+  RecordOutcomeInput,
+  ResumeStrategyRecommendation,
+  ReviewCompanyMergeInput,
+  RunCampaignNowInput,
+  SaveResumeStrategyInput,
+  SafeguardBlockerView,
+  SafeguardMutationInput,
+  SafeguardsOverview,
+  SelectResumeStrategyInput,
+  SetCampaignResumeStrategyDefaultInput,
+  SetCompanyPreferenceInput,
+  SetOutcomeSuggestionEnabledInput,
+  SnoozeGroupedDecisionInput,
   ResumeAssistantMessage,
   ResumeDraft,
   ResumeDraftPatch,
@@ -39,10 +66,14 @@ import type {
   ResumeTemplateId,
   ResumeTemplateDefinition,
   SavedJob,
+  SaveCampaignRuleRouteInput,
+  SaveJobSearchCampaignInput,
+  SetJobFinderActivityControlInput,
   SaveApplicationAnswerCommandInput,
   SourceDebugProgressEvent,
   SourceDebugRunDetails,
   SourceDebugRunRecord,
+  ToggleCampaignRuleInput,
   UserActionCommandInput,
 } from "@unemployed/contracts";
 import type {
@@ -66,6 +97,15 @@ export interface JobFinderWorkspaceService {
   checkBrowserSession(): Promise<JobFinderWorkspaceSnapshot>;
   performUserAction(
     command: UserActionCommandInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  projectGroupedManualAnswer(
+    command: ProjectGroupedManualAnswerCommand,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  applyGroupedManualAnswer(
+    command: ApplyGroupedManualAnswerInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  snoozeGroupedDecision(
+    command: SnoozeGroupedDecisionInput,
   ): Promise<JobFinderWorkspaceSnapshot>;
   saveApplicationAnswer(
     command: SaveApplicationAnswerCommandInput,
@@ -122,6 +162,13 @@ export interface JobFinderWorkspaceService {
   saveSettings(
     settings: JobFinderSettings,
   ): Promise<JobFinderWorkspaceSnapshot>;
+  saveCampaign(
+    campaign: SaveJobSearchCampaignInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  selectCampaign(campaignId: string): Promise<JobFinderWorkspaceSnapshot>;
+  setActivityControl(
+    input: SetJobFinderActivityControlInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
   runDiscovery(targetId?: string): Promise<JobFinderWorkspaceSnapshot>;
   runAgentDiscovery(
     onActivity?: (event: DiscoveryActivityEvent) => void,
@@ -133,6 +180,58 @@ export interface JobFinderWorkspaceService {
     onActivity?: (event: DiscoveryActivityEvent) => void,
     signal?: AbortSignal,
   ): Promise<JobFinderWorkspaceSnapshot>;
+  /**
+   * Runs one discovery cycle for a campaign now (manual trigger). Works
+   * regardless of the campaign schedule's `enabled` flag, but still obeys the
+   * global activity pause and the campaign's own status.
+   */
+  runCampaignNow(
+    input?: RunCampaignNowInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  /**
+   * Runs every campaign whose persisted schedule is due at `now` (catch-up
+   * included). Missing `nextRunAt` values are initialized truthfully without
+   * triggering immediate work.
+   */
+  runDueScheduledCampaigns(now?: string): Promise<JobFinderWorkspaceSnapshot>;
+  /**
+   * Marks a single in-app campaign notification read. Unknown ids are a
+   * no-op; the timestamp comes from the caller (main supplies the ISO readAt).
+   */
+  markCampaignNotificationRead(
+    input: MarkCampaignNotificationReadInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  /**
+   * Marks every unread in-app campaign notification read. Already-read
+   * notifications keep their original read timestamps; an invalid read
+   * timestamp is a no-op.
+   */
+  markAllCampaignNotificationsRead(
+    input: MarkAllCampaignNotificationsReadInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  /**
+   * Creates or updates one campaign rule. New rules start unmeasured;
+   * updates preserve previously measured remove/downgrade counts unless the
+   * caller explicitly replaces them.
+   */
+  saveCampaignRule(
+    input: SaveCampaignRuleRouteInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  /** Removes one campaign rule by id. */
+  deleteCampaignRule(
+    input: DeleteCampaignRuleInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  /** Toggles one campaign rule's enabled/disabled state. */
+  toggleCampaignRule(
+    input: ToggleCampaignRuleInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  /**
+   * Read-only projection of rule effects and the funnel, computed only
+   * against the real persisted jobs retained by the campaign.
+   */
+  projectCampaignRuleFunnel(
+    input: ProjectCampaignRuleFunnelInput,
+  ): Promise<CampaignRuleFunnelProjection>;
   runSourceDebug(
     targetId: string,
     signal?: AbortSignal,
@@ -169,6 +268,61 @@ export interface JobFinderWorkspaceService {
   ): Promise<JobFinderWorkspaceSnapshot>;
   restoreDismissedDiscoveryJob(
     jobId: string,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  mutateRapidReview(
+    input: RapidReviewMutationInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  recordOutcome(input: RecordOutcomeInput): Promise<JobFinderWorkspaceSnapshot>;
+  refreshCompanyIntelligence(): Promise<JobFinderWorkspaceSnapshot>;
+  setCompanyPreference(
+    input: SetCompanyPreferenceInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  reviewCompanyMerge(
+    input: ReviewCompanyMergeInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  mutateCompanyIntelligence(
+    input: CompanyIntelligenceMutationInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  setOutcomeSuggestionEnabled(
+    input: SetOutcomeSuggestionEnabledInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  /**
+   * Applies one typed local safeguard mutation (caps, conflicts, listing
+   * signals, failure pauses, sample reviews, contradictions, or dismissals).
+   * Mutations never grant credentials, login, CAPTCHA, MFA, legal consent,
+   * account creation, upload, redirect, or final-submit authority.
+   */
+  mutateSafeguards(
+    input: SafeguardMutationInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  /** Read-only gate overview used by the Safeguards screen and tests. */
+  getSafeguardsOverview(): Promise<SafeguardsOverview>;
+  /**
+   * Read-only gate projection for application preparation of the given jobs
+   * (caps, conflicts, signals, global pauses/reviews, advisory contradictions).
+   */
+  evaluateApplicationSafeguardBlockers(
+    jobIds: readonly string[],
+  ): Promise<readonly SafeguardBlockerView[]>;
+  /**
+   * Read-only gate projection for a discovery run (global pauses and pending
+   * sample reviews only; job-scoped gates are enforced at preparation time).
+   */
+  evaluateDiscoverySafeguardBlockers(): Promise<readonly SafeguardBlockerView[]>;
+  saveResumeStrategy(
+    input: SaveResumeStrategyInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  disableResumeStrategy(
+    strategyId: string,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  selectResumeStrategy(
+    input: SelectResumeStrategyInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  recommendResumeStrategy(
+    input: RecommendResumeStrategyInput,
+  ): Promise<ResumeStrategyRecommendation>;
+  setCampaignResumeStrategyDefault(
+    input: SetCampaignResumeStrategyDefaultInput,
   ): Promise<JobFinderWorkspaceSnapshot>;
   generateResume(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
   getResumeWorkspace(jobId: string): Promise<JobFinderResumeWorkspace>;
@@ -236,6 +390,15 @@ export interface JobFinderWorkspaceService {
   recordInterviewHelperApplicationAction(
     input: JobFinderInterviewFollowUpInput,
   ): Promise<JobFinderWorkspaceSnapshot>;
+  mutateApplicationCrm(
+    command: ApplicationCrmMutationInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  runApplicationNoResponseAutomation(
+    settings?: ApplicationCrmSettings,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  exportApplicationCrm(
+    command: ApplicationCrmExportInput,
+  ): Promise<ApplicationCrmExportResult>;
 }
 
 type DiscoveryTargetPipelineSharedOptions = {
@@ -243,6 +406,8 @@ type DiscoveryTargetPipelineSharedOptions = {
   signal?: AbortSignal;
   allowInactiveMarking?: boolean;
   useAgentRuntime?: boolean;
+  /** Explicit campaign context; discovery then uses the campaign's preferences. */
+  campaign?: CampaignRunContext;
 };
 
 export type DiscoveryTargetPipelineOptions =
@@ -264,6 +429,16 @@ export interface RenderedResumeArtifact {
   intermediateStoragePath?: string | null;
   pageCount?: number | null;
   warnings?: readonly string[];
+}
+
+/**
+ * Explicit campaign discovery context: run the pipeline against a specific
+ * campaign's preferences and tag the run record with that campaign id without
+ * changing the active campaign or the global search preferences.
+ */
+export interface CampaignRunContext {
+  campaignId: string;
+  searchPreferences: JobSearchPreferences;
 }
 
 export interface JobFinderDocumentManager {

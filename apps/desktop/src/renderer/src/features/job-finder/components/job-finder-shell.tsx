@@ -1,13 +1,18 @@
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
+  BarChart3,
   BellRing,
+  Building2,
   ClipboardCheck,
   Compass,
   FileText,
+  House,
+  Layers3,
   Minus,
   Settings2,
   Settings,
+  ShieldCheck,
   Square,
   UserRound,
   X,
@@ -15,6 +20,7 @@ import {
 import type {
   DesktopWindowControlsState,
   DiscoveryActivityEvent,
+  GroupedManualAnswerDecision,
   JobFinderWorkspaceSnapshot,
   ResumeImportProgressEvent,
 } from "@unemployed/contracts";
@@ -26,6 +32,7 @@ import type { JobFinderScreen } from "../lib/job-finder-types";
 import type { JobFinderSaveState } from "@renderer/pages/job-finder-save-state";
 import { JobFinderSaveStatus } from "./job-finder-save-status";
 import { JobFinderTaskCenter } from "./task-center/job-finder-task-center";
+import { countActiveSafeguardBlockers } from "../lib/safeguards-blocker-count";
 import {
   formatStatusLabel,
   getDefaultProfileRoute,
@@ -47,32 +54,65 @@ interface JobFinderShellProps {
   workspace: JobFinderWorkspaceSnapshot;
 }
 
-const screenRouteMap: Record<Exclude<JobFinderScreen, "profile">, string> = {
+const screenRouteMap: Record<
+  Exclude<
+    JobFinderScreen,
+    "profile" | "rapid-review" | "resume-strategies" | "safeguards"
+  >,
+  string
+> = {
+  home: "/job-finder/home",
   discovery: "/job-finder/discovery",
   "review-queue": "/job-finder/review-queue",
   applications: "/job-finder/applications",
+  campaigns: "/job-finder/campaigns",
   actions: "/job-finder/actions",
+  analytics: "/job-finder/analytics",
   settings: "/job-finder/settings",
+  companies: "/job-finder/companies",
 };
 
 const screenLabelMap: Record<JobFinderScreen, string> = {
+  home: "Home",
   profile: "Profile",
   discovery: "Find jobs",
   "review-queue": "Shortlisted",
   applications: "Applications",
+  campaigns: "Campaigns",
   actions: "Needs you",
+  analytics: "Analytics",
   settings: "Settings",
+  "rapid-review": "Rapid review",
+  "resume-strategies": "Resume strategies",
+  safeguards: "Safeguards",
+  companies: "Companies",
 };
 
 export function countUnresolvedUserActions(
   requests: JobFinderWorkspaceSnapshot["userActionRequests"] | undefined,
+  groupedDecisions?: readonly GroupedManualAnswerDecision[],
 ): number {
-  return (requests ?? []).filter(
+  const unresolved = (requests ?? []).filter(
     (request) =>
       !["resolved", "skipped", "cancelled", "expired", "superseded"].includes(
         request.state,
       ),
-  ).length;
+  );
+  const pendingDecisions = (groupedDecisions ?? []).filter(
+    (decision) => decision.approval === "pending",
+  );
+  // A pending grouped decision represents its member requests on the Actions
+  // screen, so the badge counts the decision card instead of the hidden
+  // ordinary member cards.
+  const representedRequestIds = new Set(
+    pendingDecisions.flatMap((decision) =>
+      decision.lineage.map((entry) => entry.requestId),
+    ),
+  );
+  const unrepresentedRequests = unresolved.filter(
+    (request) => !representedRequestIds.has(request.id),
+  );
+  return unrepresentedRequests.length + pendingDecisions.length;
 }
 
 const LOCKED_LAYOUT_SCREENS: readonly JobFinderScreen[] = [
@@ -83,6 +123,14 @@ const LOCKED_LAYOUT_SCREENS: readonly JobFinderScreen[] = [
 ];
 
 function getActiveScreen(pathname: string): JobFinderScreen {
+  if (pathname === "/job-finder" || pathname === "/job-finder/") {
+    return "home";
+  }
+
+  if (pathname.endsWith("/home")) {
+    return "home";
+  }
+
   if (pathname.endsWith("/discovery")) {
     return "discovery";
   }
@@ -95,12 +143,36 @@ function getActiveScreen(pathname: string): JobFinderScreen {
     return "applications";
   }
 
+  if (pathname.endsWith("/rapid-review")) {
+    return "rapid-review";
+  }
+
+  if (pathname.endsWith("/campaigns")) {
+    return "campaigns";
+  }
+
   if (pathname.endsWith("/actions")) {
     return "actions";
   }
 
+  if (pathname.endsWith("/analytics")) {
+    return "analytics";
+  }
+
   if (pathname.endsWith("/settings")) {
     return "settings";
+  }
+
+  if (pathname.endsWith("/resume-strategies")) {
+    return "resume-strategies";
+  }
+
+  if (pathname.endsWith("/safeguards")) {
+    return "safeguards";
+  }
+
+  if (pathname.includes("/companies")) {
+    return "companies";
   }
 
   return "profile";
@@ -144,42 +216,119 @@ export function JobFinderShell({
     () => LOCKED_LAYOUT_SCREENS.includes(activeScreen),
     [activeScreen],
   );
-  const screenDefinitions = useMemo(
-    () => [
+  const screenDefinitions = useMemo(() => {
+    const activeCampaign = workspace.campaigns?.find(
+      (campaign) => campaign.id === workspace.activeCampaignId,
+    );
+    const campaignJobIds = new Set(
+      activeCampaign?.jobIds ?? workspace.discoveryJobs.map((job) => job.id),
+    );
+
+    return [
+      { id: "home", label: "Home", count: null, icon: House },
       { id: "profile", label: "Profile", count: null, icon: UserRound },
       {
         id: "discovery",
         label: "Find jobs",
-        count: workspace.discoveryJobs.length,
+        count: workspace.discoveryJobs.filter((job) =>
+          campaignJobIds.has(job.id),
+        ).length,
         icon: Compass,
       },
       {
         id: "review-queue",
         label: "Shortlisted",
-        count: workspace.reviewQueue.length,
+        count: workspace.reviewQueue.filter((item) =>
+          campaignJobIds.has(item.jobId),
+        ).length,
         icon: ClipboardCheck,
       },
       {
         id: "applications",
         label: "Applications",
-        count: workspace.applicationRecords.length,
+        count: workspace.applicationRecords.filter((record) =>
+          campaignJobIds.has(record.jobId),
+        ).length,
         icon: FileText,
+      },
+      {
+        id: "campaigns",
+        label: "Campaigns",
+        count: (workspace.campaignNotifications ?? []).filter(
+          (notification) => notification.unread,
+        ).length,
+        icon: Layers3,
       },
       {
         id: "actions",
         label: "Needs you",
-        count: countUnresolvedUserActions(workspace.userActionRequests),
+        count: countUnresolvedUserActions(
+          workspace.userActionRequests,
+          workspace.intelligence?.groupedDecisions ?? [],
+        ),
         icon: BellRing,
       },
+      {
+        id: "analytics",
+        label: "Analytics",
+        count: (workspace.intelligence?.outcomeEvents ?? []).length > 0
+          ? (workspace.intelligence?.outcomeEvents ?? []).length
+          : null,
+        icon: BarChart3,
+      },
+      {
+        id: "resume-strategies",
+        label: "Strategies",
+        count: (workspace.intelligence?.resumeStrategies ?? []).length > 0
+          ? (workspace.intelligence?.resumeStrategies ?? []).length
+          : null,
+        icon: Layers3,
+      },
+      {
+        id: "companies",
+        label: "Companies",
+        count: (workspace.intelligence?.companies ?? []).filter((company) =>
+          company.mergeReviewCandidates.some(
+            (candidate) => candidate.decision === "pending",
+          ),
+        ).length || null,
+        icon: Building2,
+      },
+      {
+        id: "safeguards",
+        label: "Safeguards",
+        count:
+          countActiveSafeguardBlockers(
+            workspace.intelligence?.safeguards ??
+              {
+                companyApplicationCaps: [],
+                simultaneousApplicationConflicts: [],
+                listingSignals: [],
+                abnormalFailurePauses: [],
+                preparedBatchSampleReviews: [],
+                contradictoryAnswerDetections: [],
+                safeguardDismissals: [],
+                updatedAt: null,
+              },
+          ) || null,
+        icon: ShieldCheck,
+      },
       { id: "settings", label: "Settings", count: null, icon: Settings },
-    ],
-    [
-      workspace.applicationRecords.length,
-      workspace.discoveryJobs.length,
-      workspace.reviewQueue.length,
-      workspace.userActionRequests ?? [],
-    ],
-  );
+    ];
+  }, [
+    workspace.activeCampaignId,
+    workspace.applicationRecords,
+    workspace.campaigns ?? [],
+    workspace.campaignNotifications ?? [],
+    workspace.discoveryJobs,
+    workspace.intelligence?.groupedDecisions ?? [],
+    workspace.intelligence?.outcomeEvents ?? [],
+    workspace.intelligence?.resumeStrategies ?? [],
+    workspace.intelligence?.companies ?? [],
+    workspace.intelligence?.safeguards ?? [],
+    workspace.reviewQueue,
+    workspace.userActionRequests ?? [],
+  ]);
 
   const workflowScreens = screenDefinitions.filter(
     (screen) => !["actions", "settings"].includes(screen.id),
@@ -265,7 +414,19 @@ export function JobFinderShell({
     const nextPath =
       nextScreen === "profile"
         ? getDefaultProfileRoute(workspace.profileSetupState)
-        : screenRouteMap[nextScreen as Exclude<JobFinderScreen, "profile">];
+        : nextScreen === "resume-strategies"
+          ? "/job-finder/resume-strategies"
+          : nextScreen === "safeguards"
+            ? "/job-finder/safeguards"
+            : screenRouteMap[
+                nextScreen as Exclude<
+                  JobFinderScreen,
+                  | "profile"
+                  | "rapid-review"
+                  | "resume-strategies"
+                  | "safeguards"
+                >
+              ];
 
     if (onNavigate) {
       onNavigate(nextPath);
@@ -426,7 +587,7 @@ export function JobFinderShell({
             className="col-span-2 col-start-1 row-start-3 flex min-w-0 items-center justify-center px-1 lg:absolute lg:inset-x-0 lg:top-24 lg:z-10 lg:h-28 lg:px-64 xl:top-10 xl:h-16 xl:px-52"
             style={noDragRegionStyle}
           >
-            <div className="grid w-full min-w-0 grid-cols-2 items-stretch gap-1 rounded-3xl border border-(--surface-panel-border) bg-(--surface-panel) p-1 sm:grid-cols-3 lg:inline-flex lg:w-auto lg:max-w-full lg:shrink-0 lg:flex-nowrap lg:rounded-full">
+            <div className="grid w-full min-w-0 grid-cols-2 items-stretch gap-1 rounded-3xl border border-(--surface-panel-border) bg-(--surface-panel) p-1 sm:grid-cols-3 lg:grid-cols-4 lg:rounded-3xl xl:inline-flex xl:w-auto xl:max-w-full xl:shrink-0 xl:flex-nowrap xl:rounded-full">
               {workflowScreens.map((screen) => (
                 <button
                   aria-current={activeScreen === screen.id ? "page" : undefined}
@@ -516,7 +677,7 @@ export function JobFinderShell({
                 type="button"
               >
                 <BellRing aria-hidden="true" className="size-4 shrink-0" />
-                <span className="hidden whitespace-nowrap sm:inline">
+                <span className="hidden whitespace-nowrap sm:inline lg:hidden 2xl:inline">
                   Needs you
                 </span>
                 <span

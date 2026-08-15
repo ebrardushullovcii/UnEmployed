@@ -95,6 +95,10 @@ describe("ApplicationsScreen", () => {
     expect(
       screen.getByRole("link", { name: "Find jobs" }).getAttribute("href"),
     ).toBe("#/job-finder/discovery");
+
+    fireEvent.click(screen.getByRole("button", { name: "Tracker" }));
+    expect(screen.getByText("Application CRM")).toBeTruthy();
+    expect(screen.getByText("No applications yet")).toBeTruthy();
   });
 
   it("loads details for a newly selected historical apply run", async () => {
@@ -133,6 +137,7 @@ describe("ApplicationsScreen", () => {
         evidenceCount: 0,
       },
       events: [],
+      crm: null,
     };
     const applyRuns: ApplyRunSummary[] = [
       {
@@ -328,6 +333,7 @@ describe("ApplicationsScreen", () => {
         evidenceCount: 0,
       },
       events: [],
+      crm: null,
     };
     const applyRun: ApplyRunSummary = {
       id: "apply_run_visual",

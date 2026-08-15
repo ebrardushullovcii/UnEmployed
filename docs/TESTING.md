@@ -41,6 +41,20 @@ Common package aliases:
 
 - `pnpm validate:docs-only` after shared guidance, skill, doc, or link changes
 
+## Campaign, dashboard, search, and CRM implementation evidence (2026-08-15)
+
+- Focused contracts cover campaign defaults and no-submit literals, CRM compatibility, and workspace delta campaign context.
+- Focused database and service tests cover SQLite campaign backfill/persistence, campaign membership and limits, activity pause gates, dashboard truth, serialized CRM revisions, no-response automation, duplicate hints, safe CSV/JSON output, and campaign apply stop-rule decisions.
+- Focused desktop tests cover typed main/preload routes, revisioned deltas, Home and Campaign screens, shell navigation, global/local search, keyboard behavior, persisted density/views, CRM table/Kanban/calendar/detail/settings, and active-campaign list scoping.
+- After integration, run Contracts, DB, Job Finder, and Desktop typechecks; the consolidated focused Vitest list; format/lint/source-generic/docs checks; then `pnpm verify` once. Broad production Electron and Computer Use acceptance is a separate later stage and must not be claimed from these scripted checks.
+
+### Phase-two feature slices — implemented, final verification pending
+
+- The six phase-two slices — advanced campaign rules and truthful pre-search funnel, local schedules/digests/in-app notifications, outcome analytics with manual outcome recording, resume strategies with per-job selection, company intelligence with merge review, and high-volume safeguards with recovery — are implemented end to end in the current checkout: typed contracts, pure operations, workspace-service methods, typed IPC/preload routes, renderer screens, and focused test files.
+- Focused test files exist but have NOT been executed: `packages/contracts/src/{campaign-operations,job-finder-intelligence,safeguards-contracts}.test.ts`; `packages/job-finder/src/internal/{campaign-rule-evaluator,campaign-schedule,campaign-digest-notifications,outcome-analytics,resume-strategy-operations,company-intelligence-operations,safeguard-operations}.test.ts`; `packages/job-finder/src/workspace-service.{campaign-rules,campaign-scheduled-run,outcome-analytics,resume-strategies,company-intelligence,safeguards}.test.ts`; `apps/desktop/src/main/services/job-finder/campaign-scheduler.test.ts`; and the renderer tests for `campaign-rule-builder`, `campaigns-screen`, `campaign-notification-center`, `outcome-analytics-presentation`, `outcome-analytics-screen`, `resume-strategies-screen`, `companies-screen`, `company-detail-screen`, `safeguards-presentation`, `safeguards-screen`, and `applications-outcome-recorder`.
+- No commands, tests, typecheck, lint, formatting, or visual QA have been run after these six writers. The 2026-08-15 counts above (the focused checkpoint and the phase-one gate) predate the batch and remain historical evidence, not current verification.
+- Verification order when it resumes: Contracts/DB/Job Finder/Desktop typechecks, the focused Vitest list for the batch, format/lint/source-generic/docs checks, then `pnpm verify` once. Broad production Electron and visual acceptance remain a separate later stage and must not be claimed from scripted checks.
+
 ## Current Consolidated Release Evidence (2026-08-09)
 
 ### Computer Use usability remediation (2026-08-11)

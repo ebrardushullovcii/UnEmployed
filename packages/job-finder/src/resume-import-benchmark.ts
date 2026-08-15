@@ -6,6 +6,7 @@ import {
 } from "@unemployed/ai-providers";
 import { createCatalogBrowserSessionRuntime } from "@unemployed/browser-runtime";
 import {
+  JobFinderIntelligenceStateSchema,
   ResumeImportBenchmarkReportSchema,
   ResumeImportBenchmarkRequestSchema,
   type CandidateProfile,
@@ -349,6 +350,11 @@ export function buildBenchmarkRepositoryState(input: {
       discoveryLedger: [],
       pendingDiscoveryJobs: [],
     },
+    campaigns: [],
+    activeCampaignId: null,
+    campaignNotifications: [],
+    activityControl: { paused: false, pausedAt: null, reason: null },
+    intelligence: JobFinderIntelligenceStateSchema.parse({}),
   };
 }
 
@@ -1118,6 +1124,9 @@ function createBenchmarkContext(input: {
     activeApplyRunAbortControllers: new Map<string, AbortController>(),
     activeApplyRunPromises: new Map<string, Promise<void>>(),
     applyRunTransitionTails: new Map<string, Promise<void>>(),
+    withApplicationCrmTransition: (operation) => operation(),
+    withIntelligenceTransition: (operation) => operation(),
+    withCampaignTransition: (operation) => operation(),
     activeResumeVisionRunIds: new Set<string>(),
     getWorkspaceSnapshot: () =>
       Promise.reject(
@@ -1125,6 +1134,7 @@ function createBenchmarkContext(input: {
           "Workspace snapshots are not available in the benchmark harness.",
         ),
       ),
+    getActiveCampaignId: () => Promise.resolve(null),
     resumeApplicationUserAction: () => Promise.resolve(undefined),
     runSourceDebugWorkflow: () =>
       Promise.reject(

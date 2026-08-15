@@ -1,0 +1,665 @@
+import { useMemo, useState } from "react";
+import type {
+  JobSearchCampaign,
+  ResumeStrategy,
+  ResumeStrategyEvidenceBoundaries,
+  SaveResumeStrategyInput,
+  SetCampaignResumeStrategyDefaultInput,
+} from "@unemployed/contracts";
+import { Button } from "@renderer/components/ui/button";
+import { Input } from "@renderer/components/ui/input";
+import { EmptyState } from "../../components/empty-state";
+import { PageHeader } from "../../components/page-header";
+import { StatusBadge } from "../../components/status-badge";
+import {
+  CollectionNoMatches,
+  CollectionSearchToolbar,
+  matchesCollectionSearch,
+} from "../../components/collection-search-toolbar";
+import {
+  describeEvidenceBoundaries,
+  resumeCoveragePolicyLabels,
+  resumeHeadlinePolicyLabels,
+  resumeSkillsPolicyLabels,
+  resumeTailoringStrengthLabels,
+  resumeTemplateLabels,
+  strategySearchTokens,
+} from "./resume-strategy-presentation";
+
+const evidenceBoundaryOptions: ReadonlyArray<{
+  key: keyof ResumeStrategyEvidenceBoundaries;
+  label: string;
+}> = [
+  {
+    key: "allowExactClaims",
+    label: "Allow exact claims from saved evidence",
+  },
+  {
+    key: "allowParaphrasedClaims",
+    label: "Allow paraphrased claims grounded in evidence",
+  },
+  {
+    key: "requireVerifierPass",
+    label: "Require verifier pass before export",
+  },
+];
+
+function toSaveInput(
+  strategy: ResumeStrategy,
+  overrides: Partial<SaveResumeStrategyInput> = {},
+): SaveResumeStrategyInput {
+  return {
+    id: strategy.id,
+    name: strategy.name,
+    roleFamily: strategy.roleFamily,
+    baseResumeDocumentId: strategy.baseResumeDocumentId,
+    templateId: strategy.templateId,
+    headlinePolicy: strategy.headlinePolicy,
+    skillsPolicy: strategy.skillsPolicy,
+    coveragePolicy: strategy.coveragePolicy,
+    tailoringStrength: strategy.tailoringStrength,
+    evidenceBoundaries: strategy.evidenceBoundaries,
+    enabled: strategy.enabled,
+    ...overrides,
+  };
+}
+
+function emptyFormInput(baseResumeDocumentId: string): SaveResumeStrategyInput {
+  return {
+    id: null,
+    name: "",
+    roleFamily: "",
+    baseResumeDocumentId,
+    templateId: "classic_ats",
+    headlinePolicy: "fixed",
+    skillsPolicy: "base_only",
+    coveragePolicy: "base_omissions",
+    tailoringStrength: "conservative",
+    evidenceBoundaries: {
+      allowExactClaims: true,
+      allowParaphrasedClaims: false,
+      maxEvidenceRefsPerBullet: 3,
+      requireVerifierPass: true,
+    },
+    enabled: true,
+  };
+}
+
+function StrategyForm(props: {
+  baseResumeDocumentId: string;
+  candidateDocumentIds: readonly string[];
+  isPending: boolean;
+  onCancel: () => void;
+  onSave: (input: SaveResumeStrategyInput) => void;
+  value: SaveResumeStrategyInput;
+}) {
+  const [draft, setDraft] = useState<SaveResumeStrategyInput>(props.value);
+  const update = (patch: Partial<SaveResumeStrategyInput>) =>
+    setDraft((current) => ({ ...current, ...patch }));
+  const updateBoundaries = (
+    patch: Partial<ResumeStrategyEvidenceBoundaries>,
+  ) =>
+    update({
+      evidenceBoundaries: { ...draft.evidenceBoundaries, ...patch },
+    });
+  const isEdit = Boolean(draft.id);
+
+  return (
+    <form
+      className="surface-panel-shell grid gap-5 rounded-(--radius-panel) border border-(--surface-panel-border) p-5"
+      onSubmit={(event) => {
+        event.preventDefault();
+        props.onSave(draft);
+      }}
+    >
+      <div>
+        <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
+          Resume strategy
+        </p>
+        <h2 className="mt-1 text-xl font-semibold text-(--text-headline)">
+          {isEdit ? "Edit strategy" : "Create strategy"}
+        </h2>
+        <p className="mt-1 text-(length:--text-small) leading-6 text-foreground-soft">
+          A strategy is a saved targeting preference. Reusing one never approves
+          a resume, never makes an artifact application-ready, and never marks a
+          document current. Per-job approval, digest, and staleness checks stay
+          authoritative.
+        </p>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="grid gap-1 text-sm">
+          <span className="font-medium">Name</span>
+          <Input
+            maxLength={120}
+            onChange={(event) => update({ name: event.target.value })}
+            required
+            value={draft.name}
+          />
+        </label>
+        <label className="grid gap-1 text-sm">
+          <span className="font-medium">Role family</span>
+          <Input
+            maxLength={120}
+            onChange={(event) => update({ roleFamily: event.target.value })}
+            placeholder="Backend Engineering"
+            required
+            value={draft.roleFamily}
+          />
+        </label>
+        <label className="grid gap-1 text-sm sm:col-span-2">
+          <span className="font-medium">Base resume document</span>
+          <Input
+            list="resume-strategy-base-resume-options"
+            onChange={(event) =>
+              update({ baseResumeDocumentId: event.target.value })
+            }
+            required
+            value={draft.baseResumeDocumentId}
+          />
+          <datalist id="resume-strategy-base-resume-options">
+            {[props.baseResumeDocumentId, ...props.candidateDocumentIds]
+              .filter(
+                (value, index, all) =>
+                  value && all.indexOf(value) === index,
+              )
+              .map((value) => (
+                <option key={value} value={value} />
+              ))}
+          </datalist>
+          <span className="text-(length:--text-tiny) leading-5 text-foreground-muted">
+            The saved document this strategy starts from. This reference is
+            opaque: it is never treated as approval, and the exact approved
+            artifact and digest still decide application readiness.
+          </span>
+        </label>
+        <label className="grid gap-1 text-sm">
+          <span className="font-medium">Template</span>
+          <select
+            className="h-10 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
+            onChange={(event) =>
+              update({
+                templateId: event.target
+                  .value as SaveResumeStrategyInput["templateId"],
+              })
+            }
+            value={draft.templateId}
+          >
+            {Object.entries(resumeTemplateLabels).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1 text-sm">
+          <span className="font-medium">Tailoring strength</span>
+          <select
+            className="h-10 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
+            onChange={(event) =>
+              update({
+                tailoringStrength: event.target
+                  .value as SaveResumeStrategyInput["tailoringStrength"],
+              })
+            }
+            value={draft.tailoringStrength}
+          >
+            {Object.entries(resumeTailoringStrengthLabels).map(
+              ([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ),
+            )}
+          </select>
+        </label>
+        <label className="grid gap-1 text-sm">
+          <span className="font-medium">Headline policy</span>
+          <select
+            className="h-10 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
+            onChange={(event) =>
+              update({
+                headlinePolicy: event.target
+                  .value as SaveResumeStrategyInput["headlinePolicy"],
+              })
+            }
+            value={draft.headlinePolicy}
+          >
+            {Object.entries(resumeHeadlinePolicyLabels).map(
+              ([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ),
+            )}
+          </select>
+        </label>
+        <label className="grid gap-1 text-sm">
+          <span className="font-medium">Skills policy</span>
+          <select
+            className="h-10 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
+            onChange={(event) =>
+              update({
+                skillsPolicy: event.target
+                  .value as SaveResumeStrategyInput["skillsPolicy"],
+              })
+            }
+            value={draft.skillsPolicy}
+          >
+            {Object.entries(resumeSkillsPolicyLabels).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1 text-sm">
+          <span className="font-medium">Coverage policy</span>
+          <select
+            className="h-10 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
+            onChange={(event) =>
+              update({
+                coveragePolicy: event.target
+                  .value as SaveResumeStrategyInput["coveragePolicy"],
+              })
+            }
+            value={draft.coveragePolicy}
+          >
+            {Object.entries(resumeCoveragePolicyLabels).map(
+              ([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ),
+            )}
+          </select>
+        </label>
+      </div>
+
+      <fieldset className="grid gap-2 rounded-(--radius-field) border border-border-subtle p-4">
+        <legend className="text-sm font-semibold text-(--text-headline)">
+          Approved evidence boundaries
+        </legend>
+        <p className="text-(length:--text-small) leading-5 text-foreground-soft">
+          These bound what generated wording may cite. They are presentation
+          guidance: the deterministic claim verifier and per-job validation
+          still decide what is supported.
+        </p>
+        {evidenceBoundaryOptions.map((option) => (
+          <label
+            className="flex items-center gap-2 text-sm"
+            key={option.key}
+          >
+            <input
+              checked={Boolean(draft.evidenceBoundaries[option.key])}
+              onChange={(event) =>
+                updateBoundaries({
+                  [option.key]: event.target.checked,
+                } as unknown as Partial<ResumeStrategyEvidenceBoundaries>)
+              }
+              type="checkbox"
+            />
+            {option.label}
+          </label>
+        ))}
+        <label className="grid max-w-72 gap-1 text-sm">
+          <span>Max evidence references per bullet</span>
+          <Input
+            max={10}
+            min={0}
+            onChange={(event) =>
+              updateBoundaries({
+                maxEvidenceRefsPerBullet: Number(event.target.value),
+              })
+            }
+            type="number"
+            value={draft.evidenceBoundaries.maxEvidenceRefsPerBullet}
+          />
+        </label>
+      </fieldset>
+
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button onClick={props.onCancel} type="button" variant="ghost">
+          Cancel
+        </Button>
+        <Button
+          disabled={
+            draft.name.trim().length === 0 ||
+            draft.roleFamily.trim().length === 0 ||
+            draft.baseResumeDocumentId.trim().length === 0
+          }
+          pending={props.isPending}
+          type="submit"
+        >
+          {isEdit ? "Save strategy" : "Create strategy"}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function StrategyCard(props: {
+  isDisablePending: boolean;
+  isSavePending: boolean;
+  onDisable: (strategyId: string) => void;
+  onEdit: (strategy: ResumeStrategy) => void;
+  onEnable: (strategy: ResumeStrategy) => void;
+  strategy: ResumeStrategy;
+}) {
+  const { strategy } = props;
+  const boundaries = describeEvidenceBoundaries(strategy.evidenceBoundaries);
+
+  return (
+    <article className="surface-panel-shell grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-semibold text-(--text-headline)">
+              {strategy.name}
+            </h2>
+            <StatusBadge tone={strategy.enabled ? "active" : "muted"}>
+              {strategy.enabled ? "Enabled" : "Disabled"}
+            </StatusBadge>
+          </div>
+          <p className="mt-1 text-(length:--text-small) capitalize text-foreground-soft">
+            {strategy.roleFamily}
+          </p>
+        </div>
+        <div className="flex flex-wrap justify-end gap-2">
+          {strategy.enabled ? (
+            <Button
+              disabled={props.isDisablePending}
+              onClick={() => props.onDisable(strategy.id)}
+              pending={props.isDisablePending}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Disable
+            </Button>
+          ) : (
+            <Button
+              disabled={props.isSavePending}
+              onClick={() => props.onEnable(strategy)}
+              pending={props.isSavePending}
+              size="sm"
+              type="button"
+              variant="secondary"
+            >
+              Enable
+            </Button>
+          )}
+          <Button
+            onClick={() => props.onEdit(strategy)}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            Edit
+          </Button>
+        </div>
+      </div>
+      <dl className="grid gap-2 text-sm sm:grid-cols-2">
+        <div>
+          <dt className="text-(length:--text-tiny) uppercase tracking-(--tracking-badge) text-foreground-muted">
+            Template
+          </dt>
+          <dd className="text-foreground-soft">
+            {resumeTemplateLabels[strategy.templateId] ?? strategy.templateId}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-(length:--text-tiny) uppercase tracking-(--tracking-badge) text-foreground-muted">
+            Tailoring strength
+          </dt>
+          <dd className="text-foreground-soft">
+            {resumeTailoringStrengthLabels[strategy.tailoringStrength]}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-(length:--text-tiny) uppercase tracking-(--tracking-badge) text-foreground-muted">
+            Headline policy
+          </dt>
+          <dd className="text-foreground-soft">
+            {resumeHeadlinePolicyLabels[strategy.headlinePolicy]}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-(length:--text-tiny) uppercase tracking-(--tracking-badge) text-foreground-muted">
+            Skills policy
+          </dt>
+          <dd className="text-foreground-soft">
+            {resumeSkillsPolicyLabels[strategy.skillsPolicy]}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-(length:--text-tiny) uppercase tracking-(--tracking-badge) text-foreground-muted">
+            Coverage policy
+          </dt>
+          <dd className="text-foreground-soft">
+            {resumeCoveragePolicyLabels[strategy.coveragePolicy]}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-(length:--text-tiny) uppercase tracking-(--tracking-badge) text-foreground-muted">
+            Base resume
+          </dt>
+          <dd className="break-all text-foreground-soft">
+            {strategy.baseResumeDocumentId}
+          </dd>
+        </div>
+      </dl>
+      <p className="text-(length:--text-small) leading-5 text-foreground-soft">
+        {boundaries}
+      </p>
+      <p className="text-(length:--text-tiny) leading-5 text-foreground-muted">
+        Reusing this strategy never approves a résumé or makes an artifact
+        application-ready. Updated {strategy.updatedAt.slice(0, 10)}.
+      </p>
+    </article>
+  );
+}
+
+function CampaignDefaultsSection(props: {
+  campaigns: readonly JobSearchCampaign[];
+  isPending: (campaignId: string) => boolean;
+  onSetDefault: (input: SetCampaignResumeStrategyDefaultInput) => void;
+  strategies: readonly ResumeStrategy[];
+}) {
+  const enabledStrategies = props.strategies.filter((strategy) => strategy.enabled);
+
+  if (props.campaigns.length === 0) {
+    return (
+      <section className="grid gap-3 rounded-(--radius-field) border border-border-subtle p-4">
+        <h3 className="font-semibold text-(--text-headline)">
+          Campaign defaults
+        </h3>
+        <p className="text-(length:--text-small) leading-5 text-foreground-soft">
+          No campaigns yet. Create a campaign first, then assign its default
+          resume strategy here.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="grid gap-3 rounded-(--radius-field) border border-border-subtle p-4">
+      <div>
+        <h3 className="font-semibold text-(--text-headline)">
+          Campaign defaults
+        </h3>
+        <p className="mt-1 text-(length:--text-small) leading-5 text-foreground-soft">
+          Each campaign can name one enabled strategy as its fallback
+          recommendation. Assigning a default never changes an existing job's
+          approval or readiness.
+        </p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {props.campaigns.map((campaign) => {
+          const currentDefaultId =
+            campaign.applicationPolicy.defaultResumeStrategyId ?? "";
+          return (
+            <label className="grid gap-1 text-sm" key={campaign.id}>
+              <span className="font-medium">{campaign.name}</span>
+              <select
+                className="h-10 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
+                disabled={props.isPending(campaign.id)}
+                onChange={(event) =>
+                  props.onSetDefault({
+                    campaignId: campaign.id,
+                    strategyId: event.target.value || null,
+                  })
+                }
+                value={currentDefaultId}
+              >
+                <option value="">No default</option>
+                {enabledStrategies.map((strategy) => (
+                  <option key={strategy.id} value={strategy.id}>
+                    {strategy.name}
+                  </option>
+                ))}
+              </select>
+              {props.isPending(campaign.id) ? (
+                <span className="text-(length:--text-tiny) text-foreground-muted">
+                  Saving…
+                </span>
+              ) : null}
+            </label>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+export function ResumeStrategiesScreen(props: {
+  actionMessage: string | null;
+  baseResumeDocumentId: string;
+  campaigns: readonly JobSearchCampaign[];
+  candidateDocumentIds: readonly string[];
+  isCampaignDefaultPending: (campaignId: string) => boolean;
+  isDisablePending: (strategyId: string) => boolean;
+  isLoading: boolean;
+  isSavePending: boolean;
+  onDisableStrategy: (strategyId: string) => void;
+  onSaveStrategy: (input: SaveResumeStrategyInput) => void;
+  onSetCampaignDefault: (input: SetCampaignResumeStrategyDefaultInput) => void;
+  strategies: readonly ResumeStrategy[];
+}) {
+  const [query, setQuery] = useState("");
+  const [editing, setEditing] = useState<SaveResumeStrategyInput | null>(null);
+
+  const filteredStrategies = useMemo(
+    () =>
+      props.strategies.filter((strategy) =>
+        matchesCollectionSearch(query, strategySearchTokens(strategy)),
+      ),
+    [props.strategies, query],
+  );
+
+  if (props.isLoading) {
+    return (
+      <main className="grid min-h-full place-items-center px-6 py-10">
+        <EmptyState
+          title="Loading resume strategies"
+          description="Loading saved strategies, campaigns, and defaults."
+        />
+      </main>
+    );
+  }
+
+  return (
+    <section className="grid gap-5 pb-8">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <PageHeader
+          compact
+          eyebrow="Resume strategies"
+          title="Resume strategies"
+          description="Name role-family targeting preferences: base resume, template, headline/skills/coverage policy, tailoring strength, and evidence boundaries."
+        />
+        <Button
+          onClick={() =>
+            setEditing(emptyFormInput(props.baseResumeDocumentId))
+          }
+          type="button"
+        >
+          New strategy
+        </Button>
+      </div>
+
+      {props.actionMessage ? (
+        <p
+          aria-atomic="true"
+          aria-live="polite"
+          className="min-w-0 break-words rounded-(--radius-small) border border-primary/25 bg-primary/5 px-3 py-2 text-(length:--text-small) leading-6 text-foreground"
+          role="status"
+        >
+          {props.actionMessage}
+        </p>
+      ) : null}
+
+      {editing ? (
+        <StrategyForm
+          baseResumeDocumentId={props.baseResumeDocumentId}
+          candidateDocumentIds={props.candidateDocumentIds}
+          isPending={props.isSavePending}
+          onCancel={() => setEditing(null)}
+          onSave={(input) => {
+            props.onSaveStrategy(input);
+            setEditing(null);
+          }}
+          value={editing}
+        />
+      ) : null}
+
+      <CampaignDefaultsSection
+        campaigns={props.campaigns}
+        isPending={props.isCampaignDefaultPending}
+        onSetDefault={props.onSetCampaignDefault}
+        strategies={props.strategies}
+      />
+
+      <div className="min-w-[min(100%,24rem)] flex-1">
+        <CollectionSearchToolbar
+          label="Search strategies"
+          onQueryChange={setQuery}
+          placeholder="Search name, role family, template, or policy"
+          query={query}
+          totalCount={props.strategies.length}
+          visibleCount={filteredStrategies.length}
+        />
+      </div>
+
+      {props.strategies.length === 0 ? (
+        <EmptyState
+          title="No resume strategies yet"
+          description="Create a named role-family strategy to reuse its targeting preferences. Reusing one never approves a résumé or makes an artifact application-ready."
+        />
+      ) : filteredStrategies.length === 0 ? (
+        <CollectionNoMatches
+          noun="strategies"
+          onClear={() => setQuery("")}
+          query={query}
+        />
+      ) : (
+        <div className="grid gap-3 xl:grid-cols-2">
+          {filteredStrategies.map((strategy) => (
+            <StrategyCard
+              isDisablePending={props.isDisablePending(strategy.id)}
+              isSavePending={props.isSavePending}
+              key={strategy.id}
+              onDisable={props.onDisableStrategy}
+              onEdit={(next) =>
+                setEditing(toSaveInput(next))
+              }
+              onEnable={(next) =>
+                props.onSaveStrategy(toSaveInput(next, { enabled: true }))
+              }
+              strategy={strategy}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}

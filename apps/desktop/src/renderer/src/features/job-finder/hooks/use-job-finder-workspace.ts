@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
+  ApplicationCrmExportInput,
+  ApplicationCrmMutationInput,
+  ApplicationCrmSettings,
+  ApplyGroupedManualAnswerInput,
   CandidateProfile,
   ClearApplicationAnswerCommandInput,
+  CompanyIntelligenceMutationInput,
   DiscoveryActivityEvent,
   DiscoveryFeedbackReason,
   EditableSourceInstructionArtifact,
@@ -14,17 +19,33 @@ import type {
   JobFinderWorkspaceEntityMutation,
   JobFinderWorkspaceSyncResult,
   JobSearchPreferences,
+  RapidReviewMutationInput,
+  RecommendResumeStrategyInput,
+  RecordOutcomeInput,
+  ResumeStrategyRecommendation,
+  SafeguardMutationInput,
+  ReviewCompanyMergeInput,
+  SaveResumeStrategyInput,
+  SaveCampaignRuleInput,
+  SaveJobSearchCampaignInput,
+  SelectResumeStrategyInput,
+  SetCampaignResumeStrategyDefaultInput,
+  SetCompanyPreferenceInput,
+  SetJobFinderActivityControlInput,
+  SetOutcomeSuggestionEnabledInput,
   WorkspaceRevision,
   ProfileCopilotContext,
   ProfileSetupReviewAction,
   ProfileSetupReviewActionOptions,
   ProfileSetupState,
+  ProjectGroupedManualAnswerCommand,
   ResumeImportProgressEvent,
   ResumeApplicationMode,
   ResumeTimelineRepairAction,
   ResumeDraft,
   ResumeDraftPatch,
   SaveApplicationAnswerCommandInput,
+  SnoozeGroupedDecisionInput,
   SourceDebugProgressEvent,
   UserActionCommandInput,
 } from "@unemployed/contracts";
@@ -295,6 +316,18 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.revokeApplyRunApproval(runId),
         ),
+      mutateApplicationCrm: (input: ApplicationCrmMutationInput) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.mutateApplicationCrm(input),
+        ),
+      runApplicationNoResponseAutomation: (settings?: ApplicationCrmSettings) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.runApplicationNoResponseAutomation(
+            settings,
+          ),
+        ),
+      exportApplicationCrm: (input: ApplicationCrmExportInput) =>
+        window.unemployed.jobFinder.exportApplicationCrm(input),
       importResume: () => {
         setWorkspaceState((currentState) =>
           currentState.status === "ready"
@@ -350,6 +383,20 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         window.unemployed.jobFinder.saveApplicationAnswer(command),
       clearApplicationAnswer: (command: ClearApplicationAnswerCommandInput) =>
         window.unemployed.jobFinder.clearApplicationAnswer(command),
+      projectGroupedManualAnswer: (
+        command: ProjectGroupedManualAnswerCommand,
+      ) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.projectGroupedManualAnswer(command),
+        ),
+      applyGroupedManualAnswer: (input: ApplyGroupedManualAnswerInput) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.applyGroupedManualAnswer(input),
+        ),
+      snoozeGroupedDecision: (input: SnoozeGroupedDecisionInput) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.snoozeGroupedDecision(input),
+        ),
       exportApplicationPacket: (runId: string, jobId: string) =>
         window.unemployed.jobFinder.exportApplicationPacket(runId, jobId),
       saveSourceInstructionArtifact: (
@@ -393,6 +440,108 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
       saveSearchPreferences: (searchPreferences: JobSearchPreferences) =>
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.saveSearchPreferences(searchPreferences),
+        ),
+      saveCampaign: (campaign: SaveJobSearchCampaignInput) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.saveCampaign(campaign),
+        ),
+      selectCampaign: (campaignId: string) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.selectCampaign(campaignId),
+        ),
+      runCampaignNow: (campaignId?: string | null) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.runCampaignNow(
+            campaignId ? { campaignId } : undefined,
+          ),
+        ),
+      markCampaignNotificationRead: (notificationId: string) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.markCampaignNotificationRead(
+            notificationId,
+          ),
+        ),
+      markAllCampaignNotificationsRead: () =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.markAllCampaignNotificationsRead(),
+        ),
+      saveCampaignRule: (campaignId: string, rule: SaveCampaignRuleInput) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.saveCampaignRule(campaignId, rule),
+        ),
+      deleteCampaignRule: (campaignId: string, ruleId: string) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.deleteCampaignRule(campaignId, ruleId),
+        ),
+      toggleCampaignRule: (
+        campaignId: string,
+        ruleId: string,
+        enabled: boolean,
+      ) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.toggleCampaignRule(
+            campaignId,
+            ruleId,
+            enabled,
+          ),
+        ),
+      projectCampaignRuleFunnel: (campaignId: string) =>
+        window.unemployed.jobFinder.projectCampaignRuleFunnel(campaignId),
+      setActivityControl: (input: SetJobFinderActivityControlInput) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.setActivityControl(input),
+        ),
+      mutateRapidReview: (input: RapidReviewMutationInput) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.mutateRapidReview(input),
+        ),
+      recordOutcome: (input: RecordOutcomeInput) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.recordOutcome(input),
+        ),
+      saveResumeStrategy: (input: SaveResumeStrategyInput) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.saveResumeStrategy(input),
+        ),
+      disableResumeStrategy: (strategyId: string) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.disableResumeStrategy(strategyId),
+        ),
+      selectResumeStrategy: (input: SelectResumeStrategyInput) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.selectResumeStrategy(input),
+        ),
+      recommendResumeStrategy: (input: RecommendResumeStrategyInput) =>
+        window.unemployed.jobFinder.recommendResumeStrategy(input),
+      setCampaignResumeStrategyDefault: (
+        input: SetCampaignResumeStrategyDefaultInput,
+      ) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.setCampaignResumeStrategyDefault(input),
+        ),
+      refreshCompanyIntelligence: () =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.refreshCompanyIntelligence(),
+        ),
+      setCompanyPreference: (input: SetCompanyPreferenceInput) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.setCompanyPreference(input),
+        ),
+      reviewCompanyMerge: (input: ReviewCompanyMergeInput) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.reviewCompanyMerge(input),
+        ),
+      mutateCompanyIntelligence: (input: CompanyIntelligenceMutationInput) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.mutateCompanyIntelligence(input),
+        ),
+      setOutcomeSuggestionEnabled: (input: SetOutcomeSuggestionEnabledInput) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.setOutcomeSuggestionEnabled(input),
+        ),
+      mutateSafeguards: (input: SafeguardMutationInput) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.mutateSafeguards(input),
         ),
       saveSettings: (settings: JobFinderSettings) =>
         runWorkspaceAction(() =>

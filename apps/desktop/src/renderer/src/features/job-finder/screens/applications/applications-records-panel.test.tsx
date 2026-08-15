@@ -41,6 +41,7 @@ describe("ApplicationsRecordsPanel", () => {
         evidenceCount: 0,
       },
       events: [],
+      crm: null,
     };
 
     render(
@@ -96,6 +97,7 @@ describe("ApplicationsRecordsPanel", () => {
         evidenceCount: 0,
       },
       events: [],
+      crm: null,
     };
 
     render(

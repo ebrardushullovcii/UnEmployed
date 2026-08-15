@@ -127,10 +127,16 @@ describe("JobFinderShell section navigation", () => {
       .map((button) => button.textContent?.replace(/\d+/g, "").trim());
 
     expect(destinations).toEqual([
+      "Home",
       "Profile",
       "Find jobs",
       "Shortlisted",
       "Applications",
+      "Campaigns",
+      "Analytics",
+      "Strategies",
+      "Companies",
+      "Safeguards",
       "Settings",
     ]);
     expect(navigation.className).not.toContain("overflow-hidden");
@@ -138,20 +144,31 @@ describe("JobFinderShell section navigation", () => {
       "grid w-full min-w-0 grid-cols-2",
     );
     expect(navigation.firstElementChild?.className).toContain("sm:grid-cols-3");
-    expect(navigation.firstElementChild?.className).toContain("lg:inline-flex");
-    expect(navigation.firstElementChild?.className).toContain("lg:flex-nowrap");
-    expect(navigation.firstElementChild?.className).toContain(
-      "lg:rounded-full",
-    );
+    expect(navigation.firstElementChild?.className).toContain("lg:grid-cols-4");
+    expect(navigation.firstElementChild?.className).toContain("xl:inline-flex");
+    expect(navigation.firstElementChild?.className).toContain("xl:flex-nowrap");
+    expect(navigation.firstElementChild?.className).toContain("lg:rounded-3xl");
 
     const notificationGroup = screen.getByRole("group", {
       name: "Notifications and actions",
     });
+    const needsYouButton = within(notificationGroup).getByRole("button", {
+      name: "Needs you: 0 unresolved",
+    });
+    expect(needsYouButton).toBeTruthy();
     expect(
-      within(notificationGroup).getByRole("button", {
-        name: "Needs you: 0 unresolved",
-      }),
-    ).toBeTruthy();
+      Array.from(needsYouButton.querySelectorAll("span")).find(
+        (span) => span.textContent?.trim() === "Needs you",
+      )?.className,
+    ).toContain("lg:hidden 2xl:inline");
+    const taskCenterLauncher = within(notificationGroup).getByLabelText(
+      "Task center: 0 active",
+    );
+    expect(
+      Array.from(taskCenterLauncher.querySelectorAll("span")).find(
+        (span) => span.textContent?.trim() === "Task center",
+      )?.className,
+    ).toContain("lg:hidden 2xl:inline");
     expect(navigation.contains(notificationGroup)).toBe(false);
 
     const windowControls = screen.getByRole("group", {
@@ -210,19 +227,26 @@ describe("JobFinderShell section navigation", () => {
 
     expect(workflow?.className).toContain("grid-cols-2");
     expect(workflow?.className).toContain("sm:grid-cols-3");
-    expect(workflow?.className).toContain("lg:inline-flex");
-    expect(workflow?.className).toContain("lg:flex-nowrap");
-    expect(workflow?.className).toContain("lg:w-auto");
+    expect(workflow?.className).toContain("lg:grid-cols-4");
+    expect(workflow?.className).toContain("xl:inline-flex");
+    expect(workflow?.className).toContain("xl:flex-nowrap");
+    expect(workflow?.className).toContain("xl:w-auto");
 
     const labels = within(navigation)
       .getAllByRole("button")
       .map((button) => button.textContent?.replace(/\d+/g, "").trim());
 
     expect(labels).toEqual([
+      "Home",
       "Profile",
       "Find jobs",
       "Shortlisted",
       "Applications",
+      "Campaigns",
+      "Analytics",
+      "Strategies",
+      "Companies",
+      "Safeguards",
       "Settings",
     ]);
 
@@ -327,10 +351,16 @@ describe("JobFinderShell section navigation", () => {
     });
 
     for (const destination of [
+      "Home",
       "Profile",
       "Find jobs",
       "Shortlisted",
       "Applications",
+      "Campaigns",
+      "Analytics",
+      "Strategies",
+      "Companies",
+      "Safeguards",
       "Settings",
     ]) {
       fireEvent.click(
@@ -345,13 +375,22 @@ describe("JobFinderShell section navigation", () => {
       }),
     );
 
-    expect(onNavigate).toHaveBeenCalledTimes(6);
-    expect(onNavigate).toHaveBeenNthCalledWith(1, "/job-finder/profile/setup");
-    expect(onNavigate).toHaveBeenNthCalledWith(2, "/job-finder/discovery");
-    expect(onNavigate).toHaveBeenNthCalledWith(3, "/job-finder/review-queue");
-    expect(onNavigate).toHaveBeenNthCalledWith(4, "/job-finder/applications");
-    expect(onNavigate).toHaveBeenNthCalledWith(5, "/job-finder/settings");
-    expect(onNavigate).toHaveBeenNthCalledWith(6, "/job-finder/actions");
+    expect(onNavigate).toHaveBeenCalledTimes(12);
+    expect(onNavigate).toHaveBeenNthCalledWith(1, "/job-finder/home");
+    expect(onNavigate).toHaveBeenNthCalledWith(2, "/job-finder/profile/setup");
+    expect(onNavigate).toHaveBeenNthCalledWith(3, "/job-finder/discovery");
+    expect(onNavigate).toHaveBeenNthCalledWith(4, "/job-finder/review-queue");
+    expect(onNavigate).toHaveBeenNthCalledWith(5, "/job-finder/applications");
+    expect(onNavigate).toHaveBeenNthCalledWith(6, "/job-finder/campaigns");
+    expect(onNavigate).toHaveBeenNthCalledWith(7, "/job-finder/analytics");
+    expect(onNavigate).toHaveBeenNthCalledWith(
+      8,
+      "/job-finder/resume-strategies",
+    );
+    expect(onNavigate).toHaveBeenNthCalledWith(9, "/job-finder/companies");
+    expect(onNavigate).toHaveBeenNthCalledWith(10, "/job-finder/safeguards");
+    expect(onNavigate).toHaveBeenNthCalledWith(11, "/job-finder/settings");
+    expect(onNavigate).toHaveBeenNthCalledWith(12, "/job-finder/actions");
   });
 
   it("keeps the Task center launcher in header flow instead of over page content", () => {

@@ -11,8 +11,14 @@ export const modelReasoningEfforts = [
 ] as const;
 export type ModelReasoningEffort = (typeof modelReasoningEfforts)[number];
 
-export const DEFAULT_MODEL_API_MODE: ModelApiMode = "responses";
-export const DEFAULT_MODEL_REASONING_EFFORT: ModelReasoningEffort = "high";
+export const DEFAULT_OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
+export const DEFAULT_TEXT_MODEL = "deepseek-v4-flash";
+export const DEFAULT_TEXT_MODEL_API_MODE: ModelApiMode = "chat_completions";
+export const DEFAULT_TEXT_MODEL_REASONING_EFFORT: ModelReasoningEffort = "max";
+export const DEFAULT_VISION_MODEL = "gpt-5.6-luna";
+export const DEFAULT_VISION_MODEL_API_MODE: ModelApiMode = "responses";
+export const DEFAULT_VISION_MODEL_REASONING_EFFORT: ModelReasoningEffort =
+  "high";
 
 export type CompatibleMessage = {
   role: "system" | "user" | "assistant" | "tool";
@@ -356,7 +362,7 @@ export function buildModelRequestBody(input: {
     model: input.model,
     store: false,
     reasoning: {
-      effort: input.reasoningEffort ?? DEFAULT_MODEL_REASONING_EFFORT,
+      effort: input.reasoningEffort ?? DEFAULT_VISION_MODEL_REASONING_EFFORT,
     },
     input: toResponsesInput(input.messages),
     ...(input.jsonOutput ? { text: { format: { type: "json_object" } } } : {}),

@@ -9,13 +9,72 @@ import {
   JobFinderAgentDiscoveryActionInputSchema,
   JobFinderOpenBrowserSessionInputSchema,
   JobFinderJobResumeApplicationModeInputSchema,
+  JobFinderResumeWorkspaceStrategyContextSchema,
   ApplyJobResultSchema,
   ApplicationAttemptSchema,
   JobFinderWorkspaceSnapshotSchema,
+  JobSearchCampaignSchema,
+  getDefaultCampaignConfiguration,
 } from "./index";
 import { createApplyRunFixture, createSubmittedAttempt } from "./test-fixtures";
 
 describe("contracts workspace snapshot schema", () => {
+  test("strategy context is advisory and cannot carry approval or readiness", () => {
+    expect(
+      JobFinderResumeWorkspaceStrategyContextSchema.parse({
+        roleFamily: "Backend Engineering",
+        recommendedStrategyId: "strategy-1",
+        recommendedStrategyName: "Backend",
+        recommendationSource: "role_family",
+        recommendationReason: "Exact role family match.",
+        selectedStrategyId: "strategy-1",
+        selectedStrategyName: "Backend",
+        selectionSource: "user",
+        selectionReason: "Picked by the user.",
+        selectedAt: "2026-03-20T10:00:00.000Z",
+        templateId: "modern_split",
+        headlinePolicy: "role_family_template",
+        skillsPolicy: "role_family_expanded",
+        coveragePolicy: "role_family_recommended",
+        tailoringStrength: "balanced",
+        evidenceBoundaries: {
+          allowExactClaims: true,
+          allowParaphrasedClaims: true,
+          maxEvidenceRefsPerBullet: 4,
+          requireVerifierPass: true,
+        },
+      }),
+    ).toMatchObject({
+      recommendedStrategyId: "strategy-1",
+      recommendationSource: "role_family",
+      selectionSource: "user",
+      templateId: "modern_split",
+    });
+
+    // The strict context cannot carry approval, readiness, or current flags.
+    expect(
+      JobFinderResumeWorkspaceStrategyContextSchema.safeParse({
+        roleFamily: null,
+        recommendedStrategyId: null,
+        recommendedStrategyName: null,
+        recommendationSource: "none",
+        recommendationReason: "No match.",
+        selectedStrategyId: null,
+        selectedStrategyName: null,
+        selectionSource: null,
+        selectionReason: null,
+        selectedAt: null,
+        templateId: null,
+        headlinePolicy: null,
+        skillsPolicy: null,
+        coveragePolicy: null,
+        tailoringStrength: null,
+        evidenceBoundaries: null,
+        approvedAt: "2026-03-20T10:00:00.000Z",
+        applicationReady: true,
+      }).success,
+    ).toBe(false);
+  });
   test("parses a per-job CV mode selection", () => {
     expect(
       JobFinderJobResumeApplicationModeInputSchema.parse({
@@ -94,7 +153,7 @@ describe("contracts workspace snapshot schema", () => {
           blockers: [],
           fieldControls: ["Resume upload control is visible."],
           validationErrors: [],
-           buttonStates: ["Submission control appears disabled."],
+          buttonStates: ["Submission control appears disabled."],
           questionContextIds: [],
           reconciliations: [],
         },
@@ -106,9 +165,27 @@ describe("contracts workspace snapshot schema", () => {
       latestCheckpointId: null,
     });
 
+    const generatedAt = "2026-03-20T10:05:00.000Z";
+    const campaign = JobSearchCampaignSchema.parse({
+      id: "campaign-test",
+      name: "Test campaign",
+      mode: "precision",
+      status: "active",
+      createdAt: generatedAt,
+      updatedAt: generatedAt,
+      searchPreferences: {
+        minimumSalaryUsd: null,
+        approvalMode: "review_before_submit",
+        tailoringMode: "balanced",
+      },
+      sourceTargetIds: [],
+      ...getDefaultCampaignConfiguration("precision"),
+      schedule: {},
+      progress: { lastUpdatedAt: generatedAt },
+    });
     const workspace = JobFinderWorkspaceSnapshotSchema.parse({
       module: "job-finder",
-      generatedAt: "2026-03-20T10:05:00.000Z",
+      generatedAt,
       agentProvider: {
         kind: "deterministic",
         ready: true,
@@ -140,6 +217,35 @@ describe("contracts workspace snapshot schema", () => {
           sortOrder: 10,
         },
       ],
+      campaigns: [campaign],
+      activeCampaignId: campaign.id,
+      dashboard: {
+        generatedAt,
+        activeCampaignId: campaign.id,
+        activeCampaignCount: 1,
+        jobsFoundToday: 0,
+        jobsAwaitingReview: 0,
+        applicationsReadyForApproval: 0,
+        applicationsAppliedToday: 0,
+        applicationsAppliedThisWeek: 0,
+        needsYouCount: 0,
+        upcomingInterviews: 0,
+        upcomingFollowUps: 0,
+        responseRate: null,
+        interviewRate: null,
+        sourceHealth: {
+          healthy: 0,
+          needsAttention: 0,
+          running: 0,
+          total: 0,
+        },
+        backgroundOperationCount: 0,
+        recommendedNextAction: {
+          label: "Find jobs",
+          detail: "Start the active campaign.",
+          route: "/job-finder/discovery",
+        },
+      },
       profile: {
         id: "candidate_1",
         firstName: "Alex",
@@ -487,13 +593,13 @@ describe("contracts workspace snapshot schema", () => {
     expect(workspace.applyRuns[0]?.state).toBe("paused_for_user_review");
     expect(workspace.selectedApplyRunId).toBe("apply_run_1");
     expect(workspace.activeSourceDebugRun?.state).toBe("paused_manual");
-    expect(workspace.sourceAccessPrompts[0]?.state).toBe("prompt_login_required");
+    expect(workspace.sourceAccessPrompts[0]?.state).toBe(
+      "prompt_login_required",
+    );
   });
 
   test("parses open-browser-session payloads with optional target scope", () => {
-    expect(
-      JobFinderOpenBrowserSessionInputSchema.parse({}),
-    ).toEqual({
+    expect(JobFinderOpenBrowserSessionInputSchema.parse({})).toEqual({
       targetId: null,
     });
 

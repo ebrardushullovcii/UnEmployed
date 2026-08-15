@@ -3,8 +3,12 @@ import type {
   BrowserSessionState,
   ResumeApplicationMode,
   ResumeSourceDocument,
+  ResumeStrategy,
+  ResumeStrategyRecommendation,
+  ResumeStrategySelection,
   ReviewQueueItem,
   SavedJob,
+  SelectResumeStrategyInput,
   TailoredAsset,
 } from "@unemployed/contracts";
 import { LockedScreenLayout } from "../../components/locked-screen-layout";
@@ -21,8 +25,10 @@ import { ReviewQueuePreviewPanel } from "./review-queue-preview-panel";
 export function ReviewQueueScreen(props: {
   actionState: { message: string | null };
   browserSession: BrowserSessionState;
+  campaignId: string;
   isApplyPending: boolean;
   isJobPending: (jobId: string) => boolean;
+  isResumeStrategyPending: (jobId: string) => boolean;
   onStartAutoApplyQueue: (jobIds: string[]) => void;
   onStartApplyCopilot: (jobId: string) => void;
   onEditResumeWorkspace: (jobId: string) => void;
@@ -30,7 +36,11 @@ export function ReviewQueueScreen(props: {
   onOpenBrowserSession: () => void;
   onOpenJobDetails: (jobId: string) => void;
   onOpenProfile: () => void;
+  onRecommendResumeStrategy: (input: {
+    jobId: string;
+  }) => Promise<ResumeStrategyRecommendation | null>;
   onRemoveReviewJob: (jobId: string) => void;
+  onSelectResumeStrategy: (input: SelectResumeStrategyInput) => void;
   onSetJobResumeApplicationMode: (
     jobId: string,
     resumeApplicationMode: ResumeApplicationMode,
@@ -38,6 +48,8 @@ export function ReviewQueueScreen(props: {
   onSelectItem: (jobId: string) => void;
   originalResume: ResumeSourceDocument;
   queue: readonly ReviewQueueItem[];
+  resumeStrategies: readonly ResumeStrategy[];
+  resumeStrategySelections: readonly ResumeStrategySelection[];
   selectedAsset: TailoredAsset | null;
   selectedItem: ReviewQueueItem | null;
   selectedJob: SavedJob | null;
@@ -45,8 +57,10 @@ export function ReviewQueueScreen(props: {
   const {
     actionState,
     browserSession,
+    campaignId,
     isApplyPending,
     isJobPending,
+    isResumeStrategyPending,
     onStartAutoApplyQueue,
     onStartApplyCopilot,
     onEditResumeWorkspace,
@@ -54,11 +68,15 @@ export function ReviewQueueScreen(props: {
     onOpenBrowserSession,
     onOpenJobDetails,
     onOpenProfile,
+    onRecommendResumeStrategy,
     onRemoveReviewJob,
+    onSelectResumeStrategy,
     onSetJobResumeApplicationMode,
     onSelectItem,
     originalResume,
     queue,
+    resumeStrategies,
+    resumeStrategySelections,
     selectedAsset,
     selectedItem,
     selectedJob,
@@ -183,9 +201,11 @@ export function ReviewQueueScreen(props: {
         <ReviewQueueMissionPanel
           actionMessage={scopedActionMessage}
           browserSession={browserSession}
+          campaignId={campaignId}
           displayedProgress={displayedProgress}
           isApplyPending={isApplyPending}
           isJobPending={isJobPending}
+          isResumeStrategyPending={isResumeStrategyPending}
           onClearQueueSelection={handleClearQueueSelection}
           onStartAutoApplyQueue={onStartAutoApplyQueue}
           onStartApplyCopilot={onStartApplyCopilot}
@@ -194,10 +214,14 @@ export function ReviewQueueScreen(props: {
           onOpenBrowserSession={onOpenBrowserSession}
           onOpenJobDetails={onOpenJobDetails}
           onOpenProfile={onOpenProfile}
+          onRecommendResumeStrategy={onRecommendResumeStrategy}
           onRemoveReviewJob={onRemoveReviewJob}
+          onSelectResumeStrategy={onSelectResumeStrategy}
           onSetJobResumeApplicationMode={onSetJobResumeApplicationMode}
           queue={queue}
           queueSelection={queueSelection}
+          resumeStrategies={resumeStrategies}
+          resumeStrategySelections={resumeStrategySelections}
           selectedAsset={selectedAsset}
           selectedItem={selectedItem}
           selectedJob={selectedJob}

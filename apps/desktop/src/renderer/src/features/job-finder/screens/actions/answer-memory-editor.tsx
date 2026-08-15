@@ -2,9 +2,10 @@ import { useMemo, useState } from "react";
 import type {
   ApplicationAttemptQuestion,
   CandidateProfile,
+  ProjectGroupedManualAnswerCommand,
   UserActionRequest,
 } from "@unemployed/contracts";
-import { RotateCcw } from "lucide-react";
+import { Layers3, RotateCcw } from "lucide-react";
 
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
@@ -22,10 +23,23 @@ const matchStatusCopy = {
     "This saved answer references missing proof. Review it in Profile before reusing it.",
 } as const;
 
+/**
+ * Deterministic caller-rooted group key for the reusable-answer project
+ * command. The service derives every decision id from this key plus the
+ * question-meaning cluster fingerprint, so re-projecting the same root
+ * request with the same answer stays idempotent while any other collision is
+ * refused instead of silently overwritten.
+ */
+export function deriveGroupedAnswerGroupKey(requestId: string): string {
+  return `grouped-answer:${requestId}`;
+}
+
 export function AnswerMemoryEditor(props: {
   isPending: boolean;
+  onProjectGrouped: (command: ProjectGroupedManualAnswerCommand) => void;
   onSubmit: (answer: string, saveForFuture: boolean) => void;
   profile: CandidateProfile;
+  projectPending?: boolean;
   question: ApplicationAttemptQuestion;
   request: UserActionRequest;
 }) {
@@ -143,6 +157,26 @@ export function AnswerMemoryEditor(props: {
           Save for future & use
         </Button>
         <Button
+          disabled={!trimmedDraft || props.isPending}
+          onClick={() =>
+            props.onProjectGrouped({
+              groupKey: deriveGroupedAnswerGroupKey(props.request.id),
+              requestId: props.request.id,
+              expectedRequestRevision: props.request.revision,
+              answer: { type: "text", value: trimmedDraft },
+              saveScope: "reusable_profile",
+            })
+          }
+          {...(props.projectPending === undefined
+            ? {}
+            : { pending: props.projectPending })}
+          size="compact"
+          type="button"
+          variant="outline"
+        >
+          <Layers3 aria-hidden="true" /> Reuse for matching applications
+        </Button>
+        <Button
           disabled={!draft || props.isPending}
           onClick={() => setDraft("")}
           size="compact"
@@ -154,8 +188,11 @@ export function AnswerMemoryEditor(props: {
       </div>
       <p className="text-xs leading-5 text-muted-foreground">
         Use once records this answer only with this application. Save for future
-        also adds an exact-question entry to Profile. Existing saved answers are
-        never overwritten here.
+        also adds an exact-question entry to Profile. Reuse for matching
+        applications projects this draft as a reusable answer: the service only
+        creates a group when 2+ exact compatible pending application questions
+        exist, and nothing is submitted. Existing saved answers are never
+        overwritten here.
       </p>
     </section>
   );

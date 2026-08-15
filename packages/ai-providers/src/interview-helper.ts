@@ -20,8 +20,13 @@ import {
   buildAudioTranscriptionsUrl,
   buildModelRequestBody,
   buildModelUrl,
-  DEFAULT_MODEL_API_MODE,
-  DEFAULT_MODEL_REASONING_EFFORT,
+  DEFAULT_OPENCODE_GO_BASE_URL,
+  DEFAULT_TEXT_MODEL,
+  DEFAULT_TEXT_MODEL_API_MODE,
+  DEFAULT_TEXT_MODEL_REASONING_EFFORT,
+  DEFAULT_VISION_MODEL,
+  DEFAULT_VISION_MODEL_API_MODE,
+  DEFAULT_VISION_MODEL_REASONING_EFFORT,
   modelApiModes,
   modelReasoningEfforts,
   parseModelApiMode,
@@ -235,8 +240,8 @@ export interface InterviewHelperProviderBundle {
 }
 
 const DEFAULT_INTERVIEW_MODEL_TIMEOUT_MS = 30_000;
-const DEFAULT_INTERVIEW_MODEL = "gpt-5.6-luna";
-const DEFAULT_INTERVIEW_BASE_URL = "https://api.openai.com/v1";
+const DEFAULT_INTERVIEW_MODEL = DEFAULT_TEXT_MODEL;
+const DEFAULT_INTERVIEW_BASE_URL = DEFAULT_OPENCODE_GO_BASE_URL;
 
 function pickQuestion(input: InterviewCueCardRequest): string {
   const latestMeetingQuestion = [...input.transcriptSegments]
@@ -1221,23 +1226,17 @@ export function createInterviewHelperProvidersFromEnvironment(
           env.UNEMPLOYED_INTERVIEW_VISION_MODEL ??
           env.UNEMPLOYED_AI_VISION_MODEL ??
           env.UNEMPLOYED_RESUME_VISION_MODEL ??
-          env.UNEMPLOYED_INTERVIEW_AI_MODEL ??
-          env.UNEMPLOYED_AI_MODEL ??
-          DEFAULT_INTERVIEW_MODEL,
+          DEFAULT_VISION_MODEL,
         apiMode:
           parseModelApiMode(
             env.UNEMPLOYED_INTERVIEW_VISION_API_MODE ??
-              env.UNEMPLOYED_AI_VISION_API_MODE ??
-              env.UNEMPLOYED_INTERVIEW_AI_API_MODE ??
-              env.UNEMPLOYED_AI_API_MODE,
-          ) ?? DEFAULT_MODEL_API_MODE,
+              env.UNEMPLOYED_AI_VISION_API_MODE,
+          ) ?? DEFAULT_VISION_MODEL_API_MODE,
         reasoningEffort:
           parseModelReasoningEffort(
             env.UNEMPLOYED_INTERVIEW_VISION_REASONING_EFFORT ??
-              env.UNEMPLOYED_AI_VISION_REASONING_EFFORT ??
-              env.UNEMPLOYED_INTERVIEW_REASONING_EFFORT ??
-              env.UNEMPLOYED_AI_REASONING_EFFORT,
-          ) ?? DEFAULT_MODEL_REASONING_EFFORT,
+              env.UNEMPLOYED_AI_VISION_REASONING_EFFORT,
+          ) ?? DEFAULT_VISION_MODEL_REASONING_EFFORT,
         label: "AI interview screenshot vision provider",
         requestTimeoutMs,
       })
@@ -1283,12 +1282,12 @@ export function createInterviewHelperProvidersFromEnvironment(
     apiMode:
       parseModelApiMode(
         env.UNEMPLOYED_INTERVIEW_AI_API_MODE ?? env.UNEMPLOYED_AI_API_MODE,
-      ) ?? DEFAULT_MODEL_API_MODE,
+      ) ?? DEFAULT_TEXT_MODEL_API_MODE,
     reasoningEffort:
       parseModelReasoningEffort(
         env.UNEMPLOYED_INTERVIEW_REASONING_EFFORT ??
           env.UNEMPLOYED_AI_REASONING_EFFORT,
-      ) ?? DEFAULT_MODEL_REASONING_EFFORT,
+      ) ?? DEFAULT_TEXT_MODEL_REASONING_EFFORT,
     requestTimeoutMs,
   };
 

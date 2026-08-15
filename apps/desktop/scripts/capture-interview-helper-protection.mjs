@@ -1,6 +1,4 @@
 /* eslint-env node, browser */
-/* global document */
-
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -71,14 +69,9 @@ function assertProtectionReport(report) {
 }
 
 async function waitForInterviewWorkspace(window) {
-  await window.waitForFunction(
-    () =>
-      document
-        .querySelector("h1")
-        ?.textContent?.includes("Live interview workspace"),
-    undefined,
-    { timeout: 15000 },
-  );
+  await window
+    .getByRole("heading", { name: "Interview conversation" })
+    .waitFor({ timeout: 15000 });
 }
 
 async function waitForOverlayWindows(app) {
@@ -125,8 +118,9 @@ async function acceptAndStartSession(window) {
   await window.getByRole("button", { name: /Run quick check/i }).click();
   await window.getByRole("button", { name: /Start interview/i }).click();
   await window
-    .getByText("Listening", { exact: true })
-    .first()
+    .getByRole("heading", {
+      name: "Ask, listen, and work through the answer",
+    })
     .waitFor({ timeout: 10000 });
 }
 
@@ -318,6 +312,9 @@ async function runCaptureProtection() {
   try {
     const window = await app.firstWindow();
     await window.waitForLoadState("domcontentloaded");
+    await window.evaluate(() => {
+      window.location.hash = "/interview-helper";
+    });
     await waitForInterviewWorkspace(window);
     await window.setViewportSize({ width: 1440, height: 920 });
     await acceptAndStartSession(window);
@@ -344,6 +341,15 @@ async function runCaptureProtection() {
 
     const overlayWindows = await waitForOverlayWindows(app);
     const placedOverlays = await setOverlayWindowBounds(app);
+    const placedAnswerBounds = placedOverlays.find(
+      (overlay) => overlay.kind === "answer",
+    )?.bounds;
+    const placedTranscriptBounds = placedOverlays.find(
+      (overlay) => overlay.kind === "transcript",
+    )?.bounds;
+    if (!placedAnswerBounds || !placedTranscriptBounds) {
+      throw new Error("Expected both Interview Helper overlays to be placed.");
+    }
     await window.evaluate(() =>
       Promise.all([
         window.unemployed.interviewHelper.moveOverlayWindow({
@@ -365,14 +371,14 @@ async function runCaptureProtection() {
           (preference) =>
             preference.surfaceKind === "live_answer_overlay" &&
             JSON.stringify(preference.bounds) ===
-              JSON.stringify(overlayBounds.answer) &&
+              JSON.stringify(placedAnswerBounds) &&
             typeof preference.displayId === "string",
         ) &&
         workspace.overlayPreferences.some(
           (preference) =>
             preference.surfaceKind === "live_transcript_overlay" &&
             JSON.stringify(preference.bounds) ===
-              JSON.stringify(overlayBounds.transcript) &&
+              JSON.stringify(placedTranscriptBounds) &&
             typeof preference.displayId === "string",
         ),
       "overlay layout persistence",
@@ -390,14 +396,14 @@ async function runCaptureProtection() {
         (preference) =>
           preference.surfaceKind === "live_answer_overlay" &&
           JSON.stringify(preference.bounds) ===
-            JSON.stringify(overlayBounds.answer) &&
+            JSON.stringify(placedAnswerBounds) &&
           typeof preference.displayId === "string",
       ) &&
       persistedOverlayLayouts.some(
         (preference) =>
           preference.surfaceKind === "live_transcript_overlay" &&
           JSON.stringify(preference.bounds) ===
-            JSON.stringify(overlayBounds.transcript) &&
+            JSON.stringify(placedTranscriptBounds) &&
           typeof preference.displayId === "string",
       );
 
@@ -424,12 +430,12 @@ async function runCaptureProtection() {
     const analysis = await captureScreenAndAnalyze(app, [
       {
         kind: "answer",
-        bounds: overlayBounds.answer,
+        bounds: placedAnswerBounds,
         pngBase64: answerPng.toString("base64"),
       },
       {
         kind: "transcript",
-        bounds: overlayBounds.transcript,
+        bounds: placedTranscriptBounds,
         pngBase64: transcriptPng.toString("base64"),
       },
     ]);

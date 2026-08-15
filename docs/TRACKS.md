@@ -2,7 +2,7 @@
 
 Use this file as the short execution queue. Detailed state belongs in `docs/STATUS.md`; completed chronology belongs in `docs/HISTORY.md`.
 
-Updated: 2026-08-13
+Updated: 2026-08-15
 
 ## Status Keys
 
@@ -15,11 +15,12 @@ Updated: 2026-08-13
 
 ## Active
 
-- None. The AI capability reliability remediation and requested Luna High hard-canary checkpoint are complete. A fresh full 110-case lane remains optional broader benchmark evidence, not an implementation blocker.
+- None. The six phase-two feature slices are implemented and focused-verified (165 test files / 630 tests, zero failures); the final-gate reruns all passed (Contracts/DB/Job Finder/Desktop TypeScript, the affected Contracts/DB/Job Finder/Desktop ESLint scope, the feature Prettier check, and `git diff --check`), exactly one broad `pnpm verify` attempt was made and stopped before repository scripts ran because the pnpm 10.8.0 registry signature/package fetch verification failed (not bypassed or rerun, not claimed to pass), and Electron/Computer Use/visual QA was not run and remains a later separate stage. No worker or test loop is currently running.
 
 ## Ready Queue
 
-- None. Completed benchmark and reliability findings are recorded in the audit reports, ADRs, and `docs/HISTORY.md`.
+- Final-gate reruns for the six-slice phase-two batch are complete and passed: Contracts/DB/Job Finder/Desktop TypeScript all passed, the affected Contracts/DB/Job Finder/Desktop ESLint scope passed, the feature Prettier check passed, and `git diff --check` passed; the focused suite passed 165 test files / 630 tests.
+- The broad scripted gate (`pnpm verify`) had exactly one attempt that stopped before repository scripts ran because the pnpm 10.8.0 registry signature/package fetch verification failed; it was not bypassed or rerun and has not been claimed to pass. Electron/Computer Use/visual QA was not run in this closeout and remains a later separate stage. Do not exercise real final submission.
 
 ## Decision Required
 
@@ -39,6 +40,7 @@ Updated: 2026-08-13
 
 ## Completed Context
 
+- Phase-two six-slice batch: advanced campaign rules and truthful pre-search funnel, local schedules/digests/in-app notifications, outcome analytics with manual outcome recording, resume strategies with per-job selection, company intelligence with merge review, and high-volume safeguards with recovery are implemented end to end and focused-verified — 165 test files / 630 tests with zero failures. Final-gate reruns passed: Contracts/DB/Job Finder/Desktop TypeScript all passed, the affected Contracts/DB/Job Finder/Desktop ESLint scope passed, the feature Prettier check passed, and `git diff --check` passed. Exactly one broad `pnpm verify` attempt was made and stopped before repository scripts ran because the pnpm 10.8.0 registry signature/package fetch verification failed; it was not bypassed or rerun and has not been claimed to pass. Electron/Computer Use/visual QA was not run in this closeout and remains a later separate stage. Exact state: `docs/exec-plans/active/job-finder-campaigns-dashboard-crm-scale.md`.
 - AI capability reliability core: shared typed tool-task runtime; dedicated value-setting tools with runtime-owned metadata; temporary profile/résumé proposal drafts with validation repair; valid paged tool results; classified transport retries; progress/time/provider-cost/safety stop rules; persisted browser checkpoints; page-two extraction recovery; and truthful fallback attribution for chat, résumé vision, browser vision, and Interview cues. The current Luna High hard canary passes 11/11 with zero fallback. Acceptance report: `docs/audits/LUNA_HIGH_AND_PRODUCTION_ACCEPTANCE_2026-08-12.html`; decisions: `docs/adr/0009-luna-high-default-and-capability-contracts.md` and `docs/adr/0010-opencode-go-mixed-text-and-vision-routing.md`.
 
 - AI model capability benchmark: 330/330 frozen synthetic outcomes across Luna high, Luna max, and Sol low, 671 provider calls, exact completeness checks, and independent qualitative review. The current owner-selected route is OpenCode Go with DeepSeek V4 Flash for normal text/tool work and Luna High for image-only work. Full report: `docs/audits/AI_MODEL_CAPABILITY_BENCHMARK_FULL_2026-08-12.html`; routing ADR: `docs/adr/0010-opencode-go-mixed-text-and-vision-routing.md`; contract-first agent ADR: `docs/adr/0009-luna-high-default-and-capability-contracts.md`.

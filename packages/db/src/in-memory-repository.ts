@@ -10,9 +10,12 @@ import {
   ApplicationQuestionRecordSchema,
   ApplicationReplayCheckpointSchema,
   CandidateProfileSchema,
+  JobFinderActivityControlSchema,
   JobFinderDiscoveryStateSchema,
+  JobFinderIntelligenceStateSchema,
   JobFinderRepositoryStateSchema,
   JobFinderSettingsSchema,
+  JobSearchCampaignCollectionSchema,
   JobSearchPreferencesSchema,
   ProfileCopilotMessageSchema,
   ProfileRevisionSchema,
@@ -34,9 +37,19 @@ import {
   TailoredAssetSchema,
   UserActionEventSchema,
   UserActionRequestSchema,
+  type ApplicationAnswerRecord,
+  type ApplicationQuestionRecord,
+  type UserActionRequest,
 } from "@unemployed/contracts";
 
 import { cloneValue } from "./internal/state";
+import {
+  latestApplicationAnswerRecord,
+  normalizeGroupedManualAnswerCommit,
+  resolveGroupedManualAnswerCommit,
+  type GroupedManualAnswerCurrentSnapshot,
+} from "./grouped-manual-answer-support";
+import type { CommitGroupedManualAnswerInput } from "./grouped-manual-answer-types";
 import {
   matchesOptionalStringFilters,
   sortApplicationAnswerRecords,
@@ -132,6 +145,9 @@ export function createInMemoryJobFinderRepository(
       state.sourceDebugEvidenceRefs = normalizedSeed.sourceDebugEvidenceRefs;
       state.settings = normalizedSeed.settings;
       state.discovery = normalizedSeed.discovery;
+      state.campaigns = normalizedSeed.campaigns;
+      state.activeCampaignId = normalizedSeed.activeCampaignId;
+      state.activityControl = normalizedSeed.activityControl;
 
       return Promise.resolve();
     },
@@ -932,6 +948,112 @@ export function createInMemoryJobFinderRepository(
         }),
       );
     },
+    commitGroupedManualAnswer(input: CommitGroupedManualAnswerInput) {
+      const plan = normalizeGroupedManualAnswerCommit(input);
+
+      const requests = new Map<string, UserActionRequest>();
+      for (const entry of plan.lineage) {
+        const request = state.userActionRequests.find(
+          (candidate) => candidate.id === entry.requestId,
+        );
+        if (request) {
+          requests.set(entry.requestId, request);
+        }
+      }
+
+      const answersByQuestionId = new Map<
+        string,
+        ApplicationAnswerRecord | null
+      >();
+      const questionIds = [...plan.expectedAnswerRevisionByQuestionId.keys()];
+      for (const questionId of questionIds) {
+        answersByQuestionId.set(
+          questionId,
+          latestApplicationAnswerRecord(
+            state.applicationAnswerRecords,
+            questionId,
+          ),
+        );
+      }
+
+      const questions = new Map<string, ApplicationQuestionRecord>();
+      for (const change of plan.questionChanges) {
+        const question = state.applicationQuestionRecords.find(
+          (candidate) => candidate.id === change.next.id,
+        );
+        if (question) {
+          questions.set(change.next.id, question);
+        }
+      }
+
+      const decision =
+        state.intelligence.groupedDecisions.find(
+          (candidate) => candidate.id === plan.decision.id,
+        ) ?? null;
+
+      const snapshot: GroupedManualAnswerCurrentSnapshot = {
+        requests,
+        answersByQuestionId,
+        questions,
+        decision,
+        events: state.userActionEvents,
+      };
+      const outcome = resolveGroupedManualAnswerCommit(plan, snapshot);
+      if (outcome.status === "stale") {
+        return Promise.resolve(cloneValue(outcome));
+      }
+      if (outcome.status === "duplicate") {
+        return Promise.resolve(cloneValue(outcome));
+      }
+
+      const nextRequests = plan.lineage.reduce((currentRequests, entry) => {
+        const next = plan.requestsByRequestId.get(entry.requestId)!;
+        return currentRequests.map((request) =>
+          request.id === next.id ? next : request,
+        );
+      }, state.userActionRequests);
+      const nextEvents = [
+        ...state.userActionEvents,
+        ...outcome.events.map((event) =>
+          UserActionEventSchema.parse(cloneValue(event)),
+        ),
+      ];
+      let nextAnswers = state.applicationAnswerRecords;
+      for (const change of plan.answerChanges) {
+        nextAnswers = upsertById(nextAnswers, change.next);
+      }
+      let nextQuestions = state.applicationQuestionRecords;
+      for (const change of plan.questionChanges) {
+        nextQuestions = upsertById(nextQuestions, change.next);
+      }
+      const nextIntelligence = JobFinderIntelligenceStateSchema.parse({
+        ...state.intelligence,
+        groupedDecisions: state.intelligence.groupedDecisions.map(
+          (candidate) =>
+            candidate.id === plan.decision.id ? plan.decision : candidate,
+        ),
+        updatedAt: plan.appliedAt,
+      });
+
+      // Build and validate the complete next state before swapping any member,
+      // preserving the same all-or-nothing behavior as the SQLite transaction.
+      state.userActionRequests = nextRequests;
+      state.userActionEvents = nextEvents;
+      state.applicationAnswerRecords = nextAnswers;
+      state.applicationQuestionRecords = nextQuestions;
+      state.intelligence = nextIntelligence;
+
+      return Promise.resolve(
+        cloneValue({
+          status: "applied" as const,
+          decision: plan.decision,
+          lineage: plan.lineage,
+          requests: plan.lineage.map(
+            (entry) => plan.requestsByRequestId.get(entry.requestId)!,
+          ),
+        }),
+      );
+    },
     saveResumeDraftWithValidation({ draft, validation, tailoredAsset }) {
       const parsedDraft = ResumeDraftSchema.parse(
         cloneValue(
@@ -1312,6 +1434,47 @@ export function createInMemoryJobFinderRepository(
     saveDiscoveryState(discoveryState) {
       state.discovery = JobFinderDiscoveryStateSchema.parse(
         cloneValue(discoveryState),
+      );
+      return Promise.resolve();
+    },
+    getCampaignState() {
+      if (state.campaigns.length === 0 || !state.activeCampaignId) {
+        return Promise.resolve(null);
+      }
+      return Promise.resolve(
+        cloneValue(
+          JobSearchCampaignCollectionSchema.parse({
+            campaigns: state.campaigns,
+            activeCampaignId: state.activeCampaignId,
+            notifications: state.campaignNotifications,
+          }),
+        ),
+      );
+    },
+    saveCampaignState(campaignState) {
+      const normalized = JobSearchCampaignCollectionSchema.parse(
+        cloneValue(campaignState),
+      );
+      state.campaigns = normalized.campaigns;
+      state.activeCampaignId = normalized.activeCampaignId;
+      state.campaignNotifications = normalized.notifications;
+      return Promise.resolve();
+    },
+    getIntelligenceState() {
+      return Promise.resolve(cloneValue(state.intelligence));
+    },
+    saveIntelligenceState(intelligenceState) {
+      state.intelligence = JobFinderIntelligenceStateSchema.parse(
+        cloneValue(intelligenceState),
+      );
+      return Promise.resolve();
+    },
+    getActivityControl() {
+      return Promise.resolve(cloneValue(state.activityControl));
+    },
+    saveActivityControl(activityControl) {
+      state.activityControl = JobFinderActivityControlSchema.parse(
+        cloneValue(activityControl),
       );
       return Promise.resolve();
     },

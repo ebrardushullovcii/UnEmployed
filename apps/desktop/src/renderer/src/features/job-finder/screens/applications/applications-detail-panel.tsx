@@ -73,6 +73,7 @@ interface ApplicationsDetailPanelProps {
   isApplyRunPending: (runId: string) => boolean;
   onApproveApplyRun: (runId: string) => void;
   onCancelApplyRun: (runId: string) => void;
+  onOpenCompany?: (companyId: string) => void;
   onExportApplicationPacket: (runId: string, jobId: string) => Promise<void>;
   onSaveApplicationAnswer: (
     command: SaveApplicationAnswerCommandInput,
@@ -92,6 +93,7 @@ interface ApplicationsDetailPanelProps {
   selectedApplyRunId: string | null;
   selectedAttempt: ApplicationAttempt | null;
   selectedRecord: ApplicationRecord | null;
+  selectedRecordCompanyId?: string | null;
 }
 
 export function ApplicationsDetailPanel({
@@ -112,6 +114,7 @@ export function ApplicationsDetailPanel({
   isApplyRunPending,
   onApproveApplyRun,
   onCancelApplyRun,
+  onOpenCompany,
   onExportApplicationPacket,
   onSaveApplicationAnswer,
   onClearApplicationAnswer,
@@ -124,6 +127,7 @@ export function ApplicationsDetailPanel({
   selectedApplyRunId,
   selectedAttempt,
   selectedRecord,
+  selectedRecordCompanyId,
 }: ApplicationsDetailPanelProps) {
   const visibleApplyResult = effectiveSelectedApplyResult;
   const canRestageAutoRun =
@@ -217,6 +221,17 @@ export function ApplicationsDetailPanel({
       </div>
       {selectedRecord ? (
         <div className="grid min-h-0 min-w-0 flex-1 content-start gap-6 overflow-y-auto pr-1">
+          {selectedRecordCompanyId && onOpenCompany ? (
+            <Button
+              className="h-10 justify-start px-3.5 text-sm font-medium normal-case tracking-normal"
+              onClick={() => onOpenCompany(selectedRecordCompanyId)}
+              size="compact"
+              type="button"
+              variant="secondary"
+            >
+              View {selectedRecord.company} in Companies
+            </Button>
+          ) : null}
           {canPrepareInterview ? (
             <Button
               asChild

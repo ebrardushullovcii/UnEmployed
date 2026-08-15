@@ -10,9 +10,12 @@ import {
   ApplicationQuestionRecordSchema,
   ApplicationReplayCheckpointSchema,
   CandidateProfileSchema,
+  JobFinderActivityControlSchema,
   JobFinderDiscoveryStateSchema,
+  JobFinderIntelligenceStateSchema,
   JobFinderRepositoryStateSchema,
   JobFinderSettingsSchema,
+  JobSearchCampaignCollectionSchema,
   JobSearchPreferencesSchema,
   ProfileCopilotMessageSchema,
   ProfileRevisionSchema,
@@ -29,6 +32,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { createFileRepositoryResumeMethods } from "./file-repository-resume-methods";
 import { createFileRepositoryUserActionMethods } from "./file-repository-user-action-methods";
+import { createFileRepositoryGroupedManualAnswerMethods } from "./file-repository-grouped-manual-answer-methods";
 import {
   APPLY_COLLECTION_ORDER_BY_SQL,
   APPLY_INDEXED_COLLECTION_CONFIGS,
@@ -140,6 +144,7 @@ export async function createFileJobFinderRepository(
   return {
     ...createFileRepositoryResumeMethods(context),
     ...createFileRepositoryUserActionMethods(context),
+    ...createFileRepositoryGroupedManualAnswerMethods(context),
     close() {
       database.close();
       return Promise.resolve();
@@ -741,6 +746,66 @@ export async function createFileJobFinderRepository(
         );
       });
 
+      return secureDatabaseFile(options.filePath);
+    },
+    getCampaignState() {
+      return Promise.resolve(
+        cloneValue(
+          getSingletonValue(
+            database,
+            "campaign_state",
+            JobSearchCampaignCollectionSchema,
+          ),
+        ),
+      );
+    },
+    saveCampaignState(campaignState) {
+      const normalizedCampaignState = JobSearchCampaignCollectionSchema.parse(
+        cloneValue(campaignState),
+      );
+      runImmediateTransaction(database, () => {
+        saveSingletonValue(database, "campaign_state", normalizedCampaignState);
+      });
+      return secureDatabaseFile(options.filePath);
+    },
+    getIntelligenceState() {
+      return Promise.resolve(
+        cloneValue(
+          getSingletonValue(
+            database,
+            "intelligence_state",
+            JobFinderIntelligenceStateSchema,
+          ) ?? JobFinderIntelligenceStateSchema.parse({}),
+        ),
+      );
+    },
+    saveIntelligenceState(intelligenceState) {
+      const normalized = JobFinderIntelligenceStateSchema.parse(
+        cloneValue(intelligenceState),
+      );
+      runImmediateTransaction(database, () => {
+        saveSingletonValue(database, "intelligence_state", normalized);
+      });
+      return secureDatabaseFile(options.filePath);
+    },
+    getActivityControl() {
+      return Promise.resolve(
+        cloneValue(
+          getSingletonValue(
+            database,
+            "activity_control",
+            JobFinderActivityControlSchema,
+          ) ?? JobFinderActivityControlSchema.parse({}),
+        ),
+      );
+    },
+    saveActivityControl(activityControl) {
+      const normalized = JobFinderActivityControlSchema.parse(
+        cloneValue(activityControl),
+      );
+      runImmediateTransaction(database, () => {
+        saveSingletonValue(database, "activity_control", normalized);
+      });
       return secureDatabaseFile(options.filePath);
     },
   };

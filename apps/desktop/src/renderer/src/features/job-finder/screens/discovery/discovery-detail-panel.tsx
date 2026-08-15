@@ -46,8 +46,10 @@ interface DiscoveryDetailPanelProps {
     jobId: string,
     reasons: readonly DiscoveryFeedbackReason[],
   ) => void;
+  onOpenCompany?: (companyId: string) => void;
   onQueueJob: (jobId: string) => void;
   selectedJob: SavedJob | null;
+  selectedJobCompanyId?: string | null;
 }
 
 export function SourceDiagnostics(props: {
@@ -155,8 +157,10 @@ export function DiscoveryDetailPanel({
   discoveryTargets,
   isJobPending,
   onDismissJob,
+  onOpenCompany,
   onQueueJob,
   selectedJob,
+  selectedJobCompanyId,
 }: DiscoveryDetailPanelProps) {
   const detailScrollAreaRef = useRef<HTMLDivElement>(null);
   const previousSelectedJobIdRef = useRef<string | null>(null);
@@ -236,6 +240,17 @@ export function DiscoveryDetailPanel({
               <p className="text-(length:--text-description) text-foreground-muted">
                 {selectedJob.company} • {selectedJob.location}
               </p>
+              {selectedJobCompanyId && onOpenCompany ? (
+                <Button
+                  className="justify-self-start"
+                  onClick={() => onOpenCompany(selectedJobCompanyId)}
+                  size="sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  View {selectedJob.company} in Companies
+                </Button>
+              ) : null}
             </div>
             <Button
               aria-describedby={DISCOVERY_DETAIL_HEADING_ID}

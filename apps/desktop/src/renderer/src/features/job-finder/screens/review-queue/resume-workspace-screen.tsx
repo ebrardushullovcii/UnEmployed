@@ -9,6 +9,7 @@ import { LockedScreenLayout } from "../../components/locked-screen-layout";
 import { ResumeWorkspaceEditorPanel } from "./resume-workspace-editor-panel";
 import { ResumeWorkspaceHeader } from "./resume-workspace-header";
 import { ResumeWorkspaceContextDisclosure } from "./resume-workspace-context-disclosure";
+import { ResumeStrategyContextPanel } from "./resume-strategy-context-panel";
 import { ResumeWorkspaceSecondaryRail } from "./resume-workspace-secondary-rail";
 import { ResumeWorkspaceSidebar } from "./resume-workspace-sidebar";
 import { ResumeGuidedEditsPopup } from "./resume-guided-edits-popup";
@@ -438,6 +439,9 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
               workspace={props.workspace}
             />
           </ResumeWorkspaceContextDisclosure>
+          <ResumeStrategyContextPanel
+            context={props.workspace.strategyContext ?? null}
+          />
         </>
       }
     >

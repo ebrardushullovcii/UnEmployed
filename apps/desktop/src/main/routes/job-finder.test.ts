@@ -5,8 +5,11 @@ import type { IpcMain } from "electron";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ApplicationPacketSchema,
+  getDefaultCampaignConfiguration,
   JobFinderWorkspaceSnapshotSchema,
+  MarkCampaignNotificationReadInputSchema,
   ResumeQualityBenchmarkReportSchema,
+  SaveCampaignRuleRouteInputSchema,
 } from "@unemployed/contracts";
 import { createEmptyJobFinderRepositoryState } from "../adapters/job-finder-initial-state";
 
@@ -16,23 +19,43 @@ type RegisteredHandler = (
 ) => Promise<unknown>;
 
 const {
+  mockApplyGroupedManualAnswer,
   mockBuildApplicationPacket,
+  mockDeleteCampaignRule,
   mockGetWorkspaceSnapshot,
   mockGetJobFinderWorkspaceService,
   mockIsDesktopTestApiEnabled,
+  mockMarkAllCampaignNotificationsRead,
+  mockMarkCampaignNotificationRead,
+  mockProjectCampaignRuleFunnel,
+  mockProjectGroupedManualAnswer,
   mockProposeProfileCopilotChange,
   mockQueueJobForReview,
+  mockRunCampaignNow,
   mockRunDesktopResumeQualityBenchmark,
+  mockSaveCampaignRule,
   mockShowSaveDialog,
+  mockSnoozeGroupedDecision,
+  mockToggleCampaignRule,
 } = vi.hoisted(() => ({
+  mockApplyGroupedManualAnswer: vi.fn(),
   mockBuildApplicationPacket: vi.fn(),
+  mockDeleteCampaignRule: vi.fn(),
   mockGetWorkspaceSnapshot: vi.fn(),
   mockGetJobFinderWorkspaceService: vi.fn(),
   mockIsDesktopTestApiEnabled: vi.fn(() => false),
+  mockMarkAllCampaignNotificationsRead: vi.fn(),
+  mockMarkCampaignNotificationRead: vi.fn(),
+  mockProjectCampaignRuleFunnel: vi.fn(),
+  mockProjectGroupedManualAnswer: vi.fn(),
   mockProposeProfileCopilotChange: vi.fn(),
   mockQueueJobForReview: vi.fn(),
+  mockRunCampaignNow: vi.fn(),
   mockRunDesktopResumeQualityBenchmark: vi.fn(),
+  mockSaveCampaignRule: vi.fn(),
   mockShowSaveDialog: vi.fn(),
+  mockSnoozeGroupedDecision: vi.fn(),
+  mockToggleCampaignRule: vi.fn(),
 }));
 
 vi.mock("electron", () => ({
@@ -112,6 +135,23 @@ const packet = ApplicationPacketSchema.parse({
 
 function createEmptyWorkspace(generatedAt: string) {
   const state = createEmptyJobFinderRepositoryState();
+  const campaign = {
+    id: "campaign-test",
+    name: "Test campaign",
+    description: "",
+    mode: "precision" as const,
+    status: "active" as const,
+    createdAt: generatedAt,
+    updatedAt: generatedAt,
+    searchPreferences: state.searchPreferences,
+    sourceTargetIds: [],
+    jobIds: [],
+    minimumFitScore: null,
+    ...getDefaultCampaignConfiguration("precision"),
+    schedule: {},
+    progress: { lastUpdatedAt: generatedAt },
+    history: [],
+  };
 
   return JobFinderWorkspaceSnapshotSchema.parse({
     module: "job-finder",
@@ -171,6 +211,36 @@ function createEmptyWorkspace(generatedAt: string) {
     settings: state.settings,
     userActionRequests: [],
     userActionEvents: [],
+    campaigns: [campaign],
+    activeCampaignId: campaign.id,
+    dashboard: {
+      generatedAt,
+      activeCampaignId: campaign.id,
+      activeCampaignCount: 1,
+      jobsFoundToday: 0,
+      jobsAwaitingReview: 0,
+      applicationsReadyForApproval: 0,
+      applicationsAppliedToday: 0,
+      applicationsAppliedThisWeek: 0,
+      needsYouCount: 0,
+      upcomingInterviews: 0,
+      upcomingFollowUps: 0,
+      responseRate: null,
+      interviewRate: null,
+      sourceHealth: {
+        healthy: 0,
+        needsAttention: 0,
+        running: 0,
+        total: 0,
+      },
+      backgroundOperationCount: 0,
+      recommendedNextAction: {
+        label: "Review profile",
+        detail: "Complete the profile before searching.",
+        route: "/job-finder/profile",
+      },
+    },
+    activityControl: { paused: false, pausedAt: null, reason: null },
   });
 }
 
@@ -273,10 +343,7 @@ describe("job-finder application packet export route", () => {
   });
 
   it("returns a typed delta for a bounded entity mutation", async () => {
-    const initial = await syncHandler(
-      { sender: {} },
-      { baseRevision: null },
-    );
+    const initial = await syncHandler({ sender: {} }, { baseRevision: null });
     expect(initial).toMatchObject({
       kind: "snapshot",
       currentRevision: 1,
@@ -439,5 +506,926 @@ describe("job-finder resume quality benchmark route", () => {
       canaryOnly: true,
       useConfiguredAi: true,
     });
+  });
+});
+
+describe("job-finder campaign run and notification read routes", () => {
+  let runCampaignNowHandler: RegisteredHandler;
+  let markNotificationReadHandler: RegisteredHandler;
+  let markAllNotificationsReadHandler: RegisteredHandler;
+
+  beforeEach(() => {
+    mockRunCampaignNow.mockClear();
+    mockMarkCampaignNotificationRead.mockClear();
+    mockMarkAllCampaignNotificationsRead.mockClear();
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      markAllCampaignNotificationsRead: mockMarkAllCampaignNotificationsRead,
+      markCampaignNotificationRead: mockMarkCampaignNotificationRead,
+      runCampaignNow: mockRunCampaignNow,
+    });
+    mockRunCampaignNow.mockResolvedValue(
+      createEmptyWorkspace("2026-08-09T11:00:00.000Z"),
+    );
+    mockMarkCampaignNotificationRead.mockResolvedValue(
+      createEmptyWorkspace("2026-08-09T11:01:00.000Z"),
+    );
+    mockMarkAllCampaignNotificationsRead.mockResolvedValue(
+      createEmptyWorkspace("2026-08-09T11:02:00.000Z"),
+    );
+
+    const handlers = new Map<string, RegisteredHandler>();
+    const ipcMain = {
+      handle: vi.fn((channel: string, handler: RegisteredHandler) => {
+        handlers.set(channel, handler);
+      }),
+    } as unknown as IpcMain;
+    registerJobFinderRouteHandlers(ipcMain);
+    const runNow = handlers.get("job-finder:run-campaign-now");
+    const markRead = handlers.get("job-finder:mark-campaign-notification-read");
+    const markAllRead = handlers.get(
+      "job-finder:mark-all-campaign-notifications-read",
+    );
+    if (!runNow || !markRead || !markAllRead) {
+      throw new Error(
+        "Campaign run and notification read handlers were not registered.",
+      );
+    }
+    runCampaignNowHandler = runNow;
+    markNotificationReadHandler = markRead;
+    markAllNotificationsReadHandler = markAllRead;
+  });
+
+  it("parses an explicit campaign id for run-campaign-now", async () => {
+    const result = await runCampaignNowHandler(
+      { sender: {} },
+      { campaignId: "campaign-1" },
+    );
+
+    expect(mockRunCampaignNow).toHaveBeenCalledWith({
+      campaignId: "campaign-1",
+    });
+    expect(result).toMatchObject({ module: "job-finder" });
+  });
+
+  it("treats omitted or null campaign ids as the active campaign", async () => {
+    await runCampaignNowHandler({ sender: {} }, undefined);
+    expect(mockRunCampaignNow).toHaveBeenCalledWith({});
+
+    mockRunCampaignNow.mockClear();
+    await runCampaignNowHandler({ sender: {} }, { campaignId: null });
+    expect(mockRunCampaignNow).toHaveBeenCalledWith({ campaignId: null });
+  });
+
+  it("rejects a malformed run-campaign-now payload", async () => {
+    await expect(
+      runCampaignNowHandler({ sender: {} }, { campaignId: 42 }),
+    ).rejects.toThrow();
+    expect(mockRunCampaignNow).not.toHaveBeenCalled();
+  });
+
+  it("supplies the ISO readAt for mark-campaign-notification-read", async () => {
+    const result = await markNotificationReadHandler(
+      { sender: {} },
+      { notificationId: "notification-1" },
+    );
+
+    const input = MarkCampaignNotificationReadInputSchema.parse(
+      mockMarkCampaignNotificationRead.mock.calls.at(-1)?.[0],
+    );
+    expect(input.notificationId).toBe("notification-1");
+    expect(typeof input.readAt).toBe("string");
+    expect(new Date(input.readAt).toISOString()).toBe(input.readAt);
+    expect(result).toMatchObject({ module: "job-finder" });
+  });
+
+  it("rejects a mark-read payload without a notification id", async () => {
+    await expect(
+      markNotificationReadHandler({ sender: {} }, {}),
+    ).rejects.toThrow();
+    expect(mockMarkCampaignNotificationRead).not.toHaveBeenCalled();
+  });
+
+  it("routes mark-all-campaign-notifications-read to the service without extra payload", async () => {
+    const result = await markAllNotificationsReadHandler(
+      { sender: {} },
+      undefined,
+    );
+
+    expect(mockMarkAllCampaignNotificationsRead).toHaveBeenCalledTimes(1);
+    const input = mockMarkAllCampaignNotificationsRead.mock.calls.at(-1)?.[0];
+    expect(typeof input?.readAt).toBe("string");
+    expect(new Date(input.readAt).toISOString()).toBe(input.readAt);
+    expect(result).toMatchObject({ module: "job-finder" });
+  });
+});
+
+describe("job-finder campaign rule mutation and funnel routes", () => {
+  let saveRuleHandler: RegisteredHandler;
+  let deleteRuleHandler: RegisteredHandler;
+  let toggleRuleHandler: RegisteredHandler;
+  let projectFunnelHandler: RegisteredHandler;
+
+  const rulePayload = {
+    id: null,
+    kind: "must_have",
+    field: "role",
+    operator: "contains",
+    value: "frontend",
+    provenance: { source: "user", recordedAt: "2026-08-15T10:00:00.000Z" },
+  };
+
+  beforeEach(() => {
+    mockSaveCampaignRule.mockClear();
+    mockDeleteCampaignRule.mockClear();
+    mockToggleCampaignRule.mockClear();
+    mockProjectCampaignRuleFunnel.mockClear();
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      deleteCampaignRule: mockDeleteCampaignRule,
+      projectCampaignRuleFunnel: mockProjectCampaignRuleFunnel,
+      saveCampaignRule: mockSaveCampaignRule,
+      toggleCampaignRule: mockToggleCampaignRule,
+    });
+    mockSaveCampaignRule.mockResolvedValue(
+      createEmptyWorkspace("2026-08-09T11:02:00.000Z"),
+    );
+    mockDeleteCampaignRule.mockResolvedValue(
+      createEmptyWorkspace("2026-08-09T11:03:00.000Z"),
+    );
+    mockToggleCampaignRule.mockResolvedValue(
+      createEmptyWorkspace("2026-08-09T11:04:00.000Z"),
+    );
+    mockProjectCampaignRuleFunnel.mockResolvedValue({
+      campaignId: "campaign-1",
+      generatedAt: "2026-08-09T11:05:00.000Z",
+      rules: [],
+      disabledRuleIds: [],
+      funnel: {
+        sampleSize: 0,
+        hardRemovedCount: 0,
+        retainedCount: 0,
+        preferDowngradedCount: 0,
+        uncertainCount: 0,
+        confirmedRetainedCount: 0,
+        rankedJobIds: [],
+        measuredAt: "2026-08-09T11:05:00.000Z",
+      },
+    });
+
+    const handlers = new Map<string, RegisteredHandler>();
+    const ipcMain = {
+      handle: vi.fn((channel: string, handler: RegisteredHandler) => {
+        handlers.set(channel, handler);
+      }),
+    } as unknown as IpcMain;
+    registerJobFinderRouteHandlers(ipcMain);
+    const saveRule = handlers.get("job-finder:save-campaign-rule");
+    const deleteRule = handlers.get("job-finder:delete-campaign-rule");
+    const toggleRule = handlers.get("job-finder:toggle-campaign-rule");
+    const projectFunnel = handlers.get(
+      "job-finder:project-campaign-rule-funnel",
+    );
+    if (!saveRule || !deleteRule || !toggleRule || !projectFunnel) {
+      throw new Error("Campaign rule handlers were not registered.");
+    }
+    saveRuleHandler = saveRule;
+    deleteRuleHandler = deleteRule;
+    toggleRuleHandler = toggleRule;
+    projectFunnelHandler = projectFunnel;
+  });
+
+  it("parses a save-campaign-rule payload and returns a snapshot", async () => {
+    const result = await saveRuleHandler(
+      { sender: {} },
+      { campaignId: "campaign-1", rule: rulePayload },
+    );
+
+    const input = SaveCampaignRuleRouteInputSchema.parse(
+      mockSaveCampaignRule.mock.calls.at(-1)?.[0],
+    );
+    expect(input.campaignId).toBe("campaign-1");
+    expect(input.rule.kind).toBe("must_have");
+    expect(input.rule.field).toBe("role");
+    expect(input.rule.operator).toBe("contains");
+    expect(input.rule.value).toBe("frontend");
+    // The route input defaults the id, enabled state, and effect so the
+    // service always receives a complete rule.
+    expect(input.rule.id).toBeNull();
+    expect(input.rule.enabled).toBe(true);
+    expect(input.rule.effect.sampleSize).toBe(0);
+    expect(result).toMatchObject({ module: "job-finder" });
+  });
+
+  it("rejects a save-campaign-rule payload without a campaign id", async () => {
+    await expect(
+      saveRuleHandler({ sender: {} }, { rule: rulePayload }),
+    ).rejects.toThrow();
+    expect(mockSaveCampaignRule).not.toHaveBeenCalled();
+  });
+
+  it("parses a delete-campaign-rule payload", async () => {
+    const result = await deleteRuleHandler(
+      { sender: {} },
+      { campaignId: "campaign-1", ruleId: "rule_1" },
+    );
+    expect(mockDeleteCampaignRule).toHaveBeenCalledWith({
+      campaignId: "campaign-1",
+      ruleId: "rule_1",
+    });
+    expect(result).toMatchObject({ module: "job-finder" });
+  });
+
+  it("rejects a delete-campaign-rule payload without a rule id", async () => {
+    await expect(
+      deleteRuleHandler({ sender: {} }, { campaignId: "campaign-1" }),
+    ).rejects.toThrow();
+    expect(mockDeleteCampaignRule).not.toHaveBeenCalled();
+  });
+
+  it("parses a toggle-campaign-rule payload", async () => {
+    const result = await toggleRuleHandler(
+      { sender: {} },
+      { campaignId: "campaign-1", ruleId: "rule_1", enabled: false },
+    );
+    expect(mockToggleCampaignRule).toHaveBeenCalledWith({
+      campaignId: "campaign-1",
+      ruleId: "rule_1",
+      enabled: false,
+    });
+    expect(result).toMatchObject({ module: "job-finder" });
+  });
+
+  it("rejects a toggle-campaign-rule payload with a non-boolean enabled flag", async () => {
+    await expect(
+      toggleRuleHandler(
+        { sender: {} },
+        { campaignId: "campaign-1", ruleId: "rule_1", enabled: "yes" },
+      ),
+    ).rejects.toThrow();
+    expect(mockToggleCampaignRule).not.toHaveBeenCalled();
+  });
+
+  it("returns a parsed funnel projection from project-campaign-rule-funnel", async () => {
+    const result = await projectFunnelHandler(
+      { sender: {} },
+      { campaignId: "campaign-1" },
+    );
+    expect(mockProjectCampaignRuleFunnel).toHaveBeenCalledWith({
+      campaignId: "campaign-1",
+    });
+    expect(result).toMatchObject({
+      campaignId: "campaign-1",
+      funnel: { sampleSize: 0 },
+    });
+  });
+
+  it("rejects a project-campaign-rule-funnel payload without a campaign id", async () => {
+    await expect(projectFunnelHandler({ sender: {} }, {})).rejects.toThrow();
+    expect(mockProjectCampaignRuleFunnel).not.toHaveBeenCalled();
+  });
+});
+
+describe("job-finder grouped manual-answer routes", () => {
+  let projectHandler: RegisteredHandler;
+  let applyHandler: RegisteredHandler;
+  let snoozeHandler: RegisteredHandler;
+
+  beforeEach(() => {
+    const groupedSnapshot = createEmptyWorkspace("2026-08-15T10:00:00.000Z");
+    mockProjectGroupedManualAnswer.mockResolvedValue(groupedSnapshot);
+    mockApplyGroupedManualAnswer.mockResolvedValue(groupedSnapshot);
+    mockSnoozeGroupedDecision.mockResolvedValue(groupedSnapshot);
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      applyGroupedManualAnswer: mockApplyGroupedManualAnswer,
+      projectGroupedManualAnswer: mockProjectGroupedManualAnswer,
+      snoozeGroupedDecision: mockSnoozeGroupedDecision,
+    });
+
+    const handlers = new Map<string, RegisteredHandler>();
+    const ipcMain = {
+      handle: vi.fn((channel: string, handler: RegisteredHandler) => {
+        handlers.set(channel, handler);
+      }),
+    } as unknown as IpcMain;
+    registerJobFinderRouteHandlers(ipcMain);
+    const project = handlers.get("job-finder:project-grouped-manual-answer");
+    const apply = handlers.get("job-finder:apply-grouped-manual-answer");
+    const snooze = handlers.get("job-finder:snooze-grouped-decision");
+    if (!project || !apply || !snooze) {
+      throw new Error("Grouped manual-answer handlers were not registered.");
+    }
+    projectHandler = project;
+    applyHandler = apply;
+    snoozeHandler = snooze;
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("projects a typed grouped manual-answer command and returns the parsed snapshot", async () => {
+    const result = await projectHandler(
+      { sender: {} },
+      {
+        groupKey: "group_1",
+        requestId: "request_a",
+        expectedRequestRevision: 1,
+        answer: { type: "text", value: "5 years" },
+        saveScope: "reusable_profile",
+      },
+    );
+
+    expect(mockProjectGroupedManualAnswer).toHaveBeenCalledWith({
+      groupKey: "group_1",
+      requestId: "request_a",
+      expectedRequestRevision: 1,
+      answer: { type: "text", value: "5 years" },
+      saveScope: "reusable_profile",
+    });
+    expect(result).toMatchObject({ module: "job-finder" });
+  });
+
+  it("rejects a project command whose answer is not reusable text", async () => {
+    await expect(
+      projectHandler(
+        { sender: {} },
+        {
+          groupKey: "group_1",
+          requestId: "request_a",
+          expectedRequestRevision: 1,
+          answer: { type: "single_choice", value: "Yes" },
+        },
+      ),
+    ).rejects.toThrow();
+    expect(mockProjectGroupedManualAnswer).not.toHaveBeenCalled();
+  });
+
+  it("applies a typed grouped manual-answer input and returns the parsed snapshot", async () => {
+    const result = await applyHandler(
+      { sender: {} },
+      {
+        decisionId: "group_1:abc123",
+        requestIds: ["request_a", "request_b"],
+        expectedRequestRevisions: { request_a: 1, request_b: 1 },
+        answer: { type: "text", value: "5 years" },
+      },
+    );
+
+    expect(mockApplyGroupedManualAnswer).toHaveBeenCalledWith({
+      decisionId: "group_1:abc123",
+      requestIds: ["request_a", "request_b"],
+      expectedRequestRevisions: { request_a: 1, request_b: 1 },
+      answer: { type: "text", value: "5 years" },
+    });
+    expect(result).toMatchObject({ module: "job-finder" });
+  });
+
+  it("rejects an apply input whose revisions do not cover every request id", async () => {
+    await expect(
+      applyHandler(
+        { sender: {} },
+        {
+          decisionId: "group_1:abc123",
+          requestIds: ["request_a", "request_b"],
+          expectedRequestRevisions: { request_a: 1 },
+          answer: { type: "text", value: "5 years" },
+        },
+      ),
+    ).rejects.toThrow();
+    expect(mockApplyGroupedManualAnswer).not.toHaveBeenCalled();
+  });
+
+  it("snoozes a grouped decision and defaults a missing reason to null", async () => {
+    const result = await snoozeHandler(
+      { sender: {} },
+      {
+        decisionId: "group_1:abc123",
+        expectedRevision: 1,
+        until: "2026-08-17T10:00:00.000Z",
+      },
+    );
+
+    expect(mockSnoozeGroupedDecision).toHaveBeenCalledWith({
+      decisionId: "group_1:abc123",
+      expectedRevision: 1,
+      until: "2026-08-17T10:00:00.000Z",
+      reason: null,
+    });
+    expect(result).toMatchObject({ module: "job-finder" });
+  });
+
+  it("rejects a snooze payload without a decision id", async () => {
+    await expect(
+      snoozeHandler(
+        { sender: {} },
+        { expectedRevision: 1, until: "2026-08-17T10:00:00.000Z" },
+      ),
+    ).rejects.toThrow();
+    expect(mockSnoozeGroupedDecision).not.toHaveBeenCalled();
+  });
+});
+
+describe("job-finder outcome analytics routes", () => {
+  let recordOutcomeHandler: RegisteredHandler;
+  let setOutcomeSuggestionEnabledHandler: RegisteredHandler;
+  const mockRecordOutcome = vi.fn();
+  const mockSetOutcomeSuggestionEnabled = vi.fn();
+
+  beforeEach(() => {
+    mockRecordOutcome.mockClear();
+    mockSetOutcomeSuggestionEnabled.mockClear();
+    mockRecordOutcome.mockResolvedValue(
+      createEmptyWorkspace("2026-08-09T12:00:00.000Z"),
+    );
+    mockSetOutcomeSuggestionEnabled.mockResolvedValue(
+      createEmptyWorkspace("2026-08-09T12:01:00.000Z"),
+    );
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      recordOutcome: mockRecordOutcome,
+      setOutcomeSuggestionEnabled: mockSetOutcomeSuggestionEnabled,
+    });
+
+    const handlers = new Map<string, RegisteredHandler>();
+    const ipcMain = {
+      handle: vi.fn((channel: string, handler: RegisteredHandler) => {
+        handlers.set(channel, handler);
+      }),
+    } as unknown as IpcMain;
+    registerJobFinderRouteHandlers(ipcMain);
+    const recordOutcome = handlers.get("job-finder:record-outcome");
+    const setOutcomeSuggestionEnabled = handlers.get(
+      "job-finder:set-outcome-suggestion-enabled",
+    );
+    if (!recordOutcome || !setOutcomeSuggestionEnabled) {
+      throw new Error("Outcome analytics handlers were not registered.");
+    }
+    recordOutcomeHandler = recordOutcome;
+    setOutcomeSuggestionEnabledHandler = setOutcomeSuggestionEnabled;
+  });
+
+  it("parses a record-outcome payload and returns a parsed snapshot", async () => {
+    const result = await recordOutcomeHandler(
+      { sender: {} },
+      {
+        jobId: "job-1",
+        outcome: "interview",
+        resumeStrategyId: "strategy-1",
+        note: "Recruiter call went well",
+      },
+    );
+
+    expect(mockRecordOutcome).toHaveBeenCalledWith({
+      jobId: "job-1",
+      outcome: "interview",
+      resumeStrategyId: "strategy-1",
+      note: "Recruiter call went well",
+    });
+    expect(result).toMatchObject({ module: "job-finder" });
+  });
+
+  it("defaults optional facts to null on a record-outcome payload", async () => {
+    const result = await recordOutcomeHandler(
+      { sender: {} },
+      { jobId: "job-1", outcome: "applied" },
+    );
+
+    expect(mockRecordOutcome).toHaveBeenCalledWith({
+      jobId: "job-1",
+      outcome: "applied",
+      resumeStrategyId: null,
+      note: null,
+    });
+    expect(result).toMatchObject({ module: "job-finder" });
+  });
+
+  it("rejects a record-outcome payload with an unknown outcome", async () => {
+    await expect(
+      recordOutcomeHandler(
+        { sender: {} },
+        { jobId: "job-1", outcome: "submitted_without_approval" },
+      ),
+    ).rejects.toThrow();
+    expect(mockRecordOutcome).not.toHaveBeenCalled();
+  });
+
+  it("parses a suggestion disable payload", async () => {
+    const result = await setOutcomeSuggestionEnabledHandler(
+      { sender: {} },
+      { dimension: "source", key: "example", enabled: false },
+    );
+
+    expect(mockSetOutcomeSuggestionEnabled).toHaveBeenCalledWith({
+      dimension: "source",
+      key: "example",
+      enabled: false,
+      reset: false,
+    });
+    expect(result).toMatchObject({ module: "job-finder" });
+  });
+
+  it("parses a suggestion reset payload with the reset flag", async () => {
+    const result = await setOutcomeSuggestionEnabledHandler(
+      { sender: {} },
+      { dimension: "campaign", key: "campaign-1", enabled: true, reset: true },
+    );
+
+    expect(mockSetOutcomeSuggestionEnabled).toHaveBeenCalledWith({
+      dimension: "campaign",
+      key: "campaign-1",
+      enabled: true,
+      reset: true,
+    });
+    expect(result).toMatchObject({ module: "job-finder" });
+  });
+
+  it("rejects a suggestion payload without a key", async () => {
+    await expect(
+      setOutcomeSuggestionEnabledHandler(
+        { sender: {} },
+        { dimension: "source", enabled: false },
+      ),
+    ).rejects.toThrow();
+    expect(mockSetOutcomeSuggestionEnabled).not.toHaveBeenCalled();
+  });
+});
+
+describe("job-finder resume strategy routes", () => {
+  let recommendHandler: RegisteredHandler;
+  let setCampaignDefaultHandler: RegisteredHandler;
+  let saveHandler: RegisteredHandler;
+  let disableHandler: RegisteredHandler;
+  let selectHandler: RegisteredHandler;
+  const mockRecommendResumeStrategy = vi.fn();
+  const mockSetCampaignResumeStrategyDefault = vi.fn();
+  const mockSaveResumeStrategy = vi.fn();
+  const mockDisableResumeStrategy = vi.fn();
+  const mockSelectResumeStrategy = vi.fn();
+
+  beforeEach(() => {
+    const snapshot = createEmptyWorkspace("2026-08-15T10:00:00.000Z");
+    const recommendation = {
+      jobId: "job-1",
+      campaignId: "campaign-test",
+      roleFamily: "Backend Engineering",
+      strategyId: "strategy-1",
+      strategyName: "Backend",
+      source: "role_family",
+      reason: "Exact role family match.",
+    };
+    mockRecommendResumeStrategy.mockResolvedValue(recommendation);
+    mockSetCampaignResumeStrategyDefault.mockResolvedValue(snapshot);
+    mockSaveResumeStrategy.mockResolvedValue(snapshot);
+    mockDisableResumeStrategy.mockResolvedValue(snapshot);
+    mockSelectResumeStrategy.mockResolvedValue(snapshot);
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      recommendResumeStrategy: mockRecommendResumeStrategy,
+      setCampaignResumeStrategyDefault: mockSetCampaignResumeStrategyDefault,
+      saveResumeStrategy: mockSaveResumeStrategy,
+      disableResumeStrategy: mockDisableResumeStrategy,
+      selectResumeStrategy: mockSelectResumeStrategy,
+    });
+
+    const handlers = new Map<string, RegisteredHandler>();
+    const ipcMain = {
+      handle: vi.fn((channel: string, handler: RegisteredHandler) => {
+        handlers.set(channel, handler);
+      }),
+    } as unknown as IpcMain;
+    registerJobFinderRouteHandlers(ipcMain);
+    const recommend = handlers.get("job-finder:recommend-resume-strategy");
+    const setCampaignDefault = handlers.get(
+      "job-finder:set-campaign-resume-strategy-default",
+    );
+    const save = handlers.get("job-finder:save-resume-strategy");
+    const disable = handlers.get("job-finder:disable-resume-strategy");
+    const select = handlers.get("job-finder:select-resume-strategy");
+    if (!recommend || !setCampaignDefault || !save || !disable || !select) {
+      throw new Error("Resume strategy handlers were not registered.");
+    }
+    recommendHandler = recommend;
+    setCampaignDefaultHandler = setCampaignDefault;
+    saveHandler = save;
+    disableHandler = disable;
+    selectHandler = select;
+  });
+
+  it("returns a parsed recommendation for a job", async () => {
+    const result = await recommendHandler(
+      { sender: {} },
+      { jobId: "job-1", campaignId: "campaign-test" },
+    );
+
+    expect(mockRecommendResumeStrategy).toHaveBeenCalledWith({
+      jobId: "job-1",
+      campaignId: "campaign-test",
+    });
+    expect(result).toMatchObject({
+      jobId: "job-1",
+      source: "role_family",
+      strategyId: "strategy-1",
+    });
+  });
+
+  it("rejects a recommendation payload without a job id", async () => {
+    await expect(
+      recommendHandler({ sender: {} }, { campaignId: "campaign-test" }),
+    ).rejects.toThrow();
+    expect(mockRecommendResumeStrategy).not.toHaveBeenCalled();
+  });
+
+  it("assigns a campaign resume strategy default", async () => {
+    const result = await setCampaignDefaultHandler(
+      { sender: {} },
+      { campaignId: "campaign-test", strategyId: "strategy-1" },
+    );
+
+    expect(mockSetCampaignResumeStrategyDefault).toHaveBeenCalledWith({
+      campaignId: "campaign-test",
+      strategyId: "strategy-1",
+    });
+    expect(result).toMatchObject({ module: "job-finder" });
+  });
+
+  it("rejects a campaign default payload missing the strategy id field", async () => {
+    await expect(
+      setCampaignDefaultHandler(
+        { sender: {} },
+        { campaignId: "campaign-test" },
+      ),
+    ).rejects.toThrow();
+    expect(mockSetCampaignResumeStrategyDefault).not.toHaveBeenCalled();
+  });
+
+  it("saves, disables, and selects strategies through typed payloads", async () => {
+    const saveInput = {
+      id: null,
+      name: "Backend",
+      roleFamily: "Backend Engineering",
+      baseResumeDocumentId: "document-1",
+      templateId: "classic_ats",
+      headlinePolicy: "fixed",
+      skillsPolicy: "base_only",
+      coveragePolicy: "base_omissions",
+      tailoringStrength: "conservative",
+      evidenceBoundaries: {},
+      enabled: true,
+    };
+    await saveHandler({ sender: {} }, saveInput);
+    expect(mockSaveResumeStrategy).toHaveBeenCalledWith(saveInput);
+
+    await disableHandler({ sender: {} }, "strategy-1");
+    expect(mockDisableResumeStrategy).toHaveBeenCalledWith("strategy-1");
+
+    const selectInput = {
+      jobId: "job-1",
+      campaignId: "campaign-test",
+      strategyId: "strategy-1",
+      source: "manual",
+      reason: "Picked by the user.",
+    };
+    await selectHandler({ sender: {} }, selectInput);
+    expect(mockSelectResumeStrategy).toHaveBeenCalledWith(selectInput);
+  });
+
+  it("rejects a selection with an empty reason so every selection stays inspectable", async () => {
+    await expect(
+      selectHandler(
+        { sender: {} },
+        {
+          jobId: "job-1",
+          campaignId: "campaign-test",
+          strategyId: "strategy-1",
+          source: "manual",
+          reason: "   ",
+        },
+      ),
+    ).rejects.toThrow();
+    expect(mockSelectResumeStrategy).not.toHaveBeenCalled();
+  });
+});
+
+describe("job-finder company intelligence routes", () => {
+  let mutateHandler: RegisteredHandler;
+  let preferenceHandler: RegisteredHandler;
+  let mergeHandler: RegisteredHandler;
+  let refreshHandler: RegisteredHandler;
+  const mockMutateCompanyIntelligence = vi.fn();
+  const mockSetCompanyPreference = vi.fn();
+  const mockReviewCompanyMerge = vi.fn();
+  const mockRefreshCompanyIntelligence = vi.fn();
+
+  beforeEach(() => {
+    const snapshot = createEmptyWorkspace("2026-08-15T10:00:00.000Z");
+    mockMutateCompanyIntelligence.mockResolvedValue(snapshot);
+    mockSetCompanyPreference.mockResolvedValue(snapshot);
+    mockReviewCompanyMerge.mockResolvedValue(snapshot);
+    mockRefreshCompanyIntelligence.mockResolvedValue(snapshot);
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      mutateCompanyIntelligence: mockMutateCompanyIntelligence,
+      setCompanyPreference: mockSetCompanyPreference,
+      reviewCompanyMerge: mockReviewCompanyMerge,
+      refreshCompanyIntelligence: mockRefreshCompanyIntelligence,
+    });
+
+    const handlers = new Map<string, RegisteredHandler>();
+    const ipcMain = {
+      handle: vi.fn((channel: string, handler: RegisteredHandler) => {
+        handlers.set(channel, handler);
+      }),
+    } as unknown as IpcMain;
+    registerJobFinderRouteHandlers(ipcMain);
+    const mutate = handlers.get("job-finder:mutate-company-intelligence");
+    const preference = handlers.get("job-finder:set-company-preference");
+    const merge = handlers.get("job-finder:review-company-merge");
+    const refresh = handlers.get("job-finder:refresh-company-intelligence");
+    if (!mutate || !preference || !merge || !refresh) {
+      throw new Error("Company intelligence handlers were not registered.");
+    }
+    mutateHandler = mutate;
+    preferenceHandler = preference;
+    mergeHandler = merge;
+    refreshHandler = refresh;
+  });
+
+  it("applies a typed company intelligence mutation and returns the parsed snapshot", async () => {
+    const result = await mutateHandler(
+      { sender: {} },
+      {
+        companyId: "company_1",
+        expectedUpdatedAt: "2026-08-15T10:00:00.000Z",
+        mutation: {
+          type: "upsert_contact",
+          contact: {
+            id: "contact_1",
+            name: "Ada",
+            role: null,
+            email: null,
+            phone: null,
+            notes: null,
+            createdAt: "2026-08-15T10:00:00.000Z",
+            updatedAt: "2026-08-15T10:00:00.000Z",
+          },
+        },
+      },
+    );
+
+    expect(mockMutateCompanyIntelligence).toHaveBeenCalledWith({
+      companyId: "company_1",
+      expectedUpdatedAt: "2026-08-15T10:00:00.000Z",
+      mutation: {
+        type: "upsert_contact",
+        contact: {
+          id: "contact_1",
+          name: "Ada",
+          role: null,
+          email: null,
+          phone: null,
+          notes: null,
+          createdAt: "2026-08-15T10:00:00.000Z",
+          updatedAt: "2026-08-15T10:00:00.000Z",
+        },
+      },
+    });
+    expect(result).toMatchObject({ module: "job-finder" });
+  });
+
+  it("rejects a company mutation without the compare-and-swap timestamp", async () => {
+    await expect(
+      mutateHandler(
+        { sender: {} },
+        {
+          companyId: "company_1",
+          mutation: { type: "remove_note", noteId: "note_1" },
+        },
+      ),
+    ).rejects.toThrow();
+    expect(mockMutateCompanyIntelligence).not.toHaveBeenCalled();
+  });
+
+  it("sets a company preference and reviews a merge through typed payloads", async () => {
+    await preferenceHandler(
+      { sender: {} },
+      { companyId: "company_1", preference: "exclude" },
+    );
+    expect(mockSetCompanyPreference).toHaveBeenCalledWith({
+      companyId: "company_1",
+      preference: "exclude",
+    });
+
+    await mergeHandler(
+      { sender: {} },
+      {
+        companyId: "company_1",
+        candidateId: "company_2",
+        decision: "accepted",
+      },
+    );
+    expect(mockReviewCompanyMerge).toHaveBeenCalledWith({
+      companyId: "company_1",
+      candidateId: "company_2",
+      decision: "accepted",
+    });
+  });
+
+  it("rejects a merge decision that is not accepted or rejected", async () => {
+    await expect(
+      mergeHandler(
+        { sender: {} },
+        { companyId: "company_1", candidateId: "company_2", decision: "maybe" },
+      ),
+    ).rejects.toThrow();
+    expect(mockReviewCompanyMerge).not.toHaveBeenCalled();
+  });
+
+  it("refreshes company intelligence and returns the parsed snapshot", async () => {
+    const result = await refreshHandler({ sender: {} }, undefined);
+    expect(mockRefreshCompanyIntelligence).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ module: "job-finder" });
+  });
+});
+
+describe("job-finder safeguards route", () => {
+  let mutateHandler: RegisteredHandler;
+  const mockMutateSafeguards = vi.fn();
+
+  beforeEach(() => {
+    const snapshot = createEmptyWorkspace("2026-08-15T10:00:00.000Z");
+    mockMutateSafeguards.mockResolvedValue(snapshot);
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      mutateSafeguards: mockMutateSafeguards,
+    });
+
+    const handlers = new Map<string, RegisteredHandler>();
+    const ipcMain = {
+      handle: vi.fn((channel: string, handler: RegisteredHandler) => {
+        handlers.set(channel, handler);
+      }),
+    } as unknown as IpcMain;
+    registerJobFinderRouteHandlers(ipcMain);
+    const mutate = handlers.get("job-finder:mutate-safeguards");
+    if (!mutate) {
+      throw new Error("Safeguards mutation handler was not registered.");
+    }
+    mutateHandler = mutate;
+  });
+
+  it("applies a typed listing-signal safeguard mutation and returns the parsed snapshot", async () => {
+    const result = await mutateHandler(
+      { sender: {} },
+      {
+        type: "record_listing_signal",
+        signalId: "signal_1",
+        jobId: "job_1",
+        signal: "suspicious",
+        detail: null,
+        detectedAt: "2026-08-15T10:00:00.000Z",
+        confidence: 0.9,
+        provenance: "provider",
+        explanation: "Provider reported the listing state.",
+        recoveryGuidance: "Re-verify the listing.",
+      },
+    );
+
+    expect(mockMutateSafeguards).toHaveBeenCalledWith({
+      type: "record_listing_signal",
+      signalId: "signal_1",
+      jobId: "job_1",
+      signal: "suspicious",
+      detail: null,
+      detectedAt: "2026-08-15T10:00:00.000Z",
+      confidence: 0.9,
+      provenance: "provider",
+      explanation: "Provider reported the listing state.",
+      recoveryGuidance: "Re-verify the listing.",
+    });
+    expect(result).toMatchObject({ module: "job-finder" });
+  });
+
+  it("rejects a safeguard mutation that attempts to carry submit authority", async () => {
+    await expect(
+      mutateHandler(
+        { sender: {} },
+        {
+          type: "record_listing_signal",
+          signalId: "signal_1",
+          jobId: "job_1",
+          signal: "stale",
+          detail: null,
+          detectedAt: "2026-08-15T10:00:00.000Z",
+          confidence: 0.5,
+          provenance: "provider",
+          explanation: "Provider reported the listing state.",
+          recoveryGuidance: "Re-verify the listing.",
+          submitAuthorized: true,
+        },
+      ),
+    ).rejects.toThrow();
+    expect(mockMutateSafeguards).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unknown safeguard mutation kind", async () => {
+    await expect(
+      mutateHandler({ sender: {} }, { type: "not_a_real_kind" }),
+    ).rejects.toThrow();
+    expect(mockMutateSafeguards).not.toHaveBeenCalled();
   });
 });

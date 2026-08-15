@@ -1,9 +1,16 @@
 import type {
+  ApplicationCrmExportInput,
+  ApplicationCrmFileExportResult,
+  ApplicationCrmMutationInput,
+  ApplicationCrmSettings,
+  ApplyGroupedManualAnswerInput,
   ApplyRunDetails,
+  CampaignRuleFunnelProjection,
   CandidateAnswerKind,
   CandidateLinkKind,
   CandidateProfile,
   ClearApplicationAnswerCommandInput,
+  CompanyIntelligenceMutationInput,
   DiscoveryActivityEvent,
   DiscoveryFeedbackReason,
   EditableSourceInstructionArtifact,
@@ -16,18 +23,34 @@ import type {
   JobFinderResumeWorkspace,
   JobFinderSettings,
   JobSearchPreferences,
+  RapidReviewMutationInput,
+  RecommendResumeStrategyInput,
+  RecordOutcomeInput,
+  ResumeStrategyRecommendation,
+  ReviewCompanyMergeInput,
+  SaveResumeStrategyInput,
+  SafeguardMutationInput,
+  SaveCampaignRuleInput,
+  SaveJobSearchCampaignInput,
+  SelectResumeStrategyInput,
+  SetCampaignResumeStrategyDefaultInput,
+  SetCompanyPreferenceInput,
+  SetJobFinderActivityControlInput,
+  SetOutcomeSuggestionEnabledInput,
   JobFinderWorkspaceSnapshot,
   JobSourceAdapterKind,
   ProfileCopilotContext,
   ProfileSetupReviewAction,
   ProfileSetupReviewActionOptions,
   ProfileSetupState,
+  ProjectGroupedManualAnswerCommand,
   ResumeAssistantMessage,
   ResumeApplicationMode,
   ResumeDraft,
   ResumeDraftPatch,
   ResumeTimelineRepairAction,
   SaveApplicationAnswerCommandInput,
+  SnoozeGroupedDecisionInput,
   SourceDebugProgressEvent,
   SourceDebugRunDetails,
   SourceInstructionStatus,
@@ -36,12 +59,19 @@ import type {
 } from "@unemployed/contracts";
 
 export type JobFinderScreen =
+  | "home"
   | "profile"
   | "discovery"
   | "review-queue"
   | "applications"
+  | "campaigns"
   | "actions"
-  | "settings";
+  | "analytics"
+  | "settings"
+  | "rapid-review"
+  | "resume-strategies"
+  | "safeguards"
+  | "companies";
 
 export interface JobFinderShellActions {
   analyzeProfileFromResume: () => Promise<JobFinderWorkspaceSnapshot>;
@@ -73,6 +103,15 @@ export interface JobFinderShellActions {
   clearApplicationAnswer: (
     command: ClearApplicationAnswerCommandInput,
   ) => Promise<ApplyRunDetails>;
+  projectGroupedManualAnswer: (
+    command: ProjectGroupedManualAnswerCommand,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  applyGroupedManualAnswer: (
+    input: ApplyGroupedManualAnswerInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  snoozeGroupedDecision: (
+    input: SnoozeGroupedDecisionInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
   exportApplicationPacket: (
     runId: string,
     jobId: string,
@@ -99,6 +138,73 @@ export interface JobFinderShellActions {
   ) => Promise<JobFinderWorkspaceSnapshot>;
   saveSearchPreferences: (
     searchPreferences: JobSearchPreferences,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  saveCampaign: (
+    campaign: SaveJobSearchCampaignInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  selectCampaign: (campaignId: string) => Promise<JobFinderWorkspaceSnapshot>;
+  runCampaignNow: (
+    campaignId?: string | null,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  markCampaignNotificationRead: (
+    notificationId: string,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  markAllCampaignNotificationsRead: () => Promise<JobFinderWorkspaceSnapshot>;
+  saveCampaignRule: (
+    campaignId: string,
+    rule: SaveCampaignRuleInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  deleteCampaignRule: (
+    campaignId: string,
+    ruleId: string,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  toggleCampaignRule: (
+    campaignId: string,
+    ruleId: string,
+    enabled: boolean,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  projectCampaignRuleFunnel: (
+    campaignId: string,
+  ) => Promise<CampaignRuleFunnelProjection>;
+  setActivityControl: (
+    input: SetJobFinderActivityControlInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  mutateRapidReview: (
+    input: RapidReviewMutationInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  recordOutcome: (
+    input: RecordOutcomeInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  saveResumeStrategy: (
+    input: SaveResumeStrategyInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  disableResumeStrategy: (
+    strategyId: string,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  selectResumeStrategy: (
+    input: SelectResumeStrategyInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  recommendResumeStrategy: (
+    input: RecommendResumeStrategyInput,
+  ) => Promise<ResumeStrategyRecommendation>;
+  setCampaignResumeStrategyDefault: (
+    input: SetCampaignResumeStrategyDefaultInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  refreshCompanyIntelligence: () => Promise<JobFinderWorkspaceSnapshot>;
+  setCompanyPreference: (
+    input: SetCompanyPreferenceInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  reviewCompanyMerge: (
+    input: ReviewCompanyMergeInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  mutateCompanyIntelligence: (
+    input: CompanyIntelligenceMutationInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  setOutcomeSuggestionEnabled: (
+    input: SetOutcomeSuggestionEnabledInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  mutateSafeguards: (
+    input: SafeguardMutationInput,
   ) => Promise<JobFinderWorkspaceSnapshot>;
   saveSettings: (
     settings: JobFinderSettings,
@@ -199,6 +305,15 @@ export interface JobFinderShellActions {
     runId: string,
   ) => Promise<JobFinderWorkspaceSnapshot>;
   approveApply: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
+  mutateApplicationCrm: (
+    input: ApplicationCrmMutationInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  runApplicationNoResponseAutomation: (
+    settings?: ApplicationCrmSettings,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  exportApplicationCrm: (
+    input: ApplicationCrmExportInput,
+  ) => Promise<ApplicationCrmFileExportResult>;
 }
 
 export interface ScreenDefinition {

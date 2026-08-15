@@ -8,6 +8,7 @@ import type {
 } from "@unemployed/contracts";
 import {
   JobFinderDiscoveryStateSchema,
+  JobFinderIntelligenceStateSchema,
   SavedJobDiscoveryProvenanceSchema,
   SavedJobSchema,
   SourceInstructionArtifactSchema,
@@ -138,7 +139,8 @@ export function createSeed(): JobFinderRepositorySeed {
         fileName: "alex-vanguard.pdf",
         uploadedAt: "2026-03-20T10:00:00.000Z",
         storagePath: "/tmp/alex-vanguard.pdf",
-        sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        sha256:
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         textContent:
           "Alex Vanguard\nSenior systems designer\nLondon, UK\nalex@example.com\n+44 7700 900123\nhttps://alex.example.com\nhttps://www.linkedin.com/in/alex-vanguard\n\n10 years of experience building resilient workflow tools with Figma, React, and design systems.",
         textUpdatedAt: "2026-03-20T10:00:00.000Z",
@@ -507,6 +509,11 @@ export function createSeed(): JobFinderRepositorySeed {
       recentSourceDebugRuns: [],
       pendingDiscoveryJobs: [],
     }),
+    campaigns: [],
+    activeCampaignId: null,
+    campaignNotifications: [],
+    activityControl: { paused: false, pausedAt: null, reason: null },
+    intelligence: JobFinderIntelligenceStateSchema.parse({}),
   };
 }
 

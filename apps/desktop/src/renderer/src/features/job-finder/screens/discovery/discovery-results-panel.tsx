@@ -1,9 +1,28 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import type { BrowserSessionState, SavedJob } from "@unemployed/contracts";
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
 import { EmptyState } from "@renderer/features/job-finder/components/empty-state";
+import {
+  CollectionNoMatches,
+  CollectionSavedViews,
+  CollectionSearchToolbar,
+  matchesCollectionSearch,
+} from "@renderer/features/job-finder/components/collection-search-toolbar";
 import { StatusBadge } from "@renderer/features/job-finder/components/status-badge";
+import { usePersistedCollectionView } from "@renderer/features/job-finder/hooks/use-persisted-collection-view";
+import {
+  focusCollectionItem,
+  getAdjacentCollectionItemId,
+} from "@renderer/features/job-finder/lib/collection-keyboard-navigation";
 import { JOB_FINDER_ROUTE_HREFS } from "@renderer/features/job-finder/lib/job-finder-route-hrefs";
 import { cn } from "@renderer/lib/cn";
 import {
@@ -203,16 +222,37 @@ export function DiscoveryResultsPanel({
   selectedJob,
 }: DiscoveryResultsPanelProps) {
   const resultsScrollRegionRef = useRef<HTMLDivElement | null>(null);
-  const jobCount = jobs.length;
+  const view = usePersistedCollectionView("discovery-results", "comfortable");
+  const deferredQuery = useDeferredValue(view.query);
+  const filteredJobs = useMemo(
+    () =>
+      jobs.filter((job) =>
+        matchesCollectionSearch(deferredQuery, [
+          job.title,
+          job.company,
+          job.location,
+          job.salaryText,
+          job.status,
+          job.applyPath,
+          ...job.workMode,
+          fitRecommendationCopy[
+            job.matchAssessment.recommendation ?? "review_before_applying"
+          ].label,
+        ]),
+      ),
+    [deferredQuery, jobs],
+  );
+  const jobCount = filteredJobs.length;
   const pageCount = Math.max(
     1,
     Math.ceil(jobCount / DISCOVERY_RESULTS_PAGE_SIZE),
   );
   const selectedJobId = selectedJob?.id ?? null;
   const [pagination, setPagination] = useState(() => ({
-    page: getSelectedJobPage(jobs, selectedJobId),
+    page: getSelectedJobPage(filteredJobs, selectedJobId),
     selectedJobId,
   }));
+  const [showComparison, setShowComparison] = useState(false);
   const currentPage = Math.min(Math.max(0, pagination.page), pageCount - 1);
 
   useLayoutEffect(() => {
@@ -220,20 +260,17 @@ export function DiscoveryResultsPanel({
       return;
     }
 
-    const selectedJobPage = getSelectedJobPage(jobs, selectedJobId);
+    const selectedJobPage = getSelectedJobPage(filteredJobs, selectedJobId);
     setPagination({
       page: selectedJobPage,
       selectedJobId,
     });
-    if (
-      selectedJobPage !== currentPage &&
-      resultsScrollRegionRef.current
-    ) {
+    if (selectedJobPage !== currentPage && resultsScrollRegionRef.current) {
       resultsScrollRegionRef.current.scrollTop = 0;
     }
-  }, [currentPage, jobs, pagination.selectedJobId, selectedJobId]);
+  }, [currentPage, filteredJobs, pagination.selectedJobId, selectedJobId]);
 
-  const visibleJobs = getDiscoveryResultsPage(jobs, currentPage);
+  const visibleJobs = getDiscoveryResultsPage(filteredJobs, currentPage);
   const firstVisibleJobNumber =
     jobCount === 0 ? 0 : currentPage * DISCOVERY_RESULTS_PAGE_SIZE + 1;
   const lastVisibleJobNumber = Math.min(
@@ -260,7 +297,27 @@ export function DiscoveryResultsPanel({
     recoveryActionPending;
   const allResultsHidden = jobs.length === 0 && hiddenJobCount > 0;
   const baseButtonClasses =
-    "grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) p-5 text-left transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30";
+    "grid rounded-(--radius-panel) border border-(--surface-panel-border) text-left transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30";
+  const densityClasses =
+    view.density === "compact"
+      ? "gap-2 p-3"
+      : view.density === "detailed"
+        ? "gap-4 p-6"
+        : "gap-3 p-5";
+  const handleListKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLButtonElement>, jobId: string) => {
+      const nextId = getAdjacentCollectionItemId(
+        visibleJobs.map((job) => job.id),
+        jobId,
+        event.key,
+      );
+      if (!nextId) return;
+      event.preventDefault();
+      onSelectJob(nextId);
+      focusCollectionItem(nextId);
+    },
+    [onSelectJob, visibleJobs],
+  );
 
   return (
     <section
@@ -275,7 +332,18 @@ export function DiscoveryResultsPanel({
           Job results
         </h2>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          {(jobCount > 0 || hiddenJobCount > 0) && onSearchAgain ? (
+          {filteredJobs.length >= 2 ? (
+            <Button
+              aria-expanded={showComparison}
+              onClick={() => setShowComparison((current) => !current)}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              {showComparison ? "Hide comparison" : "Compare top jobs"}
+            </Button>
+          ) : null}
+          {(jobs.length > 0 || hiddenJobCount > 0) && onSearchAgain ? (
             <Button
               className="xl:hidden"
               disabled={searchAgainDisabled}
@@ -290,11 +358,72 @@ export function DiscoveryResultsPanel({
           ) : null}
           <Badge variant="section">
             {hiddenJobCount > 0
-              ? `${jobCount} shown · ${hiddenJobCount} hidden`
-              : `${jobCount} ${jobCount === 1 ? "job" : "jobs"}`}
+              ? `${jobs.length} shown · ${hiddenJobCount} hidden`
+              : `${jobs.length} ${jobs.length === 1 ? "job" : "jobs"}`}
           </Badge>
         </div>
       </header>
+
+      {jobs.length > 0 ? (
+        <CollectionSearchToolbar
+          density={view.density}
+          label="Find a job"
+          onDensityChange={view.setDensity}
+          onQueryChange={(query) => {
+            view.setQuery(query);
+            moveToPage(0);
+          }}
+          placeholder="Search role, company, location, skill, or status"
+          query={view.query}
+          totalCount={jobs.length}
+          viewActions={
+            <CollectionSavedViews
+              onApply={view.applySavedView}
+              onDelete={view.deleteSavedView}
+              onSave={view.saveCurrentView}
+              views={view.savedViews}
+            />
+          }
+          visibleCount={filteredJobs.length}
+        />
+      ) : null}
+
+      {showComparison && filteredJobs.length >= 2 ? (
+        <section
+          aria-label="Top job comparison"
+          className="mx-5 mt-3 grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) p-3 md:grid-cols-3"
+        >
+          {filteredJobs.slice(0, 3).map((job) => {
+            const recommendation =
+              fitRecommendationCopy[
+                job.matchAssessment.recommendation ?? "review_before_applying"
+              ];
+            return (
+              <button
+                className="grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background p-3 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30"
+                key={job.id}
+                onClick={() => onSelectJob(job.id)}
+                type="button"
+              >
+                <span className="font-semibold text-foreground">
+                  {job.title}
+                </span>
+                <span className="text-sm text-foreground-soft">
+                  {job.company} · {job.location}
+                </span>
+                <span className="text-sm font-medium text-foreground">
+                  {job.matchAssessment.score}% fit · {recommendation.label}
+                </span>
+                <span className="text-xs text-foreground-muted">
+                  {job.matchAssessment.reasons[0] ??
+                    job.matchAssessment.gaps[0] ??
+                    "Open the job to review the full evidence."}
+                </span>
+              </button>
+            );
+          })}
+        </section>
+      ) : null}
 
       {allResultsHidden ? (
         <div className="px-5 pt-4">
@@ -418,7 +547,8 @@ export function DiscoveryResultsPanel({
             role="status"
           >
             <strong>
-              {jobCount} {jobCount === 1 ? "match" : "matches"} ready to review.
+              {jobs.length} {jobs.length === 1 ? "match" : "matches"} ready to
+              review.
             </strong>{" "}
             Search is still checking the remaining sources; stronger matches may
             move to the top.
@@ -461,7 +591,15 @@ export function DiscoveryResultsPanel({
         </div>
       ) : null}
 
-      {jobs.length > 0 ? (
+      {jobs.length > 0 && filteredJobs.length === 0 ? (
+        <CollectionNoMatches
+          noun="jobs"
+          onClear={() => view.setQuery("")}
+          query={view.query}
+        />
+      ) : null}
+
+      {filteredJobs.length > 0 ? (
         <div
           className="flex min-h-0 flex-1 flex-col overflow-hidden"
           data-job-results-stack
@@ -492,21 +630,30 @@ export function DiscoveryResultsPanel({
                       data-job-result-id={job.id}
                       className={cn(
                         baseButtonClasses,
+                        densityClasses,
                         "w-full",
                         isSelected
                           ? "surface-card-tint"
                           : "bg-transparent hover:bg-(--surface-panel-raised)",
                       )}
+                      aria-keyshortcuts="ArrowUp ArrowDown Home End"
+                      data-collection-item-id={job.id}
                       onClick={(event) => {
                         onSelectJob(job.id);
                         if (event.detail === 0) {
                           focusDiscoveryDetailAfterKeyboardSelection();
                         }
                       }}
+                      onKeyDown={(event) => handleListKeyDown(event, job.id)}
                       type="button"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="grid gap-1">
+                          {view.density === "detailed" ? (
+                            <span className="text-[0.64rem] uppercase tracking-(--tracking-label) text-foreground-muted">
+                              Listing facts
+                            </span>
+                          ) : null}
                           <strong className="text-(length:--text-section-title) text-(--text-headline)">
                             {job.title}
                           </strong>
@@ -514,11 +661,18 @@ export function DiscoveryResultsPanel({
                             {job.company} • {job.location}
                           </span>
                         </div>
-                        <span
-                          aria-label={`Overall fit: ${job.matchAssessment.score} percent`}
-                          className="text-(length:--text-body) font-semibold text-(--text-headline)"
-                        >
-                          {job.matchAssessment.score}% fit
+                        <span className="grid justify-items-end gap-0.5">
+                          {view.density === "detailed" ? (
+                            <span className="text-[0.64rem] uppercase tracking-(--tracking-label) text-foreground-muted">
+                              Model assessment
+                            </span>
+                          ) : null}
+                          <span
+                            aria-label={`Overall fit: ${job.matchAssessment.score} percent`}
+                            className="text-(length:--text-body) font-semibold text-(--text-headline)"
+                          >
+                            {job.matchAssessment.score}% fit
+                          </span>
                         </span>
                       </div>
 

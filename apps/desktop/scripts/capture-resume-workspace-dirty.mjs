@@ -60,7 +60,9 @@ async function clickAndDismissDialog(window, locator) {
 
     timeoutId = setTimeout(() => {
       window.removeListener("dialog", handleDialog);
-      reject(new Error("Timed out waiting for confirmation dialog after click."));
+      reject(
+        new Error("Timed out waiting for confirmation dialog after click."),
+      );
     }, timeoutMs);
 
     window.once("dialog", handleDialog);
@@ -213,7 +215,7 @@ async function captureResumeWorkspaceDirtyState() {
     });
 
     const refreshSentinel =
-      "Dirty refresh sentinel for resume workspace coverage.";
+      "Builds resilient workflows for design systems, workflow automation, and operations platforms.";
     await summaryField(window).fill(refreshSentinel);
     await window.getByRole("button", { name: "Refresh draft" }).click();
     await waitForSummaryFieldValue(window, refreshSentinel);
@@ -232,7 +234,7 @@ async function captureResumeWorkspaceDirtyState() {
     });
 
     const assistantSentinel =
-      "Dirty assistant sentinel that should persist across a no-op assistant request.";
+      "Systems-focused product designer with deep workflow automation and design-systems experience.";
     await summaryField(window).fill(assistantSentinel);
     await window.getByRole("button", { name: "Open guided edits" }).click();
     await assistantField(window).fill("Explain why this section was included.");

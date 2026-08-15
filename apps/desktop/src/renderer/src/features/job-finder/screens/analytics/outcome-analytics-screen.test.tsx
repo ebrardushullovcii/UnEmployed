@@ -1,0 +1,388 @@
+// @vitest-environment jsdom
+
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { OutcomeEventSchema } from "@unemployed/contracts";
+import type {
+  JobSearchCampaign,
+  OutcomeAnalyticsOverview,
+  OutcomeEvent,
+  ResumeStrategy,
+  SetOutcomeSuggestionEnabledInput,
+} from "@unemployed/contracts";
+import { OutcomeAnalyticsScreen } from "./outcome-analytics-screen";
+
+const now = "2026-08-15T10:00:00.000Z";
+
+function event(overrides: Partial<OutcomeEvent> = {}): OutcomeEvent {
+  const id = overrides.id ?? "event-1";
+  return OutcomeEventSchema.parse({
+    id,
+    outcome: "applied",
+    jobId: overrides.jobId ?? `job-${id}`,
+    campaignId: "campaign-1",
+    source: "example",
+    company: "Example Corp",
+    jobTitle: "Software Engineer",
+    occurredAt: now,
+    userControlled: true,
+    ...overrides,
+  });
+}
+
+const campaigns: readonly JobSearchCampaign[] = [
+  {
+    id: "campaign-1",
+    name: "Fall campaign",
+    jobIds: ["job-1"],
+  },
+  {
+    id: "campaign-2",
+    name: "Winter campaign",
+    jobIds: ["job-2"],
+  },
+] as unknown as readonly JobSearchCampaign[];
+
+const resumeStrategies: readonly ResumeStrategy[] = [
+  {
+    id: "strategy-1",
+    name: "SWE generalist",
+    roleFamily: "software_engineering",
+  },
+] as unknown as readonly ResumeStrategy[];
+
+function overviewWith(
+  overrides: Partial<OutcomeAnalyticsOverview> = {},
+): OutcomeAnalyticsOverview {
+  return {
+    generatedAt: now,
+    buckets: [
+      {
+        dimension: "campaign",
+        key: "campaign-1",
+        label: "campaign-1",
+        sampleSize: 30,
+        outcomeCounts: { interview: 10, rejected: 20 },
+        rateNumerators: {
+          applied: 30,
+          response: 30,
+          interview: 10,
+          offer: 0,
+        },
+        appliedRate: 1,
+        responseRate: 1,
+        interviewRate: 1 / 3,
+        offerRate: 0,
+        uncertainty: {
+          level: "medium",
+          minimumSampleForConfidence: 30,
+          confidenceInterval95HalfWidth: 0.1,
+        },
+        suggestion: {
+          enabled: true,
+          kind: "increase_volume",
+          label: "Increase volume for campaign-1",
+          reason:
+            "Interview rate 33% meets or exceeds the 20% target — increase volume for this campaign.",
+          disabledByUser: false,
+          resetRequested: false,
+          lastResetAt: null,
+        },
+        updatedAt: now,
+      },
+    ],
+    ...overrides,
+  };
+}
+
+function renderScreen(props: {
+  events?: readonly OutcomeEvent[];
+  overview?: OutcomeAnalyticsOverview | null;
+  onSetOutcomeSuggestionEnabled?: (
+    input: SetOutcomeSuggestionEnabledInput,
+  ) => Promise<boolean>;
+  isSuggestionPending?: (dimension: string, key: string) => boolean;
+  actionMessage?: string | null;
+}) {
+  return render(
+    <OutcomeAnalyticsScreen
+      actionMessage={props.actionMessage ?? null}
+      activeCampaignId="campaign-1"
+      campaigns={campaigns}
+      events={props.events ?? []}
+      generatedAt={now}
+      isSuggestionPending={props.isSuggestionPending ?? (() => false)}
+      onSetOutcomeSuggestionEnabled={
+        props.onSetOutcomeSuggestionEnabled ?? (async () => true)
+      }
+      overview={props.overview ?? null}
+      resumeStrategies={resumeStrategies}
+    />,
+  );
+}
+
+describe("OutcomeAnalyticsScreen", () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("shows an honest empty state when no outcomes have been recorded", () => {
+    renderScreen({});
+
+    expect(
+      screen.getByRole("heading", { name: "No outcomes recorded yet" }),
+    ).toBeTruthy();
+    expect(screen.getByText(/never applied automatically/i)).toBeTruthy();
+    expect(screen.getByText(/Analytics/)).toBeTruthy();
+  });
+
+  it("shows rates, sample sizes, and uncertainty from the durable overview", () => {
+    const events = Array.from({ length: 30 }, (_, index) =>
+      event({
+        id: `e-${index}`,
+        jobId: `job-${index}`,
+        outcome: index < 10 ? "interview" : "rejected",
+      }),
+    );
+    renderScreen({ events, overview: overviewWith() });
+
+    expect(screen.getAllByText("Fall campaign").length).toBeGreaterThan(0);
+    expect(screen.getByText("Current campaign")).toBeTruthy();
+    expect(screen.getAllByText(/30 applications/).length).toBeGreaterThan(0);
+    expect(screen.getByText("100%")).toBeTruthy();
+    expect(screen.getByText("33%")).toBeTruthy();
+    expect(screen.getAllByText(/Medium uncertainty/i).length).toBeGreaterThan(
+      0,
+    );
+    expect(
+      screen.getByText(/Increase volume for campaign-1/i),
+    ).toBeTruthy();
+  });
+
+  it("disables a suggestion through the page action without applying it", async () => {
+    const events = Array.from({ length: 30 }, (_, index) =>
+      event({
+        id: `e-${index}`,
+        jobId: `job-${index}`,
+        outcome: index < 10 ? "interview" : "rejected",
+      }),
+    );
+    const onSetOutcomeSuggestionEnabled = vi
+      .fn<(input: SetOutcomeSuggestionEnabledInput) => Promise<boolean>>()
+      .mockResolvedValue(true);
+    renderScreen({
+      events,
+      overview: overviewWith(),
+      onSetOutcomeSuggestionEnabled,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Disable" }));
+
+    await vi.waitFor(() => {
+      expect(onSetOutcomeSuggestionEnabled).toHaveBeenCalledWith({
+        dimension: "campaign",
+        key: "campaign-1",
+        enabled: false,
+        reset: false,
+      });
+    });
+  });
+
+  it("resets a suggestion with the reset flag so analytics re-evaluate it", async () => {
+    const events = Array.from({ length: 30 }, (_, index) =>
+      event({
+        id: `e-${index}`,
+        jobId: `job-${index}`,
+        outcome: index < 10 ? "interview" : "rejected",
+      }),
+    );
+    const onSetOutcomeSuggestionEnabled = vi
+      .fn<(input: SetOutcomeSuggestionEnabledInput) => Promise<boolean>>()
+      .mockResolvedValue(true);
+    renderScreen({
+      events,
+      overview: overviewWith(),
+      onSetOutcomeSuggestionEnabled,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+
+    await vi.waitFor(() => {
+      expect(onSetOutcomeSuggestionEnabled).toHaveBeenCalledWith({
+        dimension: "campaign",
+        key: "campaign-1",
+        enabled: true,
+        reset: true,
+      });
+    });
+  });
+
+  it("surfaces a disabled-by-user suggestion with only a reset control", () => {
+    const events = Array.from({ length: 30 }, (_, index) =>
+      event({
+        id: `e-${index}`,
+        jobId: `job-${index}`,
+        outcome: index < 10 ? "interview" : "rejected",
+      }),
+    );
+    const overview = overviewWith();
+    overview.buckets[0]!.suggestion = {
+      enabled: false,
+      kind: "none",
+      label: null,
+      reason: null,
+      disabledByUser: true,
+      resetRequested: false,
+      lastResetAt: null,
+    };
+    renderScreen({ events, overview });
+
+    expect(screen.getByText("Suggestion disabled by you")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reset" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Disable" })).toBeNull();
+    expect(screen.getByText("Suggestion off")).toBeTruthy();
+  });
+
+  it("filters buckets by local search and shows a no-match state", () => {
+    const events = Array.from({ length: 30 }, (_, index) =>
+      event({
+        id: `e-${index}`,
+        jobId: `job-${index}`,
+        outcome: index < 10 ? "interview" : "rejected",
+      }),
+    );
+    renderScreen({ events, overview: overviewWith() });
+
+    const search = screen.getByLabelText(/Search campaigns/i);
+    fireEvent.change(search, { target: { value: "Fall campaign" } });
+    expect(screen.getAllByText("Fall campaign").length).toBeGreaterThan(0);
+
+    fireEvent.change(search, { target: { value: "no-such-campaign" } });
+    expect(screen.getByText(/No campaigns match/i)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    expect(screen.queryByText(/No campaigns match/i)).toBeNull();
+  });
+
+  it("switches dimensions with keyboard-accessible tab buttons", () => {
+    const events = [
+      event({ id: "s1", source: "linkedin", jobId: "job-s1" }),
+      event({ id: "s2", source: "linkedin", jobId: "job-s2" }),
+      event({ id: "s3", source: "linkedin", jobId: "job-s3" }),
+      event({ id: "s4", source: "linkedin", jobId: "job-s4" }),
+      event({ id: "s5", source: "linkedin", jobId: "job-s5" }),
+      event({ id: "s6", source: "linkedin", jobId: "job-s6" }),
+      event({ id: "s7", source: "linkedin", jobId: "job-s7" }),
+      event({ id: "s8", source: "linkedin", jobId: "job-s8" }),
+      event({ id: "s9", source: "linkedin", jobId: "job-s9" }),
+      event({ id: "s10", source: "linkedin", jobId: "job-s10" }),
+    ];
+    const overview = overviewWith({
+      buckets: [
+        {
+          dimension: "source",
+          key: "linkedin",
+          label: "linkedin",
+          sampleSize: 10,
+          outcomeCounts: { applied: 10 },
+          rateNumerators: {
+            applied: 10,
+            response: 0,
+            interview: 0,
+            offer: 0,
+          },
+          appliedRate: 1,
+          responseRate: 0,
+          interviewRate: 0,
+          offerRate: 0,
+          uncertainty: {
+            level: "high",
+            minimumSampleForConfidence: 30,
+            confidenceInterval95HalfWidth: null,
+          },
+          suggestion: {
+            enabled: false,
+            kind: "none",
+            label: null,
+            reason: null,
+            disabledByUser: false,
+            resetRequested: false,
+            lastResetAt: null,
+          },
+          updatedAt: now,
+        },
+      ],
+    });
+    renderScreen({ events, overview });
+
+    const sourceTab = screen.getByRole("button", { name: "Source" });
+    expect(sourceTab.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(sourceTab);
+    expect(sourceTab.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText("linkedin")).toBeTruthy();
+  });
+
+  it("keeps suggestion controls disabled while their action is pending", () => {
+    const events = Array.from({ length: 30 }, (_, index) =>
+      event({
+        id: `e-${index}`,
+        jobId: `job-${index}`,
+        outcome: index < 10 ? "interview" : "rejected",
+      }),
+    );
+    renderScreen({
+      events,
+      overview: overviewWith(),
+      isSuggestionPending: (dimension, key) =>
+        dimension === "campaign" && key === "campaign-1",
+    });
+
+    expect(
+      (screen.getByRole("button", { name: "Disable" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Reset" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
+  it("shows the action message as a live status region", () => {
+    const events = Array.from({ length: 30 }, (_, index) =>
+      event({
+        id: `e-${index}`,
+        jobId: `job-${index}`,
+        outcome: index < 10 ? "interview" : "rejected",
+      }),
+    );
+    renderScreen({
+      events,
+      overview: overviewWith(),
+      actionMessage: "Suggestion disabled. It will stay off until you reset it.",
+    });
+
+    expect(screen.getByRole("status").textContent).toMatch(/Suggestion disabled/);
+  });
+
+  it("shows an honest loading state while analytics inputs are loading", () => {
+    render(
+      <OutcomeAnalyticsScreen
+        actionMessage={null}
+        activeCampaignId="campaign-1"
+        campaigns={campaigns}
+        events={[]}
+        generatedAt={now}
+        isSuggestionPending={() => false}
+        loading
+        onSetOutcomeSuggestionEnabled={async () => true}
+        overview={null}
+        resumeStrategies={resumeStrategies}
+      />,
+    );
+
+    expect(
+      screen.getByText(/Loading outcome analytics/i),
+    ).toBeTruthy();
+  });
+});

@@ -111,6 +111,18 @@ describe("ai provider config and fallback behavior", () => {
     });
   });
 
+  test("defaults ordinary text work to DeepSeek V4 on OpenCode Go", () => {
+    const client = createJobFinderAiClientFromEnvironment({
+      UNEMPLOYED_AI_API_KEY: "go-test-key",
+    });
+
+    expect(client.getStatus()).toMatchObject({
+      kind: "openai_compatible",
+      model: "deepseek-v4-flash",
+      label: "AI resume agent",
+    });
+  });
+
   test("allows a direct OpenAI-compatible client to override the model context window", () => {
     const client = createOpenAiCompatibleJobFinderAiClient({
       apiKey: "test-key",

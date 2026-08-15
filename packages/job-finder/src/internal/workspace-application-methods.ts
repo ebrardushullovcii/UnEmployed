@@ -62,6 +62,7 @@ import {
   DEFAULT_RESUME_APPLICATION_MODE,
   resolveJobResumeApplicationMode,
 } from "./job-resume-application-mode";
+import { evaluateCampaignApplyStopRules } from "./campaign-apply-stop-rules";
 import {
   applyPatchToResumeDraft,
   buildAssistantReplyMessage,
@@ -88,6 +89,10 @@ import {
   previewResumeDraft,
   renderDraftToPdf,
 } from "./workspace-application-resume-support";
+import {
+  buildResumeStrategyContext,
+  resolveCampaignDefaultResumeStrategyId,
+} from "./resume-strategy-application";
 import { createApplicationUserActionResumer } from "./workspace-application-user-action-resumption";
 import { persistApplicationUserAction } from "./workspace-application-user-action";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
@@ -691,6 +696,7 @@ export function createWorkspaceApplicationMethods(
       artifactRefs,
       checkpoints,
       consentRequests,
+      campaignState,
     ] = await Promise.all([
       ctx.repository.getProfile(),
       ctx.repository.getSearchPreferences(),
@@ -705,6 +711,7 @@ export function createWorkspaceApplicationMethods(
       ctx.repository.listApplicationArtifactRefs(),
       ctx.repository.listApplicationReplayCheckpoints(),
       ctx.repository.listApplicationConsentRequests(),
+      ctx.repository.getCampaignState(),
     ]);
     const run = runs.find((entry) => entry.id === input.runId) ?? null;
 
@@ -750,6 +757,9 @@ export function createWorkspaceApplicationMethods(
           "This safe development execution can fill and classify applications, but it still stops before any final submit action.",
       });
     const executionSignal = executionController.signal;
+    const campaignStopRules = campaignState?.campaigns.find(
+      (campaign) => campaign.id === campaignState.activeCampaignId,
+    )?.stopRules;
     const stopIfRunWasCancelled = async (): Promise<boolean> => {
       if (executionSignal.aborted) {
         return true;
@@ -1097,6 +1107,8 @@ export function createWorkspaceApplicationMethods(
           blockedJobs += 1;
         } else if (jobState === "failed") {
           failedJobs += 1;
+        } else if (jobState === "skipped") {
+          skippedJobs += 1;
         }
         pendingConsentRequests += runArtifacts.consentRequests.length;
 
@@ -1145,12 +1157,27 @@ export function createWorkspaceApplicationMethods(
           consentRequests: runArtifacts.consentRequests,
           executionResult: normalizedExecutionResult,
         });
+        const campaignPauseReason = campaignStopRules
+          ? evaluateCampaignApplyStopRules({
+              blockerReason: updatedResult.blockerReason,
+              blockedCount: blockedJobs,
+              failedCount: failedJobs,
+              processedCount:
+                submittedJobs +
+                awaitingReviewJobs +
+                blockedJobs +
+                failedJobs +
+                skippedJobs,
+              stopRules: campaignStopRules,
+            })
+          : null;
         currentRunState = ApplyRunSchema.parse({
           ...currentRunState,
           currentJobId: jobId,
           updatedAt: detectedAt,
-          state:
-            input.mode === "queue_auto"
+          state: campaignPauseReason
+            ? "paused_for_user_review"
+            : input.mode === "queue_auto"
               ? remainingJobs > 0
                 ? "running"
                 : pendingConsentRequests > 0
@@ -1159,8 +1186,9 @@ export function createWorkspaceApplicationMethods(
                     ? "paused_for_user_review"
                     : "completed"
               : nextRunState,
-          summary:
-            input.mode === "queue_auto"
+          summary: campaignPauseReason
+            ? "Automatic apply paused by this campaign's safety rules."
+            : input.mode === "queue_auto"
               ? remainingJobs === 0 && pendingConsentRequests > 0
                 ? `Automatic apply prepared every unblocked job; ${pendingConsentRequests} consent ${pendingConsentRequests === 1 ? "decision needs" : "decisions need"} you.`
                 : `Automatic apply queue processed ${index + 1} of ${run.jobIds.length} jobs in safe review mode.`
@@ -1168,13 +1196,15 @@ export function createWorkspaceApplicationMethods(
                 ? `Automatic apply paused for consent on '${job.title}'.`
                 : `Automatic apply run processed '${job.title}' in safe review mode.`,
           detail:
-            input.mode === "queue_auto" && pendingConsentRequests > 0
+            campaignPauseReason ??
+            (input.mode === "queue_auto" && pendingConsentRequests > 0
               ? "Consent-blocked jobs remain explicit user actions, while every unrelated ready job was allowed to reach its safe review checkpoint."
               : runArtifacts.consentRequests.length > 0
                 ? "The run stopped because a consent-gated step needs an explicit user decision."
-                : "The current safe development execution filled and classified the application but still stopped before any final submit action.",
-          completedAt:
-            input.mode === "queue_auto"
+                : "The current safe development execution filled and classified the application but still stopped before any final submit action."),
+          completedAt: campaignPauseReason
+            ? null
+            : input.mode === "queue_auto"
               ? pendingConsentRequests > 0 || pendingJobs > 0 || blockedJobs > 0
                 ? null
                 : detectedAt
@@ -1194,7 +1224,7 @@ export function createWorkspaceApplicationMethods(
           return;
         }
 
-        if (input.mode === "single_job_auto") {
+        if (input.mode === "single_job_auto" || campaignPauseReason) {
           break;
         }
       }
@@ -1502,14 +1532,23 @@ export function createWorkspaceApplicationMethods(
       return ctx.getWorkspaceSnapshot();
     },
     async generateResume(jobId) {
-      const [profile, searchPreferences, settings, savedJobs, tailoredAssets] =
-        await Promise.all([
-          ctx.repository.getProfile(),
-          ctx.repository.getSearchPreferences(),
-          ctx.repository.getSettings(),
-          ctx.repository.listSavedJobs(),
-          ctx.repository.listTailoredAssets(),
-        ]);
+      const [
+        profile,
+        searchPreferences,
+        settings,
+        savedJobs,
+        tailoredAssets,
+        intelligenceState,
+        campaignState,
+      ] = await Promise.all([
+        ctx.repository.getProfile(),
+        ctx.repository.getSearchPreferences(),
+        ctx.repository.getSettings(),
+        ctx.repository.listSavedJobs(),
+        ctx.repository.listTailoredAssets(),
+        ctx.repository.getIntelligenceState(),
+        ctx.repository.getCampaignState(),
+      ]);
       const job = savedJobs.find((entry) => entry.id === jobId);
 
       if (!job) {
@@ -1547,9 +1586,26 @@ export function createWorkspaceApplicationMethods(
           ? "ai_assisted"
           : "deterministic";
       const now = createMonotonicTimestamp(existingDraft?.updatedAt ?? null);
+      // A strategy may supply the template default for a fresh draft, but it
+      // never approves or readies the artifact: the generated draft stays
+      // unapproved and the per-job approval/staleness checks stay
+      // authoritative.
+      const strategyContext = buildResumeStrategyContext({
+        state: intelligenceState,
+        job,
+        campaignDefaultResumeStrategyId:
+          resolveCampaignDefaultResumeStrategyId(campaignState, jobId),
+      });
+      const strategyTemplateId =
+        existingDraft?.templateId ?? strategyContext.templateId ?? null;
+      const strategyDisplayName =
+        strategyContext.selectedStrategyName ??
+        strategyContext.recommendedStrategyName ??
+        null;
       const resumeDraft = buildResumeDraftFromTailoredDraft({
         job,
-        templateId: existingDraft?.templateId ?? settings.resumeTemplateId,
+        templateId:
+          strategyTemplateId ?? settings.resumeTemplateId,
         draft,
         createdAt: existingDraft?.createdAt ?? now,
         updatedAt: now,
@@ -1650,6 +1706,11 @@ export function createWorkspaceApplicationMethods(
         generationMethod,
         notes: uniqueStrings([
           ...draft.notes,
+          ...(strategyTemplateId && !existingDraft
+            ? [
+                `Used resume strategy${strategyDisplayName ? ` "${strategyDisplayName}"` : ""} as the template default. The strategy does not approve or ready this artifact; it still needs your review and explicit approval.`,
+              ]
+            : []),
           ...(renderedArtifact.fileName
             ? [
                 `Generated ${renderedArtifact.format.toUpperCase()} resume artifact ${renderedArtifact.fileName}.`,

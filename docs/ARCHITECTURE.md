@@ -41,6 +41,15 @@ See [ADR 0007](adr/0007-source-generic-browser-workflows.md) for the source-gene
 - interview live session: visible chat/audio UI -> typed preload -> Electron main-hosted `interview-helper` service -> typed AI/audio/screenshot adapters -> visible responses, source-labeled transcript, and post-session review
 - generative AI: domain services -> a small product-specific agent harness -> `packages/ai-providers` -> OpenCode Go. DeepSeek V4 Flash handles normal text/tool work through Chat Completions with requested `max` reasoning; GPT-5.6 Luna handles image-only work through Responses with `high` reasoning. The harness gives the model narrow typed read/write/validate tools over a temporary task transaction, records every call, and separates direct work, correction, validation, fallback, and final product output. Domain code still owns canonical state and user-review rules. Local Codex bridges remain replaceable loopback development transports. Audio transcription stays a separate local Whisper or explicit audio-model role.
 
+### Campaign and CRM ownership
+
+- `packages/contracts` owns campaign, dashboard, activity-control, CRM, custom-stage, reminder, interview, timeline, and export shapes, plus campaign-rule and funnel projections, schedule state/pause windows/run facts, campaign digests, in-app campaign notifications, and the job-finder intelligence state (outcome events and analytics, resume strategies and per-job selections, company entities and merge review, and safeguard records).
+- `packages/db` persists campaign collections beside the existing workspace state. SQLite migration 10 backfills one default campaign for an existing workspace without rewriting its jobs or applications. CRM data remains an optional schema-defaulted part of each application record, so old records still load.
+- `packages/job-finder` owns campaign selection, discovery/job membership, dashboard projection, preparation limits and stop rules, global activity gates, serialized CRM updates, no-response automation, duplicate hints, and export content, plus campaign-rule evaluation and truthful funnel projection, schedule/digest/notification derivation, outcome recording and analytics, resume-strategy recommendation and per-job selection, company reconciliation and merge review, and safeguard gate operations.
+- Electron main owns typed IPC, local save dialogs, and the desktop campaign scheduler service (interval-driven due-run evaluation with power suspend/resume). Preload exposes only schema-checked campaign, activity, CRM, rule/funnel, schedule/digest/notification, outcome/strategy/company/safeguard actions. The renderer never writes the database or filesystem directly.
+- Active-campaign list scoping is a renderer projection over authoritative campaign job IDs. Workspace-wide search deliberately keeps all local entities and changes the active campaign before navigating to an item from another campaign.
+- Manual CRM stages do not change apply-run authority, browser outcomes, external-write evidence, or submission receipts. Final submission remains governed only by the separate prepare-only application contract.
+
 ## Resume Safety
 
 - tailored mode requires a current approved resume export before apply; original-CV mode requires the imported source file to remain available on disk
@@ -59,7 +68,7 @@ Interview Helper defaults to the ordinary visible main window. Advanced overlay 
 
 See [ADR 0003](adr/0003-interview-helper-live-session-architecture.md) and [ADR 0008](adr/0008-visible-first-interview-helper.md).
 
-See [ADR 0009](adr/0009-luna-high-default-and-capability-contracts.md) for configured model routing and the contract-first AI boundary.
+See [ADR 0010](adr/0010-opencode-go-mixed-text-and-vision-routing.md) for configured text/vision routing and [ADR 0009](adr/0009-luna-high-default-and-capability-contracts.md) for the contract-first AI boundary that remains in force.
 
 ## Known Debt
 

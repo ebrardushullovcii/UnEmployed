@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type {
   CandidateAsset,
   CandidateAssetConsentScope,
@@ -6,7 +13,13 @@ import type {
   CandidateAssetRetention,
 } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
+import {
+  CollectionNoMatches,
+  CollectionSearchToolbar,
+  matchesCollectionSearch,
+} from "../../components/collection-search-toolbar";
 import { FormSelect } from "../../components/form-select";
+import { usePersistedCollectionView } from "../../hooks/use-persisted-collection-view";
 
 const kindOptions = [
   { value: "resume", label: "Resume" },
@@ -69,6 +82,8 @@ export function SettingsCandidateAssets() {
     "loading",
   );
   const [status, setStatus] = useState("Loading your private asset library…");
+  const view = usePersistedCollectionView("candidate-assets", "comfortable");
+  const deferredQuery = useDeferredValue(view.query);
 
   const refreshAssets = useCallback(async (successMessage?: string) => {
     if (mountedRef.current) {
@@ -174,8 +189,25 @@ export function SettingsCandidateAssets() {
     }
   }
 
-  const activeAssets = assets.filter((asset) => asset.deletedAt === null);
-  const trashedAssets = assets.filter((asset) => asset.deletedAt !== null);
+  const visibleAssets = useMemo(
+    () =>
+      assets.filter((asset) =>
+        matchesCollectionSearch(deferredQuery, [
+          asset.originalName,
+          asset.kind,
+          asset.consentScope,
+          asset.retention,
+          asset.deletedAt ? "trash removed expired" : "active",
+        ]),
+      ),
+    [assets, deferredQuery],
+  );
+  const activeAssets = visibleAssets.filter(
+    (asset) => asset.deletedAt === null,
+  );
+  const trashedAssets = visibleAssets.filter(
+    (asset) => asset.deletedAt !== null,
+  );
   const controlsDisabled = pendingAction !== null || loadState === "loading";
 
   return (
@@ -263,6 +295,26 @@ export function SettingsCandidateAssets() {
           </Button>
         ) : null}
       </div>
+
+      {assets.length > 0 ? (
+        <CollectionSearchToolbar
+          className="px-0"
+          label="Find a document"
+          onQueryChange={view.setQuery}
+          placeholder="Search name, type, consent, retention, or Trash"
+          query={view.query}
+          totalCount={assets.length}
+          visibleCount={visibleAssets.length}
+        />
+      ) : null}
+
+      {assets.length > 0 && visibleAssets.length === 0 ? (
+        <CollectionNoMatches
+          noun="documents"
+          onClear={() => view.setQuery("")}
+          query={view.query}
+        />
+      ) : null}
 
       {activeAssets.length > 0 ? (
         <ul className="grid gap-2" aria-label="Imported candidate assets">

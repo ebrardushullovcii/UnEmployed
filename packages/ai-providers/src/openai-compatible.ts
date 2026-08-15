@@ -32,8 +32,10 @@ import { buildGroundedResumeRewriteModelPayload } from "./resume-generation-grou
 import {
   buildModelRequestBody,
   buildModelUrl,
-  DEFAULT_MODEL_API_MODE,
-  DEFAULT_MODEL_REASONING_EFFORT,
+  DEFAULT_OPENCODE_GO_BASE_URL,
+  DEFAULT_TEXT_MODEL,
+  DEFAULT_TEXT_MODEL_API_MODE,
+  DEFAULT_TEXT_MODEL_REASONING_EFFORT,
   parseModelApiMode,
   parseModelJsonResponse,
   parseModelReasoningEffort,
@@ -770,13 +772,14 @@ export function createJobFinderAiClientFromEnvironment(
 
   const primaryClient = createOpenAiCompatibleJobFinderAiClient({
     apiKey,
-    baseUrl: env.UNEMPLOYED_AI_BASE_URL ?? "https://api.openai.com/v1",
-    model: env.UNEMPLOYED_AI_MODEL ?? "gpt-5.6-luna",
+    baseUrl: env.UNEMPLOYED_AI_BASE_URL ?? DEFAULT_OPENCODE_GO_BASE_URL,
+    model: env.UNEMPLOYED_AI_MODEL ?? DEFAULT_TEXT_MODEL,
     apiMode:
-      parseModelApiMode(env.UNEMPLOYED_AI_API_MODE) ?? DEFAULT_MODEL_API_MODE,
+      parseModelApiMode(env.UNEMPLOYED_AI_API_MODE) ??
+      DEFAULT_TEXT_MODEL_API_MODE,
     reasoningEffort:
       parseModelReasoningEffort(env.UNEMPLOYED_AI_REASONING_EFFORT) ??
-      DEFAULT_MODEL_REASONING_EFFORT,
+      DEFAULT_TEXT_MODEL_REASONING_EFFORT,
     label: "AI resume agent",
     requestTimeoutMs: parsedRequestTimeoutMs,
     resumeExtractionTimeoutMs: parsedResumeExtractionTimeoutMs,

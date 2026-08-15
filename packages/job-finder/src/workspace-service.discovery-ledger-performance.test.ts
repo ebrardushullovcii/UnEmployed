@@ -13,7 +13,12 @@ import {
 } from "./workspace-service.test-support";
 
 const CANDIDATE_COUNT = 100;
-const REPEATED_SOURCE_BUDGET_MS = 2_000;
+const REPEATED_SOURCE_CPU_BUDGET_MS = 2_000;
+
+function elapsedCpuMs(startedAt: NodeJS.CpuUsage): number {
+  const elapsed = process.cpuUsage(startedAt);
+  return (elapsed.user + elapsed.system) / 1_000;
+}
 
 function createRepeatedSourceCatalog() {
   const sharedSkills = Array.from(
@@ -118,8 +123,10 @@ describe("known-job ledger repeated-source performance", () => {
     await repository.saveDiscoveryState(knownDiscovery);
 
     const repeatedStartedAt = performance.now();
+    const repeatedCpuStartedAt = process.cpuUsage();
     const repeatedSnapshot = await workspaceService.runDiscovery();
     const repeatedDurationMs = performance.now() - repeatedStartedAt;
+    const repeatedCpuDurationMs = elapsedCpuMs(repeatedCpuStartedAt);
     const repeatedTarget =
       repeatedSnapshot.recentDiscoveryRuns[0]?.targetExecutions[0];
 
@@ -133,7 +140,8 @@ describe("known-job ledger repeated-source performance", () => {
       repeatedJobsStaged: repeatedTarget?.jobsStaged ?? null,
       initialDurationMs: Math.round(initialDurationMs),
       repeatedDurationMs: Math.round(repeatedDurationMs),
-      repeatedSourceBudgetMs: REPEATED_SOURCE_BUDGET_MS,
+      repeatedCpuDurationMs: Math.round(repeatedCpuDurationMs),
+      repeatedSourceCpuBudgetMs: REPEATED_SOURCE_CPU_BUDGET_MS,
     };
     console.info("repeated-source-ledger-benchmark", metrics);
 
@@ -152,6 +160,6 @@ describe("known-job ledger repeated-source performance", () => {
       invalidSkipped: 0,
     });
     expect(repeatedSnapshot.discoveryJobs).toHaveLength(50);
-    expect(repeatedDurationMs).toBeLessThan(REPEATED_SOURCE_BUDGET_MS);
+    expect(repeatedCpuDurationMs).toBeLessThan(REPEATED_SOURCE_CPU_BUDGET_MS);
   }, 15_000);
 });

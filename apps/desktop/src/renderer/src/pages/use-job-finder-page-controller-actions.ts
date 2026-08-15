@@ -13,10 +13,15 @@ import type {
   ProfileSetupReviewActionOptions,
   ProfileSetupState,
   ProfileSetupStep,
+  RecommendResumeStrategyInput,
   ResumeAssistantMessage,
   ResumeApplicationMode,
   ResumeDraft,
   ResumeDraftPatch,
+  ResumeStrategyRecommendation,
+  SaveResumeStrategyInput,
+  SelectResumeStrategyInput,
+  SetCampaignResumeStrategyDefaultInput,
 } from "@unemployed/contracts";
 import type {
   ActionState,
@@ -726,8 +731,7 @@ export function createPrimaryPageActions(
       resumeApplicationMode: ResumeApplicationMode,
     ) =>
       void runAction(
-        () =>
-          actions.setJobResumeApplicationMode(jobId, resumeApplicationMode),
+        () => actions.setJobResumeApplicationMode(jobId, resumeApplicationMode),
         () => setSelectedReviewJobId(jobId),
         resumeApplicationMode === "original_resume"
           ? "This job will use your original CV unchanged."
@@ -1077,8 +1081,16 @@ export function createPrimaryPageActions(
         { scope: jobFinderPendingActions.resumeJob(jobId) },
       ),
     onSaveSettings: (settings: JobFinderSettings) =>
-      void runSaveAction({
-        action: () => actions.saveSettings(settings),
+      runSaveAction({
+        action: () => {
+          const applicationCrm =
+            settings.applicationCrm ?? workspace.settings.applicationCrm;
+          return actions.saveSettings({
+            ...workspace.settings,
+            ...settings,
+            ...(applicationCrm ? { applicationCrm } : {}),
+          });
+        },
         dedupeKey: createSaveDedupeKey("settings", settings),
         failedFallback:
           "Settings were not saved. Retry before leaving this page.",
@@ -1153,6 +1165,65 @@ export function createPrimaryPageActions(
         () => undefined,
         "Last assistant change was undone.",
         { scope: jobFinderPendingActions.profileMutation() },
+      ),
+    onSaveResumeStrategy: (input: SaveResumeStrategyInput) =>
+      void runAction(
+        () => actions.saveResumeStrategy(input),
+        () => undefined,
+        input.id
+          ? "Resume strategy updated. Reusing it never approves or readies any resume artifact."
+          : "Resume strategy created. Reusing it never approves or readies any resume artifact.",
+        { scope: jobFinderPendingActions.resumeStrategySave() },
+      ),
+    onDisableResumeStrategy: (strategyId: string) =>
+      void runAction(
+        () => actions.disableResumeStrategy(strategyId),
+        () => undefined,
+        "Resume strategy disabled. It will no longer be recommended or selectable.",
+        { scope: jobFinderPendingActions.resumeStrategyDisable(strategyId) },
+      ),
+    onSelectResumeStrategy: (input: SelectResumeStrategyInput) =>
+      void runAction(
+        () => actions.selectResumeStrategy(input),
+        () => undefined,
+        "Strategy chosen for this job. The job's resume still needs its own review and approval before it can be used.",
+        { scope: jobFinderPendingActions.resumeStrategySelect(input.jobId) },
+      ),
+    onRecommendResumeStrategy: async (
+      input: RecommendResumeStrategyInput,
+    ): Promise<ResumeStrategyRecommendation | null> => {
+      const scope = jobFinderPendingActions.resumeStrategyRecommend(
+        input.jobId,
+      );
+
+      try {
+        return await withPendingScope(scope, () =>
+          actions.recommendResumeStrategy(input),
+        );
+      } catch (error) {
+        setActionState({
+          message: getJobFinderErrorMessage(
+            error,
+            "The strategy recommendation could not be loaded.",
+          ),
+        });
+        return null;
+      }
+    },
+    onSetCampaignResumeStrategyDefault: (
+      input: SetCampaignResumeStrategyDefaultInput,
+    ) =>
+      void runAction(
+        () => actions.setCampaignResumeStrategyDefault(input),
+        () => undefined,
+        input.strategyId === null
+          ? "Campaign default resume strategy cleared."
+          : "Campaign default resume strategy assigned. It only affects future recommendations.",
+        {
+          scope: jobFinderPendingActions.resumeStrategyCampaignDefault(
+            input.campaignId,
+          ),
+        },
       ),
     onSendResumeAssistantMessage: (jobId: string, content: string) =>
       void (async () => {

@@ -10,8 +10,11 @@ import {
   ApplicationQuestionRecordSchema,
   ApplicationReplayCheckpointSchema,
   CandidateProfileSchema,
+  JobFinderActivityControlSchema,
+  JobFinderIntelligenceStateSchema,
   JobFinderRepositoryStateSchema,
   JobFinderSettingsSchema,
+  JobSearchCampaignCollectionSchema,
   JobSearchPreferencesSchema,
   ProfileCopilotMessageSchema,
   ProfileRevisionSchema,
@@ -264,14 +267,42 @@ export function writeState(
   try {
     saveSingletonValue(database, "profile", state.profile);
     saveSingletonValue(database, "search_preferences", state.searchPreferences);
-    saveSingletonValue(database, "profile_setup_state", state.profileSetupState);
+    saveSingletonValue(
+      database,
+      "profile_setup_state",
+      state.profileSetupState,
+    );
     saveSingletonValue(database, "settings", state.settings);
     saveSingletonValue(database, "discovery_state", state.discovery);
+    if (state.campaigns.length > 0 && state.activeCampaignId) {
+      saveSingletonValue(database, "campaign_state", {
+        campaigns: state.campaigns,
+        activeCampaignId: state.activeCampaignId,
+        notifications: state.campaignNotifications,
+      });
+    }
+    saveSingletonValue(database, "activity_control", state.activityControl);
+    saveSingletonValue(database, "intelligence_state", state.intelligence);
     replaceCollection(database, "saved_jobs", state.savedJobs);
     replaceCollection(database, "tailored_assets", state.tailoredAssets);
-    replaceIndexedCollection(database, "apply_runs", state.applyRuns, APPLY_INDEXED_COLLECTION_CONFIGS.apply_runs);
-    replaceIndexedCollection(database, "apply_job_results", state.applyJobResults, APPLY_INDEXED_COLLECTION_CONFIGS.apply_job_results);
-    replaceIndexedCollection(database, "apply_submit_approvals", state.applySubmitApprovals, APPLY_INDEXED_COLLECTION_CONFIGS.apply_submit_approvals);
+    replaceIndexedCollection(
+      database,
+      "apply_runs",
+      state.applyRuns,
+      APPLY_INDEXED_COLLECTION_CONFIGS.apply_runs,
+    );
+    replaceIndexedCollection(
+      database,
+      "apply_job_results",
+      state.applyJobResults,
+      APPLY_INDEXED_COLLECTION_CONFIGS.apply_job_results,
+    );
+    replaceIndexedCollection(
+      database,
+      "apply_submit_approvals",
+      state.applySubmitApprovals,
+      APPLY_INDEXED_COLLECTION_CONFIGS.apply_submit_approvals,
+    );
     replaceIndexedCollection(
       database,
       "application_question_records",
@@ -440,14 +471,23 @@ export function writeState(
         },
       },
     );
-    replaceIndexedCollection(database, "profile_revisions", state.profileRevisions, {
-      columnNames: ["created_at"],
-      getColumns: (value) => {
-        const revision = ProfileRevisionSchema.parse(value);
-        return [revision.createdAt];
+    replaceIndexedCollection(
+      database,
+      "profile_revisions",
+      state.profileRevisions,
+      {
+        columnNames: ["created_at"],
+        getColumns: (value) => {
+          const revision = ProfileRevisionSchema.parse(value);
+          return [revision.createdAt];
+        },
       },
-    });
-    replaceCollection(database, "application_records", state.applicationRecords);
+    );
+    replaceCollection(
+      database,
+      "application_records",
+      state.applicationRecords,
+    );
     replaceCollection(
       database,
       "application_attempts",
@@ -523,13 +563,34 @@ export function readState(
     getSingletonValue(database, "discovery_state", {
       parse: normalizeLegacyDiscoveryState,
     }) ?? fallbackSeed.discovery;
+  const campaignState = getSingletonValue(
+    database,
+    "campaign_state",
+    JobSearchCampaignCollectionSchema,
+  );
+  const activityControl =
+    getSingletonValue(
+      database,
+      "activity_control",
+      JobFinderActivityControlSchema,
+    ) ?? fallbackSeed.activityControl;
+  const intelligence =
+    getSingletonValue(
+      database,
+      "intelligence_state",
+      JobFinderIntelligenceStateSchema,
+    ) ?? fallbackSeed.intelligence;
 
   return JobFinderRepositoryStateSchema.parse({
     profile,
     searchPreferences,
     profileSetupState,
     savedJobs: listValues(database, "saved_jobs", SavedJobSchema),
-    tailoredAssets: listValues(database, "tailored_assets", TailoredAssetSchema),
+    tailoredAssets: listValues(
+      database,
+      "tailored_assets",
+      TailoredAssetSchema,
+    ),
     resumeDrafts: listCollectionValues(
       database,
       "resume_drafts",
@@ -666,7 +727,8 @@ export function readState(
       "application_replay_checkpoints",
       ApplicationReplayCheckpointSchema,
       {
-        orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_replay_checkpoints,
+        orderBySql:
+          APPLY_COLLECTION_ORDER_BY_SQL.application_replay_checkpoints,
       },
     ),
     applicationConsentRequests: listCollectionValues(
@@ -719,5 +781,12 @@ export function readState(
     ),
     settings,
     discovery,
+    campaigns: campaignState?.campaigns ?? fallbackSeed.campaigns,
+    activeCampaignId:
+      campaignState?.activeCampaignId ?? fallbackSeed.activeCampaignId,
+    campaignNotifications:
+      campaignState?.notifications ?? fallbackSeed.campaignNotifications,
+    activityControl,
+    intelligence,
   });
 }

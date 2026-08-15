@@ -1,5 +1,6 @@
 import {
   CandidateProfileSchema,
+  JobFinderIntelligenceStateSchema,
   JobFinderSettingsSchema,
   JobSearchPreferencesSchema,
   ProfileSetupStateSchema,
@@ -133,5 +134,10 @@ export function createEmptyJobFinderRepositoryState(): JobFinderRepositoryState 
       discoveryLedger: [],
       pendingDiscoveryJobs: [],
     },
+    campaigns: [],
+    activeCampaignId: null,
+    campaignNotifications: [],
+    activityControl: { paused: false, pausedAt: null, reason: null },
+    intelligence: JobFinderIntelligenceStateSchema.parse({}),
   };
 }

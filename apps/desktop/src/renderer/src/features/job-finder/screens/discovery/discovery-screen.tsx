@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type {
   BrowserSessionState,
+  CompanyEntity,
   DiscoveryAdapterSessionState,
   DiscoveryActivityEvent,
   DiscoveryFeedbackReason,
@@ -79,6 +80,7 @@ export function DiscoveryScreen(props: {
   actionState: { message: string | null };
   activeRun: DiscoveryRunRecord | null;
   browserSession: BrowserSessionState;
+  companies?: readonly CompanyEntity[];
   discoverySessions: readonly DiscoveryAdapterSessionState[];
   isBrowserSessionPending: boolean;
   isBrowserSessionPendingForTarget: (targetId: string) => boolean;
@@ -95,6 +97,7 @@ export function DiscoveryScreen(props: {
   onRestoreDismissedJob: (jobId: string) => void;
   onOpenBrowserSession: () => void;
   onOpenBrowserSessionForTarget: (targetId: string) => void;
+  onOpenCompany?: (companyId: string) => void;
   onQueueJob: (jobId: string) => void;
   onRunAgentDiscovery: (() => void) | undefined;
   onRunDiscoveryForTarget?: (targetId: string) => void;
@@ -108,6 +111,7 @@ export function DiscoveryScreen(props: {
     actionState,
     activeRun,
     browserSession,
+    companies,
     discoverySessions,
     isBrowserSessionPending,
     isBrowserSessionPendingForTarget,
@@ -121,6 +125,7 @@ export function DiscoveryScreen(props: {
     onRestoreDismissedJob,
     onOpenBrowserSession,
     onOpenBrowserSessionForTarget,
+    onOpenCompany,
     onQueueJob,
     onRunAgentDiscovery,
     onSelectJob,
@@ -136,6 +141,12 @@ export function DiscoveryScreen(props: {
     selectedJob,
     showClearMismatches,
   );
+  const selectedJobCompanyId =
+    resultVisibility.selectedJob && (companies ?? []).length > 0
+      ? ((companies ?? []).find((company) =>
+          company.jobIds.includes(resultVisibility.selectedJob!.id),
+        )?.id ?? null)
+      : null;
   const hiddenJobCount = showClearMismatches
     ? 0
     : resultVisibility.hiddenMismatchCount;
@@ -404,8 +415,10 @@ export function DiscoveryScreen(props: {
                 discoveryTargets={searchPreferences.discovery.targets}
                 isJobPending={isJobPending}
                 onDismissJob={onDismissJob}
+                {...(onOpenCompany ? { onOpenCompany } : {})}
                 onQueueJob={onQueueJob}
                 selectedJob={resultVisibility.selectedJob}
+                selectedJobCompanyId={selectedJobCompanyId}
               />
             </div>
           </div>

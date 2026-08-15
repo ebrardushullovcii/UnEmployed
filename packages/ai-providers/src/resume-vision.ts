@@ -21,8 +21,9 @@ import { buildCandidateConfidenceBreakdown } from "./resume-import-helpers";
 import {
   buildModelRequestBody,
   buildModelUrl,
-  DEFAULT_MODEL_API_MODE,
-  DEFAULT_MODEL_REASONING_EFFORT,
+  DEFAULT_OPENCODE_GO_BASE_URL,
+  DEFAULT_VISION_MODEL_API_MODE,
+  DEFAULT_VISION_MODEL_REASONING_EFFORT,
   modelApiModes,
   modelReasoningEfforts,
   parseModelApiMode,
@@ -30,8 +31,7 @@ import {
   parseModelReasoningEffort,
 } from "./openai-compatible-transport";
 
-const DEFAULT_VISION_MODEL = "gpt-5.6-luna";
-const DEFAULT_VISION_BASE_URL = "https://api.openai.com/v1";
+const DEFAULT_RESUME_VISION_MODEL = "gpt-5.6-luna";
 const DEFAULT_VISION_TIMEOUT_MS = 600_000;
 const DEFAULT_VISION_CONTEXT_WINDOW_TOKENS = 139_000;
 const DEFAULT_VISION_RESERVED_HEADROOM_TOKENS = 30_000;
@@ -730,23 +730,21 @@ export function createResumeVisionProviderFromEnvironment(
       env.UNEMPLOYED_RESUME_VISION_BASE_URL ??
       env.UNEMPLOYED_AI_VISION_BASE_URL ??
       env.UNEMPLOYED_AI_BASE_URL ??
-      DEFAULT_VISION_BASE_URL,
+      DEFAULT_OPENCODE_GO_BASE_URL,
     model:
       env.UNEMPLOYED_RESUME_VISION_MODEL ??
       env.UNEMPLOYED_AI_VISION_MODEL ??
-      DEFAULT_VISION_MODEL,
+      DEFAULT_RESUME_VISION_MODEL,
     apiMode:
       parseModelApiMode(
         env.UNEMPLOYED_RESUME_VISION_API_MODE ??
-          env.UNEMPLOYED_AI_VISION_API_MODE ??
-          env.UNEMPLOYED_AI_API_MODE,
-      ) ?? DEFAULT_MODEL_API_MODE,
+          env.UNEMPLOYED_AI_VISION_API_MODE,
+      ) ?? DEFAULT_VISION_MODEL_API_MODE,
     reasoningEffort:
       parseModelReasoningEffort(
         env.UNEMPLOYED_RESUME_VISION_REASONING_EFFORT ??
-          env.UNEMPLOYED_AI_VISION_REASONING_EFFORT ??
-          env.UNEMPLOYED_AI_REASONING_EFFORT,
-      ) ?? DEFAULT_MODEL_REASONING_EFFORT,
+          env.UNEMPLOYED_AI_VISION_REASONING_EFFORT,
+      ) ?? DEFAULT_VISION_MODEL_REASONING_EFFORT,
     label: "Resume visual scan",
     requestTimeoutMs:
       parseConfiguredNumber(env.UNEMPLOYED_RESUME_VISION_TIMEOUT_MS) ??

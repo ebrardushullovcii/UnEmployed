@@ -2,8 +2,12 @@ import { Pencil } from "lucide-react";
 import type {
   BrowserSessionState,
   ResumeApplicationMode,
+  ResumeStrategy,
+  ResumeStrategyRecommendation,
+  ResumeStrategySelection,
   ReviewQueueItem,
   SavedJob,
+  SelectResumeStrategyInput,
   TailoredAsset,
 } from "@unemployed/contracts";
 import { Button, ProgressBar } from "@renderer/components/ui";
@@ -11,6 +15,7 @@ import { EmptyState } from "../../components/empty-state";
 import { PreferenceList } from "../../components/preference-list";
 import { StatusBadge } from "../../components/status-badge";
 import { MatchEvidenceMatrix } from "../../components/match-evidence-matrix";
+import { ResumeStrategyJobPanel } from "./resume-strategy-job-panel";
 import { jobDescriptionToText } from "../../lib/job-description-text";
 import {
   buildMissionPanelState,
@@ -23,9 +28,11 @@ import {
 interface ReviewQueueMissionPanelProps {
   actionMessage: string | null;
   browserSession: BrowserSessionState;
+  campaignId: string;
   displayedProgress: number;
   isApplyPending: boolean;
   isJobPending: (jobId: string) => boolean;
+  isResumeStrategyPending: (jobId: string) => boolean;
   onClearQueueSelection: () => void;
   onStartAutoApplyQueue: (jobIds: string[]) => void;
   onStartApplyCopilot: (jobId: string) => void;
@@ -34,13 +41,19 @@ interface ReviewQueueMissionPanelProps {
   onOpenBrowserSession: () => void;
   onOpenJobDetails: (jobId: string) => void;
   onOpenProfile: () => void;
+  onRecommendResumeStrategy: (input: {
+    jobId: string;
+  }) => Promise<ResumeStrategyRecommendation | null>;
   onRemoveReviewJob: (jobId: string) => void;
+  onSelectResumeStrategy: (input: SelectResumeStrategyInput) => void;
   onSetJobResumeApplicationMode: (
     jobId: string,
     resumeApplicationMode: ResumeApplicationMode,
   ) => void;
   queue: readonly ReviewQueueItem[];
   queueSelection: readonly string[];
+  resumeStrategies: readonly ResumeStrategy[];
+  resumeStrategySelections: readonly ResumeStrategySelection[];
   selectedAsset: TailoredAsset | null;
   selectedItem: ReviewQueueItem | null;
   selectedJob: SavedJob | null;
@@ -49,9 +62,11 @@ interface ReviewQueueMissionPanelProps {
 export function ReviewQueueMissionPanel({
   actionMessage,
   browserSession,
+  campaignId,
   displayedProgress,
   isApplyPending,
   isJobPending,
+  isResumeStrategyPending,
   onClearQueueSelection,
   onStartAutoApplyQueue,
   onStartApplyCopilot,
@@ -60,10 +75,14 @@ export function ReviewQueueMissionPanel({
   onOpenBrowserSession,
   onOpenJobDetails,
   onOpenProfile,
+  onRecommendResumeStrategy,
   onRemoveReviewJob,
+  onSelectResumeStrategy,
   onSetJobResumeApplicationMode,
   queue,
   queueSelection,
+  resumeStrategies,
+  resumeStrategySelections,
   selectedAsset,
   selectedItem,
   selectedJob,
@@ -200,6 +219,15 @@ export function ReviewQueueMissionPanel({
                 })}
               </fieldset>
             </div>
+            <ResumeStrategyJobPanel
+              campaignId={campaignId}
+              isPending={isResumeStrategyPending(selectedItem.jobId)}
+              jobId={selectedItem.jobId}
+              onRecommend={onRecommendResumeStrategy}
+              onSelect={onSelectResumeStrategy}
+              selections={resumeStrategySelections}
+              strategies={resumeStrategies}
+            />
             <div className="surface-card-tint grid min-w-0 gap-3 rounded-(--radius-field) border border-primary/35 bg-primary/5 p-4">
               <div className="grid gap-1">
                 <span className="text-(length:--text-label) uppercase tracking-(--tracking-heading) text-primary">

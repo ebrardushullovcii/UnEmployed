@@ -69,21 +69,27 @@ describe("ReviewQueueMissionPanel", () => {
       <ReviewQueueMissionPanel
         actionMessage={null}
         browserSession={browserSession}
+        campaignId="campaign_1"
         displayedProgress={100}
         isApplyPending={false}
         isJobPending={() => false}
+        isResumeStrategyPending={() => false}
         onClearQueueSelection={vi.fn()}
         onEditResumeWorkspace={vi.fn()}
         onGenerateResume={vi.fn()}
         onOpenBrowserSession={vi.fn()}
         onOpenJobDetails={vi.fn()}
         onOpenProfile={vi.fn()}
+        onRecommendResumeStrategy={vi.fn().mockResolvedValue(null)}
         onRemoveReviewJob={vi.fn()}
+        onSelectResumeStrategy={vi.fn()}
         onSetJobResumeApplicationMode={onSetJobResumeApplicationMode}
         onStartApplyCopilot={onStartApplyCopilot}
         onStartAutoApplyQueue={vi.fn()}
         queue={[selectedItem]}
         queueSelection={[]}
+        resumeStrategies={[]}
+        resumeStrategySelections={[]}
         selectedAsset={null}
         selectedItem={selectedItem}
         selectedJob={selectedJob}
@@ -212,21 +218,27 @@ describe("ReviewQueueMissionPanel", () => {
       <ReviewQueueMissionPanel
         actionMessage={null}
         browserSession={browserSession}
+        campaignId="campaign_1"
         displayedProgress={100}
         isApplyPending={false}
         isJobPending={() => false}
+        isResumeStrategyPending={() => false}
         onClearQueueSelection={vi.fn()}
         onEditResumeWorkspace={vi.fn()}
         onGenerateResume={vi.fn()}
         onOpenBrowserSession={vi.fn()}
         onOpenJobDetails={vi.fn()}
         onOpenProfile={vi.fn()}
+        onRecommendResumeStrategy={vi.fn().mockResolvedValue(null)}
         onRemoveReviewJob={vi.fn()}
+        onSelectResumeStrategy={vi.fn()}
         onSetJobResumeApplicationMode={vi.fn()}
         onStartApplyCopilot={vi.fn()}
         onStartAutoApplyQueue={onStartAutoApplyQueue}
         queue={[selectedItem, secondItem]}
         queueSelection={[selectedItem.jobId, secondItem.jobId]}
+        resumeStrategies={[]}
+        resumeStrategySelections={[]}
         selectedAsset={null}
         selectedItem={selectedItem}
         selectedJob={selectedJob}

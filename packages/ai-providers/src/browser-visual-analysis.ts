@@ -13,8 +13,9 @@ import { z } from "zod";
 import {
   buildModelRequestBody,
   buildModelUrl,
-  DEFAULT_MODEL_API_MODE,
-  DEFAULT_MODEL_REASONING_EFFORT,
+  DEFAULT_OPENCODE_GO_BASE_URL,
+  DEFAULT_VISION_MODEL_API_MODE,
+  DEFAULT_VISION_MODEL_REASONING_EFFORT,
   modelApiModes,
   modelReasoningEfforts,
   parseModelApiMode,
@@ -23,7 +24,7 @@ import {
 } from "./openai-compatible-transport";
 
 const DEFAULT_BROWSER_VISUAL_MODEL = "gpt-5.6-luna";
-const DEFAULT_BROWSER_VISUAL_BASE_URL = "https://api.openai.com/v1";
+const DEFAULT_BROWSER_VISUAL_BASE_URL = DEFAULT_OPENCODE_GO_BASE_URL;
 const DEFAULT_BROWSER_VISUAL_TIMEOUT_MS = 120_000;
 
 export const OpenAiCompatibleBrowserVisualProviderOptionsSchema = z.object({
@@ -741,15 +742,13 @@ export function createBrowserVisualAnalysisProviderFromEnvironment(
     apiMode:
       parseModelApiMode(
         env.UNEMPLOYED_BROWSER_VISION_API_MODE ??
-          env.UNEMPLOYED_AI_VISION_API_MODE ??
-          env.UNEMPLOYED_AI_API_MODE,
-      ) ?? DEFAULT_MODEL_API_MODE,
+          env.UNEMPLOYED_AI_VISION_API_MODE,
+      ) ?? DEFAULT_VISION_MODEL_API_MODE,
     reasoningEffort:
       parseModelReasoningEffort(
         env.UNEMPLOYED_BROWSER_VISION_REASONING_EFFORT ??
-          env.UNEMPLOYED_AI_VISION_REASONING_EFFORT ??
-          env.UNEMPLOYED_AI_REASONING_EFFORT,
-      ) ?? DEFAULT_MODEL_REASONING_EFFORT,
+          env.UNEMPLOYED_AI_VISION_REASONING_EFFORT,
+      ) ?? DEFAULT_VISION_MODEL_REASONING_EFFORT,
     label: "Browser visual analysis",
     requestTimeoutMs:
       parseConfiguredNumber(env.UNEMPLOYED_BROWSER_VISION_TIMEOUT_MS) ??

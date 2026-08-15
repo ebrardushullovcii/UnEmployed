@@ -1,0 +1,138 @@
+// @vitest-environment jsdom
+
+import type { CampaignNotification } from "@unemployed/contracts";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { CampaignNotificationCenter } from "./campaign-notification-center";
+
+afterEach(cleanup);
+
+function notification(
+  id: string,
+  overrides: Partial<CampaignNotification> = {},
+): CampaignNotification {
+  return {
+    id,
+    campaignId: "campaign-1",
+    kind: "strong_match",
+    title: `Notification ${id}`,
+    body: null,
+    createdAt: "2026-08-15T10:00:00.000Z",
+    readAt: null,
+    unread: true,
+    jobId: null,
+    sourceTargetId: null,
+    ...overrides,
+  };
+}
+
+function renderCenter(
+  props: Partial<Parameters<typeof CampaignNotificationCenter>[0]> = {},
+) {
+  const defaults = {
+    notifications: [],
+    pendingMarkAll: false,
+    pendingNotificationId: () => false,
+    onMarkAllRead: vi.fn(),
+    onMarkRead: vi.fn(),
+  };
+  const onMarkAllRead = defaults.onMarkAllRead;
+  const onMarkRead = defaults.onMarkRead;
+  render(
+    <CampaignNotificationCenter
+      {...defaults}
+      onMarkAllRead={props.onMarkAllRead ?? onMarkAllRead}
+      onMarkRead={props.onMarkRead ?? onMarkRead}
+      {...props}
+    />,
+  );
+  return { onMarkAllRead, onMarkRead };
+}
+
+describe("CampaignNotificationCenter", () => {
+  it("shows an empty state when there are no notifications", () => {
+    renderCenter();
+    expect(screen.getByText(/No campaign notifications yet/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Mark all read" })).toBeNull();
+  });
+
+  it("shows a loading state without an empty-state claim", () => {
+    renderCenter({ loading: true });
+    expect(screen.getByText(/Loading campaign notifications/)).toBeTruthy();
+    expect(screen.queryByText(/No campaign notifications yet/)).toBeNull();
+  });
+
+  it("shows an error message with an alert role", () => {
+    renderCenter({ errorMessage: "The workspace could not be loaded." });
+    expect(screen.getByRole("alert").textContent).toContain(
+      "The workspace could not be loaded.",
+    );
+  });
+
+  it("reports the unread count and marks one notification read", () => {
+    const { onMarkRead } = renderCenter({
+      notifications: [
+        notification("n-1"),
+        notification("n-2", {
+          unread: false,
+          readAt: "2026-08-15T11:00:00.000Z",
+        }),
+      ],
+    });
+
+    expect(screen.getByText(/1 unread/)).toBeTruthy();
+    const markReadButtons = screen.getAllByRole("button", {
+      name: "Mark read",
+    });
+    expect(markReadButtons).toHaveLength(1);
+    fireEvent.click(markReadButtons[0]!);
+    expect(onMarkRead).toHaveBeenCalledWith("n-1");
+  });
+
+  it("marks all unread notifications read through the header action", () => {
+    const { onMarkAllRead } = renderCenter({
+      notifications: [notification("n-1"), notification("n-2")],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark all read" }));
+    expect(onMarkAllRead).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables mark-all-read while a mark-all action is pending", () => {
+    renderCenter({
+      notifications: [notification("n-1")],
+      pendingMarkAll: true,
+    });
+    expect(
+      screen.getByRole("button", { name: "Mark all read" }),
+    ).toHaveProperty("disabled", true);
+  });
+
+  it("sorts notifications newest first and marks read items as read", () => {
+    renderCenter({
+      notifications: [
+        notification("older", {
+          createdAt: "2026-08-14T10:00:00.000Z",
+        }),
+        notification("newer", {
+          createdAt: "2026-08-16T10:00:00.000Z",
+        }),
+        notification("read-item", {
+          createdAt: "2026-08-15T10:00:00.000Z",
+          unread: false,
+          readAt: "2026-08-15T12:00:00.000Z",
+        }),
+      ],
+    });
+
+    const titles = screen
+      .getAllByText(/Notification (older|newer|read-item)/)
+      .map((node) => node.textContent);
+    expect(titles).toEqual([
+      "Notification newer",
+      "Notification read-item",
+      "Notification older",
+    ]);
+    expect(screen.getAllByText("Read")).toHaveLength(1);
+  });
+});

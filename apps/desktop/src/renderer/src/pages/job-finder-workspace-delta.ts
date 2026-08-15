@@ -107,6 +107,12 @@ export function applyJobFinderWorkspaceDelta(input: {
       discoverySessions: input.delta.discoverySessions,
       sourceAccessPrompts: input.delta.sourceAccessPrompts,
       latestResumeImportRun: input.delta.latestResumeImportRun,
+      campaigns: input.delta.campaigns,
+      activeCampaignId: input.delta.activeCampaignId,
+      campaignNotifications: input.delta.campaignNotifications,
+      dashboard: input.delta.dashboard,
+      activityControl: input.delta.activityControl,
+      intelligence: input.delta.intelligence,
       discoveryJobs,
       dismissedDiscoveryJobs: applyEntitySlice(
         input.workspace.dismissedDiscoveryJobs,

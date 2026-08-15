@@ -3,10 +3,17 @@ import path from "node:path";
 import { app, BrowserWindow, dialog } from "electron";
 import type { IpcMain, SaveDialogOptions } from "electron";
 import {
+  ApplicationCrmExportInputSchema,
+  ApplicationCrmFileExportResultSchema,
+  ApplicationCrmMutationInputSchema,
+  ApplicationCrmSettingsSchema,
   ApplicationPacketSchema,
+  ApplyGroupedManualAnswerInputSchema,
   ApplyRunDetailsSchema,
+  CampaignRuleFunnelProjectionSchema,
   ClearApplicationAnswerCommandSchema,
   CandidateProfileSchema,
+  CompanyIntelligenceMutationInputSchema,
   DiscoveryActivityEventSchema,
   DesktopTestOkResponseSchema,
   JobFinderAgentDiscoveryActionInputSchema,
@@ -49,6 +56,7 @@ import {
   JobFinderSettingsSchema,
   SaveJobFinderWorkspaceInputSchema,
   ProfileSetupStateSchema,
+  ProjectGroupedManualAnswerCommandSchema,
   SourceDebugProgressEventSchema,
   SourceDebugRunDetailsSchema,
   SourceDebugRunRecordSchema,
@@ -57,6 +65,17 @@ import {
   JobFinderWorkspaceSyncInputSchema,
   JobFinderWorkspaceSyncResultSchema,
   JobSearchPreferencesSchema,
+  NonEmptyStringSchema,
+  SaveJobSearchCampaignInputSchema,
+  SaveCampaignRuleRouteInputSchema,
+  SafeguardMutationInputSchema,
+  SelectJobSearchCampaignInputSchema,
+  DeleteCampaignRuleInputSchema,
+  ToggleCampaignRuleInputSchema,
+  ProjectCampaignRuleFunnelInputSchema,
+  SetJobFinderActivityControlInputSchema,
+  RunCampaignNowInputSchema,
+  MarkCampaignNotificationReadInputSchema,
   JobFinderUndoProfileRevisionInputSchema,
   ResumeImportBenchmarkReportSchema,
   ResumeImportBenchmarkCaseSchema,
@@ -65,7 +84,18 @@ import {
   ResumeImportProgressEventSchema,
   ResumeImportRunSchema,
   ResumeQualityBenchmarkReportSchema,
+  RapidReviewMutationInputSchema,
+  RecommendResumeStrategyInputSchema,
+  RecordOutcomeInputSchema,
+  ResumeStrategyRecommendationSchema,
+  ReviewCompanyMergeInputSchema,
+  SaveResumeStrategyInputSchema,
   SaveApplicationAnswerCommandSchema,
+  SelectResumeStrategyInputSchema,
+  SetCampaignResumeStrategyDefaultInputSchema,
+  SnoozeGroupedDecisionInputSchema,
+  SetCompanyPreferenceInputSchema,
+  SetOutcomeSuggestionEnabledInputSchema,
   UserActionCommandSchema,
 } from "@unemployed/contracts";
 import { createJobFinderProductActionToolRegistry } from "@unemployed/job-finder";
@@ -279,6 +309,261 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
   );
 
   ipcMain.handle(
+    "job-finder:save-campaign",
+    async (_event, payload: unknown) => {
+      const campaign = SaveJobSearchCampaignInputSchema.parse(payload);
+      const service = await getJobFinderWorkspaceService();
+      return JobFinderWorkspaceSnapshotSchema.parse(
+        await service.saveCampaign(campaign),
+      );
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:select-campaign",
+    async (_event, payload: unknown) => {
+      const { campaignId } = SelectJobSearchCampaignInputSchema.parse(payload);
+      const service = await getJobFinderWorkspaceService();
+      return JobFinderWorkspaceSnapshotSchema.parse(
+        await service.selectCampaign(campaignId),
+      );
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:run-campaign-now",
+    async (_event, payload: unknown) => {
+      const input = RunCampaignNowInputSchema.parse(payload ?? {});
+      const service = await getJobFinderWorkspaceService();
+      return JobFinderWorkspaceSnapshotSchema.parse(
+        await service.runCampaignNow(input),
+      );
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:mark-campaign-notification-read",
+    async (_event, payload: unknown) => {
+      const { notificationId } = MarkCampaignNotificationReadInputSchema.omit({
+        readAt: true,
+      }).parse(payload);
+      const service = await getJobFinderWorkspaceService();
+      const snapshot = await service.markCampaignNotificationRead({
+        notificationId,
+        readAt: new Date().toISOString(),
+      });
+
+      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:mark-all-campaign-notifications-read",
+    async () => {
+      const service = await getJobFinderWorkspaceService();
+      const snapshot = await service.markAllCampaignNotificationsRead({
+        readAt: new Date().toISOString(),
+      });
+
+      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:save-campaign-rule",
+    async (_event, payload: unknown) => {
+      const input = SaveCampaignRuleRouteInputSchema.parse(payload);
+      const service = await getJobFinderWorkspaceService();
+      return JobFinderWorkspaceSnapshotSchema.parse(
+        await service.saveCampaignRule(input),
+      );
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:delete-campaign-rule",
+    async (_event, payload: unknown) => {
+      const input = DeleteCampaignRuleInputSchema.parse(payload);
+      const service = await getJobFinderWorkspaceService();
+      return JobFinderWorkspaceSnapshotSchema.parse(
+        await service.deleteCampaignRule(input),
+      );
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:toggle-campaign-rule",
+    async (_event, payload: unknown) => {
+      const input = ToggleCampaignRuleInputSchema.parse(payload);
+      const service = await getJobFinderWorkspaceService();
+      return JobFinderWorkspaceSnapshotSchema.parse(
+        await service.toggleCampaignRule(input),
+      );
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:project-campaign-rule-funnel",
+    async (_event, payload: unknown) => {
+      const input = ProjectCampaignRuleFunnelInputSchema.parse(payload);
+      const service = await getJobFinderWorkspaceService();
+      return CampaignRuleFunnelProjectionSchema.parse(
+        await service.projectCampaignRuleFunnel(input),
+      );
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:set-activity-control",
+    async (_event, payload: unknown) => {
+      const input = SetJobFinderActivityControlInputSchema.parse(payload);
+      const service = await getJobFinderWorkspaceService();
+      return JobFinderWorkspaceSnapshotSchema.parse(
+        await service.setActivityControl(input),
+      );
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:mutate-rapid-review",
+    async (_event, payload: unknown) => {
+      const input = RapidReviewMutationInputSchema.parse(payload);
+      const service = await getJobFinderWorkspaceService();
+      return JobFinderWorkspaceSnapshotSchema.parse(
+        await service.mutateRapidReview(input),
+      );
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:record-outcome",
+    async (_event, payload: unknown) => {
+      const input = RecordOutcomeInputSchema.parse(payload);
+      const service = await getJobFinderWorkspaceService();
+      return JobFinderWorkspaceSnapshotSchema.parse(
+        await service.recordOutcome(input),
+      );
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:save-resume-strategy",
+    async (_event, payload: unknown) => {
+      const input = SaveResumeStrategyInputSchema.parse(payload);
+      const service = await getJobFinderWorkspaceService();
+      return JobFinderWorkspaceSnapshotSchema.parse(
+        await service.saveResumeStrategy(input),
+      );
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:disable-resume-strategy",
+    async (_event, payload: unknown) => {
+      const strategyId = NonEmptyStringSchema.parse(payload);
+      const service = await getJobFinderWorkspaceService();
+      return JobFinderWorkspaceSnapshotSchema.parse(
+        await service.disableResumeStrategy(strategyId),
+      );
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:select-resume-strategy",
+    async (_event, payload: unknown) => {
+      const input = SelectResumeStrategyInputSchema.parse(payload);
+      const service = await getJobFinderWorkspaceService();
+      return JobFinderWorkspaceSnapshotSchema.parse(
+        await service.selectResumeStrategy(input),
+      );
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:recommend-resume-strategy",
+    async (_event, payload: unknown) => {
+      const input = RecommendResumeStrategyInputSchema.parse(payload);
+      const service = await getJobFinderWorkspaceService();
+      return ResumeStrategyRecommendationSchema.parse(
+        await service.recommendResumeStrategy(input),
+      );
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:set-campaign-resume-strategy-default",
+    async (_event, payload: unknown) => {
+      const input = SetCampaignResumeStrategyDefaultInputSchema.parse(payload);
+      const service = await getJobFinderWorkspaceService();
+      return JobFinderWorkspaceSnapshotSchema.parse(
+        await service.setCampaignResumeStrategyDefault(input),
+      );
+    },
+  );
+
+  ipcMain.handle("job-finder:refresh-company-intelligence", async () => {
+    const service = await getJobFinderWorkspaceService();
+    return JobFinderWorkspaceSnapshotSchema.parse(
+      await service.refreshCompanyIntelligence(),
+    );
+  });
+
+  ipcMain.handle(
+    "job-finder:set-company-preference",
+    async (_event, payload: unknown) => {
+      const input = SetCompanyPreferenceInputSchema.parse(payload);
+      const service = await getJobFinderWorkspaceService();
+      return JobFinderWorkspaceSnapshotSchema.parse(
+        await service.setCompanyPreference(input),
+      );
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:review-company-merge",
+    async (_event, payload: unknown) => {
+      const input = ReviewCompanyMergeInputSchema.parse(payload);
+      const service = await getJobFinderWorkspaceService();
+      return JobFinderWorkspaceSnapshotSchema.parse(
+        await service.reviewCompanyMerge(input),
+      );
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:mutate-company-intelligence",
+    async (_event, payload: unknown) => {
+      const input = CompanyIntelligenceMutationInputSchema.parse(payload);
+      const service = await getJobFinderWorkspaceService();
+      return JobFinderWorkspaceSnapshotSchema.parse(
+        await service.mutateCompanyIntelligence(input),
+      );
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:set-outcome-suggestion-enabled",
+    async (_event, payload: unknown) => {
+      const input = SetOutcomeSuggestionEnabledInputSchema.parse(payload);
+      const service = await getJobFinderWorkspaceService();
+      return JobFinderWorkspaceSnapshotSchema.parse(
+        await service.setOutcomeSuggestionEnabled(input),
+      );
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:mutate-safeguards",
+    async (_event, payload: unknown) => {
+      const input = SafeguardMutationInputSchema.parse(payload);
+      const service = await getJobFinderWorkspaceService();
+      return JobFinderWorkspaceSnapshotSchema.parse(
+        await service.mutateSafeguards(input),
+      );
+    },
+  );
+
+  ipcMain.handle(
     "job-finder:save-profile-setup-state",
     async (_event, payload: unknown) => {
       const profileSetupState = ProfileSetupStateSchema.parse(payload);
@@ -346,10 +631,10 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
       const productActions = createJobFinderProductActionToolRegistry(
         jobFinderWorkspaceService,
       );
-      const proposal = await productActions.execute(
-        "propose_profile_change",
-        { request: content, context },
-      );
+      const proposal = await productActions.execute("propose_profile_change", {
+        request: content,
+        context,
+      });
       if (!proposal.ok) {
         throw new Error(proposal.error.message);
       }
@@ -974,6 +1259,42 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
   );
 
   ipcMain.handle(
+    "job-finder:project-grouped-manual-answer",
+    async (_event, payload: unknown) => {
+      const command = ProjectGroupedManualAnswerCommandSchema.parse(payload);
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const snapshot =
+        await jobFinderWorkspaceService.projectGroupedManualAnswer(command);
+
+      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:apply-grouped-manual-answer",
+    async (_event, payload: unknown) => {
+      const input = ApplyGroupedManualAnswerInputSchema.parse(payload);
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const snapshot =
+        await jobFinderWorkspaceService.applyGroupedManualAnswer(input);
+
+      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:snooze-grouped-decision",
+    async (_event, payload: unknown) => {
+      const input = SnoozeGroupedDecisionInputSchema.parse(payload);
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const snapshot =
+        await jobFinderWorkspaceService.snoozeGroupedDecision(input);
+
+      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+    },
+  );
+
+  ipcMain.handle(
     "job-finder:export-application-packet",
     async (event, payload: unknown) => {
       const { runId, jobId } =
@@ -1020,6 +1341,91 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
 
       return JobFinderApplicationPacketExportResultSchema.parse({
         status: "saved",
+      });
+    },
+  );
+  ipcMain.handle(
+    "job-finder:mutate-application-crm",
+    async (_event, payload: unknown) => {
+      const input = ApplicationCrmMutationInputSchema.parse(payload);
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const snapshot =
+        await jobFinderWorkspaceService.mutateApplicationCrm(input);
+
+      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:run-application-no-response-automation",
+    async (_event, payload: unknown) => {
+      const settings = ApplicationCrmSettingsSchema.optional().parse(
+        payload ?? undefined,
+      );
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const snapshot =
+        await jobFinderWorkspaceService.runApplicationNoResponseAutomation(
+          settings,
+        );
+
+      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:export-application-crm",
+    async (event, payload: unknown) => {
+      const input = ApplicationCrmExportInputSchema.parse(payload);
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const exportResult =
+        await jobFinderWorkspaceService.exportApplicationCrm(input);
+
+      if (isDesktopTestApiEnabled()) {
+        return ApplicationCrmFileExportResultSchema.parse({
+          status: "cancelled",
+          exportedCount: exportResult.exportedCount,
+          filePath: null,
+        });
+      }
+
+      const browserWindow = BrowserWindow.fromWebContents(event.sender);
+      const saveDialogOptions: SaveDialogOptions = {
+        defaultPath: path.join(app.getPath("documents"), exportResult.fileName),
+        filters: [
+          {
+            name: exportResult.format === "json" ? "JSON" : "CSV",
+            extensions: [exportResult.format],
+          },
+        ],
+        properties: ["createDirectory", "showOverwriteConfirmation"],
+        title: "Export application CRM",
+      };
+      const saveResult = browserWindow
+        ? await dialog.showSaveDialog(browserWindow, saveDialogOptions)
+        : await dialog.showSaveDialog(saveDialogOptions);
+
+      if (saveResult.canceled || !saveResult.filePath) {
+        return ApplicationCrmFileExportResultSchema.parse({
+          status: "cancelled",
+          exportedCount: exportResult.exportedCount,
+          filePath: null,
+        });
+      }
+
+      const outputPath = saveResult.filePath
+        .toLowerCase()
+        .endsWith(`.${exportResult.format}`)
+        ? saveResult.filePath
+        : `${saveResult.filePath}.${exportResult.format}`;
+      await writeFile(outputPath, exportResult.content, {
+        encoding: "utf8",
+        mode: 0o600,
+      });
+
+      return ApplicationCrmFileExportResultSchema.parse({
+        status: "saved",
+        exportedCount: exportResult.exportedCount,
+        filePath: outputPath,
       });
     },
   );
