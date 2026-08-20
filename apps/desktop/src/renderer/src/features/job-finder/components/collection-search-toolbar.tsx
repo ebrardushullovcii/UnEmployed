@@ -139,7 +139,7 @@ export function CollectionSavedViews(props: {
       <summary className="flex h-8 cursor-pointer items-center rounded-(--radius-button) px-3 text-sm text-foreground-soft hover:bg-secondary">
         Saved views{props.views.length > 0 ? ` (${props.views.length})` : ""}
       </summary>
-      <div className="surface-panel-shell absolute right-0 top-full z-30 mt-2 grid w-72 gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) p-3 shadow-(--modal-shadow)">
+      <div className="surface-panel-shell absolute right-0 top-full z-30 mt-2 grid max-h-[min(24rem,calc(100vh-4rem))] w-[min(18rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] gap-3 overflow-y-auto rounded-(--radius-panel) border border-(--surface-panel-border) p-3 shadow-(--modal-shadow)">
         <div className="flex gap-2">
           <Input
             aria-label="Saved view name"

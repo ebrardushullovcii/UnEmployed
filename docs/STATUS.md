@@ -2,9 +2,47 @@
 
 Read this only for active feature work, handoff updates, broad repo changes, or unclear current state.
 
-Updated: 2026-08-19
+Updated: 2026-08-20
 
 ## Current Truth
+
+- The 2026-08-20 production-recovery candidate supersedes the 2026-08-19
+  source and screenshots for current release decisions. Repository reads no
+  longer silently cap collections at 1,000; singleton writes no longer rebuild
+  unrelated tables; settings, discovery, application, and resume-affecting job
+  changes use transactional row-local commits instead of stale full snapshots.
+  Regression coverage traverses and restarts 5,000 saved jobs, updates 1,001
+  application records, and preserves concurrent same-row/different-row changes.
+  The strict release test entry point again separates four-worker correctness,
+  serial non-instrumented performance, and separate coverage reporting.
+- The same candidate fixes misleading Home zero states, Discovery's accidental
+  two-column breakpoint, More-menu focus order, pagination focus ownership,
+  Rapid Review keyboard conflicts, dropped residual wheel/keyboard scrolling,
+  excessive route chrome, and cold first-route loading. Heavy routes are split,
+  common destinations preload after the shell is usable, and renderer timing
+  marks feed hard cold/warm acceptance budgets. The normal flow now has a
+  persistent 15.5rem sidebar at CSS widths of at least 1440px; below that
+  breakpoint the compact top navigation exposes the flow destinations and a
+  `Planning & settings` menu for secondary destinations.
+- Current acceptance is source-bound. The production wrapper builds once, hashes
+  the complete dirty source and generated main/preload/renderer bundle, unsets
+  dev-server routing, and fails closed across fresh, 1,001-record scale,
+  error/recovery, minimum-width, 1440 px, native 200% zoom, long-label, real
+  scroll, route-latency, safety, and cleanup checks. Any evidence whose source or
+  bundle fingerprint differs from the current tree is historical only.
+- The current normal-use checkpoint is green for the exact built source: the
+  production desktop build, the isolated prepare-only Greenhouse journey, the
+  focused Profile/Strong rewrite/Shortlisted/bulk-draft/review suite (41 tests),
+  the Home and navigation suite (22 tests), desktop typecheck, desktop lint, and
+  `git diff --check` all pass. The journey discovers 50 synthetic jobs and
+  reaches the employer's visible final action without clicking it, recording no
+  submitted application. Per user direction, further extreme zoom, minimum
+  viewport, and exhaustive recovery-harness work is deferred from this
+  normal-flow pass; it is not release acceptance.
+- Release status is active and unaccepted for the current dirty candidate. The
+  2026-08-19 results and screenshots are historical until the exact-source
+  production wrapper, Electron, screenshot, adversarial, and cleanup gates all
+  pass for this tree.
 
 - The 2026-08-19 Job Finder release-hardening pass is integrated locally. It closes application/result consistency races, reset and bulk-update atomicity, discovery refresh coalescing, large-collection pagination and indexing, contextual navigation, keyboard/focus/reduced-motion/long-label handling, extreme-zoom layout, renderer recovery, and packaged-sidecar ownership. The repository-wide `pnpm verify` gate passed after integration, including the separate discovery-ledger performance check. A fresh production scale replay then passed with 516 jobs, 226 shortlisted jobs, 226 applications, and 511 sources: cold usable shell 1,780.86 ms, 12 route switches with a 307.42 ms maximum, bounded pagination on all four large surfaces, zero renderer errors, an in-bounds More menu, and complete isolated cleanup. Evidence: `apps/desktop/.tmp/production-scale-probe-2026-08-19T05-34-15-991Z/report.json`. The release pipeline also produced a Windows x64 unpacked app with the tracked icon and complete parser sidecar. That bundle is unsigned and must be regenerated once more after the final CSP metadata cleanup before external release; signing, installer publication, auto-update, and deployment remain explicit release operations.
 
@@ -19,6 +57,9 @@ Updated: 2026-08-19
 - Deep production acceptance and agent-tool refinement are complete. The accepted production Electron evidence covers realistic scroll/zoom/window edges, background-operation interruption and stale-state races, conversational profile/search proposals, application documents, sensitive job-scoped assets, direct user handoffs, and proposal-first Guided Edits. The durable milestone is in `docs/HISTORY.md`; the screenshot-backed review is `docs/audits/JOB_FINDER_DEEP_ACCEPTANCE_REVIEW.html`.
 - The roadmap implementation is integrated from résumé import through the final safe application checkpoint. Durable current behavior lives in `docs/PRODUCT.md`, `docs/CONTRACTS.md`, and `docs/TESTING.md`; the product handoff is `docs/audits/JOB_FINDER_COMPLETION_REVIEW.html`.
 - Job Finder now has one customer-facing journey: Profile → Find jobs → Shortlisted → Applications. Task center and Needs you remain separate global destinations.
+- The normal journey is explicitly numbered Profile, Find jobs, Shortlisted, and Applications. Search plans are optional reusable campaign settings and the default plan is enough to begin; Resume approaches are optional reusable role-family rules reached from Shortlisted context.
+- First-use Profile setup offers Light edit, Balanced rewrite, and Strong rewrite. Strong rewrite remains evidence-bound and review-required: generated facts and numbers are not invented, and no application is auto-approved or submitted.
+- Shortlisted can prepare the next up to 10 eligible tailored drafts sequentially. Every draft still needs individual review and approval; preparation never exports, approves, queues, submits, or sends drafts automatically.
 - Original CV and Tailor for this job are per-job choices. Settings supplies only the default for newly shortlisted jobs. Original-CV preparation verifies the selected file and digest without tailoring; tailored preparation requires the exact approved artifact and digest.
 - Configured résumé generation asks the provider only for sparse evidence-cited prose proposals or abstention. Deterministic code owns candidate identity, chronology, complete work-history representation, skills, rendering, and fallback. Canonical employer/title/location metadata always wins over generated metadata.
 - The generation evidence catalog now includes profile, experience, and project skills plus experience domain tags and project types, so the model can anchor stack- and domain-aware wording. Aggressive mode may elaborate plain-language engineering details around evidenced stack, product domain, and metrics, and experience/project bullets may cite profile-level skills as supporting evidence; invented named technologies, employers, dates, credentials, seniority, leadership, and new numbers still require saved evidence, and model-flagged inferred lines are counted in draft notes for pre-approval review.

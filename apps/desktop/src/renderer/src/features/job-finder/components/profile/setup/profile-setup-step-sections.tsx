@@ -56,6 +56,27 @@ const booleanSelectOptions = [
   { label: "No", value: "no" },
 ] as const;
 
+const tailoringModeOptions = [
+  {
+    description:
+      "Keep your wording and structure mostly intact, with small role-specific improvements.",
+    label: "Light edit",
+    value: "conservative",
+  },
+  {
+    description:
+      "Adapt emphasis and wording to the role while keeping the shape of your experience familiar.",
+    label: "Balanced rewrite",
+    value: "balanced",
+  },
+  {
+    description:
+      "Substantially rewrite, combine, or elaborate supported experience. Review every generated line; new facts and numbers are never invented.",
+    label: "Strong rewrite",
+    value: "aggressive",
+  },
+] as const;
+
 function getImportConflictSummary(
   candidate: ResumeImportFieldCandidateSummary,
 ): string | null {
@@ -414,6 +435,12 @@ export function ProfileSetupTargetingStep(props: {
   const targetRolesId = "profile-setup-field-search-preferences-target-roles";
   const locationsId = "profile-setup-field-search-preferences-locations";
   const workModesGroupId = "profile-setup-field-search-preferences-work-modes";
+  const tailoringModeGroupId =
+    "profile-setup-field-search-preferences-tailoring-mode";
+  const tailoringModeGuidanceId =
+    "profile-setup-field-search-preferences-tailoring-mode-guidance";
+  const tailoringModeWarningId =
+    "profile-setup-field-search-preferences-tailoring-mode-warning";
   const requiresVisaSponsorshipId =
     "profile-setup-field-eligibility-requires-visa-sponsorship";
   const remoteEligibleId = "profile-setup-field-eligibility-remote-eligible";
@@ -540,6 +567,77 @@ export function ProfileSetupTargetingStep(props: {
             specific places.
           </p>
         </div>
+        <Controller
+          control={props.preferencesForm.control}
+          name="tailoringMode"
+          render={({ field }) => (
+            <fieldset
+              aria-describedby={`${tailoringModeGuidanceId}${field.value === "aggressive" ? ` ${tailoringModeWarningId}` : ""}`}
+              className="grid gap-(--gap-field)"
+              id={tailoringModeGroupId}
+            >
+              <legend className="text-(length:--text-field-label) font-medium tracking-(--tracking-label) text-muted-foreground">
+                How strongly should Job Finder tailor each resume?
+              </legend>
+              <p
+                className="text-sm leading-6 text-foreground-soft"
+                id={tailoringModeGuidanceId}
+              >
+                This sets the default for reusable resume strategies and per-job
+                drafts. You can change it later for a strategy or an individual
+                job.
+              </p>
+              <div className="grid gap-2 md:grid-cols-3">
+                {tailoringModeOptions.map((option) => {
+                  const optionId = `${tailoringModeGroupId}-${option.value}`;
+                  const selected = field.value === option.value;
+
+                  return (
+                    <label
+                      className="grid min-w-0 cursor-pointer gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/45 p-4 text-left transition-colors hover:border-primary/35 has-[:checked]:border-primary/70 has-[:checked]:bg-primary/8"
+                      htmlFor={optionId}
+                      key={option.value}
+                    >
+                      <input
+                        checked={selected}
+                        className="peer sr-only"
+                        id={optionId}
+                        name={field.name}
+                        onBlur={field.onBlur}
+                        onChange={() => field.onChange(option.value)}
+                        ref={
+                          option.value === "conservative"
+                            ? field.ref
+                            : undefined
+                        }
+                        type="radio"
+                        value={option.value}
+                      />
+                      <span className="font-semibold text-foreground">
+                        {option.label}
+                      </span>
+                      <span className="text-sm leading-5 text-foreground-soft">
+                        {option.description}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              {field.value === "aggressive" ? (
+                <p
+                  className="text-sm leading-6 text-(--warning-text)"
+                  id={tailoringModeWarningId}
+                  role="status"
+                >
+                  Strong rewrite can substantially rewrite, combine, or
+                  elaborate supported experience. Review every generated line:
+                  Job Finder does not invent new facts or numbers, and it does
+                  not auto-approve or submit applications.
+                </p>
+              ) : null}
+            </fieldset>
+          )}
+        />
         <ProfileListEditor
           inputId={targetRolesId}
           label="Target roles"

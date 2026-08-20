@@ -52,7 +52,9 @@ describe("preload jobFinder grouped manual-answer boundary", () => {
 
   it("exposes projectGroupedManualAnswer over the typed channel", async () => {
     const snapshot = { generatedAt: "2026-08-15T10:00:00.000Z" };
-    mockInvoke.mockResolvedValueOnce(snapshot);
+    mockInvoke
+      .mockResolvedValueOnce({ ready: true })
+      .mockResolvedValueOnce(snapshot);
     const command = {
       groupKey: "group_1",
       requestId: "request_a",

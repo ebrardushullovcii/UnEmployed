@@ -223,8 +223,131 @@ export function createInMemoryJobFinderRepository(
 
       return Promise.resolve();
     },
-    listSavedJobs() {
-      return Promise.resolve(cloneValue(state.savedJobs));
+    listSavedJobs(options?: { limit?: number; offset?: number }) {
+      const normalizePaginationValue = (
+        value: number | undefined,
+        fieldName: "limit" | "offset",
+        defaultValue: number,
+      ): number => {
+        if (value === undefined) {
+          return defaultValue;
+        }
+        if (!Number.isFinite(value)) {
+          throw new RangeError(`${fieldName} must be a finite number.`);
+        }
+        return Math.max(0, Math.floor(value));
+      };
+      const limit = normalizePaginationValue(options?.limit, "limit", -1);
+      const offset = normalizePaginationValue(options?.offset, "offset", 0);
+      const orderedJobs = [...state.savedJobs].sort((left, right) =>
+        left.id.localeCompare(right.id),
+      );
+      const sliced =
+        limit < 0
+          ? orderedJobs.slice(offset)
+          : orderedJobs.slice(offset, offset + limit);
+      return Promise.resolve(cloneValue(sliced));
+    },
+    commitSavedJobDelta({
+      upserts = [],
+      update,
+      clearResumeApproval,
+      discoveryState,
+    }) {
+      const normalizedUpserts = SavedJobSchema.array().parse(
+        cloneValue([...upserts]),
+      );
+      const normalizedDiscoveryState = discoveryState
+        ? JobFinderDiscoveryStateSchema.parse(cloneValue(discoveryState))
+        : null;
+      let previousJobForResumeApproval: ReturnType<
+        typeof SavedJobSchema.parse
+      > | null = null;
+      let nextJobForResumeApproval: ReturnType<
+        typeof SavedJobSchema.parse
+      > | null = null;
+      const existingJobIds = new Set(state.savedJobs.map((job) => job.id));
+
+      if (update) {
+        state.savedJobs = state.savedJobs.map((currentJob) => {
+          const nextJob = SavedJobSchema.parse(
+            cloneValue(update(cloneValue(currentJob))),
+          );
+          if (nextJob.id !== currentJob.id) {
+            throw new Error(
+              "Saved job delta updates must preserve each job id.",
+            );
+          }
+          if (currentJob.id === clearResumeApproval?.jobId) {
+            previousJobForResumeApproval = currentJob;
+            nextJobForResumeApproval = nextJob;
+          }
+          return JSON.stringify(nextJob) === JSON.stringify(currentJob)
+            ? currentJob
+            : nextJob;
+        });
+      }
+
+      for (const job of normalizedUpserts) {
+        if (update && existingJobIds.has(job.id)) {
+          continue;
+        }
+        state.savedJobs = upsertById(state.savedJobs, job);
+      }
+
+      if (
+        clearResumeApproval &&
+        previousJobForResumeApproval &&
+        nextJobForResumeApproval &&
+        clearResumeApproval.shouldClear(
+          previousJobForResumeApproval,
+          nextJobForResumeApproval,
+        )
+      ) {
+        const draft = state.resumeDrafts.find(
+          (candidate) => candidate.jobId === clearResumeApproval.jobId,
+        );
+        if (
+          draft &&
+          (draft.approvedAt ||
+            draft.approvedExportId ||
+            draft.status === "approved")
+        ) {
+          const staleDraft = ResumeDraftSchema.parse(
+            cloneValue({
+              ...draft,
+              status: "stale",
+              staleReason: clearResumeApproval.staleReason,
+              approvedAt: null,
+              approvedExportId: null,
+              updatedAt: new Date().toISOString(),
+            }),
+          );
+          const existingAsset =
+            state.tailoredAssets.find(
+              (asset) => asset.jobId === staleDraft.jobId,
+            ) ?? null;
+
+          state.resumeDrafts = upsertById(state.resumeDrafts, staleDraft);
+          state.resumeExportArtifacts = clearApprovedResumeExportsForJob(
+            state.resumeExportArtifacts,
+            staleDraft.jobId,
+          );
+          if (existingAsset) {
+            state.tailoredAssets = upsertById(state.tailoredAssets, {
+              ...existingAsset,
+              storagePath: null,
+              updatedAt: staleDraft.updatedAt,
+            });
+          }
+        }
+      }
+
+      if (normalizedDiscoveryState) {
+        state.discovery = normalizedDiscoveryState;
+      }
+
+      return Promise.resolve();
     },
     replaceSavedJobs(savedJobs) {
       state.savedJobs = SavedJobSchema.array().parse(

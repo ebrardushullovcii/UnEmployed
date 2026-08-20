@@ -1,9 +1,5 @@
 import { Navigate, createHashRouter } from "react-router-dom";
-import {
-  InterviewAnswerOverlayRoute,
-  InterviewHelperPage,
-  InterviewTranscriptOverlayRoute,
-} from "../features/interview-helper/interview-helper-page";
+import { lazy, Suspense, type ReactNode } from "react";
 import {
   JobFinderActionsRoute,
   JobFinderAnalyticsRoute,
@@ -27,6 +23,35 @@ import {
   JobFinderRapidReviewRoute,
 } from "../pages/job-finder-page-routes";
 
+const loadInterviewHelperRoutes = () =>
+  import("../features/interview-helper/interview-helper-page");
+const InterviewHelperPage = lazy(async () => ({
+  default: (await loadInterviewHelperRoutes()).InterviewHelperPage,
+}));
+const InterviewAnswerOverlayRoute = lazy(async () => ({
+  default: (await loadInterviewHelperRoutes()).InterviewAnswerOverlayRoute,
+}));
+const InterviewTranscriptOverlayRoute = lazy(async () => ({
+  default: (await loadInterviewHelperRoutes()).InterviewTranscriptOverlayRoute,
+}));
+
+function InterviewRouteFallback() {
+  return (
+    <main className="grid min-h-full place-items-center bg-canvas px-6 py-10">
+      <div role="status">
+        <h1>Loading Interview Helper</h1>
+        <p>Opening your interview workspace.</p>
+      </div>
+    </main>
+  );
+}
+
+function withInterviewFallback(element: ReactNode) {
+  return (
+    <Suspense fallback={<InterviewRouteFallback />}>{element}</Suspense>
+  );
+}
+
 export const appRouter = createHashRouter([
   {
     path: "/",
@@ -34,15 +59,15 @@ export const appRouter = createHashRouter([
   },
   {
     path: "/interview-helper",
-    element: <InterviewHelperPage />,
+    element: withInterviewFallback(<InterviewHelperPage />),
   },
   {
     path: "/interview-helper/overlay/answer",
-    element: <InterviewAnswerOverlayRoute />,
+    element: withInterviewFallback(<InterviewAnswerOverlayRoute />),
   },
   {
     path: "/interview-helper/overlay/transcript",
-    element: <InterviewTranscriptOverlayRoute />,
+    element: withInterviewFallback(<InterviewTranscriptOverlayRoute />),
   },
   {
     path: "/job-finder",

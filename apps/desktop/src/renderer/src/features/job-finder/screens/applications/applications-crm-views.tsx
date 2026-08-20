@@ -624,7 +624,7 @@ export function ApplicationsCrmViews(props: {
               const stageRecords = grouped.get(stage) ?? [];
               return (
                 <section
-                  className="grid w-72 shrink-0 gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) p-3"
+                  className="grid max-h-[min(24rem,calc(100vh-4rem))] w-[min(18rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] shrink-0 gap-3 overflow-y-auto rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) p-3"
                   key={stage}
                 >
                   <div className="flex items-center justify-between gap-2">

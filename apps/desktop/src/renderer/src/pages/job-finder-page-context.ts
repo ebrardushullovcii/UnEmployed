@@ -94,7 +94,7 @@ export interface JobFinderPageContext {
   ) => void;
   onRestoreDismissedJob: (jobId: string) => void;
   onEditResumeWorkspace: (jobId: string) => void;
-  onGenerateResume: (jobId: string) => void;
+  onGenerateResume: (jobId: string) => Promise<boolean>;
   onRemoveReviewJob: (jobId: string) => void;
   onMutateRapidReview: (input: RapidReviewMutationInput) => Promise<void>;
   onMutateSafeguards: (input: SafeguardMutationInput) => Promise<boolean>;

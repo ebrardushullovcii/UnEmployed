@@ -204,7 +204,7 @@ export function ProfileCopilotTranscript(props: {
           })
         ) : (
           <div className="flex min-h-48 items-center justify-center">
-            <div className="grid max-w-72 gap-3 text-center">
+            <div className="grid max-h-[min(24rem,calc(100vh-4rem))] w-[min(18rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] gap-3 overflow-y-auto text-center">
               <div className="surface-card-tint mx-auto flex size-11 items-center justify-center rounded-full border border-(--surface-panel-border) text-muted-foreground">
                 <Wand2 className="size-4" />
               </div>

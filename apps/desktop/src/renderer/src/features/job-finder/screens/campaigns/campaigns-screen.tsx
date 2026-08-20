@@ -132,7 +132,7 @@ function newCampaignFrom(
     };
   return {
     id: null,
-    name: "New job search",
+    name: "New search plan",
     description: "",
     mode: "precision",
     status: "active",
@@ -252,10 +252,10 @@ function CampaignEditor(props: {
     >
       <div>
         <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-          Campaign setup
+          Search plan setup
         </p>
         <h2 className="mt-1 text-xl font-semibold text-(--text-headline)">
-          {draft.id ? "Edit campaign" : "Create campaign"}
+          {draft.id ? "Edit search plan" : "Create search plan"}
         </h2>
       </div>
 
@@ -272,8 +272,9 @@ function CampaignEditor(props: {
           />
         </label>
         <label className="grid gap-1 text-sm">
-          <span className="font-medium">Mode</span>
+          <span className="font-medium">Volume</span>
           <select
+            aria-label="Volume"
             className="h-10 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
             onChange={(event) =>
               updateMode(event.target.value as JobSearchCampaignMode)
@@ -281,12 +282,17 @@ function CampaignEditor(props: {
             value={draft.mode}
           >
             <option value="precision">
-              Precision — a small, deeply reviewed shortlist
+              Precision — a small, deeply reviewed set
             </option>
             <option value="scale">
-              Scale — a large pool processed in batches
+              Scale — a larger pool processed in controlled batches
             </option>
           </select>
+          <span className="text-xs text-foreground-muted">
+            {draft.mode === "scale"
+              ? "Use Scale when you want more jobs prepared in reviewable batches; safeguards still pause the work when needed."
+              : "Use Precision for a smaller set that gets deeper review before you prepare applications."}
+          </span>
         </label>
         <label className="grid gap-1 text-sm">
           <span className="font-medium">Status</span>
@@ -309,7 +315,7 @@ function CampaignEditor(props: {
         </label>
       </div>
       <label className="grid gap-1 text-sm">
-        <span className="font-medium">Purpose</span>
+        <span className="font-medium">Plan purpose</span>
         <textarea
           className="min-h-20 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) p-3"
           maxLength={2_000}
@@ -562,11 +568,11 @@ function CampaignEditor(props: {
       <section className="grid gap-3 rounded-(--radius-field) border border-border-subtle p-4">
         <div>
           <h3 className="font-semibold text-(--text-headline)">
-            Volume and quality
+            Volume and review quality
           </h3>
           <p className="text-xs text-foreground-muted">
             Minimum fit, retention, preparation batch, and daily limit are
-            enforced by the campaign runner.
+            enforced by the search plan runner.
           </p>
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
@@ -850,9 +856,9 @@ function CampaignEditor(props: {
           ) : null}
           {draft.schedule.enabled && draft.schedule.mode !== "manual" ? (
             <p className="text-xs text-foreground-muted">
-              The local scheduler runs this campaign automatically when its next
-              run time is due, then persists the new next run. Pause windows and
-              the global activity pause hold the run until they end.
+              The local scheduler runs this search plan automatically when its
+              next run time is due, then persists the new next run. Pause
+              windows and the global activity pause hold the run until they end.
             </p>
           ) : null}
           <fieldset className="grid gap-2">
@@ -1005,8 +1011,8 @@ function CampaignEditor(props: {
             ) : null}
           </div>
           <p className="text-xs text-foreground-muted">
-            Final submission remains locked. This campaign can prepare work, but
-            it cannot authorize an external submit.
+            Final submission remains locked. This search plan can prepare work,
+            but it cannot authorize an external submit.
           </p>
         </div>
       </details>
@@ -1025,7 +1031,7 @@ function CampaignEditor(props: {
           pending={props.pending}
           type="submit"
         >
-          Save campaign
+          Save search plan
         </Button>
       </div>
     </form>
@@ -1096,16 +1102,51 @@ export function CampaignsScreen(props: {
         <PageHeader
           compact
           eyebrow="Job Finder"
-          title="Campaigns"
-          description="Keep different job searches separate, with their own scope, volume, safety rules, and progress."
+          title="Search plans"
+          description="Optional reusable plans for separating job roles, sources, volume, safety rules, and progress. Your current default plan is enough to start finding jobs."
         />
         <Button
           onClick={() => setEditing(newCampaignFrom(activeCampaign ?? null))}
           type="button"
         >
-          New campaign
+          New search plan
         </Button>
       </div>
+
+      <section
+        aria-labelledby="search-plans-guide"
+        className="grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4"
+      >
+        <div>
+          <h2
+            className="text-base font-semibold text-(--text-headline)"
+            id="search-plans-guide"
+          >
+            Start without setting up a plan
+          </h2>
+          <p className="mt-1 max-w-3xl text-sm text-foreground-soft">
+            Search plans are optional. The current default plan is already
+            enough to use Find jobs. Create another plan when you want a
+            reusable search setup with its own roles, sources, limits, and
+            progress.
+          </p>
+        </div>
+        <div className="grid gap-3 text-sm text-foreground-soft sm:grid-cols-3">
+          <p>
+            <span className="font-medium text-foreground">Precision:</span> a
+            smaller set for deeper review.
+          </p>
+          <p>
+            <span className="font-medium text-foreground">Scale:</span> a larger
+            pool prepared in controlled batches with safeguards.
+          </p>
+          <p>
+            <span className="font-medium text-foreground">Prepare only:</span>{" "}
+            neither volume sends applications; every resume and application
+            stays review-controlled.
+          </p>
+        </div>
+      </section>
 
       {editing ? (
         <CampaignEditor
@@ -1142,10 +1183,10 @@ export function CampaignsScreen(props: {
         <div className="min-w-[min(100%,24rem)] flex-1">
           <CollectionSearchToolbar
             density={view.density}
-            label="Search campaigns"
+            label="Search plans"
             onDensityChange={view.setDensity}
             onQueryChange={view.setQuery}
-            placeholder="Search campaign name, mode, or status"
+            placeholder="Search plan name, volume, or status"
             query={view.query}
             totalCount={props.campaigns.length}
             visibleCount={filteredCampaigns.length}
@@ -1161,7 +1202,7 @@ export function CampaignsScreen(props: {
 
       {filteredCampaigns.length === 0 ? (
         <CollectionNoMatches
-          noun="campaigns"
+          noun="search plans"
           onClear={() => view.setQuery("")}
           query={view.query}
         />
@@ -1190,7 +1231,10 @@ export function CampaignsScreen(props: {
                       ) : null}
                     </div>
                     <p className="mt-1 text-sm capitalize text-foreground-soft">
-                      {campaign.mode} mode · {campaign.status}
+                      {campaign.mode === "scale"
+                        ? "Scale volume"
+                        : "Precision volume"}{" "}
+                      · {campaign.status}
                     </p>
                   </div>
                   <strong className="shrink-0 text-sm text-(--text-headline)">
@@ -1298,7 +1342,7 @@ export function CampaignsScreen(props: {
                 {campaign.history.length > 0 ? (
                   <details className="rounded-(--radius-field) border border-(--surface-panel-border) px-3 py-2">
                     <summary className="cursor-pointer text-sm font-medium text-foreground">
-                      Recent campaign history
+                      Recent search-plan history
                     </summary>
                     <ol className="mt-3 grid gap-2 text-sm text-foreground-soft">
                       {campaign.history.slice(0, 5).map((entry) => (

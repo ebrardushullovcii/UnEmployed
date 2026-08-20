@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer as nativeIpcRenderer } from "electron";
 import type {
   ApplicationCrmBulkStageMutationInput,
   ApplicationCrmExportInput,
@@ -124,6 +124,97 @@ const configuredSystemThemeOverride =
     : null;
 let currentSystemThemeOverride: "dark" | "light" | null =
   configuredSystemThemeOverride;
+
+let jobFinderBootstrapRoutesReadyPromise: Promise<void> | null = null;
+let jobFinderRoutesReadyPromise: Promise<void> | null = null;
+let jobFinderAssetRoutesReadyPromise: Promise<void> | null = null;
+let interviewHelperRoutesReadyPromise: Promise<void> | null = null;
+
+const jobFinderAssetChannels = new Set([
+  "job-finder:list-application-documents",
+  "job-finder:propose-application-document",
+  "job-finder:approve-application-document",
+  "job-finder:edit-application-document",
+  "job-finder:export-application-document",
+]);
+
+function isDeferredFeatureChannel(channel: unknown): channel is string {
+  return (
+    typeof channel === "string" &&
+    (channel.startsWith("job-finder:") ||
+      channel.startsWith("interview-helper:"))
+  );
+}
+
+function ensureFeatureRoutesReady(channel: string): Promise<void> {
+  if (channel.startsWith("job-finder:")) {
+    if (
+      channel === "job-finder:get-workspace" ||
+      channel === "job-finder:get-workspace-bootstrap"
+    ) {
+      jobFinderBootstrapRoutesReadyPromise ??= nativeIpcRenderer
+        .invoke("system:job-finder-bootstrap-routes-ready")
+        .then(() => undefined);
+      return jobFinderBootstrapRoutesReadyPromise;
+    }
+    if (
+      channel.startsWith("job-finder:candidate-assets:") ||
+      jobFinderAssetChannels.has(channel)
+    ) {
+      jobFinderAssetRoutesReadyPromise ??= nativeIpcRenderer
+        .invoke("system:job-finder-asset-routes-ready")
+        .then(() => undefined);
+      return jobFinderAssetRoutesReadyPromise;
+    }
+    jobFinderRoutesReadyPromise ??= nativeIpcRenderer
+      .invoke("system:job-finder-routes-ready")
+      .then(() => undefined);
+    return jobFinderRoutesReadyPromise;
+  }
+
+  interviewHelperRoutesReadyPromise ??= nativeIpcRenderer
+    .invoke("system:interview-helper-routes-ready")
+    .then(() => undefined);
+  return interviewHelperRoutesReadyPromise;
+}
+
+// Keep the public bridge implementation unchanged while serializing all
+// feature IPC calls behind the deferred main-process route graph. System and
+// window calls remain immediate so the shell can render while the graph is
+// loading. Binding non-invoke methods preserves Electron's receiver contract.
+const ipcRenderer = new Proxy(nativeIpcRenderer, {
+  get(target, property, receiver) {
+    if (property === "invoke") {
+      return (channel: string, ...args: unknown[]) => {
+        const invoke = target.invoke.bind(target);
+        return isDeferredFeatureChannel(channel)
+          ? ensureFeatureRoutesReady(channel).then(() =>
+              invoke(channel, ...args),
+            )
+          : invoke(channel, ...args);
+      };
+    }
+
+    if (property === "send") {
+      return (channel: string, ...args: unknown[]) => {
+        const send = target.send.bind(target);
+        if (!isDeferredFeatureChannel(channel)) {
+          return send(channel, ...args);
+        }
+
+        void ensureFeatureRoutesReady(channel).then(() =>
+          send(channel, ...args),
+        );
+      };
+    }
+
+    const value: unknown = Reflect.get(target, property, receiver);
+    if (typeof value === "function") {
+      return (value as (...args: unknown[]) => unknown).bind(target);
+    }
+    return value;
+  },
+});
 
 function applySystemThemeOverride(theme: "dark" | "light" | null) {
   currentSystemThemeOverride = theme;

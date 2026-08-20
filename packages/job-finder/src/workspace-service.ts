@@ -284,8 +284,8 @@ export function createJobFinderWorkspaceService(
       savedJobs,
       discoveryState,
     }): Promise<void> {
-      await repository.replaceSavedJobsAndDiscoveryState({
-        savedJobs: SavedJobSchema.array().parse(savedJobs),
+      await repository.commitSavedJobDelta({
+        upserts: SavedJobSchema.array().parse(savedJobs),
         discoveryState: JobFinderDiscoveryStateSchema.parse(discoveryState),
       });
     },
@@ -435,63 +435,33 @@ export function createJobFinderWorkspaceService(
       jobId: string,
       updater: (job: SavedJob) => SavedJob,
     ): Promise<void> {
-      const savedJobs = await repository.listSavedJobs();
       let found = false;
-      const nextJobs = savedJobs.map((job) => {
-        if (job.id !== jobId) {
-          return job;
-        }
 
-        found = true;
-        return SavedJobSchema.parse(updater(job));
+      await repository.commitSavedJobDelta({
+        update: (job) => {
+          if (job.id !== jobId) {
+            return job;
+          }
+
+          found = true;
+          const updatedJob = SavedJobSchema.parse(updater(job));
+          if (updatedJob.id !== jobId) {
+            throw new Error("Saved job updates must preserve the job id.");
+          }
+          return updatedJob;
+        },
+        clearResumeApproval: {
+          jobId,
+          staleReason:
+            "Saved job details changed after approval and the resume needs a fresh review.",
+          shouldClear: (previousJob, nextJob) =>
+            hasResumeAffectingJobChange(previousJob, nextJob),
+        },
       });
 
       if (!found) {
         throw new Error(`Unknown Job Finder job '${jobId}'.`);
       }
-
-      const previousJob = savedJobs.find((job) => job.id === jobId) ?? null;
-      const nextJob = nextJobs.find((job) => job.id === jobId) ?? null;
-
-      if (
-        previousJob &&
-        nextJob &&
-        hasResumeAffectingJobChange(previousJob, nextJob)
-      ) {
-        const staleReason =
-          "Saved job details changed after approval and the resume needs a fresh review.";
-        const [draft, tailoredAssets] = await Promise.all([
-          repository.getResumeDraftByJobId(jobId),
-          repository.listTailoredAssets(),
-        ]);
-
-        if (
-          draft &&
-          (draft.approvedAt ||
-            draft.approvedExportId ||
-            draft.status === "approved")
-        ) {
-          const existingAsset =
-            tailoredAssets.find((asset) => asset.jobId === draft.jobId) ?? null;
-          const staleDraft = buildStaleResumeDraft(draft, staleReason);
-
-          await repository.replaceSavedJobsAndClearResumeApproval({
-            savedJobs: nextJobs,
-            draft: staleDraft,
-            staleReason,
-            tailoredAsset: existingAsset
-              ? {
-                  ...existingAsset,
-                  storagePath: null,
-                  updatedAt: staleDraft.updatedAt,
-                }
-              : null,
-          });
-          return;
-        }
-      }
-
-      await repository.replaceSavedJobs(nextJobs);
     },
     ...(researchAdapter ? { researchAdapter } : {}),
   };

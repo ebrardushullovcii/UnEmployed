@@ -10,10 +10,11 @@ import { ResumeStrategySchema } from "@unemployed/contracts";
 import {
   cleanup,
   fireEvent,
-  render,
+  render as rtlRender,
   screen,
   waitFor,
 } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ResumeStrategiesScreen } from "./resume-strategies-screen";
 
@@ -21,6 +22,15 @@ afterEach(() => {
   cleanup();
   window.localStorage.clear();
 });
+
+function render(
+  element: Parameters<typeof rtlRender>[0],
+  initialEntries: string[] = ["/job-finder/resume-strategies"],
+) {
+  return rtlRender(
+    <MemoryRouter initialEntries={initialEntries}>{element}</MemoryRouter>,
+  );
+}
 
 function strategy(overrides: Partial<ResumeStrategy> = {}): ResumeStrategy {
   return ResumeStrategySchema.parse({
@@ -157,6 +167,60 @@ describe("ResumeStrategiesScreen", () => {
     );
 
     expect(screen.getByText("No resume strategies yet")).toBeTruthy();
+  });
+
+  it("offers a safe return to the shortlisted job", () => {
+    render(
+      <ResumeStrategiesScreen
+        actionMessage={null}
+        baseResumeDocumentId="resume_1"
+        campaigns={[]}
+        candidateDocumentIds={[]}
+        isCampaignDefaultPending={() => false}
+        isDisablePending={() => false}
+        isLoading={false}
+        isSavePending={false}
+        onDisableStrategy={vi.fn()}
+        onSaveStrategy={vi.fn()}
+        onSetCampaignDefault={vi.fn()}
+        strategies={[]}
+      />,
+      [
+        "/job-finder/resume-strategies?returnTo=%2Fjob-finder%2Freview-queue%3FjobId%3Djob_1",
+      ],
+    );
+
+    expect(
+      screen
+        .getByRole("link", { name: "Back to shortlisted job" })
+        .getAttribute("href"),
+    ).toBe("/job-finder/review-queue?jobId=job_1");
+  });
+
+  it("ignores an unsafe return target", () => {
+    render(
+      <ResumeStrategiesScreen
+        actionMessage={null}
+        baseResumeDocumentId="resume_1"
+        campaigns={[]}
+        candidateDocumentIds={[]}
+        isCampaignDefaultPending={() => false}
+        isDisablePending={() => false}
+        isLoading={false}
+        isSavePending={false}
+        onDisableStrategy={vi.fn()}
+        onSaveStrategy={vi.fn()}
+        onSetCampaignDefault={vi.fn()}
+        strategies={[]}
+      />,
+      [
+        "/job-finder/resume-strategies?returnTo=https%3A%2F%2Fevil.example%2Fsteal",
+      ],
+    );
+
+    expect(
+      screen.queryByRole("link", { name: "Back to shortlisted job" }),
+    ).toBeNull();
   });
 
   it("shows a loading state while the strategies are still loading", () => {

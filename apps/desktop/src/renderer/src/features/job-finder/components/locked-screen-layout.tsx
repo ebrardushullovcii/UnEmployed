@@ -12,6 +12,47 @@ const LOCKED_PANE_BREAKPOINT = 1280;
 const SCROLL_BOUNDARY_TOLERANCE = 1;
 const WHEEL_DELTA_LINE = 1;
 const WHEEL_DELTA_PAGE = 2;
+const INTERACTIVE_KEYBOARD_TARGET_SELECTOR = [
+  "button",
+  "a[href]",
+  "input",
+  "textarea",
+  "select",
+  "summary",
+  '[contenteditable="true"]',
+  '[role="button"]',
+  '[role="checkbox"]',
+  '[role="combobox"]',
+  '[role="link"]',
+  '[role="listbox"]',
+  '[role="menuitem"]',
+  '[role="menuitemcheckbox"]',
+  '[role="menuitemradio"]',
+  '[role="option"]',
+  '[role="radio"]',
+  '[role="searchbox"]',
+  '[role="slider"]',
+  '[role="spinbutton"]',
+  '[role="switch"]',
+  '[role="tab"]',
+  '[role="textbox"]',
+  '[role="treeitem"]',
+  '[tabindex]:not([tabindex="-1"])',
+].join(", ");
+
+function normalizeWheelDeltaY(
+  deltaY: number,
+  deltaMode: number,
+  pageSize: number,
+): number {
+  if (deltaMode === WHEEL_DELTA_LINE) {
+    return deltaY * 16;
+  }
+  if (deltaMode === WHEEL_DELTA_PAGE) {
+    return deltaY * pageSize;
+  }
+  return deltaY;
+}
 
 export function getLockedScreenLayoutHeight(
   topHeight: number,
@@ -68,12 +109,11 @@ export function getNestedPaneWheelTarget(input: {
     return null;
   }
 
-  const pixelDelta =
-    input.deltaMode === WHEEL_DELTA_LINE
-      ? input.deltaY * 16
-      : input.deltaMode === WHEEL_DELTA_PAGE
-        ? input.deltaY * input.clientHeight
-        : input.deltaY;
+  const pixelDelta = normalizeWheelDeltaY(
+    input.deltaY,
+    input.deltaMode,
+    input.clientHeight,
+  );
   const maxScrollTop = Math.max(0, input.scrollHeight - input.clientHeight);
 
   return Math.max(0, Math.min(maxScrollTop, input.scrollTop + pixelDelta));
@@ -149,50 +189,308 @@ export function LockedScreenLayout({
       const nestedScrollPane = eventTarget?.closest<HTMLElement>(
         "[data-locked-pane-scroll-region]",
       );
+      const pageSize =
+        (nestedScrollPane?.clientHeight ?? scrollArea.clientHeight) ||
+        window.innerHeight * 0.85;
+      let remainingDeltaY = normalizeWheelDeltaY(
+        event.deltaY,
+        event.deltaMode,
+        pageSize,
+      );
+      if (remainingDeltaY === 0) {
+        return;
+      }
 
-      if (event.deltaY > 0) {
-        const nextLockedHeaderScrollTop = getLockedHeaderWheelTarget({
-          deltaY: event.deltaY,
-          scrollTop: scrollArea.scrollTop,
+      const initialOuterScrollTop = scrollArea.scrollTop;
+      let nextOuterScrollTop = initialOuterScrollTop;
+      let nextNestedScrollTop: number | null = null;
+      let didManualConsumption = false;
+
+      const consumeLockedHeader = () => {
+        const headerTarget = getLockedHeaderWheelTarget({
+          deltaY: remainingDeltaY,
+          scrollTop: nextOuterScrollTop,
           topHeight,
           viewportWidth: window.innerWidth,
         });
-
-        if (nextLockedHeaderScrollTop !== null) {
-          event.preventDefault();
-          scrollArea.scrollTop = nextLockedHeaderScrollTop;
+        if (headerTarget === null) {
           return;
         }
-      }
 
-      if (nestedScrollPane && content.contains(nestedScrollPane)) {
-        const nextNestedScrollTop = getNestedPaneWheelTarget({
+        const consumedDeltaY = headerTarget - nextOuterScrollTop;
+        nextOuterScrollTop = headerTarget;
+        remainingDeltaY -= consumedDeltaY;
+        didManualConsumption ||= consumedDeltaY !== 0;
+      };
+
+      const consumeNestedPane = () => {
+        if (!nestedScrollPane || !content.contains(nestedScrollPane)) {
+          return;
+        }
+
+        const paneStart = nestedScrollPane.scrollTop;
+        const paneTarget = getNestedPaneWheelTarget({
           clientHeight: nestedScrollPane.clientHeight,
-          deltaMode: event.deltaMode,
-          deltaY: event.deltaY,
+          deltaMode: 0,
+          deltaY: remainingDeltaY,
           scrollHeight: nestedScrollPane.scrollHeight,
-          scrollTop: nestedScrollPane.scrollTop,
+          scrollTop: paneStart,
         });
-
-        if (nextNestedScrollTop !== null) {
-          event.preventDefault();
-          nestedScrollPane.scrollTop = nextNestedScrollTop;
+        if (paneTarget === null) {
           return;
+        }
+
+        nextNestedScrollTop = paneTarget;
+        remainingDeltaY -= paneTarget - paneStart;
+        didManualConsumption ||= paneTarget !== paneStart;
+      };
+
+      if (remainingDeltaY > 0) {
+        consumeLockedHeader();
+        consumeNestedPane();
+      } else {
+        consumeNestedPane();
+        if (remainingDeltaY < 0) {
+          consumeLockedHeader();
         }
       }
 
-      if (event.deltaY < 0) {
-        const nextLockedHeaderScrollTop = getLockedHeaderWheelTarget({
-          deltaY: event.deltaY,
-          scrollTop: scrollArea.scrollTop,
+      // If a pane or the header reached its boundary during this event, let
+      // any remaining delta continue through the outer scroll owner. Setting
+      // scrollTop keeps the handoff deterministic while the browser still
+      // clamps to the outer element's real scroll range.
+      if (didManualConsumption && remainingDeltaY !== 0) {
+        nextOuterScrollTop = Math.max(0, nextOuterScrollTop + remainingDeltaY);
+      }
+
+      const outerMoved = nextOuterScrollTop !== initialOuterScrollTop;
+      const paneMoved =
+        nextNestedScrollTop !== null &&
+        nextNestedScrollTop !== nestedScrollPane?.scrollTop;
+      if (!outerMoved && !paneMoved) {
+        return;
+      }
+
+      event.preventDefault();
+      if (outerMoved) {
+        scrollArea.scrollTop = nextOuterScrollTop;
+      }
+      const nestedTarget = nextNestedScrollTop;
+      if (paneMoved && nestedScrollPane && nestedTarget !== null) {
+        nestedScrollPane.scrollTop = nestedTarget;
+      }
+    };
+
+    const handleContentKeyDown = (event: KeyboardEvent) => {
+      if (
+        !lockTopContent ||
+        window.innerWidth < LOCKED_PANE_BREAKPOINT ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.altKey
+      ) {
+        return;
+      }
+
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (
+        target &&
+        (target.isContentEditable ||
+          target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT")
+      ) {
+        return;
+      }
+
+      const eventTarget = target instanceof Element ? target : null;
+      if (!eventTarget || !content.contains(eventTarget)) {
+        return;
+      }
+
+      // Leave keyboard ownership with controls and other interactive
+      // descendants. In particular, Space must still activate buttons,
+      // links, summaries, and custom role=button elements.
+      if (
+        eventTarget.closest<HTMLElement>(INTERACTIVE_KEYBOARD_TARGET_SELECTOR)
+      ) {
+        return;
+      }
+
+      const nestedScrollPane = eventTarget.closest<HTMLElement>(
+        "[data-locked-pane-scroll-region]",
+      );
+
+      const key = event.key;
+      const isArrowDown = key === "ArrowDown";
+      const isArrowUp = key === "ArrowUp";
+      const isPageDown = key === "PageDown";
+      const isPageUp = key === "PageUp";
+      const isHome = key === "Home";
+      const isEnd = key === "End";
+      const isSpace = key === " " || key === "Spacebar" || key === "Space";
+
+      if (
+        !isArrowDown &&
+        !isArrowUp &&
+        !isPageDown &&
+        !isPageUp &&
+        !isHome &&
+        !isEnd &&
+        !isSpace
+      ) {
+        return;
+      }
+
+      if (isHome || isEnd) {
+        if (nestedScrollPane && content.contains(nestedScrollPane)) {
+          const maxPaneTop = Math.max(
+            0,
+            nestedScrollPane.scrollHeight - nestedScrollPane.clientHeight,
+          );
+          if (
+            isHome &&
+            nestedScrollPane.scrollTop > SCROLL_BOUNDARY_TOLERANCE
+          ) {
+            event.preventDefault();
+            nestedScrollPane.scrollTop = 0;
+            return;
+          }
+          if (
+            isEnd &&
+            nestedScrollPane.scrollTop < maxPaneTop - SCROLL_BOUNDARY_TOLERANCE
+          ) {
+            event.preventDefault();
+            nestedScrollPane.scrollTop = maxPaneTop;
+            return;
+          }
+        }
+
+        if (isHome && scrollArea.scrollTop > SCROLL_BOUNDARY_TOLERANCE) {
+          event.preventDefault();
+          scrollArea.scrollTop = 0;
+          return;
+        }
+
+        if (isEnd) {
+          const maxOuter = Math.max(
+            0,
+            scrollArea.scrollHeight - scrollArea.clientHeight,
+          );
+          const targetTop = Math.max(topHeight, maxOuter);
+          if (scrollArea.scrollTop < targetTop - SCROLL_BOUNDARY_TOLERANCE) {
+            event.preventDefault();
+            scrollArea.scrollTop = targetTop;
+          }
+        }
+        return;
+      }
+
+      let deltaY: number | null = null;
+      if (isArrowDown) deltaY = 40;
+      else if (isArrowUp) deltaY = -40;
+      else if (isPageDown)
+        deltaY =
+          (nestedScrollPane?.clientHeight ?? scrollArea.clientHeight) ||
+          window.innerHeight * 0.85;
+      else if (isPageUp)
+        deltaY = -(
+          (nestedScrollPane?.clientHeight ?? scrollArea.clientHeight) ||
+          window.innerHeight * 0.85
+        );
+      else if (isSpace) {
+        const pageSize =
+          (nestedScrollPane?.clientHeight ?? scrollArea.clientHeight) ||
+          window.innerHeight * 0.85;
+        deltaY = event.shiftKey ? -pageSize : pageSize;
+      }
+
+      if (deltaY === null) {
+        return;
+      }
+
+      let remainingDeltaY = deltaY;
+      const initialOuterScrollTop = scrollArea.scrollTop;
+      let nextOuterScrollTop = initialOuterScrollTop;
+      let nextNestedScrollTop: number | null = null;
+
+      const consumeLockedHeader = () => {
+        const headerTarget = getLockedHeaderWheelTarget({
+          deltaY: remainingDeltaY,
+          scrollTop: nextOuterScrollTop,
           topHeight,
           viewportWidth: window.innerWidth,
         });
-
-        if (nextLockedHeaderScrollTop !== null) {
-          event.preventDefault();
-          scrollArea.scrollTop = nextLockedHeaderScrollTop;
+        if (headerTarget === null) {
+          return;
         }
+
+        const consumedDeltaY = headerTarget - nextOuterScrollTop;
+        nextOuterScrollTop = headerTarget;
+        remainingDeltaY -= consumedDeltaY;
+      };
+
+      const consumeNestedPane = () => {
+        if (!nestedScrollPane || !content.contains(nestedScrollPane)) {
+          return;
+        }
+
+        const paneStart = nestedScrollPane.scrollTop;
+        const paneTarget = getNestedPaneWheelTarget({
+          clientHeight: nestedScrollPane.clientHeight,
+          deltaMode: 0,
+          deltaY: remainingDeltaY,
+          scrollHeight: nestedScrollPane.scrollHeight,
+          scrollTop: paneStart,
+        });
+        if (paneTarget === null) {
+          return;
+        }
+
+        nextNestedScrollTop = paneTarget;
+        remainingDeltaY -= paneTarget - paneStart;
+      };
+
+      if (remainingDeltaY > 0) {
+        consumeLockedHeader();
+        consumeNestedPane();
+      } else {
+        consumeNestedPane();
+        if (remainingDeltaY < 0) {
+          consumeLockedHeader();
+        }
+      }
+
+      if (remainingDeltaY !== 0) {
+        const maxOuterScrollTop = Math.max(
+          0,
+          scrollArea.scrollHeight - scrollArea.clientHeight,
+        );
+        const candidateOuterScrollTop = Math.max(
+          0,
+          nextOuterScrollTop + remainingDeltaY,
+        );
+        nextOuterScrollTop =
+          maxOuterScrollTop > 0
+            ? Math.min(maxOuterScrollTop, candidateOuterScrollTop)
+            : candidateOuterScrollTop;
+      }
+
+      const outerMoved = nextOuterScrollTop !== initialOuterScrollTop;
+      const paneMoved =
+        nextNestedScrollTop !== null &&
+        nextNestedScrollTop !== nestedScrollPane?.scrollTop;
+      if (!outerMoved && !paneMoved) {
+        return;
+      }
+
+      event.preventDefault();
+      if (outerMoved) {
+        scrollArea.scrollTop = nextOuterScrollTop;
+      }
+      const nestedTarget = nextNestedScrollTop;
+      if (paneMoved && nestedScrollPane && nestedTarget !== null) {
+        nestedScrollPane.scrollTop = nestedTarget;
       }
     };
 
@@ -200,9 +498,15 @@ export function LockedScreenLayout({
       capture: true,
       passive: false,
     });
+    content.addEventListener("keydown", handleContentKeyDown, {
+      capture: true,
+    });
 
     return () => {
       content.removeEventListener("wheel", handleContentWheel, {
+        capture: true,
+      });
+      content.removeEventListener("keydown", handleContentKeyDown, {
         capture: true,
       });
     };

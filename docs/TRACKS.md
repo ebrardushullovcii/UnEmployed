@@ -2,7 +2,7 @@
 
 Use this file as the short execution queue. Detailed state belongs in `docs/STATUS.md`; completed chronology belongs in `docs/HISTORY.md`.
 
-Updated: 2026-08-19
+Updated: 2026-08-20
 
 ## Status Keys
 
@@ -15,13 +15,46 @@ Updated: 2026-08-19
 
 ## Active
 
-- Job Finder release hardening is integrated and source-verified. The full repository gate passed, the production build passed, and the final 516/226/226/511 scale replay passed with zero renderer errors, 1,780.86 ms cold usable shell, 307.42 ms worst route switch, bounded large-list pagination, and clean isolated teardown. Windows unpacked packaging was proven with the real icon and parser sidecar; the final unsigned bundle refresh remains required after the last CSP-only cleanup. Interview Helper received broad regression coverage only, by user direction.
+- **Active — Job Finder 2026-08-20 production recovery:** the 1,000-row
+  truncation and stale full-replacement paths, strict release-test graph, Home
+  truth, Discovery layout, navigation/focus/keyboard behavior, scroll chaining,
+  compact page chrome, and first-route loading are implemented in the dirty
+  candidate. Acceptance is the source-bound production command documented in
+  `docs/TESTING.md`; all required repository, coverage, exact-build Electron,
+  screenshot-inspection, and final adversarial gates must be green for the same
+  source before this track moves to Completed. Interview Helper receives only
+  shared-platform regression coverage, by user direction.
+
+- The current customer-facing flow is Profile → Find jobs → Shortlisted →
+  Applications. The 15.5rem sidebar is persistent only at CSS widths of at least
+  1440px; smaller widths use the compact flow navigation and `Planning &
+  settings` menu. Search plans and Resume approaches remain optional reusable
+  settings, and Shortlisted's tailored-draft preparation is sequential and
+  bounded to at most 10 drafts, each still requiring individual review and
+  approval.
+
+- Release status remains active and unaccepted until the exact-source
+  production, Electron, screenshot-inspection, adversarial, and cleanup gates
+  are green for the current dirty candidate. Older 2026-08-19 evidence does not
+  accept this source.
+
+- The exact-source normal-use checkpoint is green: production desktop build,
+  isolated prepare-only Greenhouse flow, 41 focused Profile/Strong
+  rewrite/Shortlisted/bulk-draft/review tests, 22 Home/navigation tests, desktop
+  typecheck, desktop lint, and `git diff --check`. Further extreme-zoom,
+  minimum-viewport, and exhaustive recovery testing is deferred by user
+  direction for this pass, so this checkpoint does not move the release track
+  to Completed.
+
+- The 2026-08-19 516/226/226/511 scale replay and unpacked Windows package are
+  historical evidence for the older source. They do not accept the current dirty
+  candidate or replace the 2026-08-20 source-bound gate.
 
 - Phase-two closeout is implementation-complete and focused/production-harness verified. The integrated focused batch passed 59 test files / 770 tests with zero failures, including 4 safeguard files / 92 tests; navigation checks passed 9/9 reachability and 16/16 shell assertions. Affected lint, typecheck, Prettier, and `git diff --check` checks passed, and the production desktop build passed. The hardened Electron harness produced 40 captures at 1440×920, 1280×720, and native 200% zoom with zero runtime errors, safety violations, horizontal-overflow findings, or unreachable controls; nested-scroll movement passed 40/40. Evidence: `apps/desktop/test-artifacts/ui/phase-two-absolute-final/`. Its initial broad attempt was blocked before scripts ran; the later 2026-08-19 repository-wide gate passed after release-hardening integration. The exact state is recorded in `docs/exec-plans/active/job-finder-campaigns-dashboard-crm-scale.md`.
 
 ## Ready Queue
 
-- Final-gate checks for the six-slice phase-two batch passed: Contracts/DB/Job Finder/Desktop TypeScript, the affected lint scope, Prettier, and `git diff --check` are green; the integrated focused suite passed 59 files / 770 tests with zero failures, including 4 safeguard files / 92 tests. The production desktop build passed. The hardened phase-two Electron harness passed 40/40 nested-scroll checks and recorded zero runtime, safety, overflow, and unreachable-control findings across 40 captures at desktop, compact, and native 200% zoom. The later 2026-08-19 broad scripted gate also passed. Do not exercise real final submission.
+- Historical final-gate checks for the older six-slice phase-two source passed: Contracts/DB/Job Finder/Desktop TypeScript, the affected lint scope, Prettier, and `git diff --check` were green; the integrated focused suite passed 59 files / 770 tests with zero failures, including 4 safeguard files / 92 tests. The production desktop build passed. The hardened phase-two Electron harness passed 40/40 nested-scroll checks and recorded zero runtime, safety, overflow, and unreachable-control findings across 40 captures at desktop, compact, and native 200% zoom. The later 2026-08-19 broad scripted gate also passed for that source. These results do not accept the current dirty candidate; do not exercise real final submission.
 
 ## Decision Required
 

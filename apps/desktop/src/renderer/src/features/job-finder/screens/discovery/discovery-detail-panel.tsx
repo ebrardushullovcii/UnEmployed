@@ -207,7 +207,7 @@ export function DiscoveryDetailPanel({
   return (
     <section
       aria-label="Job details"
-      className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0"
+      className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0"
       id={DISCOVERY_DETAIL_REGION_ID}
     >
       <div className="flex flex-wrap items-start justify-between gap-3 px-6 pb-2 pt-6">

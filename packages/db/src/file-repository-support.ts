@@ -10,7 +10,6 @@ import {
   ResumeImportRunSchema,
   ResumeResearchArtifactSchema,
   ResumeValidationResultSchema,
-  type JobFinderRepositoryState,
 } from "@unemployed/contracts";
 import type { DatabaseSync } from "node:sqlite";
 
@@ -18,10 +17,6 @@ import { secureDatabaseFile } from "./internal/migrations";
 import {
   cloneValue,
   listCollectionValues,
-  readState,
-  replaceCollection,
-  replaceIndexedCollection,
-  saveSingletonValue,
   upsertCollectionValue,
   upsertIndexedCollectionValue,
 } from "./internal/state";
@@ -200,15 +195,12 @@ export type PersistedTableName =
   | "source_debug_runs"
   | "source_debug_attempts"
   | "source_instruction_artifacts"
+  | "saved_jobs"
   | "source_debug_evidence_refs";
 
 export type FileRepositoryContext = {
   database: DatabaseSync;
   filePath: string;
-  normalizedSeed: JobFinderRepositoryState;
-  persist: (
-    mutator: (state: JobFinderRepositoryState) => void,
-  ) => Promise<void>;
   upsertPersistedValue: (
     tableName: PersistedTableName,
     value: { id: string },
@@ -222,228 +214,8 @@ export type FileRepositoryContext = {
 export function createFileRepositoryContext(input: {
   database: DatabaseSync;
   filePath: string;
-  normalizedSeed: JobFinderRepositoryState;
 }): FileRepositoryContext {
-  const { database, filePath, normalizedSeed } = input;
-
-  function persist(
-    mutator: (state: JobFinderRepositoryState) => void,
-  ): Promise<void> {
-    runImmediateTransaction(database, () => {
-      const state = readState(database, normalizedSeed);
-      mutator(state);
-      saveSingletonValue(database, "profile", state.profile);
-      saveSingletonValue(
-        database,
-        "search_preferences",
-        state.searchPreferences,
-      );
-      saveSingletonValue(
-        database,
-        "profile_setup_state",
-        state.profileSetupState,
-      );
-      saveSingletonValue(database, "settings", state.settings);
-      saveSingletonValue(database, "discovery_state", state.discovery);
-      if (state.campaigns.length > 0 && state.activeCampaignId) {
-        saveSingletonValue(database, "campaign_state", {
-          campaigns: state.campaigns,
-          activeCampaignId: state.activeCampaignId,
-        });
-      }
-      saveSingletonValue(database, "activity_control", state.activityControl);
-      replaceCollection(database, "saved_jobs", state.savedJobs);
-      replaceCollection(database, "tailored_assets", state.tailoredAssets);
-      replaceIndexedCollection(database, "resume_drafts", state.resumeDrafts, {
-        ...INDEXED_COLLECTION_CONFIGS.resume_drafts,
-      });
-      replaceIndexedCollection(
-        database,
-        "resume_draft_revisions",
-        state.resumeDraftRevisions,
-        {
-          ...INDEXED_COLLECTION_CONFIGS.resume_draft_revisions,
-        },
-      );
-      replaceIndexedCollection(
-        database,
-        "resume_export_artifacts",
-        state.resumeExportArtifacts,
-        {
-          ...INDEXED_COLLECTION_CONFIGS.resume_export_artifacts,
-        },
-      );
-      replaceIndexedCollection(
-        database,
-        "resume_import_runs",
-        state.resumeImportRuns,
-        {
-          ...INDEXED_COLLECTION_CONFIGS.resume_import_runs,
-        },
-      );
-      replaceIndexedCollection(
-        database,
-        "resume_import_document_bundles",
-        state.resumeImportDocumentBundles,
-        {
-          ...INDEXED_COLLECTION_CONFIGS.resume_import_document_bundles,
-        },
-      );
-      replaceIndexedCollection(
-        database,
-        "resume_import_field_candidates",
-        state.resumeImportFieldCandidates,
-        {
-          ...INDEXED_COLLECTION_CONFIGS.resume_import_field_candidates,
-        },
-      );
-      replaceIndexedCollection(
-        database,
-        "resume_research_artifacts",
-        state.resumeResearchArtifacts,
-        {
-          ...INDEXED_COLLECTION_CONFIGS.resume_research_artifacts,
-        },
-      );
-      replaceIndexedCollection(
-        database,
-        "resume_validation_results",
-        state.resumeValidationResults,
-        {
-          ...INDEXED_COLLECTION_CONFIGS.resume_validation_results,
-        },
-      );
-      replaceIndexedCollection(
-        database,
-        "resume_assistant_messages",
-        state.resumeAssistantMessages,
-        {
-          ...INDEXED_COLLECTION_CONFIGS.resume_assistant_messages,
-        },
-      );
-      replaceIndexedCollection(
-        database,
-        "profile_copilot_messages",
-        state.profileCopilotMessages,
-        {
-          ...INDEXED_COLLECTION_CONFIGS.profile_copilot_messages,
-        },
-      );
-      replaceIndexedCollection(
-        database,
-        "profile_revisions",
-        state.profileRevisions,
-        {
-          ...INDEXED_COLLECTION_CONFIGS.profile_revisions,
-        },
-      );
-      replaceIndexedCollection(database, "apply_runs", state.applyRuns, {
-        ...INDEXED_COLLECTION_CONFIGS.apply_runs,
-      });
-      replaceIndexedCollection(
-        database,
-        "apply_job_results",
-        state.applyJobResults,
-        {
-          ...INDEXED_COLLECTION_CONFIGS.apply_job_results,
-        },
-      );
-      replaceIndexedCollection(
-        database,
-        "apply_submit_approvals",
-        state.applySubmitApprovals,
-        {
-          ...INDEXED_COLLECTION_CONFIGS.apply_submit_approvals,
-        },
-      );
-      replaceIndexedCollection(
-        database,
-        "application_question_records",
-        state.applicationQuestionRecords,
-        {
-          ...INDEXED_COLLECTION_CONFIGS.application_question_records,
-        },
-      );
-      replaceIndexedCollection(
-        database,
-        "application_answer_records",
-        state.applicationAnswerRecords,
-        {
-          ...INDEXED_COLLECTION_CONFIGS.application_answer_records,
-        },
-      );
-      replaceIndexedCollection(
-        database,
-        "application_artifact_refs",
-        state.applicationArtifactRefs,
-        {
-          ...INDEXED_COLLECTION_CONFIGS.application_artifact_refs,
-        },
-      );
-      replaceIndexedCollection(
-        database,
-        "application_replay_checkpoints",
-        state.applicationReplayCheckpoints,
-        {
-          ...INDEXED_COLLECTION_CONFIGS.application_replay_checkpoints,
-        },
-      );
-      replaceIndexedCollection(
-        database,
-        "application_consent_requests",
-        state.applicationConsentRequests,
-        {
-          ...INDEXED_COLLECTION_CONFIGS.application_consent_requests,
-        },
-      );
-      replaceIndexedCollection(
-        database,
-        "user_action_events",
-        [],
-        INDEXED_COLLECTION_CONFIGS.user_action_events,
-      );
-      replaceIndexedCollection(
-        database,
-        "user_action_requests",
-        state.userActionRequests,
-        INDEXED_COLLECTION_CONFIGS.user_action_requests,
-      );
-      replaceIndexedCollection(
-        database,
-        "user_action_events",
-        state.userActionEvents,
-        INDEXED_COLLECTION_CONFIGS.user_action_events,
-      );
-      replaceCollection(
-        database,
-        "application_records",
-        state.applicationRecords,
-      );
-      replaceCollection(
-        database,
-        "application_attempts",
-        state.applicationAttempts,
-      );
-      replaceCollection(database, "source_debug_runs", state.sourceDebugRuns);
-      replaceCollection(
-        database,
-        "source_debug_attempts",
-        state.sourceDebugAttempts,
-      );
-      replaceCollection(
-        database,
-        "source_instruction_artifacts",
-        state.sourceInstructionArtifacts,
-      );
-      replaceCollection(
-        database,
-        "source_debug_evidence_refs",
-        state.sourceDebugEvidenceRefs,
-      );
-    });
-
-    return secureDatabaseFile(filePath);
-  }
+  const { database, filePath } = input;
 
   function writePersistedValue(
     tableName: PersistedTableName,
@@ -478,8 +250,6 @@ export function createFileRepositoryContext(input: {
   return {
     database,
     filePath,
-    normalizedSeed,
-    persist,
     upsertPersistedValue,
     writePersistedValue,
   };

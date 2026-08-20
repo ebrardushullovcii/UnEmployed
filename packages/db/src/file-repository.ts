@@ -122,7 +122,6 @@ export async function createFileJobFinderRepository(
   const context = createFileRepositoryContext({
     database,
     filePath: options.filePath,
-    normalizedSeed,
   });
 
   function listApplyCollection<TValue>(input: {
@@ -171,9 +170,13 @@ export async function createFileJobFinderRepository(
       );
     },
     saveProfile(profile) {
-      return context.persist((state) => {
-        state.profile = CandidateProfileSchema.parse(cloneValue(profile));
+      const normalizedProfile = CandidateProfileSchema.parse(
+        cloneValue(profile),
+      );
+      runImmediateTransaction(database, () => {
+        saveSingletonValue(database, "profile", normalizedProfile);
       });
+      return secureDatabaseFile(options.filePath);
     },
     getSearchPreferences() {
       return Promise.resolve(
@@ -198,18 +201,30 @@ export async function createFileJobFinderRepository(
       );
     },
     saveSearchPreferences(searchPreferences) {
-      return context.persist((state) => {
-        state.searchPreferences = JobSearchPreferencesSchema.parse(
-          cloneValue(searchPreferences),
+      const normalizedSearchPreferences = JobSearchPreferencesSchema.parse(
+        cloneValue(searchPreferences),
+      );
+      runImmediateTransaction(database, () => {
+        saveSingletonValue(
+          database,
+          "search_preferences",
+          normalizedSearchPreferences,
         );
       });
+      return secureDatabaseFile(options.filePath);
     },
     saveProfileSetupState(profileSetupState) {
-      return context.persist((state) => {
-        state.profileSetupState = ProfileSetupStateSchema.parse(
-          cloneValue(profileSetupState),
+      const normalizedProfileSetupState = ProfileSetupStateSchema.parse(
+        cloneValue(profileSetupState),
+      );
+      runImmediateTransaction(database, () => {
+        saveSingletonValue(
+          database,
+          "profile_setup_state",
+          normalizedProfileSetupState,
         );
       });
+      return secureDatabaseFile(options.filePath);
     },
     saveProfileAndSearchPreferences(profile, searchPreferences) {
       const normalizedProfile = CandidateProfileSchema.parse(
@@ -219,10 +234,15 @@ export async function createFileJobFinderRepository(
         cloneValue(searchPreferences),
       );
 
-      return context.persist((state) => {
-        state.profile = normalizedProfile;
-        state.searchPreferences = normalizedSearchPreferences;
+      runImmediateTransaction(database, () => {
+        saveSingletonValue(database, "profile", normalizedProfile);
+        saveSingletonValue(
+          database,
+          "search_preferences",
+          normalizedSearchPreferences,
+        );
       });
+      return secureDatabaseFile(options.filePath);
     },
     commitProfileCopilotState({
       profile,
@@ -271,10 +291,137 @@ export async function createFileJobFinderRepository(
 
       return secureDatabaseFile(options.filePath);
     },
-    listSavedJobs() {
+    listSavedJobs(options?: { limit?: number; offset?: number }) {
       return Promise.resolve(
-        cloneValue(listValues(database, "saved_jobs", SavedJobSchema)),
+        cloneValue(listValues(database, "saved_jobs", SavedJobSchema, options)),
       );
+    },
+    commitSavedJobDelta({
+      upserts = [],
+      update,
+      clearResumeApproval,
+      discoveryState,
+    }) {
+      const normalizedUpserts = SavedJobSchema.array().parse(
+        cloneValue([...upserts]),
+      );
+      const normalizedDiscoveryState = discoveryState
+        ? JobFinderDiscoveryStateSchema.parse(cloneValue(discoveryState))
+        : null;
+
+      runImmediateTransaction(database, () => {
+        const existingJobIds = new Set<string>();
+        let previousJobForResumeApproval: ReturnType<
+          typeof SavedJobSchema.parse
+        > | null = null;
+        let nextJobForResumeApproval: ReturnType<
+          typeof SavedJobSchema.parse
+        > | null = null;
+
+        if (update) {
+          const currentJobs = listValues(
+            database,
+            "saved_jobs",
+            SavedJobSchema,
+          );
+          for (const currentJob of currentJobs) {
+            existingJobIds.add(currentJob.id);
+            const nextJob = SavedJobSchema.parse(
+              cloneValue(update(cloneValue(currentJob))),
+            );
+            if (nextJob.id !== currentJob.id) {
+              throw new Error(
+                "Saved job delta updates must preserve each job id.",
+              );
+            }
+            if (currentJob.id === clearResumeApproval?.jobId) {
+              previousJobForResumeApproval = currentJob;
+              nextJobForResumeApproval = nextJob;
+            }
+            if (JSON.stringify(nextJob) !== JSON.stringify(currentJob)) {
+              context.writePersistedValue("saved_jobs", nextJob);
+            }
+          }
+        }
+
+        for (const job of normalizedUpserts) {
+          if (update && existingJobIds.has(job.id)) {
+            continue;
+          }
+          context.writePersistedValue("saved_jobs", job);
+        }
+
+        if (
+          clearResumeApproval &&
+          previousJobForResumeApproval &&
+          nextJobForResumeApproval &&
+          clearResumeApproval.shouldClear(
+            previousJobForResumeApproval,
+            nextJobForResumeApproval,
+          )
+        ) {
+          const draft = listCollectionValues(
+            database,
+            "resume_drafts",
+            ResumeDraftSchema,
+            {
+              whereSql: "job_id = ?",
+              params: [clearResumeApproval.jobId],
+              orderBySql: "updated_at DESC, id ASC",
+            },
+          )[0];
+          if (
+            draft &&
+            (draft.approvedAt ||
+              draft.approvedExportId ||
+              draft.status === "approved")
+          ) {
+            const staleDraft = ResumeDraftSchema.parse(
+              cloneValue({
+                ...draft,
+                status: "stale",
+                staleReason: clearResumeApproval.staleReason,
+                approvedAt: null,
+                approvedExportId: null,
+                updatedAt: new Date().toISOString(),
+              }),
+            );
+            const existingAsset = listCollectionValues(
+              database,
+              "tailored_assets",
+              TailoredAssetSchema,
+              {
+                whereSql: "job_id = ?",
+                params: [draft.jobId],
+                orderBySql: "updated_at DESC, id ASC",
+              },
+            )[0];
+
+            syncApprovedResumeExportsForJob(database, draft.jobId, null);
+            context.writePersistedValue("resume_drafts", staleDraft);
+            if (existingAsset) {
+              const staleAsset = TailoredAssetSchema.parse(
+                cloneValue({
+                  ...existingAsset,
+                  storagePath: null,
+                  updatedAt: staleDraft.updatedAt,
+                }),
+              );
+              context.writePersistedValue("tailored_assets", staleAsset);
+            }
+          }
+        }
+
+        if (normalizedDiscoveryState) {
+          saveSingletonValue(
+            database,
+            "discovery_state",
+            normalizedDiscoveryState,
+          );
+        }
+      });
+
+      return secureDatabaseFile(options.filePath);
     },
     replaceSavedJobs(savedJobs) {
       const normalizedJobs = SavedJobSchema.array().parse(
@@ -880,9 +1027,13 @@ export async function createFileJobFinderRepository(
       );
     },
     saveSettings(settings) {
-      return context.persist((state) => {
-        state.settings = JobFinderSettingsSchema.parse(cloneValue(settings));
+      const normalizedSettings = JobFinderSettingsSchema.parse(
+        cloneValue(settings),
+      );
+      runImmediateTransaction(database, () => {
+        saveSingletonValue(database, "settings", normalizedSettings);
       });
+      return secureDatabaseFile(options.filePath);
     },
     getDiscoveryState() {
       return Promise.resolve(

@@ -47,7 +47,6 @@ const profile = CandidateProfileSchema.parse({
   projects: [],
   spokenLanguages: [],
 })
-
 const preferences = JobSearchPreferencesSchema.parse({
   targetRoles: ['Senior Software Engineer'],
   jobFamilies: [],
@@ -83,13 +82,18 @@ function FormHarness(props: { screen: 'answers' | 'targeting' }) {
 
   if (props.screen === 'targeting') {
     return (
-      <ProfileSetupTargetingStep
-        nextStep="narrative"
-        onSaveAndGoToStep={vi.fn()}
-        preferencesForm={preferencesForm}
-        profileForm={profileForm}
-        renderFooter={() => null}
-      />
+      <>
+        <ProfileSetupTargetingStep
+          nextStep="narrative"
+          onSaveAndGoToStep={vi.fn()}
+          preferencesForm={preferencesForm}
+          profileForm={profileForm}
+          renderFooter={() => null}
+        />
+        <output data-tailoring-mode={preferencesForm.watch('tailoringMode')}>
+          {preferencesForm.watch('tailoringMode')}
+        </output>
+      </>
     )
   }
 
@@ -168,6 +172,32 @@ describe('profile setup customer-quality guidance', () => {
     expect(container?.textContent).toContain('Choose at least one work mode before relying on discovery results.')
     expect(container?.textContent).toContain('A city and country entered together stay one location.')
     expect(container?.querySelector<HTMLInputElement>('#profile-setup-field-search-preferences-locations')?.placeholder).toBe('Example: Prishtina, Kosovo')
+  })
+
+  it('makes aggressive resume tailoring an explicit, review-required choice', () => {
+    render(<FormHarness screen="targeting" />)
+
+    expect(container?.textContent).toContain('How strongly should Job Finder tailor each resume?')
+    expect(container?.textContent).toContain('Light edit')
+    expect(container?.textContent).toContain('Balanced rewrite')
+    expect(container?.textContent).toContain('Strong rewrite')
+    expect(container?.textContent).toContain('This sets the default for reusable resume strategies and per-job drafts.')
+    expect(container?.textContent).toContain('Review every generated line')
+    expect(container?.textContent).toContain('new facts and numbers are never invented')
+
+    const balanced = container?.querySelector<HTMLInputElement>('input[value="balanced"]')
+    const aggressive = container?.querySelector<HTMLInputElement>('input[value="aggressive"]')
+    expect(balanced?.checked).toBe(true)
+    expect(aggressive?.checked).toBe(false)
+
+    act(() => {
+      aggressive?.click()
+    })
+
+    expect(aggressive?.checked).toBe(true)
+    expect(container?.querySelector('output[data-tailoring-mode]')?.textContent).toBe('aggressive')
+    expect(container?.textContent).toContain('Strong rewrite can substantially rewrite, combine, or elaborate supported experience.')
+    expect(container?.textContent).toContain('does not auto-approve or submit applications')
   })
 
   it('reuses saved narrative deliberately when answer fields are empty', () => {

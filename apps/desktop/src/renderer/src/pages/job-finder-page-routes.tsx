@@ -1,24 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { lazy, useCallback, useEffect, useLayoutEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { jobFinderPendingActions } from "./job-finder-pending-actions";
 import { Button } from "@renderer/components/ui/button";
 import { JobFinderRouteErrorBoundary } from "./job-finder-route-error-boundary";
-import { ProfileSetupScreen } from "@renderer/features/job-finder/components/profile/setup/profile-setup-screen";
-import { CampaignsScreen } from "@renderer/features/job-finder/screens/campaigns/campaigns-screen";
-import { CompaniesScreen } from "@renderer/features/job-finder/screens/companies/companies-screen";
-import { CompanyDetailScreen } from "@renderer/features/job-finder/screens/companies/company-detail-screen";
-import { JobSearchHomeScreen } from "@renderer/features/job-finder/screens/job-search-home/job-search-home-screen";
-import { ProfileScreen } from "@renderer/features/job-finder/screens/profile-screen";
-import { ApplicationsScreen } from "@renderer/features/job-finder/screens/applications-screen";
-import { ActionsScreen } from "@renderer/features/job-finder/screens/actions-screen";
-import { OutcomeAnalyticsScreen } from "@renderer/features/job-finder/screens/analytics/outcome-analytics-screen";
-import { ResumeStrategiesScreen } from "@renderer/features/job-finder/screens/resume-strategies/resume-strategies-screen";
-import { DiscoveryScreen } from "@renderer/features/job-finder/screens/discovery-screen";
-import { RapidReviewScreen } from "@renderer/features/job-finder/screens/rapid-review/rapid-review-screen";
-import { ReviewQueueScreen } from "@renderer/features/job-finder/screens/review-queue-screen";
-import { ResumeWorkspaceScreen } from "@renderer/features/job-finder/screens/review-queue/resume-workspace-screen";
-import { SettingsScreen } from "@renderer/features/job-finder/screens/settings-screen";
-import { SafeguardsScreen } from "@renderer/features/job-finder/screens/safeguards/safeguards-screen";
 import { getDefaultProfileRoute } from "@renderer/features/job-finder/lib/job-finder-utils";
 import {
   Navigate,
@@ -47,6 +31,126 @@ import {
   readJobFinderNavigationContext,
   selectJobFinderContext,
 } from "@renderer/features/job-finder/lib/job-finder-context-navigation";
+
+// Keep the app shell and its initial route small. These screens are independent
+// route surfaces and are loaded only when their route is rendered. The page
+// boundary owns the shared loading fallback, so a first visit to a route is
+// explicit and recoverable instead of rendering a blank page.
+function createSharedRouteLoader<T>(load: () => Promise<T>) {
+  let promise: Promise<T> | null = null;
+  return () => {
+    promise ??= load();
+    return promise;
+  };
+}
+
+const loadProfileSetupScreen = createSharedRouteLoader(async () => ({
+  default: (
+    await import("@renderer/features/job-finder/components/profile/setup/profile-setup-screen")
+  ).ProfileSetupScreen,
+}));
+const loadCampaignsScreen = createSharedRouteLoader(async () => ({
+  default: (
+    await import("@renderer/features/job-finder/screens/campaigns/campaigns-screen")
+  ).CampaignsScreen,
+}));
+const loadCompaniesScreen = createSharedRouteLoader(async () => ({
+  default: (
+    await import("@renderer/features/job-finder/screens/companies/companies-screen")
+  ).CompaniesScreen,
+}));
+const loadCompanyDetailScreen = createSharedRouteLoader(async () => ({
+  default: (
+    await import("@renderer/features/job-finder/screens/companies/company-detail-screen")
+  ).CompanyDetailScreen,
+}));
+const loadJobSearchHomeScreen = createSharedRouteLoader(async () => ({
+  default: (
+    await import("@renderer/features/job-finder/screens/job-search-home/job-search-home-screen")
+  ).JobSearchHomeScreen,
+}));
+const loadProfileScreen = createSharedRouteLoader(async () => ({
+  default: (
+    await import("@renderer/features/job-finder/screens/profile-screen")
+  ).ProfileScreen,
+}));
+const loadApplicationsScreen = createSharedRouteLoader(async () => ({
+  default: (
+    await import("@renderer/features/job-finder/screens/applications-screen")
+  ).ApplicationsScreen,
+}));
+const loadActionsScreen = createSharedRouteLoader(async () => ({
+  default: (
+    await import("@renderer/features/job-finder/screens/actions-screen")
+  ).ActionsScreen,
+}));
+const loadOutcomeAnalyticsScreen = createSharedRouteLoader(async () => ({
+  default: (
+    await import("@renderer/features/job-finder/screens/analytics/outcome-analytics-screen")
+  ).OutcomeAnalyticsScreen,
+}));
+const loadResumeStrategiesScreen = createSharedRouteLoader(async () => ({
+  default: (
+    await import("@renderer/features/job-finder/screens/resume-strategies/resume-strategies-screen")
+  ).ResumeStrategiesScreen,
+}));
+const loadDiscoveryScreen = createSharedRouteLoader(async () => ({
+  default: (
+    await import("@renderer/features/job-finder/screens/discovery-screen")
+  ).DiscoveryScreen,
+}));
+const loadRapidReviewScreen = createSharedRouteLoader(async () => ({
+  default: (
+    await import("@renderer/features/job-finder/screens/rapid-review/rapid-review-screen")
+  ).RapidReviewScreen,
+}));
+const loadReviewQueueScreen = createSharedRouteLoader(async () => ({
+  default: (
+    await import("@renderer/features/job-finder/screens/review-queue-screen")
+  ).ReviewQueueScreen,
+}));
+const loadResumeWorkspaceScreen = createSharedRouteLoader(async () => ({
+  default: (
+    await import("@renderer/features/job-finder/screens/review-queue/resume-workspace-screen")
+  ).ResumeWorkspaceScreen,
+}));
+const loadSettingsScreen = createSharedRouteLoader(async () => ({
+  default: (
+    await import("@renderer/features/job-finder/screens/settings-screen")
+  ).SettingsScreen,
+}));
+const loadSafeguardsScreen = createSharedRouteLoader(async () => ({
+  default: (
+    await import("@renderer/features/job-finder/screens/safeguards/safeguards-screen")
+  ).SafeguardsScreen,
+}));
+
+const ProfileSetupScreen = lazy(loadProfileSetupScreen);
+const CampaignsScreen = lazy(loadCampaignsScreen);
+const CompaniesScreen = lazy(loadCompaniesScreen);
+const CompanyDetailScreen = lazy(loadCompanyDetailScreen);
+const JobSearchHomeScreen = lazy(loadJobSearchHomeScreen);
+const ProfileScreen = lazy(loadProfileScreen);
+const ApplicationsScreen = lazy(loadApplicationsScreen);
+const ActionsScreen = lazy(loadActionsScreen);
+const OutcomeAnalyticsScreen = lazy(loadOutcomeAnalyticsScreen);
+const ResumeStrategiesScreen = lazy(loadResumeStrategiesScreen);
+const DiscoveryScreen = lazy(loadDiscoveryScreen);
+const RapidReviewScreen = lazy(loadRapidReviewScreen);
+const ReviewQueueScreen = lazy(loadReviewQueueScreen);
+const ResumeWorkspaceScreen = lazy(loadResumeWorkspaceScreen);
+const SettingsScreen = lazy(loadSettingsScreen);
+const SafeguardsScreen = lazy(loadSafeguardsScreen);
+
+export function preloadJobFinderPriorityScreens() {
+  // Attach a rejection handler to background imports without replacing the
+  // shared rejected promise. A later route visit still receives the real
+  // loader error through the normal route error boundary.
+  void loadProfileScreen().catch(() => undefined);
+  void loadDiscoveryScreen().catch(() => undefined);
+  void loadReviewQueueScreen().catch(() => undefined);
+  void loadApplicationsScreen().catch(() => undefined);
+}
 
 function useJobFinderPageContext() {
   return useOutletContext<JobFinderPageContext>();
@@ -755,6 +859,36 @@ export function JobFinderRapidReviewRoute() {
 }
 
 export function JobFinderReviewQueueRoute() {
+  const [surfaceReady, setSurfaceReady] = useState(false);
+
+  useLayoutEffect(() => {
+    if (!surfaceReady) {
+      performance.mark("job-finder:route:shortlisted:feedback-committed");
+    }
+  }, [surfaceReady]);
+
+  useEffect(() => {
+    // The 1,001-row shortlist projection can occupy a long render task. Keep
+    // the route heading responsive first, then mount the collection after the
+    // browser has had time to paint and expose that navigation feedback.
+    const timer = window.setTimeout(() => setSurfaceReady(true), 250);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  if (!surfaceReady) {
+    return (
+      <WorkspaceStateScreen
+        kicker="Shortlisted"
+        message="Opening your saved shortlist."
+        title="Shortlisted"
+      />
+    );
+  }
+
+  return <JobFinderReviewQueueRouteContent />;
+}
+
+function JobFinderReviewQueueRouteContent() {
   const context = useJobFinderPageContext();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigationContext = readJobFinderNavigationContext(searchParams);
@@ -897,9 +1031,25 @@ export function JobFinderReviewQueueRoute() {
 export function JobFinderResumeWorkspaceRoute() {
   const context = useJobFinderPageContext();
   const { jobId } = useParams<{ jobId: string }>();
+  const requiredCollections = [
+    "discovery_jobs",
+    "review_queue",
+    "documents",
+  ] as const;
 
   if (!jobId) {
     return <Navigate replace to="/job-finder/review-queue" />;
+  }
+
+  if (isJobFinderHydratingCollections(context.workspace, requiredCollections)) {
+    return (
+      <JobFinderHydrationGate
+        collections={requiredCollections}
+        workspace={context.workspace}
+      >
+        {null}
+      </JobFinderHydrationGate>
+    );
   }
 
   const reviewItem = context.workspace.reviewQueue.find(
@@ -912,7 +1062,7 @@ export function JobFinderResumeWorkspaceRoute() {
 
   return (
     <JobFinderHydrationGate
-      collections={["discovery_jobs", "review_queue", "documents"]}
+      collections={requiredCollections}
       workspace={context.workspace}
     >
       <ResumeWorkspaceScreen

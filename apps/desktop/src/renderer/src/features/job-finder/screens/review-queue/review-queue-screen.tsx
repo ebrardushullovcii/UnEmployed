@@ -21,6 +21,11 @@ import {
 import { ReviewQueueListPanel } from "./review-queue-list-panel";
 import { ReviewQueueMissionPanel } from "./review-queue-mission-panel";
 import { ReviewQueuePreviewPanel } from "./review-queue-preview-panel";
+import {
+  getTailoredDraftPreparationCandidates,
+  prepareTailoredDraftsSequentially,
+  type TailoredDraftPreparationViewState,
+} from "./review-queue-status";
 
 export function ReviewQueueScreen(props: {
   actionState: { message: string | null };
@@ -32,7 +37,7 @@ export function ReviewQueueScreen(props: {
   onStartAutoApplyQueue: (jobIds: string[]) => void;
   onStartApplyCopilot: (jobId: string) => void;
   onEditResumeWorkspace: (jobId: string) => void;
-  onGenerateResume: (jobId: string) => void;
+  onGenerateResume: (jobId: string) => Promise<boolean>;
   onOpenBrowserSession: () => void;
   onOpenJobDetails: (jobId: string) => void;
   onOpenProfile: () => void;
@@ -89,6 +94,17 @@ export function ReviewQueueScreen(props: {
       ? "missing"
       : null;
   const [queueSelection, setQueueSelection] = useState<readonly string[]>([]);
+  const [draftPreparation, setDraftPreparation] =
+    useState<TailoredDraftPreparationViewState>({
+      attemptedCount: 0,
+      completedCount: 0,
+      currentIndex: null,
+      failedCount: 0,
+      status: "idle",
+      totalCount: 0,
+    });
+  const draftPreparationRunRef = useRef(false);
+  const draftPreparationStopRequestedRef = useRef(false);
   const selectedJobPending = selectedItem
     ? isJobPending(selectedItem.jobId)
     : false;
@@ -159,6 +175,69 @@ export function ReviewQueueScreen(props: {
   const handleClearQueueSelection = useCallback(() => {
     setQueueSelection([]);
   }, []);
+  const handleStopTailoredDraftPreparation = useCallback(() => {
+    if (!draftPreparationRunRef.current) {
+      return;
+    }
+
+    draftPreparationStopRequestedRef.current = true;
+  }, []);
+  const handlePrepareTailoredDrafts = useCallback(async () => {
+    if (draftPreparationRunRef.current) {
+      return;
+    }
+
+    const candidates = getTailoredDraftPreparationCandidates(queue);
+    if (candidates.length === 0) {
+      return;
+    }
+
+    draftPreparationRunRef.current = true;
+    draftPreparationStopRequestedRef.current = false;
+    setDraftPreparation({
+      attemptedCount: 0,
+      completedCount: 0,
+      currentIndex: null,
+      failedCount: 0,
+      status: "running",
+      totalCount: candidates.length,
+    });
+
+    try {
+      const result = await prepareTailoredDraftsSequentially(
+        candidates,
+        onGenerateResume,
+        {
+          onProgress: ({ completedCount, currentIndex, totalCount }) => {
+            setDraftPreparation((current) => ({
+              ...current,
+              attemptedCount: currentIndex,
+              completedCount,
+              currentIndex,
+              totalCount,
+              status: "running",
+            }));
+          },
+          shouldStop: () => draftPreparationStopRequestedRef.current,
+        },
+      );
+
+      setDraftPreparation({
+        attemptedCount: result.attemptedCount,
+        completedCount: result.completedCount,
+        currentIndex: null,
+        failedCount: result.failedCount,
+        status: result.failedJobId
+          ? "failed"
+          : result.stopped
+            ? "stopped"
+            : "completed",
+        totalCount: result.totalCount,
+      });
+    } finally {
+      draftPreparationRunRef.current = false;
+    }
+  }, [onGenerateResume, queue]);
 
   return (
     <LockedScreenLayout
@@ -179,8 +258,13 @@ export function ReviewQueueScreen(props: {
     >
       <div className="grid min-h-124 min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[20rem_minmax(22rem,1fr)_24rem] xl:overflow-hidden">
         <ReviewQueueListPanel
+          draftPreparation={draftPreparation}
           isJobPending={isJobPending}
+          onPrepareTailoredDrafts={() => {
+            void handlePrepareTailoredDrafts();
+          }}
           onSelectItem={onSelectItem}
+          onStopTailoredDraftPreparation={handleStopTailoredDraftPreparation}
           onToggleQueueSelection={handleToggleQueueSelection}
           queue={queue}
           queueSelection={queueSelection}

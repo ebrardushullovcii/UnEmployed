@@ -37,7 +37,7 @@ interface ReviewQueueMissionPanelProps {
   onStartAutoApplyQueue: (jobIds: string[]) => void;
   onStartApplyCopilot: (jobId: string) => void;
   onEditResumeWorkspace: (jobId: string) => void;
-  onGenerateResume: (jobId: string) => void;
+  onGenerateResume: (jobId: string) => Promise<boolean>;
   onOpenBrowserSession: () => void;
   onOpenJobDetails: (jobId: string) => void;
   onOpenProfile: () => void;
@@ -460,7 +460,7 @@ export function ReviewQueueMissionPanel({
             disabled={!primaryApplicationAction.enabled}
             onClick={() => {
               if (primaryApplicationAction.kind === "generate_resume") {
-                onGenerateResume(selectedItem.jobId);
+                void onGenerateResume(selectedItem.jobId);
                 return;
               }
 

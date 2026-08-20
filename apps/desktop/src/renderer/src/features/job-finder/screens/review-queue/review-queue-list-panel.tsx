@@ -1,6 +1,6 @@
 import type { ReviewQueueItem } from "@unemployed/contracts";
 import { Checkbox } from "@renderer/components/ui/checkbox";
-import { Badge, ProgressBar } from "@renderer/components/ui";
+import { Badge, Button, ProgressBar } from "@renderer/components/ui";
 import { cn } from "@renderer/lib/cn";
 import {
   useCallback,
@@ -31,14 +31,20 @@ import {
 import { formatCountLabel } from "../../lib/job-finder-utils";
 import { getDisplayedResumeProgress } from "./review-queue-progress";
 import {
+  countQueueStageReady,
+  countTailoredDraftPreparationEligible,
   getReviewQueueWorkflowStatus,
   isQueueStageReady,
   isResumeGenerationInProgress,
+  type TailoredDraftPreparationViewState,
 } from "./review-queue-status";
 
 interface ReviewQueueListPanelProps {
+  draftPreparation?: TailoredDraftPreparationViewState;
   isJobPending: (jobId: string) => boolean;
+  onPrepareTailoredDrafts?: () => void;
   onSelectItem: (jobId: string) => void;
+  onStopTailoredDraftPreparation?: () => void;
   onToggleQueueSelection: (jobId: string, checked: boolean) => void;
   queue: readonly ReviewQueueItem[];
   queueSelection: readonly string[];
@@ -46,8 +52,18 @@ interface ReviewQueueListPanelProps {
 }
 
 export function ReviewQueueListPanel({
+  draftPreparation = {
+    attemptedCount: 0,
+    completedCount: 0,
+    currentIndex: null,
+    failedCount: 0,
+    status: "idle",
+    totalCount: 0,
+  },
   isJobPending,
+  onPrepareTailoredDrafts = () => undefined,
   onSelectItem,
+  onStopTailoredDraftPreparation = () => undefined,
   onToggleQueueSelection,
   queue,
   queueSelection,
@@ -117,6 +133,20 @@ export function ReviewQueueListPanel({
         .map((item) => item.jobId),
     [visibleQueue],
   );
+  const draftEligibleCount = useMemo(
+    () => countTailoredDraftPreparationEligible(queue),
+    [queue],
+  );
+  const readyToStageCount = useMemo(() => countQueueStageReady(queue), [queue]);
+  const isDraftPreparationRunning = draftPreparation.status === "running";
+  const draftPreparationResultMessage =
+    draftPreparation.status === "completed"
+      ? `Prepared ${draftPreparation.completedCount} tailored draft${draftPreparation.completedCount === 1 ? "" : "s"}. Each draft still needs your review and approval. Nothing was approved, queued, submitted, or sent.`
+      : draftPreparation.status === "stopped"
+        ? `Stopped after ${draftPreparation.completedCount} completed draft${draftPreparation.completedCount === 1 ? "" : "s"}. Nothing was approved, queued, submitted, or sent.`
+        : draftPreparation.status === "failed"
+          ? `Stopped after ${draftPreparation.completedCount} completed draft${draftPreparation.completedCount === 1 ? "" : "s"}; ${draftPreparation.failedCount} failed. Nothing was approved, queued, submitted, or sent. Fix the failed job and rerun to target only remaining eligible jobs.`
+          : null;
   const handleListKeyDown = useCallback(
     (event: KeyboardEvent<HTMLButtonElement>, jobId: string) => {
       const nextId = getAdjacentCollectionItemId(
@@ -170,6 +200,75 @@ export function ReviewQueueListPanel({
           }
           visibleCount={visibleQueue.length}
         />
+      ) : null}
+      {queue.length > 0 ? (
+        <div
+          className="mx-5 mb-3 grid gap-2 rounded-(--radius-panel) border border-primary/30 bg-primary/5 px-4 py-3"
+          data-testid="tailored-draft-preparation"
+        >
+          <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+            <div className="grid min-w-0 gap-1">
+              <strong className="text-sm font-semibold text-(--text-headline)">
+                Prepare tailored drafts
+              </strong>
+              <p className="text-(length:--text-small) leading-5 text-foreground-soft">
+                Prepare the next up to 10 shortlisted jobs that need a tailored
+                draft. Each draft uses your current saved profile and approach
+                when its turn starts.
+              </p>
+            </div>
+            <Badge variant="section">Bounded to 10</Badge>
+          </div>
+          <p className="m-0 text-(length:--text-small) font-medium text-foreground">
+            Draft eligible: {draftEligibleCount} · Ready to stage:{" "}
+            {readyToStageCount}
+          </p>
+          {isDraftPreparationRunning ? (
+            <div className="grid gap-2" role="status" aria-live="polite">
+              <p className="m-0 text-(length:--text-small) leading-5 text-primary">
+                Preparing tailored drafts — {draftPreparation.currentIndex ?? 1}{" "}
+                of {draftPreparation.totalCount}. Each draft still needs your
+                review and approval.
+              </p>
+              <Button
+                className="w-full justify-center sm:w-auto sm:justify-start"
+                onClick={onStopTailoredDraftPreparation}
+                size="compact"
+                type="button"
+                variant="outline"
+              >
+                Stop after current draft
+              </Button>
+            </div>
+          ) : (
+            <div className="grid gap-2">
+              {draftPreparationResultMessage ? (
+                <p
+                  aria-live="polite"
+                  className="m-0 text-(length:--text-small) leading-5 text-primary"
+                  role="status"
+                >
+                  {draftPreparationResultMessage}
+                </p>
+              ) : null}
+              <Button
+                className="w-full justify-center sm:w-auto sm:justify-start"
+                disabled={draftEligibleCount === 0}
+                onClick={onPrepareTailoredDrafts}
+                size="compact"
+                type="button"
+                variant="secondary"
+              >
+                Prepare tailored drafts
+              </Button>
+              {draftEligibleCount === 0 ? (
+                <p className="m-0 text-(length:--text-small) leading-5 text-muted-foreground">
+                  No shortlisted jobs currently need a new tailored draft.
+                </p>
+              ) : null}
+            </div>
+          )}
+        </div>
       ) : null}
       {queueSelection.length > 0 ? (
         <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 border-b border-(--info-border) bg-(--info-surface) px-5 py-2 text-(--info-text)">

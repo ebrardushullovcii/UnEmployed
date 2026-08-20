@@ -713,8 +713,8 @@ export function createPrimaryPageActions(
       setSelectedReviewJobId(jobId);
       navigate(`/job-finder/review-queue/${jobId}/resume`);
     },
-    onGenerateResume: (jobId: string) =>
-      void runAction(
+    onGenerateResume: async (jobId: string): Promise<boolean> =>
+      runAction(
         () => actions.generateResume(jobId),
         () => setSelectedReviewJobId(jobId),
         "Resume created for this job.",

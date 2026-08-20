@@ -1,6 +1,7 @@
 import {
   DiscoveryRunRecordSchema,
   JobPostingSchema,
+  SavedJobSchema,
   type CandidateProfile,
   type DiscoveryActivityEvent,
   type DiscoveryLedgerEntry,
@@ -12,6 +13,7 @@ import {
   type JobPosting,
   type JobSearchPreferences,
   type JobSource,
+  type SavedJob,
   type SourceIntelligenceProviderKey,
 } from "@unemployed/contracts";
 import {
@@ -46,7 +48,6 @@ import {
   mergePendingJobs,
   mergeSavedJobs,
   overlayTouchedPendingJobs,
-  overlayTouchedSavedJobs,
   recordDiscoveredPostingInLedger,
   shouldSkipPostingFromLedger,
 } from "./workspace-service-helpers";
@@ -78,6 +79,28 @@ import { assessJobPostingDetailQuality } from "./job-posting-detail-quality";
 const DISCOVERY_ACTIVITY_SAMPLE_LIMIT = 3;
 const LOW_YIELD_TECHNICAL_DISCOVERY_FLOOR = 6;
 const PUBLIC_API_PREFETCH_CONCURRENCY = 8;
+
+function serializeSavedJobDeltaValue(value: unknown): string {
+  return JSON.stringify(value) ?? "undefined";
+}
+
+function applySavedJobDelta(
+  currentJob: SavedJob,
+  baselineJob: SavedJob,
+  intendedJob: SavedJob,
+): SavedJob {
+  const changedFields: Record<string, unknown> = {};
+  for (const key of Object.keys(intendedJob) as Array<keyof SavedJob>) {
+    if (
+      serializeSavedJobDeltaValue(intendedJob[key]) !==
+      serializeSavedJobDeltaValue(baselineJob[key])
+    ) {
+      changedFields[key] = intendedJob[key];
+    }
+  }
+
+  return SavedJobSchema.parse({ ...currentJob, ...changedFields });
+}
 
 type PublicProviderJobsResult = Awaited<
   ReturnType<typeof collectPublicProviderJobs>
@@ -990,6 +1013,9 @@ export function createWorkspaceDiscoveryMethods(
         job.matchAssessment,
       ),
     }));
+    const savedJobsAtLastCommitById = new Map(
+      startingSavedJobs.map((job) => [job.id, job]),
+    );
     let workingPendingJobs = startingDiscovery.pendingDiscoveryJobs.map(
       (job) => ({
         ...job,
@@ -1006,6 +1032,36 @@ export function createWorkspaceDiscoveryMethods(
     const touchedPendingJobIds = new Set<string>();
     workingSavedJobs.forEach((job) => touchedSavedJobIds.add(job.id));
     workingPendingJobs.forEach((job) => touchedPendingJobIds.add(job.id));
+
+    const persistWorkingSavedJobs = async (): Promise<void> => {
+      const workingSavedJobsById = new Map(
+        workingSavedJobs.map((job) => [job.id, job]),
+      );
+      const newSavedJobs = workingSavedJobs.filter(
+        (job) => !savedJobsAtLastCommitById.has(job.id),
+      );
+
+      await ctx.repository.commitSavedJobDelta({
+        upserts: newSavedJobs,
+        update: (currentJob) => {
+          if (!touchedSavedJobIds.has(currentJob.id)) {
+            return currentJob;
+          }
+
+          const baselineJob = savedJobsAtLastCommitById.get(currentJob.id);
+          const intendedJob = workingSavedJobsById.get(currentJob.id);
+          if (!baselineJob || !intendedJob) {
+            return currentJob;
+          }
+
+          return applySavedJobDelta(currentJob, baselineJob, intendedJob);
+        },
+      });
+
+      for (const job of workingSavedJobs) {
+        savedJobsAtLastCommitById.set(job.id, job);
+      }
+    };
     const openedSessionSources = new Set<JobSource>();
     const sourceInstructionArtifacts = await ctx.repository
       .listSourceInstructionArtifacts()
@@ -1688,13 +1744,7 @@ export function createWorkspaceDiscoveryMethods(
         recordActivity(targetCompletedEvent);
 
         const latestDiscoveryState = await ctx.repository.getDiscoveryState();
-        await ctx.repository.replaceSavedJobs(
-          overlayTouchedSavedJobs(
-            await ctx.repository.listSavedJobs(),
-            workingSavedJobs,
-            touchedSavedJobIds,
-          ),
-        );
+        await persistWorkingSavedJobs();
         if (!settings.discoveryOnly && changedJobIds.length > 0) {
           await ctx.staleApprovedResumeDrafts(
             "Saved job details changed after approval and the resume needs a fresh review.",
@@ -1783,13 +1833,7 @@ export function createWorkspaceDiscoveryMethods(
     );
 
     const latestDiscoveryState = await ctx.repository.getDiscoveryState();
-    await ctx.repository.replaceSavedJobs(
-      overlayTouchedSavedJobs(
-        await ctx.repository.listSavedJobs(),
-        workingSavedJobs,
-        touchedSavedJobIds,
-      ),
-    );
+    await persistWorkingSavedJobs();
     await ctx.repository.saveDiscoveryState(
       finalizeDiscoveryState(
         {

@@ -14,6 +14,7 @@ import {
 
 const CANDIDATE_COUNT = 100;
 const REPEATED_SOURCE_CPU_BUDGET_MS = 2_000;
+const REPEATED_SOURCE_WALL_BUDGET_MS = 2_000;
 
 function elapsedCpuMs(startedAt: NodeJS.CpuUsage): number {
   const elapsed = process.cpuUsage(startedAt);
@@ -142,6 +143,7 @@ describe("known-job ledger repeated-source performance", () => {
       repeatedDurationMs: Math.round(repeatedDurationMs),
       repeatedCpuDurationMs: Math.round(repeatedCpuDurationMs),
       repeatedSourceCpuBudgetMs: REPEATED_SOURCE_CPU_BUDGET_MS,
+      repeatedSourceWallBudgetMs: REPEATED_SOURCE_WALL_BUDGET_MS,
     };
     console.info("repeated-source-ledger-benchmark", metrics);
 
@@ -161,5 +163,6 @@ describe("known-job ledger repeated-source performance", () => {
     });
     expect(repeatedSnapshot.discoveryJobs).toHaveLength(50);
     expect(repeatedCpuDurationMs).toBeLessThan(REPEATED_SOURCE_CPU_BUDGET_MS);
+    expect(repeatedDurationMs).toBeLessThan(REPEATED_SOURCE_WALL_BUDGET_MS);
   }, 15_000);
 });

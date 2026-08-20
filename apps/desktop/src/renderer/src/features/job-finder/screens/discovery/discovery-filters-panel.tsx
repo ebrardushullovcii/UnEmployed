@@ -178,7 +178,7 @@ export function DiscoveryFiltersPanel({
   return (
     <section
       aria-labelledby={searchControlsHeadingId}
-      className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col gap-4 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) p-5 xl:h-full xl:min-h-0"
+      className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col gap-4 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) p-5 xl:h-full xl:min-h-0"
     >
       <h2
         className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted"

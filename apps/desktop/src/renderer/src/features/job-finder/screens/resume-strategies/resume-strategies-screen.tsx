@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import type {
   JobSearchCampaign,
   ResumeStrategy,
@@ -83,6 +84,26 @@ function emptyFormInput(baseResumeDocumentId: string): SaveResumeStrategyInput {
     },
     enabled: true,
   };
+}
+
+function getSafeShortlistedReturnPath(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(value, "https://unemployed.internal");
+    if (
+      parsed.origin !== "https://unemployed.internal" ||
+      parsed.pathname !== "/job-finder/review-queue"
+    ) {
+      return null;
+    }
+
+    return `${parsed.pathname}${parsed.search}`;
+  } catch {
+    return null;
+  }
 }
 
 function StrategyForm(props: {
@@ -587,6 +608,10 @@ export function ResumeStrategiesScreen(props: {
 }) {
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<SaveResumeStrategyInput | null>(null);
+  const [searchParams] = useSearchParams();
+  const shortlistedReturnPath = getSafeShortlistedReturnPath(
+    searchParams.get("returnTo"),
+  );
 
   const filteredStrategies = useMemo(
     () =>
@@ -612,16 +637,25 @@ export function ResumeStrategiesScreen(props: {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <PageHeader
           compact
-          eyebrow="Resume strategies"
-          title="Resume strategies"
-          description="Name role-family targeting preferences: base resume, template, headline/skills/coverage policy, tailoring strength, and evidence boundaries."
+          eyebrow="Resume approaches"
+          title="Resume approaches"
+          description="Save reusable resume strategies for a role family. Strong rewrite can substantially edit supported experience, but you review every line before anything is applied."
         />
-        <Button
-          onClick={() => setEditing(emptyFormInput(props.baseResumeDocumentId))}
-          type="button"
-        >
-          New strategy
-        </Button>
+        <div className="flex flex-wrap justify-end gap-2">
+          {shortlistedReturnPath ? (
+            <Button asChild size="sm" type="button" variant="outline">
+              <Link to={shortlistedReturnPath}>Back to shortlisted job</Link>
+            </Button>
+          ) : null}
+          <Button
+            onClick={() =>
+              setEditing(emptyFormInput(props.baseResumeDocumentId))
+            }
+            type="button"
+          >
+            New strategy
+          </Button>
+        </div>
       </div>
 
       {props.actionMessage ? (

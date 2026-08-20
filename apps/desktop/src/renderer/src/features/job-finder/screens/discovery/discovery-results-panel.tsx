@@ -328,7 +328,7 @@ export function DiscoveryResultsPanel({
   return (
     <section
       aria-labelledby="discovery-job-results-heading"
-      className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0"
+      className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0"
     >
       <header className="flex flex-wrap items-center justify-between gap-3 px-5 pb-2 pt-5">
         <h2
@@ -397,7 +397,7 @@ export function DiscoveryResultsPanel({
       {showComparison && filteredJobs.length >= 2 ? (
         <section
           aria-label="Top job comparison"
-          className="mx-5 mt-3 grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) p-3 md:grid-cols-3"
+          className="mx-5 mt-3 grid grid-cols-1 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) p-3 lg:grid-cols-2 2xl:grid-cols-3"
         >
           {filteredJobs.slice(0, 3).map((job) => {
             const recommendation =
@@ -734,7 +734,7 @@ export function DiscoveryResultsPanel({
           {pageCount > 1 ? (
             <nav
               aria-label="Job result pages"
-              className="relative z-10 flex shrink-0 items-center justify-between gap-3 border-t border-(--surface-panel-border) bg-(--surface-panel) px-5 py-3"
+              className="relative z-10 flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-(--surface-panel-border) bg-(--surface-panel) px-5 py-3"
               data-job-results-pagination
             >
               <Button

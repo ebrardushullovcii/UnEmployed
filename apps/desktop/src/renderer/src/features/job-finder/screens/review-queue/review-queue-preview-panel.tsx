@@ -9,7 +9,7 @@ interface ReviewQueuePreviewPanelProps {
   displayedProgress: number
   isGenerating?: boolean
   onEditResumeWorkspace: (jobId: string) => void
-  onGenerateResume: (jobId: string) => void
+  onGenerateResume: (jobId: string) => Promise<boolean>
   originalResume?: ResumeSourceDocument
   previewState: PreviewState
   queue: readonly ReviewQueueItem[]
@@ -106,7 +106,9 @@ export function ReviewQueuePreviewPanel({
                 <Button
                   disabled={isSelectedJobPending}
                   pending={isSelectedJobPending}
-                  onClick={() => onGenerateResume(selectedItem.jobId)}
+                  onClick={() => {
+                    void onGenerateResume(selectedItem.jobId);
+                  }}
                   type="button"
                   variant="primary"
                 >

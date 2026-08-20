@@ -14,6 +14,7 @@ function getFocusableElements(container: HTMLElement): HTMLElement[] {
   return [...container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)].filter(
     (element) =>
       !element.hasAttribute('hidden') &&
+      !element.hasAttribute('data-focus-sentinel') &&
       element.getAttribute('aria-hidden') !== 'true' &&
       element.tabIndex >= 0 &&
       (element.offsetParent !== null || element === document.activeElement)
@@ -45,6 +46,50 @@ export function useModalFocusTrap(open: boolean, dialogRef: RefObject<HTMLDivEle
 
     const focusableElements = getFocusableElements(dialog)
     ;(focusableElements[0] ?? dialog).focus()
+
+    const sentinelStart = document.createElement('span')
+    sentinelStart.setAttribute('data-focus-sentinel', 'start')
+    sentinelStart.setAttribute('aria-hidden', 'true')
+    sentinelStart.tabIndex = 0
+    sentinelStart.style.position = 'absolute'
+    sentinelStart.style.width = '1px'
+    sentinelStart.style.height = '1px'
+    sentinelStart.style.padding = '0'
+    sentinelStart.style.margin = '-1px'
+    sentinelStart.style.overflow = 'hidden'
+    sentinelStart.style.clip = 'rect(0, 0, 0, 0)'
+    sentinelStart.style.whiteSpace = 'nowrap'
+    sentinelStart.style.border = '0'
+
+    const sentinelEnd = document.createElement('span')
+    sentinelEnd.setAttribute('data-focus-sentinel', 'end')
+    sentinelEnd.setAttribute('aria-hidden', 'true')
+    sentinelEnd.tabIndex = 0
+    sentinelEnd.style.position = 'absolute'
+    sentinelEnd.style.width = '1px'
+    sentinelEnd.style.height = '1px'
+    sentinelEnd.style.padding = '0'
+    sentinelEnd.style.margin = '-1px'
+    sentinelEnd.style.overflow = 'hidden'
+    sentinelEnd.style.clip = 'rect(0, 0, 0, 0)'
+    sentinelEnd.style.whiteSpace = 'nowrap'
+    sentinelEnd.style.border = '0'
+
+    const handleSentinelStartFocus = () => {
+      const focusable = getFocusableElements(dialog)
+      const last = focusable[focusable.length - 1]
+      ;(last ?? dialog).focus()
+    }
+
+    const handleSentinelEndFocus = () => {
+      const focusable = getFocusableElements(dialog)
+      ;(focusable[0] ?? dialog).focus()
+    }
+
+    sentinelStart.addEventListener('focus', handleSentinelStartFocus)
+    sentinelEnd.addEventListener('focus', handleSentinelEndFocus)
+    dialog.prepend(sentinelStart)
+    dialog.append(sentinelEnd)
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -96,6 +141,10 @@ export function useModalFocusTrap(open: boolean, dialogRef: RefObject<HTMLDivEle
     document.addEventListener('keydown', onKeyDown)
     return () => {
       document.removeEventListener('keydown', onKeyDown)
+      sentinelStart.removeEventListener('focus', handleSentinelStartFocus)
+      sentinelEnd.removeEventListener('focus', handleSentinelEndFocus)
+      sentinelStart.remove()
+      sentinelEnd.remove()
 
       if (appRoot) {
         if (previousAriaHidden === null) {

@@ -210,7 +210,7 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
         ref={summaryRef}
       >
         <ListChecks aria-hidden="true" className="size-4 shrink-0" />
-        <span className="hidden whitespace-nowrap sm:inline lg:hidden 2xl:inline">
+        <span className="hidden whitespace-nowrap min-[900px]:inline min-[1024px]:hidden min-[1440px]:inline">
           Task center
         </span>
         <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-(--input) px-1.5 text-[0.65rem] text-foreground tabular-nums">

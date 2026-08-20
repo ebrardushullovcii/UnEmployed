@@ -201,6 +201,27 @@ export function useJobFinderPageController() {
   useEffect(() => {
     if (
       !activeResumeWorkspaceJobId ||
+      !actions ||
+      resumeWorkspace?.job.id === activeResumeWorkspaceJobId
+    ) {
+      return
+    }
+
+    void refreshResumeWorkspace(activeResumeWorkspaceJobId, {
+      updateAssistantMessages: true
+    }).catch((error: unknown) => {
+      if (activeResumeWorkspaceJobIdRef.current !== activeResumeWorkspaceJobId) {
+        return
+      }
+      setActionState({
+        message: error instanceof Error ? error.message : 'Resume workspace could not be opened.'
+      })
+    })
+  }, [actions, activeResumeWorkspaceJobId, refreshResumeWorkspace, resumeWorkspace?.job.id])
+
+  useEffect(() => {
+    if (
+      !activeResumeWorkspaceJobId ||
       !workspace?.reviewQueue ||
       workspace.reviewQueue.some((item) => item.jobId === activeResumeWorkspaceJobId)
     ) {

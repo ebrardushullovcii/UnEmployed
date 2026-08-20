@@ -92,12 +92,42 @@ export interface JobFinderRepository {
     messages?: readonly ProfileCopilotMessage[];
     revisions?: readonly ProfileRevision[];
   }): Promise<void>;
-  listSavedJobs(): Promise<readonly SavedJob[]>;
+  listSavedJobs(options?: {
+    limit?: number;
+    offset?: number;
+  }): Promise<readonly SavedJob[]>;
+  /**
+   * Atomically applies row-local saved-job updates and/or inserts without
+   * replacing rows that the caller did not intend to change.
+   */
+  commitSavedJobDelta(input: {
+    upserts?: readonly SavedJob[];
+    update?: (job: SavedJob) => SavedJob;
+    clearResumeApproval?: {
+      jobId: string;
+      staleReason: string;
+      shouldClear: (previousJob: SavedJob, nextJob: SavedJob) => boolean;
+    };
+    discoveryState?: JobFinderDiscoveryState;
+  }): Promise<void>;
+  /**
+   * Destructively replaces the complete saved-job collection. The caller must
+   * provide an authoritative full snapshot; paged or stale reads are invalid.
+   * Prefer commitSavedJobDelta for ordinary product mutations.
+   */
   replaceSavedJobs(savedJobs: readonly SavedJob[]): Promise<void>;
+  /**
+   * Destructively replaces the complete saved-job collection together with
+   * discovery state. Reserved for authoritative reset/import boundaries.
+   */
   replaceSavedJobsAndDiscoveryState(input: {
     savedJobs: readonly SavedJob[];
     discoveryState: JobFinderDiscoveryState;
   }): Promise<void>;
+  /**
+   * Destructively replaces the complete saved-job collection while clearing
+   * resume approval. Prefer commitSavedJobDelta for row-local product updates.
+   */
   replaceSavedJobsAndClearResumeApproval(input: {
     savedJobs: readonly SavedJob[];
     draft: ResumeDraft;

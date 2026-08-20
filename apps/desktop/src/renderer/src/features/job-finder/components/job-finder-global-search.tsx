@@ -54,7 +54,7 @@ export function JobFinderGlobalSearch(props: {
         autoComplete="off"
         id={inputId}
         onChange={(event) => setQuery(event.target.value.slice(0, 200))}
-        placeholder="Search jobs, companies, applications, campaigns, or documents"
+        placeholder="Search jobs, companies, applications, search plans, or documents"
         type="search"
         value={query}
       />

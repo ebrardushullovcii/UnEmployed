@@ -10,13 +10,13 @@ export function EmptyState({ className, description, title }: EmptyStateProps) {
   return (
     <div
       className={cn(
-        'grid min-h-56 w-full place-items-center overflow-hidden rounded-(--radius-panel) border border-dashed border-border/70 bg-[linear-gradient(180deg,var(--surface-overlay-subtle),var(--surface-fill-subtle))] px-6 py-8 text-center shadow-[inset_0_1px_0_var(--surface-inset-highlight)]',
+        'grid min-h-(--empty-state-min-height) w-full place-items-center overflow-hidden rounded-(--radius-panel) border border-dashed border-border/70 bg-[linear-gradient(180deg,var(--surface-overlay-subtle),var(--surface-fill-subtle))] px-6 py-8 text-center shadow-[inset_0_1px_0_var(--surface-inset-highlight)]',
         className
       )}
     >
       <div className="grid max-w-136 gap-3">
-        <h2 className="font-display text-[1.48rem] font-semibold tracking-[-0.03em] text-(--text-headline)">{title}</h2>
-        <p className="text-[0.96rem] leading-7 text-foreground-soft">{description}</p>
+        <h2 className="font-display text-(length:--text-section-title) font-semibold tracking-(--tracking-page-title-compact) text-(--text-headline) break-words [overflow-wrap:anywhere]">{title}</h2>
+        <p className="text-(length:--text-description) leading-6 text-foreground-soft break-words [overflow-wrap:anywhere]">{description}</p>
       </div>
     </div>
   )

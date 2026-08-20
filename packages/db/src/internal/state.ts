@@ -96,6 +96,45 @@ export function cloneValue<TValue>(value: TValue): TValue {
   return structuredClone(value);
 }
 
+function normalizePaginationValue(
+  value: number | undefined,
+  fieldName: "limit" | "offset",
+  defaultValue: number,
+): number {
+  if (value === undefined) {
+    return defaultValue;
+  }
+
+  if (!Number.isFinite(value)) {
+    throw new RangeError(`${fieldName} must be a finite number.`);
+  }
+
+  return Math.max(0, Math.floor(value));
+}
+
+function buildPaginationSql(options?: { limit?: number; offset?: number }): {
+  sql: string;
+  params: readonly number[];
+} {
+  const limit =
+    options?.limit === undefined
+      ? undefined
+      : normalizePaginationValue(options.limit, "limit", 0);
+  const offset = normalizePaginationValue(options?.offset, "offset", 0);
+
+  if (limit === undefined && offset === 0) {
+    return { sql: "", params: [] };
+  }
+
+  if (limit === undefined) {
+    return { sql: " LIMIT -1 OFFSET ?", params: [offset] };
+  }
+
+  return offset === 0
+    ? { sql: " LIMIT ?", params: [limit] }
+    : { sql: " LIMIT ? OFFSET ?", params: [limit, offset] };
+}
+
 function parseJsonValue<TValue>(
   rawValue: string,
   schema: SchemaParser<TValue>,
@@ -118,14 +157,20 @@ export function listValues<TValue>(
   database: DatabaseSync,
   tableName: StateCollectionTable,
   schema: SchemaParser<TValue>,
+  options?: {
+    limit?: number;
+    offset?: number;
+  },
 ): TValue[] {
-  return database
-    .prepare(`SELECT value FROM ${stateTableNames[tableName]} ORDER BY id`)
-    .all()
-    .flatMap((row) => {
-      const parsedValue = tryParseJsonValue(String(row.value), schema);
-      return parsedValue ? [parsedValue] : [];
-    });
+  const pagination = buildPaginationSql(options);
+  const statement = database.prepare(
+    `SELECT value FROM ${stateTableNames[tableName]} ORDER BY id${pagination.sql}`,
+  );
+  const rows = statement.all(...pagination.params);
+  return rows.flatMap((row) => {
+    const parsedValue = tryParseJsonValue(String(row.value), schema);
+    return parsedValue ? [parsedValue] : [];
+  });
 }
 
 export function listCollectionValues<TValue>(
@@ -136,14 +181,18 @@ export function listCollectionValues<TValue>(
     orderBySql: string;
     whereSql?: string;
     params?: readonly SQLInputValue[];
+    limit?: number;
+    offset?: number;
   },
 ): TValue[] {
   const whereClause = options.whereSql ? ` WHERE ${options.whereSql}` : "";
+  const pagination = buildPaginationSql(options);
+  const baseParams = [...(options.params ?? [])] as SQLInputValue[];
   return database
     .prepare(
-      `SELECT value FROM ${stateTableNames[tableName]}${whereClause} ORDER BY ${options.orderBySql}`,
+      `SELECT value FROM ${stateTableNames[tableName]}${whereClause} ORDER BY ${options.orderBySql}${pagination.sql}`,
     )
-    .all(...(options.params ?? []))
+    .all(...baseParams, ...pagination.params)
     .flatMap((row) => {
       const parsedValue = tryParseJsonValue(String(row.value), schema);
       return parsedValue ? [parsedValue] : [];

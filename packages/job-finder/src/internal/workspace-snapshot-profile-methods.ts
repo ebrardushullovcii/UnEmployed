@@ -9,7 +9,6 @@ import {
   ProfileSetupStateSchema,
   ResumeDocumentBundleSchema,
   ResumeSourceDocumentSchema,
-  SavedJobSchema,
   SourceDebugRunRecordSchema,
   type CandidateProfile,
   type JobFinderSettings,
@@ -1063,10 +1062,7 @@ export function createWorkspaceSnapshotProfileMethods(
       profileCopilotMethods.rejectProfileCopilotPatchGroup,
     undoProfileRevision: profileCopilotMethods.undoProfileRevision,
     async saveSettings(settings: JobFinderSettings) {
-      const [currentSettings, savedJobs] = await Promise.all([
-        ctx.repository.getSettings(),
-        ctx.repository.listSavedJobs(),
-      ]);
+      const currentSettings = await ctx.repository.getSettings();
       const nextSettings = normalizeJobFinderSettings(
         settings,
         ctx.documentManager.listResumeTemplates(),
@@ -1087,24 +1083,20 @@ export function createWorkspaceSnapshotProfileMethods(
         "ready_for_review",
         "approved",
       ]);
-      const jobsWithPreservedChoices =
-        currentResumeApplicationMode === nextResumeApplicationMode
-          ? savedJobs
-          : savedJobs.map((job) =>
-              job.resumeApplicationMode === null &&
-              activeReviewStatuses.has(job.status)
-                ? SavedJobSchema.parse({
-                    ...job,
-                    resumeApplicationMode: currentResumeApplicationMode,
-                  })
-                : job,
-            );
-
       await Promise.all([
         ctx.repository.saveSettings(nextSettings),
-        jobsWithPreservedChoices === savedJobs
+        currentResumeApplicationMode === nextResumeApplicationMode
           ? Promise.resolve()
-          : ctx.repository.replaceSavedJobs(jobsWithPreservedChoices),
+          : ctx.repository.commitSavedJobDelta({
+              update: (job) =>
+                job.resumeApplicationMode === null &&
+                activeReviewStatuses.has(job.status)
+                  ? {
+                      ...job,
+                      resumeApplicationMode: currentResumeApplicationMode,
+                    }
+                  : job,
+            }),
       ]);
       await runNoResponseAutomationIfDue({
         settings:

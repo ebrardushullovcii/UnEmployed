@@ -116,6 +116,7 @@ import {
   defaultBenchmarkCases,
   setJobFinderWorkspaceServiceTestEnv,
 } from "../services/job-finder";
+import { registerJobFinderBootstrapDesktopRoutes } from "../setup/register-job-finder-bootstrap-routes";
 
 function parseAgentDiscoveryRequest(payload: unknown) {
   return JobFinderAgentDiscoveryActionInputSchema.parse(payload);
@@ -174,7 +175,13 @@ function buildApplicationPacketExportDefaultPath(
   return path.join(app.getPath("documents"), fileName);
 }
 
-export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
+export function registerJobFinderRouteHandlers(
+  ipcMain: IpcMain,
+  options: { includeBootstrapRoutes?: boolean } = {},
+) {
+  if (options.includeBootstrapRoutes !== false) {
+    registerJobFinderBootstrapDesktopRoutes(ipcMain);
+  }
   const workspaceDeltaTracker = createJobFinderWorkspaceDeltaTracker();
   const activeResumePreviewRequests = new WeakMap<
     object,
@@ -183,21 +190,6 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
       controller: AbortController;
     }
   >();
-
-  ipcMain.handle("job-finder:get-workspace", async () => {
-    const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
-    // The service constructs and validates the snapshot before returning it.
-    // Keep this typed internal boundary allocation-free for the large startup
-    // payload; input validation remains at the IPC entry points below.
-    return jobFinderWorkspaceService.getWorkspaceSnapshot();
-  });
-
-  ipcMain.handle("job-finder:get-workspace-bootstrap", async () => {
-    const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
-    return JobFinderWorkspaceSnapshotSchema.parse(
-      await jobFinderWorkspaceService.getWorkspaceBootstrap(),
-    );
-  });
 
   ipcMain.handle(
     "job-finder:sync-workspace",

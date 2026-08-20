@@ -2,10 +2,15 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-const globalsCss = readFileSync(new URL("./globals.css", import.meta.url), "utf8");
+const globalsCss = readFileSync(
+  new URL("./globals.css", import.meta.url),
+  "utf8",
+).replace(/\r\n/g, "\n");
 
 function readToken(scope: string, token: string): string {
-  const value = scope.match(new RegExp(`${token}\\s*:\\s*(#[0-9a-f]{6})`, "i"))?.[1];
+  const value = scope.match(
+    new RegExp(`${token}\\s*:\\s*(#[0-9a-f]{6})`, "i"),
+  )?.[1];
 
   if (!value) {
     throw new Error(`Missing ${token} in theme scope`);
@@ -15,11 +20,15 @@ function readToken(scope: string, token: string): string {
 }
 
 function relativeLuminance(color: string): number {
-  const channels = [0, 1, 2].map((index) => Number.parseInt(color.slice(1 + index * 2, 3 + index * 2), 16) / 255);
+  const channels = [0, 1, 2].map(
+    (index) =>
+      Number.parseInt(color.slice(1 + index * 2, 3 + index * 2), 16) / 255,
+  );
   const weights = [0.2126, 0.7152, 0.0722] as const;
 
   return channels.reduce((sum, channel, index) => {
-    const linear = channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+    const linear =
+      channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
     const weight = weights[index];
 
     return sum + (weight === undefined ? 0 : linear * weight);
@@ -37,14 +46,16 @@ function contrastRatio(foreground: string, background: string): number {
 }
 
 function themeScope(selector: string): string {
-  const start = globalsCss.indexOf(selector);
-  const end = globalsCss.indexOf("\n}", start);
+  const normalizedCss = globalsCss.replace(/\r\n/g, "\n");
+  const normalizedSelector = selector.replace(/\r\n/g, "\n");
+  const start = normalizedCss.indexOf(normalizedSelector);
+  const end = normalizedCss.indexOf("\n}", start);
 
   if (start < 0 || end < 0) {
     throw new Error(`Missing ${selector} theme scope`);
   }
 
-  return globalsCss.slice(start, end);
+  return normalizedCss.slice(start, end);
 }
 
 describe("global color tokens", () => {
@@ -64,17 +75,29 @@ describe("global color tokens", () => {
     ];
 
     for (const background of sharedDarkSurfaces) {
-      expect(contrastRatio(mutedForeground, background), `${mutedForeground} on ${background}`).toBeGreaterThanOrEqual(4.5);
+      expect(
+        contrastRatio(mutedForeground, background),
+        `${mutedForeground} on ${background}`,
+      ).toBeGreaterThanOrEqual(4.5);
     }
   });
 
   it("keeps the light muted text token at AA contrast on shared light surfaces", () => {
     const lightTheme = themeScope(':root[data-theme="light"]');
     const mutedForeground = readToken(lightTheme, "--muted-foreground");
-    const sharedLightSurfaces = ["#ffffff", "#f5f5f2", "#efede8", "#f5f3ee", "#e6e2d8"];
+    const sharedLightSurfaces = [
+      "#ffffff",
+      "#f5f5f2",
+      "#efede8",
+      "#f5f3ee",
+      "#e6e2d8",
+    ];
 
     for (const background of sharedLightSurfaces) {
-      expect(contrastRatio(mutedForeground, background), `${mutedForeground} on ${background}`).toBeGreaterThanOrEqual(4.5);
+      expect(
+        contrastRatio(mutedForeground, background),
+        `${mutedForeground} on ${background}`,
+      ).toBeGreaterThanOrEqual(4.5);
     }
   });
 });

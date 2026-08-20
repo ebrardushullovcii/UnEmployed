@@ -1,0 +1,54 @@
+import type { IpcMain } from "electron";
+import { registerSystemRouteHandlers } from "../routes/system";
+import { registerWindowRouteHandlers } from "../routes/window";
+
+export interface FeatureRoutesReadyResponse {
+  readonly ready: true;
+}
+
+/**
+ * Register the small IPC surface needed while the renderer is starting.
+ *
+ * Feature routes are intentionally loaded in a separate chunk so their main
+ * process parse/require work can overlap BrowserWindow and renderer startup.
+ * The preload bridge uses this readiness channel to serialize feature calls
+ * until that deferred route graph has registered its handlers.
+ */
+export function registerCoreDesktopRoutes(
+  ipcMain: IpcMain,
+  jobFinderBootstrapRoutesReady: () => Promise<void>,
+  jobFinderRoutesReady: () => Promise<void>,
+  jobFinderAssetRoutesReady: () => Promise<void>,
+  interviewHelperRoutesReady: () => Promise<void>,
+) {
+  registerSystemRouteHandlers(ipcMain);
+  registerWindowRouteHandlers(ipcMain);
+  ipcMain.handle(
+    "system:job-finder-bootstrap-routes-ready",
+    async (): Promise<FeatureRoutesReadyResponse> => {
+      await jobFinderBootstrapRoutesReady();
+      return { ready: true };
+    },
+  );
+  ipcMain.handle(
+    "system:job-finder-routes-ready",
+    async (): Promise<FeatureRoutesReadyResponse> => {
+      await jobFinderRoutesReady();
+      return { ready: true };
+    },
+  );
+  ipcMain.handle(
+    "system:job-finder-asset-routes-ready",
+    async (): Promise<FeatureRoutesReadyResponse> => {
+      await jobFinderAssetRoutesReady();
+      return { ready: true };
+    },
+  );
+  ipcMain.handle(
+    "system:interview-helper-routes-ready",
+    async (): Promise<FeatureRoutesReadyResponse> => {
+      await interviewHelperRoutesReady();
+      return { ready: true };
+    },
+  );
+}

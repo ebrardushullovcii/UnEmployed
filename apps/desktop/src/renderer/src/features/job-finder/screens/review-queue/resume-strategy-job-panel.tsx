@@ -1,10 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import type {
   ResumeStrategy,
   ResumeStrategyRecommendation,
   ResumeStrategySelection,
   SelectResumeStrategyInput,
 } from "@unemployed/contracts";
+import { Button } from "@renderer/components/ui/button";
+
+function buildResumeStrategiesRoute(jobId: string): string {
+  const returnTo = `/job-finder/review-queue?${new URLSearchParams({ jobId }).toString()}`;
+  return `/job-finder/resume-strategies?${new URLSearchParams({ returnTo }).toString()}`;
+}
 
 interface ResumeStrategyJobPanelProps {
   campaignId: string;
@@ -130,7 +137,7 @@ export function ResumeStrategyJobPanel(props: ResumeStrategyJobPanelProps) {
     <div className="surface-card-tint grid min-w-0 gap-3 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
       <div className="grid gap-1">
         <span className="text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">
-          Resume strategy
+          Resume approach
         </span>
         <p className="text-(length:--text-small) leading-6 text-foreground-soft">
           Choosing or reusing a strategy never approves this résumé and never
@@ -232,10 +239,18 @@ export function ResumeStrategyJobPanel(props: ResumeStrategyJobPanelProps) {
               </select>
             </label>
           ) : (
-            <p className="text-(length:--text-small) leading-5 text-foreground-soft">
-              Create and enable a strategy on the Resume strategies screen to
-              reuse targeting preferences here.
-            </p>
+            <div className="grid gap-2">
+              <p className="text-(length:--text-small) leading-5 text-foreground-soft">
+                No enabled resume approach is available yet. Create a reusable
+                role-family strategy, then return here to tailor this job with
+                it.
+              </p>
+              <Button asChild size="sm" type="button" variant="outline">
+                <Link to={buildResumeStrategiesRoute(props.jobId)}>
+                  Create a resume approach
+                </Link>
+              </Button>
+            </div>
           )}
 
           {props.isPending ? (

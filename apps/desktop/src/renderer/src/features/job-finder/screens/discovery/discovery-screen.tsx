@@ -295,9 +295,9 @@ export function DiscoveryScreen(props: {
         }
       >
         {showEmptyDiscoveryState ? (
-          <div className="grid min-h-124 min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(23rem,25rem)_minmax(0,1fr)] xl:overflow-hidden">
+          <div className="grid min-h-0 min-w-0 grid-cols-1 items-stretch gap-4 lg:grid-cols-[minmax(23rem,25rem)_minmax(0,1fr)] xl:h-full xl:min-h-0 xl:overflow-hidden">
             <div className="min-h-0 min-w-0">{filtersPanel}</div>
-            <div className="grid min-h-124 min-w-0 grid-rows-[auto_minmax(0,1fr)_auto] gap-3 xl:h-full xl:min-h-0">
+            <div className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)_auto] gap-3 xl:h-full xl:min-h-0">
               <div
                 aria-label="Active search setup"
                 className="flex flex-wrap gap-2 px-1"
@@ -328,7 +328,7 @@ export function DiscoveryScreen(props: {
             </div>
           </div>
         ) : (
-          <div className="grid min-h-124 min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(22rem,24rem)_minmax(24rem,1fr)_23rem] xl:overflow-hidden 2xl:grid-cols-[minmax(23rem,25rem)_minmax(28rem,1fr)_24rem]">
+          <div className="grid min-h-0 min-w-0 grid-cols-1 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(22rem,24rem)_minmax(24rem,1fr)_23rem] xl:overflow-hidden">
             <div className="min-h-0 min-w-0">{filtersPanel}</div>
             <div
               className={

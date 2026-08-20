@@ -29,10 +29,10 @@ import {
   createSeed,
 } from "./workspace-service.test-support";
 
-const SAVED_JOB_COUNT = 1_000;
+const SAVED_JOB_COUNT = 1_001;
 const APPLICATION_COUNT = 200;
 const USER_ACTION_COUNT = 100;
-const SHORTLISTED_JOB_COUNT = SAVED_JOB_COUNT / 10;
+const SHORTLISTED_JOB_COUNT = Math.ceil(SAVED_JOB_COUNT / 10);
 const SCALE_BUDGET_MS = 5_000;
 
 const temporaryDirectories = new Set<string>();
@@ -261,11 +261,14 @@ describe("workspace snapshot scale", () => {
     let service = createWorkspaceService(repository);
 
     const initialReadStartedAt = performance.now();
-    const initialSnapshot = await service.getWorkspaceSnapshot();
+    await service.getWorkspaceSnapshot();
     const initialReadMs = performance.now() - initialReadStartedAt;
 
+    const settingsSnapshot = await service.saveSettings(seed.settings);
+    expect(settingsSnapshot.discoveryJobs).toHaveLength(SAVED_JOB_COUNT);
+
     const initialSerializeStartedAt = performance.now();
-    const initialSerialized = serializeStableSnapshot(initialSnapshot);
+    const initialSerialized = serializeStableSnapshot(settingsSnapshot);
     const initialSerializeMs = performance.now() - initialSerializeStartedAt;
     const serializedBytes = Buffer.byteLength(initialSerialized, "utf8");
 
@@ -327,5 +330,31 @@ describe("workspace snapshot scale", () => {
     expect(restartOpenMs).toBeLessThan(SCALE_BUDGET_MS);
     expect(restartReadMs).toBeLessThan(SCALE_BUDGET_MS);
     expect(restartSerializeMs).toBeLessThan(SCALE_BUDGET_MS);
+  }, 30_000);
+
+  test("discovery preserves every pre-existing saved job above 1,000", async () => {
+    const directory = await mkdtemp(
+      path.join(os.tmpdir(), "unemployed-workspace-discovery-scale-"),
+    );
+    temporaryDirectories.add(directory);
+    const filePath = path.join(directory, "job-finder-state.sqlite");
+    const seed = createScaleSeed();
+    const existingIds = new Set(seed.savedJobs.map((job) => job.id));
+    const repository = await createFileJobFinderRepository({ filePath, seed });
+
+    try {
+      const service = createWorkspaceService(repository);
+      const snapshot = await service.runDiscovery();
+      const preservedJobs = snapshot.discoveryJobs.filter((job) =>
+        existingIds.has(job.id),
+      );
+
+      expect(preservedJobs).toHaveLength(SAVED_JOB_COUNT);
+      expect(await repository.listSavedJobs()).toHaveLength(
+        SAVED_JOB_COUNT + 2,
+      );
+    } finally {
+      await repository.close();
+    }
   }, 30_000);
 });

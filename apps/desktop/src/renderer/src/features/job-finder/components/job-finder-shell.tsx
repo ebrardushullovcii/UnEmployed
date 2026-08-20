@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   BarChart3,
   BellRing,
@@ -77,12 +78,12 @@ const screenLabelMap: Record<JobFinderScreen, string> = {
   discovery: "Find jobs",
   "review-queue": "Shortlisted",
   applications: "Applications",
-  campaigns: "Campaigns",
+  campaigns: "Search plans",
   actions: "Needs you",
   analytics: "Analytics",
   settings: "Settings",
   "rapid-review": "Rapid review",
-  "resume-strategies": "Resume strategies",
+  "resume-strategies": "Resume approaches",
   safeguards: "Safeguards",
   companies: "Companies",
 };
@@ -120,6 +121,22 @@ const LOCKED_LAYOUT_SCREENS: readonly JobFinderScreen[] = [
   "review-queue",
   "applications",
 ];
+
+function getFocusableElements(excludedRoot: HTMLElement | null): HTMLElement[] {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter((element) => {
+    if (excludedRoot?.contains(element)) {
+      return false;
+    }
+
+    return (
+      element.tabIndex >= 0 && element.getAttribute("aria-hidden") !== "true"
+    );
+  });
+}
 
 function getActiveScreen(pathname: string): JobFinderScreen {
   if (pathname === "/job-finder" || pathname === "/job-finder/") {
@@ -207,6 +224,12 @@ export function JobFinderShell({
   const [routeAnnouncement, setRouteAnnouncement] = useState("");
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [focusedMoreMenuItemIndex, setFocusedMoreMenuItemIndex] = useState(0);
+  const [moreMenuPosition, setMoreMenuPosition] = useState<{
+    top: number;
+    right: number;
+    maxHeight: number;
+    width: number;
+  } | null>(null);
   const moreButtonRef = useRef<HTMLButtonElement | null>(null);
   const moreMenuRef = useRef<HTMLDivElement | null>(null);
   const moreMenuItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -258,7 +281,7 @@ export function JobFinderShell({
       },
       {
         id: "campaigns",
-        label: "Campaigns",
+        label: "Search plans",
         count: (workspace.campaignNotifications ?? []).filter(
           (notification) => notification.unread,
         ).length,
@@ -284,7 +307,7 @@ export function JobFinderShell({
       },
       {
         id: "resume-strategies",
-        label: "Strategies",
+        label: "Resume approaches",
         count:
           (workspace.intelligence?.resumeStrategies ?? []).length > 0
             ? (workspace.intelligence?.resumeStrategies ?? []).length
@@ -347,19 +370,15 @@ export function JobFinderShell({
   );
   const menuGroups = [
     {
-      label: "Manage",
+      label: "Plan and improve",
       screens: screenDefinitions.filter((screen) =>
-        ["campaigns", "companies"].includes(screen.id),
+        ["campaigns", "resume-strategies", "companies", "analytics"].includes(
+          screen.id,
+        ),
       ),
     },
     {
-      label: "Improve",
-      screens: screenDefinitions.filter((screen) =>
-        ["analytics", "resume-strategies"].includes(screen.id),
-      ),
-    },
-    {
-      label: "Safety and settings",
+      label: "Safety and setup",
       screens: screenDefinitions.filter((screen) =>
         ["safeguards", "settings"].includes(screen.id),
       ),
@@ -381,6 +400,44 @@ export function JobFinderShell({
       0) +
     (screenDefinitions.find((screen) => screen.id === "safeguards")?.count ??
       0);
+  const sidebarGroups = [
+    {
+      label: "Overview",
+      screens: screenDefinitions.filter((screen) => screen.id === "home"),
+    },
+    {
+      label: "Your job search",
+      screens: screenDefinitions.filter((screen) =>
+        ["profile", "discovery", "review-queue", "applications"].includes(
+          screen.id,
+        ),
+      ),
+    },
+    {
+      label: "Plan and improve",
+      screens: screenDefinitions.filter((screen) =>
+        ["campaigns", "resume-strategies", "companies", "analytics"].includes(
+          screen.id,
+        ),
+      ),
+    },
+    {
+      label: "Safety and setup",
+      screens: screenDefinitions.filter((screen) =>
+        ["actions", "safeguards", "settings"].includes(screen.id),
+      ),
+    },
+  ];
+  const sidebarWorkflowNumbers = new Map(
+    ["profile", "discovery", "review-queue", "applications"].map(
+      (screenId, index) => [screenId, index + 1] as const,
+    ),
+  );
+  const sidebarDisplayLabels: Record<string, string> = {
+    campaigns: "Search plans",
+    "resume-strategies": "Resume approaches",
+    analytics: "Results",
+  };
 
   useEffect(() => {
     const handleOutsidePointerDown = (event: PointerEvent) => {
@@ -419,11 +476,53 @@ export function JobFinderShell({
         ? Math.max(moreMenuItemCount - 1, 0)
         : 0;
     setFocusedMoreMenuItemIndex(initialIndex);
+    const updatePosition = () => {
+      const rect = moreButtonRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const viewportRect = document.documentElement.getBoundingClientRect();
+      const viewportWidth = window.visualViewport?.width ?? viewportRect.width;
+      const viewportHeight =
+        window.visualViewport?.height ?? viewportRect.height;
+      const right = Math.max(8, viewportWidth - rect.right);
+      const top = rect.bottom + 4;
+      const maxHeight = viewportHeight - top - 8;
+      const width = Math.max(96, Math.min(256, viewportWidth - 16));
+      setMoreMenuPosition({ top, right, maxHeight, width });
+    };
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    window.visualViewport?.addEventListener("resize", updatePosition);
+    window.visualViewport?.addEventListener("scroll", updatePosition);
     const frame = requestAnimationFrame(() => {
       moreMenuItemRefs.current[initialIndex]?.focus();
     });
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+      window.visualViewport?.removeEventListener("resize", updatePosition);
+      window.visualViewport?.removeEventListener("scroll", updatePosition);
+    };
   }, [isMoreOpen, moreMenuItemCount]);
+
+  useLayoutEffect(() => {
+    if (!isMoreOpen || !moreMenuPosition) return;
+    const frame = requestAnimationFrame(() => {
+      const menuRect = moreMenuRef.current?.getBoundingClientRect();
+      if (!menuRect || menuRect.left >= 0) return;
+      setMoreMenuPosition((current) => {
+        if (!current) return current;
+        const width = Math.max(96, current.width + menuRect.left - 8);
+        if (width === current.width && current.right === 8) return current;
+        return { ...current, right: 8, width };
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [
+    isMoreOpen,
+    moreMenuPosition,
+  ]);
 
   useLayoutEffect(() => {
     const main = mainRef.current;
@@ -439,6 +538,13 @@ export function JobFinderShell({
 
     const frame = window.requestAnimationFrame(() => {
       main?.scrollTo({ top: 0 });
+      try {
+        globalThis.performance?.mark?.(
+          `job-finder:route:${location.pathname}:feedback-committed`,
+        );
+      } catch {
+        // Navigation timing is diagnostic only and must never block routing.
+      }
       setRouteAnnouncement(`${activeScreenLabel} opened.`);
     });
 
@@ -516,12 +622,34 @@ export function JobFinderShell({
                 >
               ];
 
+    const nextPathname = nextPath.split(/[?#]/, 1)[0] ?? nextPath;
+    try {
+      globalThis.performance?.mark?.(
+        `job-finder:route:${nextPathname}:navigation-start`,
+      );
+    } catch {
+      // Navigation timing is diagnostic only and must never block routing.
+    }
+
     if (onNavigate) {
       onNavigate(nextPath);
       return;
     }
 
     void navigate(nextPath);
+  }
+
+  function closeMoreMenuAndMoveFocus(direction: -1 | 1) {
+    const trigger = moreButtonRef.current;
+    const focusableElements = getFocusableElements(moreMenuRef.current);
+    const triggerIndex = trigger ? focusableElements.indexOf(trigger) : -1;
+    const target =
+      triggerIndex >= 0
+        ? (focusableElements[triggerIndex + direction] ?? trigger)
+        : trigger;
+
+    setIsMoreOpen(false);
+    requestAnimationFrame(() => target?.focus());
   }
 
   return (
@@ -534,12 +662,12 @@ export function JobFinderShell({
     >
       <header
         data-job-finder-shell-header
-        className="relative z-50 border-b border-border/15 bg-(--shell-header-bg) backdrop-blur-sm sm:fixed sm:inset-x-0 sm:top-0"
+        className="relative z-50 overflow-visible border-b border-border/15 bg-(--shell-header-bg) backdrop-blur-sm sm:fixed sm:inset-x-0 sm:top-0 min-[1440px]:h-14"
         style={dragRegionStyle}
       >
-        <div className="job-finder-shell-grid grid grid-rows-[3.5rem_2.5rem_auto_3.75rem] items-stretch pl-2 pr-0 sm:grid-rows-[3.5rem_2.5rem_auto_3.75rem] sm:pl-3 sm:pr-0 lg:grid-rows-[3.5rem_2.5rem_7rem] 2xl:grid-rows-[2.5rem_4rem]">
+        <div className="job-finder-shell-grid grid grid-rows-[3.5rem_auto_auto] items-stretch overflow-visible pl-2 pr-2 sm:grid-rows-[3.5rem_3.75rem] sm:pl-3 sm:pr-3 min-[1440px]:grid-rows-[3.5rem]">
           <div
-            className="col-start-1 row-start-1 flex min-w-0 items-center pl-2 sm:pl-3 xl:row-span-2"
+            className="col-start-1 row-start-1 flex min-w-0 items-center pl-2 sm:pl-3"
             data-desktop-brand
             style={{
               ...dragRegionStyle,
@@ -550,7 +678,7 @@ export function JobFinderShell({
               <span
                 className={cn(
                   "font-display text-[1.45rem] font-black leading-none tracking-[-0.08em] text-(var(--headline-primary)) sm:text-[2rem]",
-                  isMac ? "xl:text-[2rem]" : "xl:text-[2.7rem]",
+                  isMac ? "xl:text-[2rem]" : "xl:text-[2rem]",
                 )}
               >
                 UNEMPLOYED
@@ -562,7 +690,7 @@ export function JobFinderShell({
           </div>
 
           <div
-            className="col-span-2 col-start-1 row-start-2 flex items-center justify-center sm:col-span-1 lg:col-span-2 lg:absolute lg:inset-x-0 lg:top-0 lg:z-10 lg:h-14 2xl:h-10"
+            className="absolute inset-x-0 top-0 z-10 flex h-14 items-center justify-center"
             data-desktop-module-navigation
             style={dragRegionStyle}
           >
@@ -620,7 +748,7 @@ export function JobFinderShell({
           </div>
 
           <div
-            className="absolute right-0 top-0 z-[60] flex h-14 items-stretch justify-end 2xl:h-10"
+            className="absolute right-0 top-0 z-40 flex h-14 items-stretch justify-end"
             style={dragRegionStyle}
           >
             {!isMac ? (
@@ -672,16 +800,16 @@ export function JobFinderShell({
 
           <nav
             aria-label="Job Finder sections"
-            className="col-span-2 col-start-1 row-start-3 flex min-w-0 items-center justify-center px-1 sm:col-span-1 lg:absolute lg:inset-x-0 lg:top-24 lg:z-10 lg:min-h-28 lg:px-16 xl:px-32 2xl:top-10 2xl:h-16 2xl:min-h-0 2xl:px-52"
+            className="col-span-2 col-start-1 row-start-2 flex min-w-0 items-center justify-center overflow-visible px-1 sm:col-span-1 sm:col-start-1 sm:justify-start sm:pr-56 max-[899px]:pr-28 min-[1440px]:hidden"
             style={noDragRegionStyle}
           >
-            <div className="relative flex w-full min-w-0 max-w-4xl items-center gap-1 rounded-3xl border border-(--surface-panel-border) bg-(--surface-panel) p-1 sm:gap-1.5 2xl:rounded-full">
+            <div className="relative flex w-full min-w-0 max-w-5xl items-center gap-1 overflow-x-auto overscroll-x-contain rounded-3xl border border-(--surface-panel-border) bg-(--surface-panel) p-1 [scrollbar-width:thin] sm:gap-1.5">
               {primaryScreens.map((screen) => (
                 <button
                   aria-current={activeScreen === screen.id ? "page" : undefined}
                   key={screen.id}
                   className={cn(
-                    "inline-flex min-h-10 min-w-0 flex-1 items-center justify-center gap-1 rounded-full px-1.5 py-2 text-[0.72rem] font-medium text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:min-h-9 sm:gap-2 sm:px-2 sm:text-[0.76rem] 2xl:px-4 2xl:text-(length:--text-small)",
+                    "inline-flex h-9 min-h-9 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-full px-2 py-2 text-[0.72rem] font-medium text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:gap-2 sm:px-3 sm:text-[0.76rem]",
                     activeScreen === screen.id
                       ? "bg-secondary text-foreground"
                       : "",
@@ -689,7 +817,7 @@ export function JobFinderShell({
                   onClick={() => handleScreenChange(screen.id)}
                   type="button"
                 >
-                  <span className="min-w-0 leading-tight sm:whitespace-nowrap">
+                  <span className="shrink-0 whitespace-nowrap leading-tight">
                     {screen.label}
                   </span>
                   {screen.count !== null ? (
@@ -703,9 +831,9 @@ export function JobFinderShell({
                 <button
                   aria-expanded={isMoreOpen}
                   aria-haspopup="menu"
-                  aria-label={`More Job Finder sections${hiddenAttentionCount > 0 ? `: ${hiddenAttentionCount} need attention` : ""}`}
+                  aria-label={`Planning and settings${hiddenAttentionCount > 0 ? `: ${hiddenAttentionCount} need attention` : ""}`}
                   className={cn(
-                    "inline-flex min-h-10 min-w-0 items-center justify-center gap-1 rounded-full px-2.5 py-2 text-[0.72rem] font-medium text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:min-h-9 sm:gap-2 sm:px-3 sm:text-[0.76rem] 2xl:px-4 2xl:text-(length:--text-small)",
+                    "inline-flex min-h-10 shrink-0 items-center justify-center gap-1 rounded-full px-2.5 py-2 text-[0.72rem] font-medium text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:min-h-9 sm:gap-2 sm:px-3 sm:text-[0.76rem] max-[899px]:sticky max-[899px]:right-0 max-[899px]:z-10 max-[899px]:border max-[899px]:border-(--surface-panel-border) max-[899px]:bg-(--surface-panel-raised)",
                     menuGroups.some((group) =>
                       group.screens.some(
                         (screen) => activeScreen === screen.id,
@@ -730,137 +858,164 @@ export function JobFinderShell({
                     }
                   }}
                   ref={moreButtonRef}
+                  title="Planning & settings"
                   type="button"
                 >
                   <Layers3 aria-hidden="true" className="size-3.5" />
-                  <span>More</span>
+                  <span className="max-[899px]:sr-only">
+                    Planning &amp; settings
+                  </span>
                   {hiddenAttentionCount > 0 ? (
                     <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[0.65rem] text-primary-foreground">
                       {hiddenAttentionCount}
                     </span>
                   ) : null}
                 </button>
-                {isMoreOpen ? (
-                  <div
-                    aria-label="More Job Finder sections"
-                    aria-orientation="vertical"
-                    className="absolute right-0 top-full z-50 mt-1 grid min-w-64 gap-2 rounded-2xl border border-(--surface-panel-border) bg-(--surface-panel-raised) p-2 shadow-xl"
-                    onKeyDown={(event) => {
-                      if (event.key === "Tab") {
-                        setIsMoreOpen(false);
-                        return;
-                      }
-                      if (
-                        event.key !== "ArrowDown" &&
-                        event.key !== "ArrowUp" &&
-                        event.key !== "Home" &&
-                        event.key !== "End"
-                      ) {
-                        return;
-                      }
-
-                      const menuItems = Array.from(
-                        moreMenuRef.current?.querySelectorAll<HTMLButtonElement>(
-                          '[role="menuitem"]',
-                        ) ?? [],
-                      );
-                      if (menuItems.length === 0) {
-                        return;
-                      }
-
-                      event.preventDefault();
-                      const activeIndex = menuItems.findIndex(
-                        (item) => item === document.activeElement,
-                      );
-                      const currentIndex =
-                        activeIndex >= 0
-                          ? activeIndex
-                          : focusedMoreMenuItemIndex;
-                      const nextIndex =
-                        event.key === "Home"
-                          ? 0
-                          : event.key === "End"
-                            ? menuItems.length - 1
-                            : event.key === "ArrowDown"
-                              ? (currentIndex + 1) % menuItems.length
-                              : (currentIndex - 1 + menuItems.length) %
-                                menuItems.length;
-                      setFocusedMoreMenuItemIndex(nextIndex);
-                      menuItems[nextIndex]?.focus();
-                    }}
-                    ref={moreMenuRef}
-                    role="menu"
-                  >
-                    {menuGroups.map((group) => (
+                {isMoreOpen
+                  ? createPortal(
                       <div
-                        key={group.label}
-                        className="grid gap-1"
-                        role="group"
-                        aria-label={group.label}
-                      >
-                        <span className="px-3 pt-1 text-[0.65rem] font-semibold uppercase tracking-(--tracking-caps) text-muted-foreground">
-                          {group.label}
-                        </span>
-                        {group.screens.map((screen) => {
-                          const menuItemIndex =
-                            moreMenuItemIndexes.get(screen.id) ?? 0;
-                          return (
-                            <button
-                              aria-current={
-                                activeScreen === screen.id ? "page" : undefined
+                        aria-label="Planning and settings"
+                        aria-orientation="vertical"
+                        className="fixed z-[60] grid max-h-[min(80vh,24rem)] min-w-0 max-w-[calc(100vw-1rem)] gap-2 overflow-y-auto rounded-2xl border border-(--surface-panel-border) bg-(--surface-panel-raised) p-2 shadow-xl max-[899px]:gap-1"
+                        style={
+                          moreMenuPosition
+                            ? {
+                                top: moreMenuPosition.top,
+                                right: moreMenuPosition.right,
+                                maxHeight: moreMenuPosition.maxHeight,
+                                width: moreMenuPosition.width,
                               }
-                              key={screen.id}
-                              className={cn(
-                                "inline-flex min-h-10 min-w-0 items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-[0.78rem] font-medium text-muted-foreground outline-none transition-colors hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40",
-                                activeScreen === screen.id
-                                  ? "bg-secondary text-foreground"
-                                  : "",
-                              )}
-                              onClick={() => {
-                                setIsMoreOpen(false);
-                                handleScreenChange(screen.id);
-                              }}
-                              onFocus={() =>
-                                setFocusedMoreMenuItemIndex(menuItemIndex)
-                              }
-                              ref={(element) => {
-                                moreMenuItemRefs.current[menuItemIndex] =
-                                  element;
-                              }}
-                              role="menuitem"
-                              tabIndex={
-                                menuItemIndex === focusedMoreMenuItemIndex
-                                  ? 0
-                                  : -1
-                              }
-                              type="button"
-                            >
-                              <span className="flex min-w-0 items-center gap-2">
-                                <screen.icon
-                                  aria-hidden="true"
-                                  className="size-4 shrink-0"
-                                />
-                                <span className="truncate">{screen.label}</span>
-                              </span>
-                              {screen.count !== null ? (
-                                <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-(--input) px-1.5 text-[0.65rem] text-foreground">
-                                  {screen.count}
-                                </span>
-                              ) : null}
-                            </button>
+                            : undefined
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key === "Tab") {
+                            event.preventDefault();
+                            closeMoreMenuAndMoveFocus(event.shiftKey ? -1 : 1);
+                            return;
+                          }
+                          if (
+                            event.key !== "ArrowDown" &&
+                            event.key !== "ArrowUp" &&
+                            event.key !== "Home" &&
+                            event.key !== "End"
+                          ) {
+                            return;
+                          }
+
+                          const menuItems = Array.from(
+                            moreMenuRef.current?.querySelectorAll<HTMLButtonElement>(
+                              '[role="menuitem"]',
+                            ) ?? [],
                           );
-                        })}
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
+                          if (menuItems.length === 0) {
+                            return;
+                          }
+
+                          event.preventDefault();
+                          const activeIndex = menuItems.findIndex(
+                            (item) => item === document.activeElement,
+                          );
+                          const currentIndex =
+                            activeIndex >= 0
+                              ? activeIndex
+                              : focusedMoreMenuItemIndex;
+                          const nextIndex =
+                            event.key === "Home"
+                              ? 0
+                              : event.key === "End"
+                                ? menuItems.length - 1
+                                : event.key === "ArrowDown"
+                                  ? (currentIndex + 1) % menuItems.length
+                                  : (currentIndex - 1 + menuItems.length) %
+                                    menuItems.length;
+                          setFocusedMoreMenuItemIndex(nextIndex);
+                          menuItems[nextIndex]?.focus();
+                        }}
+                        ref={moreMenuRef}
+                        role="menu"
+                      >
+                        <p className="px-3 pt-1 text-xs leading-relaxed text-muted-foreground max-[899px]:sr-only">
+                          Set up search plans and resume approaches after your
+                          profile, then review results before preparing
+                          applications.
+                        </p>
+                        {menuGroups.map((group) => (
+                          <div
+                            key={group.label}
+                            className="grid gap-1"
+                            role="group"
+                            aria-label={group.label}
+                          >
+                            <span className="px-3 pt-1 text-[0.65rem] font-semibold uppercase tracking-(--tracking-caps) text-muted-foreground">
+                              {group.label}
+                            </span>
+                            {group.screens.map((screen) => {
+                              const menuItemIndex =
+                                moreMenuItemIndexes.get(screen.id) ?? 0;
+                              return (
+                                <button
+                                  aria-label={screen.label}
+                                  aria-current={
+                                    activeScreen === screen.id
+                                      ? "page"
+                                      : undefined
+                                  }
+                                  key={screen.id}
+                                  className={cn(
+                                    "inline-flex min-h-10 min-w-0 items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-[0.78rem] font-medium text-muted-foreground outline-none transition-colors hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 max-[899px]:min-h-8 max-[899px]:py-1",
+                                    activeScreen === screen.id
+                                      ? "bg-secondary text-foreground"
+                                      : "",
+                                  )}
+                                  onClick={() => {
+                                    setIsMoreOpen(false);
+                                    handleScreenChange(screen.id);
+                                  }}
+                                  onFocus={() =>
+                                    setFocusedMoreMenuItemIndex(menuItemIndex)
+                                  }
+                                  ref={(element) => {
+                                    moreMenuItemRefs.current[menuItemIndex] =
+                                      element;
+                                  }}
+                                  role="menuitem"
+                                  tabIndex={
+                                    menuItemIndex === focusedMoreMenuItemIndex
+                                      ? 0
+                                      : -1
+                                  }
+                                  type="button"
+                                >
+                                  <span className="flex min-w-0 items-center gap-2">
+                                    <screen.icon
+                                      aria-hidden="true"
+                                      className="size-4 shrink-0"
+                                    />
+                                    <span className="truncate">
+                                      {screen.label}
+                                    </span>
+                                  </span>
+                                  {screen.count !== null ? (
+                                    <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-(--input) px-1.5 text-[0.65rem] text-foreground">
+                                      {screen.count}
+                                    </span>
+                                  ) : null}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ))}
+                      </div>,
+                      document.body,
+                    )
+                  : null}
               </div>
             </div>
           </nav>
 
           <div
             aria-label="Notifications and actions"
-            className="col-span-2 col-start-1 row-start-4 flex min-w-0 items-center justify-center gap-2 pr-2 sm:col-span-1 sm:col-start-1 sm:row-start-4 sm:justify-end lg:col-span-1 lg:col-start-3 lg:row-start-3 lg:absolute lg:right-0 lg:top-24 lg:z-20 lg:h-28 lg:w-auto 2xl:top-10 2xl:h-16"
+            className="col-span-2 col-start-1 row-start-3 flex min-w-0 items-center justify-center gap-2 pr-2 sm:absolute sm:right-0 sm:top-14 sm:z-10 sm:h-[3.75rem] sm:w-auto sm:justify-end max-[899px]:gap-1 max-[899px]:pr-1 min-[1440px]:right-36 min-[1440px]:top-0 min-[1440px]:z-40 min-[1440px]:h-14"
             role="group"
             style={noDragRegionStyle}
           >
@@ -885,7 +1040,7 @@ export function JobFinderShell({
                 aria-current={activeScreen === "actions" ? "page" : undefined}
                 aria-label={`Needs you: ${actionScreen.count ?? 0} unresolved`}
                 className={cn(
-                  "inline-flex h-[3.125rem] min-h-[3.125rem] min-w-10 items-center justify-center gap-2 rounded-full border border-(--surface-panel-border) bg-(--surface-panel) px-3 py-2 text-[0.72rem] font-medium text-muted-foreground outline-none transition-colors hover:border-primary/30 hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:text-[0.76rem] 2xl:px-4 2xl:text-(length:--text-small)",
+                  "inline-flex h-[3.125rem] min-h-[3.125rem] min-w-10 items-center justify-center gap-2 rounded-full border border-(--surface-panel-border) bg-(--surface-panel) px-3 py-2 text-[0.72rem] font-medium text-muted-foreground outline-none transition-colors hover:border-primary/30 hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:px-4 sm:text-[0.76rem] max-[899px]:gap-1 max-[899px]:px-2",
                   activeScreen === "actions"
                     ? "border-primary/30 bg-primary/10 text-foreground"
                     : "",
@@ -894,7 +1049,7 @@ export function JobFinderShell({
                 type="button"
               >
                 <BellRing aria-hidden="true" className="size-4 shrink-0" />
-                <span className="hidden whitespace-nowrap sm:inline lg:hidden 2xl:inline">
+                <span className="hidden whitespace-nowrap min-[900px]:inline min-[1024px]:hidden min-[1440px]:inline">
                   Needs you
                 </span>
                 <span
@@ -912,6 +1067,80 @@ export function JobFinderShell({
           </div>
         </div>
       </header>
+
+      <aside
+        aria-label="Job Finder sidebar"
+        className="fixed inset-y-14 left-0 z-40 hidden w-[15.5rem] overflow-x-hidden overflow-y-auto border-r border-border/15 bg-(--shell-header-bg) px-3 py-5 min-[1440px]:block"
+        data-job-finder-sidebar
+      >
+        <nav
+          aria-label="Job Finder sidebar destinations"
+          className="grid gap-5"
+        >
+          {sidebarGroups.map((group) => (
+            <section key={group.label} className="grid gap-1">
+              <h2 className="whitespace-nowrap px-3 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                {group.label}
+              </h2>
+              <div className="grid gap-0.5">
+                {group.screens.map((screen) => {
+                  const workflowNumber = sidebarWorkflowNumbers.get(screen.id);
+                  const displayLabel =
+                    sidebarDisplayLabels[screen.id] ?? screen.label;
+                  const accessibleLabel =
+                    displayLabel === screen.label
+                      ? screen.label
+                      : `${screen.label}: ${displayLabel}`;
+                  return (
+                    <button
+                      aria-current={
+                        activeScreen === screen.id ? "page" : undefined
+                      }
+                      aria-label={accessibleLabel}
+                      className={cn(
+                        "inline-flex min-h-10 min-w-0 items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium text-muted-foreground outline-none transition-colors hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                        activeScreen === screen.id
+                          ? "bg-secondary text-foreground"
+                          : "",
+                      )}
+                      key={screen.id}
+                      onClick={() => handleScreenChange(screen.id)}
+                      type="button"
+                    >
+                      {workflowNumber ? (
+                        <span
+                          aria-hidden="true"
+                          className="inline-flex size-5 shrink-0 items-center justify-center rounded-full border border-border/60 text-[0.65rem] font-semibold"
+                        >
+                          {workflowNumber}
+                        </span>
+                      ) : (
+                        <screen.icon
+                          aria-hidden="true"
+                          className="size-4 shrink-0"
+                        />
+                      )}
+                      <span className="min-w-0 truncate">{displayLabel}</span>
+                      {screen.count !== null ? (
+                        <span
+                          className={cn(
+                            "ml-auto inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[0.65rem]",
+                            screen.id === "actions" && screen.count > 0
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-(--input) text-foreground",
+                          )}
+                        >
+                          {screen.count}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+        </nav>
+      </aside>
 
       {saveState && onRetrySave ? (
         <JobFinderSaveStatus
@@ -931,7 +1160,7 @@ export function JobFinderShell({
       </span>
 
       <div
-        className="flex h-screen min-h-screen flex-col sm:h-full sm:min-h-0 sm:pt-[13rem] 2xl:pt-[6.75rem]"
+        className="flex min-h-screen flex-col sm:h-full sm:min-h-0 sm:pt-[7.25rem] min-[1440px]:pt-14 min-[1440px]:pl-[15.5rem]"
         data-job-finder-shell-content
       >
         <main
@@ -939,8 +1168,8 @@ export function JobFinderShell({
           className={cn(
             "flex-1 overflow-x-hidden outline-none",
             usesLockedScreenLayout
-              ? "overflow-hidden px-2 pb-4 pt-0 sm:px-4"
-              : "screen-scroll-area overflow-y-auto px-4 pb-12 pt-8 sm:px-6",
+              ? "overflow-hidden px-2 pb-4 pt-0 sm:px-4 min-[1440px]:px-6"
+              : "screen-scroll-area overflow-y-auto px-4 pb-12 pt-8 sm:px-6 min-[1440px]:px-6",
           )}
           ref={mainRef}
           tabIndex={-1}

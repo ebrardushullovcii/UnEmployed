@@ -2,6 +2,19 @@
 
 Status: active
 
+## 2026-08-20 production-recovery overlay
+
+The campaign program remains the product baseline, but its older acceptance
+artifacts do not accept the current source. The active recovery closes the
+confirmed 1,000-row persistence loss and stale collection-replacement races,
+restores separate correctness/performance/coverage gates, and repairs Home,
+Discovery, navigation, focus, keyboard, scrolling, responsive chrome, copy, and
+cold-route regressions. Final acceptance must use the exact-build production
+wrapper in `docs/TESTING.md`, synthetic isolated data, more than 1,000 records,
+real wheel/keyboard events, and current-run screenshot inspection. No release is
+accepted while any required gate is red, unrun, stale, or tied to another source
+fingerprint.
+
 ## Goal
 
 Turn Job Finder into a campaign-based command center that works for both careful, small-set searches and high-volume discovery/application preparation. Add durable campaigns, a truthful home dashboard, consistent list search, and a complete local application CRM without weakening source-generic discovery or the current prepare-only submission boundary.

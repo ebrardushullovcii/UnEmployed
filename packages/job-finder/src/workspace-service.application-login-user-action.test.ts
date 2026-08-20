@@ -45,7 +45,11 @@ describe("application login UserActionRequest adoption", () => {
     expect(requests[0]).toMatchObject({
       kind: "login",
       state: "pending",
-      actionUrl: job.applicationUrl,
+      // This fixture intentionally has no employer application URL. The
+      // prepare-only login handoff uses the saved canonical listing as the
+      // safe same-origin page where the user can sign in before retrying the
+      // exact application checkpoint.
+      actionUrl: job.canonicalUrl,
       displayOrigin: "https://www.linkedin.com/",
       credentialsPolicy: "browser_only",
       submitAuthorized: false,

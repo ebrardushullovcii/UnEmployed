@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from "react";
 import { Button } from "@renderer/components/ui/button";
 
 export const COLLECTION_PAGE_SIZE = 40;
@@ -24,13 +25,48 @@ export function CollectionPagination({
   onPageChange,
 }: CollectionPaginationProps) {
   const pageCount = Math.max(1, Math.ceil(totalCount / pageSize));
-  if (pageCount <= 1) {
-    return null;
-  }
-
   const currentPage = Math.min(Math.max(page, 1), pageCount);
   const firstItem = (currentPage - 1) * pageSize + 1;
   const lastItem = Math.min(currentPage * pageSize, totalCount);
+  const previousButtonRef = useRef<HTMLButtonElement>(null);
+  const nextButtonRef = useRef<HTMLButtonElement>(null);
+  const pendingFocusRef = useRef<"previous" | "next" | null>(null);
+
+  useLayoutEffect(() => {
+    const focusDirection = pendingFocusRef.current;
+    if (!focusDirection) {
+      return;
+    }
+    pendingFocusRef.current = null;
+
+    const primaryTarget =
+      focusDirection === "next"
+        ? nextButtonRef.current
+        : previousButtonRef.current;
+    const fallbackTarget =
+      focusDirection === "next"
+        ? previousButtonRef.current
+        : nextButtonRef.current;
+    const target =
+      primaryTarget && !primaryTarget.disabled
+        ? primaryTarget
+        : fallbackTarget && !fallbackTarget.disabled
+          ? fallbackTarget
+          : null;
+    target?.focus();
+  }, [currentPage]);
+
+  const handlePageChange = (
+    nextPage: number,
+    focusDirection: "previous" | "next",
+  ) => {
+    pendingFocusRef.current = focusDirection;
+    onPageChange(nextPage);
+  };
+
+  if (pageCount <= 1) {
+    return null;
+  }
 
   return (
     <nav
@@ -47,7 +83,8 @@ export function CollectionPagination({
         <Button
           aria-label="Previous page"
           disabled={currentPage === 1}
-          onClick={() => onPageChange(currentPage - 1)}
+          onClick={() => handlePageChange(currentPage - 1, "previous")}
+          ref={previousButtonRef}
           size="sm"
           type="button"
           variant="ghost"
@@ -63,7 +100,8 @@ export function CollectionPagination({
         <Button
           aria-label="Next page"
           disabled={currentPage === pageCount}
-          onClick={() => onPageChange(currentPage + 1)}
+          onClick={() => handlePageChange(currentPage + 1, "next")}
+          ref={nextButtonRef}
           size="sm"
           type="button"
           variant="ghost"

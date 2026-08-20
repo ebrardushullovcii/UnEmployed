@@ -8,6 +8,7 @@ import type {
 } from "@unemployed/contracts";
 import { ResumeStrategySchema } from "@unemployed/contracts";
 import { StrictMode } from "react";
+import { MemoryRouter } from "react-router-dom";
 import {
   act,
   cleanup,
@@ -250,6 +251,48 @@ describe("ResumeStrategyJobPanel", () => {
     );
     expect(options).toContain("Data engineering");
     expect(options).not.toContain("Backend engineering");
+  });
+
+  it("links to create a resume approach and preserves the shortlisted job", async () => {
+    const onRecommend = vi
+      .fn<
+        (input: {
+          jobId: string;
+        }) => Promise<ResumeStrategyRecommendation | null>
+      >()
+      .mockResolvedValue(
+        recommendation({
+          strategyId: null,
+          strategyName: null,
+          source: "none",
+          roleFamily: null,
+          reason: "No enabled strategy is available for this job.",
+        }),
+      );
+
+    render(
+      <MemoryRouter>
+        <ResumeStrategyJobPanel
+          campaignId="campaign_1"
+          isPending={false}
+          jobId="job_1"
+          onRecommend={onRecommend}
+          onSelect={vi.fn()}
+          selections={[]}
+          strategies={[]}
+        />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(
+        screen
+          .getByRole("link", { name: "Create a resume approach" })
+          .getAttribute("href"),
+      ).toBe(
+        "/job-finder/resume-strategies?returnTo=%2Fjob-finder%2Freview-queue%3FjobId%3Djob_1",
+      );
+    });
   });
 
   it("does not re-request when the callback identity changes, but does refresh for a new job", async () => {

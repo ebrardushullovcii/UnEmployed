@@ -11,6 +11,64 @@ afterEach(() => {
 });
 
 describe("ReviewQueueListPanel", () => {
+  it("keeps the empty shortlist focused on finding jobs", () => {
+    render(
+      <ReviewQueueListPanel
+        isJobPending={() => false}
+        onSelectItem={vi.fn()}
+        onToggleQueueSelection={vi.fn()}
+        queue={[]}
+        queueSelection={[]}
+        selectedItem={null}
+      />,
+    );
+
+    expect(screen.queryByTestId("tailored-draft-preparation")).toBeNull();
+  });
+
+  it("offers a bounded draft action without implying approval or submission", () => {
+    const item = {
+      jobId: "job_draft",
+      title: "Product Engineer",
+      company: "Acme",
+      location: "Remote",
+      resumeApplicationMode: "tailored_resume",
+      resumeReview: { status: "not_started" },
+      assetStatus: "not_started",
+      progressPercent: 0,
+    } as unknown as ReviewQueueItem;
+    const onPrepareTailoredDrafts = vi.fn();
+
+    render(
+      <ReviewQueueListPanel
+        draftPreparation={{
+          attemptedCount: 1,
+          completedCount: 0,
+          currentIndex: null,
+          failedCount: 1,
+          status: "failed",
+          totalCount: 1,
+        }}
+        isJobPending={() => false}
+        onPrepareTailoredDrafts={onPrepareTailoredDrafts}
+        onSelectItem={vi.fn()}
+        onToggleQueueSelection={vi.fn()}
+        queue={[item]}
+        queueSelection={[]}
+        selectedItem={item}
+      />,
+    );
+
+    expect(screen.getByText("Bounded to 10")).toBeTruthy();
+    expect(
+      screen.getByText(/nothing was approved, queued, submitted, or sent/i),
+    ).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Prepare tailored drafts" }),
+    );
+    expect(onPrepareTailoredDrafts).toHaveBeenCalledTimes(1);
+  });
+
   it("associates a disabled queue checkbox with its readiness explanation", () => {
     const item = {
       jobId: "job_1",

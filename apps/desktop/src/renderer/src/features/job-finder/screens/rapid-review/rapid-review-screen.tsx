@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import type {
   RapidReviewDecision,
   RapidReviewDecisionLog,
@@ -17,6 +23,10 @@ import {
   matchesCollectionSearch,
 } from "../../components/collection-search-toolbar";
 import { usePersistedCollectionView } from "../../hooks/use-persisted-collection-view";
+import {
+  focusCollectionItem,
+  getAdjacentCollectionItemId,
+} from "../../lib/collection-keyboard-navigation";
 
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -26,6 +36,20 @@ function isTypingTarget(target: EventTarget | null): boolean {
     target.tagName === "TEXTAREA" ||
     target.tagName === "SELECT"
   );
+}
+
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (isTypingTarget(target)) return true;
+
+  const interactiveTarget = target.closest(
+    'a, button, [contenteditable="true"], [role="button"], [role="checkbox"], [role="combobox"], [role="link"], [role="listbox"], [role="option"], [role="radio"], [role="switch"]',
+  );
+  if (!interactiveTarget) return false;
+
+  // Collection item buttons are the intended owner for J/K and the row-level
+  // arrow navigation. Any other control must keep the screen shortcuts out.
+  return !interactiveTarget.hasAttribute("data-collection-item-id");
 }
 
 export function buildLatestDecisionIndex(
@@ -64,6 +88,7 @@ export function RapidReviewScreen(props: {
     props.jobs[0]?.id ?? null,
   );
   const [page, setPage] = useState(1);
+  const [pendingFocusId, setPendingFocusId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [localError, setLocalError] = useState<string | null>(null);
   const latestDecisions = useMemo(
@@ -128,6 +153,12 @@ export function RapidReviewScreen(props: {
     setPage(Math.floor(activeIndex / COLLECTION_PAGE_SIZE) + 1);
   }, [activeIndex, visibleJobs.length]);
 
+  useEffect(() => {
+    if (!pendingFocusId) return;
+    focusCollectionItem(pendingFocusId);
+    setPendingFocusId(null);
+  }, [currentPage, pendingFocusId]);
+
   const move = useCallback(
     (offset: number) => {
       if (visibleJobs.length === 0) return;
@@ -135,10 +166,35 @@ export function RapidReviewScreen(props: {
         visibleJobs.length - 1,
         Math.max(0, activeIndex + offset),
       );
-      setActiveJobId(visibleJobs[next]!.id);
+      const nextId = visibleJobs[next]!.id;
+      setActiveJobId(nextId);
       setPage(Math.floor(next / COLLECTION_PAGE_SIZE) + 1);
+      setPendingFocusId(nextId);
     },
     [activeIndex, visibleJobs],
+  );
+
+  const handleListKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLButtonElement>, jobId: string) => {
+      if (event.target !== event.currentTarget) return;
+
+      const nextId = getAdjacentCollectionItemId(
+        visibleJobs.map((job) => job.id),
+        jobId,
+        event.key,
+      );
+      if (!nextId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const nextIndex = visibleJobs.findIndex((job) => job.id === nextId);
+      const nextPage = Math.floor(nextIndex / COLLECTION_PAGE_SIZE) + 1;
+      if (nextPage !== currentPage) {
+        setPage(nextPage);
+      }
+      setActiveJobId(nextId);
+      setPendingFocusId(nextId);
+    },
+    [currentPage, visibleJobs],
   );
 
   const decide = useCallback(
@@ -193,7 +249,8 @@ export function RapidReviewScreen(props: {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (
-        isTypingTarget(event.target) ||
+        event.defaultPrevented ||
+        isInteractiveTarget(event.target) ||
         event.altKey ||
         event.ctrlKey ||
         event.metaKey
@@ -284,8 +341,11 @@ export function RapidReviewScreen(props: {
                   <li key={job.id} className="relative">
                     <button
                       aria-current={active ? "true" : undefined}
+                      aria-keyshortcuts="ArrowUp ArrowDown Home End"
                       className={`w-full border p-3 text-left ${active ? "border-primary bg-secondary" : "border-border"}`}
+                      data-collection-item-id={job.id}
                       onClick={() => setActiveJobId(job.id)}
+                      onKeyDown={(event) => handleListKeyDown(event, job.id)}
                       type="button"
                     >
                       <span className="block font-semibold">{job.title}</span>

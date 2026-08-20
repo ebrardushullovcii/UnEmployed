@@ -121,7 +121,7 @@ function campaign(id: string, name: string, mode: "precision" | "scale") {
 }
 
 describe("CampaignsScreen", () => {
-  it("opens a new campaign editor even when no campaigns exist yet", () => {
+  it("opens a new search-plan editor even when no plans exist yet", () => {
     render(
       <CampaignsScreen
         activeCampaignId="missing"
@@ -132,15 +132,15 @@ describe("CampaignsScreen", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "New campaign" }));
+    fireEvent.click(screen.getByRole("button", { name: "New search plan" }));
 
     expect(
-      screen.getByRole("heading", { name: "Create campaign" }),
+      screen.getByRole("heading", { name: "Create search plan" }),
     ).toBeTruthy();
-    expect(screen.getByDisplayValue("New job search")).toBeTruthy();
+    expect(screen.getByDisplayValue("New search plan")).toBeTruthy();
   });
 
-  it("searches campaigns without changing the active campaign", () => {
+  it("searches plans without changing the active plan", () => {
     const onSelectCampaign = vi.fn();
     render(
       <CampaignsScreen
@@ -154,18 +154,72 @@ describe("CampaignsScreen", () => {
         pending={false}
       />,
     );
-    fireEvent.change(
-      screen.getByRole("searchbox", { name: "Search campaigns" }),
-      {
-        target: { value: "broad" },
-      },
-    );
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search plans" }), {
+      target: { value: "broad" },
+    });
     expect(screen.queryByText("Remote TypeScript")).toBeNull();
     expect(screen.getByText("Broad engineering")).toBeTruthy();
     expect(onSelectCampaign).not.toHaveBeenCalled();
   });
 
-  it("creates a precision campaign from the current search scope", () => {
+  it("explains that plans are optional and distinguishes precision, scale, and preparation", () => {
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[
+          campaign("one", "Remote TypeScript", "precision"),
+          campaign("two", "Broad engineering", "scale"),
+        ]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Search plans" })).toBeTruthy();
+    expect(screen.getByText(/Search plans are optional\./)).toBeTruthy();
+    expect(screen.getByText("a smaller set for deeper review.")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "a larger pool prepared in controlled batches with safeguards.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "neither volume sends applications; every resume and application stays review-controlled.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("explains the selected volume and keeps preparation review-controlled", () => {
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[campaign("one", "Remote TypeScript", "precision")]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(
+      screen.getByText(
+        /Use Precision for a smaller set that gets deeper review/,
+      ),
+    ).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Volume"), {
+      target: { value: "scale" },
+    });
+    expect(
+      screen.getByText(
+        /Use Scale when you want more jobs prepared in reviewable batches/,
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText(/Final submission remains locked/)).toBeTruthy();
+  });
+
+  it("creates a precision search plan from the current search scope", () => {
     const onSaveCampaign =
       vi.fn<(campaign: SaveJobSearchCampaignInput) => void>();
     render(
@@ -177,11 +231,11 @@ describe("CampaignsScreen", () => {
         pending={false}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "New campaign" }));
+    fireEvent.click(screen.getByRole("button", { name: "New search plan" }));
     fireEvent.change(screen.getByLabelText("Name"), {
       target: { value: "Focused frontend" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save campaign" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save search plan" }));
     const saved = onSaveCampaign.mock.calls[0]?.[0];
     expect(saved?.id).toBeNull();
     expect(saved?.mode).toBe("precision");
@@ -407,7 +461,7 @@ describe("CampaignsScreen", () => {
     expect(screen.getByText(/Offline/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Remove" })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Save campaign" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save search plan" }));
     const saved = onSaveCampaign.mock.calls.at(-1)?.[0];
     expect(saved?.schedule.mode).toBe("selected_days");
     expect(saved?.schedule.enabled).toBe(true);
@@ -450,7 +504,7 @@ describe("CampaignsScreen", () => {
     expect(screen.queryByText(/are not automatically enforced yet/)).toBeNull();
     // Truthful enforcement copy is present.
     expect(
-      screen.getByText(/runs this campaign automatically when its next run/),
+      screen.getByText(/runs this search plan automatically when its next run/),
     ).toBeTruthy();
     expect(screen.getByText(/stop rules are enforced/)).toBeTruthy();
     expect(

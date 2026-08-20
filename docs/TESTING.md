@@ -3,6 +3,9 @@
 ## Default Checks
 
 - broad repo check: `pnpm verify`
+- correctness suite: `pnpm test:correctness`
+- timing-sensitive release checks, always serial and without coverage: `pnpm test:performance`
+- coverage report, separate from correctness and timing: `pnpm test:coverage`
 - fast preflight: `pnpm verify:quick`
 - affected-only check: `pnpm verify:affected`
 - docs/guidance only: `pnpm validate:docs-only`
@@ -11,7 +14,42 @@
 - formatting: `pnpm format`, `pnpm format:check`
 - dead-code cleanup: `pnpm knip`
 
-## Job Finder release gate (2026-08-19)
+`pnpm test` is the release test entry point. It runs correctness first, then the
+serial performance files. Coverage is intentionally separate: instrumentation
+must not affect the product timing gate, and a coverage report cannot substitute
+for correctness or performance evidence. The repeated-source discovery check
+must satisfy both CPU and wall-clock budgets below 2,000 ms; the 10,000-entry
+ledger check retains its hard wall-clock budget below 2,000 ms.
+
+## Job Finder exact-build production acceptance (2026-08-20)
+
+- Run `pnpm --filter @unemployed/desktop ui:job-finder-production-acceptance`
+  only after the final source and documentation are stable. The wrapper builds
+  once, records Git and dirty-tree metadata plus a sorted source fingerprint,
+  hashes the main/preload/renderer output, unsets `ELECTRON_RENDERER_URL`, and
+  launches only the recorded `file:` renderer bundle.
+- The wrapper runs fresh, scale, and error/recovery components in unique isolated
+  user-data directories. It fails on a changed source or bundle fingerprint,
+  missing scenario ID, renderer or main-process error, failed capture, clipping,
+  unreachable navigation, unsafe application/account action, cleanup failure,
+  or a report from a different build.
+- Required visual/runtime coverage includes the minimum supported width, 1440 px
+  desktop, native 200% zoom, long labels, truthful zero and populated states,
+  errors and recovery, real wheel and keyboard scroll chaining, and at least
+  1,001 persisted jobs after hydration. Cold usable-shell and warm route-switch
+  measurements are hard-gated and tied to renderer timing marks. On Windows,
+  the canonical cold measurement runs from the actual Electron main-process
+  start to the committed interactive opening shell; the report also retains
+  Playwright's outer shell/inspector launch duration as a diagnostic so the
+  test runner's `cmd.exe` transport is not mistaken for product startup work.
+- Inspect the newly generated PNGs manually after the JSON gate passes. Prior
+  screenshots are historical evidence only and must never be used to accept a
+  later source fingerprint.
+- The static contract check is
+  `pnpm --filter @unemployed/desktop test:job-finder-production-acceptance:static`.
+  It does not build, launch Electron, or replace the runtime acceptance command.
+
+## Historical Job Finder release gate (2026-08-19)
 
 - The integrated repository-wide `pnpm verify` run passed, including guidance/docs/source-generic/structure checks, lint, typecheck, fit calibration, the broad test suite, and the separately scheduled discovery-ledger performance test.
 - The final production scale replay is `apps/desktop/.tmp/production-scale-probe-2026-08-19T05-34-15-991Z/report.json`. It retains 516 jobs, 226 shortlisted jobs, 226 applications, and 511 sources; bounds Find Jobs, Shortlisted, Applications, and Profile source pagination; keeps runtime errors at zero; keeps the More menu inside the viewport; and cleans the isolated profile. The accepted run reached a usable cold shell in 1,780.86 ms and a worst route switch of 307.42 ms.
@@ -42,7 +80,9 @@ Common package aliases:
 - Do not run `pnpm verify` for docs-only or guidance-only changes.
 - Do not rerun a broad failing command unchanged; isolate the failing package or command first.
 - If a failure is documented as pre-existing and unrelated, report it once and switch to focused validation.
-- Rebuild desktop before judging benchmark/source changes because `apps/desktop/scripts/benchmark-job-finder-app.mjs` launches `out/main/index.cjs`.
+- Use a build-owning harness before judging Electron evidence. Scripts that
+  launch `out/main/index.cjs` directly are diagnostic-only unless they verify the
+  source and bundle identity themselves.
 
 ## Guidance Checks
 

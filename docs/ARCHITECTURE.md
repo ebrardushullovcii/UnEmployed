@@ -41,6 +41,24 @@ See [ADR 0007](adr/0007-source-generic-browser-workflows.md) for the source-gene
 - interview live session: visible chat/audio UI -> typed preload -> Electron main-hosted `interview-helper` service -> typed AI/audio/screenshot adapters -> visible responses, source-labeled transcript, and post-session review
 - generative AI: domain services -> a small product-specific agent harness -> `packages/ai-providers` -> OpenCode Go. DeepSeek V4 Flash handles normal text/tool work through Chat Completions with requested `max` reasoning; GPT-5.6 Luna handles image-only work through Responses with `high` reasoning. The harness gives the model narrow typed read/write/validate tools over a temporary task transaction, records every call, and separates direct work, correction, validation, fallback, and final product output. Domain code still owns canonical state and user-review rules. Local Codex bridges remain replaceable loopback development transports. Audio transcription stays a separate local Whisper or explicit audio-model role.
 
+### Persistence safety
+
+- Repository collection reads are lossless by default. Explicit `limit` and
+  `offset` options are stable pages for display or traversal; paged results must
+  never feed a destructive whole-collection replacement.
+- Ordinary saved-job mutations use transactional row-local deltas/upserts. The
+  update callback runs against the current rows inside the SQLite immediate
+  transaction, so concurrent settings, discovery, and application work cannot
+  replay a stale full snapshot over unrelated jobs.
+- Resume-affecting job changes and approval invalidation are one atomic commit.
+  A crash or concurrent write cannot leave a changed job paired with approval
+  derived from its previous facts.
+- Whole-collection replacement APIs are reserved for authoritative reset/import
+  boundaries whose caller owns the complete collection. They are not product
+  read-modify-write primitives.
+- Singleton profile, search, setup, settings, and discovery writes update only
+  their owned SQLite value. They never rebuild unrelated collections.
+
 ### Campaign and CRM ownership
 
 - `packages/contracts` owns campaign, dashboard, activity-control, CRM, custom-stage, reminder, interview, timeline, and export shapes, plus campaign-rule and funnel projections, schedule state/pause windows/run facts, campaign digests, in-app campaign notifications, and the job-finder intelligence state (outcome events and analytics, resume strategies and per-job selections, company entities and merge review, and safeguard records).

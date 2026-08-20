@@ -63,11 +63,28 @@ type JobFinderWorkspaceState =
     }
   | { status: "error"; message: string; retry: () => void };
 
+function markJobFinderTiming(markName: string, startMarkName?: string) {
+  const performanceApi = globalThis.performance;
+  if (!performanceApi?.mark) {
+    return;
+  }
+
+  performanceApi.mark(markName);
+  if (startMarkName && performanceApi.measure) {
+    try {
+      performanceApi.measure(markName, startMarkName, markName);
+    } catch {
+      // Performance diagnostics must never affect workspace loading.
+    }
+  }
+}
+
 export function useJobFinderWorkspace(): JobFinderWorkspaceState {
   const [workspaceState, setWorkspaceState] = useState<JobFinderWorkspaceState>(
     { status: "loading" },
   );
   const [loadRequest, setLoadRequest] = useState(0);
+  const performanceRunRef = useRef(0);
   const workspaceRef = useRef<JobFinderWorkspaceSnapshot | null>(null);
   const workspaceRevisionRef = useRef<WorkspaceRevision>(0);
   // A workspace action may finish after a newer action has already committed.
@@ -684,6 +701,10 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
     let cancelled = false;
 
     async function loadWorkspace() {
+      const performanceRunId = ++performanceRunRef.current;
+      const performancePrefix = `job-finder:workspace:${performanceRunId}`;
+      markJobFinderTiming(`${performancePrefix}:bootstrap:start`);
+
       try {
         const [platformResponse, bootstrap] = await Promise.all([
           window.unemployed.ping(),
@@ -710,6 +731,11 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
             resumeImportProgress: null,
             workspace: bootstrap,
           });
+          markJobFinderTiming(
+            `${performancePrefix}:bootstrap:ready`,
+            `${performancePrefix}:bootstrap:start`,
+          );
+          markJobFinderTiming("job-finder:workspace:bootstrap:ready");
         }
 
         // Keep the shell responsive while the large collections hydrate. The
@@ -717,28 +743,40 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         // later user action can never be overwritten by a stale full snapshot.
         if (bootstrap.hydration?.phase === "bootstrap") {
           const hydrationSequence = beginWorkspaceRequest();
-          void recoverFullWorkspaceOnce(hydrationSequence).catch((error) => {
-            if (
-              cancelled ||
-              !isCurrentWorkspaceRequest(hydrationSequence) ||
-              workspaceRef.current !== bootstrap
-            ) {
-              return;
-            }
+          markJobFinderTiming(`${performancePrefix}:hydration:start`);
+          markJobFinderTiming("job-finder:workspace:hydration:start");
+          void recoverFullWorkspaceOnce(hydrationSequence)
+            .then((hydratedWorkspace) => {
+              if (hydratedWorkspace?.hydration?.phase === "complete") {
+                markJobFinderTiming(
+                  `${performancePrefix}:hydration:complete`,
+                  `${performancePrefix}:hydration:start`,
+                );
+                markJobFinderTiming("job-finder:workspace:hydration:complete");
+              }
+            })
+            .catch((error) => {
+              if (
+                cancelled ||
+                !isCurrentWorkspaceRequest(hydrationSequence) ||
+                workspaceRef.current !== bootstrap
+              ) {
+                return;
+              }
 
-            const message =
-              error instanceof Error
-                ? error.message
-                : "Unable to finish loading the Job Finder workspace.";
-            setWorkspaceState({
-              status: "error",
-              message,
-              retry: () => {
-                setWorkspaceState({ status: "loading" });
-                setLoadRequest((current) => current + 1);
-              },
+              const message =
+                error instanceof Error
+                  ? error.message
+                  : "Unable to finish loading the Job Finder workspace.";
+              setWorkspaceState({
+                status: "error",
+                message,
+                retry: () => {
+                  setWorkspaceState({ status: "loading" });
+                  setLoadRequest((current) => current + 1);
+                },
+              });
             });
-          });
         }
       } catch (error) {
         const message =

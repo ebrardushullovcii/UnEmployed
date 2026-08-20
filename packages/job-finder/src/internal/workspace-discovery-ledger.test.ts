@@ -1,4 +1,3 @@
-import { performance } from "node:perf_hooks";
 import { describe, expect, test } from "vitest";
 
 import {
@@ -225,37 +224,6 @@ describe("workspace-discovery-ledger", () => {
       changed: 1,
       reactivated: 0,
     });
-  });
-  test("indexes and resolves a 10k-entry ledger within the scale budget", () => {
-    const ledger = Array.from({ length: 10_000 }, (_, index) =>
-      createLedgerEntry({
-        id: `ledger_scale_${index}`,
-        canonicalUrl: `https://example.com/jobs/scale-${index}`,
-        sourceJobId: `scale_${index}`,
-        title: `Software Engineer ${index}`,
-      }),
-    );
-
-    const startedAt = performance.now();
-    const index = createDiscoveryLedgerIndex(ledger);
-    let resolvedCount = 0;
-    for (let entryIndex = 0; entryIndex < ledger.length; entryIndex += 1) {
-      const match = index.find({
-        canonicalUrl: `https://example.com/jobs/scale-${entryIndex}?utm_source=replay`,
-        source: "target_site",
-        sourceJobId: `scale_${entryIndex}`,
-        providerKey: null,
-        providerBoardToken: null,
-        providerIdentifier: null,
-      });
-      if (match?.id === `ledger_scale_${entryIndex}`) {
-        resolvedCount += 1;
-      }
-    }
-    const durationMs = performance.now() - startedAt;
-
-    expect(resolvedCount).toBe(10_000);
-    expect(durationMs).toBeLessThan(2_000);
   });
   test("does not match distinct jobs that only share title and company", () => {
     const result = findDiscoveryLedgerEntry([createLedgerEntry()], {

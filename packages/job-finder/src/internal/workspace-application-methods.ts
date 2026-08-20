@@ -37,8 +37,8 @@ import {
   mapExecutionResultToApplyJobState,
   mapExecutionResultToApplyRunState,
 } from "./workspace-apply-run-support";
-import { mergeSavedJobs } from "./workspace-service-helpers";
 import { markSavedJobStatusInLedger } from "./workspace-discovery-ledger";
+import { mergeSavedJobs } from "./workspace-service-helpers";
 import {
   buildConsentSummary,
   buildEvidenceRefIdsFromInstruction,
@@ -1727,16 +1727,19 @@ export function createWorkspaceApplicationMethods(
         if (!pendingJob) {
           throw new Error(`Unable to shortlist unknown job '${jobId}'.`);
         }
-        const savedJobs = await ctx.repository.listSavedJobs();
         const nextJob = SavedJobSchema.parse({
           ...pendingJob,
           status: "shortlisted",
           resumeApplicationMode:
             pendingJob.resumeApplicationMode ?? defaultResumeApplicationMode,
         });
-        await ctx.repository.replaceSavedJobs(
-          mergeSavedJobs(savedJobs, [nextJob]),
-        );
+        await ctx.repository.commitSavedJobDelta({
+          upserts: [nextJob],
+          update: (currentJob) =>
+            currentJob.id === nextJob.id
+              ? (mergeSavedJobs([currentJob], [nextJob])[0] ?? currentJob)
+              : currentJob,
+        });
         await ctx.persistDiscoveryState((current) => ({
           ...current,
           pendingDiscoveryJobs: current.pendingDiscoveryJobs.filter(
@@ -1803,7 +1806,6 @@ export function createWorkspaceApplicationMethods(
           recordedAt: occurredAt,
         },
       });
-      const nextSavedJobs = mergeSavedJobs(savedJobs, [nextJob]);
       const nextDiscoveryState = {
         ...discoveryState,
         discoveryLedger: markSavedJobStatusInLedger({
@@ -1818,8 +1820,20 @@ export function createWorkspaceApplicationMethods(
         ),
       };
 
-      await ctx.persistSavedJobsAndDiscoveryState({
-        savedJobs: nextSavedJobs,
+      await ctx.repository.commitSavedJobDelta({
+        ...(pendingJob ? { upserts: [nextJob] } : {}),
+        ...(!pendingJob
+          ? {
+              update: (job) =>
+                job.id === input.jobId
+                  ? SavedJobSchema.parse({
+                      ...job,
+                      status: nextJob.status,
+                      discoveryFeedback: nextJob.discoveryFeedback,
+                    })
+                  : job,
+            }
+          : {}),
         discoveryState: nextDiscoveryState,
       });
       return ctx.getWorkspaceSnapshot();
@@ -1842,9 +1856,6 @@ export function createWorkspaceApplicationMethods(
         status: "discovered",
         discoveryFeedback: null,
       });
-      const nextSavedJobs = savedJobs.map((job) =>
-        job.id === jobId ? restoredJob : job,
-      );
       const nextDiscoveryState = {
         ...discoveryState,
         discoveryLedger: markSavedJobStatusInLedger({
@@ -1856,8 +1867,15 @@ export function createWorkspaceApplicationMethods(
         }),
       };
 
-      await ctx.persistSavedJobsAndDiscoveryState({
-        savedJobs: nextSavedJobs,
+      await ctx.repository.commitSavedJobDelta({
+        update: (job) =>
+          job.id === jobId
+            ? SavedJobSchema.parse({
+                ...job,
+                status: restoredJob.status,
+                discoveryFeedback: restoredJob.discoveryFeedback,
+              })
+            : job,
         discoveryState: nextDiscoveryState,
       });
       return ctx.getWorkspaceSnapshot();
@@ -3230,20 +3248,18 @@ export function createWorkspaceApplicationMethods(
         });
 
         await ctx.repository.upsertApplicationRecord(nextRecord);
-        const nextSavedJobs = savedJobs.map((savedJob) =>
-          savedJob.id === jobId
-            ? SavedJobSchema.parse({
-                ...savedJob,
-                status: nextJobStatusFromAttempt(
-                  savedJob,
-                  executionResult.state,
-                ),
-              })
-            : savedJob,
-        );
         if (executionResult.state === "submitted") {
-          await ctx.persistSavedJobsAndDiscoveryState({
-            savedJobs: nextSavedJobs,
+          await ctx.repository.commitSavedJobDelta({
+            update: (savedJob) =>
+              savedJob.id === jobId
+                ? SavedJobSchema.parse({
+                    ...savedJob,
+                    status: nextJobStatusFromAttempt(
+                      savedJob,
+                      executionResult.state,
+                    ),
+                  })
+                : savedJob,
             discoveryState: {
               ...discoveryState,
               discoveryLedger: markSavedJobStatusInLedger({
@@ -3259,7 +3275,18 @@ export function createWorkspaceApplicationMethods(
             },
           });
         } else {
-          await ctx.repository.replaceSavedJobs(nextSavedJobs);
+          await ctx.repository.commitSavedJobDelta({
+            update: (savedJob) =>
+              savedJob.id === jobId
+                ? SavedJobSchema.parse({
+                    ...savedJob,
+                    status: nextJobStatusFromAttempt(
+                      savedJob,
+                      executionResult.state,
+                    ),
+                  })
+                : savedJob,
+          });
         }
 
         return ctx.getWorkspaceSnapshot();
@@ -3612,8 +3639,8 @@ export function createWorkspaceApplicationMethods(
         });
 
         await ctx.repository.upsertApplicationRecord(nextRecord);
-        await ctx.repository.replaceSavedJobs(
-          savedJobs.map((savedJob) =>
+        await ctx.repository.commitSavedJobDelta({
+          update: (savedJob) =>
             savedJob.id === jobId
               ? SavedJobSchema.parse({
                   ...savedJob,
@@ -3623,8 +3650,7 @@ export function createWorkspaceApplicationMethods(
                   ),
                 })
               : savedJob,
-          ),
-        );
+        });
         await persistApplicationUserAction({
           repository: ctx.repository,
           job,

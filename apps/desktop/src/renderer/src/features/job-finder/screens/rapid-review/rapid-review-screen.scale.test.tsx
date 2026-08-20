@@ -188,4 +188,73 @@ describe("RapidReviewScreen workspace scale", () => {
       within(list).getByRole("button", { name: /0040/ }),
     );
   });
+
+  it("lets the intended row own arrow navigation without a second window move", () => {
+    const jobs = createJobs().slice(0, 3);
+    const { container } = renderRapidReview(jobs);
+    const list = screen.getByRole("list", { name: "Jobs to review" });
+    const rowButtons = within(list).getAllByRole("button");
+
+    // Focus/dispatch on the second row while the first row is still active.
+    // A bubbling window shortcut would otherwise overwrite the row's move.
+    fireEvent.keyDown(rowButtons[1]!, { key: "ArrowDown" });
+
+    expect(container.querySelector('[aria-current="true"]')).toBe(
+      rowButtons[2],
+    );
+  });
+
+  it("leaves keyboard activation to the Compare checkbox and ignores nested controls", () => {
+    const jobs = createJobs().slice(0, 3);
+    const { container } = renderRapidReview(jobs);
+    const list = screen.getByRole("list", { name: "Jobs to review" });
+    const rowButtons = within(list).getAllByRole("button");
+    const checkbox = within(list).getAllByRole(
+      "checkbox",
+    )[0]! as HTMLInputElement;
+
+    for (const key of [" ", "Enter"]) {
+      const event = new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key,
+      });
+      checkbox.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+
+    fireEvent.click(checkbox);
+    expect(checkbox.checked).toBe(true);
+    expect(container.querySelector('[aria-current="true"]')).toBe(
+      rowButtons[0],
+    );
+
+    const nestedControl = document.createElement("button");
+    nestedControl.type = "button";
+    nestedControl.textContent = "Nested control";
+    rowButtons[0]!.append(nestedControl);
+
+    fireEvent.keyDown(nestedControl, { key: "ArrowDown" });
+
+    expect(container.querySelector('[aria-current="true"]')).toBe(
+      rowButtons[0],
+    );
+  });
+
+  it("does not prevent ordinary Tab navigation", () => {
+    const jobs = createJobs().slice(0, 3);
+    const { container } = renderRapidReview(jobs);
+    const list = screen.getByRole("list", { name: "Jobs to review" });
+    const firstRow = within(list).getAllByRole("button")[0]!;
+    const event = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Tab",
+    });
+
+    firstRow.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(container.querySelector('[aria-current="true"]')).toBe(firstRow);
+  });
 });
