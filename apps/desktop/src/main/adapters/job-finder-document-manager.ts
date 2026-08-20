@@ -16,6 +16,14 @@ interface CreateLocalJobFinderDocumentManagerOptions {
   previewTestMode?: "ok" | "fail_once";
 }
 
+function throwIfPreviewAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) {
+    return;
+  }
+
+  throw new DOMException("Resume preview was superseded.", "AbortError");
+}
+
 async function renderPdfFromHtml(
   html: string,
   htmlPath: string,
@@ -67,16 +75,18 @@ export function createLocalJobFinderDocumentManager(
     listResumeTemplates() {
       return listLocalResumeTemplates();
     },
-    renderResumePreview(input) {
+    renderResumePreview(input, signal) {
+      throwIfPreviewAborted(signal);
       if (shouldFailNextPreview) {
         shouldFailNextPreview = false;
-        return Promise.reject(
-          new Error("Preview rendering failed in desktop test mode."),
-        );
+        throw new Error("Preview rendering failed in desktop test mode.");
       }
 
+      const html = renderResumeTemplateHtml(input, { mode: "preview" });
+      throwIfPreviewAborted(signal);
+
       return Promise.resolve({
-        html: renderResumeTemplateHtml(input, { mode: "preview" }),
+        html,
         warnings: [],
       });
     },

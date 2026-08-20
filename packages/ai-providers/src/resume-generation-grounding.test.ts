@@ -29,6 +29,37 @@ describe("resume generation grounding", () => {
     expect(selection).toBeNull();
   });
 
+  test("rejects canonical text when exact claims are disabled even if paraphrases are allowed", () => {
+    const canonical =
+      "Built reliable TypeScript workflow tools for operations teams.";
+
+    expect(
+      selectResumeRewrite({
+        generated: {
+          text: canonical,
+          evidenceRefs: ["experience:role_1:achievement:0"],
+        },
+        canonicalCandidates: [canonical],
+        evidenceCatalog: [
+          {
+            id: "experience:role_1:achievement:0",
+            text: canonical,
+            scope: "experience",
+            profileRecordId: "role_1",
+          },
+        ],
+        allowedScope: {
+          scope: "experience",
+          profileRecordId: "role_1",
+        },
+        jobCompany: "ExampleCo",
+        jobSkills: ["TypeScript"],
+        allowExactClaims: false,
+        allowParaphrasedClaims: true,
+      }),
+    ).toBeNull();
+  });
+
   test("rejects a novel clause even when every preceding phrase is grounded", () => {
     const selection = selectResumeRewrite({
       generated: {

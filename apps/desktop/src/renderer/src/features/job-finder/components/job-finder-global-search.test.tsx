@@ -56,4 +56,39 @@ describe("JobFinderGlobalSearch", () => {
     );
     expect(screen.queryByText(/local records match/i)).toBeNull();
   });
+
+  it("wraps long result labels and exposes their complete names", () => {
+    const longTitle = "ApplicationTitleWithoutAnyWordBreaksAtAll";
+    const longSubtitle = "CompanyWithoutAnyWordBreaks · RemoteWithoutBreaks";
+    render(
+      <JobFinderGlobalSearch
+        entries={[
+          {
+            href: "/job-finder/applications/one",
+            id: "one",
+            kind: "application",
+            metadata: ["long"],
+            subtitle: longSubtitle,
+            title: longTitle,
+          },
+        ]}
+        onNavigate={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(
+      screen.getByRole("searchbox", { name: "Search Job Finder" }),
+      { target: { value: "long" } },
+    );
+    const result = screen.getByRole("button", {
+      name: /ApplicationTitleWithoutAnyWordBreaksAtAll/,
+    });
+    const title = result.querySelector("strong");
+    const subtitle = result.querySelector("span");
+    expect(result.className).toContain("min-w-0");
+    expect(title?.className).toContain("break-words");
+    expect(title?.getAttribute("title")).toBe(longTitle);
+    expect(subtitle?.className).toContain("break-words");
+    expect(subtitle?.getAttribute("title")).toBe(longSubtitle);
+  });
 });

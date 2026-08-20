@@ -130,7 +130,10 @@ describe("main window state", () => {
     const userDataDirectory = mkdtempSync(
       path.join(tmpdir(), "unemployed-window-state-"),
     );
-    process.env.UNEMPLOYED_USER_DATA_DIR = userDataDirectory;
+    process.env.UNEMPLOYED_USER_DATA_DIR = `  ${path.relative(
+      process.cwd(),
+      userDataDirectory,
+    )}  `;
 
     saveMainWindowState({
       x: 100,
@@ -156,6 +159,9 @@ describe("main window state", () => {
       height: 920,
       displayMode: "fullscreen",
     });
+    expect(getMainWindowStateFilePath()).toBe(
+      path.join(userDataDirectory, "main-window-state.json"),
+    );
 
     rmSync(userDataDirectory, { recursive: true, force: true });
   });

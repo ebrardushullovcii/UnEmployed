@@ -44,6 +44,11 @@ import {
   syncApprovedResumeExportsForJob,
 } from "./file-repository-support";
 import {
+  areSameApplicationAnswerRecords,
+  areSameApplicationQuestionRecords,
+  latestApplicationAnswerRecord,
+} from "./grouped-manual-answer-support";
+import {
   repairLegacyCommaSplitAchievements,
   secureDatabaseFile,
   runMigrations,
@@ -65,6 +70,7 @@ import {
   writeState,
 } from "./internal/state";
 import type {
+  ApplicationRecordBatchCommitResult,
   FileJobFinderRepositoryOptions,
   JobFinderRepository,
 } from "./repository-types";
@@ -483,6 +489,94 @@ export async function createFileJobFinderRepository(
         normalizedRecord,
       );
     },
+    commitApplicationAnswerMutation(input) {
+      const expectedAnswer = input.expectedAnswer
+        ? ApplicationAnswerRecordSchema.parse(cloneValue(input.expectedAnswer))
+        : null;
+      const expectedQuestion = ApplicationQuestionRecordSchema.parse(
+        cloneValue(input.expectedQuestion),
+      );
+      const nextAnswer = ApplicationAnswerRecordSchema.parse(
+        cloneValue(input.answer),
+      );
+      const nextQuestion = ApplicationQuestionRecordSchema.parse(
+        cloneValue(input.question),
+      );
+
+      if (
+        expectedQuestion.id !== nextQuestion.id ||
+        expectedQuestion.id !== nextAnswer.questionId
+      ) {
+        throw new Error(
+          "Application answer mutation records must target the same question.",
+        );
+      }
+      if (nextAnswer.revision !== (expectedAnswer?.revision ?? 0) + 1) {
+        throw new Error(
+          "Application answer mutation must advance the answer revision by one.",
+        );
+      }
+
+      let result: "applied" | "duplicate" | "stale" | null = null;
+      runImmediateTransaction(database, () => {
+        const currentAnswers = listApplyCollection({
+          tableName: "application_answer_records",
+          schema: ApplicationAnswerRecordSchema,
+          orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_answer_records,
+          filters: [["question_id", expectedQuestion.id]],
+        });
+        if (currentAnswers.some((answer) => answer.id === nextAnswer.id)) {
+          result = "duplicate";
+          return;
+        }
+
+        const currentQuestion =
+          listCollectionValues(
+            database,
+            "application_question_records",
+            ApplicationQuestionRecordSchema,
+            {
+              whereSql: "id = ?",
+              params: [expectedQuestion.id],
+              orderBySql:
+                APPLY_COLLECTION_ORDER_BY_SQL.application_question_records,
+            },
+          )[0] ?? null;
+        const currentAnswer = latestApplicationAnswerRecord(
+          currentAnswers,
+          expectedQuestion.id,
+        );
+        if (
+          currentQuestion === null ||
+          !areSameApplicationQuestionRecords(
+            currentQuestion,
+            expectedQuestion,
+          ) ||
+          (expectedAnswer === null
+            ? currentAnswer !== null
+            : currentAnswer === null ||
+              !areSameApplicationAnswerRecords(currentAnswer, expectedAnswer))
+        ) {
+          result = "stale";
+          return;
+        }
+
+        context.writePersistedValue("application_answer_records", nextAnswer);
+        context.writePersistedValue(
+          "application_question_records",
+          nextQuestion,
+        );
+        result = "applied";
+      });
+
+      if (result === null) {
+        throw new Error(
+          "Application answer mutation did not produce a result.",
+        );
+      }
+      const mutationResult = result;
+      return secureDatabaseFile(options.filePath).then(() => mutationResult);
+    },
     listApplicationArtifactRefs(options) {
       return Promise.resolve(
         cloneValue(
@@ -579,6 +673,72 @@ export async function createFileJobFinderRepository(
         "application_records",
         normalizedRecord,
       );
+    },
+    commitApplicationRecordBatch({ expectedRevisions, records }) {
+      const normalizedRecords = ApplicationRecordSchema.array().parse(
+        cloneValue([...records]),
+      );
+      const expectedIds = expectedRevisions.map(
+        ({ applicationRecordId }) => applicationRecordId,
+      );
+      const expectedIdSet = new Set(expectedIds);
+      const nextIdSet = new Set(normalizedRecords.map((record) => record.id));
+      if (
+        expectedIdSet.size !== expectedIds.length ||
+        nextIdSet.size !== normalizedRecords.length ||
+        expectedIdSet.size !== nextIdSet.size ||
+        expectedIds.some((id) => !nextIdSet.has(id))
+      ) {
+        throw new Error(
+          "Application record batch must contain one next record for every expected record.",
+        );
+      }
+
+      const result =
+        runImmediateTransaction<ApplicationRecordBatchCommitResult>(
+          database,
+          () => {
+            const currentRecords = listValues(
+              database,
+              "application_records",
+              ApplicationRecordSchema,
+            );
+            const currentById = new Map(
+              currentRecords.map((record) => [record.id, record]),
+            );
+            const missingRecordIds = expectedIds.filter(
+              (id) => !currentById.has(id),
+            );
+            if (missingRecordIds.length > 0) {
+              return { status: "missing", recordIds: missingRecordIds };
+            }
+
+            const staleRecordIds = expectedRevisions
+              .filter(
+                ({ applicationRecordId, expectedRevision }) =>
+                  (currentById.get(applicationRecordId)?.crm?.revision ?? 0) !==
+                  expectedRevision,
+              )
+              .map(({ applicationRecordId }) => applicationRecordId);
+            if (staleRecordIds.length > 0) {
+              return { status: "stale", recordIds: staleRecordIds };
+            }
+
+            const nextById = new Map(
+              normalizedRecords.map((record) => [record.id, record]),
+            );
+            replaceCollection(
+              database,
+              "application_records",
+              currentRecords.map((record) => nextById.get(record.id) ?? record),
+            );
+            return { status: "applied", committedRecordIds: expectedIds };
+          },
+        );
+
+      return result.status === "applied"
+        ? secureDatabaseFile(options.filePath).then(() => result)
+        : Promise.resolve(result);
     },
     listApplicationAttempts() {
       return Promise.resolve(

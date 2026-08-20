@@ -344,11 +344,11 @@ export function createWorkspaceIntelligenceMethods(input: {
 
       const campaignId =
         scopedCampaignId ??
-        (campaignState?.campaigns.find((candidate) =>
+        campaignState?.campaigns.find((candidate) =>
           candidate.jobIds.includes(job.id),
         )?.id ??
-          campaignState?.activeCampaignId ??
-          null);
+        campaignState?.activeCampaignId ??
+        null;
       const campaignDefaultResumeStrategyId =
         resolveCampaignDefaultResumeStrategyId(campaignState, job.id);
       const { roleFamily, recommendation } = recommendResumeStrategyForJob({
@@ -376,7 +376,8 @@ export function createWorkspaceIntelligenceMethods(input: {
     async setCampaignResumeStrategyDefault(
       rawInput: SetCampaignResumeStrategyDefaultInput,
     ): Promise<JobFinderWorkspaceSnapshot> {
-      const command = SetCampaignResumeStrategyDefaultInputSchema.parse(rawInput);
+      const command =
+        SetCampaignResumeStrategyDefaultInputSchema.parse(rawInput);
       await input.ctx.withCampaignTransition(async () => {
         const [campaignState, intelligenceState] = await Promise.all([
           input.ctx.repository.getCampaignState(),
@@ -428,20 +429,59 @@ export function createWorkspaceIntelligenceMethods(input: {
     ): Promise<JobFinderWorkspaceSnapshot> {
       const command = RecordOutcomeInputSchema.parse(rawInput);
       await input.ctx.withIntelligenceTransition(async () => {
-        const [campaignState, currentState, savedJobs] = await Promise.all([
-          input.ctx.repository.getCampaignState(),
-          input.ctx.repository.getIntelligenceState(),
-          input.ctx.repository.listSavedJobs(),
-        ]);
+        const [campaignState, currentState, savedJobs, applicationRecords] =
+          await Promise.all([
+            input.ctx.repository.getCampaignState(),
+            input.ctx.repository.getIntelligenceState(),
+            input.ctx.repository.listSavedJobs(),
+            input.ctx.repository.listApplicationRecords(),
+          ]);
         const job = savedJobs.find(
           (candidate) => candidate.id === command.jobId,
         );
         if (!job) throw new Error("That job is no longer available.");
-        const campaign = campaignState?.campaigns.find((candidate) =>
-          candidate.jobIds.includes(job.id),
+        const campaignsForJob = (campaignState?.campaigns ?? []).filter(
+          (candidate) => candidate.jobIds.includes(job.id),
         );
-        if (!campaign) {
+        if (campaignsForJob.length === 0) {
           throw new Error("That job is not linked to a search campaign.");
+        }
+        const campaign = command.campaignId
+          ? campaignsForJob.find(
+              (candidate) => candidate.id === command.campaignId,
+            )
+          : campaignsForJob.length === 1
+            ? campaignsForJob[0]
+            : undefined;
+        if (!campaign) {
+          throw new Error(
+            command.campaignId
+              ? "That campaign does not contain the selected job."
+              : "This job belongs to multiple campaigns; select the campaign before recording an outcome.",
+          );
+        }
+        const applicationsForJob = applicationRecords.filter(
+          (candidate) => candidate.jobId === job.id,
+        );
+        const applicationRecord = command.applicationRecordId
+          ? applicationRecords.find(
+              (candidate) => candidate.id === command.applicationRecordId,
+            )
+          : applicationsForJob.length <= 1
+            ? applicationsForJob[0]
+            : undefined;
+        if (
+          command.applicationRecordId &&
+          (!applicationRecord || applicationRecord.jobId !== job.id)
+        ) {
+          throw new Error(
+            "That application record does not belong to the selected job.",
+          );
+        }
+        if (!command.applicationRecordId && applicationsForJob.length > 1) {
+          throw new Error(
+            "This job has multiple application records; select the application before recording an outcome.",
+          );
         }
         if (
           command.resumeStrategyId &&
@@ -456,6 +496,7 @@ export function createWorkspaceIntelligenceMethods(input: {
         const withEvent = appendOutcomeEvent({
           state: currentState,
           callerId: `outcome_${randomUUID()}`,
+          applicationRecordId: applicationRecord?.id ?? null,
           jobId: job.id,
           outcome: command.outcome,
           campaignId: campaign.id,

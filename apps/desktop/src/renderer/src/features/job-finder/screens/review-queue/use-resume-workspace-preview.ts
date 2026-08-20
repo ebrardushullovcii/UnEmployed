@@ -6,7 +6,10 @@ import { getPreviewErrorMessage } from './resume-workspace-screen-helpers'
 export function useResumeWorkspacePreview(input: {
   draft: ResumeDraft | null
   hasUnsavedChanges: boolean
-  onPreviewDraft: (draft: ResumeDraft) => Promise<JobFinderResumePreview>
+  onPreviewDraft: (
+    draft: ResumeDraft,
+    requestId?: string,
+  ) => Promise<JobFinderResumePreview>
 }) {
   const { draft, hasUnsavedChanges, onPreviewDraft } = input
   const [preview, setPreview] = useState<JobFinderResumePreview | null>(null)
@@ -22,7 +25,7 @@ export function useResumeWorkspacePreview(input: {
     setPreviewStatus('loading')
     setPreviewError(null)
 
-    void onPreviewDraft(cloneDraft(targetDraft))
+    void onPreviewDraft(cloneDraft(targetDraft), `resume_preview_${requestId}`)
       .then((nextPreview) => {
         if (previewRequestRef.current !== requestId) {
           return

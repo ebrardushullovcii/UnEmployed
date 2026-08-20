@@ -20,12 +20,12 @@ import {
 
 const TAB_ORDER: readonly { id: SafeguardTabId; label: string }[] = [
   { id: "all", label: "All" },
-  { id: "caps", label: "Caps" },
+  { id: "caps", label: "Application limits" },
   { id: "conflicts", label: "Conflicts" },
-  { id: "signals", label: "Signals" },
-  { id: "pauses", label: "Pauses" },
+  { id: "signals", label: "Listing signals" },
+  { id: "pauses", label: "Automatic pauses" },
   { id: "reviews", label: "Reviews" },
-  { id: "contradictions", label: "Answers" },
+  { id: "contradictions", label: "Conflicting answers" },
   { id: "dismissals", label: "Dismissals" },
 ];
 
@@ -76,11 +76,7 @@ function SafeguardRowCard(props: {
               <dt className="text-foreground-muted">Jobs</dt>
               <dd className="text-foreground">
                 {row.lineage.jobs.map((label) => (
-                  <span
-                    className="block truncate"
-                    key={label}
-                    title={label}
-                  >
+                  <span className="block truncate" key={label} title={label}>
                     {label}
                   </span>
                 ))}
@@ -150,16 +146,21 @@ export function SafeguardsScreen(props: {
   onMutateSafeguards: (input: SafeguardMutationInput) => Promise<boolean>;
   workspace: JobFinderWorkspaceSnapshot | null;
 }) {
-  const { actionMessage, isPending, onMutateSafeguards, workspace } =
-    props;
+  const { actionMessage, isPending, onMutateSafeguards, workspace } = props;
   const [tab, setTab] = useState<SafeguardTabId>("all");
   const [query, setQuery] = useState("");
   const queryInputRef = useRef<HTMLInputElement | null>(null);
+  const tabButtonRefs = useRef<
+    Partial<Record<SafeguardTabId, HTMLButtonElement | null>>
+  >({});
 
   const model = useMemo(
     () =>
       workspace
-        ? buildSafeguardsPresentationModel({ safeguards: workspace.intelligence.safeguards, workspace })
+        ? buildSafeguardsPresentationModel({
+            safeguards: workspace.intelligence.safeguards,
+            workspace,
+          })
         : null,
     [workspace],
   );
@@ -179,14 +180,16 @@ export function SafeguardsScreen(props: {
   const isEmpty = model.rows.length === 0;
   const isNoMatch = !isEmpty && visibleRows.length === 0;
 
-  function moveTabFrom(
-    currentId: SafeguardTabId,
-    direction: -1 | 1,
-  ) {
+  function moveTabFrom(currentId: SafeguardTabId, direction: -1 | 1) {
     const currentIndex = TAB_ORDER.findIndex((entry) => entry.id === currentId);
     const nextIndex =
       (currentIndex + direction + TAB_ORDER.length) % TAB_ORDER.length;
-    setTab(TAB_ORDER[nextIndex]!.id);
+    moveTabTo(TAB_ORDER[nextIndex]!.id);
+  }
+
+  function moveTabTo(nextId: SafeguardTabId) {
+    setTab(nextId);
+    tabButtonRefs.current[nextId]?.focus();
   }
 
   return (
@@ -199,9 +202,9 @@ export function SafeguardsScreen(props: {
           Safeguards
         </h1>
         <p className="max-w-3xl text-(length:--text-small) leading-6 text-foreground-soft">
-          Automatic pauses and quality gates that keep high-volume discovery
-          and application preparation safe. Every pause records an exact reason
-          and recovery action, and none of them can grant credentials, CAPTCHA,
+          Automatic pauses and quality gates that keep high-volume discovery and
+          application preparation safe. These are local tracking facts: they can
+          pause discovery or preparation, but never grant credentials, CAPTCHA,
           MFA, consent, account creation, or final-submit authority.
         </p>
       </header>
@@ -224,7 +227,9 @@ export function SafeguardsScreen(props: {
           role="status"
         >
           <ShieldCheck aria-hidden="true" className="size-4 text-positive" />
-          <span>No active safeguard blockers. Discovery and preparation are clear.</span>
+          <span>
+            No active safeguard blockers. Discovery and preparation are clear.
+          </span>
         </div>
       )}
 
@@ -237,8 +242,11 @@ export function SafeguardsScreen(props: {
         </p>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-56 flex-1">
+      <div
+        className="grid min-w-0 gap-3 lg:grid-cols-[minmax(14rem,1fr)_minmax(0,3fr)] lg:items-start"
+        data-safeguard-toolbar
+      >
+        <div className="relative min-w-0">
           <Search
             aria-hidden="true"
             className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
@@ -255,7 +263,8 @@ export function SafeguardsScreen(props: {
         </div>
         <div
           aria-label="Safeguard categories"
-          className="flex flex-wrap items-center gap-1 rounded-full border border-(--surface-panel-border) bg-(--surface-panel) p-1"
+          className="flex min-w-0 w-full flex-wrap items-center gap-1 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-1"
+          data-safeguard-categories
           role="tablist"
         >
           {TAB_ORDER.map((entry) => {
@@ -288,8 +297,9 @@ export function SafeguardsScreen(props: {
                 key={entry.id}
                 onClick={() => setTab(entry.id)}
                 onKeyDown={(event) => {
-                  const currentId = event.currentTarget.dataset
-                    .tabId as SafeguardTabId | undefined;
+                  const currentId = event.currentTarget.dataset.tabId as
+                    | SafeguardTabId
+                    | undefined;
                   if (!currentId) return;
                   if (event.key === "ArrowLeft") {
                     event.preventDefault();
@@ -299,11 +309,14 @@ export function SafeguardsScreen(props: {
                     moveTabFrom(currentId, 1);
                   } else if (event.key === "Home") {
                     event.preventDefault();
-                    setTab(TAB_ORDER[0]!.id);
+                    moveTabTo(TAB_ORDER[0]!.id);
                   } else if (event.key === "End") {
                     event.preventDefault();
-                    setTab(TAB_ORDER[TAB_ORDER.length - 1]!.id);
+                    moveTabTo(TAB_ORDER[TAB_ORDER.length - 1]!.id);
                   }
+                }}
+                ref={(button) => {
+                  tabButtonRefs.current[entry.id] = button;
                 }}
                 role="tab"
                 type="button"

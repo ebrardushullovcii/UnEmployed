@@ -3,6 +3,7 @@ import {
   ApplyExecutionResultSchema,
   UserActionRequestSchema,
 } from "@unemployed/contracts";
+import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
 import { describe, expect, test, vi } from "vitest";
 
 import { persistApplicationUserAction } from "./internal/workspace-application-user-action";
@@ -470,14 +471,17 @@ describe("application login UserActionRequest adoption", () => {
       submitAuthorized: false,
       accountCreationAuthorized: false,
     });
-    expect(executeApplicationFlow).toHaveBeenCalledWith(
-      "target_site",
-      expect.objectContaining({
-        mode: "prepare_only",
-        accountCreationAuthorized: false,
-        submitAuthorized: false,
-      }),
-    );
+    expect(executeApplicationFlow).toHaveBeenCalledOnce();
+    const executionCall = executeApplicationFlow.mock.calls[0] as unknown as
+      | Parameters<BrowserSessionRuntime["executeApplicationFlow"]>
+      | undefined;
+    expect(executionCall?.[0]).toBe("target_site");
+    expect(executionCall?.[1]).toMatchObject({
+      mode: "prepare_only",
+      accountCreationAuthorized: false,
+      submitAuthorized: false,
+    });
+    expect(executionCall?.[2]?.signal).toBeInstanceOf(AbortSignal);
   });
   test("synthesizes an exact resumable checkpoint when a blocker omits runtime checkpoints", async () => {
     const seed = createSeed();
@@ -676,16 +680,32 @@ describe("application login UserActionRequest adoption", () => {
     await expect(
       harness.workspaceService.startApplyCopilotRun("job_ready"),
     ).rejects.toThrow(/without final-submit authorization/iu);
-    expect(executeApplicationFlow).toHaveBeenCalledWith(
-      "target_site",
+    expect(executeApplicationFlow).toHaveBeenCalledOnce();
+    const executionCall = executeApplicationFlow.mock.calls[0] as unknown as
+      | Parameters<BrowserSessionRuntime["executeApplicationFlow"]>
+      | undefined;
+    expect(executionCall?.[0]).toBe("target_site");
+    expect(executionCall?.[1]).toMatchObject({
+      mode: "prepare_only",
+      accountCreationAuthorized: false,
+      submitAuthorized: false,
+    });
+    expect(executionCall?.[2]?.signal).toBeInstanceOf(AbortSignal);
+    expect(await harness.repository.listApplyRuns()).toEqual([
       expect.objectContaining({
-        mode: "prepare_only",
-        accountCreationAuthorized: false,
-        submitAuthorized: false,
+        state: "failed",
+        currentJobId: "job_ready",
+        failedJobs: 1,
+        submittedJobs: 0,
       }),
-    );
-    expect(await harness.repository.listApplyRuns()).toEqual([]);
-    expect(await harness.repository.listApplyJobResults()).toEqual([]);
+    ]);
+    expect(await harness.repository.listApplyJobResults()).toEqual([
+      expect.objectContaining({
+        jobId: "job_ready",
+        state: "failed",
+        summary: "Application preparation failed.",
+      }),
+    ]);
   });
 
   test("keeps a two-job queue moving after the first job requests browser login", async () => {

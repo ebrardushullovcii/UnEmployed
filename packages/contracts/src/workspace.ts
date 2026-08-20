@@ -168,6 +168,8 @@ export type JobFinderRestoreResumeDraftRevisionInput = z.infer<
 
 export const JobFinderPreviewResumeDraftInputSchema = z.object({
   draft: ResumeDraftSchema,
+  /** Monotonic renderer-local identity used to supersede stale preview work. */
+  requestId: NonEmptyStringSchema.default("resume_preview_legacy"),
 });
 export type JobFinderPreviewResumeDraftInput = z.infer<
   typeof JobFinderPreviewResumeDraftInputSchema
@@ -620,9 +622,8 @@ export const JobFinderResumeWorkspaceStrategyContextSchema = z
     roleFamily: NonEmptyStringSchema.nullable().default(null),
     recommendedStrategyId: NonEmptyStringSchema.nullable().default(null),
     recommendedStrategyName: NonEmptyStringSchema.nullable().default(null),
-    recommendationSource: ResumeStrategyRecommendationSourceSchema.default(
-      "none",
-    ),
+    recommendationSource:
+      ResumeStrategyRecommendationSourceSchema.default("none"),
     recommendationReason: NonEmptyStringSchema.nullable().default(null),
     selectedStrategyId: NonEmptyStringSchema.nullable().default(null),
     selectedStrategyName: NonEmptyStringSchema.nullable().default(null),
@@ -638,13 +639,10 @@ export const JobFinderResumeWorkspaceStrategyContextSchema = z
     templateId: ResumeTemplateIdSchema.nullable().default(null),
     headlinePolicy: ResumeStrategyHeadlinePolicySchema.nullable().default(null),
     skillsPolicy: ResumeStrategySkillsPolicySchema.nullable().default(null),
-    coveragePolicy: ResumeStrategyCoveragePolicySchema.nullable().default(
-      null,
-    ),
+    coveragePolicy: ResumeStrategyCoveragePolicySchema.nullable().default(null),
     tailoringStrength: TailoringModeSchema.nullable().default(null),
-    evidenceBoundaries: ResumeStrategyEvidenceBoundariesSchema.nullable().default(
-      null,
-    ),
+    evidenceBoundaries:
+      ResumeStrategyEvidenceBoundariesSchema.nullable().default(null),
   })
   .strict();
 export type JobFinderResumeWorkspaceStrategyContext = z.infer<
@@ -664,8 +662,8 @@ export const JobFinderResumeWorkspaceSchema = z.object({
   workHistoryReviewSuggestions: z
     .array(WorkHistoryReviewSuggestionSchema)
     .default([]),
-  strategyContext: JobFinderResumeWorkspaceStrategyContextSchema.nullable()
-    .default(null),
+  strategyContext:
+    JobFinderResumeWorkspaceStrategyContextSchema.nullable().default(null),
 });
 export type JobFinderResumeWorkspace = z.infer<
   typeof JobFinderResumeWorkspaceSchema
@@ -676,9 +674,31 @@ export type JobFinderResumePreview = z.infer<
   typeof JobFinderResumePreviewSchema
 >;
 
+export const JobFinderWorkspaceHydrationSchema = z
+  .object({
+    phase: z.enum(["bootstrap", "complete"]).default("complete"),
+    deferredCollections: z
+      .array(
+        z.enum([
+          "discovery_jobs",
+          "review_queue",
+          "applications",
+          "source_history",
+          "documents",
+          "intelligence",
+        ]),
+      )
+      .default([]),
+  })
+  .strict();
+export type JobFinderWorkspaceHydration = z.infer<
+  typeof JobFinderWorkspaceHydrationSchema
+>;
+
 export const JobFinderWorkspaceSnapshotSchema = z.object({
   module: z.literal("job-finder"),
   generatedAt: IsoDateTimeSchema,
+  hydration: JobFinderWorkspaceHydrationSchema.default({}),
   agentProvider: AgentProviderStatusSchema,
   visionProvider: AgentProviderStatusSchema.nullable().default(null),
   availableResumeTemplates: z.array(ResumeTemplateDefinitionSchema).default([]),

@@ -305,15 +305,24 @@ export function createWorkspaceApplicationAnswerMethods(
       submittedAt: null,
     });
 
-    await Promise.all([
-      ctx.repository.upsertApplicationAnswerRecord(answer),
-      ctx.repository.upsertApplicationQuestionRecord({
-        ...question,
-        selectedAnswerId: answer.id,
-        submittedAnswer: answer.text,
-        status: "answered",
-      }),
-    ]);
+    const mutationResult = await ctx.repository.commitApplicationAnswerMutation(
+      {
+        expectedAnswer: latestAnswer,
+        expectedQuestion: question,
+        answer,
+        question: {
+          ...question,
+          selectedAnswerId: answer.id,
+          submittedAnswer: answer.text,
+          status: "answered",
+        },
+      },
+    );
+    if (mutationResult === "stale") {
+      throw new Error(
+        "This answer changed in another view. Reload the application before replacing it.",
+      );
+    }
     return getApplyRunDetails(command.runId, command.jobId);
   }
 
@@ -340,40 +349,48 @@ export function createWorkspaceApplicationAnswerMethods(
     }
 
     const clearedAt = new Date().toISOString();
-    await Promise.all([
-      ctx.repository.upsertApplicationAnswerRecord(
-        ApplicationAnswerRecordSchema.parse({
-          ...latestAnswer,
-          id: `application_answer_${command.commandId}`,
-          status: "rejected",
-          text: "Answer cleared by the user",
-          value: null,
-          revision: latestAnswer.revision + 1,
-          saveScope: "application_once",
-          supersedesAnswerId: latestAnswer.id,
+    const answer = ApplicationAnswerRecordSchema.parse({
+      ...latestAnswer,
+      id: `application_answer_${command.commandId}`,
+      status: "rejected",
+      text: "Answer cleared by the user",
+      value: null,
+      revision: latestAnswer.revision + 1,
+      saveScope: "application_once",
+      supersedesAnswerId: latestAnswer.id,
+      sourceKind: "user",
+      sourceId: command.commandId,
+      confidenceLabel: "Cleared before application preparation continued",
+      provenance: [
+        {
+          id: `application_answer_provenance_${command.commandId}`,
           sourceKind: "user",
           sourceId: command.commandId,
-          confidenceLabel: "Cleared before application preparation continued",
-          provenance: [
-            {
-              id: `application_answer_provenance_${command.commandId}`,
-              sourceKind: "user",
-              sourceId: command.commandId,
-              label: "Cleared from this application",
-              snippet: question.prompt,
-            },
-          ],
-          createdAt: clearedAt,
-          submittedAt: null,
-        }),
-      ),
-      ctx.repository.upsertApplicationQuestionRecord({
-        ...question,
-        selectedAnswerId: null,
-        submittedAnswer: null,
-        status: "detected",
-      }),
-    ]);
+          label: "Cleared from this application",
+          snippet: question.prompt,
+        },
+      ],
+      createdAt: clearedAt,
+      submittedAt: null,
+    });
+    const mutationResult = await ctx.repository.commitApplicationAnswerMutation(
+      {
+        expectedAnswer: latestAnswer,
+        expectedQuestion: question,
+        answer,
+        question: {
+          ...question,
+          selectedAnswerId: null,
+          submittedAnswer: null,
+          status: "detected",
+        },
+      },
+    );
+    if (mutationResult === "stale") {
+      throw new Error(
+        "This answer changed in another view. Reload the application before replacing it.",
+      );
+    }
     return getApplyRunDetails(command.runId, command.jobId);
   }
 

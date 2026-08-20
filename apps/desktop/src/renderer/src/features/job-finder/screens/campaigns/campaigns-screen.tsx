@@ -5,12 +5,13 @@ import {
   type JobSearchCampaign,
   type JobSearchCampaignMode,
   type JobSearchCampaignSchedule,
+  type JobSearchPreferences,
   type SaveCampaignRuleInput,
   type SaveJobSearchCampaignInput,
 } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
 import { Input } from "@renderer/components/ui/input";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CollectionNoMatches,
   CollectionSearchToolbar,
@@ -96,18 +97,48 @@ function campaignToInput(
 }
 
 function newCampaignFrom(
-  campaign: JobSearchCampaign,
+  campaign: JobSearchCampaign | null,
 ): SaveJobSearchCampaignInput {
   const defaults = getDefaultCampaignConfiguration("precision");
+  const searchPreferences: JobSearchPreferences =
+    campaign?.searchPreferences ?? {
+      targetRoles: [],
+      jobFamilies: [],
+      locations: [],
+      excludedLocations: [],
+      workModes: ["remote"],
+      seniorityLevels: [],
+      targetIndustries: [],
+      targetCompanyStages: [],
+      employmentTypes: [],
+      minimumSalaryUsd: null,
+      targetSalaryUsd: null,
+      salaryCurrency: "USD",
+      compensation: {
+        minimum: null,
+        maximum: null,
+        interval: "year",
+        currency: null,
+        currencyStatus: "needs_clarification",
+      },
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
+      companyBlacklist: [],
+      companyWhitelist: [],
+      discovery: {
+        targets: [],
+        historyLimit: 5,
+      },
+    };
   return {
     id: null,
     name: "New job search",
     description: "",
     mode: "precision",
     status: "active",
-    searchPreferences: campaign.searchPreferences,
-    sourceTargetIds: campaign.sourceTargetIds,
-    minimumFitScore: campaign.minimumFitScore,
+    searchPreferences,
+    sourceTargetIds: campaign?.sourceTargetIds ?? [],
+    minimumFitScore: campaign?.minimumFitScore ?? null,
     limits: defaults.limits,
     stopRules: defaults.stopRules,
     applicationPolicy: defaults.applicationPolicy,
@@ -141,6 +172,18 @@ function CampaignEditor(props: {
   const [pauseWindowStartsAt, setPauseWindowStartsAt] = useState("");
   const [pauseWindowEndsAt, setPauseWindowEndsAt] = useState("");
   const [pauseWindowReason, setPauseWindowReason] = useState("");
+  const pauseWindowStart = toIsoDateTime(pauseWindowStartsAt);
+  const pauseWindowEnd = toIsoDateTime(pauseWindowEndsAt);
+  const pauseWindowValidationMessage =
+    pauseWindowStartsAt.trim() && pauseWindowStart === null
+      ? "Enter a valid pause start date and time."
+      : pauseWindowEndsAt.trim() && pauseWindowEnd === null
+        ? "Enter a valid pause end date and time."
+        : pauseWindowStart !== null &&
+            pauseWindowEnd !== null &&
+            Date.parse(pauseWindowEnd) <= Date.parse(pauseWindowStart)
+          ? "Pause window end must be later than its start."
+          : null;
   const updateMode = (mode: JobSearchCampaignMode) => {
     const defaults = getDefaultCampaignConfiguration(mode);
     setDraft((current) => ({
@@ -152,9 +195,7 @@ function CampaignEditor(props: {
     }));
   };
 
-  const updateSchedule = (
-    patch: Partial<JobSearchCampaignSchedule>,
-  ) => {
+  const updateSchedule = (patch: Partial<JobSearchCampaignSchedule>) => {
     setDraft((current) => ({
       ...current,
       schedule: { ...current.schedule, ...patch },
@@ -162,14 +203,17 @@ function CampaignEditor(props: {
   };
 
   const addPauseWindow = () => {
-    const startsAt = toIsoDateTime(pauseWindowStartsAt);
-    const endsAt = toIsoDateTime(pauseWindowEndsAt);
-    if (startsAt === null || endsAt === null) return;
-    if (Date.parse(endsAt) <= Date.parse(startsAt)) return;
+    if (
+      pauseWindowStart === null ||
+      pauseWindowEnd === null ||
+      pauseWindowValidationMessage !== null
+    ) {
+      return;
+    }
     const window: CampaignPauseWindow = {
       id: `pause_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      startsAt,
-      endsAt,
+      startsAt: pauseWindowStart,
+      endsAt: pauseWindowEnd,
       reason: pauseWindowReason.trim() || null,
       enabled: true,
     };
@@ -806,18 +850,17 @@ function CampaignEditor(props: {
           ) : null}
           {draft.schedule.enabled && draft.schedule.mode !== "manual" ? (
             <p className="text-xs text-foreground-muted">
-              The local scheduler runs this campaign automatically when its
-              next run time is due, then persists the new next run. Pause
-              windows and the global activity pause hold the run until they
-              end.
+              The local scheduler runs this campaign automatically when its next
+              run time is due, then persists the new next run. Pause windows and
+              the global activity pause hold the run until they end.
             </p>
           ) : null}
           <fieldset className="grid gap-2">
             <legend className="text-sm">Pause windows</legend>
             <p className="text-xs text-foreground-muted">
               While any enabled pause window is active, a due scheduled run is
-              held and executes once when the window ends. Manual Run now is
-              not blocked by pause windows.
+              held and executes once when the window ends. Manual Run now is not
+              blocked by pause windows.
             </p>
             {draft.schedule.pauseWindows.length === 0 ? (
               <p className="text-xs text-foreground-muted">
@@ -864,6 +907,15 @@ function CampaignEditor(props: {
                 <span>Starts</span>
                 <Input
                   aria-label="Pause window starts"
+                  aria-describedby={
+                    pauseWindowValidationMessage
+                      ? "pause-window-validation"
+                      : undefined
+                  }
+                  aria-invalid={
+                    pauseWindowValidationMessage !== null &&
+                    (pauseWindowStart === null || pauseWindowEnd !== null)
+                  }
                   onChange={(event) =>
                     setPauseWindowStartsAt(event.target.value)
                   }
@@ -875,6 +927,15 @@ function CampaignEditor(props: {
                 <span>Ends</span>
                 <Input
                   aria-label="Pause window ends"
+                  aria-describedby={
+                    pauseWindowValidationMessage
+                      ? "pause-window-validation"
+                      : undefined
+                  }
+                  aria-invalid={
+                    pauseWindowValidationMessage !== null &&
+                    (pauseWindowEnd === null || pauseWindowStart !== null)
+                  }
                   onChange={(event) => setPauseWindowEndsAt(event.target.value)}
                   type="datetime-local"
                   value={pauseWindowEndsAt}
@@ -884,9 +945,7 @@ function CampaignEditor(props: {
                 <span>Reason</span>
                 <Input
                   aria-label="Pause window reason"
-                  onChange={(event) =>
-                    setPauseWindowReason(event.target.value)
-                  }
+                  onChange={(event) => setPauseWindowReason(event.target.value)}
                   placeholder="Vacation, meetings…"
                   value={pauseWindowReason}
                 />
@@ -894,8 +953,9 @@ function CampaignEditor(props: {
               <Button
                 className="self-end"
                 disabled={
-                  pauseWindowStartsAt.length === 0 ||
-                  pauseWindowEndsAt.length === 0
+                  pauseWindowStartsAt.trim().length === 0 ||
+                  pauseWindowEndsAt.trim().length === 0 ||
+                  pauseWindowValidationMessage !== null
                 }
                 onClick={addPauseWindow}
                 type="button"
@@ -904,6 +964,15 @@ function CampaignEditor(props: {
                 Add pause window
               </Button>
             </div>
+            {pauseWindowValidationMessage ? (
+              <p
+                className="text-sm text-destructive"
+                id="pause-window-validation"
+                role="alert"
+              >
+                {pauseWindowValidationMessage}
+              </p>
+            ) : null}
           </fieldset>
           <div className="grid gap-2 rounded-(--radius-field) border border-border-subtle p-3">
             <h4 className="text-sm font-semibold text-(--text-headline)">
@@ -926,9 +995,11 @@ function CampaignEditor(props: {
             ) : null}
             {draft.schedule.runFacts.consecutiveFailures > 0 ? (
               <p className="text-xs text-foreground-muted">
-                {draft.schedule.runFacts.consecutiveFailures} consecutive
-                failed run
-                {draft.schedule.runFacts.consecutiveFailures === 1 ? "" : "s"}{" "}
+                {draft.schedule.runFacts.consecutiveFailures} consecutive failed
+                run
+                {draft.schedule.runFacts.consecutiveFailures === 1
+                  ? ""
+                  : "s"}{" "}
                 recorded.
               </p>
             ) : null}
@@ -988,6 +1059,18 @@ export function CampaignsScreen(props: {
     null,
   );
   const [rulesCampaignId, setRulesCampaignId] = useState<string | null>(null);
+  const rulesOpenerRef = useRef<HTMLButtonElement | null>(null);
+  const wasRulesOpenRef = useRef(false);
+  useEffect(() => {
+    const wasOpen = wasRulesOpenRef.current;
+    const isOpen = rulesCampaignId !== null;
+    wasRulesOpenRef.current = isOpen;
+
+    if (!isOpen && wasOpen) {
+      rulesOpenerRef.current?.focus();
+      rulesOpenerRef.current = null;
+    }
+  }, [rulesCampaignId]);
   const filteredCampaigns = useMemo(
     () =>
       props.campaigns.filter((campaign) =>
@@ -1005,8 +1088,7 @@ export function CampaignsScreen(props: {
       (campaign) => campaign.id === props.activeCampaignId,
     ) ?? props.campaigns[0];
   const rulesCampaign =
-    props.campaigns.find((campaign) => campaign.id === rulesCampaignId) ??
-    null;
+    props.campaigns.find((campaign) => campaign.id === rulesCampaignId) ?? null;
 
   return (
     <section className="grid gap-5 pb-8">
@@ -1018,9 +1100,7 @@ export function CampaignsScreen(props: {
           description="Keep different job searches separate, with their own scope, volume, safety rules, and progress."
         />
         <Button
-          onClick={() =>
-            activeCampaign && setEditing(newCampaignFrom(activeCampaign))
-          }
+          onClick={() => setEditing(newCampaignFrom(activeCampaign ?? null))}
           type="button"
         >
           New campaign
@@ -1091,13 +1171,16 @@ export function CampaignsScreen(props: {
             const active = campaign.id === props.activeCampaignId;
             return (
               <article
-                className={`surface-panel-shell grid gap-4 rounded-(--radius-panel) border p-5 ${active ? "border-accent/60" : "border-(--surface-panel-border)"}`}
+                className={`surface-panel-shell grid min-w-0 gap-4 rounded-(--radius-panel) border p-5 ${active ? "border-accent/60" : "border-(--surface-panel-border)"}`}
                 key={campaign.id}
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
+                <div className="flex min-w-0 items-start justify-between gap-3">
+                  <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="text-lg font-semibold text-(--text-headline)">
+                      <h2
+                        className="min-w-0 break-words text-lg font-semibold text-(--text-headline)"
+                        title={campaign.name}
+                      >
                         {campaign.name}
                       </h2>
                       {active ? (
@@ -1110,7 +1193,7 @@ export function CampaignsScreen(props: {
                       {campaign.mode} mode · {campaign.status}
                     </p>
                   </div>
-                  <strong className="text-sm text-(--text-headline)">
+                  <strong className="shrink-0 text-sm text-(--text-headline)">
                     {campaign.progress.jobsRetained} retained
                   </strong>
                 </div>
@@ -1241,7 +1324,8 @@ export function CampaignsScreen(props: {
                     </Button>
                   ) : null}
                   <Button
-                    onClick={() => {
+                    onClick={(event) => {
+                      rulesOpenerRef.current = event.currentTarget;
                       setRulesCampaignId(campaign.id);
                       props.onRefreshCampaignRuleFunnel?.(campaign.id);
                     }}

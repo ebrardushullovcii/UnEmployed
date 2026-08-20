@@ -1,7 +1,6 @@
 import {
   JobFinderIntelligenceStateSchema,
   type CompanyEntity,
-  type SavedJob,
 } from "@unemployed/contracts";
 import {
   createInMemoryJobFinderRepository,
@@ -635,6 +634,6 @@ describe("workspace service high-volume safeguards", () => {
       },
       provenance: [],
     });
-    expect((job as SavedJob).company).toBe("Acme");
+    expect(job.company).toBe("Acme");
   });
 });

@@ -206,70 +206,99 @@ export function projectCompanyDuplicateJobs(input: {
   );
   if (linked.length < 2) return [];
 
-  const keysByJobId = new Map<string, ReturnType<typeof jobIdentityKeys>>();
-  for (const job of linked) {
-    keysByJobId.set(job.id, jobIdentityKeys(job));
-  }
-
-  const groups: CompanyDuplicateJobGroup[] = [];
-  const visited = new Set<string>();
-
-  for (let firstIndex = 0; firstIndex < linked.length; firstIndex += 1) {
-    const first = linked[firstIndex]!;
-    for (
-      let secondIndex = firstIndex + 1;
-      secondIndex < linked.length;
-      secondIndex += 1
-    ) {
-      const second = linked[secondIndex]!;
-      const pairKey =
-        first.id < second.id
-          ? `${first.id}|${second.id}`
-          : `${second.id}|${first.id}`;
-      if (visited.has(pairKey)) continue;
-      visited.add(pairKey);
-
-      const firstKeys = keysByJobId.get(first.id)!;
-      const secondKeys = keysByJobId.get(second.id)!;
-
-      let sharedStrong = false;
-      for (const key of firstKeys.strong) {
-        if (secondKeys.strong.has(key)) {
-          sharedStrong = true;
-          break;
-        }
+  const strongIndex = new Map<string, number[]>();
+  const weakIndex = new Map<string, number[]>();
+  for (const [jobIndex, job] of linked.entries()) {
+    const keys = jobIdentityKeys(job);
+    for (const key of keys.strong) {
+      const bucket = strongIndex.get(key);
+      if (bucket) {
+        bucket.push(jobIndex);
+      } else {
+        strongIndex.set(key, [jobIndex]);
       }
-      if (sharedStrong) {
-        groups.push({
-          id: `duplicate_${first.id}_${second.id}`,
-          kind: "exact",
-          reason: `"${first.title}" at ${first.company} matches an identical posting already saved here.`,
-          jobIds: [first.id, second.id].sort(),
-        });
-        continue;
-      }
-
-      let sharedWeak = false;
-      for (const key of firstKeys.weak) {
-        if (secondKeys.weak.has(key)) {
-          sharedWeak = true;
-          break;
-        }
-      }
-      if (sharedWeak) {
-        groups.push({
-          id: `duplicate_possible_${first.id}_${second.id}`,
-          kind: "possible",
-          reason: `"${first.title}" at ${first.company} may repeat "${second.title}" from ${second.location}. Review before treating them as the same role.`,
-          jobIds: [first.id, second.id].sort(),
-        });
+    }
+    for (const key of keys.weak) {
+      const bucket = weakIndex.get(key);
+      if (bucket) {
+        bucket.push(jobIndex);
+      } else {
+        weakIndex.set(key, [jobIndex]);
       }
     }
   }
 
+  type DuplicatePair = {
+    firstIndex: number;
+    secondIndex: number;
+    kind: CompanyDuplicateJobKind;
+  };
+  const duplicatePairs = new Map<string, DuplicatePair>();
+
+  const indexPairs = (
+    index: ReadonlyMap<string, readonly number[]>,
+    kind: CompanyDuplicateJobKind,
+  ) => {
+    for (const bucket of index.values()) {
+      if (bucket.length < 2) continue;
+      for (let firstOffset = 0; firstOffset < bucket.length; firstOffset += 1) {
+        for (
+          let secondOffset = firstOffset + 1;
+          secondOffset < bucket.length;
+          secondOffset += 1
+        ) {
+          const firstIndex = bucket[firstOffset]!;
+          const secondIndex = bucket[secondOffset]!;
+          const first = linked[firstIndex]!;
+          const second = linked[secondIndex]!;
+          const pairKey =
+            first.id < second.id
+              ? `${first.id}|${second.id}`
+              : `${second.id}|${first.id}`;
+          const existing = duplicatePairs.get(pairKey);
+          if (existing?.kind === "exact" || existing?.kind === kind) {
+            continue;
+          }
+          duplicatePairs.set(pairKey, {
+            firstIndex,
+            secondIndex,
+            kind,
+          });
+        }
+      }
+    }
+  };
+
+  // Strong identity always wins when a pair also shares a weak fact key.
+  indexPairs(strongIndex, "exact");
+  indexPairs(weakIndex, "possible");
+
+  const groups = [...duplicatePairs.values()].map((pair) => {
+    const first = linked[pair.firstIndex]!;
+    const second = linked[pair.secondIndex]!;
+    return {
+      id: `${pair.kind === "exact" ? "duplicate" : "duplicate_possible"}_${first.id}_${second.id}`,
+      kind: pair.kind,
+      reason:
+        pair.kind === "exact"
+          ? `"${first.title}" at ${first.company} matches an identical posting already saved here.`
+          : `"${first.title}" at ${first.company} may repeat "${second.title}" from ${second.location}. Review before treating them as the same role.`,
+      jobIds: [first.id, second.id].sort(),
+    } satisfies CompanyDuplicateJobGroup;
+  });
+
   return groups.sort((firstGroup, secondGroup) => {
     const firstJobId = firstGroup.jobIds[0] ?? "";
     const secondJobId = secondGroup.jobIds[0] ?? "";
-    return firstJobId < secondJobId ? -1 : firstJobId > secondJobId ? 1 : 0;
+    if (firstJobId !== secondJobId) {
+      return firstJobId < secondJobId ? -1 : 1;
+    }
+    const firstSecondJobId = firstGroup.jobIds[1] ?? "";
+    const secondSecondJobId = secondGroup.jobIds[1] ?? "";
+    return firstSecondJobId < secondSecondJobId
+      ? -1
+      : firstSecondJobId > secondSecondJobId
+        ? 1
+        : 0;
   });
 }

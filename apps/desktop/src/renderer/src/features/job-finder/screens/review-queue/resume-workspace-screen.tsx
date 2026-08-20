@@ -15,6 +15,7 @@ import { ResumeWorkspaceSidebar } from "./resume-workspace-sidebar";
 import { ResumeGuidedEditsPopup } from "./resume-guided-edits-popup";
 import { ResumeStudioPreviewPane } from "./resume-studio-preview-pane";
 import { ResumeWorkspaceStudioShell } from "./resume-workspace-studio-shell";
+import { getJobFinderScrollBehavior } from "../../lib/job-finder-scroll-behavior";
 import { ResumeWorkspaceTemplatePanel } from "./resume-workspace-template-panel";
 import { ResumeVersionHistoryPanel } from "./resume-version-history-panel";
 import { cloneDraft, formatDraftStatusLabel } from "./resume-workspace-utils";
@@ -495,7 +496,10 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
             ) as HTMLDetailsElement | null;
             if (details) {
               details.open = true;
-              details.scrollIntoView({ behavior: "smooth", block: "start" });
+              details.scrollIntoView({
+                behavior: getJobFinderScrollBehavior(),
+                block: "start",
+              });
               details.querySelector("summary")?.focus();
             }
           }}

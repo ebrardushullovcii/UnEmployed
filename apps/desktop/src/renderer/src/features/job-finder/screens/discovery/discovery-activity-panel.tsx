@@ -115,6 +115,7 @@ export function DiscoveryHistoryModal(props: {
   targets: readonly DiscoveryTargetConfig[];
 }) {
   const dialogTitleId = useId();
+  const dialogDescriptionId = useId();
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const eventStreamRef = useRef<HTMLDivElement | null>(null);
   const eventStreamEndRef = useRef<HTMLDivElement | null>(null);
@@ -340,6 +341,7 @@ export function DiscoveryHistoryModal(props: {
       onClick={props.onClose}
     >
       <div
+        aria-describedby={dialogDescriptionId}
         aria-labelledby={dialogTitleId}
         aria-modal="true"
         className="mx-auto flex min-h-0 max-h-(--discovery-history-max-height) w-full max-w-6xl flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) shadow-(--modal-shadow)"
@@ -359,7 +361,10 @@ export function DiscoveryHistoryModal(props: {
             >
               Search history
             </h2>
-            <p className="text-[0.9rem] leading-6 text-foreground-soft">
+            <p
+              className="text-[0.9rem] leading-6 text-foreground-soft"
+              id={dialogDescriptionId}
+            >
               {selectedRunIsLive
                 ? "Follow the current search here while new activity arrives."
                 : "See what happened in each earlier search."}
@@ -673,9 +678,18 @@ export function DiscoveryHistoryModal(props: {
             </div>
 
             <div
+              aria-atomic="false"
+              aria-label={
+                selectedRunIsLive
+                  ? "Current search activity"
+                  : "Search activity"
+              }
+              aria-live="polite"
+              aria-relevant="additions"
               className="grid min-h-0 gap-3 overflow-y-auto pr-2 pb-1"
               onScroll={handleEventStreamScroll}
               ref={eventStreamRef}
+              role="log"
             >
               {displayedEvents.length > 0 ? (
                 displayedEvents.map((event) => (

@@ -1,5 +1,6 @@
 import type { ResumeImportFieldCandidateSummary } from "@unemployed/contracts";
 import type { ProfileSection } from "../../lib/profile-screen-progress";
+import { getJobFinderScrollBehavior } from "../../lib/job-finder-scroll-behavior";
 
 export interface ProfileImportSuggestionDestination {
   actionLabel: string;
@@ -155,7 +156,10 @@ export function focusProfileImportSuggestion(
   }
 
   if (typeof target.scrollIntoView === "function") {
-    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    target.scrollIntoView({
+      behavior: getJobFinderScrollBehavior(documentRef.defaultView),
+      block: "center",
+    });
   }
   target.focus({ preventScroll: true });
   return true;

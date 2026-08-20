@@ -5,6 +5,7 @@ import {
   ApplicationAnswerSaveScopeSchema,
   ApplicationAttemptQuestionSchema,
   ApplyGroupedManualAnswerInputSchema,
+  ContradictoryAnswerDetectionSchema,
   GroupedDecisionJobLineageSchema,
   GroupedManualAnswerDecisionSchema,
   IsoDateTimeSchema,
@@ -19,6 +20,7 @@ import {
   type ApplyGroupedManualAnswerInput,
   type GroupedDecisionJobLineage,
   type GroupedManualAnswerDecision,
+  type ContradictoryAnswerDetection,
   type SnoozeGroupedDecisionInput,
   type UserActionRequest,
 } from "@unemployed/contracts";
@@ -138,11 +140,26 @@ export interface ProjectGroupedManualAnswerDecisionsInput {
 
 export interface ProjectGroupedManualAnswerDecisionsResult {
   decisions: readonly GroupedManualAnswerDecision[];
+  /** Advisory contradiction evidence; it never broadens or changes authority. */
+  contradictionEvidence: readonly GroupedAnswerContradictionEvidence[];
   groupedRequestCount: number;
   groupedJobCount: number;
   skippedRequestCount: number;
   skippedJobCount: number;
 }
+
+/** Durable contradiction evidence emitted when saved reusable answers disagree. */
+export type GroupedAnswerContradictionEvidence = Pick<
+  ContradictoryAnswerDetection,
+  | "questionA"
+  | "questionB"
+  | "answerA"
+  | "answerB"
+  | "contradictionScore"
+  | "detectedAt"
+  | "explanation"
+  | "recoveryGuidance"
+> & { detectionId: string };
 
 interface ProjectedMember {
   request: UserActionRequest;
@@ -159,11 +176,18 @@ interface ProjectedCluster {
   members: ProjectedMember[];
 }
 
-function savedAnswersConflict(
+function savedAnswerConflicts(
   input: ProjectGroupedManualAnswerDecisionsInput,
   meaning: string,
   answerText: string,
-): boolean {
+): Array<{
+  saved: ApplicationAnswerRecord;
+  question: ApplicationAttemptQuestion;
+}> {
+  const conflicts: Array<{
+    saved: ApplicationAnswerRecord;
+    question: ApplicationAttemptQuestion;
+  }> = [];
   for (const rawSaved of input.savedAnswers) {
     const savedResult = ApplicationAnswerRecordSchema.safeParse(rawSaved);
     if (!savedResult.success) continue;
@@ -174,17 +198,73 @@ function savedAnswersConflict(
     if (question === undefined) continue;
     if (normalizeAnswerQuestion(question.prompt) !== meaning) continue;
 
-    if (saved.value === null) {
-      if (saved.text !== answerText) return true;
-    } else if (saved.value.type === "text") {
-      if (saved.value.value !== answerText) return true;
-    } else {
-      // Choices, dates, and asset references can never be reused as text.
-      return true;
-    }
+    const conflictsWithText =
+      saved.value === null
+        ? saved.text !== answerText
+        : saved.value.type === "text"
+          ? saved.value.value !== answerText
+          : // Choices, dates, and asset references can never be reused as text.
+            true;
+    if (conflictsWithText) conflicts.push({ saved, question });
   }
 
-  return false;
+  return conflicts;
+}
+
+function savedAnswerDisplayValue(saved: ApplicationAnswerRecord): string {
+  if (saved.value === null) return saved.text;
+  if (saved.value.type === "text") return saved.value.value;
+  return `${saved.value.type} answer`;
+}
+
+function buildContradictionEvidence(input: {
+  clusterKey: string;
+  groupKey: string;
+  questionMeaning: string;
+  saved: ApplicationAnswerRecord;
+  savedQuestion: ApplicationAttemptQuestion;
+  answerText: string;
+  detectedAt: string;
+}): GroupedAnswerContradictionEvidence {
+  const questionA = `${input.savedQuestion.prompt.trim()} (saved answer ${input.saved.id})`;
+  const questionB = `${input.savedQuestion.prompt.trim()} (group answer ${input.groupKey}:${input.clusterKey.slice(0, 16)})`;
+  const answerA = savedAnswerDisplayValue(input.saved);
+  const answerB = input.answerText;
+  const detectionId = `grouped_answer_contradiction_${sha256({
+    version: 1,
+    groupKey: input.groupKey,
+    clusterKey: input.clusterKey,
+    questionMeaning: input.questionMeaning,
+    savedAnswerId: input.saved.id,
+    answerA,
+    answerB,
+  }).slice(0, 32)}`;
+
+  const detection = ContradictoryAnswerDetectionSchema.parse({
+    id: detectionId,
+    questionA,
+    questionB,
+    answerA,
+    answerB,
+    contradictionScore: 1,
+    status: "detected",
+    detectedAt: input.detectedAt,
+    resolvedAt: null,
+    explanation: `Reusable answer '${input.saved.id}' conflicts with the grouped answer for '${input.questionMeaning}'.`,
+    recoveryGuidance:
+      "Review the saved answer and grouped answer separately; resolve or dismiss the advisory contradiction before reusing either value.",
+  });
+  return {
+    detectionId: detection.id,
+    questionA: detection.questionA,
+    questionB: detection.questionB,
+    answerA: detection.answerA,
+    answerB: detection.answerB,
+    contradictionScore: detection.contradictionScore,
+    detectedAt: detection.detectedAt,
+    explanation: detection.explanation,
+    recoveryGuidance: detection.recoveryGuidance,
+  };
 }
 
 function buildLineageEntry(member: ProjectedMember): GroupedDecisionJobLineage {
@@ -335,6 +415,7 @@ export function projectGroupedManualAnswerDecisions(
   }
 
   const decisions: GroupedManualAnswerDecision[] = [];
+  const contradictionEvidence: GroupedAnswerContradictionEvidence[] = [];
   for (const [clusterKey, cluster] of clusters.entries()) {
     if (cluster.members.length < 2) {
       for (const member of cluster.members) {
@@ -344,7 +425,25 @@ export function projectGroupedManualAnswerDecisions(
       continue;
     }
 
-    if (savedAnswersConflict(input, cluster.questionMeaning, answerText)) {
+    const conflicts = savedAnswerConflicts(
+      input,
+      cluster.questionMeaning,
+      answerText,
+    );
+    if (conflicts.length > 0) {
+      for (const conflict of conflicts) {
+        contradictionEvidence.push(
+          buildContradictionEvidence({
+            clusterKey,
+            groupKey,
+            questionMeaning: cluster.questionMeaning,
+            saved: conflict.saved,
+            savedQuestion: conflict.question,
+            answerText,
+            detectedAt: occurredAt,
+          }),
+        );
+      }
       for (const member of cluster.members) {
         skippedRequestCount += 1;
         skippedJobIds.add(member.jobId);
@@ -396,6 +495,7 @@ export function projectGroupedManualAnswerDecisions(
 
   return {
     decisions,
+    contradictionEvidence,
     groupedRequestCount: groupedRequestIds.size,
     groupedJobCount: groupedJobIds.size,
     skippedRequestCount,

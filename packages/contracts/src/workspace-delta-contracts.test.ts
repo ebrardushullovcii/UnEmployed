@@ -103,6 +103,7 @@ describe("workspace delta contracts", () => {
         },
       },
       activityControl: { paused: false, pausedAt: null, reason: null },
+      intelligence: { groupedDecisions: [] },
       selectedDiscoveryJobId: "job-2",
       selectedReviewJobId: null,
       selectedApplyRunId: null,

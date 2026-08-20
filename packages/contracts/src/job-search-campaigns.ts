@@ -50,6 +50,19 @@ export const JobSearchCampaignApplicationPolicySchema = z.object({
   requireReviewBeforePreparation: z.boolean(),
   requireReviewBeforeExternalWrite: z.literal(true).default(true),
   finalSubmitAuthorized: z.literal(false).default(false),
+  /**
+   * Fraction of a prepared automatic queue that must be reviewed before the
+   * queue can be treated as quality-checked. The default keeps persisted
+   * campaigns from gaining a new required field during migration.
+   */
+  qualityReviewSampleRatio: z.number().min(0).max(1).default(0.2),
+  /** The active window used when comparing verified submissions for conflicts. */
+  simultaneousApplicationWindowDays: z
+    .number()
+    .int()
+    .min(1)
+    .max(365)
+    .default(1),
 });
 export type JobSearchCampaignApplicationPolicy = z.infer<
   typeof JobSearchCampaignApplicationPolicySchema
@@ -251,6 +264,8 @@ export function getDefaultCampaignConfiguration(mode: JobSearchCampaignMode) {
           requireReviewBeforePreparation: true,
           requireReviewBeforeExternalWrite: true as const,
           finalSubmitAuthorized: false as const,
+          qualityReviewSampleRatio: 0.2,
+          simultaneousApplicationWindowDays: 1,
         },
       }
     : {
@@ -272,6 +287,8 @@ export function getDefaultCampaignConfiguration(mode: JobSearchCampaignMode) {
           requireReviewBeforePreparation: false,
           requireReviewBeforeExternalWrite: true as const,
           finalSubmitAuthorized: false as const,
+          qualityReviewSampleRatio: 0.2,
+          simultaneousApplicationWindowDays: 1,
         },
       };
 }

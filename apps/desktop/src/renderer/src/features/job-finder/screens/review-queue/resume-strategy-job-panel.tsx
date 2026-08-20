@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   ResumeStrategy,
   ResumeStrategyRecommendation,
@@ -40,6 +40,12 @@ export function ResumeStrategyJobPanel(props: ResumeStrategyJobPanelProps) {
     "loading" | "ready" | "error"
   >("loading");
   const [recommendError, setRecommendError] = useState<string | null>(null);
+  const onRecommendRef = useRef(props.onRecommend);
+  const recommendationRequestRef = useRef<{
+    jobId: string;
+    promise: Promise<ResumeStrategyRecommendation | null>;
+  } | null>(null);
+  onRecommendRef.current = props.onRecommend;
 
   useEffect(() => {
     let cancelled = false;
@@ -47,8 +53,19 @@ export function ResumeStrategyJobPanel(props: ResumeStrategyJobPanelProps) {
     setRecommendation(null);
     setRecommendError(null);
 
-    void props
-      .onRecommend({ jobId: props.jobId })
+    const existingRequest = recommendationRequestRef.current;
+    const request =
+      existingRequest?.jobId === props.jobId
+        ? existingRequest.promise
+        : Promise.resolve().then(() =>
+            onRecommendRef.current({ jobId: props.jobId }),
+          );
+    recommendationRequestRef.current = {
+      jobId: props.jobId,
+      promise: request,
+    };
+
+    void request
       .then((result) => {
         if (cancelled) return;
         setRecommendation(result);
@@ -67,7 +84,7 @@ export function ResumeStrategyJobPanel(props: ResumeStrategyJobPanelProps) {
     return () => {
       cancelled = true;
     };
-  }, [props.jobId, props.onRecommend]);
+  }, [props.jobId]);
 
   const selection = useMemo(
     () => props.selections.find((entry) => entry.jobId === props.jobId) ?? null,

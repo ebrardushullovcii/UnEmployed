@@ -21,6 +21,7 @@ import {
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
 import { formatDateOnly } from "../../lib/job-finder-utils";
+import { buildJobFinderContextRoute } from "../../lib/job-finder-context-navigation";
 import {
   CollectionNoMatches,
   CollectionSearchToolbar,
@@ -41,6 +42,35 @@ const terminalStates = new Set<UserActionRequest["state"]>([
   "expired",
   "superseded",
 ]);
+
+export function getUserActionContextRoute(
+  request: Pick<UserActionRequest, "scope">,
+  applicationRecords?: readonly JobFinderWorkspaceSnapshot["applicationRecords"][number][],
+): string {
+  if (request.scope.type === "discovery_source") {
+    return buildJobFinderContextRoute("/job-finder/discovery", {
+      targetId: request.scope.targetId,
+    });
+  }
+
+  if (!applicationRecords) {
+    return "/job-finder/applications";
+  }
+
+  const applicationScope = request.scope;
+  const matchingRecords = applicationRecords.filter(
+    (record) => record.jobId === applicationScope.jobId,
+  );
+  const applicationRecordId =
+    matchingRecords.length === 1 ? (matchingRecords[0]?.id ?? null) : null;
+
+  return buildJobFinderContextRoute(
+    "/job-finder/applications",
+    applicationRecordId
+      ? { applicationRecordId }
+      : { jobId: applicationScope.jobId },
+  );
+}
 
 export const userActionKindPresentations: Record<
   UserActionRequest["kind"],
@@ -551,6 +581,7 @@ function GroupedDecisionCard(props: {
 
 export function ActionsScreen(props: {
   applicationAttempts?: JobFinderWorkspaceSnapshot["applicationAttempts"];
+  applicationRecords?: JobFinderWorkspaceSnapshot["applicationRecords"];
   discoveryJobs: JobFinderWorkspaceSnapshot["discoveryJobs"];
   groupedDecisions?: readonly GroupedManualAnswerDecision[];
   isGroupedApplyPending?: (decisionId: string) => boolean;
@@ -793,9 +824,10 @@ export function ActionsScreen(props: {
                       question={question}
                       onOpenScope={() =>
                         props.onNavigate(
-                          request.scope.type === "application"
-                            ? "/job-finder/applications"
-                            : "/job-finder/discovery",
+                          getUserActionContextRoute(
+                            request,
+                            props.applicationRecords,
+                          ),
                         )
                       }
                       request={request}

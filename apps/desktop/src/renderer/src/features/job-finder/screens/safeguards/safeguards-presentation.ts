@@ -138,6 +138,67 @@ function companyLabel(
   return company?.canonicalName ?? companyId;
 }
 
+function applicationRecordLabel(
+  workspace: JobFinderWorkspaceSnapshot,
+  applicationRecordId: string,
+): string {
+  const record = workspace.applicationRecords.find(
+    (entry) => entry.id === applicationRecordId,
+  );
+  return record ? `${record.title} · ${record.company}` : applicationRecordId;
+}
+
+function dismissalReferenceLabel(
+  workspace: JobFinderWorkspaceSnapshot,
+  safeguards: JobFinderIntelligenceSafeguards,
+  dismissal: SafeguardDismissal,
+): string {
+  switch (dismissal.kind) {
+    case "company_cap_limit": {
+      const cap = safeguards.companyApplicationCaps.find(
+        (entry) => entry.id === dismissal.referenceId,
+      );
+      return cap
+        ? `Application limit · ${companyLabel(workspace, cap.companyId)}`
+        : dismissal.referenceId;
+    }
+    case "simultaneous_application_conflict": {
+      const conflict = safeguards.simultaneousApplicationConflicts.find(
+        (entry) => entry.id === dismissal.referenceId,
+      );
+      return conflict
+        ? `Conflict: ${applicationRecordLabel(workspace, conflict.applicationRecordId)} ↔ ${applicationRecordLabel(workspace, conflict.conflictingApplicationRecordId)}`
+        : dismissal.referenceId;
+    }
+    case "listing_signal": {
+      const signal = safeguards.listingSignals.find(
+        (entry) => entry.id === dismissal.referenceId,
+      );
+      return signal
+        ? `Listing ${signal.signal} · ${jobLabel(workspace, signal.jobId)}`
+        : dismissal.referenceId;
+    }
+    case "abnormal_failure_pause":
+      return safeguards.abnormalFailurePauses.some(
+        (entry) => entry.id === dismissal.referenceId,
+      )
+        ? "Abnormal failure pause"
+        : dismissal.referenceId;
+    case "batch_sample_review_pending":
+      return safeguards.preparedBatchSampleReviews.some(
+        (entry) => entry.id === dismissal.referenceId,
+      )
+        ? "Quality sample review"
+        : dismissal.referenceId;
+    case "contradictory_answer":
+      return safeguards.contradictoryAnswerDetections.some(
+        (entry) => entry.id === dismissal.referenceId,
+      )
+        ? "Contradictory reused answers"
+        : dismissal.referenceId;
+  }
+}
+
 function campaignLabelsForJobs(
   workspace: JobFinderWorkspaceSnapshot,
   jobIds: readonly string[],
@@ -163,7 +224,8 @@ function findDismissal(
   const pair = dismissalPairKey(kind, referenceId);
   return (
     safeguards.safeguardDismissals.find(
-      (dismissal) => dismissalPairKey(dismissal.kind, dismissal.referenceId) === pair,
+      (dismissal) =>
+        dismissalPairKey(dismissal.kind, dismissal.referenceId) === pair,
     ) ?? null
   );
 }
@@ -210,15 +272,12 @@ export function buildSafeguardsPresentationModel(
   });
 
   for (const cap of safeguards.companyApplicationCaps) {
-    const dismissal = findDismissal(
-      safeguards,
-      "company_cap_limit",
-      cap.id,
-    );
+    const dismissal = findDismissal(safeguards, "company_cap_limit", cap.id);
     const active = cap.limitReached;
-    const companyJobs = workspace.intelligence.companies.find(
-      (company) => company.id === cap.companyId,
-    )?.jobIds ?? [];
+    const companyJobs =
+      workspace.intelligence.companies.find(
+        (company) => company.id === cap.companyId,
+      )?.jobIds ?? [];
     const lineage = baseLineage(companyJobs, [cap.companyId]);
     const controls: SafeguardControl[] = [];
     if (active && !dismissal) {
@@ -328,7 +387,7 @@ export function buildSafeguardsPresentationModel(
     pushRow({
       key: `conflict-${conflict.id}`,
       kind: "conflicts",
-      title: `Conflict: ${conflict.applicationRecordId} ↔ ${conflict.conflictingApplicationRecordId}`,
+      title: `Conflict: ${applicationRecordLabel(workspace, conflict.applicationRecordId)} ↔ ${applicationRecordLabel(workspace, conflict.conflictingApplicationRecordId)}`,
       subtitle:
         conflict.status === "detected"
           ? "Two applications overlapped in time"
@@ -392,7 +451,11 @@ export function buildSafeguardsPresentationModel(
       subtitle: `${signal.provenance} · confidence ${Math.round(signal.confidence * 100)}%`,
       explanation: signal.explanation,
       recoveryGuidance: signal.recoveryGuidance,
-      statusLabel: active ? (dismissal ? "Dismissed" : "Blocking") : "Superseded",
+      statusLabel: active
+        ? dismissal
+          ? "Dismissed"
+          : "Blocking"
+        : "Superseded",
       statusTone: active ? (dismissal ? "muted" : "critical") : "neutral",
       active,
       blocked: active && !dismissal,
@@ -452,7 +515,11 @@ export function buildSafeguardsPresentationModel(
       subtitle: `${pause.failuresInWindow}/${pause.sampleSize} failures in window since ${pause.windowStartedAt}`,
       explanation: pause.explanation,
       recoveryGuidance: pause.recoveryGuidance,
-      statusLabel: active ? (dismissal ? "Dismissed" : "Paused") : "Below threshold",
+      statusLabel: active
+        ? dismissal
+          ? "Dismissed"
+          : "Paused"
+        : "Below threshold",
       statusTone: active ? (dismissal ? "muted" : "critical") : "positive",
       active,
       blocked: active && !dismissal,
@@ -524,7 +591,7 @@ export function buildSafeguardsPresentationModel(
     pushRow({
       key: `review-${review.id}`,
       kind: "reviews",
-      title: `Quality sample review · batch ${review.batchId}`,
+      title: "Quality sample review",
       subtitle: `${review.reviewedCount}/${review.sampleCount} reviewed of ${review.preparedCount} prepared`,
       explanation: review.explanation,
       recoveryGuidance: review.recoveryGuidance,
@@ -593,7 +660,11 @@ export function buildSafeguardsPresentationModel(
       subtitle: `“${detection.answerA}” vs “${detection.answerB}” · score ${detection.contradictionScore.toFixed(2)}`,
       explanation: detection.explanation,
       recoveryGuidance: detection.recoveryGuidance,
-      statusLabel: active ? (dismissal ? "Dismissed" : "Advisory") : detection.status,
+      statusLabel: active
+        ? dismissal
+          ? "Dismissed"
+          : "Advisory"
+        : detection.status,
       statusTone: active ? (dismissal ? "muted" : "neutral") : "positive",
       active,
       blocked: false,
@@ -619,7 +690,7 @@ export function buildSafeguardsPresentationModel(
       key: `dismissal-${dismissal.id}`,
       kind: "dismissals",
       title: `Dismissed ${dismissal.kind.replaceAll("_", " ")}`,
-      subtitle: `Entry ${dismissal.referenceId} · ${dismissal.reason}`,
+      subtitle: `${dismissalReferenceLabel(workspace, safeguards, dismissal)} · ${dismissal.reason}`,
       explanation: dismissal.note ?? "Dismissed by the user.",
       recoveryGuidance: "Restore to re-arm the safeguard before continuing.",
       statusLabel: "Dismissed",

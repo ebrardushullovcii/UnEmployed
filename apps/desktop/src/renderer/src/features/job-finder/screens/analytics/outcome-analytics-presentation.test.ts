@@ -47,6 +47,27 @@ function bucketOf(
 }
 
 describe("deriveCampaignScopedOutcomeAnalytics", () => {
+  it("can derive only the active dimension for a scoped view", () => {
+    const scoped = deriveCampaignScopedOutcomeAnalytics({
+      events: Array.from({ length: 12 }, (_, index) =>
+        event({
+          id: `active-${index}`,
+          source: "source-active",
+          campaignId: "campaign-active",
+        }),
+      ),
+      dimensions: ["source"],
+      generatedAt: now,
+    });
+
+    expect(scoped.buckets).toHaveLength(1);
+    expect(scoped.buckets[0]).toMatchObject({
+      dimension: "source",
+      key: "source-active",
+      sampleSize: 12,
+    });
+  });
+
   it("scopes source, title, company, and strategy buckets to one campaign", () => {
     const events = [
       ...Array.from({ length: 12 }, (_, index) =>
@@ -76,9 +97,9 @@ describe("deriveCampaignScopedOutcomeAnalytics", () => {
     });
 
     expect(bucketOf(scoped, "campaign", "campaign-a").sampleSize).toBe(12);
-    expect(scoped.buckets.filter((b) => b.dimension === "campaign")).toHaveLength(
-      1,
-    );
+    expect(
+      scoped.buckets.filter((b) => b.dimension === "campaign"),
+    ).toHaveLength(1);
     expect(bucketOf(scoped, "source", "source-x").sampleSize).toBe(12);
     expect(scoped.buckets.filter((b) => b.dimension === "source")).toHaveLength(
       1,
@@ -188,9 +209,9 @@ describe("deriveCampaignScopedOutcomeAnalytics", () => {
       ),
       generatedAt: now,
     });
-    expect(
-      bucketOf(below, "campaign", "campaign-iv").suggestion.enabled,
-    ).toBe(false);
+    expect(bucketOf(below, "campaign", "campaign-iv").suggestion.enabled).toBe(
+      false,
+    );
 
     const atTarget = deriveCampaignScopedOutcomeAnalytics({
       events: Array.from({ length: 30 }, (_, index) =>
@@ -266,12 +287,12 @@ describe("deriveCampaignScopedOutcomeAnalytics", () => {
       previousOverview: disabledOverview,
     });
 
-    expect(
-      bucketOf(scoped, "campaign", "campaign-p").suggestion,
-    ).toMatchObject({
-      enabled: false,
-      disabledByUser: true,
-    });
+    expect(bucketOf(scoped, "campaign", "campaign-p").suggestion).toMatchObject(
+      {
+        enabled: false,
+        disabledByUser: true,
+      },
+    );
   });
 
   it("returns an empty overview for an empty event set", () => {

@@ -382,11 +382,22 @@ export async function renderDraftToPdf(
   });
 }
 
+function throwIfResumePreviewAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) {
+    return;
+  }
+
+  throw new DOMException("Resume preview was superseded.", "AbortError");
+}
+
 export async function previewResumeDraft(
   ctx: WorkspaceServiceContext,
   draft: ResumeDraft,
+  signal?: AbortSignal,
 ): Promise<JobFinderResumePreview> {
+  throwIfResumePreviewAborted(signal);
   const state = await loadResumeWorkspaceState(ctx, draft.jobId);
+  throwIfResumePreviewAborted(signal);
   const persistedDraft = state.draft
     ? normalizeResumeDraftTemplate(state.draft, state.templates)
     : null;
@@ -433,6 +444,7 @@ export async function previewResumeDraft(
     profile: state.profile,
     validatedAt: renderedAt,
   });
+  throwIfResumePreviewAborted(signal);
   const preview = await ctx.documentManager.renderResumePreview({
     job: state.job,
     profile: state.profile,
@@ -441,7 +453,8 @@ export async function previewResumeDraft(
     }),
     templateId: sanitizedDraft.templateId,
     settings: state.settings,
-  });
+  }, signal);
+  throwIfResumePreviewAborted(signal);
 
   return {
     draftId: sanitizedDraft.id,

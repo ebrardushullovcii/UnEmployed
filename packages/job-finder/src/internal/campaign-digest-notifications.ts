@@ -187,6 +187,8 @@ export interface CampaignWorkFailureEvidence {
   workId?: string | null;
   /** Affected job id when known. */
   jobId?: string | null;
+  /** Affected discovery/source target when known. */
+  sourceTargetId?: string | null;
   /** Human-readable label; a generic label is used when omitted. */
   title?: string | null;
   /** Why the work was blocked or failed. */
@@ -217,12 +219,18 @@ function appendWorkFailureNotifications(
   outcome: "blocked" | "failed",
   items: readonly CampaignWorkFailureEvidence[],
 ): void {
-  items.forEach((item, index) => {
+  items.forEach((item) => {
     const workId = item.workId?.trim() ?? "";
     const jobId = item.jobId?.trim() ?? "";
-    if (workId.length === 0 && jobId.length === 0) return;
+    const sourceTargetId = item.sourceTargetId?.trim() ?? "";
+    // Do not fall back to an array index: a missing stable identity would
+    // otherwise make a later re-derivation point at a different work unit.
+    const stableIdentity = workId || sourceTargetId || jobId;
+    if (stableIdentity.length === 0) return;
 
-    const id = `n_${campaignId}_blocked_${workId || jobId || `work_${index}`}`;
+    // Blocked and failed are intentionally different identities. A technical
+    // retry must not inherit a read state from an earlier manual blocker.
+    const id = `n_${campaignId}_${outcome}_${stableIdentity}`;
     if (seenIds.has(id)) return;
     seenIds.add(id);
 
@@ -242,7 +250,7 @@ function appendWorkFailureNotifications(
         unread: true,
         readAt: null,
         jobId: jobId.length > 0 ? jobId : null,
-        sourceTargetId: null,
+        sourceTargetId: sourceTargetId.length > 0 ? sourceTargetId : null,
       }),
     );
   });
@@ -327,7 +335,7 @@ export function deriveCampaignNotifications(
     runFacts.lastRunOutcome === "failed" &&
     runFacts.lastRunAt !== null
   ) {
-    const id = `n_${campaignId}_blocked_run_${runFacts.lastRunAt}`;
+    const id = `n_${campaignId}_failed_run_${runFacts.lastRunAt}`;
     if (!seenIds.has(id)) {
       seenIds.add(id);
       notifications.push(

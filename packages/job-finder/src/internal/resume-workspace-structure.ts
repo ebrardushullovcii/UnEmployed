@@ -1219,6 +1219,7 @@ export function buildResumeDraftFromTailoredDraft(input: {
   generationMethod: ResumeDraft["generationMethod"];
   profile?: CandidateProfile;
   research?: readonly ResumeResearchArtifact[];
+  headline?: string | null | undefined;
 }): ResumeDraft {
   const {
     createdAt,
@@ -1266,7 +1267,10 @@ export function buildResumeDraftFromTailoredDraft(input: {
       identity: input.profile
         ? {
             ...buildResumeDraftIdentity(input.profile),
-            headline: buildJobTargetedHeadline(input.profile, job),
+            headline:
+              input.headline === undefined
+                ? buildJobTargetedHeadline(input.profile, job)
+                : input.headline,
           }
         : null,
       sections: buildDraftSectionsFromStructuredTailoredDraft({

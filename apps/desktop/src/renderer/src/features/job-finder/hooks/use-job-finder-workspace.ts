@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
+  ApplicationCrmBulkStageMutationInput,
   ApplicationCrmExportInput,
   ApplicationCrmMutationInput,
   ApplicationCrmSettings,
@@ -22,7 +23,6 @@ import type {
   RapidReviewMutationInput,
   RecommendResumeStrategyInput,
   RecordOutcomeInput,
-  ResumeStrategyRecommendation,
   SafeguardMutationInput,
   ReviewCompanyMergeInput,
   SaveResumeStrategyInput,
@@ -70,6 +70,27 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
   const [loadRequest, setLoadRequest] = useState(0);
   const workspaceRef = useRef<JobFinderWorkspaceSnapshot | null>(null);
   const workspaceRevisionRef = useRef<WorkspaceRevision>(0);
+  // A workspace action may finish after a newer action has already committed.
+  // Keep the latest invocation authoritative so a slow IPC response cannot
+  // restore an older snapshot or revision.
+  const workspaceRequestSequenceRef = useRef(0);
+
+  const beginWorkspaceRequest = useCallback(() => {
+    workspaceRequestSequenceRef.current += 1;
+    return workspaceRequestSequenceRef.current;
+  }, []);
+
+  const isCurrentWorkspaceRequest = useCallback((sequence: number) => {
+    return workspaceRequestSequenceRef.current === sequence;
+  }, []);
+
+  const assertWorkspaceHydrated = useCallback(() => {
+    if (workspaceRef.current?.hydration?.phase === "bootstrap") {
+      throw new Error(
+        "Job Finder is still finishing its initial load. Please wait a moment and try again.",
+      );
+    }
+  }, []);
 
   const commitWorkspace = useCallback(
     (workspace: JobFinderWorkspaceSnapshot) => {
@@ -84,19 +105,40 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
   );
 
   const runWorkspaceAction = useCallback(
-    async (action: () => Promise<JobFinderWorkspaceSnapshot>) => {
+    async (
+      action: () => Promise<JobFinderWorkspaceSnapshot>,
+      options?: { allowDuringBootstrap?: boolean },
+    ) => {
+      if (!options?.allowDuringBootstrap) {
+        assertWorkspaceHydrated();
+      }
+      const sequence = beginWorkspaceRequest();
       const workspace = await action();
+      if (!isCurrentWorkspaceRequest(sequence)) {
+        return workspaceRef.current ?? workspace;
+      }
+
       workspaceRevisionRef.current = 0;
       commitWorkspace(workspace);
       return workspace;
     },
-    [commitWorkspace],
+    [
+      assertWorkspaceHydrated,
+      beginWorkspaceRequest,
+      commitWorkspace,
+      isCurrentWorkspaceRequest,
+    ],
   );
 
   const commitWorkspaceSyncResult = useCallback(
     (
       result: JobFinderWorkspaceSyncResult,
+      sequence: number,
     ): JobFinderWorkspaceSnapshot | null => {
+      if (!isCurrentWorkspaceRequest(sequence)) {
+        return workspaceRef.current;
+      }
+
       if (result.kind === "snapshot") {
         workspaceRevisionRef.current = result.currentRevision;
         commitWorkspace(result.snapshot);
@@ -121,54 +163,80 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
       commitWorkspace(applied.workspace);
       return applied.workspace;
     },
-    [commitWorkspace],
+    [commitWorkspace, isCurrentWorkspaceRequest],
   );
 
-  const recoverFullWorkspaceOnce = useCallback(async () => {
-    try {
-      const result = await window.unemployed.jobFinder.syncWorkspace(null);
-      if (result.kind === "snapshot") {
-        workspaceRevisionRef.current = result.currentRevision;
-        commitWorkspace(result.snapshot);
-        return result.snapshot;
-      }
-    } catch {
-      // Older preload builds still use the existing full-snapshot fallback.
-    }
+  const recoverFullWorkspaceOnce = useCallback(
+    async (sequence?: number) => {
+      const requestSequence = sequence ?? beginWorkspaceRequest();
+      try {
+        const result = await window.unemployed.jobFinder.syncWorkspace(null);
+        if (result.kind === "snapshot") {
+          if (!isCurrentWorkspaceRequest(requestSequence)) {
+            return workspaceRef.current ?? result.snapshot;
+          }
 
-    const workspace = await window.unemployed.jobFinder.getWorkspace();
-    workspaceRevisionRef.current = 0;
-    commitWorkspace(workspace);
-    return workspace;
-  }, [commitWorkspace]);
+          workspaceRevisionRef.current = result.currentRevision;
+          commitWorkspace(result.snapshot);
+          return result.snapshot;
+        }
+      } catch {
+        // Older preload builds still use the existing full-snapshot fallback.
+      }
+
+      const workspace = await window.unemployed.jobFinder.getWorkspace();
+      if (!isCurrentWorkspaceRequest(requestSequence)) {
+        return workspaceRef.current ?? workspace;
+      }
+
+      workspaceRevisionRef.current = 0;
+      commitWorkspace(workspace);
+      return workspace;
+    },
+    [beginWorkspaceRequest, commitWorkspace, isCurrentWorkspaceRequest],
+  );
 
   const syncWorkspace = useCallback(async () => {
+    const sequence = beginWorkspaceRequest();
+    const baseRevision = workspaceRevisionRef.current || null;
     let result: JobFinderWorkspaceSyncResult;
     try {
-      result = await window.unemployed.jobFinder.syncWorkspace(
-        workspaceRevisionRef.current || null,
-      );
+      result = await window.unemployed.jobFinder.syncWorkspace(baseRevision);
     } catch {
-      return recoverFullWorkspaceOnce();
+      return recoverFullWorkspaceOnce(sequence);
     }
 
     return (
-      commitWorkspaceSyncResult(result) ?? (await recoverFullWorkspaceOnce())
+      commitWorkspaceSyncResult(result, sequence) ??
+      (await recoverFullWorkspaceOnce(sequence))
     );
-  }, [commitWorkspaceSyncResult, recoverFullWorkspaceOnce]);
+  }, [
+    beginWorkspaceRequest,
+    commitWorkspaceSyncResult,
+    recoverFullWorkspaceOnce,
+  ]);
 
   const runWorkspaceEntityMutation = useCallback(
     async (mutation: JobFinderWorkspaceEntityMutation) => {
+      assertWorkspaceHydrated();
+      const sequence = beginWorkspaceRequest();
+      const baseRevision = workspaceRevisionRef.current || null;
       const result = await window.unemployed.jobFinder.mutateWorkspaceEntities({
-        baseRevision: workspaceRevisionRef.current || null,
+        baseRevision,
         mutation,
       });
 
       return (
-        commitWorkspaceSyncResult(result) ?? (await recoverFullWorkspaceOnce())
+        commitWorkspaceSyncResult(result, sequence) ??
+        (await recoverFullWorkspaceOnce(sequence))
       );
     },
-    [commitWorkspaceSyncResult, recoverFullWorkspaceOnce],
+    [
+      beginWorkspaceRequest,
+      commitWorkspaceSyncResult,
+      recoverFullWorkspaceOnce,
+      assertWorkspaceHydrated,
+    ],
   );
 
   const actions = useMemo<JobFinderShellActions>(
@@ -182,8 +250,9 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
           window.unemployed.jobFinder.openBrowserSession(input),
         ),
       checkBrowserSession: () =>
-        runWorkspaceAction(() =>
-          window.unemployed.jobFinder.checkBrowserSession(),
+        runWorkspaceAction(
+          () => window.unemployed.jobFinder.checkBrowserSession(),
+          { allowDuringBootstrap: true },
         ),
       performUserAction: (command: UserActionCommandInput) =>
         runWorkspaceAction(() =>
@@ -214,8 +283,8 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         }),
       getResumeWorkspace: (jobId: string) =>
         window.unemployed.jobFinder.getResumeWorkspace(jobId),
-      previewResumeDraft: (draft: ResumeDraft) =>
-        window.unemployed.jobFinder.previewResumeDraft(draft),
+      previewResumeDraft: (draft: ResumeDraft, requestId?: string) =>
+        window.unemployed.jobFinder.previewResumeDraft(draft, requestId),
       saveResumeDraft: (draft: ResumeDraft) =>
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.saveResumeDraft(draft),
@@ -319,6 +388,12 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
       mutateApplicationCrm: (input: ApplicationCrmMutationInput) =>
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.mutateApplicationCrm(input),
+        ),
+      mutateApplicationCrmBulkStage: (
+        input: ApplicationCrmBulkStageMutationInput,
+      ) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.mutateApplicationCrmBulkStage(input),
         ),
       runApplicationNoResponseAutomation: (settings?: ApplicationCrmSettings) =>
         runWorkspaceAction(() =>
@@ -610,18 +685,59 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
 
     async function loadWorkspace() {
       try {
-        const [platformResponse, workspace] = await Promise.all([
+        const [platformResponse, bootstrap] = await Promise.all([
           window.unemployed.ping(),
-          recoverFullWorkspaceOnce(),
+          typeof window.unemployed.jobFinder.getWorkspaceBootstrap ===
+          "function"
+            ? window.unemployed.jobFinder.getWorkspaceBootstrap()
+            : recoverFullWorkspaceOnce(),
         ]);
 
         if (!cancelled) {
+          // Keep the bootstrap snapshot as the authoritative visible state
+          // before deferred hydration begins. The hydration failure path uses
+          // this identity check to report a real failure; without recording it
+          // here, that error is silently discarded because the ref is still
+          // null while the shell is already showing the bootstrap.
+          workspaceRef.current = bootstrap;
+          if (bootstrap.hydration?.phase === "bootstrap") {
+            workspaceRevisionRef.current = 0;
+          }
           setWorkspaceState({
             status: "ready",
             actions,
             platform: platformResponse.platform,
             resumeImportProgress: null,
-            workspace,
+            workspace: bootstrap,
+          });
+        }
+
+        // Keep the shell responsive while the large collections hydrate. The
+        // hydration request is fenced like every other workspace request so a
+        // later user action can never be overwritten by a stale full snapshot.
+        if (bootstrap.hydration?.phase === "bootstrap") {
+          const hydrationSequence = beginWorkspaceRequest();
+          void recoverFullWorkspaceOnce(hydrationSequence).catch((error) => {
+            if (
+              cancelled ||
+              !isCurrentWorkspaceRequest(hydrationSequence) ||
+              workspaceRef.current !== bootstrap
+            ) {
+              return;
+            }
+
+            const message =
+              error instanceof Error
+                ? error.message
+                : "Unable to finish loading the Job Finder workspace.";
+            setWorkspaceState({
+              status: "error",
+              message,
+              retry: () => {
+                setWorkspaceState({ status: "loading" });
+                setLoadRequest((current) => current + 1);
+              },
+            });
           });
         }
       } catch (error) {
@@ -648,7 +764,13 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
     return () => {
       cancelled = true;
     };
-  }, [actions, loadRequest, recoverFullWorkspaceOnce]);
+  }, [
+    actions,
+    beginWorkspaceRequest,
+    isCurrentWorkspaceRequest,
+    loadRequest,
+    recoverFullWorkspaceOnce,
+  ]);
 
   return workspaceState;
 }

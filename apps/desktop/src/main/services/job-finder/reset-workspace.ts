@@ -7,12 +7,16 @@ import { getJobFinderWorkspaceService } from './workspace-service'
 export async function resetJobFinderWorkspace() {
   const jobFinderWorkspaceService = await getJobFinderWorkspaceService()
 
-  await Promise.all([
-    rm(getJobFinderDocumentsDirectory(), { recursive: true, force: true }),
-    rm(getBrowserAgentProfileDirectory(), { recursive: true, force: true })
-  ])
-
-  const snapshot = await jobFinderWorkspaceService.resetWorkspace(createEmptyJobFinderRepositoryState())
+  const snapshot = await jobFinderWorkspaceService.resetWorkspace(
+    createEmptyJobFinderRepositoryState(),
+    {
+      beforeStateReset: () =>
+        Promise.all([
+          rm(getJobFinderDocumentsDirectory(), { recursive: true, force: true }),
+          rm(getBrowserAgentProfileDirectory(), { recursive: true, force: true })
+        ]).then(() => undefined)
+    }
+  )
 
   return JobFinderWorkspaceSnapshotSchema.parse(snapshot)
 }

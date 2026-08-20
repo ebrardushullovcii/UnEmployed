@@ -1,4 +1,5 @@
 import type {
+  ApplicationCrmBulkStageMutationInput,
   ApplicationCrmExportInput,
   ApplicationCrmFileExportResult,
   ApplicationCrmMutationInput,
@@ -249,7 +250,10 @@ export interface JobFinderShellActions {
     jobId: string,
   ) => Promise<JobFinderWorkspaceSnapshot>;
   getResumeWorkspace: (jobId: string) => Promise<JobFinderResumeWorkspace>;
-  previewResumeDraft: (draft: ResumeDraft) => Promise<JobFinderResumePreview>;
+  previewResumeDraft: (
+    draft: ResumeDraft,
+    requestId?: string,
+  ) => Promise<JobFinderResumePreview>;
   saveResumeDraft: (draft: ResumeDraft) => Promise<JobFinderWorkspaceSnapshot>;
   regenerateResumeDraft: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
   regenerateResumeSection: (
@@ -307,6 +311,9 @@ export interface JobFinderShellActions {
   approveApply: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
   mutateApplicationCrm: (
     input: ApplicationCrmMutationInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  mutateApplicationCrmBulkStage: (
+    input: ApplicationCrmBulkStageMutationInput,
   ) => Promise<JobFinderWorkspaceSnapshot>;
   runApplicationNoResponseAutomation: (
     settings?: ApplicationCrmSettings,

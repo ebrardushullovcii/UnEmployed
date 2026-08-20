@@ -2,6 +2,7 @@ import {
   buildCandidateSkillBank,
   type TailoredResumeDraft,
 } from "@unemployed/ai-providers";
+import type { ResumeGenerationStrategyPolicy } from "@unemployed/ai-providers";
 import {
   ResumeAssistantMessageSchema,
   ResumeDraftRevisionSchema,
@@ -110,6 +111,7 @@ export function buildResumeDraftFromTailoredDraft(input: {
   generationMethod: ResumeDraft["generationMethod"];
   profile?: CandidateProfile;
   research?: readonly ResumeResearchArtifact[];
+  headline?: string | null | undefined;
 }): ResumeDraft {
   return buildStructuredResumeDraftFromTailoredDraft(input);
 }
@@ -1007,10 +1009,14 @@ export function sanitizeResumeDraft(input: {
   draft: ResumeDraft;
   job: SavedJob;
   profile?: CandidateProfile;
+  sourceSkills?: readonly string[];
 }): ResumeDraft {
   const jobPhraseBank = buildJobPhraseBank(input.job);
   const profileSupportBank = buildProfileSupportBank(input.profile);
-  const candidateSkillBank = buildCandidateSkillBank(input.profile);
+  const candidateSkillBank = uniqueStrings([
+    ...buildCandidateSkillBank(input.profile),
+    ...(input.sourceSkills ?? []),
+  ]);
   const candidateLanguageBank = buildCandidateLanguageBank(input.profile);
   const seenLines = new Set<string>();
 
@@ -1191,6 +1197,7 @@ export function validateResumeDraft(input: {
   profile?: CandidateProfile;
   pageCount?: number | null;
   validatedAt?: string;
+  strategy?: Pick<ResumeGenerationStrategyPolicy, "evidenceBoundaries"> | null;
 }): ResumeValidationResult {
   const validatedAt = input.validatedAt ?? new Date().toISOString();
   const issues: ResumeValidationIssue[] = [];
@@ -1662,6 +1669,27 @@ export function validateResumeDraft(input: {
           issue.category === "invented_metric" ||
           issue.category === "job_description_bleed"),
     );
+    if (input.strategy && assessment.claimOrigin === "ai_generated") {
+      const boundary = input.strategy.evidenceBoundaries;
+      const boundaryViolation =
+        (assessment.status === "exact" && !boundary.allowExactClaims) ||
+        (assessment.status === "paraphrase" &&
+          !boundary.allowParaphrasedClaims) ||
+        assessment.evidenceRefs.length > boundary.maxEvidenceRefsPerBullet;
+      if (boundaryViolation) {
+        issues.push({
+          id: `issue_strategy_evidence_boundary_${assessment.id}`,
+          severity: "error",
+          category: "unsupported_claim",
+          sectionId: assessment.sectionId,
+          entryId: assessment.entryId,
+          bulletId: assessment.bulletId,
+          message:
+            "This AI-generated claim exceeds the selected resume strategy's evidence boundary and must be rewritten or removed before export.",
+        });
+      }
+    }
+
     if (!blocksExport || alreadyReported) {
       continue;
     }

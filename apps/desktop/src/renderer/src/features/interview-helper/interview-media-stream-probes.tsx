@@ -177,11 +177,11 @@ export function InterviewMediaStreamProbes(props: {
 }) {
   const [microphoneStatus, setMicrophoneStatus] = useState<ProbeStatus>("idle");
   const [microphoneDetail, setMicrophoneDetail] = useState(
-    "Not checked in this renderer.",
+    "Not checked yet.",
   );
   const [displayStatus, setDisplayStatus] = useState<ProbeStatus>("idle");
   const [displayDetail, setDisplayDetail] = useState(
-    "Not checked in this renderer.",
+    "Not checked yet.",
   );
   const [captionEnabled, setCaptionEnabled] = useState(false);
   const [captionStatus, setCaptionStatus] = useState<CaptureStatus>("idle");
@@ -192,14 +192,14 @@ export function InterviewMediaStreamProbes(props: {
   const [microphoneRecorderDetail, setMicrophoneRecorderDetail] = useState(
     props.audioTranscriptionAvailable
       ? "Mic audio transcription is off."
-      : "Mic audio transcription needs a local or cloud STT engine.",
+      : "Mic audio transcription is unavailable. Set up speech-to-text first.",
   );
   const [systemRecorderStatus, setSystemRecorderStatus] =
     useState<CaptureStatus>("idle");
   const [systemRecorderDetail, setSystemRecorderDetail] = useState(
     props.audioTranscriptionAvailable
       ? "System audio transcription is off."
-      : "System audio transcription needs a local or cloud STT engine.",
+      : "System audio transcription is unavailable. Set up speech-to-text first.",
   );
   const [activeMicrophoneRecorder, setActiveMicrophoneRecorder] = useState<{
     recorder: MediaRecorder;
@@ -270,13 +270,13 @@ export function InterviewMediaStreamProbes(props: {
   useEffect(() => {
     if (!props.audioTranscriptionAvailable && !activeMicrophoneRecorder) {
       setMicrophoneRecorderDetail(
-        "Mic audio transcription needs UNEMPLOYED_INTERVIEW_LOCAL_STT_COMMAND or a configured transcription model.",
+        "Mic audio transcription is unavailable. Set up speech-to-text first.",
       );
     }
 
     if (!props.audioTranscriptionAvailable && !activeSystemRecorder) {
       setSystemRecorderDetail(
-        "System audio transcription needs UNEMPLOYED_INTERVIEW_LOCAL_STT_COMMAND or a configured transcription model.",
+        "System audio transcription is unavailable. Set up speech-to-text first.",
       );
     }
   }, [
@@ -474,7 +474,7 @@ export function InterviewMediaStreamProbes(props: {
       getBrowserSpeechRecognitionConstructor();
     if (!SpeechRecognitionConstructor) {
       setCaptionStatus("failed");
-      setCaptionDetail("Mic captions are unavailable in this renderer.");
+      setCaptionDetail("Audio test unavailable. Your browser does not support speech recognition.");
       return;
     }
 
@@ -668,7 +668,7 @@ export function InterviewMediaStreamProbes(props: {
       setRecorderStatus(source, "failed");
       setRecorderDetail(
         source,
-        `${sourceLabel} transcription needs UNEMPLOYED_INTERVIEW_LOCAL_STT_COMMAND or a configured transcription model.`,
+        `${sourceLabel} transcription is unavailable. Set up speech-to-text first.`,
       );
       return;
     }
@@ -690,7 +690,7 @@ export function InterviewMediaStreamProbes(props: {
       setRecorderStatus(source, "failed");
       setRecorderDetail(
         source,
-        "MediaRecorder is unavailable in this renderer.",
+        "Audio test unavailable.",
       );
       return;
     }
@@ -1029,9 +1029,9 @@ export function InterviewMediaStreamProbes(props: {
         </p>
         <p className="text-[0.72rem] leading-5 text-muted-foreground">
           {props.sessionId
-            ? "Start mic and system audio to save transient STT chunks into the visible transcript."
+            ? "Start mic and system audio to save temporary speech-to-text segments into the visible transcript."
             : "Test mic captions and capture readiness before the interview. Preview text stays local here."}{" "}
-          Local-command STT keeps audio transcription free when configured.
+          Local speech-to-text keeps audio transcription free when configured.
         </p>
       </div>
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
@@ -1132,7 +1132,7 @@ export function InterviewMediaStreamProbes(props: {
               <p>{systemRecorderDetail}</p>
               {audioQueueSnapshot.active || audioQueueSnapshot.pending > 0 ? (
                 <p>
-                  STT queue:{" "}
+                  Transcription queue:{" "}
                   {audioQueueSnapshot.active ? "1 transcribing" : "idle"}
                   {audioQueueSnapshot.pending > 0
                     ? `, ${audioQueueSnapshot.pending} waiting (maximum ${audioQueueSnapshot.maxPending})`
@@ -1144,8 +1144,8 @@ export function InterviewMediaStreamProbes(props: {
           ) : null}
           <div className="grid gap-2 pt-1 sm:grid-cols-[minmax(0,1fr)_auto] xl:grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_auto]">
             <p>
-              Browser captions are a mic-only fallback when Chromium exposes
-              speech recognition.
+              Browser captions are a mic-only fallback when your browser
+              supports speech recognition.
             </p>
             <Button
               disabled={

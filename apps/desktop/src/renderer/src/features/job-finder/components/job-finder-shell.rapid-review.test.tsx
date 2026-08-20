@@ -95,12 +95,7 @@ describe("JobFinderShell rapid review route", () => {
       "Find jobs",
       "Shortlisted",
       "Applications",
-      "Campaigns",
-      "Analytics",
-      "Strategies",
-      "Companies",
-      "Safeguards",
-      "Settings",
+      "More",
     ]);
   });
 });

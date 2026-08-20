@@ -41,12 +41,37 @@ import { formatProfileSetupStepLabel } from "./profile-setup-steps";
 
 const setupScreenColumnsClassName =
   "grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(20rem,0.95fr)]";
+const setupScreenWideEditorClassName = "grid gap-6 xl:grid-cols-1";
+const pristineSetupSummaryClassName = "mx-auto grid w-full max-w-5xl gap-6";
+const setupScreenReviewRailClassName =
+  "flex h-full min-h-0 flex-col gap-6 pb-24 xl:pb-28";
+const setupScreenInlineReviewClassName = "grid gap-6 pb-24 xl:pb-28";
 const unsavedSetupCopilotMessage =
   "Save this step before asking Profile Copilot to edit it so your current setup draft does not get overwritten.";
 const unsavedSetupCopilotActionsMessage =
   "Save this step before applying, rejecting, or undoing copilot changes so your current setup draft stays intact.";
 const unsavedSetupReviewActionsMessage =
   "Save this step before confirming, dismissing, or clearing review items so your current setup draft stays intact.";
+
+export function getProfileSetupLayoutClassNames(input: {
+  hasPendingReviewItems: boolean;
+  isPristineSetup: boolean;
+}) {
+  const hasReviewRail = !input.isPristineSetup && input.hasPendingReviewItems;
+
+  return {
+    content: hasReviewRail
+      ? setupScreenColumnsClassName
+      : setupScreenWideEditorClassName,
+    reviewRail: hasReviewRail
+      ? setupScreenReviewRailClassName
+      : setupScreenInlineReviewClassName,
+    summary: input.isPristineSetup
+      ? pristineSetupSummaryClassName
+      : setupScreenColumnsClassName,
+  };
+}
+
 export function ProfileSetupScreen(props: {
   actionState: { message: string | null };
   importResumeGuardMessage: string | null;
@@ -189,6 +214,10 @@ export function ProfileSetupScreen(props: {
   const hasImportedResume = profile.baseResume.extractionStatus === "ready";
   const isPristineSetup =
     profileSetupState.status === "not_started" && !hasImportedResume;
+  const profileSetupLayoutClassNames = getProfileSetupLayoutClassNames({
+    hasPendingReviewItems: pendingCurrentStepReviewItems.length > 0,
+    isPristineSetup,
+  });
   const setupMutationPending = isProfileSetupPending || isImportResumePending;
   const setupActionsDisabledReason = isImportResumePending
     ? "Resume import is updating this workspace. Wait for it to finish before editing or reviewing profile details."
@@ -274,7 +303,12 @@ export function ProfileSetupScreen(props: {
             description="Import a resume, resolve the important missing details, and keep every change in sync with your full profile."
           />
 
-          <div className={setupScreenColumnsClassName}>
+          <div
+            className={profileSetupLayoutClassNames.summary}
+            data-profile-setup-summary-layout={
+              isPristineSetup ? "pristine" : "overview"
+            }
+          >
             <ProfileSetupSummaryCards
               actionMessage={actionState.message}
               importDisabledReason={importResumeGuardMessage}
@@ -296,7 +330,14 @@ export function ProfileSetupScreen(props: {
       }
     >
       {isPristineSetup ? null : (
-        <div className={`${setupScreenColumnsClassName} min-h-0`}>
+        <div
+          className={`${profileSetupLayoutClassNames.content} min-h-0`}
+          data-profile-setup-content-layout={
+            pendingCurrentStepReviewItems.length > 0
+              ? "review-rail"
+              : "wide-editor"
+          }
+        >
           <div
             className="grid gap-6 min-h-0"
             id="profile-setup-step-editor"
@@ -355,7 +396,7 @@ export function ProfileSetupScreen(props: {
             </fieldset>
           </div>
 
-          <div className="flex h-full min-h-0 flex-col gap-6 pb-24 xl:pb-28">
+          <div className={profileSetupLayoutClassNames.reviewRail}>
             <ProfileSetupReviewQueueCard
               actionsDisabledReason={
                 setupActionsDisabledReason ??

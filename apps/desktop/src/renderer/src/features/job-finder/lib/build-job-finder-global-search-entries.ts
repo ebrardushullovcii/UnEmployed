@@ -1,5 +1,6 @@
 import type { JobFinderWorkspaceSnapshot } from "@unemployed/contracts";
 import type { JobFinderGlobalSearchEntry } from "./job-finder-global-search";
+import { buildJobFinderContextRoute } from "./job-finder-context-navigation";
 
 export function buildJobFinderGlobalSearchEntries(
   workspace: JobFinderWorkspaceSnapshot,
@@ -52,7 +53,9 @@ export function buildJobFinderGlobalSearchEntries(
   const jobEntries: JobFinderGlobalSearchEntry[] = workspace.discoveryJobs.map(
     (job) => ({
       campaignId: campaignByJobId.get(job.id) ?? null,
-      href: "/job-finder/discovery",
+      href: buildJobFinderContextRoute("/job-finder/discovery", {
+        jobId: job.id,
+      }),
       id: job.id,
       kind: "job",
       metadata: [
@@ -71,7 +74,9 @@ export function buildJobFinderGlobalSearchEntries(
   const applicationEntries: JobFinderGlobalSearchEntry[] =
     workspace.applicationRecords.map((record) => ({
       campaignId: campaignByJobId.get(record.jobId) ?? null,
-      href: "/job-finder/applications",
+      href: buildJobFinderContextRoute("/job-finder/applications", {
+        applicationRecordId: record.id,
+      }),
       id: record.id,
       kind: "application",
       metadata: [

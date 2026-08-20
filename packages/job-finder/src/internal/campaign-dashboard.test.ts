@@ -101,6 +101,8 @@ describe("campaign workspace core", () => {
         requireReviewBeforePreparation: false,
         requireReviewBeforeExternalWrite: true,
         finalSubmitAuthorized: false,
+        qualityReviewSampleRatio: 0.2,
+        simultaneousApplicationWindowDays: 1,
       },
       schedule: {
         mode: "manual",

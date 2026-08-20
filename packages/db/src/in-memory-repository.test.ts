@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  ApplicationRecordSchema,
   ResumeDraftRevisionSchema,
   ResumeDraftSchema,
   ResumeValidationResultSchema,
@@ -29,9 +30,7 @@ function createRetentionDraft(id: string, updatedAt: string) {
 
 function createRetentionRevision(draftId: string, index: number) {
   const suffix = String(index).padStart(3, "0");
-  const createdAt = new Date(
-    Date.UTC(2026, 6, 30, 10, 0, index),
-  ).toISOString();
+  const createdAt = new Date(Date.UTC(2026, 6, 30, 10, 0, index)).toISOString();
   return ResumeDraftRevisionSchema.parse({
     id: `${draftId}_revision_${suffix}`,
     draftId,
@@ -53,6 +52,90 @@ function createRetentionRevision(draftId: string, index: number) {
   });
 }
 describe("createInMemoryJobFinderRepository", () => {
+  test("commits application records as one revision-guarded batch", async () => {
+    const seed = createSeed();
+    seed.applicationRecords = [
+      ApplicationRecordSchema.parse({
+        id: "application_1",
+        jobId: "job_1",
+        title: "Frontend Engineer",
+        company: "Acme",
+        status: "submitted",
+        lastActionLabel: "Applied",
+        nextActionLabel: null,
+        lastUpdatedAt: "2026-08-15T10:00:00.000Z",
+        crm: {
+          revision: 2,
+          stage: "applied",
+          stageChangedAt: "2026-08-15T10:00:00.000Z",
+        },
+      }),
+      ApplicationRecordSchema.parse({
+        id: "application_2",
+        jobId: "job_2",
+        title: "Backend Engineer",
+        company: "Beta",
+        status: "submitted",
+        lastActionLabel: "Applied",
+        nextActionLabel: null,
+        lastUpdatedAt: "2026-08-15T10:00:00.000Z",
+        crm: {
+          revision: 1,
+          stage: "applied",
+          stageChangedAt: "2026-08-15T10:00:00.000Z",
+        },
+      }),
+    ];
+    const repository = createInMemoryJobFinderRepository(seed);
+    const current = await repository.listApplicationRecords();
+    const next = current.map((record) =>
+      ApplicationRecordSchema.parse({
+        ...record,
+        lastUpdatedAt: "2026-08-15T10:05:00.000Z",
+        crm: {
+          ...record.crm,
+          revision: (record.crm?.revision ?? 0) + 1,
+          stage: "reviewing",
+          stageChangedAt: "2026-08-15T10:05:00.000Z",
+        },
+      }),
+    );
+
+    await expect(
+      repository.commitApplicationRecordBatch({
+        expectedRevisions: [
+          { applicationRecordId: "application_1", expectedRevision: 999 },
+          { applicationRecordId: "application_2", expectedRevision: 1 },
+        ],
+        records: next,
+      }),
+    ).resolves.toEqual({
+      status: "stale",
+      recordIds: ["application_1"],
+    });
+    expect((await repository.listApplicationRecords())[0]?.crm?.stage).toBe(
+      "applied",
+    );
+
+    await expect(
+      repository.commitApplicationRecordBatch({
+        expectedRevisions: [
+          { applicationRecordId: "application_1", expectedRevision: 2 },
+          { applicationRecordId: "application_2", expectedRevision: 1 },
+        ],
+        records: next,
+      }),
+    ).resolves.toMatchObject({
+      status: "applied",
+      committedRecordIds: ["application_1", "application_2"],
+    });
+    expect(
+      (await repository.listApplicationRecords()).map(
+        (record) => record.crm?.stage,
+      ),
+    ).toEqual(["reviewing", "reviewing"]);
+  });
+
   test("returns cloned values and supports asset and attempt upserts", async () => {
     const repository = createInMemoryJobFinderRepository(createSeed());
     const profile = await repository.getProfile();
@@ -299,16 +382,20 @@ describe("createInMemoryJobFinderRepository", () => {
       createRetentionRevision("resume_draft_other", 0),
     );
 
-    for (let index = 0; index <= MAX_RESUME_DRAFT_REVISIONS_PER_DRAFT; index += 1) {
+    for (
+      let index = 0;
+      index <= MAX_RESUME_DRAFT_REVISIONS_PER_DRAFT;
+      index += 1
+    ) {
       await repository.upsertResumeDraftRevision(
         createRetentionRevision(draft.id, index),
       );
     }
 
-    const directlyRetained = await repository.listResumeDraftRevisions(draft.id);
-    expect(directlyRetained).toHaveLength(
-      MAX_RESUME_DRAFT_REVISIONS_PER_DRAFT,
+    const directlyRetained = await repository.listResumeDraftRevisions(
+      draft.id,
     );
+    expect(directlyRetained).toHaveLength(MAX_RESUME_DRAFT_REVISIONS_PER_DRAFT);
     expect(directlyRetained[0]?.id).toBe(`${draft.id}_revision_100`);
     expect(directlyRetained.at(-1)?.id).toBe(`${draft.id}_revision_001`);
     await expect(
@@ -334,7 +421,9 @@ describe("createInMemoryJobFinderRepository", () => {
       }),
     });
 
-    const atomicallyRetained = await repository.listResumeDraftRevisions(draft.id);
+    const atomicallyRetained = await repository.listResumeDraftRevisions(
+      draft.id,
+    );
     expect(atomicallyRetained).toHaveLength(
       MAX_RESUME_DRAFT_REVISIONS_PER_DRAFT,
     );
@@ -349,6 +438,7 @@ describe("createInMemoryJobFinderRepository", () => {
 
     await repository.upsertApplyRun({
       id: "apply_run_1",
+      campaignId: null,
       mode: "copilot",
       state: "paused_for_user_review",
       jobIds: ["job_1"],

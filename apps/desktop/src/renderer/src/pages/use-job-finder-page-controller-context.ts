@@ -1,5 +1,6 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type {
+  ApplicationCrmBulkStageMutationInput,
   ApplyGroupedManualAnswerInput,
   CampaignRuleFunnelProjection,
   DiscoveryActivityEvent,
@@ -301,6 +302,20 @@ export function buildJobFinderPageContext(
         throw new Error("The application tracker update could not be saved.");
       }
     },
+    onMutateApplicationCrmBulkStage: async (
+      command: ApplicationCrmBulkStageMutationInput,
+    ) => {
+      const completed = await runAction(
+        () => actions.mutateApplicationCrmBulkStage(command),
+        () => undefined,
+        "Application tracker updated.",
+      );
+      if (!completed) {
+        throw new Error(
+          "The bulk application tracker update could not be saved.",
+        );
+      }
+    },
     onRefreshCompanyIntelligence: async () => {
       await runAction(
         () => actions.refreshCompanyIntelligence(),
@@ -391,22 +406,23 @@ export function buildJobFinderPageContext(
         () => actions.recordOutcome(input),
         () => undefined,
         "Outcome recorded. Analytics update only from outcomes you record here — nothing was submitted.",
-        { scope: jobFinderPendingActions.recordOutcome(input.jobId) },
+        {
+          rethrowError: true,
+          scope: jobFinderPendingActions.recordOutcome(input.jobId),
+        },
       );
       if (!completed) {
         throw new Error("The outcome could not be recorded.");
       }
       return completed;
     },
-    onSetOutcomeSuggestionEnabled: (
-      input: SetOutcomeSuggestionEnabledInput,
-    ) =>
+    onSetOutcomeSuggestionEnabled: (input: SetOutcomeSuggestionEnabledInput) =>
       runAction(
         () => actions.setOutcomeSuggestionEnabled(input),
         () => undefined,
         input.enabled || input.reset
           ? "Suggestion reset. Analytics will re-evaluate it from outcomes you recorded."
-          : "Suggestion disabled. It will stay off until you reset it.",
+          : "Suggestion disabled. It stays off until you reset it.",
         {
           scope: jobFinderPendingActions.outcomeSuggestion(
             input.dimension,
@@ -462,10 +478,7 @@ export function buildJobFinderPageContext(
           scope: jobFinderPendingActions.campaignNotificationAll(),
         },
       ),
-    onSaveCampaignRule: (
-      campaignId: string,
-      rule: SaveCampaignRuleInput,
-    ) =>
+    onSaveCampaignRule: (campaignId: string, rule: SaveCampaignRuleInput) =>
       runAction(
         () => actions.saveCampaignRule(campaignId, rule),
         () => undefined,

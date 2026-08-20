@@ -1,8 +1,12 @@
 import { describe, expect, test } from "vitest";
 
-import type { OutcomeAnalyticsOverview } from "@unemployed/contracts";
+import {
+  ApplicationRecordSchema,
+  type OutcomeAnalyticsOverview,
+} from "@unemployed/contracts";
 
 import { createWorkspaceServiceHarness } from "./workspace-service.test-harness";
+import { createSeed } from "./workspace-service.test-fixtures";
 
 function bucketOf(
   overview: OutcomeAnalyticsOverview | null,
@@ -22,6 +26,19 @@ function bucketOf(
 }
 
 describe("workspace outcome analytics end to end", () => {
+  function applicationRecord(id: string, jobId = "job_ready") {
+    return ApplicationRecordSchema.parse({
+      id,
+      jobId,
+      title: "Senior Product Designer",
+      company: "Signal Systems",
+      status: "ready_for_review",
+      lastActionLabel: "Ready for review",
+      nextActionLabel: "Review application",
+      lastUpdatedAt: "2026-03-20T10:00:00.000Z",
+    });
+  }
+
   async function withDefaultCampaign(
     harness: ReturnType<typeof createWorkspaceServiceHarness>,
   ) {
@@ -76,6 +93,128 @@ describe("workspace outcome analytics end to end", () => {
     expect(campaignBucket.interviewRate).toBeNull();
     const sourceBucket = bucketOf(overview, "source", "target_site");
     expect(sourceBucket.sampleSize).toBe(2);
+  });
+
+  test("requires explicit identities when a job is shared or has multiple applications", async () => {
+    const harness = createWorkspaceServiceHarness({
+      seed: {
+        ...createSeed(),
+        applicationRecords: [
+          applicationRecord("application_a"),
+          applicationRecord("application_b"),
+        ],
+      },
+    });
+    await withDefaultCampaign(harness);
+    const campaignState = await harness.repository.getCampaignState();
+    if (!campaignState) throw new Error("Expected default campaign state.");
+    await harness.repository.saveCampaignState({
+      ...campaignState,
+      campaigns: [
+        ...campaignState.campaigns,
+        {
+          ...campaignState.campaigns[0]!,
+          id: "campaign_second",
+          name: "Second campaign",
+        },
+      ],
+    });
+
+    await expect(
+      harness.workspaceService.recordOutcome({
+        jobId: "job_ready",
+        outcome: "applied",
+        resumeStrategyId: null,
+        note: null,
+      }),
+    ).rejects.toThrow(/multiple campaigns/i);
+
+    await expect(
+      harness.workspaceService.recordOutcome({
+        jobId: "job_ready",
+        campaignId: "campaign_default",
+        outcome: "applied",
+        resumeStrategyId: null,
+        note: null,
+      }),
+    ).rejects.toThrow(/multiple application records/i);
+
+    await expect(
+      harness.workspaceService.recordOutcome({
+        jobId: "job_ready",
+        campaignId: "campaign_default",
+        applicationRecordId: "application_a",
+        outcome: "applied",
+        resumeStrategyId: null,
+        note: null,
+      }),
+    ).resolves.toBeDefined();
+  });
+
+  test("persists selected campaign and application identities for the same job", async () => {
+    const harness = createWorkspaceServiceHarness({
+      seed: {
+        ...createSeed(),
+        applicationRecords: [
+          applicationRecord("application_a"),
+          applicationRecord("application_b"),
+        ],
+      },
+    });
+    await withDefaultCampaign(harness);
+    const campaignState = await harness.repository.getCampaignState();
+    if (!campaignState) throw new Error("Expected default campaign state.");
+    await harness.repository.saveCampaignState({
+      ...campaignState,
+      campaigns: [
+        ...campaignState.campaigns,
+        {
+          ...campaignState.campaigns[0]!,
+          id: "campaign_second",
+          name: "Second campaign",
+        },
+      ],
+    });
+
+    await harness.workspaceService.recordOutcome({
+      jobId: "job_ready",
+      campaignId: "campaign_default",
+      applicationRecordId: "application_a",
+      outcome: "applied",
+      resumeStrategyId: null,
+      note: null,
+    });
+    const snapshot = await harness.workspaceService.recordOutcome({
+      jobId: "job_ready",
+      campaignId: "campaign_second",
+      applicationRecordId: "application_b",
+      outcome: "interview",
+      resumeStrategyId: null,
+      note: null,
+    });
+
+    expect(snapshot.intelligence.outcomeEvents).toMatchObject([
+      { campaignId: "campaign_default", applicationRecordId: "application_a" },
+      { campaignId: "campaign_second", applicationRecordId: "application_b" },
+    ]);
+    expect(
+      bucketOf(
+        snapshot.intelligence.outcomeAnalytics,
+        "campaign",
+        "campaign_default",
+      ).sampleSize,
+    ).toBe(1);
+    expect(
+      bucketOf(
+        snapshot.intelligence.outcomeAnalytics,
+        "campaign",
+        "campaign_second",
+      ).sampleSize,
+    ).toBe(1);
+    expect(
+      bucketOf(snapshot.intelligence.outcomeAnalytics, "source", "target_site")
+        .sampleSize,
+    ).toBe(2);
   });
 
   test("recording Applied never fabricates submission evidence or apply runs", async () => {

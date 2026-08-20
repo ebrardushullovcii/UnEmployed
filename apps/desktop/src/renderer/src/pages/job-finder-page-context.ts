@@ -1,4 +1,5 @@
 import type {
+  ApplicationCrmBulkStageMutationInput,
   ApplicationCrmExportFormat,
   ApplicationCrmMutationInput,
   ApplicationCrmSettings,
@@ -100,7 +101,10 @@ export interface JobFinderPageContext {
   onApproveResume: (jobId: string, exportId: string) => void;
   onClearResumeApproval: (jobId: string) => void;
   onExportResumePdf: (jobId: string) => void;
-  onPreviewResumeDraft: (draft: ResumeDraft) => Promise<JobFinderResumePreview>;
+  onPreviewResumeDraft: (
+    draft: ResumeDraft,
+    requestId?: string,
+  ) => Promise<JobFinderResumePreview>;
   onGetApplyRunDetails: (
     runId: string,
     jobId: string,
@@ -118,6 +122,9 @@ export interface JobFinderPageContext {
   ) => Promise<void>;
   onMutateApplicationCrm: (
     command: ApplicationCrmMutationInput,
+  ) => Promise<void>;
+  onMutateApplicationCrmBulkStage: (
+    command: ApplicationCrmBulkStageMutationInput,
   ) => Promise<void>;
   onRefreshCompanyIntelligence: () => Promise<void>;
   onMutateCompanyIntelligence: (
@@ -195,7 +202,7 @@ export interface JobFinderPageContext {
   onSetOutcomeSuggestionEnabled: (
     input: SetOutcomeSuggestionEnabledInput,
   ) => Promise<boolean>;
-  onSaveResumeStrategy: (input: SaveResumeStrategyInput) => void;
+  onSaveResumeStrategy: (input: SaveResumeStrategyInput) => Promise<boolean>;
   onDisableResumeStrategy: (strategyId: string) => void;
   onSelectResumeStrategy: (input: SelectResumeStrategyInput) => void;
   onRecommendResumeStrategy: (

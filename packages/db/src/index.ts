@@ -1,4 +1,6 @@
 export type {
+  ApplicationAnswerMutationResult,
+  ApplicationRecordBatchCommitResult,
   JobFinderRepository,
   JobFinderRepositorySeed,
 } from "./repository-types";

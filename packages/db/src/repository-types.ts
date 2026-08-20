@@ -60,6 +60,18 @@ import type {
 
 export type JobFinderRepositorySeed = JobFinderRepositoryState;
 
+export type ApplicationAnswerMutationResult = "applied" | "duplicate" | "stale";
+
+export type ApplicationRecordBatchCommitResult =
+  | {
+      status: "applied";
+      committedRecordIds: readonly string[];
+    }
+  | {
+      status: "missing" | "stale";
+      recordIds: readonly string[];
+    };
+
 export interface JobFinderRepository {
   close(): Promise<void>;
   reset(seed: JobFinderRepositorySeed): Promise<void>;
@@ -185,6 +197,17 @@ export interface JobFinderRepository {
     questionId?: string;
   }): Promise<readonly ApplicationAnswerRecord[]>;
   upsertApplicationAnswerRecord(record: ApplicationAnswerRecord): Promise<void>;
+  /**
+   * Compare the latest answer and question with the caller's captured values,
+   * then append the answer and update its question in one atomic operation.
+   * A duplicate command is reported separately so retries remain idempotent.
+   */
+  commitApplicationAnswerMutation(input: {
+    expectedAnswer: ApplicationAnswerRecord | null;
+    expectedQuestion: ApplicationQuestionRecord;
+    answer: ApplicationAnswerRecord;
+    question: ApplicationQuestionRecord;
+  }): Promise<ApplicationAnswerMutationResult>;
   listApplicationArtifactRefs(options?: {
     runId?: string;
     jobId?: string;
@@ -248,6 +271,18 @@ export interface JobFinderRepository {
   }): Promise<void>;
   listApplicationRecords(): Promise<readonly ApplicationRecord[]>;
   upsertApplicationRecord(applicationRecord: ApplicationRecord): Promise<void>;
+  /**
+   * Atomically commits a set of application records after checking every
+   * expected revision. Missing or stale records return a failure result and
+   * leave the persisted collection untouched.
+   */
+  commitApplicationRecordBatch(input: {
+    expectedRevisions: readonly {
+      applicationRecordId: string;
+      expectedRevision: number;
+    }[];
+    records: readonly ApplicationRecord[];
+  }): Promise<ApplicationRecordBatchCommitResult>;
   listApplicationAttempts(): Promise<readonly ApplicationAttempt[]>;
   upsertApplicationAttempt(
     applicationAttempt: ApplicationAttemptInput,

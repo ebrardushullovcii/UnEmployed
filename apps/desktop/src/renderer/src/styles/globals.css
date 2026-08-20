@@ -79,7 +79,7 @@
   --secondary: #151515;
   --secondary-foreground: #e7e5e5;
   --muted: #141414;
-  --muted-foreground: #7a7771;
+  --muted-foreground: #85827d;
   --accent: #1a1a1a;
   --accent-foreground: #e7e5e5;
   --destructive: #ee7d77;
@@ -567,5 +567,11 @@ strong {
 @media (min-width: 640px) {
   .job-finder-shell-grid {
     grid-template-columns: var(--job-finder-side-width-sm) minmax(0, 1fr) auto;
+  }
+}
+
+@media (min-width: 640px) and (max-width: 1023px) {
+  .job-finder-shell-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

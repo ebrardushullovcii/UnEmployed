@@ -64,8 +64,6 @@ export const outcomeRecordingOptions: ReadonlyArray<{
 
 const fieldClassName =
   "h-10 w-full rounded-(--radius-field) border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40";
-const areaClassName =
-  "min-h-16 w-full resize-y rounded-(--radius-field) border border-input bg-background px-3 py-2 text-sm leading-6 text-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40";
 
 /**
  * User-controlled outcome recording for one application. It only ever emits a
@@ -76,6 +74,8 @@ const areaClassName =
 export function ApplicationsOutcomeRecorder(props: {
   isPending: boolean;
   jobId: string;
+  campaignId: string | null;
+  applicationRecordId: string;
   onRecordOutcome: (input: RecordOutcomeInput) => Promise<void>;
   resumeStrategyId: string | null;
 }) {
@@ -93,6 +93,8 @@ export function ApplicationsOutcomeRecorder(props: {
     void props
       .onRecordOutcome({
         jobId: props.jobId,
+        campaignId: props.campaignId,
+        applicationRecordId: props.applicationRecordId,
         outcome,
         resumeStrategyId: props.resumeStrategyId,
         note: note.trim() ? note.trim() : null,

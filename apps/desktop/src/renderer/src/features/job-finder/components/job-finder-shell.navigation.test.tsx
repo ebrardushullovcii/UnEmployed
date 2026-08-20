@@ -132,22 +132,13 @@ describe("JobFinderShell section navigation", () => {
       "Find jobs",
       "Shortlisted",
       "Applications",
-      "Campaigns",
-      "Analytics",
-      "Strategies",
-      "Companies",
-      "Safeguards",
-      "Settings",
+      "More",
     ]);
     expect(navigation.className).not.toContain("overflow-hidden");
+    expect(navigation.firstElementChild?.className).toContain("max-w-4xl");
     expect(navigation.firstElementChild?.className).toContain(
-      "grid w-full min-w-0 grid-cols-2",
+      "2xl:rounded-full",
     );
-    expect(navigation.firstElementChild?.className).toContain("sm:grid-cols-3");
-    expect(navigation.firstElementChild?.className).toContain("lg:grid-cols-4");
-    expect(navigation.firstElementChild?.className).toContain("xl:inline-flex");
-    expect(navigation.firstElementChild?.className).toContain("xl:flex-nowrap");
-    expect(navigation.firstElementChild?.className).toContain("lg:rounded-3xl");
 
     const notificationGroup = screen.getByRole("group", {
       name: "Notifications and actions",
@@ -160,7 +151,7 @@ describe("JobFinderShell section navigation", () => {
       Array.from(needsYouButton.querySelectorAll("span")).find(
         (span) => span.textContent?.trim() === "Needs you",
       )?.className,
-    ).toContain("lg:hidden 2xl:inline");
+    ).toContain("sm:inline");
     const taskCenterLauncher = within(notificationGroup).getByLabelText(
       "Task center: 0 active",
     );
@@ -168,7 +159,7 @@ describe("JobFinderShell section navigation", () => {
       Array.from(taskCenterLauncher.querySelectorAll("span")).find(
         (span) => span.textContent?.trim() === "Task center",
       )?.className,
-    ).toContain("lg:hidden 2xl:inline");
+    ).toContain("sm:inline");
     expect(navigation.contains(notificationGroup)).toBe(false);
 
     const windowControls = screen.getByRole("group", {
@@ -181,8 +172,8 @@ describe("JobFinderShell section navigation", () => {
       document.querySelector("[data-desktop-module-navigation]")?.className,
     ).toContain("lg:inset-x-0");
     expect(navigation.className).toContain("lg:inset-x-0");
-    expect(navigation.className).toContain("lg:px-64");
-    expect(navigation.className).toContain("xl:px-52");
+    expect(navigation.className).toContain("lg:px-16");
+    expect(navigation.className).toContain("xl:px-32");
   });
 
   it("reserves the native macOS traffic-light area without shifting centered navigation", () => {
@@ -225,12 +216,7 @@ describe("JobFinderShell section navigation", () => {
     });
     const workflow = navigation.firstElementChild;
 
-    expect(workflow?.className).toContain("grid-cols-2");
-    expect(workflow?.className).toContain("sm:grid-cols-3");
-    expect(workflow?.className).toContain("lg:grid-cols-4");
-    expect(workflow?.className).toContain("xl:inline-flex");
-    expect(workflow?.className).toContain("xl:flex-nowrap");
-    expect(workflow?.className).toContain("xl:w-auto");
+    expect(workflow?.className).toContain("max-w-4xl");
 
     const labels = within(navigation)
       .getAllByRole("button")
@@ -242,12 +228,7 @@ describe("JobFinderShell section navigation", () => {
       "Find jobs",
       "Shortlisted",
       "Applications",
-      "Campaigns",
-      "Analytics",
-      "Strategies",
-      "Companies",
-      "Safeguards",
-      "Settings",
+      "More",
     ]);
 
     expect(
@@ -269,11 +250,15 @@ describe("JobFinderShell section navigation", () => {
     expect(document.activeElement).toBe(initialMain);
     expect(screen.getByRole("status").textContent).toBe("Find jobs opened.");
 
+    const navigation = screen.getByRole("navigation", {
+      name: "Job Finder sections",
+    });
     fireEvent.click(
-      within(
-        screen.getByRole("navigation", { name: "Job Finder sections" }),
-      ).getByRole("button", { name: "Settings" }),
+      within(navigation).getByRole("button", {
+        name: "More Job Finder sections",
+      }),
     );
+    fireEvent.click(screen.getByRole("menuitem", { name: /^Settings/ }));
 
     const settingsMain = screen.getByRole("main", { name: "Settings" });
     expect(document.title).toBe("Settings | Job Finder | UnEmployed");
@@ -310,9 +295,11 @@ describe("JobFinderShell section navigation", () => {
     });
 
     expect(shellGrid?.className).toContain(
-      "grid-rows-[3.5rem_2.5rem_9rem_3.75rem]",
+      "grid-rows-[3.5rem_2.5rem_auto_3.75rem]",
     );
-    expect(shellGrid?.className).toContain("sm:grid-rows-[3.5rem_2.5rem_7rem]");
+    expect(shellGrid?.className).toContain(
+      "sm:grid-rows-[3.5rem_2.5rem_auto_3.75rem]",
+    );
     expect(shell?.className).toContain("overflow-y-auto");
     expect(shell?.className).toContain("sm:overflow-hidden");
     expect(header?.className).toContain("relative");
@@ -325,10 +312,129 @@ describe("JobFinderShell section navigation", () => {
     expect(navigation.className).not.toContain("overflow-hidden");
     expect(actions.className).toContain("col-span-2");
     expect(actions.className).toContain("row-start-4");
-    expect(actions.className).toContain("sm:col-start-3");
-    expect(actions.className).toContain("sm:row-start-3");
+    expect(actions.className).toContain("sm:col-start-1");
+    expect(actions.className).toContain("sm:row-start-4");
     expect(window.matchMedia).toHaveBeenCalledWith("(max-width: 639px)");
     expect(scrollIntoViewMock).toHaveBeenCalledWith({ block: "start" });
+  });
+
+  it("keeps overflow sections reachable and closes More predictably on compact viewports", () => {
+    vi.mocked(window.matchMedia).mockReturnValue({
+      matches: true,
+    } as MediaQueryList);
+    const onNavigate = vi.fn();
+
+    render(
+      <MemoryRouter initialEntries={["/job-finder/discovery"]}>
+        <JobFinderShell
+          onNavigate={onNavigate}
+          platform="win32"
+          workspace={createWorkspace()}
+        >
+          <div>Current screen</div>
+        </JobFinderShell>
+      </MemoryRouter>,
+    );
+
+    const navigation = screen.getByRole("navigation", {
+      name: "Job Finder sections",
+    });
+    const moreButton = within(navigation).getByRole("button", {
+      name: "More Job Finder sections",
+    });
+    expect(moreButton.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.keyDown(moreButton, { key: "ArrowDown" });
+    const menu = screen.getByRole("menu", {
+      name: "More Job Finder sections",
+    });
+    expect(menu).toBeTruthy();
+    expect(
+      within(menu).getByRole("menuitem", { name: /Campaigns/ }),
+    ).toBeTruthy();
+    expect(within(menu).getByRole("group", { name: "Manage" })).toBeTruthy();
+    expect(document.activeElement).toBe(
+      within(menu).getByRole("menuitem", { name: /Campaigns/ }),
+    );
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(moreButton);
+
+    fireEvent.click(moreButton);
+    expect(screen.getByRole("menu")).toBeTruthy();
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole("menu")).toBeNull();
+
+    fireEvent.click(moreButton);
+    fireEvent.click(screen.getByRole("menuitem", { name: /Strategies/ }));
+    expect(onNavigate).toHaveBeenCalledWith("/job-finder/resume-strategies");
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("supports complete keyboard navigation in the More menu", () => {
+    render(
+      <MemoryRouter initialEntries={["/job-finder/discovery"]}>
+        <JobFinderShell platform="win32" workspace={createWorkspace()}>
+          <div>Current screen</div>
+        </JobFinderShell>
+      </MemoryRouter>,
+    );
+
+    const moreButton = screen.getByRole("button", {
+      name: "More Job Finder sections",
+    });
+    const getMenuItem = (name: RegExp) =>
+      screen.getByRole("menuitem", { name });
+
+    fireEvent.keyDown(moreButton, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(getMenuItem(/^Settings/));
+    expect(getMenuItem(/^Settings/).getAttribute("tabindex")).toBe("0");
+    expect(getMenuItem(/^Campaigns/).getAttribute("tabindex")).toBe("-1");
+
+    fireEvent.keyDown(document.activeElement as HTMLElement, {
+      key: "ArrowUp",
+    });
+    expect(document.activeElement).toBe(getMenuItem(/^Safeguards/));
+    fireEvent.keyDown(document.activeElement as HTMLElement, {
+      key: "ArrowDown",
+    });
+    expect(document.activeElement).toBe(getMenuItem(/^Settings/));
+    fireEvent.keyDown(document.activeElement as HTMLElement, {
+      key: "ArrowDown",
+    });
+    expect(document.activeElement).toBe(getMenuItem(/^Campaigns/));
+    fireEvent.keyDown(document.activeElement as HTMLElement, {
+      key: "ArrowUp",
+    });
+    expect(document.activeElement).toBe(getMenuItem(/^Settings/));
+
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: "Home" });
+    expect(document.activeElement).toBe(getMenuItem(/^Campaigns/));
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: "End" });
+    expect(document.activeElement).toBe(getMenuItem(/^Settings/));
+
+    const tabWasNotPrevented = fireEvent.keyDown(
+      document.activeElement as HTMLElement,
+      { key: "Tab" },
+    );
+    expect(tabWasNotPrevented).toBe(true);
+    expect(screen.queryByRole("menu")).toBeNull();
+
+    fireEvent.click(moreButton);
+    expect(document.activeElement).toBe(getMenuItem(/^Campaigns/));
+    fireEvent.keyDown(document.activeElement as HTMLElement, {
+      key: "Tab",
+      shiftKey: true,
+    });
+    expect(screen.queryByRole("menu")).toBeNull();
+
+    fireEvent.keyDown(moreButton, { key: "ArrowDown" });
+    fireEvent.keyDown(document.activeElement as HTMLElement, {
+      key: "Escape",
+    });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(moreButton);
   });
 
   it("keeps every responsive destination interactive", () => {
@@ -356,6 +462,14 @@ describe("JobFinderShell section navigation", () => {
       "Find jobs",
       "Shortlisted",
       "Applications",
+    ]) {
+      fireEvent.click(
+        within(navigation).getByRole("button", {
+          name: new RegExp(`^${destination}`),
+        }),
+      );
+    }
+    for (const destination of [
       "Campaigns",
       "Analytics",
       "Strategies",
@@ -365,6 +479,11 @@ describe("JobFinderShell section navigation", () => {
     ]) {
       fireEvent.click(
         within(navigation).getByRole("button", {
+          name: "More Job Finder sections",
+        }),
+      );
+      fireEvent.click(
+        screen.getByRole("menuitem", {
           name: new RegExp(`^${destination}`),
         }),
       );

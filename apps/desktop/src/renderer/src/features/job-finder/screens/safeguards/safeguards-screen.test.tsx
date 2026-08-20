@@ -48,7 +48,9 @@ function renderScreen(props: {
     <SafeguardsScreen
       actionMessage={props.actionMessage ?? null}
       isPending={props.isPending ?? (() => false)}
-      onMutateSafeguards={props.onMutateSafeguards ?? (async () => true)}
+      onMutateSafeguards={
+        props.onMutateSafeguards ?? (() => Promise.resolve(true))
+      }
       workspace={
         props.workspace === undefined ? workspaceWith() : props.workspace
       }
@@ -74,6 +76,26 @@ describe("SafeguardsScreen", () => {
       screen.getByText(/appear here automatically when the pipeline detects/i),
     ).toBeTruthy();
     expect(screen.getByText(/No active safeguard blockers/i)).toBeTruthy();
+  });
+
+  it("keeps the search field and category tabs in a responsive non-clipping toolbar", () => {
+    renderScreen({});
+
+    const toolbar = document.querySelector<HTMLElement>(
+      "[data-safeguard-toolbar]",
+    );
+    const categories = document.querySelector<HTMLElement>(
+      "[data-safeguard-categories]",
+    );
+
+    expect(toolbar?.className).toContain("min-w-0");
+    expect(toolbar?.className).toContain(
+      "lg:grid-cols-[minmax(14rem,1fr)_minmax(0,3fr)]",
+    );
+    expect(categories?.className).toContain("min-w-0");
+    expect(categories?.className).toContain("w-full");
+    expect(categories?.className).toContain("flex-wrap");
+    expect(screen.getAllByRole("tab")).toHaveLength(8);
   });
 
   it("shows signals with a dismiss control that calls the typed mutation", async () => {
@@ -131,9 +153,7 @@ describe("SafeguardsScreen", () => {
       .mockResolvedValue(true);
     renderScreen({ onMutateSafeguards, workspace: workspaceWith(safeguards) });
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Resolve conflict" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Resolve conflict" }));
 
     await vi.waitFor(() => {
       expect(onMutateSafeguards).toHaveBeenCalledWith({
@@ -174,20 +194,37 @@ describe("SafeguardsScreen", () => {
     renderScreen({});
 
     const tabs = screen.getAllByRole("tab");
-    const signalsTab = tabs.find((tab) => tab.textContent?.includes("Signals"));
+    const signalsTab = tabs.find((tab) =>
+      tab.textContent?.includes("Listing signals"),
+    );
     expect(signalsTab).toBeTruthy();
 
+    signalsTab!.focus();
     fireEvent.keyDown(signalsTab!, { key: "ArrowRight" });
-    expect(screen.getByRole("tab", { selected: true }).textContent).toMatch(
-      /Pauses/,
-    );
+    const pausesTab = screen.getByRole("tab", { name: /Automatic pauses/ });
+    expect(screen.getByRole("tab", { selected: true })).toBe(pausesTab);
+    expect(document.activeElement).toBe(pausesTab);
 
-    fireEvent.keyDown(screen.getByRole("tab", { selected: true }), {
-      key: "ArrowLeft",
-    });
-    expect(screen.getByRole("tab", { selected: true }).textContent).toMatch(
-      /Signals/,
-    );
+    fireEvent.keyDown(pausesTab, { key: "ArrowLeft" });
+    expect(screen.getByRole("tab", { selected: true })).toBe(signalsTab);
+    expect(document.activeElement).toBe(signalsTab);
+  });
+
+  it("moves focus to the selected edge tab for Home and End", () => {
+    renderScreen({});
+
+    const signalsTab = screen.getByRole("tab", { name: /Listing signals/ });
+    const allTab = screen.getByRole("tab", { name: /^All/ });
+    const dismissalsTab = screen.getByRole("tab", { name: /Dismissals/ });
+
+    signalsTab.focus();
+    fireEvent.keyDown(signalsTab, { key: "Home" });
+    expect(screen.getByRole("tab", { selected: true })).toBe(allTab);
+    expect(document.activeElement).toBe(allTab);
+
+    fireEvent.keyDown(allTab, { key: "End" });
+    expect(screen.getByRole("tab", { selected: true })).toBe(dismissalsTab);
+    expect(document.activeElement).toBe(dismissalsTab);
   });
 
   it("surfaces a mutation failure as an inline error on the row", async () => {
@@ -203,7 +240,8 @@ describe("SafeguardsScreen", () => {
           minimumSample: 5,
           paused: true,
           explanation: "Elevated application failure rate.",
-          recoveryGuidance: "Inspect the latest failure evidence before resuming.",
+          recoveryGuidance:
+            "Inspect the latest failure evidence before resuming.",
         },
       ],
     });

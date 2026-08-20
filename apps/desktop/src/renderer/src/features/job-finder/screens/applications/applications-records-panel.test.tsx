@@ -140,4 +140,64 @@ describe("ApplicationsRecordsPanel", () => {
         .getAttribute("aria-current"),
     ).toBe("true");
   });
+
+  it("keeps a large application list bounded to one page", () => {
+    const applicationRecords = Array.from(
+      { length: 226 },
+      (_, index) =>
+        ({
+          id: `application_${index}`,
+          jobId: `job_${index}`,
+          title: `Product Engineer ${index}`,
+          company: "Acme",
+          status: "ready_for_review",
+          lastActionLabel: "Resume approved",
+          nextActionLabel: "Prepare application",
+          lastUpdatedAt: "2026-08-09T08:00:00.000Z",
+          lastAttemptState: "paused",
+          questionSummary: {
+            total: 0,
+            required: 0,
+            answered: 0,
+            unansweredRequired: 0,
+          },
+          latestBlocker: null,
+          consentSummary: { status: "none", pendingCount: 0 },
+          replaySummary: {
+            sourceInstructionArtifactId: null,
+            lastUrl: null,
+            checkpointCount: 0,
+            evidenceCount: 0,
+          },
+          events: [],
+          crm: null,
+        }) as ApplicationRecord,
+    );
+
+    render(
+      <ApplicationsRecordsPanel
+        activeFilter="all"
+        applicationRecords={applicationRecords}
+        filterCounts={{
+          all: 226,
+          needs_action: 0,
+          in_progress: 226,
+          submitted: 0,
+          manual_only: 0,
+        }}
+        hasAnyApplications
+        onFilterChange={vi.fn()}
+        onSelectRecord={vi.fn()}
+        selectedRecord={null}
+      />,
+    );
+
+    expect(screen.getAllByRole("listitem")).toHaveLength(40);
+    expect(
+      screen.getByRole("navigation", { name: "applications pagination" }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    expect(screen.getAllByRole("listitem")).toHaveLength(40);
+    expect(screen.getByText("Product Engineer 40")).toBeTruthy();
+  });
 });

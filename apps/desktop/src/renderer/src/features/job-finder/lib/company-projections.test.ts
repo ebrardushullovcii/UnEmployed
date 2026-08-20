@@ -280,6 +280,24 @@ describe("projectCompanyDuplicateJobs", () => {
     expect(groups).toEqual([]);
   });
 
+  it("indexes a 500-plus posting catalog without pairing unrelated jobs", () => {
+    const jobs = Array.from({ length: 501 }, (_, index) =>
+      makeJob(`job_${String(index).padStart(3, "0")}`, {
+        sourceJobId: index < 2 ? "shared-posting" : `posting_${index}`,
+      }),
+    );
+    const groups = projectCompanyDuplicateJobs({
+      company: makeCompany({ jobIds: jobs.map((job) => job.id) }),
+      jobs,
+    });
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      kind: "exact",
+      jobIds: ["job_000", "job_001"],
+    });
+  });
+
   it("returns no groups for a company with fewer than two jobs", () => {
     expect(
       projectCompanyDuplicateJobs({

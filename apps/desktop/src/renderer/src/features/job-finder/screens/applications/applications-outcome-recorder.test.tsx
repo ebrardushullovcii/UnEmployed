@@ -5,6 +5,22 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RecordOutcomeInput } from "@unemployed/contracts";
 import { ApplicationsOutcomeRecorder } from "./applications-outcome-recorder";
 
+function getOutcomeSelect(): HTMLSelectElement {
+  const element = screen.getByLabelText(/Outcome/);
+  if (!(element instanceof HTMLSelectElement)) {
+    throw new Error("Outcome control is not a select element");
+  }
+  return element;
+}
+
+function getRecordOutcomeButton(): HTMLButtonElement {
+  const element = screen.getByRole("button", { name: "Record outcome" });
+  if (!(element instanceof HTMLButtonElement)) {
+    throw new Error("Record outcome control is not a button");
+  }
+  return element;
+}
+
 describe("ApplicationsOutcomeRecorder", () => {
   afterEach(() => {
     cleanup();
@@ -19,6 +35,8 @@ describe("ApplicationsOutcomeRecorder", () => {
       <ApplicationsOutcomeRecorder
         isPending={false}
         jobId="job-1"
+        campaignId="campaign-1"
+        applicationRecordId="application-1"
         onRecordOutcome={onRecordOutcome}
         resumeStrategyId="strategy-1"
       />,
@@ -35,6 +53,8 @@ describe("ApplicationsOutcomeRecorder", () => {
     await vi.waitFor(() => {
       expect(onRecordOutcome).toHaveBeenCalledWith({
         jobId: "job-1",
+        campaignId: "campaign-1",
+        applicationRecordId: "application-1",
         outcome: "interview",
         resumeStrategyId: "strategy-1",
         note: "Recruiter call went well",
@@ -50,6 +70,8 @@ describe("ApplicationsOutcomeRecorder", () => {
       <ApplicationsOutcomeRecorder
         isPending={false}
         jobId="job-1"
+        campaignId="campaign-1"
+        applicationRecordId="application-1"
         onRecordOutcome={onRecordOutcome}
         resumeStrategyId={null}
       />,
@@ -67,6 +89,8 @@ describe("ApplicationsOutcomeRecorder", () => {
     await vi.waitFor(() => {
       expect(onRecordOutcome).toHaveBeenCalledWith({
         jobId: "job-1",
+        campaignId: "campaign-1",
+        applicationRecordId: "application-1",
         outcome: "applied",
         resumeStrategyId: null,
         note: null,
@@ -86,12 +110,14 @@ describe("ApplicationsOutcomeRecorder", () => {
       <ApplicationsOutcomeRecorder
         isPending={false}
         jobId="job-1"
-        onRecordOutcome={async () => undefined}
+        campaignId="campaign-1"
+        applicationRecordId="application-1"
+        onRecordOutcome={() => Promise.resolve()}
         resumeStrategyId={null}
       />,
     );
 
-    const select = screen.getByLabelText(/Outcome/) as HTMLSelectElement;
+    const select = getOutcomeSelect();
     const optionValues = [...select.options].map((option) => option.value);
 
     expect(optionValues).toEqual(
@@ -121,6 +147,8 @@ describe("ApplicationsOutcomeRecorder", () => {
       <ApplicationsOutcomeRecorder
         isPending={false}
         jobId="job-1"
+        campaignId="campaign-1"
+        applicationRecordId="application-1"
         onRecordOutcome={onRecordOutcome}
         resumeStrategyId={null}
       />,
@@ -136,9 +164,7 @@ describe("ApplicationsOutcomeRecorder", () => {
         /That job is no longer available/,
       );
     });
-    expect((screen.getByLabelText(/Outcome/) as HTMLSelectElement).value).toBe(
-      "offer",
-    );
+    expect(getOutcomeSelect().value).toBe("offer");
   });
 
   it("does not record without a chosen outcome", () => {
@@ -149,14 +175,14 @@ describe("ApplicationsOutcomeRecorder", () => {
       <ApplicationsOutcomeRecorder
         isPending={false}
         jobId="job-1"
+        campaignId="campaign-1"
+        applicationRecordId="application-1"
         onRecordOutcome={onRecordOutcome}
         resumeStrategyId={null}
       />,
     );
 
-    const recordButton = screen.getByRole("button", {
-      name: "Record outcome",
-    }) as HTMLButtonElement;
+    const recordButton = getRecordOutcomeButton();
     expect(recordButton.disabled).toBe(true);
     fireEvent.click(recordButton);
     expect(onRecordOutcome).not.toHaveBeenCalled();
@@ -167,20 +193,14 @@ describe("ApplicationsOutcomeRecorder", () => {
       <ApplicationsOutcomeRecorder
         isPending
         jobId="job-1"
-        onRecordOutcome={async () => undefined}
+        campaignId="campaign-1"
+        applicationRecordId="application-1"
+        onRecordOutcome={() => Promise.resolve()}
         resumeStrategyId={null}
       />,
     );
 
-    expect(
-      (screen.getByLabelText(/Outcome/) as HTMLSelectElement).disabled,
-    ).toBe(true);
-    expect(
-      (
-        screen.getByRole("button", {
-          name: "Record outcome",
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(true);
+    expect(getOutcomeSelect().disabled).toBe(true);
+    expect(getRecordOutcomeButton().disabled).toBe(true);
   });
 });

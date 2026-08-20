@@ -182,6 +182,117 @@ describe("workspace application answer methods", () => {
     ).rejects.toThrow(/not one of the choices/i);
   });
 
+  it("allows only one concurrent save at an expected answer revision", async () => {
+    const { job, methods, repository } = createHarness();
+
+    const results = await Promise.allSettled([
+      methods.saveApplicationAnswer({
+        ...saveCommand("concurrent-save-a", 0),
+        jobId: job.id,
+        value: { type: "single_choice", value: "No" },
+      }),
+      methods.saveApplicationAnswer({
+        ...saveCommand("concurrent-save-b", 0),
+        jobId: job.id,
+        value: { type: "single_choice", value: "Yes" },
+      }),
+    ]);
+
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+    const rejected = results.find((result) => result.status === "rejected");
+    expect(rejected?.status).toBe("rejected");
+    if (rejected?.status === "rejected") {
+      expect(rejected.reason).toBeInstanceOf(Error);
+      const message =
+        rejected.reason instanceof Error
+          ? rejected.reason.message
+          : String(rejected.reason);
+      expect(message).toMatch(/changed in another view/i);
+    }
+
+    const answers = await repository.listApplicationAnswerRecords({
+      questionId: "question-sponsorship",
+    });
+    expect(answers).toHaveLength(1);
+    expect(answers[0]?.revision).toBe(1);
+    expect(["No", "Yes"]).toContain(answers[0]?.text);
+    expect((await repository.listApplicationQuestionRecords())[0]).toEqual(
+      expect.objectContaining({
+        selectedAnswerId: answers[0]?.id,
+        submittedAnswer: answers[0]?.text,
+        status: "answered",
+      }),
+    );
+  });
+
+  it("allows only one concurrent save or clear at an expected revision", async () => {
+    const { job, methods, repository } = createHarness();
+    await methods.saveApplicationAnswer({
+      ...saveCommand("concurrent-baseline", 0),
+      jobId: job.id,
+    });
+
+    const results = await Promise.allSettled([
+      methods.saveApplicationAnswer({
+        ...saveCommand("concurrent-replace", 1),
+        jobId: job.id,
+        value: { type: "single_choice", value: "Yes" },
+      }),
+      methods.clearApplicationAnswer({
+        commandId: "concurrent-clear",
+        runId: "run-answers",
+        jobId: job.id,
+        resultId: "result-answers",
+        questionId: "question-sponsorship",
+        expectedAnswerRevision: 1,
+        submitAuthorized: false,
+        accountCreationAuthorized: false,
+      }),
+    ]);
+
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+    const rejected = results.find((result) => result.status === "rejected");
+    expect(rejected?.status).toBe("rejected");
+    if (rejected?.status === "rejected") {
+      expect(rejected.reason).toBeInstanceOf(Error);
+      const message =
+        rejected.reason instanceof Error
+          ? rejected.reason.message
+          : String(rejected.reason);
+      expect(message).toMatch(/changed in another view/i);
+    }
+
+    const answers = await repository.listApplicationAnswerRecords({
+      questionId: "question-sponsorship",
+    });
+    expect(answers).toHaveLength(2);
+    expect(answers.filter((answer) => answer.revision === 2)).toHaveLength(1);
+    const latest = answers.find((answer) => answer.revision === 2);
+    const question = (await repository.listApplicationQuestionRecords())[0];
+    expect(question).toBeDefined();
+    if (latest?.status === "rejected") {
+      expect(question).toEqual(
+        expect.objectContaining({
+          selectedAnswerId: null,
+          submittedAnswer: null,
+          status: "detected",
+        }),
+      );
+    } else {
+      expect(question).toEqual(
+        expect.objectContaining({
+          selectedAnswerId: latest?.id,
+          submittedAnswer: latest?.text,
+          status: "answered",
+        }),
+      );
+    }
+  });
+
   it("can save a reviewed text answer to Profile without overwriting a conflict", async () => {
     const { job, methods, repository } = createHarness();
     await methods.saveApplicationAnswer({

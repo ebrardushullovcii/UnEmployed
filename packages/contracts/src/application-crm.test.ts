@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  ApplicationCrmBulkStageMutationInputSchema,
   ApplicationCrmDataSchema,
   ApplicationCrmMutationInputSchema,
   ApplicationCrmSettingsSchema,
@@ -67,5 +68,27 @@ describe("application CRM contracts", () => {
         mutation: { type: "set_tags", tags: ["priority"] },
       }),
     ).toThrow();
+  });
+
+  test("requires unique revision-guarded records for bulk stage changes", () => {
+    expect(() =>
+      ApplicationCrmBulkStageMutationInputSchema.parse({
+        items: [
+          { applicationRecordId: "application_1", expectedRevision: 0 },
+          { applicationRecordId: "application_1", expectedRevision: 0 },
+        ],
+        stage: "reviewing",
+      }),
+    ).toThrow();
+
+    expect(
+      ApplicationCrmBulkStageMutationInputSchema.parse({
+        items: [{ applicationRecordId: "application_1", expectedRevision: 2 }],
+        stage: "reviewing",
+      }),
+    ).toMatchObject({
+      customStageId: null,
+      note: null,
+    });
   });
 });

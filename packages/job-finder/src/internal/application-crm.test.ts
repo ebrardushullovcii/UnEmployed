@@ -1,13 +1,18 @@
 import { describe, expect, test } from "vitest";
 import { ApplicationRecordSchema } from "@unemployed/contracts";
+import type { ApplicationRecord } from "@unemployed/contracts";
+import type { ApplicationRecordBatchCommitResult } from "@unemployed/db";
 
 import {
+  ApplicationCrmBulkStageRevisionConflictError,
+  ApplicationCrmBulkStageValidationError,
   ApplicationCrmRevisionConflictError,
   buildApplicationCrmCalendar,
   exportApplicationCrm,
   findApplicationCrmDuplicateHints,
   getApplicationCrmData,
   mutateApplicationCrm,
+  mutateApplicationCrmBulkStage,
   projectApplicationCrmDashboard,
   recommendApplicationCrmAction,
   runApplicationNoResponseAutomation,
@@ -36,6 +41,43 @@ function repository(initial = [record()]) {
         current.id === next.id ? next : current,
       );
       return Promise.resolve();
+    },
+    commitApplicationRecordBatch: ({
+      expectedRevisions,
+      records: next,
+    }: {
+      expectedRevisions: readonly {
+        applicationRecordId: string;
+        expectedRevision: number;
+      }[];
+      records: readonly ApplicationRecord[];
+    }): Promise<ApplicationRecordBatchCommitResult> => {
+      const currentById = new Map(
+        records.map((current) => [current.id, current]),
+      );
+      const staleRecordIds = expectedRevisions
+        .filter(
+          ({ applicationRecordId, expectedRevision }) =>
+            (currentById.get(applicationRecordId)?.crm?.revision ?? 0) !==
+            expectedRevision,
+        )
+        .map(({ applicationRecordId }) => applicationRecordId);
+      if (staleRecordIds.length > 0) {
+        return Promise.resolve({
+          status: "stale" as const,
+          recordIds: staleRecordIds,
+        });
+      }
+      records = records.map(
+        (current) =>
+          next.find((candidate) => candidate.id === current.id) ?? current,
+      );
+      return Promise.resolve({
+        status: "applied" as const,
+        committedRecordIds: expectedRevisions.map(
+          ({ applicationRecordId }) => applicationRecordId,
+        ),
+      });
     },
     read: () => records,
   };
@@ -78,6 +120,86 @@ describe("application CRM service", () => {
     expect(updated).not.toHaveProperty("submitAuthorized");
     expect(updated.lastAttemptState).toBeNull();
     expect(repo.read()[0]?.crm?.events[0]?.source).toBe("user");
+  });
+
+  test("commits a bulk stage change once and updates every selected record", async () => {
+    const repo = repository([
+      record(),
+      record({
+        id: "application_2",
+        jobId: "job_2",
+        title: "Backend Engineer",
+      }),
+    ]);
+    let commitCalls = 0;
+    const commit = repo.commitApplicationRecordBatch;
+    repo.commitApplicationRecordBatch = async (input) => {
+      commitCalls += 1;
+      return commit(input);
+    };
+
+    const updated = await mutateApplicationCrmBulkStage({
+      repository: repo,
+      command: {
+        items: [
+          { applicationRecordId: "application_1", expectedRevision: 0 },
+          { applicationRecordId: "application_2", expectedRevision: 0 },
+        ],
+        stage: "reviewing",
+        customStageId: null,
+        note: "Reviewed together.",
+      },
+      now: () => "2026-08-15T10:00:00.000Z",
+      createId: (() => {
+        let index = 0;
+        return () => `event_${++index}`;
+      })(),
+    });
+
+    expect(commitCalls).toBe(1);
+    expect(updated.map((entry) => entry.crm?.stage)).toEqual([
+      "reviewing",
+      "reviewing",
+    ]);
+    expect(repo.read().map((entry) => entry.crm?.revision)).toEqual([1, 1]);
+  });
+
+  test("rejects missing and stale bulk records before any partial write", async () => {
+    const repo = repository([
+      record({
+        crm: {
+          revision: 3,
+          stage: "applied",
+          stageChangedAt: "2026-08-15T10:00:00.000Z",
+        },
+      }),
+    ]);
+    await expect(
+      mutateApplicationCrmBulkStage({
+        repository: repo,
+        command: {
+          items: [
+            { applicationRecordId: "application_1", expectedRevision: 3 },
+            { applicationRecordId: "missing", expectedRevision: 0 },
+          ],
+          stage: "reviewing",
+        },
+      }),
+    ).rejects.toBeInstanceOf(ApplicationCrmBulkStageValidationError);
+    expect(repo.read()[0]?.crm?.stage).toBe("applied");
+
+    await expect(
+      mutateApplicationCrmBulkStage({
+        repository: repo,
+        command: {
+          items: [
+            { applicationRecordId: "application_1", expectedRevision: 2 },
+          ],
+          stage: "reviewing",
+        },
+      }),
+    ).rejects.toBeInstanceOf(ApplicationCrmBulkStageRevisionConflictError);
+    expect(repo.read()[0]?.crm?.stage).toBe("applied");
   });
 
   test("manual applied tracking never invents browser submission evidence", async () => {

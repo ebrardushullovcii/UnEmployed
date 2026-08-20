@@ -57,15 +57,10 @@ const provenanceSourceLabels: Record<
   learning_suggestion: "Learning suggestion",
 };
 
-const kindOrder: readonly CampaignRuleKind[] = [
-  "must_have",
-  "prefer",
-  "never",
-];
+const kindOrder: readonly CampaignRuleKind[] = ["must_have", "prefer", "never"];
 
 function describeRule(rule: CampaignRule): string {
-  const numberValue =
-    rule.numericValue === null ? "" : ` ${rule.numericValue}`;
+  const numberValue = rule.numericValue === null ? "" : ` ${rule.numericValue}`;
   const currencyValue = rule.currency ? ` ${rule.currency}` : "";
   return `${fieldLabels[rule.field]} ${operatorLabels[rule.operator]} ${rule.value}${numberValue}${currencyValue}`;
 }
@@ -108,7 +103,7 @@ function RuleRow(props: {
             {describeRule(rule)}
           </p>
           <p className="mt-0.5 text-xs text-foreground-muted">
-            {rule.enabled ? "Enabled" : "Disabled"} · origin:{" "}
+            {rule.enabled ? "Enabled" : "Disabled"} · Source:{" "}
             {provenanceSourceLabels[rule.provenance.source]}
             {rule.provenance.confidence < 1
               ? ` · ${Math.round(rule.provenance.confidence * 100)}% confidence`
@@ -205,9 +200,18 @@ export function CampaignRuleBuilder(props: {
   }, [props.onClose]);
 
   const availableOperators = campaignRuleOperatorsByField[draftField];
-  const needsNumeric =
-    draftField === "compensation" || draftField === "travel";
+  const needsNumeric = draftField === "compensation" || draftField === "travel";
   const needsCurrency = draftField === "compensation";
+  const trimmedDraftValue = draftValue.trim();
+  const numericValueError = (() => {
+    if (!needsNumeric || trimmedDraftValue.length === 0) {
+      return null;
+    }
+    const numericValue = Number(trimmedDraftValue);
+    return Number.isFinite(numericValue) && numericValue >= 0
+      ? null
+      : "Enter a valid non-negative number.";
+  })();
 
   const changeField = (field: CampaignRuleField) => {
     setDraftField(field);
@@ -218,15 +222,14 @@ export function CampaignRuleBuilder(props: {
   };
 
   const submitRule = () => {
-    const value = draftValue.trim();
+    const value = trimmedDraftValue;
     if (value.length === 0) {
       return;
     }
-    const numericValue =
-      needsNumeric && value.length > 0 ? Number(value) : null;
-    if (needsNumeric && !Number.isFinite(numericValue)) {
+    if (numericValueError !== null) {
       return;
     }
+    const numericValue = needsNumeric ? Number(value) : null;
     props.onSaveRule({
       id: null,
       kind: draftKind,
@@ -277,7 +280,7 @@ export function CampaignRuleBuilder(props: {
       ) {
         continue;
       }
-      grouped[rule.kind]!.push({
+      grouped[rule.kind].push({
         ...rule,
         // Prefer the freshly measured projection effect so the counts shown
         // always match the current real job sample; fall back to the last
@@ -320,7 +323,7 @@ export function CampaignRuleBuilder(props: {
 
       <section className="grid gap-2 rounded-(--radius-field) border border-border-subtle p-4">
         <h3 className="text-xs font-bold uppercase tracking-(--tracking-label) text-foreground-muted">
-          Truthful funnel (current retained jobs only)
+          Measured funnel (saved jobs only)
         </h3>
         {!funnel ? (
           <p className="text-sm text-foreground-soft">
@@ -344,7 +347,9 @@ export function CampaignRuleBuilder(props: {
               <dd>{funnel.retainedCount}</dd>
             </div>
             <div>
-              <dt className="text-xs text-foreground-muted">Hard removed</dt>
+              <dt className="text-xs text-foreground-muted">
+                Hard exclusions applied
+              </dt>
               <dd>{funnel.hardRemovedCount}</dd>
             </div>
             <div>
@@ -358,7 +363,9 @@ export function CampaignRuleBuilder(props: {
               <dd>{funnel.uncertainCount}</dd>
             </div>
             <div>
-              <dt className="text-xs text-foreground-muted">Confirmed kept</dt>
+              <dt className="text-xs text-foreground-muted">
+                Confirmed matches kept
+              </dt>
               <dd>{funnel.confirmedRetainedCount}</dd>
             </div>
           </dl>
@@ -391,7 +398,7 @@ export function CampaignRuleBuilder(props: {
             </select>
           </label>
           <label className="grid gap-1 text-sm">
-            <span>Evidence field</span>
+            <span>Job field</span>
             <select
               className="h-11 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
               onChange={(event) =>
@@ -425,6 +432,10 @@ export function CampaignRuleBuilder(props: {
           <label className="grid gap-1 text-sm">
             <span>{needsNumeric ? "Value (number)" : "Value"}</span>
             <Input
+              aria-describedby={
+                numericValueError ? "campaign-rule-value-error" : undefined
+              }
+              aria-invalid={numericValueError !== null}
               onChange={(event) => setDraftValue(event.target.value)}
               placeholder={
                 needsNumeric
@@ -459,13 +470,24 @@ export function CampaignRuleBuilder(props: {
             also needs a currency code.
           </p>
           <Button
-            disabled={draftValue.trim().length === 0}
+            disabled={
+              trimmedDraftValue.length === 0 || numericValueError !== null
+            }
             pending={props.pending}
             type="submit"
           >
             Add rule
           </Button>
         </div>
+        {numericValueError ? (
+          <p
+            className="text-sm text-destructive"
+            id="campaign-rule-value-error"
+            role="alert"
+          >
+            {numericValueError}
+          </p>
+        ) : null}
       </form>
 
       <section className="grid gap-3">

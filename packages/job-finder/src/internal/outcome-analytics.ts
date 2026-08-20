@@ -139,6 +139,12 @@ export interface DeriveOutcomeAnalyticsInput {
   events: readonly OutcomeEvent[];
   generatedAt: string;
   /**
+   * Dimensions to derive. Durable workspace analytics use the default (all
+   * dimensions); scoped consumers can request only the active dimension so a
+   * large event log does not pay for buckets that will not be read.
+   */
+  dimensions?: readonly OutcomeBucketDimension[];
+  /**
    * Minimum sample before rates become non-null.
    * @default OUTCOME_DEFAULT_MINIMUM_SAMPLE_FOR_RATES (10)
    */
@@ -234,7 +240,15 @@ export function deriveOutcomeAnalytics(
 
   const buckets: OutcomeAnalyticsBucket[] = [];
 
-  for (const dimension of outcomeBucketDimensionValues) {
+  // Preserve the historical all-dimension output by default while allowing
+  // callers that render one dimension at a time to avoid five full passes
+  // over a large event log. De-duplicate defensively so a caller cannot emit
+  // duplicate buckets for one dimension.
+  const dimensions = [
+    ...new Set(input.dimensions ?? outcomeBucketDimensionValues),
+  ];
+
+  for (const dimension of dimensions) {
     const eventsByKey = new Map<string, OutcomeEvent[]>();
 
     for (const event of input.events) {
@@ -414,7 +428,12 @@ interface EventSummary {
 function summarizeEvents(events: readonly OutcomeEvent[]): EventSummary {
   const eventsBySubject = new Map<string, OutcomeEvent[]>();
   for (const event of events) {
-    const subjectId = event.applicationRecordId ?? event.jobId;
+    // Application records are the durable subject identity. Legacy events may
+    // lack that identity; include the campaign in their fallback key so the
+    // same job recorded in two campaigns is not merged into one sample.
+    const subjectId = event.applicationRecordId
+      ? `application:${event.applicationRecordId}`
+      : `job:${event.campaignId}:${event.jobId}`;
     const grouped = eventsBySubject.get(subjectId) ?? [];
     grouped.push(event);
     eventsBySubject.set(subjectId, grouped);

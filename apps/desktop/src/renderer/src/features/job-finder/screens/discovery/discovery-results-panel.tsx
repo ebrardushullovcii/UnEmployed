@@ -278,7 +278,7 @@ export function DiscoveryResultsPanel({
     firstVisibleJobNumber + visibleJobs.length - 1,
   );
 
-  function moveToPage(page: number) {
+  const moveToPage = useCallback((page: number) => {
     setPagination((current) => ({
       ...current,
       page,
@@ -286,7 +286,7 @@ export function DiscoveryResultsPanel({
     if (resultsScrollRegionRef.current) {
       resultsScrollRegionRef.current.scrollTop = 0;
     }
-  }
+  }, []);
 
   const sessionNeedsAttention =
     browserSession.status === "login_required" ||
@@ -307,16 +307,22 @@ export function DiscoveryResultsPanel({
   const handleListKeyDown = useCallback(
     (event: KeyboardEvent<HTMLButtonElement>, jobId: string) => {
       const nextId = getAdjacentCollectionItemId(
-        visibleJobs.map((job) => job.id),
+        filteredJobs.map((job) => job.id),
         jobId,
         event.key,
       );
       if (!nextId) return;
+
+      const nextIndex = filteredJobs.findIndex((job) => job.id === nextId);
+      const nextPage = Math.floor(nextIndex / DISCOVERY_RESULTS_PAGE_SIZE);
       event.preventDefault();
+      if (nextPage !== currentPage) {
+        moveToPage(nextPage);
+      }
       onSelectJob(nextId);
       focusCollectionItem(nextId);
     },
-    [onSelectJob, visibleJobs],
+    [currentPage, filteredJobs, moveToPage, onSelectJob],
   );
 
   return (
@@ -405,10 +411,16 @@ export function DiscoveryResultsPanel({
                 onClick={() => onSelectJob(job.id)}
                 type="button"
               >
-                <span className="font-semibold text-foreground">
+                <span
+                  className="min-w-0 break-words font-semibold text-foreground"
+                  title={job.title}
+                >
                   {job.title}
                 </span>
-                <span className="text-sm text-foreground-soft">
+                <span
+                  className="min-w-0 break-words text-sm text-foreground-soft"
+                  title={`${job.company} • ${job.location}`}
+                >
                   {job.company} · {job.location}
                 </span>
                 <span className="text-sm font-medium text-foreground">
@@ -631,7 +643,7 @@ export function DiscoveryResultsPanel({
                       className={cn(
                         baseButtonClasses,
                         densityClasses,
-                        "w-full",
+                        "w-full min-w-0",
                         isSelected
                           ? "surface-card-tint"
                           : "bg-transparent hover:bg-(--surface-panel-raised)",
@@ -647,21 +659,27 @@ export function DiscoveryResultsPanel({
                       onKeyDown={(event) => handleListKeyDown(event, job.id)}
                       type="button"
                     >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="grid gap-1">
+                      <div className="flex min-w-0 items-start justify-between gap-3">
+                        <div className="grid min-w-0 gap-1">
                           {view.density === "detailed" ? (
                             <span className="text-[0.64rem] uppercase tracking-(--tracking-label) text-foreground-muted">
                               Listing facts
                             </span>
                           ) : null}
-                          <strong className="text-(length:--text-section-title) text-(--text-headline)">
+                          <strong
+                            className="min-w-0 break-words text-(length:--text-section-title) text-(--text-headline)"
+                            title={job.title}
+                          >
                             {job.title}
                           </strong>
-                          <span className="text-(length:--text-description) text-foreground-muted">
+                          <span
+                            className="min-w-0 break-words text-(length:--text-description) text-foreground-muted"
+                            title={`${job.company} • ${job.location}`}
+                          >
                             {job.company} • {job.location}
                           </span>
                         </div>
-                        <span className="grid justify-items-end gap-0.5">
+                        <span className="grid min-w-0 shrink-0 justify-items-end gap-0.5">
                           {view.density === "detailed" ? (
                             <span className="text-[0.64rem] uppercase tracking-(--tracking-label) text-foreground-muted">
                               Model assessment

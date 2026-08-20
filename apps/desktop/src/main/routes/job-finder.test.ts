@@ -6,7 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ApplicationPacketSchema,
   getDefaultCampaignConfiguration,
+  JobFinderResumePreviewSchema,
+  ResumeDraftSchema,
   JobFinderWorkspaceSnapshotSchema,
+  MarkAllCampaignNotificationsReadInputSchema,
   MarkCampaignNotificationReadInputSchema,
   ResumeQualityBenchmarkReportSchema,
   SaveCampaignRuleRouteInputSchema,
@@ -22,6 +25,8 @@ const {
   mockApplyGroupedManualAnswer,
   mockBuildApplicationPacket,
   mockDeleteCampaignRule,
+  mockPreviewResumeDraft,
+  mockGetWorkspaceBootstrap,
   mockGetWorkspaceSnapshot,
   mockGetJobFinderWorkspaceService,
   mockIsDesktopTestApiEnabled,
@@ -41,6 +46,8 @@ const {
   mockApplyGroupedManualAnswer: vi.fn(),
   mockBuildApplicationPacket: vi.fn(),
   mockDeleteCampaignRule: vi.fn(),
+  mockPreviewResumeDraft: vi.fn(),
+  mockGetWorkspaceBootstrap: vi.fn(),
   mockGetWorkspaceSnapshot: vi.fn(),
   mockGetJobFinderWorkspaceService: vi.fn(),
   mockIsDesktopTestApiEnabled: vi.fn(() => false),
@@ -247,6 +254,7 @@ function createEmptyWorkspace(generatedAt: string) {
 describe("job-finder application packet export route", () => {
   let temporaryDirectory: string;
   let exportHandler: RegisteredHandler;
+  let bootstrapHandler: RegisteredHandler;
   let syncHandler: RegisteredHandler;
   let entityMutationHandler: RegisteredHandler;
   let profileCopilotHandler: RegisteredHandler;
@@ -259,11 +267,15 @@ describe("job-finder application packet export route", () => {
     mockGetWorkspaceSnapshot.mockResolvedValue(
       createEmptyWorkspace("2026-08-09T10:00:00.000Z"),
     );
+    mockGetWorkspaceBootstrap.mockResolvedValue(
+      createEmptyWorkspace("2026-08-09T09:59:00.000Z"),
+    );
     mockQueueJobForReview.mockResolvedValue(
       createEmptyWorkspace("2026-08-09T10:01:00.000Z"),
     );
     mockGetJobFinderWorkspaceService.mockResolvedValue({
       buildApplicationPacket: mockBuildApplicationPacket,
+      getWorkspaceBootstrap: mockGetWorkspaceBootstrap,
       getWorkspaceSnapshot: mockGetWorkspaceSnapshot,
       proposeProfileCopilotChange: mockProposeProfileCopilotChange,
       queueJobForReview: mockQueueJobForReview,
@@ -284,6 +296,9 @@ describe("job-finder application packet export route", () => {
       throw new Error("Application packet export handler was not registered.");
     }
     exportHandler = registeredHandler;
+    const registeredBootstrapHandler = handlers.get(
+      "job-finder:get-workspace-bootstrap",
+    );
     const registeredSyncHandler = handlers.get("job-finder:sync-workspace");
     const registeredEntityMutationHandler = handlers.get(
       "job-finder:mutate-workspace-entities",
@@ -294,18 +309,30 @@ describe("job-finder application packet export route", () => {
     if (
       !registeredSyncHandler ||
       !registeredEntityMutationHandler ||
-      !registeredProfileCopilotHandler
+      !registeredProfileCopilotHandler ||
+      !registeredBootstrapHandler
     ) {
       throw new Error("Workspace delta handlers were not registered.");
     }
     syncHandler = registeredSyncHandler;
     entityMutationHandler = registeredEntityMutationHandler;
     profileCopilotHandler = registeredProfileCopilotHandler;
+    bootstrapHandler = registeredBootstrapHandler;
   });
 
   afterEach(async () => {
     vi.clearAllMocks();
     await rm(temporaryDirectory, { force: true, recursive: true });
+  });
+
+  it("serves the shell-safe workspace bootstrap through its dedicated route", async () => {
+    const result = await bootstrapHandler({ sender: {} }, undefined);
+
+    expect(result).toMatchObject({
+      module: "job-finder",
+      generatedAt: "2026-08-09T09:59:00.000Z",
+    });
+    expect(mockGetWorkspaceBootstrap).toHaveBeenCalledTimes(1);
   });
 
   it("returns cancelled without writing when the save dialog is cancelled", async () => {
@@ -453,6 +480,106 @@ describe("job-finder application packet export route", () => {
       currentRevision: 2,
       reason: "unsupported_change",
     });
+  });
+});
+
+describe("job-finder resume preview route", () => {
+  const draft = ResumeDraftSchema.parse({
+    id: "draft_preview",
+    jobId: "job_preview",
+    status: "needs_review",
+    templateId: "classic_ats",
+    createdAt: "2026-08-19T10:00:00.000Z",
+    updatedAt: "2026-08-19T10:00:00.000Z",
+  });
+  const preview = JobFinderResumePreviewSchema.parse({
+    draftId: draft.id,
+    revisionKey: "resume_preview_draft_preview_latest",
+    html: "<!doctype html><html><body>latest</body></html>",
+    warnings: [],
+    metadata: {
+      templateId: draft.templateId,
+      renderedAt: "2026-08-19T10:00:00.000Z",
+      pageCount: null,
+      sectionCount: 0,
+      entryCount: 0,
+    },
+  });
+
+  let previewHandler: RegisteredHandler;
+
+  beforeEach(() => {
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      previewResumeDraft: mockPreviewResumeDraft,
+    });
+
+    const handlers = new Map<string, RegisteredHandler>();
+    const ipcMain = {
+      handle: vi.fn((channel: string, handler: RegisteredHandler) => {
+        handlers.set(channel, handler);
+      }),
+    } as unknown as IpcMain;
+    registerJobFinderRouteHandlers(ipcMain);
+
+    const registeredHandler = handlers.get("job-finder:preview-resume-draft");
+    if (!registeredHandler) {
+      throw new Error("Resume preview handler was not registered.");
+    }
+    previewHandler = registeredHandler;
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("aborts a superseded render and returns only the latest preview", async () => {
+    const signals: AbortSignal[] = [];
+    const resolvers: Array<(value: typeof preview) => void> = [];
+    const rejecters: Array<(reason: unknown) => void> = [];
+
+    mockPreviewResumeDraft.mockImplementation(
+      (_draft: unknown, signal?: AbortSignal) =>
+        new Promise<typeof preview>((resolve, reject) => {
+          if (!signal) {
+            reject(new Error("Expected the route to pass an abort signal."));
+            return;
+          }
+
+          signals.push(signal);
+          resolvers.push(resolve);
+          rejecters.push(reject);
+          signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("superseded", "AbortError")),
+            { once: true },
+          );
+        }),
+    );
+
+    const sender = {};
+    const firstRequest = previewHandler(
+      { sender },
+      { draft, requestId: "resume_preview_1" },
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(mockPreviewResumeDraft).toHaveBeenCalledTimes(1);
+
+    const secondRequest = previewHandler(
+      { sender },
+      { draft, requestId: "resume_preview_2" },
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(signals).toHaveLength(2);
+    expect(signals[0]?.aborted).toBe(true);
+    expect(signals[1]?.aborted).toBe(false);
+
+    resolvers[1]?.(preview);
+    await expect(secondRequest).resolves.toEqual(preview);
+    await expect(firstRequest).rejects.toMatchObject({ name: "AbortError" });
+    expect(rejecters).toHaveLength(2);
   });
 });
 
@@ -612,8 +739,9 @@ describe("job-finder campaign run and notification read routes", () => {
     );
 
     expect(mockMarkAllCampaignNotificationsRead).toHaveBeenCalledTimes(1);
-    const input = mockMarkAllCampaignNotificationsRead.mock.calls.at(-1)?.[0];
-    expect(typeof input?.readAt).toBe("string");
+    const rawInput: unknown =
+      mockMarkAllCampaignNotificationsRead.mock.calls.at(-1)?.[0];
+    const input = MarkAllCampaignNotificationsReadInputSchema.parse(rawInput);
     expect(new Date(input.readAt).toISOString()).toBe(input.readAt);
     expect(result).toMatchObject({ module: "job-finder" });
   });
@@ -1061,6 +1189,11 @@ describe("job-finder resume strategy routes", () => {
   const mockSelectResumeStrategy = vi.fn();
 
   beforeEach(() => {
+    mockRecommendResumeStrategy.mockClear();
+    mockSetCampaignResumeStrategyDefault.mockClear();
+    mockSaveResumeStrategy.mockClear();
+    mockDisableResumeStrategy.mockClear();
+    mockSelectResumeStrategy.mockClear();
     const snapshot = createEmptyWorkspace("2026-08-15T10:00:00.000Z");
     const recommendation = {
       jobId: "job-1",
@@ -1166,7 +1299,12 @@ describe("job-finder resume strategy routes", () => {
       skillsPolicy: "base_only",
       coveragePolicy: "base_omissions",
       tailoringStrength: "conservative",
-      evidenceBoundaries: {},
+      evidenceBoundaries: {
+        allowExactClaims: true,
+        allowParaphrasedClaims: false,
+        maxEvidenceRefsPerBullet: 3,
+        requireVerifierPass: true,
+      },
       enabled: true,
     };
     await saveHandler({ sender: {} }, saveInput);
@@ -1214,6 +1352,10 @@ describe("job-finder company intelligence routes", () => {
   const mockRefreshCompanyIntelligence = vi.fn();
 
   beforeEach(() => {
+    mockMutateCompanyIntelligence.mockClear();
+    mockSetCompanyPreference.mockClear();
+    mockReviewCompanyMerge.mockClear();
+    mockRefreshCompanyIntelligence.mockClear();
     const snapshot = createEmptyWorkspace("2026-08-15T10:00:00.000Z");
     mockMutateCompanyIntelligence.mockResolvedValue(snapshot);
     mockSetCompanyPreference.mockResolvedValue(snapshot);
@@ -1348,6 +1490,7 @@ describe("job-finder safeguards route", () => {
   const mockMutateSafeguards = vi.fn();
 
   beforeEach(() => {
+    mockMutateSafeguards.mockClear();
     const snapshot = createEmptyWorkspace("2026-08-15T10:00:00.000Z");
     mockMutateSafeguards.mockResolvedValue(snapshot);
     mockGetJobFinderWorkspaceService.mockResolvedValue({
@@ -1427,5 +1570,57 @@ describe("job-finder safeguards route", () => {
       mutateHandler({ sender: {} }, { type: "not_a_real_kind" }),
     ).rejects.toThrow();
     expect(mockMutateSafeguards).not.toHaveBeenCalled();
+  });
+});
+
+describe("job-finder application CRM bulk stage route", () => {
+  const mockMutateApplicationCrmBulkStage = vi.fn();
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("validates one batch payload and returns one parsed workspace snapshot", async () => {
+    const snapshot = createEmptyWorkspace("2026-08-15T10:00:00.000Z");
+    mockMutateApplicationCrmBulkStage.mockResolvedValue(snapshot);
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      mutateApplicationCrmBulkStage: mockMutateApplicationCrmBulkStage,
+    });
+
+    const handlers = new Map<string, RegisteredHandler>();
+    const ipcMain = {
+      handle: vi.fn((channel: string, handler: RegisteredHandler) => {
+        handlers.set(channel, handler);
+      }),
+    } as unknown as IpcMain;
+    registerJobFinderRouteHandlers(ipcMain);
+    const handler = handlers.get(
+      "job-finder:mutate-application-crm-bulk-stage",
+    );
+    if (!handler) {
+      throw new Error("Application CRM bulk stage handler was not registered.");
+    }
+
+    const result = await handler(
+      { sender: {} },
+      {
+        items: [
+          { applicationRecordId: "application_1", expectedRevision: 2 },
+          { applicationRecordId: "application_2", expectedRevision: 0 },
+        ],
+        stage: "reviewing",
+      },
+    );
+
+    expect(mockMutateApplicationCrmBulkStage).toHaveBeenCalledWith({
+      items: [
+        { applicationRecordId: "application_1", expectedRevision: 2 },
+        { applicationRecordId: "application_2", expectedRevision: 0 },
+      ],
+      stage: "reviewing",
+      customStageId: null,
+      note: null,
+    });
+    expect(result).toMatchObject({ module: "job-finder" });
   });
 });

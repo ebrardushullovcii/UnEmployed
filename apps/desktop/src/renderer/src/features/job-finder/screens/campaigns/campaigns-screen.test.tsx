@@ -121,6 +121,25 @@ function campaign(id: string, name: string, mode: "precision" | "scale") {
 }
 
 describe("CampaignsScreen", () => {
+  it("opens a new campaign editor even when no campaigns exist yet", () => {
+    render(
+      <CampaignsScreen
+        activeCampaignId="missing"
+        campaigns={[]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "New campaign" }));
+
+    expect(
+      screen.getByRole("heading", { name: "Create campaign" }),
+    ).toBeTruthy();
+    expect(screen.getByDisplayValue("New job search")).toBeTruthy();
+  });
+
   it("searches campaigns without changing the active campaign", () => {
     const onSelectCampaign = vi.fn();
     render(
@@ -185,7 +204,9 @@ describe("CampaignsScreen", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Rules" }));
+    const rulesButton = screen.getByRole("button", { name: "Rules" });
+    rulesButton.focus();
+    fireEvent.click(rulesButton);
     expect(onRefreshCampaignRuleFunnel).toHaveBeenCalledWith("one");
     // The campaign-scoped builder is reachable from Campaigns.
     expect(
@@ -194,6 +215,27 @@ describe("CampaignsScreen", () => {
     // Closing the builder does not mutate rules.
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(onToggleCampaignRule).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(rulesButton);
+  });
+
+  it("restores focus to the Rules trigger when Escape closes the builder", () => {
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[campaign("one", "Remote TypeScript", "precision")]}
+        onRefreshCampaignRuleFunnel={vi.fn()}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    const rulesButton = screen.getByRole("button", { name: "Rules" });
+    rulesButton.focus();
+    fireEvent.click(rulesButton);
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(document.activeElement).toBe(rulesButton);
   });
 
   it("runs a campaign now from its card without changing the active campaign", () => {
@@ -218,6 +260,24 @@ describe("CampaignsScreen", () => {
     fireEvent.click(runNowButtons[1]!);
     expect(onRunCampaignNow).toHaveBeenCalledWith("two");
     expect(onSelectCampaign).not.toHaveBeenCalled();
+  });
+
+  it("wraps long campaign titles while exposing the complete name", () => {
+    const longName = "CampaignNameWithoutAnyWordBreaksAtAll";
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[campaign("one", longName, "precision")]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    const title = screen.getByRole("heading", { name: longName });
+    expect(title.className).toContain("min-w-0");
+    expect(title.className).toContain("break-words");
+    expect(title.getAttribute("title")).toBe(longName);
   });
 
   it("shows truthful next-run and last-run facts from persisted run facts", () => {
@@ -345,17 +405,13 @@ describe("CampaignsScreen", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Add pause window" }));
     expect(screen.getByText(/Offline/)).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Remove" }),
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Remove" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Save campaign" }));
     const saved = onSaveCampaign.mock.calls.at(-1)?.[0];
     expect(saved?.schedule.mode).toBe("selected_days");
     expect(saved?.schedule.enabled).toBe(true);
-    expect(saved?.schedule.daysOfWeek).toEqual(
-      expect.arrayContaining([1, 5]),
-    );
+    expect(saved?.schedule.daysOfWeek).toEqual(expect.arrayContaining([1, 5]));
     expect(saved?.schedule.localStartTime).toBe("08:30");
     expect(saved?.schedule.timeZone).toBe("Europe/Belgrade");
     expect(saved?.schedule.pauseWindows).toHaveLength(1);
@@ -391,9 +447,7 @@ describe("CampaignsScreen", () => {
     expect(
       screen.queryByText(/does not start work automatically yet/),
     ).toBeNull();
-    expect(
-      screen.queryByText(/are not automatically enforced yet/),
-    ).toBeNull();
+    expect(screen.queryByText(/are not automatically enforced yet/)).toBeNull();
     // Truthful enforcement copy is present.
     expect(
       screen.getByText(/runs this campaign automatically when its next run/),
@@ -438,6 +492,11 @@ describe("CampaignsScreen", () => {
     // An invalid window (end before start) must not be added.
     fireEvent.change(starts, { target: { value: "2026-08-20T12:00" } });
     fireEvent.change(ends, { target: { value: "2026-08-20T10:00" } });
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Pause window end must be later than its start.",
+    );
+    expect(starts.getAttribute("aria-invalid")).toBe("true");
+    expect(ends.getAttribute("aria-invalid")).toBe("true");
     fireEvent.click(addButton);
     expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
   });

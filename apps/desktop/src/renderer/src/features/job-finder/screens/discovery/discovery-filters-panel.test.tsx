@@ -9,6 +9,7 @@ import type {
   SourceAccessPrompt,
 } from "@unemployed/contracts";
 import { DiscoveryFiltersPanel } from "./discovery-filters-panel";
+import { DiscoverySearchSections } from "./discovery-filters-panel-sections";
 import { DiscoveryResultsPanel } from "./discovery-results-panel";
 
 describe("DiscoveryFiltersPanel", () => {
@@ -82,6 +83,26 @@ describe("DiscoveryFiltersPanel", () => {
     expect(scrollRegion.getAttribute("tabindex")).toBe("0");
     expect(scrollRegion.className).toContain("overflow-y-auto");
     expect(scrollRegion.className).toContain("overscroll-contain");
+  });
+
+  it("wraps long source filter labels and keeps their full names available", () => {
+    const longSource =
+      "https://careers.example.test/this-is-an-extremely-long-source-label-without-spaces";
+    const { container } = render(
+      <DiscoverySearchSections
+        sectionHeadingPrefix="discovery-filter"
+        sections={[
+          { empty: "No sources", label: "Sources", values: [longSource] },
+        ]}
+      />,
+    );
+
+    const chip = container.querySelector("span[title]");
+    expect(chip?.textContent).toBe(longSource);
+    expect(chip?.getAttribute("title")).toBe(longSource);
+    expect(chip?.className).toContain("min-w-0");
+    expect(chip?.className).toContain("max-w-full");
+    expect(chip?.className).toContain("break-words");
   });
 
   it("shows a source-aware sign-in prompt near the search controls", () => {

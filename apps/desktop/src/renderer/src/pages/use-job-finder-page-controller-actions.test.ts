@@ -1,12 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SetStateAction } from "react";
-import type { JobFinderWorkspaceSnapshot } from "@unemployed/contracts";
+import {
+  DiscoveryActivityEventSchema,
+  type DiscoveryActivityEvent,
+  type JobFinderWorkspaceSnapshot,
+} from "@unemployed/contracts";
 import type {
   ActionState,
   JobFinderShellActions,
 } from "@renderer/features/job-finder/lib/job-finder-types";
 import {
   createActionRunners,
+  createDiscoveryWorkspaceRefreshCoordinator,
   createPrimaryPageActions,
 } from "./use-job-finder-page-controller-actions";
 import { createJobFinderSaveCoordinator } from "./job-finder-save-state";
@@ -181,7 +186,130 @@ describe("createActionRunners", () => {
   });
 });
 
+describe("createDiscoveryWorkspaceRefreshCoordinator", () => {
+  it("coalesces a 511-source burst and still performs one final refresh", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const refreshWorkspace = vi.fn().mockResolvedValue({});
+      const coordinator = createDiscoveryWorkspaceRefreshCoordinator(
+        refreshWorkspace,
+        { intervalMs: 250 },
+      );
+
+      for (let index = 0; index < 511; index += 1) {
+        coordinator.notifySourceCompleted();
+      }
+
+      expect(refreshWorkspace).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(250);
+      expect(refreshWorkspace).toHaveBeenCalledTimes(1);
+
+      await coordinator.flushFinal();
+      expect(refreshWorkspace).toHaveBeenCalledTimes(2);
+      coordinator.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps refreshes single-flight when another source completes during a slow read", async () => {
+    vi.useFakeTimers();
+
+    try {
+      let resolveRefresh: () => void = () => undefined;
+      let refreshCallCount = 0;
+      const refreshWorkspace = vi.fn(() => {
+        refreshCallCount += 1;
+        if (refreshCallCount === 1) {
+          return new Promise<void>((resolve) => {
+            resolveRefresh = resolve;
+          });
+        }
+
+        return Promise.resolve();
+      });
+      const coordinator = createDiscoveryWorkspaceRefreshCoordinator(
+        refreshWorkspace,
+        { intervalMs: 1 },
+      );
+
+      coordinator.notifySourceCompleted();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(refreshWorkspace).toHaveBeenCalledTimes(1);
+
+      coordinator.notifySourceCompleted();
+      const finalRefresh = coordinator.flushFinal();
+      resolveRefresh();
+      await finalRefresh;
+
+      expect(refreshWorkspace).toHaveBeenCalledTimes(2);
+      coordinator.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("createPrimaryPageActions", () => {
+  it("keeps a 511-source discovery run to one final snapshot read", async () => {
+    const snapshot = {} as JobFinderWorkspaceSnapshot;
+    const refreshWorkspace = vi
+      .fn<JobFinderShellActions["refreshWorkspace"]>()
+      .mockResolvedValue(snapshot);
+    const runAgentDiscovery = vi.fn(
+      (onActivity?: (event: DiscoveryActivityEvent) => void) => {
+        for (let index = 0; index < 511; index += 1) {
+          onActivity?.(
+            DiscoveryActivityEventSchema.parse({
+              id: `source_${index}_completed`,
+              runId: "run_511_sources",
+              timestamp: "2026-08-19T10:00:00.000Z",
+              kind: "success",
+              stage: "target",
+              targetId: `source_${index}`,
+              terminalState: "completed",
+              message: `Finished source ${index}`,
+            }),
+          );
+        }
+
+        return Promise.resolve(snapshot);
+      },
+    );
+    let liveEvents: DiscoveryActivityEvent[] = [];
+    let maxRetainedEvents = 0;
+    const setLiveDiscoveryEvents = (
+      next: SetStateAction<DiscoveryActivityEvent[]>,
+    ) => {
+      liveEvents = typeof next === "function" ? next(liveEvents) : next;
+      maxRetainedEvents = Math.max(maxRetainedEvents, liveEvents.length);
+    };
+    const runAction = vi.fn(async (action: () => Promise<unknown>) => {
+      await action();
+      return true;
+    });
+    type PrimaryPageActionArgs = Parameters<typeof createPrimaryPageActions>[0];
+    const pageActions = createPrimaryPageActions({
+      actions: {
+        refreshWorkspace,
+        runAgentDiscovery,
+      } as unknown as JobFinderShellActions,
+      runAction,
+      setLiveDiscoveryEvents,
+    } as unknown as PrimaryPageActionArgs);
+
+    pageActions.onRunAgentDiscovery();
+
+    await vi.waitFor(() => {
+      expect(refreshWorkspace).toHaveBeenCalledTimes(1);
+    });
+    expect(runAgentDiscovery).toHaveBeenCalledTimes(1);
+    expect(maxRetainedEvents).toBe(511);
+    expect(liveEvents).toEqual([]);
+  });
+
   it("preserves application tracker settings when saving other defaults", async () => {
     const snapshot = {} as JobFinderWorkspaceSnapshot;
     const saveSettings = vi
@@ -257,7 +385,7 @@ describe("createPrimaryPageActions", () => {
     );
   });
 
-  it("starts the Review Queue apply copilot without visual checkpoints or the legacy approval path", async () => {
+  it("starts the Review Queue Apply Copilot without visual checkpoints or the legacy approval path", async () => {
     const snapshot = {} as JobFinderWorkspaceSnapshot;
     const startApplyCopilotRun = vi
       .fn<JobFinderShellActions["startApplyCopilotRun"]>()
@@ -323,8 +451,12 @@ describe("createPrimaryPageActions", () => {
     type PrimaryPageActionArgs = Parameters<typeof createPrimaryPageActions>[0];
     const setActionState = vi.fn();
     const setPendingActionState = vi.fn();
-    const { runAction, runResumeWorkspaceAction, runSaveAction, withPendingScope } =
-      createActionRunners({ setActionState, setPendingActionState });
+    const {
+      runAction,
+      runResumeWorkspaceAction,
+      runSaveAction,
+      withPendingScope,
+    } = createActionRunners({ setActionState, setPendingActionState });
     const pageActions = createPrimaryPageActions({
       actions: { recommendResumeStrategy } as unknown as JobFinderShellActions,
       runAction,
@@ -351,8 +483,12 @@ describe("createPrimaryPageActions", () => {
     type PrimaryPageActionArgs = Parameters<typeof createPrimaryPageActions>[0];
     const setActionState = vi.fn();
     const setPendingActionState = vi.fn();
-    const { runAction, runResumeWorkspaceAction, runSaveAction, withPendingScope } =
-      createActionRunners({ setActionState, setPendingActionState });
+    const {
+      runAction,
+      runResumeWorkspaceAction,
+      runSaveAction,
+      withPendingScope,
+    } = createActionRunners({ setActionState, setPendingActionState });
     const pageActions = createPrimaryPageActions({
       actions: { recommendResumeStrategy } as unknown as JobFinderShellActions,
       runAction,
@@ -380,8 +516,12 @@ describe("createPrimaryPageActions", () => {
     type PrimaryPageActionArgs = Parameters<typeof createPrimaryPageActions>[0];
     const setActionState = vi.fn();
     const setPendingActionState = vi.fn();
-    const { runAction, runResumeWorkspaceAction, runSaveAction, withPendingScope } =
-      createActionRunners({ setActionState, setPendingActionState });
+    const {
+      runAction,
+      runResumeWorkspaceAction,
+      runSaveAction,
+      withPendingScope,
+    } = createActionRunners({ setActionState, setPendingActionState });
     const pageActions = createPrimaryPageActions({
       actions: { selectResumeStrategy } as unknown as JobFinderShellActions,
       runAction,
@@ -408,10 +548,10 @@ describe("createPrimaryPageActions", () => {
         source: "manual",
         reason: "Picked by the user.",
       });
-    });
-    expect(setActionState).toHaveBeenLastCalledWith({
-      message:
-        "Strategy chosen for this job. The job's resume still needs its own review and approval before it can be used.",
+      expect(setActionState).toHaveBeenLastCalledWith({
+        message:
+          "Strategy chosen for this job. The job's resume still needs its own review and approval before it can be used.",
+      });
     });
   });
 });

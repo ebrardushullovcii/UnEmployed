@@ -21,6 +21,7 @@ function createWorkspace(
 ): JobFinderWorkspaceSnapshot {
   return {
     generatedAt,
+    hydration: { phase: "complete", deferredCollections: [] },
     discoveryRunState: "idle",
     activeDiscoveryRun: null,
     discoverySessions: [],
@@ -78,19 +79,36 @@ function createJobReplacementDelta(input: {
   } as unknown as JobFinderWorkspaceDelta;
 }
 
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+
+  return { promise, resolve };
+}
+
 describe("useJobFinderWorkspace entity mutations", () => {
-  const syncWorkspace = vi.fn<
-    (baseRevision: number | null) => Promise<JobFinderWorkspaceSyncResult>
-  >();
-  const mutateWorkspaceEntities = vi.fn<
-    (
-      input: JobFinderWorkspaceEntityMutationInput,
-    ) => Promise<JobFinderWorkspaceSyncResult>
-  >();
+  const syncWorkspace =
+    vi.fn<
+      (baseRevision: number | null) => Promise<JobFinderWorkspaceSyncResult>
+    >();
+  const mutateWorkspaceEntities =
+    vi.fn<
+      (
+        input: JobFinderWorkspaceEntityMutationInput,
+      ) => Promise<JobFinderWorkspaceSyncResult>
+    >();
   const getWorkspace = vi.fn<() => Promise<JobFinderWorkspaceSnapshot>>();
-  const legacyQueueJobForReview = vi.fn<
-    (jobId: string) => Promise<JobFinderWorkspaceSnapshot>
-  >();
+  const getWorkspaceBootstrap =
+    vi.fn<() => Promise<JobFinderWorkspaceSnapshot>>();
+  const checkBrowserSession =
+    vi.fn<() => Promise<JobFinderWorkspaceSnapshot>>();
+  const legacyQueueJobForReview =
+    vi.fn<(jobId: string) => Promise<JobFinderWorkspaceSnapshot>>();
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -102,11 +120,18 @@ describe("useJobFinderWorkspace entity mutations", () => {
           syncWorkspace,
           mutateWorkspaceEntities,
           getWorkspace,
+          checkBrowserSession,
           queueJobForReview: legacyQueueJobForReview,
         },
       } as unknown as Window["unemployed"],
     });
   });
+
+  function enableBootstrapApi() {
+    Object.assign(window.unemployed.jobFinder as object, {
+      getWorkspaceBootstrap,
+    });
+  }
 
   afterEach(() => {
     Reflect.deleteProperty(window, "unemployed");
@@ -150,9 +175,9 @@ describe("useJobFinderWorkspace entity mutations", () => {
     expect(legacyQueueJobForReview).not.toHaveBeenCalled();
     expect(result.current.status).toBe("ready");
     if (result.current.status === "ready") {
-      expect(result.current.workspace.discoveryJobs.map(({ id }) => id)).toEqual([
-        "job-new",
-      ]);
+      expect(
+        result.current.workspace.discoveryJobs.map(({ id }) => id),
+      ).toEqual(["job-new"]);
       expect(result.current.workspace.selectedDiscoveryJobId).toBe("job-new");
     }
   });
@@ -202,6 +227,186 @@ describe("useJobFinderWorkspace entity mutations", () => {
       expect(result.current.workspace.selectedDiscoveryJobId).toBe(
         "job-recovered",
       );
+    }
+  });
+
+  it("ignores a slower older action response after a newer response commits", async () => {
+    const initialWorkspace = createWorkspace("job-initial");
+    const olderWorkspace = createWorkspace(
+      "job-older",
+      "2026-08-09T10:03:00.000Z",
+    );
+    const newerWorkspace = createWorkspace(
+      "job-newer",
+      "2026-08-09T10:04:00.000Z",
+    );
+    syncWorkspace.mockResolvedValueOnce({
+      kind: "snapshot",
+      currentRevision: 1,
+      reason: "initial",
+      snapshot: initialWorkspace,
+    });
+    const older = deferred<JobFinderWorkspaceSnapshot>();
+    const newer = deferred<JobFinderWorkspaceSnapshot>();
+    checkBrowserSession
+      .mockImplementationOnce(() => older.promise)
+      .mockImplementationOnce(() => newer.promise);
+
+    const { result } = renderHook(() => useJobFinderWorkspace());
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    let olderAction!: Promise<JobFinderWorkspaceSnapshot>;
+    let newerAction!: Promise<JobFinderWorkspaceSnapshot>;
+    act(() => {
+      if (result.current.status !== "ready") {
+        throw new Error("Expected a ready Job Finder workspace.");
+      }
+
+      olderAction = result.current.actions.checkBrowserSession();
+      newerAction = result.current.actions.checkBrowserSession();
+    });
+
+    await act(async () => {
+      newer.resolve(newerWorkspace);
+      await newerAction;
+    });
+    await act(async () => {
+      older.resolve(olderWorkspace);
+      await olderAction;
+    });
+
+    expect(result.current.status).toBe("ready");
+    if (result.current.status === "ready") {
+      expect(result.current.workspace.selectedDiscoveryJobId).toBe("job-newer");
+    }
+  });
+
+  it("shows the bootstrap before deferred collections arrive and then hydrates them", async () => {
+    enableBootstrapApi();
+    const bootstrap = {
+      ...createWorkspace("job-bootstrap"),
+      discoveryJobs: [],
+      selectedDiscoveryJobId: null,
+      hydration: {
+        phase: "bootstrap" as const,
+        deferredCollections: ["discovery_jobs", "applications"] as const,
+      },
+    } as unknown as JobFinderWorkspaceSnapshot;
+    const hydrated = createWorkspace("job-hydrated");
+    const hydration = deferred<JobFinderWorkspaceSyncResult>();
+    getWorkspaceBootstrap.mockResolvedValueOnce(bootstrap);
+    syncWorkspace.mockReturnValueOnce(hydration.promise);
+
+    const { result } = renderHook(() => useJobFinderWorkspace());
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    if (result.current.status === "ready") {
+      expect(result.current.workspace.hydration.phase).toBe("bootstrap");
+      expect(result.current.workspace.discoveryJobs).toEqual([]);
+      expect(result.current.workspace.hydration.deferredCollections).toEqual(
+        expect.arrayContaining(["discovery_jobs", "applications"]),
+      );
+    }
+
+    await act(async () => {
+      hydration.resolve({
+        kind: "snapshot",
+        currentRevision: 8,
+        reason: "initial",
+        snapshot: hydrated,
+      });
+      await hydration.promise;
+    });
+    await waitFor(() => {
+      expect(result.current.status).toBe("ready");
+      if (result.current.status === "ready") {
+        expect(result.current.workspace.hydration.phase).toBe("complete");
+        expect(result.current.workspace.discoveryJobs[0]?.id).toBe(
+          "job-hydrated",
+        );
+      }
+    });
+  });
+
+  it("does not let late hydration overwrite a newer user action", async () => {
+    enableBootstrapApi();
+    const bootstrap = {
+      ...createWorkspace("job-bootstrap"),
+      discoveryJobs: [],
+      selectedDiscoveryJobId: null,
+      hydration: {
+        phase: "bootstrap" as const,
+        deferredCollections: ["discovery_jobs"] as const,
+      },
+    } as unknown as JobFinderWorkspaceSnapshot;
+    const hydrated = createWorkspace("job-hydrated");
+    const actionWorkspace = createWorkspace("job-action");
+    const hydration = deferred<JobFinderWorkspaceSyncResult>();
+    getWorkspaceBootstrap.mockResolvedValueOnce(bootstrap);
+    syncWorkspace.mockReturnValueOnce(hydration.promise);
+    checkBrowserSession.mockResolvedValueOnce(actionWorkspace);
+
+    const { result } = renderHook(() => useJobFinderWorkspace());
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    await act(async () => {
+      if (result.current.status !== "ready") {
+        throw new Error("Expected a ready Job Finder workspace.");
+      }
+      await result.current.actions.checkBrowserSession();
+    });
+
+    await act(async () => {
+      hydration.resolve({
+        kind: "snapshot",
+        currentRevision: 9,
+        reason: "initial",
+        snapshot: hydrated,
+      });
+      await hydration.promise;
+    });
+
+    expect(result.current.status).toBe("ready");
+    if (result.current.status === "ready") {
+      expect(result.current.workspace.selectedDiscoveryJobId).toBe(
+        "job-action",
+      );
+    }
+  });
+
+  it("reports bootstrap failures instead of showing a blank shell", async () => {
+    enableBootstrapApi();
+    getWorkspaceBootstrap.mockRejectedValueOnce(
+      new Error("bootstrap database unavailable"),
+    );
+
+    const { result } = renderHook(() => useJobFinderWorkspace());
+    await waitFor(() => expect(result.current.status).toBe("error"));
+    if (result.current.status === "error") {
+      expect(result.current.message).toBe("bootstrap database unavailable");
+    }
+  });
+
+  it("reports a full hydration failure and keeps the bootstrap error actionable", async () => {
+    enableBootstrapApi();
+    const bootstrap = {
+      ...createWorkspace("job-bootstrap"),
+      discoveryJobs: [],
+      selectedDiscoveryJobId: null,
+      hydration: {
+        phase: "bootstrap" as const,
+        deferredCollections: ["discovery_jobs"] as const,
+      },
+    } as unknown as JobFinderWorkspaceSnapshot;
+    getWorkspaceBootstrap.mockResolvedValueOnce(bootstrap);
+    syncWorkspace.mockRejectedValueOnce(
+      new Error("hydration sync unavailable"),
+    );
+    getWorkspace.mockRejectedValueOnce(new Error("full workspace unavailable"));
+
+    const { result } = renderHook(() => useJobFinderWorkspace());
+    await waitFor(() => expect(result.current.status).toBe("error"));
+    if (result.current.status === "error") {
+      expect(result.current.message).toBe("full workspace unavailable");
+      expect(typeof result.current.retry).toBe("function");
     }
   });
 

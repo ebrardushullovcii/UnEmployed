@@ -22,6 +22,7 @@ import {
   getApplyDetailsStatusBadge,
   getConsentTone,
 } from "./applications-detail-panel-helpers";
+import { buildJobFinderContextHashHref } from "../../lib/job-finder-context-navigation";
 
 export function ApplicationsDetailPanelReviewDataSection(props: {
   applyRunDetailsError: string | null;
@@ -67,6 +68,8 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
   if (!visibleApplyResult) {
     return null;
   }
+
+  const visibleApplyResultJobId = visibleApplyResult.jobId;
 
   return (
     <section className="surface-card-tint grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
@@ -219,6 +222,7 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
                       <ApplicationQuestionAnswerEditor
                         key={`${question.id}:${latestAnswer?.revision ?? 0}`}
                         answer={latestAnswer}
+                        jobId={visibleApplyResultJobId}
                         onClear={onClearApplicationAnswer}
                         onSave={onSaveApplicationAnswer}
                         question={question}
@@ -427,11 +431,12 @@ function createApplicationAnswerCommandId(prefix: string): string {
 
 function ApplicationQuestionAnswerEditor(props: {
   answer: ApplicationAnswerRecord | null;
+  jobId: string;
   onClear: (command: ClearApplicationAnswerCommandInput) => Promise<void>;
   onSave: (command: SaveApplicationAnswerCommandInput) => Promise<void>;
   question: ApplicationQuestionRecord;
 }) {
-  const { answer, onClear, onSave, question } = props;
+  const { answer, jobId, onClear, onSave, question } = props;
   const activeAnswer = answer?.status === "rejected" ? null : answer;
   const initialValue =
     activeAnswer?.value?.type === "boolean"
@@ -514,7 +519,10 @@ function ApplicationQuestionAnswerEditor(props: {
         });
     };
     loadCandidateAssets();
-    window.addEventListener(CANDIDATE_ASSETS_CHANGED_EVENT, loadCandidateAssets);
+    window.addEventListener(
+      CANDIDATE_ASSETS_CHANGED_EVENT,
+      loadCandidateAssets,
+    );
     return () => {
       active = false;
       window.removeEventListener(
@@ -770,7 +778,9 @@ function ApplicationQuestionAnswerEditor(props: {
             className="text-(length:--text-small) font-semibold text-foreground underline underline-offset-4"
             href={
               question.kind === "resume"
-                ? "#/job-finder/shortlisted"
+                ? buildJobFinderContextHashHref("/job-finder/review-queue", {
+                    jobId,
+                  })
                 : "#/job-finder/settings"
             }
           >

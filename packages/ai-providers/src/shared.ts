@@ -21,6 +21,13 @@ import {
   type JobPosting,
   type JobSearchPreferences,
   type ResumeDraft,
+  ResumeStrategyCoveragePolicySchema,
+  ResumeStrategyEvidenceBoundariesSchema,
+  ResumeStrategyHeadlinePolicySchema,
+  ResumeStrategyRecommendationSourceSchema,
+  ResumeStrategySkillsPolicySchema,
+  ResumeTemplateIdSchema,
+  TailoringModeSchema,
   type Tool,
   type ToolCall,
 } from "@unemployed/contracts";
@@ -176,38 +183,54 @@ export const TailoredResumeDraftSchema = z.object({
   experienceHighlights: z.array(NonEmptyStringSchema).default([]),
   coreSkills: z.array(NonEmptyStringSchema).default([]),
   targetedKeywords: z.array(NonEmptyStringSchema).default([]),
-  experienceEntries: z.array(z.object({
-    title: NullableStringSchema,
-    employer: NullableStringSchema,
-    location: NullableStringSchema,
-    dateRange: NullableStringSchema,
-    summary: NullableStringSchema,
-    bullets: z.array(NonEmptyStringSchema).default([]),
-    profileRecordId: NullableStringSchema,
-  })).default([]),
-  projectEntries: z.array(z.object({
-    name: NullableStringSchema,
-    role: NullableStringSchema,
-    summary: NullableStringSchema,
-    outcome: NullableStringSchema,
-    bullets: z.array(NonEmptyStringSchema).default([]),
-    profileRecordId: NullableStringSchema,
-  })).default([]),
-  educationEntries: z.array(z.object({
-    school: NullableStringSchema,
-    degree: NullableStringSchema,
-    fieldOfStudy: NullableStringSchema,
-    location: NullableStringSchema,
-    dateRange: NullableStringSchema,
-    summary: NullableStringSchema,
-    profileRecordId: NullableStringSchema,
-  })).default([]),
-  certificationEntries: z.array(z.object({
-    name: NullableStringSchema,
-    issuer: NullableStringSchema,
-    dateRange: NullableStringSchema,
-    profileRecordId: NullableStringSchema,
-  })).default([]),
+  experienceEntries: z
+    .array(
+      z.object({
+        title: NullableStringSchema,
+        employer: NullableStringSchema,
+        location: NullableStringSchema,
+        dateRange: NullableStringSchema,
+        summary: NullableStringSchema,
+        bullets: z.array(NonEmptyStringSchema).default([]),
+        profileRecordId: NullableStringSchema,
+      }),
+    )
+    .default([]),
+  projectEntries: z
+    .array(
+      z.object({
+        name: NullableStringSchema,
+        role: NullableStringSchema,
+        summary: NullableStringSchema,
+        outcome: NullableStringSchema,
+        bullets: z.array(NonEmptyStringSchema).default([]),
+        profileRecordId: NullableStringSchema,
+      }),
+    )
+    .default([]),
+  educationEntries: z
+    .array(
+      z.object({
+        school: NullableStringSchema,
+        degree: NullableStringSchema,
+        fieldOfStudy: NullableStringSchema,
+        location: NullableStringSchema,
+        dateRange: NullableStringSchema,
+        summary: NullableStringSchema,
+        profileRecordId: NullableStringSchema,
+      }),
+    )
+    .default([]),
+  certificationEntries: z
+    .array(
+      z.object({
+        name: NullableStringSchema,
+        issuer: NullableStringSchema,
+        dateRange: NullableStringSchema,
+        profileRecordId: NullableStringSchema,
+      }),
+    )
+    .default([]),
   coverageMetadata: z.array(TailoredResumeCoverageMetadataSchema).default([]),
   additionalSkills: z.array(NonEmptyStringSchema).default([]),
   languages: z.array(NonEmptyStringSchema).default([]),
@@ -226,6 +249,39 @@ export const TailoredResumeDraftSchema = z.object({
 });
 
 export type TailoredResumeDraft = z.infer<typeof TailoredResumeDraftSchema>;
+
+/**
+ * The resolved, enabled resume strategy that the generation boundary is
+ * allowed to consume. Selection and recommendation provenance stay attached so
+ * generated artifacts can explain which policy was used without granting any
+ * approval or application authority.
+ */
+export const ResumeGenerationStrategyPolicySchema = z
+  .object({
+    strategyId: NonEmptyStringSchema,
+    strategyName: NonEmptyStringSchema,
+    roleFamily: NonEmptyStringSchema,
+    baseResumeDocumentId: NonEmptyStringSchema,
+    templateId: ResumeTemplateIdSchema,
+    headlinePolicy: ResumeStrategyHeadlinePolicySchema,
+    skillsPolicy: ResumeStrategySkillsPolicySchema,
+    coveragePolicy: ResumeStrategyCoveragePolicySchema,
+    tailoringStrength: TailoringModeSchema,
+    evidenceBoundaries: ResumeStrategyEvidenceBoundariesSchema,
+    effectiveSource: z.enum(["selection", "recommendation"]),
+    effectiveReason: NonEmptyStringSchema,
+    recommendationSource: ResumeStrategyRecommendationSourceSchema,
+    recommendationReason: NonEmptyStringSchema.nullable().default(null),
+    selectionSource: z
+      .enum(["user", "campaign_default", "rule_match"])
+      .nullable()
+      .default(null),
+    selectionReason: NonEmptyStringSchema.nullable().default(null),
+  })
+  .strict();
+export type ResumeGenerationStrategyPolicy = z.infer<
+  typeof ResumeGenerationStrategyPolicySchema
+>;
 
 export const JobFitAssessmentSchema = z.object({
   score: z.number().int().min(0).max(100),
@@ -262,6 +318,7 @@ export interface TailorResumeInput {
 }
 
 export interface CreateResumeDraftInput extends TailorResumeInput {
+  strategy?: ResumeGenerationStrategyPolicy | null;
   evidence?: {
     summary: readonly string[];
     candidateSummary: readonly string[];
@@ -318,15 +375,15 @@ export interface ExtractJobsFromPageInput {
   signal?: AbortSignal;
 }
 
-export const BrowserVisualAnalysisResultSchema = BrowserVisualObservationSetSchema;
+export const BrowserVisualAnalysisResultSchema =
+  BrowserVisualObservationSetSchema;
 export type BrowserVisualAnalysisResult = z.infer<
   typeof BrowserVisualAnalysisResultSchema
 >;
 
 export type { BrowserVisualAnalysisInput, BrowserVisualObservationSet };
 
-export interface ExtractResumeImportStageTransportInput
-  extends ExtractResumeImportStageInput {
+export interface ExtractResumeImportStageTransportInput extends ExtractResumeImportStageInput {
   documentBundle: ResumeDocumentBundle;
 }
 
@@ -347,8 +404,12 @@ export interface JobFinderAiClient {
   adjudicateResumeImportCandidates?(
     input: AdjudicateResumeImportCandidatesInput,
   ): Promise<ResumeImportAdjudicationResult>;
-  createResumeDraft(input: CreateResumeDraftInput): Promise<TailoredResumeDraft>;
-  reviseResumeDraft(input: ReviseResumeDraftInput): Promise<ResumeAssistantReply>;
+  createResumeDraft(
+    input: CreateResumeDraftInput,
+  ): Promise<TailoredResumeDraft>;
+  reviseResumeDraft(
+    input: ReviseResumeDraftInput,
+  ): Promise<ResumeAssistantReply>;
   reviseCandidateProfile(
     input: ReviseCandidateProfileInput,
   ): Promise<ProfileCopilotReply>;

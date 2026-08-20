@@ -818,9 +818,7 @@ export const CompanyEntitySchema = z
       .default([]),
     contacts: z.array(CompanyContactSchema).default([]),
     notes: z.array(CompanyNoteSchema).default([]),
-    salaryOfferEvidence: z
-      .array(CompanySalaryOfferEvidenceSchema)
-      .default([]),
+    salaryOfferEvidence: z.array(CompanySalaryOfferEvidenceSchema).default([]),
     sourceHistory: z.array(CompanySourceHistoryRefSchema).default([]),
     jobIds: z.array(NonEmptyStringSchema).default([]),
     applicationRecordIds: z.array(NonEmptyStringSchema).default([]),
@@ -929,6 +927,29 @@ export const ListingSignalRecordSchema = z
   .strict();
 export type ListingSignalRecord = z.infer<typeof ListingSignalRecordSchema>;
 
+/**
+ * Explicit provider/browser evidence that a particular listing is stale,
+ * closed, or suspicious. This is deliberately separate from free-form
+ * summaries: automatic safeguards may persist only this typed evidence and
+ * never infer a signal from a title, missing field, or generic failure.
+ */
+export const ApplicationListingSignalEvidenceSchema = z
+  .object({
+    jobId: NonEmptyStringSchema,
+    evidenceId: NonEmptyStringSchema,
+    signal: ListingSignalSchema,
+    detail: NonEmptyStringSchema.nullable().default(null),
+    detectedAt: IsoDateTimeSchema,
+    confidence: z.number().min(0).max(1),
+    provenance: z.enum(["provider", "browser"]),
+    explanation: NonEmptyStringSchema,
+    recoveryGuidance: NonEmptyStringSchema,
+  })
+  .strict();
+export type ApplicationListingSignalEvidence = z.infer<
+  typeof ApplicationListingSignalEvidenceSchema
+>;
+
 export const AbnormalFailurePauseSchema = z
   .object({
     id: NonEmptyStringSchema,
@@ -983,6 +1004,8 @@ export const PreparedBatchSampleReviewSchema = z
     batchId: NonEmptyStringSchema,
     preparedCount: z.number().int().positive(),
     sampleCount: z.number().int().positive(),
+    /** Stable result ids selected for this review, persisted for restart-safe UI. */
+    sampledItemIds: z.array(NonEmptyStringSchema).default([]),
     reviewedCount: z.number().int().nonnegative().default(0),
     requiredSampleRatio: z.number().min(0).max(1).default(0.2),
     reviewCompleted: z.boolean().default(false),
@@ -1015,6 +1038,24 @@ export const PreparedBatchSampleReviewSchema = z
         path: ["reviewedCount"],
         message: "Reviewed count cannot exceed the sample count.",
       });
+    }
+    if (review.sampledItemIds.length > 0) {
+      if (review.sampledItemIds.length !== review.sampleCount) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["sampledItemIds"],
+          message: "Persisted sample ids must match the sample count.",
+        });
+      }
+      if (
+        new Set(review.sampledItemIds).size !== review.sampledItemIds.length
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["sampledItemIds"],
+          message: "Persisted sample ids must be unique.",
+        });
+      }
     }
     if (review.reviewCompleted && review.reviewedCount !== review.sampleCount) {
       context.addIssue({
@@ -1514,6 +1555,10 @@ export type ProjectGroupedManualAnswerCommand = z.infer<
 export const RecordOutcomeInputSchema = z
   .object({
     jobId: NonEmptyStringSchema,
+    /** Explicit campaign target. Legacy callers may omit this only when the job belongs to one campaign. */
+    campaignId: NonEmptyStringSchema.nullable().optional(),
+    /** Explicit application target. Legacy callers may omit this only when the job has at most one application record. */
+    applicationRecordId: NonEmptyStringSchema.nullable().optional(),
     outcome: ApplicationOutcomeSchema,
     resumeStrategyId: NonEmptyStringSchema.nullable().default(null),
     note: NonEmptyStringSchema.max(2_000).nullable().default(null),
@@ -1600,11 +1645,15 @@ export const ResumeStrategyRecommendationSchema = z
         message: "A none recommendation cannot reference a strategy id.",
       });
     }
-    if (recommendation.source === "role_family" && recommendation.roleFamily === null) {
+    if (
+      recommendation.source === "role_family" &&
+      recommendation.roleFamily === null
+    ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["roleFamily"],
-        message: "A role-family recommendation must expose the matched role family.",
+        message:
+          "A role-family recommendation must expose the matched role family.",
       });
     }
   });

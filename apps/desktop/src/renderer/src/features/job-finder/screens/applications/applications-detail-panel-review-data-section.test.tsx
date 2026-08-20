@@ -246,6 +246,49 @@ describe("application question answer review", () => {
     expect(document.body.textContent).not.toContain("C:/");
   });
 
+  it("opens the current application job in Shortlisted", () => {
+    const baseDetails = createDetails();
+    const details = ApplyRunDetailsSchema.parse({
+      ...baseDetails,
+      questionRecords: [
+        {
+          ...baseDetails.questionRecords[0],
+          prompt: "Upload your resume",
+          kind: "resume",
+          answerControlType: "file",
+          answerOptions: [],
+        },
+      ],
+    });
+    Object.defineProperty(window, "unemployed", {
+      configurable: true,
+      value: {
+        jobFinder: {
+          listCandidateAssets: vi.fn(() => Promise.resolve({ assets: [] })),
+        },
+      },
+    });
+
+    render(
+      <ApplicationsDetailPanelReviewDataSection
+        applyRunDetailsError={null}
+        applyRunDetailsStatus="ready"
+        isApplyRequestPending={() => false}
+        onClearApplicationAnswer={vi.fn(() => Promise.resolve())}
+        onResolveApplyConsentRequest={vi.fn()}
+        onSaveApplicationAnswer={vi.fn(() => Promise.resolve())}
+        selectedApplyRunDetails={details}
+        visibleApplyResult={details.result}
+      />,
+    );
+
+    expect(
+      screen
+        .getByRole("link", { name: "Open this job in Shortlisted" })
+        .getAttribute("href"),
+    ).toBe("#/job-finder/review-queue?jobId=job-1");
+  });
+
   it("makes the saved answer retry path explicit without widening authority", () => {
     const details = createDetails(true);
 

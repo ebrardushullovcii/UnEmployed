@@ -1,12 +1,17 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  appendDiscoveryLiveActivityEvent,
+  DISCOVERY_LIVE_ACTIVITY_EVENT_LIMIT,
+  DiscoveryActivityEventSchema,
   DiscoveryLedgerEntrySchema,
+  DiscoveryRunRecordSchema,
   DiscoveryRunSummarySchema,
   DiscoveryTargetExecutionSchema,
   DiscoveryTimingSummarySchema,
   JobPostingSchema,
   MatchAssessmentSchema,
+  type DiscoveryActivityEvent,
 } from "./discovery";
 
 const postingInput = {
@@ -358,5 +363,147 @@ describe("discovery contracts", () => {
       importance: "required",
       status: "missing",
     });
+  });
+
+  test("keeps live activity bounded while retaining each source's latest and terminal truth", () => {
+    const event = (input: {
+      id: string;
+      targetId: string | null;
+      message: string;
+      kind?: "info" | "progress" | "success" | "warning" | "error";
+      terminalState?: "completed" | "failed" | "cancelled" | "skipped" | null;
+    }) =>
+      DiscoveryActivityEventSchema.parse({
+        id: input.id,
+        runId: "run_live_cap",
+        timestamp: "2026-08-19T10:00:00.000Z",
+        kind: input.kind ?? "progress",
+        stage: input.targetId ? "target" : "run",
+        targetId: input.targetId,
+        message: input.message,
+        terminalState: input.terminalState ?? null,
+      });
+
+    let liveEvents = appendDiscoveryLiveActivityEvent(
+      [],
+      event({
+        id: "source_1_progress",
+        targetId: "source_1",
+        message: "Source 1 is still being reviewed.",
+      }),
+    );
+    liveEvents = appendDiscoveryLiveActivityEvent(
+      liveEvents,
+      event({
+        id: "source_1_terminal",
+        targetId: "source_1",
+        kind: "error",
+        terminalState: "failed",
+        message: "Source 1 failed.",
+      }),
+    );
+    liveEvents = appendDiscoveryLiveActivityEvent(
+      liveEvents,
+      event({
+        id: "source_1_late_progress",
+        targetId: "source_1",
+        message: "A late source 1 progress tick.",
+      }),
+    );
+
+    for (
+      let index = 0;
+      index < DISCOVERY_LIVE_ACTIVITY_EVENT_LIMIT * 3;
+      index += 1
+    ) {
+      liveEvents = appendDiscoveryLiveActivityEvent(
+        liveEvents,
+        event({
+          id: `run_progress_${index}`,
+          targetId: null,
+          message: `Run progress ${index}`,
+        }),
+      );
+    }
+
+    expect(
+      liveEvents.filter((candidate) => candidate.targetId === null),
+    ).toHaveLength(DISCOVERY_LIVE_ACTIVITY_EVENT_LIMIT);
+    expect(liveEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "source_1_terminal",
+          terminalState: "failed",
+        }),
+        expect.objectContaining({ id: "source_1_late_progress" }),
+      ]),
+    );
+    expect(liveEvents).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "run_progress_0" }),
+      ]),
+    );
+
+    let sourceEvents: DiscoveryActivityEvent[] = [];
+    for (let index = 0; index < 511; index += 1) {
+      sourceEvents = appendDiscoveryLiveActivityEvent(
+        sourceEvents,
+        event({
+          id: `source_${index}_progress`,
+          targetId: `source_${index}`,
+          message: `Source ${index} progress`,
+        }),
+      );
+      sourceEvents = appendDiscoveryLiveActivityEvent(
+        sourceEvents,
+        event({
+          id: `source_${index}_terminal`,
+          targetId: `source_${index}`,
+          kind: "success",
+          terminalState: "completed",
+          message: `Source ${index} completed`,
+        }),
+      );
+    }
+
+    expect(sourceEvents).toHaveLength(511);
+    expect(
+      new Set(sourceEvents.map((candidate) => candidate.targetId)).size,
+    ).toBe(511);
+    expect(
+      sourceEvents.every(
+        (candidate) => candidate.terminalState === "completed",
+      ),
+    ).toBe(true);
+  });
+
+  test("keeps complete persisted activity history separate from the live projection", () => {
+    const run = DiscoveryRunRecordSchema.parse({
+      id: "run_full_history",
+      state: "running",
+      startedAt: "2026-08-19T10:00:00.000Z",
+      activity: [],
+    });
+    const events = Array.from({ length: 511 }, (_, index) =>
+      DiscoveryActivityEventSchema.parse({
+        id: `history_${index}`,
+        runId: run.id,
+        timestamp: "2026-08-19T10:00:00.000Z",
+        kind: "progress",
+        stage: "target",
+        targetId: `source_${index}`,
+        message: `Source ${index} progress`,
+        terminalState: null,
+      }),
+    );
+
+    const persistedActivity = events.reduce((current, nextEvent) => {
+      current.activity.push(nextEvent);
+      return current;
+    }, run);
+
+    expect(persistedActivity.activity).toHaveLength(511);
+    expect(persistedActivity.activity[0]?.id).toBe("history_0");
+    expect(persistedActivity.activity.at(-1)?.id).toBe("history_510");
   });
 });

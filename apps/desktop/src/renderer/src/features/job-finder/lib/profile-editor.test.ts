@@ -588,6 +588,51 @@ describe('profile editor application identity defaults', () => {
     })
   })
 
+  test('normalizes 512 source edits without quadratic persisted-target scans', () => {
+    const sourceCount = 512
+    const searchPreferences = JobSearchPreferencesSchema.parse({
+      targetRoles: ['Engineer'],
+      minimumSalaryUsd: null,
+      approvalMode: 'review_before_submit',
+      tailoringMode: 'balanced',
+      discovery: {
+        historyLimit: 5,
+        targets: Array.from({ length: sourceCount }, (_, index) => ({
+          id: `target_${index}`,
+          label: `Source ${index}`,
+          startingUrl: `https://jobs.example.com/source-${index}`,
+          enabled: index % 2 === 0,
+          instructionStatus: 'validated',
+          validatedInstructionId: `instruction_${index}`,
+          draftInstructionId: null,
+          lastDebugRunId: `debug_${index}`,
+          lastVerifiedAt: '2026-07-31T20:00:00.000Z',
+          staleReason: null
+        }))
+      }
+    })
+    const values = createSearchPreferencesEditorValues(searchPreferences)
+    values.discoveryTargets[sourceCount - 1]!.startingUrl = 'https://jobs.example.com/source-updated'
+
+    const result = buildSearchPreferencesPayload(searchPreferences, values)
+
+    expect(result.validationMessage).toBeUndefined()
+    expect(result.payload?.discovery.targets).toHaveLength(sourceCount)
+    expect(result.payload?.discovery.targets[0]).toMatchObject({
+      instructionStatus: 'validated',
+      validatedInstructionId: 'instruction_0'
+    })
+    expect(result.payload?.discovery.targets[sourceCount - 1]).toMatchObject({
+      startingUrl: 'https://jobs.example.com/source-updated',
+      instructionStatus: 'missing',
+      validatedInstructionId: null,
+      draftInstructionId: null,
+      lastDebugRunId: null,
+      lastVerifiedAt: null,
+      staleReason: 'Starting page URL changed. Check this source again before reusing saved guidance.'
+    })
+  })
+
   test('keeps incomplete source rows from being saved as search-ready', () => {
     const searchPreferences = JobSearchPreferencesSchema.parse({
       targetRoles: ['Engineer'],

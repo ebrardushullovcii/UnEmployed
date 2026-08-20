@@ -86,7 +86,7 @@ describe("ApplicationsCrmViews", () => {
         name: "Select Frontend Engineer at Acme",
       }),
     );
-    expect(screen.getByText("1 selected")).toBeTruthy();
+    expect(screen.getByText("1 matching application selected")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Move to Reviewing" }));
     await waitFor(() =>
       expect(onBulkStageChange).toHaveBeenCalledWith(
@@ -94,5 +94,71 @@ describe("ApplicationsCrmViews", () => {
         "reviewing",
       ),
     );
+  });
+
+  test("bounds the table DOM and names matching select-all semantics", () => {
+    const records = Array.from({ length: 226 }, (_, index) =>
+      record(`application_${index}`, `Frontend Engineer ${index}`, "Acme"),
+    );
+
+    render(
+      <ApplicationsCrmViews
+        onBulkStageChange={vi.fn(() => Promise.resolve())}
+        onSelectRecord={vi.fn()}
+        onViewChange={vi.fn()}
+        records={records}
+        selectedRecordId={null}
+        view="table"
+      />,
+    );
+
+    expect(
+      screen.getByRole("table", { name: "Application tracker" }),
+    ).toBeTruthy();
+    expect(screen.getAllByRole("row")).toHaveLength(51);
+    expect(
+      screen.getByRole("navigation", { name: "applications pagination" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Showing 1–50 of 226 applications")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    expect(screen.getAllByRole("row")).toHaveLength(51);
+    expect(screen.getByText("Frontend Engineer 50")).toBeTruthy();
+    expect(screen.queryByText("Frontend Engineer 0")).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: "Select all matching applications",
+      }),
+    );
+    expect(screen.getByText("226 matching applications selected")).toBeTruthy();
+  });
+
+  test("keeps a failed bulk update selected for an explicit retry", async () => {
+    const onBulkStageChange = vi.fn(() =>
+      Promise.reject(new Error("The selected applications changed.")),
+    );
+    render(
+      <ApplicationsCrmViews
+        onBulkStageChange={onBulkStageChange}
+        onSelectRecord={vi.fn()}
+        onViewChange={vi.fn()}
+        records={[record("application_1", "Frontend Engineer", "Acme")]}
+        selectedRecordId={null}
+        view="table"
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: "Select Frontend Engineer at Acme",
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Move to Reviewing" }));
+
+    await waitFor(() =>
+      expect(screen.getByText("1 matching application selected")).toBeTruthy(),
+    );
+    expect(onBulkStageChange).toHaveBeenCalledTimes(1);
   });
 });

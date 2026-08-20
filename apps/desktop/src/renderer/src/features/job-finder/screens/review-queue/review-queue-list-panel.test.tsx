@@ -39,7 +39,7 @@ describe("ReviewQueueListPanel", () => {
     expect(checkbox).toHaveProperty("disabled", true);
     expect(descriptionId).toBeTruthy();
     expect(document.getElementById(descriptionId ?? "")?.textContent).toMatch(
-      /approved ready PDF/i,
+      /approved tailored PDF or unchanged original CV/i,
     );
   });
 
@@ -80,5 +80,47 @@ describe("ReviewQueueListPanel", () => {
     expect(screen.getByText("1 of 2 results")).toBeTruthy();
     expect(screen.getByText("Backend Engineer")).toBeTruthy();
     expect(screen.queryByText("Product Engineer")).toBeNull();
+  });
+
+  it("keeps a large shortlist bounded to one page and preserves keyboard-sized pages", () => {
+    const queue = Array.from(
+      { length: 226 },
+      (_, index) =>
+        ({
+          jobId: `job_${index}`,
+          title: `Product Engineer ${index}`,
+          company: "Acme",
+          location: "Remote",
+          resumeApplicationMode: "tailored_resume",
+          resumeReview: { status: "approved" },
+          assetStatus: "ready",
+          progressPercent: 100,
+        }) as unknown as ReviewQueueItem,
+    );
+
+    render(
+      <ReviewQueueListPanel
+        isJobPending={() => false}
+        onSelectItem={vi.fn()}
+        onToggleQueueSelection={vi.fn()}
+        queue={queue}
+        queueSelection={[]}
+        selectedItem={queue[0] ?? null}
+      />,
+    );
+
+    expect(document.querySelectorAll("[data-collection-item-id]")).toHaveLength(
+      40,
+    );
+    expect(
+      screen.getByRole("navigation", { name: "shortlisted jobs pagination" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Showing 1–40 of 226 shortlisted jobs"),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    expect(screen.queryByText("Product Engineer 0")).toBeNull();
+    expect(screen.getByText("Product Engineer 40")).toBeTruthy();
   });
 });

@@ -30,10 +30,7 @@ export const OUTCOME_VIEW_LOW_UNCERTAINTY_SAMPLE = 100;
 
 const WILSON_Z_95 = 1.96;
 
-export const outcomeDimensionLabels: Record<
-  OutcomeBucketDimension,
-  string
-> = {
+export const outcomeDimensionLabels: Record<OutcomeBucketDimension, string> = {
   campaign: "Campaign",
   source: "Source",
   job_title: "Job title",
@@ -44,7 +41,9 @@ export const outcomeDimensionLabels: Record<
 export const outcomeDimensionOrder: readonly OutcomeBucketDimension[] =
   outcomeBucketDimensionValues;
 
-export function outcomeDimensionNoun(dimension: OutcomeBucketDimension): string {
+export function outcomeDimensionNoun(
+  dimension: OutcomeBucketDimension,
+): string {
   switch (dimension) {
     case "campaign":
       return "campaigns";
@@ -64,6 +63,11 @@ export interface OutcomeAnalyticsViewInput {
   events: readonly OutcomeEvent[];
   generatedAt: string;
   /**
+   * Dimensions to derive. The screen normally asks for its active dimension
+   * only; omitting this preserves the all-dimension presentation projection.
+   */
+  dimensions?: readonly OutcomeBucketDimension[];
+  /**
    * Durable analytics overview so user-controlled suggestion state survives
    * the scoped derivation: an explicit user disable is preserved and a
    * pending reset is consumed exactly like the service derivation.
@@ -73,19 +77,24 @@ export interface OutcomeAnalyticsViewInput {
 
 /**
  * Derives a campaign-scoped analytics overview from the events of one
- * campaign. Buckets are produced for every supported dimension keyed by the
- * raw facts on the events; events without a resume strategy are excluded from
- * the `resume_strategy` dimension rather than bucketed under a fabricated
- * key. Rates stay null below the minimum sample; uncertainty is tied to the
- * sample size; suggestions follow the same conservative gates as the service
- * and honor the durable user-disable state.
+ * campaign. By default buckets are produced for every supported dimension;
+ * callers rendering one active dimension can pass `dimensions` to avoid
+ * deriving unused buckets. Keys always come from raw event facts; events
+ * without a resume strategy are excluded from the `resume_strategy` dimension
+ * rather than bucketed under a fabricated key. Rates stay null below the
+ * minimum sample; uncertainty is tied to the sample size; suggestions follow
+ * the same conservative gates as the service and honor durable user-disable
+ * state.
  */
 export function deriveCampaignScopedOutcomeAnalytics(
   input: OutcomeAnalyticsViewInput,
 ): OutcomeAnalyticsOverview {
   const previousBuckets = new Map<string, OutcomeAnalyticsBucket>();
   for (const bucket of input.previousOverview?.buckets ?? []) {
-    previousBuckets.set(previousBucketKey(bucket.dimension, bucket.key), bucket);
+    previousBuckets.set(
+      previousBucketKey(bucket.dimension, bucket.key),
+      bucket,
+    );
   }
 
   const globalSummary = summarizeEvents(input.events);
@@ -96,7 +105,11 @@ export function deriveCampaignScopedOutcomeAnalytics(
 
   const buckets: OutcomeAnalyticsBucket[] = [];
 
-  for (const dimension of outcomeBucketDimensionValues) {
+  const dimensions = [
+    ...new Set(input.dimensions ?? outcomeBucketDimensionValues),
+  ];
+
+  for (const dimension of dimensions) {
     const eventsByKey = new Map<string, OutcomeEvent[]>();
     for (const event of input.events) {
       const key = eventKeyForDimension(event, dimension);
@@ -259,7 +272,11 @@ interface EventSummary {
 function summarizeEvents(events: readonly OutcomeEvent[]): EventSummary {
   const eventsBySubject = new Map<string, OutcomeEvent[]>();
   for (const event of events) {
-    const subjectId = event.applicationRecordId ?? event.jobId;
+    // Keep the fallback subject identity aligned with the durable model: a
+    // legacy event without an application record is still campaign-scoped.
+    const subjectId = event.applicationRecordId
+      ? `application:${event.applicationRecordId}`
+      : `job:${event.campaignId}:${event.jobId}`;
     const grouped = eventsBySubject.get(subjectId) ?? [];
     grouped.push(event);
     eventsBySubject.set(subjectId, grouped);
@@ -491,17 +508,11 @@ export function bucketDisplayLabel(
   },
 ): string {
   if (bucket.dimension === "campaign") {
-    return (
-      resolvers.campaignName(bucket.key) ??
-      bucket.label ??
-      bucket.key
-    );
+    return resolvers.campaignName(bucket.key) ?? bucket.label ?? bucket.key;
   }
   if (bucket.dimension === "resume_strategy") {
     return (
-      resolvers.resumeStrategyName(bucket.key) ??
-      bucket.label ??
-      bucket.key
+      resolvers.resumeStrategyName(bucket.key) ?? bucket.label ?? bucket.key
     );
   }
   return bucket.label ?? bucket.key;

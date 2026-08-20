@@ -86,11 +86,19 @@ function toDiscoveryTargets(
   values: readonly DiscoveryTargetEditorValue[],
   persistedTargets: readonly JobDiscoveryTarget[]
 ): JobDiscoveryTarget[] {
+  const persistedTargetById = new Map<string, JobDiscoveryTarget>()
+  for (const persistedTarget of persistedTargets) {
+    // Preserve the previous find() behavior if malformed persisted data contains duplicate IDs.
+    if (!persistedTargetById.has(persistedTarget.id)) {
+      persistedTargetById.set(persistedTarget.id, persistedTarget)
+    }
+  }
+
   return values.map((target) => {
     const parsedStatus = SourceInstructionStatusSchema.safeParse(target.instructionStatus)
     const instructionStatus = parsedStatus.success ? parsedStatus.data : 'missing'
     const startingUrl = target.startingUrl.trim()
-    const persistedTarget = persistedTargets.find((entry) => entry.id === target.id)
+    const persistedTarget = persistedTargetById.get(target.id)
     const startingUrlChanged = persistedTarget !== undefined && persistedTarget.startingUrl.trim() !== startingUrl
 
     return {

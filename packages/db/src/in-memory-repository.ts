@@ -44,6 +44,8 @@ import {
 
 import { cloneValue } from "./internal/state";
 import {
+  areSameApplicationAnswerRecords,
+  areSameApplicationQuestionRecords,
   latestApplicationAnswerRecord,
   normalizeGroupedManualAnswerCommit,
   resolveGroupedManualAnswerCommit,
@@ -727,6 +729,70 @@ export function createInMemoryJobFinderRepository(
       );
       return Promise.resolve();
     },
+    commitApplicationAnswerMutation(input) {
+      const expectedAnswer = input.expectedAnswer
+        ? ApplicationAnswerRecordSchema.parse(cloneValue(input.expectedAnswer))
+        : null;
+      const expectedQuestion = ApplicationQuestionRecordSchema.parse(
+        cloneValue(input.expectedQuestion),
+      );
+      const nextAnswer = ApplicationAnswerRecordSchema.parse(
+        cloneValue(input.answer),
+      );
+      const nextQuestion = ApplicationQuestionRecordSchema.parse(
+        cloneValue(input.question),
+      );
+
+      if (
+        expectedQuestion.id !== nextQuestion.id ||
+        expectedQuestion.id !== nextAnswer.questionId
+      ) {
+        throw new Error(
+          "Application answer mutation records must target the same question.",
+        );
+      }
+      if (nextAnswer.revision !== (expectedAnswer?.revision ?? 0) + 1) {
+        throw new Error(
+          "Application answer mutation must advance the answer revision by one.",
+        );
+      }
+
+      if (
+        state.applicationAnswerRecords.some(
+          (record) => record.id === nextAnswer.id,
+        )
+      ) {
+        return Promise.resolve("duplicate" as const);
+      }
+
+      const currentAnswer = latestApplicationAnswerRecord(
+        state.applicationAnswerRecords,
+        expectedQuestion.id,
+      );
+      const currentQuestion = state.applicationQuestionRecords.find(
+        (record) => record.id === expectedQuestion.id,
+      );
+      if (
+        currentQuestion === undefined ||
+        !areSameApplicationQuestionRecords(currentQuestion, expectedQuestion) ||
+        (expectedAnswer === null
+          ? currentAnswer !== null
+          : currentAnswer === null ||
+            !areSameApplicationAnswerRecords(currentAnswer, expectedAnswer))
+      ) {
+        return Promise.resolve("stale" as const);
+      }
+
+      state.applicationAnswerRecords = upsertById(
+        state.applicationAnswerRecords,
+        nextAnswer,
+      );
+      state.applicationQuestionRecords = upsertById(
+        state.applicationQuestionRecords,
+        nextQuestion,
+      );
+      return Promise.resolve("applied" as const);
+    },
     listApplicationArtifactRefs(options) {
       const values = state.applicationArtifactRefs.filter((ref) =>
         matchesOptionalStringFilters(ref, [
@@ -1322,6 +1388,62 @@ export function createInMemoryJobFinderRepository(
         normalizedRecord,
       );
       return Promise.resolve();
+    },
+    commitApplicationRecordBatch({ expectedRevisions, records }) {
+      const normalizedRecords = ApplicationRecordSchema.array().parse(
+        cloneValue([...records]),
+      );
+      const expectedIds = expectedRevisions.map(
+        ({ applicationRecordId }) => applicationRecordId,
+      );
+      const expectedIdSet = new Set(expectedIds);
+      const nextIdSet = new Set(normalizedRecords.map((record) => record.id));
+      if (
+        expectedIdSet.size !== expectedIds.length ||
+        nextIdSet.size !== normalizedRecords.length ||
+        expectedIdSet.size !== nextIdSet.size ||
+        expectedIds.some((id) => !nextIdSet.has(id))
+      ) {
+        throw new Error(
+          "Application record batch must contain one next record for every expected record.",
+        );
+      }
+
+      const currentById = new Map(
+        state.applicationRecords.map((record) => [record.id, record]),
+      );
+      const missingRecordIds = expectedIds.filter((id) => !currentById.has(id));
+      if (missingRecordIds.length > 0) {
+        return Promise.resolve({
+          status: "missing" as const,
+          recordIds: missingRecordIds,
+        });
+      }
+
+      const staleRecordIds = expectedRevisions
+        .filter(
+          ({ applicationRecordId, expectedRevision }) =>
+            (currentById.get(applicationRecordId)?.crm?.revision ?? 0) !==
+            expectedRevision,
+        )
+        .map(({ applicationRecordId }) => applicationRecordId);
+      if (staleRecordIds.length > 0) {
+        return Promise.resolve({
+          status: "stale" as const,
+          recordIds: staleRecordIds,
+        });
+      }
+
+      const nextById = new Map(
+        normalizedRecords.map((record) => [record.id, record]),
+      );
+      state.applicationRecords = state.applicationRecords.map(
+        (record) => nextById.get(record.id) ?? record,
+      );
+      return Promise.resolve({
+        status: "applied" as const,
+        committedRecordIds: expectedIds,
+      });
     },
     listApplicationAttempts() {
       return Promise.resolve(cloneValue(state.applicationAttempts));

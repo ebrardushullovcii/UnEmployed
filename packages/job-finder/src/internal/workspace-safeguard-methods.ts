@@ -345,9 +345,7 @@ export function createWorkspaceSafeguardMethods(input: {
     );
   }
 
-  async function requireNoBlockers(
-    blockers: readonly SafeguardBlocker[],
-  ): Promise<void> {
+  function requireNoBlockers(blockers: readonly SafeguardBlocker[]): void {
     const blocker = blockers.find((entry) => entry.severity === "blocker");
     if (!blocker) return;
 

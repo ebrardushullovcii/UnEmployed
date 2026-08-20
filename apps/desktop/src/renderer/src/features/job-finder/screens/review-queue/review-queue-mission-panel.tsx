@@ -139,7 +139,7 @@ export function ReviewQueueMissionPanel({
     <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
       <div className="order-1 flex flex-wrap items-start justify-between gap-3 px-6 pb-2 pt-6 xl:order-none">
         <h3 className="font-display text-(length:--text-small) font-bold uppercase tracking-(--tracking-caps) text-primary">
-          Apply copilot readiness
+          Apply Copilot readiness
         </h3>
       </div>
       <div className="order-3 grid min-h-0 min-w-0 flex-1 content-start gap-4 overflow-x-hidden overflow-y-auto px-6 pb-6 pt-4">

@@ -41,7 +41,7 @@ export function SettingsScreen(props: {
   } = props;
 
   return (
-    <section className="grid gap-3 pb-8">
+    <section className="grid min-w-0 gap-3 pb-8">
       <PageHeader
         compact
         eyebrow="Settings"
@@ -67,12 +67,12 @@ export function SettingsScreen(props: {
         }
       />
 
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1.32fr)_minmax(0,0.92fr)] xl:items-start">
+      <div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1.32fr)_minmax(0,0.92fr)] xl:items-start">
         <SettingsRuntimeSummary
           browserSession={browserSession}
           settings={settings}
         />
-        <div className="grid gap-3">
+        <div className="grid min-w-0 gap-3">
           <SettingsSupportControls />
           <SettingsWorkspaceControls
             isWorkspaceResetPending={isWorkspaceResetPending}

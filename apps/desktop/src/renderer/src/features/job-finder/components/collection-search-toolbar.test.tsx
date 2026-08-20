@@ -34,6 +34,27 @@ describe("CollectionSearchToolbar", () => {
     expect(onQueryChange).toHaveBeenCalledWith("");
   });
 
+  it("lets the search field shrink below the desktop minimum on narrow screens", () => {
+    render(
+      <CollectionSearchToolbar
+        label="Find a document"
+        onQueryChange={vi.fn()}
+        placeholder="Search documents"
+        query=""
+        totalCount={1}
+        visibleCount={1}
+      />,
+    );
+
+    const input = screen.getByRole("searchbox");
+    const searchField = input.parentElement;
+    const toolbar = searchField?.parentElement?.parentElement;
+
+    expect(searchField?.className).toContain("min-w-0");
+    expect(searchField?.className).toContain("sm:min-w-56");
+    expect(toolbar?.className).toContain("min-w-0");
+  });
+
   it("matches normalized text across multiple fields", () => {
     expect(
       matchesCollectionSearch(" typescript ", ["Engineer", "TypeScript"]),

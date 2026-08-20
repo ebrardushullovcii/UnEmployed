@@ -354,6 +354,15 @@ export function buildResumeGenerationEvidenceCatalog(
     }
   }
 
+  if (input.resumeText?.trim()) {
+    pushEvidenceItem(items, seenIds, {
+      id: "baseResume:text",
+      text: input.resumeText,
+      scope: "import_evidence",
+      profileRecordId: null,
+    });
+  }
+
   return items;
 }
 
@@ -361,6 +370,10 @@ export function buildGroundedResumeRewriteModelPayload(
   input: ResumeGenerationInput,
 ) {
   return {
+    ...("strategy" in input && input.strategy
+      ? { strategy: input.strategy }
+      : {}),
+    ...(input.resumeText?.trim() ? { baseResumeText: input.resumeText } : {}),
     targetJob: {
       title: input.job.title,
       company: input.job.company,
@@ -533,6 +546,9 @@ export function selectResumeRewrite(input: {
   jobCompany: string;
   jobSkills: readonly string[];
   allowReasonableInference?: boolean;
+  allowExactClaims?: boolean;
+  allowParaphrasedClaims?: boolean;
+  maxEvidenceRefsPerBullet?: number;
 }): ResumeRewriteSelection | null {
   const parsed = parseEvidenceLinkedText(
     input.generated,
@@ -542,11 +558,19 @@ export function selectResumeRewrite(input: {
     return null;
   }
 
+  const maxEvidenceRefsPerBullet = input.maxEvidenceRefsPerBullet ?? 8;
+  if (parsed.evidenceRefs.length > maxEvidenceRefsPerBullet) {
+    return null;
+  }
+
   const normalizedGenerated = normalizedComparableText(parsed.text);
   const canonical = input.canonicalCandidates.find(
     (candidate) => normalizedComparableText(candidate) === normalizedGenerated,
   );
   if (canonical) {
+    if (input.allowExactClaims === false) {
+      return null;
+    }
     return {
       text: canonical,
       kind: "canonical",
@@ -556,6 +580,10 @@ export function selectResumeRewrite(input: {
   }
 
   if (parsed.evidenceRefs.length === 0) {
+    return null;
+  }
+
+  if (input.allowParaphrasedClaims === false) {
     return null;
   }
 

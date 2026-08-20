@@ -127,6 +127,95 @@ describe("buildJobFinderTaskCenterModel", () => {
     expect(task.historyEstimateLabel).not.toContain("remaining");
   });
 
+  test("compares 511 configured targets without repeated sorting", () => {
+    const targetIds = Array.from(
+      { length: 511 },
+      (_, index) => `source_${String(index).padStart(3, "0")}`,
+    );
+    const historicalTargetIds = [...targetIds].reverse();
+    const incompatibleTargetIds = [...historicalTargetIds];
+    incompatibleTargetIds[incompatibleTargetIds.length - 1] = targetIds[1]!;
+    const historicalRuns = [
+      createDiscoveryRun({
+        id: "discovery_history_duplicate-target",
+        state: "completed",
+        targetIds: incompatibleTargetIds,
+        summary: {
+          targetsPlanned: targetIds.length,
+          targetsCompleted: targetIds.length,
+          validJobsFound: 5,
+          durationMs: 12_000,
+        },
+      }),
+      ...Array.from({ length: 32 }, (_, index) =>
+        createDiscoveryRun({
+          id: `discovery_history_${index}`,
+          state: "completed",
+          targetIds: historicalTargetIds,
+          summary: {
+            targetsPlanned: targetIds.length,
+            targetsCompleted: targetIds.length,
+            validJobsFound: 5,
+            durationMs: 12_000,
+          },
+        }),
+      ),
+    ];
+    const currentRun = createDiscoveryRun({
+      targetIds,
+      summary: {
+        targetsPlanned: targetIds.length,
+        targetsCompleted: 0,
+        validJobsFound: 0,
+        durationMs: 0,
+      },
+    });
+
+    const startedAt = performance.now();
+    const model = buildJobFinderTaskCenterModel({
+      workspace: createWorkspace({
+        activeDiscoveryRun: currentRun,
+        recentDiscoveryRuns: historicalRuns,
+        searchPreferences: {
+          discovery: {
+            targets: targetIds.map((id, index) => ({
+              id,
+              label: `Source ${index}`,
+              startingUrl: `https://example.com/${id}`,
+              enabled: true,
+              adapterKind: "auto",
+              customInstructions: null,
+              instructionStatus: "missing",
+              validatedInstructionId: null,
+              draftInstructionId: null,
+              lastDebugRunId: null,
+              lastVerifiedAt: null,
+              staleReason: null,
+            })),
+            historyLimit: 5,
+          },
+        } as unknown as JobFinderWorkspaceSnapshot["searchPreferences"],
+      }),
+      isDiscoveryPending: true,
+      isResumeImportPending: false,
+    });
+    const durationMs = performance.now() - startedAt;
+    const task = findTask(model, "discovery");
+
+    console.info("task-center-target-comparison-benchmark", {
+      durationMs: Math.round(durationMs),
+      historicalRuns: historicalRuns.length,
+      targetCount: targetIds.length,
+    });
+
+    expect(task.countLabel).toBe("0 of 511 sources finished · 0 jobs found");
+    expect(task.sourceLabel).toBe("Source 0 and 510 more sources");
+    expect(task.historyEstimateLabel).toBe(
+      "about 12s from 32 similar completed searches",
+    );
+    expect(durationMs).toBeLessThan(500);
+  });
+
   test("marks a persisted nonterminal resume run interrupted after restart instead of pretending it is active", () => {
     const run = {
       id: "resume_stale",

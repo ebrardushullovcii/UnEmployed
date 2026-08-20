@@ -48,6 +48,10 @@ import {
   markCampaignNotificationRead,
   mergeCampaignNotifications,
 } from "./campaign-digest-notifications";
+import {
+  isUserOwnedBlockerEvidence,
+  persistAutomaticDiscoverySafeguard,
+} from "./automatic-safeguards";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
 import type { CampaignRunContext } from "./workspace-service-contracts";
 
@@ -125,6 +129,7 @@ export async function commitCampaignRunTerminal(input: {
   beforeJobProvenanceFingerprints: ReadonlyMap<string, string>;
   now: string;
 }): Promise<void> {
+  let committedCampaign: JobSearchCampaign | null = null;
   await input.ctx.withCampaignTransition(async () => {
     const [state, savedJobs, discovery] = await Promise.all([
       input.ctx.repository.getCampaignState(),
@@ -217,13 +222,25 @@ export async function commitCampaignRunTerminal(input: {
         company: job.company,
         fitScore: job.matchAssessment.score,
       }));
+    const failedSourceWork = (digest?.failedSources ?? []).map((source) => ({
+      workId: `discovery_source_${latestRun.id}_${source.sourceTargetId}`,
+      sourceTargetId: source.sourceTargetId,
+      title: `Discovery source ${source.sourceTargetId}`,
+      reason: source.reason,
+    }));
+    const blockedSourceWork = failedSourceWork.filter((source) =>
+      isUserOwnedBlockerEvidence(source.reason),
+    );
+    const technicalSourceWork = failedSourceWork.filter(
+      (source) => !isUserOwnedBlockerEvidence(source.reason),
+    );
     const derivedNotifications = deriveCampaignNotifications({
       campaignId: campaign.id,
       now: measuredAt,
       strongMatches,
       minimumFitScore: campaign.minimumFitScore,
-      blockedWork: [],
-      failedWork: [],
+      blockedWork: blockedSourceWork,
+      failedWork: technicalSourceWork,
       runFacts,
     });
     const notifications = mergeCampaignNotifications({
@@ -274,7 +291,20 @@ export async function commitCampaignRunTerminal(input: {
         ),
       }),
     );
+    committedCampaign = nextCampaign;
   });
+
+  // Rebuild the technical failure sample from persisted campaign runs after
+  // the campaign transition is released. Automatic safeguard persistence is
+  // best-effort and must never turn a committed discovery result into an
+  // exception (or deadlock on the campaign transition).
+  if (committedCampaign !== null) {
+    await persistAutomaticDiscoverySafeguard({
+      ctx: input.ctx,
+      campaign: committedCampaign,
+      now: input.now,
+    }).catch(() => {});
+  }
 }
 
 /**

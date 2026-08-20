@@ -47,6 +47,7 @@ import {
 import { uniqueStrings } from "./shared";
 import { mergeApplicationAnswersIntoExecutionProfile } from "./workspace-application-answer-execution";
 import { resolveApplicationAttachmentsForExecution } from "./workspace-application-attachments";
+import { persistAutomaticApplicationSafeguards } from "./automatic-safeguards";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
 
 type ExactApplicationScope = {
@@ -1082,6 +1083,18 @@ export function createApplicationUserActionResumer(
       replayCheckpointId: checkpoint.id,
       blocker: executionResult.blocker,
       occurredAt: completedAt,
+    });
+    await persistAutomaticApplicationSafeguards({
+      ctx,
+      run,
+      result: nextResult,
+      job,
+      now: completedAt,
+    }).catch((safeguardError: unknown) => {
+      console.error(
+        "Failed to persist automatic application safeguards.",
+        safeguardError,
+      );
     });
   };
 }

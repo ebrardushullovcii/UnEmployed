@@ -2,11 +2,14 @@ import { describe, expect, test } from "vitest";
 
 import {
   ResumeDraftSchema,
+  ResumeDocumentBundleSchema,
   ResumeValidationResultSchema,
   type SaveResumeStrategyInput,
 } from "@unemployed/contracts";
 
 import { createWorkspaceServiceHarness } from "./workspace-service.test-harness";
+import { createAiClient } from "./workspace-service.test-runtimes";
+import { createSeed } from "./workspace-service.test-fixtures";
 
 function strategyInput(
   overrides: Partial<SaveResumeStrategyInput> = {},
@@ -283,6 +286,85 @@ describe("workspace resume strategies end to end", () => {
     expect(workspace.draft.approvedExportId).toBeNull();
     expect(workspace.draft.status).not.toBe("approved");
     expect(workspace.strategyContext).not.toHaveProperty("approvedAt");
+  });
+
+  test("generation uses the selected base document content", async () => {
+    async function generateFromBaseDocument(
+      documentId: string,
+      fullText: string,
+    ) {
+      const seed = createSeed();
+      const seededJob = seed.savedJobs.find(
+        (job) => job.id === "job_generating",
+      );
+      if (!seededJob) {
+        throw new Error("Expected the generating test job in the seed.");
+      }
+      seededJob.keySkills = ["Postman", "Cypress"];
+      seed.resumeImportDocumentBundles = [
+        ResumeDocumentBundleSchema.parse({
+          id: documentId,
+          runId: `run_${documentId}`,
+          sourceResumeId: documentId,
+          sourceFileKind: "plain_text",
+          primaryParserKind: "plain_text",
+          createdAt: "2026-08-17T10:00:00.000Z",
+          fullText,
+        }),
+      ];
+      const fallbackClient = createAiClient();
+      type DraftInput = Parameters<typeof fallbackClient.createResumeDraft>[0];
+      let capturedInput!: DraftInput;
+      const harness = createWorkspaceServiceHarness({
+        seed,
+        aiClient: {
+          ...fallbackClient,
+          createResumeDraft(input) {
+            capturedInput = input;
+            return fallbackClient.createResumeDraft(input);
+          },
+        },
+      });
+      await withDefaultCampaign(harness);
+      const created = await harness.workspaceService.saveResumeStrategy(
+        strategyInput({
+          baseResumeDocumentId: documentId,
+          skillsPolicy: "per_job_tailored",
+        }),
+      );
+      const strategyId = created.intelligence.resumeStrategies[0]!.id;
+      await harness.workspaceService.selectResumeStrategy({
+        jobId: "job_generating",
+        campaignId: "campaign_default",
+        strategyId,
+        source: "manual",
+        reason: "Use the selected source document.",
+      });
+      await harness.workspaceService.generateResume("job_generating");
+      const snapshot = await harness.workspaceService.getWorkspaceSnapshot();
+      return {
+        asset: snapshot.tailoredAssets.find(
+          (asset) => asset.jobId === "job_generating",
+        )!,
+        capturedInput,
+      };
+    }
+
+    const vue = await generateFromBaseDocument(
+      "document_vue",
+      "Alex Vanguard\nSkills\nPostman",
+    );
+    const svelte = await generateFromBaseDocument(
+      "document_svelte",
+      "Alex Vanguard\nSkills\nCypress",
+    );
+
+    expect(vue.capturedInput.resumeText).toContain("Postman");
+    expect(svelte.capturedInput.resumeText).toContain("Cypress");
+    expect(vue.asset.contentText).toContain("Postman");
+    expect(vue.asset.contentText).not.toContain("Cypress");
+    expect(svelte.asset.contentText).toContain("Cypress");
+    expect(svelte.asset.contentText).not.toContain("Postman");
   });
 
   test("recommendResumeStrategy returns an honest no-match with a reason when nothing applies", async () => {

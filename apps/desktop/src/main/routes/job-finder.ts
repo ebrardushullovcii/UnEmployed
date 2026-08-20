@@ -5,6 +5,7 @@ import type { IpcMain, SaveDialogOptions } from "electron";
 import {
   ApplicationCrmExportInputSchema,
   ApplicationCrmFileExportResultSchema,
+  ApplicationCrmBulkStageMutationInputSchema,
   ApplicationCrmMutationInputSchema,
   ApplicationCrmSettingsSchema,
   ApplicationPacketSchema,
@@ -63,7 +64,6 @@ import {
   JobFinderWorkspaceEntityMutationInputSchema,
   JobFinderWorkspaceSnapshotSchema,
   JobFinderWorkspaceSyncInputSchema,
-  JobFinderWorkspaceSyncResultSchema,
   JobSearchPreferencesSchema,
   NonEmptyStringSchema,
   SaveJobSearchCampaignInputSchema,
@@ -134,6 +134,14 @@ function parseOptionalRequestId(payload: unknown): string | null {
   return requestId;
 }
 
+function throwIfResumePreviewAborted(signal: AbortSignal): void {
+  if (!signal.aborted) {
+    return;
+  }
+
+  throw new DOMException("Resume preview was superseded.", "AbortError");
+}
+
 function sanitizeFileNameSegment(value: string): string {
   return value
     .replace(/[<>:"/\\|?*]/g, " ")
@@ -168,12 +176,27 @@ function buildApplicationPacketExportDefaultPath(
 
 export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
   const workspaceDeltaTracker = createJobFinderWorkspaceDeltaTracker();
+  const activeResumePreviewRequests = new WeakMap<
+    object,
+    {
+      requestId: string;
+      controller: AbortController;
+    }
+  >();
 
   ipcMain.handle("job-finder:get-workspace", async () => {
     const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
-    const snapshot = await jobFinderWorkspaceService.getWorkspaceSnapshot();
+    // The service constructs and validates the snapshot before returning it.
+    // Keep this typed internal boundary allocation-free for the large startup
+    // payload; input validation remains at the IPC entry points below.
+    return jobFinderWorkspaceService.getWorkspaceSnapshot();
+  });
 
-    return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+  ipcMain.handle("job-finder:get-workspace-bootstrap", async () => {
+    const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+    return JobFinderWorkspaceSnapshotSchema.parse(
+      await jobFinderWorkspaceService.getWorkspaceBootstrap(),
+    );
   });
 
   ipcMain.handle(
@@ -181,13 +204,9 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
     async (_event, payload: unknown) => {
       const input = JobFinderWorkspaceSyncInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
-      const snapshot = JobFinderWorkspaceSnapshotSchema.parse(
-        await jobFinderWorkspaceService.getWorkspaceSnapshot(),
-      );
+      const snapshot = await jobFinderWorkspaceService.getWorkspaceSnapshot();
 
-      return JobFinderWorkspaceSyncResultSchema.parse(
-        workspaceDeltaTracker.synchronize(input.baseRevision, snapshot),
-      );
+      return workspaceDeltaTracker.synchronize(input.baseRevision, snapshot);
     },
   );
 
@@ -228,11 +247,7 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
           }
         }
       })();
-      const parsedSnapshot = JobFinderWorkspaceSnapshotSchema.parse(snapshot);
-
-      return JobFinderWorkspaceSyncResultSchema.parse(
-        workspaceDeltaTracker.synchronize(input.baseRevision, parsedSnapshot),
-      );
+      return workspaceDeltaTracker.synchronize(input.baseRevision, snapshot);
     },
   );
 
@@ -1357,6 +1372,18 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
   );
 
   ipcMain.handle(
+    "job-finder:mutate-application-crm-bulk-stage",
+    async (_event, payload: unknown) => {
+      const input = ApplicationCrmBulkStageMutationInputSchema.parse(payload);
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const snapshot =
+        await jobFinderWorkspaceService.mutateApplicationCrmBulkStage(input);
+
+      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+    },
+  );
+
+  ipcMain.handle(
     "job-finder:run-application-no-response-automation",
     async (_event, payload: unknown) => {
       const settings = ApplicationCrmSettingsSchema.optional().parse(
@@ -1503,12 +1530,43 @@ export function registerJobFinderRouteHandlers(ipcMain: IpcMain) {
 
   ipcMain.handle(
     "job-finder:preview-resume-draft",
-    async (_event, payload: unknown) => {
-      const { draft } = JobFinderPreviewResumeDraftInputSchema.parse(payload);
-      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
-      const preview = await jobFinderWorkspaceService.previewResumeDraft(draft);
+    async (event, payload: unknown) => {
+      const { draft, requestId } =
+        JobFinderPreviewResumeDraftInputSchema.parse(payload);
+      const previousRequest = activeResumePreviewRequests.get(event.sender);
+      previousRequest?.controller.abort();
+      const request = {
+        requestId,
+        controller: new AbortController(),
+      };
+      activeResumePreviewRequests.set(event.sender, request);
 
-      return JobFinderResumePreviewSchema.parse(preview);
+      const assertCurrentRequest = () => {
+        throwIfResumePreviewAborted(request.controller.signal);
+        if (activeResumePreviewRequests.get(event.sender) !== request) {
+          throw new DOMException(
+            `Resume preview request '${request.requestId}' was superseded.`,
+            "AbortError",
+          );
+        }
+      };
+
+      try {
+        assertCurrentRequest();
+        const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+        assertCurrentRequest();
+        const preview = await jobFinderWorkspaceService.previewResumeDraft(
+          draft,
+          request.controller.signal,
+        );
+        assertCurrentRequest();
+
+        return JobFinderResumePreviewSchema.parse(preview);
+      } finally {
+        if (activeResumePreviewRequests.get(event.sender) === request) {
+          activeResumePreviewRequests.delete(event.sender);
+        }
+      }
     },
   );
 

@@ -7,7 +7,7 @@ import {
 } from "@unemployed/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ActionsScreen } from "./actions-screen";
+import { ActionsScreen, getUserActionContextRoute } from "./actions-screen";
 
 afterEach(cleanup);
 
@@ -71,6 +71,33 @@ function createRequest(input: {
 }
 
 describe("ActionsScreen", () => {
+  it("opens the exact application or source context from an action", () => {
+    const applicationRequest = createRequest({
+      id: "application-target",
+      scope: "application",
+    });
+    const sourceRequest = createRequest({
+      id: "source-target",
+      scope: "discovery_source",
+    });
+    const applicationRecords = [
+      { id: "application-target", jobId: "job_1" },
+    ] as unknown as Parameters<typeof getUserActionContextRoute>[1];
+
+    expect(
+      getUserActionContextRoute(applicationRequest, applicationRecords),
+    ).toBe("/job-finder/applications?applicationRecordId=application-target");
+    expect(getUserActionContextRoute(sourceRequest, applicationRecords)).toBe(
+      "/job-finder/discovery?targetId=target_1",
+    );
+    expect(
+      getUserActionContextRoute(applicationRequest, [
+        { id: "other-record", jobId: "job-target" },
+        { id: "second-record", jobId: "job-target" },
+      ] as unknown as Parameters<typeof getUserActionContextRoute>[1]),
+    ).toBe("/job-finder/applications?jobId=job_1");
+  });
+
   it("groups unresolved application and source actions and excludes terminal requests", () => {
     const { getAllByText, getByRole, getByText, queryByText } = render(
       <ActionsScreen

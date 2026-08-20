@@ -124,6 +124,9 @@ interface ResumeRewriteContext {
   jobSkills: readonly string[];
   quality: ResumeGenerationQualityAccumulator;
   allowReasonableInference: boolean;
+  allowExactClaims: boolean;
+  allowParaphrasedClaims: boolean;
+  maxEvidenceRefsPerBullet: number;
 }
 
 function normalizeComparableText(value: string | null | undefined): string {
@@ -299,6 +302,9 @@ function selectGroundedResumeText(input: {
     jobCompany: input.rewriteContext.jobCompany,
     jobSkills: input.rewriteContext.jobSkills,
     allowReasonableInference: input.rewriteContext.allowReasonableInference,
+    allowExactClaims: input.rewriteContext.allowExactClaims,
+    allowParaphrasedClaims: input.rewriteContext.allowParaphrasedClaims,
+    maxEvidenceRefsPerBullet: input.rewriteContext.maxEvidenceRefsPerBullet,
   });
 
   if (parsedGenerated && !isCanonical) {
@@ -367,6 +373,9 @@ function selectGroundedResumeBullets(
         jobCompany: rewriteContext.jobCompany,
         jobSkills: rewriteContext.jobSkills,
         allowReasonableInference: rewriteContext.allowReasonableInference,
+        allowExactClaims: rewriteContext.allowExactClaims,
+        allowParaphrasedClaims: rewriteContext.allowParaphrasedClaims,
+        maxEvidenceRefsPerBullet: rewriteContext.maxEvidenceRefsPerBullet,
       });
 
       if (!isCanonical) {
@@ -802,7 +811,14 @@ export function completeTailoredResumeDraft(
     jobSkills: fallbackInput.job.keySkills,
     quality,
     allowReasonableInference:
-      fallbackInput.searchPreferences.tailoringMode === "aggressive",
+      (fallbackInput.strategy?.tailoringStrength ??
+        fallbackInput.searchPreferences.tailoringMode) === "aggressive",
+    allowExactClaims:
+      fallbackInput.strategy?.evidenceBoundaries.allowExactClaims ?? true,
+    allowParaphrasedClaims:
+      fallbackInput.strategy?.evidenceBoundaries.allowParaphrasedClaims ?? true,
+    maxEvidenceRefsPerBullet:
+      fallbackInput.strategy?.evidenceBoundaries.maxEvidenceRefsPerBullet ?? 8,
   };
   const label = fallback.label;
   const summary =
@@ -824,20 +840,39 @@ export function completeTailoredResumeDraft(
   );
   const coreSkills =
     sanitizedCoreSkills.length > 0 ? sanitizedCoreSkills : fallback.coreSkills;
-  const groundedCoreSkills = filterGroundedVisibleSkills(
-    fallbackInput.profile,
-    coreSkills,
-    8,
-  );
-  const targetedKeywords = selectCanonicalStringList(
-    sanitizedTargetedKeywords,
-    fallback.targetedKeywords,
-  );
+  const groundedCoreSkills = fallbackInput.strategy
+    ? coreSkills.filter((skill) =>
+        fallback.coreSkills.some(
+          (allowedSkill) => allowedSkill.toLowerCase() === skill.toLowerCase(),
+        ),
+      )
+    : filterGroundedVisibleSkills(fallbackInput.profile, coreSkills, 8);
+  const targetedKeywords = fallbackInput.strategy
+    ? selectCanonicalStringList(
+        sanitizedTargetedKeywords.filter((keyword) =>
+          fallback.targetedKeywords.some(
+            (allowedKeyword) =>
+              allowedKeyword.toLowerCase() === keyword.toLowerCase(),
+          ),
+        ),
+        fallback.targetedKeywords,
+      )
+    : selectCanonicalStringList(
+        sanitizedTargetedKeywords,
+        fallback.targetedKeywords,
+      );
   const groundedAdditionalSkills = filterGroundedVisibleSkills(
     fallbackInput.profile,
-    sanitizedAdditionalSkills.length > 0
-      ? sanitizedAdditionalSkills
-      : fallback.additionalSkills,
+    fallbackInput.strategy
+      ? sanitizedAdditionalSkills.filter((skill) =>
+          fallback.additionalSkills.some(
+            (allowedSkill) =>
+              allowedSkill.toLowerCase() === skill.toLowerCase(),
+          ),
+        )
+      : sanitizedAdditionalSkills.length > 0
+        ? sanitizedAdditionalSkills
+        : fallback.additionalSkills,
     8,
   ).filter(
     (skill) =>

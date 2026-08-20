@@ -15,6 +15,7 @@ import {
   type ChatWithToolsOptions,
   type JobFinderAiClient,
   type OpenAiCompatibleJobFinderAiClientOptions,
+  type ResumeGenerationStrategyPolicy,
   type StringMap,
 } from "./shared";
 import {
@@ -111,6 +112,7 @@ async function waitForTransientModelRetry(
 
 function buildResumeRewriteProposalPrompt(
   tailoringMode: "conservative" | "balanced" | "aggressive",
+  strategy?: ResumeGenerationStrategyPolicy | null,
 ): string {
   const modeGuidance =
     tailoringMode === "aggressive"
@@ -118,6 +120,16 @@ function buildResumeRewriteProposalPrompt(
       : tailoringMode === "conservative"
         ? "Conservative mode: stay very close to the cited wording and propose only clear, low-risk improvements."
         : "Balanced mode: improve structure and relevance while keeping every factual statement directly supported by cited evidence.";
+
+  const strategyGuidance = strategy
+    ? [
+        `Apply the named resume strategy "${strategy.strategyName}" for the ${strategy.roleFamily} role family.`,
+        `Strategy provenance: ${strategy.effectiveSource}; reason: ${strategy.effectiveReason}`,
+        `Use the ${strategy.headlinePolicy} headline policy, ${strategy.skillsPolicy} skills policy, and ${strategy.coveragePolicy} coverage policy.`,
+        `The selected base resume document is ${strategy.baseResumeDocumentId}; do not invent facts outside the supplied grounding evidence.`,
+        `Evidence boundaries: exact claims ${strategy.evidenceBoundaries.allowExactClaims ? "allowed" : "not allowed"}; paraphrased claims ${strategy.evidenceBoundaries.allowParaphrasedClaims ? "allowed" : "not allowed"}; at most ${strategy.evidenceBoundaries.maxEvidenceRefsPerBullet} evidence references per bullet. The deterministic verifier remains authoritative before approval.`,
+      ]
+    : [];
 
   return [
     "You propose only evidence-linked prose improvements for a tailored resume; the application deterministically owns the complete resume, identity metadata, chronology, coverage, skills, and rendering.",
@@ -129,6 +141,7 @@ function buildResumeRewriteProposalPrompt(
     "Use concise accomplishment statements: action, specific work, and outcome. Keep distinctive evidence terms and exact metrics unchanged. Do not repeat the same claim or metric in multiple bullets.",
     "Use job-description wording only when the candidate evidence supports the same skill or work. Never stuff keywords, copy employer language without evidence, or add target-company claims.",
     modeGuidance,
+    ...strategyGuidance,
     "Do not return a full resume, identity metadata, skills lists, compatibility scores, labels, notes, explanations, or uncited text.",
   ].join(" ");
 }
@@ -429,7 +442,11 @@ export function createOpenAiCompatibleJobFinderAiClient(
     async createResumeDraft(input) {
       const payload = await fetchModelJson(
         "createResumeDraft",
-        buildResumeRewriteProposalPrompt(input.searchPreferences.tailoringMode),
+        buildResumeRewriteProposalPrompt(
+          input.strategy?.tailoringStrength ??
+            input.searchPreferences.tailoringMode,
+          input.strategy,
+        ),
         buildGroundedResumeRewriteModelPayload(input),
       );
       return completeTailoredResumeDraft(payload, input);

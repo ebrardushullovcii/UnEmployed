@@ -1,9 +1,10 @@
 import { app } from 'electron'
 import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
+import { resolveDesktopUserDataDirectory } from '../../setup/user-data-directory'
 
 function getUserDataDirectory() {
-  return process.env.UNEMPLOYED_USER_DATA_DIR ?? app.getPath('userData')
+  return resolveDesktopUserDataDirectory(app)
 }
 
 export function getJobFinderWorkspaceFilePath() {

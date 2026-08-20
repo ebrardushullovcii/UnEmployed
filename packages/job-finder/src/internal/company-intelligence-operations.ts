@@ -1826,7 +1826,6 @@ export function projectCompanyDuplicateJobs(input: {
 
   const groups: CompanyDuplicateJobGroup[] = [];
   const visited = new Set<string>();
-  const jobById = new Map(linked.map((job) => [job.id, job]));
 
   for (let firstIndex = 0; firstIndex < linked.length; firstIndex += 1) {
     const first = linked[firstIndex]!;

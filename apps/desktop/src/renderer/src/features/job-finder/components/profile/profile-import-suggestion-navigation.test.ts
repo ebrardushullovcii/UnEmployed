@@ -34,6 +34,7 @@ function buildCandidate(input: {
 describe("profile import suggestion navigation", () => {
   afterEach(() => {
     document.body.innerHTML = "";
+    Reflect.deleteProperty(window, "matchMedia");
     vi.restoreAllMocks();
   });
 
@@ -110,6 +111,42 @@ describe("profile import suggestion navigation", () => {
     expect(document.activeElement).toBe(input);
     expect(scrollIntoView).toHaveBeenCalledWith({
       behavior: "smooth",
+      block: "center",
+    });
+  });
+
+  it("uses instant navigation when reduced motion is requested", () => {
+    document.body.innerHTML = `
+      <button id="basics-tab">Basics</button>
+      <input name="identity.headline" />
+    `;
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: true })),
+    });
+    const headline = document.querySelector<HTMLElement>(
+      '[name="identity.headline"]',
+    );
+
+    if (!headline) {
+      throw new Error("Expected scalar navigation fixture");
+    }
+
+    const scrollIntoView = vi.fn();
+    headline.scrollIntoView = scrollIntoView;
+
+    expect(
+      focusProfileImportSuggestion(
+        buildCandidate({
+          id: "identity_headline",
+          key: "headline",
+          section: "identity",
+        }),
+      ),
+    ).toBe(true);
+
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      behavior: "auto",
       block: "center",
     });
   });

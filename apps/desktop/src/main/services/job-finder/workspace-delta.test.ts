@@ -8,6 +8,7 @@ function createWorkspace(input: {
   jobIds: readonly string[];
   selectedJobId: string | null;
   profileSummary?: string;
+  discoveryJobs?: readonly Record<string, unknown>[];
 }): JobFinderWorkspaceSnapshot {
   return {
     generatedAt: input.generatedAt,
@@ -17,7 +18,7 @@ function createWorkspace(input: {
     discoverySessions: [],
     sourceAccessPrompts: [],
     latestResumeImportRun: null,
-    discoveryJobs: input.jobIds.map((id) => ({ id })),
+    discoveryJobs: input.discoveryJobs ?? input.jobIds.map((id) => ({ id })),
     dismissedDiscoveryJobs: [],
     recentDiscoveryRuns: [],
     reviewQueue: [],
@@ -107,6 +108,146 @@ describe("Job Finder workspace delta tracker", () => {
       kind: "snapshot",
       currentRevision: 2,
       reason: "stale_base",
+    });
+  });
+
+  it("ignores nested object key order when comparing entities", () => {
+    const tracker = createJobFinderWorkspaceDeltaTracker();
+    const initial = createWorkspace({
+      generatedAt: "2026-08-09T10:00:00.000Z",
+      jobIds: [],
+      selectedJobId: null,
+      discoveryJobs: [
+        {
+          id: "job-1",
+          metadata: {
+            title: "Engineer",
+            location: { country: "Kosovo", city: "Pristina" },
+          },
+        },
+      ],
+    });
+    const sameValuesWithDifferentKeyOrder = createWorkspace({
+      generatedAt: "2026-08-09T10:00:00.000Z",
+      jobIds: [],
+      selectedJobId: null,
+      discoveryJobs: [
+        {
+          id: "job-1",
+          metadata: {
+            location: { city: "Pristina", country: "Kosovo" },
+            title: "Engineer",
+          },
+        },
+      ],
+    });
+
+    tracker.synchronize(null, initial);
+
+    expect(
+      tracker.synchronize(1, sameValuesWithDifferentKeyOrder),
+    ).toMatchObject({
+      kind: "delta",
+      delta: {
+        discoveryJobs: { upserts: [], removedIds: [] },
+      },
+    });
+  });
+
+  it("detects a removed nested object key", () => {
+    const tracker = createJobFinderWorkspaceDeltaTracker();
+    const initialJob = {
+      id: "job-1",
+      metadata: { title: "Engineer", location: "Pristina" },
+    };
+    const currentJob = {
+      id: "job-1",
+      metadata: { title: "Engineer" },
+    };
+    const initial = createWorkspace({
+      generatedAt: "2026-08-09T10:00:00.000Z",
+      jobIds: [],
+      selectedJobId: null,
+      discoveryJobs: [initialJob],
+    });
+    const current = createWorkspace({
+      generatedAt: "2026-08-09T10:01:00.000Z",
+      jobIds: [],
+      selectedJobId: null,
+      discoveryJobs: [currentJob],
+    });
+
+    tracker.synchronize(null, initial);
+
+    expect(tracker.synchronize(1, current)).toMatchObject({
+      kind: "delta",
+      delta: {
+        discoveryJobs: { upserts: [currentJob], removedIds: [] },
+      },
+    });
+  });
+
+  it.each([
+    {
+      label: "order",
+      currentTags: ["backend", "typescript"],
+    },
+    {
+      label: "value",
+      currentTags: ["backend", "rust"],
+    },
+  ])("detects nested array $label changes", ({ currentTags }) => {
+    const tracker = createJobFinderWorkspaceDeltaTracker();
+    const initial = createWorkspace({
+      generatedAt: "2026-08-09T10:00:00.000Z",
+      jobIds: [],
+      selectedJobId: null,
+      discoveryJobs: [
+        { id: "job-1", metadata: { tags: ["typescript", "backend"] } },
+      ],
+    });
+    const currentJob = {
+      id: "job-1",
+      metadata: { tags: currentTags },
+    };
+    const current = createWorkspace({
+      generatedAt: "2026-08-09T10:01:00.000Z",
+      jobIds: [],
+      selectedJobId: null,
+      discoveryJobs: [currentJob],
+    });
+
+    tracker.synchronize(null, initial);
+
+    expect(tracker.synchronize(1, current)).toMatchObject({
+      kind: "delta",
+      delta: {
+        discoveryJobs: { upserts: [currentJob], removedIds: [] },
+      },
+    });
+  });
+
+  it("keeps generatedAt-only changes as a delta", () => {
+    const tracker = createJobFinderWorkspaceDeltaTracker();
+    const initial = createWorkspace({
+      generatedAt: "2026-08-09T10:00:00.000Z",
+      jobIds: ["job-1"],
+      selectedJobId: "job-1",
+    });
+    const current = createWorkspace({
+      generatedAt: "2026-08-09T10:01:00.000Z",
+      jobIds: ["job-1"],
+      selectedJobId: "job-1",
+    });
+
+    tracker.synchronize(null, initial);
+
+    expect(tracker.synchronize(1, current)).toMatchObject({
+      kind: "delta",
+      delta: {
+        generatedAt: current.generatedAt,
+        discoveryJobs: { upserts: [], removedIds: [] },
+      },
     });
   });
 });

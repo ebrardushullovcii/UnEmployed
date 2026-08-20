@@ -2,11 +2,15 @@
   "name": "@unemployed/desktop",
   "private": true,
   "version": "0.1.0",
+  "description": "Local-first Job Finder and Interview Helper desktop workspace.",
+  "author": "UnEmployed contributors",
   "type": "module",
   "main": "out/main/index.cjs",
   "scripts": {
     "dev": "node ./scripts/prepare-resume-parser-sidecar.mjs --mode best-effort && electron-vite dev",
     "build": "node ./scripts/prepare-resume-parser-sidecar.mjs --mode best-effort && electron-vite build",
+    "package:dir": "pnpm run prepare:resume-parser-sidecar -- --target win32-x64 && pnpm build && electron-builder --config electron-builder.json --dir",
+    "package:win": "pnpm run prepare:resume-parser-sidecar -- --target win32-x64 && pnpm build && electron-builder --config electron-builder.json --win",
     "lint": "eslint electron.vite.config.ts src --ext .ts,.tsx",
     "prepare:resume-parser-sidecar": "node ./scripts/prepare-resume-parser-sidecar.mjs --mode required",
     "prepare:resume-parser-sidecar:matrix": "node ./scripts/prepare-resume-parser-sidecar.mjs --mode required --target win32-x64,darwin-arm64,darwin-x64,linux-x64",
@@ -49,7 +53,8 @@
     "ui:resume-workspace": "pnpm build && node ./scripts/capture-resume-workspace.mjs",
     "ui:resume-workspace-dirty": "pnpm build && node ./scripts/capture-resume-workspace-dirty.mjs",
     "ui:action-inbox": "pnpm build && node ./scripts/capture-action-inbox.mjs",
-    "ui:action-inbox:built": "node ./scripts/capture-action-inbox.mjs"
+    "ui:action-inbox:built": "node ./scripts/capture-action-inbox.mjs",
+    "ui:job-finder-phase-two": "pnpm build && node ./scripts/capture-job-finder-phase-two.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -87,6 +92,7 @@
     "@types/react-dom": "^19.0.4",
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^35.0.0",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^3.1.0",
     "tailwindcss": "^4.2.2",
     "vite": "^6.2.0"

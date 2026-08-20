@@ -14,6 +14,14 @@ import { OutcomeAnalyticsScreen } from "./outcome-analytics-screen";
 
 const now = "2026-08-15T10:00:00.000Z";
 
+function getAnalyticsButton(name: string): HTMLButtonElement {
+  const element = screen.getByRole("button", { name });
+  if (!(element instanceof HTMLButtonElement)) {
+    throw new Error(`${name} control is not a button`);
+  }
+  return element;
+}
+
 function event(overrides: Partial<OutcomeEvent> = {}): OutcomeEvent {
   const id = overrides.id ?? "event-1";
   return OutcomeEventSchema.parse({
@@ -113,7 +121,7 @@ function renderScreen(props: {
       generatedAt={now}
       isSuggestionPending={props.isSuggestionPending ?? (() => false)}
       onSetOutcomeSuggestionEnabled={
-        props.onSetOutcomeSuggestionEnabled ?? (async () => true)
+        props.onSetOutcomeSuggestionEnabled ?? (() => Promise.resolve(true))
       }
       overview={props.overview ?? null}
       resumeStrategies={resumeStrategies}
@@ -155,9 +163,7 @@ describe("OutcomeAnalyticsScreen", () => {
     expect(screen.getAllByText(/Medium uncertainty/i).length).toBeGreaterThan(
       0,
     );
-    expect(
-      screen.getByText(/Increase volume for campaign-1/i),
-    ).toBeTruthy();
+    expect(screen.getByText(/Increase volume for campaign-1/i)).toBeTruthy();
   });
 
   it("disables a suggestion through the page action without applying it", async () => {
@@ -323,6 +329,33 @@ describe("OutcomeAnalyticsScreen", () => {
     expect(screen.getByText("linkedin")).toBeTruthy();
   });
 
+  it("keeps a 10k-event dimension view deterministic and paged", () => {
+    const events = Array.from({ length: 10_000 }, (_, index) =>
+      event({
+        id: `large-${index}`,
+        jobId: `large-job-${index}`,
+        source: `source-${String(index).padStart(5, "0")}`,
+      }),
+    );
+    renderScreen({ events });
+
+    fireEvent.click(screen.getByRole("button", { name: "Source" }));
+
+    expect(screen.getAllByRole("article")).toHaveLength(40);
+    expect(screen.getByText(/Showing 1–40 of 10000 sources/)).toBeTruthy();
+    expect(screen.getByText("Page 1 of 250")).toBeTruthy();
+    expect(screen.getByText("source-00000")).toBeTruthy();
+    expect(screen.queryByText("source-00040")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+
+    expect(screen.getAllByRole("article")).toHaveLength(40);
+    expect(screen.getByText(/Showing 41–80 of 10000 sources/)).toBeTruthy();
+    expect(screen.getByText("Page 2 of 250")).toBeTruthy();
+    expect(screen.getByText("source-00040")).toBeTruthy();
+    expect(screen.queryByText("source-00000")).toBeNull();
+  });
+
   it("keeps suggestion controls disabled while their action is pending", () => {
     const events = Array.from({ length: 30 }, (_, index) =>
       event({
@@ -338,14 +371,8 @@ describe("OutcomeAnalyticsScreen", () => {
         dimension === "campaign" && key === "campaign-1",
     });
 
-    expect(
-      (screen.getByRole("button", { name: "Disable" }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
-    expect(
-      (screen.getByRole("button", { name: "Reset" }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
+    expect(getAnalyticsButton("Disable").disabled).toBe(true);
+    expect(getAnalyticsButton("Reset").disabled).toBe(true);
   });
 
   it("shows the action message as a live status region", () => {
@@ -359,10 +386,13 @@ describe("OutcomeAnalyticsScreen", () => {
     renderScreen({
       events,
       overview: overviewWith(),
-      actionMessage: "Suggestion disabled. It will stay off until you reset it.",
+      actionMessage:
+        "Suggestion disabled. It will stay off until you reset it.",
     });
 
-    expect(screen.getByRole("status").textContent).toMatch(/Suggestion disabled/);
+    expect(screen.getByRole("status").textContent).toMatch(
+      /Suggestion disabled/,
+    );
   });
 
   it("shows an honest loading state while analytics inputs are loading", () => {
@@ -375,14 +405,12 @@ describe("OutcomeAnalyticsScreen", () => {
         generatedAt={now}
         isSuggestionPending={() => false}
         loading
-        onSetOutcomeSuggestionEnabled={async () => true}
+        onSetOutcomeSuggestionEnabled={() => Promise.resolve(true)}
         overview={null}
         resumeStrategies={resumeStrategies}
       />,
     );
 
-    expect(
-      screen.getByText(/Loading outcome analytics/i),
-    ).toBeTruthy();
+    expect(screen.getByText(/Loading outcome analytics/i)).toBeTruthy();
   });
 });

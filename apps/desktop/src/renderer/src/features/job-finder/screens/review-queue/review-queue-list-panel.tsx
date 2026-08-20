@@ -5,10 +5,16 @@ import { cn } from "@renderer/lib/cn";
 import {
   useCallback,
   useDeferredValue,
+  useEffect,
   useId,
   useMemo,
+  useState,
   type KeyboardEvent,
 } from "react";
+import {
+  CollectionPagination,
+  COLLECTION_PAGE_SIZE,
+} from "../../components/collection-pagination";
 import {
   CollectionNoMatches,
   CollectionSavedViews,
@@ -63,6 +69,47 @@ export function ReviewQueueListPanel({
       ),
     [deferredQuery, queue],
   );
+  const [queuePage, setQueuePage] = useState(1);
+  const [pendingFocusId, setPendingFocusId] = useState<string | null>(null);
+  const queuePageCount = Math.max(
+    1,
+    Math.ceil(visibleQueue.length / COLLECTION_PAGE_SIZE),
+  );
+  const currentQueuePage = Math.min(queuePage, queuePageCount);
+  const selectedQueueIndex = useMemo(
+    () =>
+      selectedItem
+        ? visibleQueue.findIndex((item) => item.jobId === selectedItem.jobId)
+        : -1,
+    [selectedItem, visibleQueue],
+  );
+  useEffect(() => {
+    setQueuePage(1);
+  }, [deferredQuery]);
+  useEffect(() => {
+    setQueuePage((currentPage) => Math.min(currentPage, queuePageCount));
+  }, [queuePageCount]);
+  useEffect(() => {
+    if (selectedQueueIndex < 0) return;
+    setQueuePage(Math.floor(selectedQueueIndex / COLLECTION_PAGE_SIZE) + 1);
+  }, [selectedQueueIndex]);
+  useEffect(() => {
+    if (!pendingFocusId) return;
+    focusCollectionItem(pendingFocusId);
+    setPendingFocusId(null);
+  }, [currentQueuePage, pendingFocusId]);
+  const pagedVisibleQueue = useMemo(
+    () =>
+      visibleQueue.slice(
+        (currentQueuePage - 1) * COLLECTION_PAGE_SIZE,
+        currentQueuePage * COLLECTION_PAGE_SIZE,
+      ),
+    [currentQueuePage, visibleQueue],
+  );
+  const queueSelectionSet = useMemo(
+    () => new Set(queueSelection),
+    [queueSelection],
+  );
   const queueableVisibleIds = useMemo(
     () =>
       visibleQueue
@@ -79,10 +126,15 @@ export function ReviewQueueListPanel({
       );
       if (!nextId) return;
       event.preventDefault();
+      const nextIndex = visibleQueue.findIndex((item) => item.jobId === nextId);
+      const nextPage = Math.floor(nextIndex / COLLECTION_PAGE_SIZE) + 1;
+      if (nextPage !== currentQueuePage) {
+        setQueuePage(nextPage);
+      }
       onSelectItem(nextId);
-      focusCollectionItem(nextId);
+      setPendingFocusId(nextId);
     },
-    [onSelectItem, visibleQueue],
+    [currentQueuePage, onSelectItem, visibleQueue],
   );
   const densityClasses =
     view.density === "compact"
@@ -165,7 +217,7 @@ export function ReviewQueueListPanel({
         />
       ) : (
         <div className="grid min-h-0 flex-1 content-start gap-2 overflow-x-hidden overflow-y-auto px-5 pb-5 pt-4">
-          {visibleQueue.map((item) => {
+          {pagedVisibleQueue.map((item) => {
             const isPending = isJobPending(item.jobId);
             const displayedProgress = getDisplayedResumeProgress(
               item,
@@ -175,7 +227,7 @@ export function ReviewQueueListPanel({
             const showProgress =
               isResumeGenerationInProgress(item) || isPending;
             const queueReady = isQueueStageReady(item);
-            const selectedForQueue = queueSelection.includes(item.jobId);
+            const selectedForQueue = queueSelectionSet.has(item.jobId);
             const queueCheckboxId = `${queueCheckboxIdPrefix}-${item.jobId}`;
             const queueDisabledReasonId = `${queueCheckboxId}-disabled-reason`;
 
@@ -248,7 +300,8 @@ export function ReviewQueueListPanel({
                       className="block w-full text-[0.76rem] leading-5 text-muted-foreground"
                       id={queueDisabledReasonId}
                     >
-                      Queue staging needs an approved ready PDF for this job.
+                      Queue staging needs a ready resume file: an approved
+                      tailored PDF or unchanged original CV.
                     </span>
                   ) : null}
                   {showProgress ? (
@@ -265,6 +318,15 @@ export function ReviewQueueListPanel({
           })}
         </div>
       )}
+      {queue.length > 0 && visibleQueue.length > 0 ? (
+        <CollectionPagination
+          itemLabel="shortlisted jobs"
+          onPageChange={setQueuePage}
+          page={currentQueuePage}
+          pageSize={COLLECTION_PAGE_SIZE}
+          totalCount={visibleQueue.length}
+        />
+      ) : null}
     </section>
   );
 }

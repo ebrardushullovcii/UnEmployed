@@ -558,7 +558,7 @@ export function InterviewHelperPage() {
   const setupPrimaryAction = !consentAccepted
     ? {
         id: "accept_setup",
-        label: "Allow and continue",
+        label: "Accept notices and continue",
         detail:
           "Accept the assistant, local-retention, and visible-overlay notices. Microphone, system audio, and screenshots remain separate opt-ins.",
       }
@@ -989,7 +989,7 @@ export function InterviewHelperPage() {
                       <div className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
                         <CheckCircle2 className="mb-2 size-4 text-(--success-text)" />
                         <p className="font-semibold text-foreground">
-                          1. Allow
+                          1. Accept notices
                         </p>
                         <p className="mt-1 leading-5">
                           One click accepts the required capture and privacy
@@ -1165,7 +1165,7 @@ export function InterviewHelperPage() {
                           variant="secondary"
                         >
                           <Sparkles className="size-4" />
-                          Force cue
+                          Generate cue now
                         </Button>
                         <Button
                           onClick={() => {
@@ -1192,7 +1192,7 @@ export function InterviewHelperPage() {
                           variant="destructive"
                         >
                           <PanelTop className="size-4" />
-                          Panic hide
+                          Hide popups now
                         </Button>
                         <div className="grid gap-2 sm:grid-cols-2">
                           <Button
@@ -1689,8 +1689,8 @@ export function InterviewHelperPage() {
                     <Panel title="Hotkeys and tray">
                       <div className="grid gap-2">
                         {[
-                          ["Alt + H", "Panic hide"],
-                          ["Alt + Q", "Force cue"],
+                          ["Alt + H", "Hide popups now"],
+                          ["Alt + Q", "Generate cue now"],
                           ["Alt + S", "Screenshot"],
                           ["Alt + T", "Transcript overlay"],
                         ].map(([keys, label]) => (
@@ -1819,8 +1819,8 @@ export function InterviewHelperPage() {
                     <Panel title="Hotkeys">
                       <div className="grid gap-2">
                         {[
-                          ["Alt + H", "Panic hide"],
-                          ["Alt + Q", "Force cue"],
+                          ["Alt + H", "Hide popups now"],
+                          ["Alt + Q", "Generate cue now"],
                           ["Alt + S", "Screenshot"],
                           ["Alt + T", "Transcript overlay"],
                         ].map(([keys, label]) => (

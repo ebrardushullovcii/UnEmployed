@@ -145,7 +145,6 @@ export function DiscoverySessionSummary(props: {
     </>
   )
 }
-
 export function DiscoverySearchSections(props: {
   sectionHeadingPrefix: string
   sections: ReadonlyArray<{
@@ -182,18 +181,22 @@ export function DiscoverySearchSections(props: {
               </h3>
               {section.values.length > 0 ? (
                 <div className="flex min-w-0 flex-wrap gap-2">
-                  {section.values.map((value) => (
-                    <Chip
-                      key={
-                        typeof value === 'string'
-                          ? `${section.label}_${value}`
-                          : `${section.label}_${value.key}`
-                      }
-                      className="surface-card-tint border-(--surface-panel-border) text-foreground-soft"
-                    >
-                      {typeof value === 'string' ? value : value.label}
-                    </Chip>
-                  ))}
+                  {section.values.map((value) => {
+                    const label = typeof value === 'string' ? value : value.label
+                    return (
+                      <Chip
+                        key={
+                          typeof value === 'string'
+                            ? `${section.label}_${value}`
+                            : `${section.label}_${value.key}`
+                        }
+                        className="min-w-0 max-w-full surface-card-tint border-(--surface-panel-border) text-foreground-soft"
+                        title={label}
+                      >
+                        {label}
+                      </Chip>
+                    )
+                  })}
                 </div>
               ) : (
                 <p className="text-(length:--text-item) leading-7 text-foreground-soft">
@@ -263,7 +266,12 @@ export function DiscoveryRunOneSourceSection(props: {
                   type="button"
                   variant={isActiveSingleTarget ? 'secondary' : 'ghost'}
                 >
-                  <span className="truncate">{target.label}</span>
+                  <span
+                    className="min-w-0 max-w-full truncate"
+                    title={target.label}
+                  >
+                    {target.label}
+                  </span>
                   <span className="text-(length:--text-small) text-foreground-muted">
                     {isActiveSingleTarget ? 'Running now' : 'Search only this source'}
                   </span>

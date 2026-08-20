@@ -3,7 +3,13 @@
 import { performance } from "node:perf_hooks";
 
 import { SavedJobSchema, type SavedJob } from "@unemployed/contracts";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -23,8 +29,8 @@ const browserSession = {
   lastCheckedAt: "2026-07-30T10:00:00.000Z",
 };
 
-function createJobs(): SavedJob[] {
-  return Array.from({ length: JOB_COUNT }, (_, index) => {
+function createJobs(count = JOB_COUNT): SavedJob[] {
+  return Array.from({ length: count }, (_, index) => {
     const ordinal = index.toString().padStart(4, "0");
 
     return SavedJobSchema.parse({
@@ -115,6 +121,29 @@ describe("DiscoveryResultsPanel workspace scale", () => {
     expect(durationMs).toBeLessThan(DOM_COMMIT_BUDGET_MS);
   });
 
+  it("wraps unbroken result labels and exposes their full names", () => {
+    const [job] = createJobs(1);
+    const longTitle = "SeniorProductDesignerWithoutAnyWordBreaks";
+    const longCompany = "CompanyWithoutAnyWordBreaksEither";
+    const longJob = {
+      ...job,
+      company: longCompany,
+      title: longTitle,
+    } as SavedJob;
+    const { container } = renderResults([longJob], null);
+
+    const result = container.querySelector<HTMLButtonElement>(
+      "[data-job-result-id]",
+    );
+    const title = result?.querySelector("strong");
+    const company = result?.querySelector("strong + span");
+    expect(result?.className).toContain("min-w-0");
+    expect(title?.className).toContain("break-words");
+    expect(title?.getAttribute("title")).toBe(longTitle);
+    expect(company?.className).toContain("break-words");
+    expect(company?.getAttribute("title")).toContain(longCompany);
+  });
+
   it("keeps accessible next and previous paging bounded to 50 result buttons", () => {
     const jobs = createJobs();
     const { container } = renderResults(jobs, null);
@@ -134,6 +163,107 @@ describe("DiscoveryResultsPanel workspace scale", () => {
     resultButtons = getRenderedJobButtons(container);
     expect(resultButtons[0]?.dataset.jobResultId).toBe("dom_scale_job_0000");
     expect(screen.getByText("1–50 of 1000")).toBeTruthy();
+  });
+
+  it("moves ArrowDown across the 50-row page boundary while keeping the DOM bounded", async () => {
+    const jobs = createJobs(51);
+    const onSelectJob = vi.fn();
+    const { container, rerender } = render(
+      <DiscoveryResultsPanel
+        browserSession={browserSession}
+        hasCompletedSearch
+        jobs={jobs}
+        onSelectJob={onSelectJob}
+        selectedJob={jobs[0] ?? null}
+      />,
+    );
+
+    const lastPageOneButton = container.querySelector<HTMLButtonElement>(
+      '[data-job-result-id="dom_scale_job_0049"]',
+    );
+    expect(lastPageOneButton).not.toBeNull();
+    lastPageOneButton?.focus();
+
+    fireEvent.keyDown(lastPageOneButton as HTMLButtonElement, {
+      key: "ArrowDown",
+    });
+
+    expect(onSelectJob).toHaveBeenCalledWith("dom_scale_job_0050");
+    expect(screen.getByText("51–51 of 51")).toBeTruthy();
+    expect(getRenderedJobButtons(container)).toHaveLength(1);
+
+    rerender(
+      <DiscoveryResultsPanel
+        browserSession={browserSession}
+        hasCompletedSearch
+        jobs={jobs}
+        onSelectJob={onSelectJob}
+        selectedJob={jobs[50] ?? null}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(
+        container.querySelector('[data-job-result-id="dom_scale_job_0050"]'),
+      );
+    });
+    expect(
+      container
+        .querySelector('[data-job-result-id="dom_scale_job_0050"]')
+        ?.getAttribute("aria-current"),
+    ).toBe("true");
+  });
+
+  it("moves End to the final result page and focuses the mounted final row", async () => {
+    const jobs = createJobs(51);
+    const onSelectJob = vi.fn();
+    const { container, rerender } = render(
+      <DiscoveryResultsPanel
+        browserSession={browserSession}
+        hasCompletedSearch
+        jobs={jobs}
+        onSelectJob={onSelectJob}
+        selectedJob={jobs[0] ?? null}
+      />,
+    );
+
+    const firstButton = container.querySelector<HTMLButtonElement>(
+      '[data-job-result-id="dom_scale_job_0000"]',
+    );
+    expect(firstButton).not.toBeNull();
+    firstButton?.focus();
+
+    fireEvent.keyDown(firstButton as HTMLButtonElement, { key: "End" });
+
+    expect(onSelectJob).toHaveBeenCalledWith("dom_scale_job_0050");
+    expect(screen.getByText("51–51 of 51")).toBeTruthy();
+    expect(getRenderedJobButtons(container)).toHaveLength(1);
+
+    rerender(
+      <DiscoveryResultsPanel
+        browserSession={browserSession}
+        hasCompletedSearch
+        jobs={jobs}
+        onSelectJob={onSelectJob}
+        selectedJob={jobs[50] ?? null}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(
+        container.querySelector('[data-job-result-id="dom_scale_job_0050"]'),
+      );
+    });
+    expect(
+      container
+        .querySelector('[data-job-result-id="dom_scale_job_0050"]')
+        ?.getAttribute("aria-controls"),
+    ).toBe("discovery-selected-job-detail");
+    expect(
+      container
+        .querySelector('[data-job-result-id="dom_scale_job_0050"]')
+        ?.getAttribute("aria-current"),
+    ).toBe("true");
   });
 
   it("resets only the result scroller while keeping pagination keyboard focus", () => {

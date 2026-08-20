@@ -666,6 +666,20 @@ describe("projectGroupedManualAnswerDecisions", () => {
       answerText: "5 years",
     });
     expect(result.decisions).toEqual([]);
+    expect(result.contradictionEvidence).toHaveLength(1);
+    const contradiction = result.contradictionEvidence[0]!;
+    expect(contradiction.detectionId).toMatch(
+      /^grouped_answer_contradiction_[a-f0-9]{32}$/,
+    );
+    expect(contradiction).toEqual(
+      expect.objectContaining({
+        answerA: "7 years",
+        answerB: "5 years",
+        contradictionScore: 1,
+        detectedAt: now,
+      }),
+    );
+    expect(contradiction.questionA).not.toBe(contradiction.questionB);
     expect(result.skippedRequestCount).toBe(2);
     expect(result.groupedRequestCount).toBe(0);
   });

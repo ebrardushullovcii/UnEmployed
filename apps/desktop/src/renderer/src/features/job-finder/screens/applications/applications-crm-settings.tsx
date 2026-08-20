@@ -23,7 +23,7 @@ const colors: readonly ApplicationCrmStageDefinition["color"][] = [
 ];
 
 const fieldClassName =
-  "h-10 w-full rounded-(--radius-field) border border-input bg-background px-3 text-sm text-foreground";
+  "h-10 w-full min-w-0 rounded-(--radius-field) border border-input bg-background px-3 text-sm text-foreground";
 
 function createCustomStage(position: number): ApplicationCrmStageDefinition {
   return {
@@ -61,7 +61,7 @@ export function ApplicationsCrmSettingsEditor(props: {
 
   return (
     <form
-      className="grid gap-5 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) p-5"
+      className="grid min-w-0 gap-5 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) p-5"
       onSubmit={(event) => {
         void handleSubmit(async (values) => {
           setSaveError(null);
@@ -85,7 +85,7 @@ export function ApplicationsCrmSettingsEditor(props: {
         })(event);
       }}
     >
-      <div>
+      <div className="min-w-0">
         <p className="label-mono-xs">Application tracker</p>
         <h2 className="mt-1 text-lg font-semibold text-foreground">
           Follow-ups and custom stages
@@ -96,13 +96,13 @@ export function ApplicationsCrmSettingsEditor(props: {
         </p>
       </div>
 
-      <fieldset className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) p-4 sm:grid-cols-[minmax(0,1fr)_8rem] sm:items-end">
-        <label className="flex items-start gap-3 text-sm text-foreground">
+      <fieldset className="grid min-w-0 gap-3 rounded-(--radius-field) border border-(--surface-panel-border) p-4 sm:grid-cols-[minmax(0,1fr)_8rem] sm:items-end">
+        <label className="flex min-w-0 items-start gap-3 text-sm text-foreground">
           <input
             type="checkbox"
             {...register("noResponseAutomation.enabled")}
           />
-          <span>
+          <span className="min-w-0">
             <strong className="block">Mark applications for follow-up</strong>
             <span className="mt-1 block text-foreground-soft">
               Move applied jobs to No response when the employer has not
@@ -110,7 +110,7 @@ export function ApplicationsCrmSettingsEditor(props: {
             </span>
           </span>
         </label>
-        <label className="grid gap-1 text-sm font-medium text-foreground">
+        <label className="grid min-w-0 gap-1 text-sm font-medium text-foreground">
           After days
           <input
             className={fieldClassName}
@@ -124,9 +124,12 @@ export function ApplicationsCrmSettingsEditor(props: {
         </label>
       </fieldset>
 
-      <section className="grid gap-3" aria-labelledby="custom-stages-heading">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
+      <section
+        className="grid min-w-0 gap-3"
+        aria-labelledby="custom-stages-heading"
+      >
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
             <h3
               className="font-semibold text-foreground"
               id="custom-stages-heading"
@@ -153,17 +156,17 @@ export function ApplicationsCrmSettingsEditor(props: {
             No custom stages. The standard application stages will be used.
           </p>
         ) : (
-          <ol className="grid gap-3">
+          <ol className="grid min-w-0 gap-3">
             {fields.map((field, index) => (
               <li
-                className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) p-3 lg:grid-cols-[minmax(10rem,1fr)_minmax(10rem,1fr)_8rem_auto] lg:items-end"
+                className="grid min-w-0 gap-3 rounded-(--radius-field) border border-(--surface-panel-border) p-3 lg:grid-cols-[minmax(10rem,1fr)_minmax(10rem,1fr)_8rem_auto] lg:items-end"
                 key={field.id}
               >
                 <input
                   type="hidden"
                   {...register(`customStages.${index}.id`)}
                 />
-                <label className="grid gap-1 text-sm font-medium text-foreground">
+                <label className="grid min-w-0 gap-1 text-sm font-medium text-foreground">
                   Name
                   <input
                     className={fieldClassName}
@@ -171,7 +174,7 @@ export function ApplicationsCrmSettingsEditor(props: {
                     {...register(`customStages.${index}.label`)}
                   />
                 </label>
-                <label className="grid gap-1 text-sm font-medium text-foreground">
+                <label className="grid min-w-0 gap-1 text-sm font-medium text-foreground">
                   Reports as
                   <select
                     className={fieldClassName}
@@ -184,7 +187,7 @@ export function ApplicationsCrmSettingsEditor(props: {
                     ))}
                   </select>
                 </label>
-                <label className="grid gap-1 text-sm font-medium text-foreground">
+                <label className="grid min-w-0 gap-1 text-sm font-medium text-foreground">
                   Color
                   <select
                     className={fieldClassName}
@@ -197,7 +200,7 @@ export function ApplicationsCrmSettingsEditor(props: {
                     ))}
                   </select>
                 </label>
-                <div className="flex flex-wrap gap-1">
+                <div className="flex min-w-0 flex-wrap gap-1">
                   <Button
                     aria-label={`Move ${field.label} up`}
                     disabled={index === 0}
@@ -228,7 +231,7 @@ export function ApplicationsCrmSettingsEditor(props: {
                     Remove
                   </Button>
                 </div>
-                <label className="flex items-center gap-2 text-sm text-foreground lg:col-span-4">
+                <label className="flex min-w-0 items-center gap-2 text-sm text-foreground lg:col-span-4">
                   <input
                     type="checkbox"
                     {...register(`customStages.${index}.isTerminal`)}
@@ -253,7 +256,7 @@ export function ApplicationsCrmSettingsEditor(props: {
           {saveError}
         </p>
       ) : null}
-      <div className="flex justify-end">
+      <div className="flex min-w-0 flex-wrap justify-end gap-3">
         <Button disabled={!isDirty || isSubmitting} type="submit">
           {isSubmitting ? "Saving…" : "Save tracker settings"}
         </Button>

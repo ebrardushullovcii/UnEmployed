@@ -3,7 +3,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { configureDesktopUserDataDirectory } from "./user-data-directory";
+import {
+  configureDesktopUserDataDirectory,
+  getConfiguredDesktopUserDataDirectory,
+  getDesktopStartupDiagnosticsPath,
+  resolveDesktopUserDataDirectory,
+} from "./user-data-directory";
 
 const temporaryDirectories: string[] = [];
 
@@ -45,5 +50,43 @@ describe("configureDesktopUserDataDirectory", () => {
     expect(configuredDirectory).toBe(path.resolve(requestedDirectory));
     expect(setPath).toHaveBeenCalledOnce();
     expect(setPath).toHaveBeenCalledWith("userData", configuredDirectory);
+  });
+
+  test("normalizes padded relative overrides for every desktop consumer", () => {
+    const parentDirectory = mkdtempSync(
+      path.join(os.tmpdir(), "unemployed-user-data-relative-"),
+    );
+    temporaryDirectories.push(parentDirectory);
+    const requestedDirectory = path.join(parentDirectory, "isolated-session");
+    const relativeOverride = path.relative(process.cwd(), requestedDirectory);
+    const paddedOverride = `  ${relativeOverride}  `;
+
+    expect(getConfiguredDesktopUserDataDirectory(paddedOverride)).toBe(
+      path.resolve(requestedDirectory),
+    );
+    expect(
+      resolveDesktopUserDataDirectory(
+        { getPath: () => "C:\\default-user-data" },
+        paddedOverride,
+      ),
+    ).toBe(path.resolve(requestedDirectory));
+    expect(getDesktopStartupDiagnosticsPath(paddedOverride)).toBe(
+      path.join(path.resolve(requestedDirectory), "startup-diagnostics.log"),
+    );
+  });
+
+  test("keeps Electron's default user-data path when no override is configured", () => {
+    const defaultDirectory = path.join(
+      os.tmpdir(),
+      "unemployed-default-user-data",
+    );
+
+    expect(
+      resolveDesktopUserDataDirectory(
+        { getPath: () => defaultDirectory },
+        "   ",
+      ),
+    ).toBe(defaultDirectory);
+    expect(getDesktopStartupDiagnosticsPath("   ")).toBeNull();
   });
 });

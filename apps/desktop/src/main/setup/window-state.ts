@@ -15,6 +15,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import { resolveDesktopUserDataDirectory } from "./user-data-directory";
 
 export type MainWindowDisplayMode = "normal" | "maximized" | "fullscreen";
 
@@ -28,10 +29,7 @@ export type RestoredMainWindowBounds = Pick<Rectangle, "width" | "height"> &
 const mainWindowStateFileName = "main-window-state.json";
 
 function getDesktopUserDataDirectory() {
-  const overriddenUserDataDirectory =
-    process.env.UNEMPLOYED_USER_DATA_DIR?.trim();
-
-  return overriddenUserDataDirectory || app.getPath("userData");
+  return resolveDesktopUserDataDirectory(app);
 }
 
 export function getMainWindowStateFilePath() {

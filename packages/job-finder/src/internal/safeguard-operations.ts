@@ -1213,20 +1213,49 @@ export function prepareBatchSampleReview(input: {
 
   if (byBatchIndex >= 0) {
     const existing = reviews[byBatchIndex]!;
-    const identical =
+    const sampledIds = deriveBatchSampleIds({
+      batchId: input.batchId,
+      prepared: input.prepared,
+      sampleCount,
+    });
+    const sameSampleIds =
+      existing.sampledItemIds.length === sampledIds.length &&
+      existing.sampledItemIds.every(
+        (itemId, index) => itemId === sampledIds[index],
+      );
+    const sameBatchShape =
       existing.preparedCount === preparedCount &&
       existing.requiredSampleRatio === input.requiredSampleRatio;
-    if (identical) {
-      const sampledIds = deriveBatchSampleIds({
-        batchId: input.batchId,
-        prepared: input.prepared,
-        sampleCount,
-      });
-
+    if (sameBatchShape && sameSampleIds) {
       return {
         ok: true,
         safeguards: parsedInput.safeguards,
         review: existing,
+        sampledIds,
+        requiredSample,
+        sampleCount,
+        reset: false,
+      };
+    }
+
+    // A legacy review may have the same shape but no persisted sample ids.
+    // Backfill the deterministic ids without discarding existing progress.
+    if (sameBatchShape && existing.sampledItemIds.length === 0) {
+      const review = PreparedBatchSampleReviewSchema.parse({
+        ...existing,
+        sampledItemIds: sampledIds,
+      });
+      const safeguards = JobFinderIntelligenceSafeguardsSchema.parse({
+        ...parsedInput.safeguards,
+        preparedBatchSampleReviews: reviews.map((entry, index) =>
+          index === byBatchIndex ? review : entry,
+        ),
+        updatedAt: now,
+      });
+      return {
+        ok: true,
+        safeguards,
+        review,
         sampledIds,
         requiredSample,
         sampleCount,
@@ -1239,6 +1268,7 @@ export function prepareBatchSampleReview(input: {
       batchId: input.batchId,
       preparedCount,
       sampleCount,
+      sampledItemIds: sampledIds,
       reviewedCount: 0,
       requiredSampleRatio: input.requiredSampleRatio,
       reviewCompleted: false,
@@ -1260,12 +1290,6 @@ export function prepareBatchSampleReview(input: {
       preparedBatchSampleReviews: nextReviews,
       updatedAt: now,
     });
-    const sampledIds = deriveBatchSampleIds({
-      batchId: input.batchId,
-      prepared: input.prepared,
-      sampleCount,
-    });
-
     return {
       ok: true,
       safeguards,
@@ -1282,6 +1306,11 @@ export function prepareBatchSampleReview(input: {
     batchId: input.batchId,
     preparedCount,
     sampleCount,
+    sampledItemIds: deriveBatchSampleIds({
+      batchId: input.batchId,
+      prepared: input.prepared,
+      sampleCount,
+    }),
     reviewedCount: 0,
     requiredSampleRatio: input.requiredSampleRatio,
     reviewCompleted: false,
@@ -1728,7 +1757,7 @@ function buildDismissalSet(
 
 function isDismissed(
   dismissals: ReadonlySet<string>,
-  kind: SafeguardEntryKind | SafeguardBlockerKind,
+  kind: SafeguardBlockerKind,
   id: string,
 ): boolean {
   return dismissals.has(dismissalPairKey(kind, id));

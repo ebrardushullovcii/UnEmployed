@@ -131,17 +131,35 @@ function historyEstimate(
   return `${formatDuration(typicalDuration)} from ${durations.length} ${sampleLabel}${suffix}`;
 }
 
-function sameTargets(
-  left: readonly string[],
-  right: readonly string[],
+function countTargetIds(targetIds: readonly string[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const targetId of targetIds) {
+    counts.set(targetId, (counts.get(targetId) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function sameTargetCounts(
+  targetIds: readonly string[],
+  expectedCounts: ReadonlyMap<string, number>,
+  expectedLength: number,
 ): boolean {
-  if (left.length !== right.length) {
+  if (targetIds.length !== expectedLength) {
     return false;
   }
 
-  return [...left]
-    .sort()
-    .every((targetId, index) => targetId === [...right].sort()[index]);
+  const actualCounts = countTargetIds(targetIds);
+  if (actualCounts.size !== expectedCounts.size) {
+    return false;
+  }
+
+  for (const [targetId, count] of actualCounts) {
+    if (expectedCounts.get(targetId) !== count) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function targetSourceLabel(
@@ -210,6 +228,7 @@ function buildDiscoveryTask(
     : liveEvent?.targetId
       ? [liveEvent.targetId]
       : [];
+  const targetIdCounts = countTargetIds(targetIds);
   const jobsFound = Math.max(
     run?.summary.validJobsFound ?? 0,
     liveEvent?.jobsFound ?? 0,
@@ -225,7 +244,8 @@ function buildDiscoveryTask(
       candidate.id !== run?.id &&
       candidate.state === "completed" &&
       candidate.summary.durationMs > 0 &&
-      (targetIds.length === 0 || sameTargets(candidate.targetIds, targetIds)),
+      (targetIds.length === 0 ||
+        sameTargetCounts(candidate.targetIds, targetIdCounts, targetIds.length)),
   );
   const canCancel = status === "active" && input.isDiscoveryPending;
   const canRunAgain = ["cancelled", "failed", "interrupted"].includes(status);

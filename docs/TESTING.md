@@ -11,6 +11,13 @@
 - formatting: `pnpm format`, `pnpm format:check`
 - dead-code cleanup: `pnpm knip`
 
+## Job Finder release gate (2026-08-19)
+
+- The integrated repository-wide `pnpm verify` run passed, including guidance/docs/source-generic/structure checks, lint, typecheck, fit calibration, the broad test suite, and the separately scheduled discovery-ledger performance test.
+- The final production scale replay is `apps/desktop/.tmp/production-scale-probe-2026-08-19T05-34-15-991Z/report.json`. It retains 516 jobs, 226 shortlisted jobs, 226 applications, and 511 sources; bounds Find Jobs, Shortlisted, Applications, and Profile source pagination; keeps runtime errors at zero; keeps the More menu inside the viewport; and cleans the isolated profile. The accepted run reached a usable cold shell in 1,780.86 ms and a worst route switch of 307.42 ms.
+- Fresh Job Finder source-app screenshots are under `apps/desktop/test-artifacts/ui/release-hardening-2026-08-19/`; the final scale artifact adds the populated 511-source More-menu state. A requested final automated capture replay could not start because the Codex execution allowance was exhausted before Electron launch. Do not represent that unavailable replay as passing evidence.
+- Windows unpacked packaging has been assembled and inspected with `UnEmployed.exe`, `resources/app.asar`, the tracked `.ico`, and `resources/resume-parser-sidecar/{manifest.json,bin/win32-x64/resume_parser_sidecar.exe}` present. The inspected bundle was 585,084,836 bytes and unsigned. Regenerate it after the final CSP cleanup before release, then repeat the isolated packaged-app smoke; signing and publication are separate authorized operations.
+
 ## Pick Checks
 
 | Change                       | Prefer                                                                           |
@@ -41,19 +48,20 @@ Common package aliases:
 
 - `pnpm validate:docs-only` after shared guidance, skill, doc, or link changes
 
-## Campaign, dashboard, search, and CRM implementation evidence (2026-08-15)
+## Campaign, dashboard, search, and CRM implementation evidence (2026-08-17)
 
 - Focused contracts cover campaign defaults and no-submit literals, CRM compatibility, and workspace delta campaign context.
 - Focused database and service tests cover SQLite campaign backfill/persistence, campaign membership and limits, activity pause gates, dashboard truth, serialized CRM revisions, no-response automation, duplicate hints, safe CSV/JSON output, and campaign apply stop-rule decisions.
 - Focused desktop tests cover typed main/preload routes, revisioned deltas, Home and Campaign screens, shell navigation, global/local search, keyboard behavior, persisted density/views, CRM table/Kanban/calendar/detail/settings, and active-campaign list scoping.
-- After integration, run Contracts, DB, Job Finder, and Desktop typechecks; the consolidated focused Vitest list; format/lint/source-generic/docs checks; then `pnpm verify` once. Broad production Electron and Computer Use acceptance is a separate later stage and must not be claimed from these scripted checks.
+- After integration, run Contracts, DB, Job Finder, and Desktop typechecks; the consolidated focused Vitest list; format/lint/source-generic/docs checks; then `pnpm verify` once. The phase-two closeout also runs the hardened Electron replay after the production build, using only synthetic data and prepare-only safety settings.
 
-### Phase-two feature slices — implemented, final verification pending
+### Phase-two feature slices — implementation and production-harness verification complete
 
 - The six phase-two slices — advanced campaign rules and truthful pre-search funnel, local schedules/digests/in-app notifications, outcome analytics with manual outcome recording, resume strategies with per-job selection, company intelligence with merge review, and high-volume safeguards with recovery — are implemented end to end in the current checkout: typed contracts, pure operations, workspace-service methods, typed IPC/preload routes, renderer screens, and focused test files.
-- Focused test files exist but have NOT been executed: `packages/contracts/src/{campaign-operations,job-finder-intelligence,safeguards-contracts}.test.ts`; `packages/job-finder/src/internal/{campaign-rule-evaluator,campaign-schedule,campaign-digest-notifications,outcome-analytics,resume-strategy-operations,company-intelligence-operations,safeguard-operations}.test.ts`; `packages/job-finder/src/workspace-service.{campaign-rules,campaign-scheduled-run,outcome-analytics,resume-strategies,company-intelligence,safeguards}.test.ts`; `apps/desktop/src/main/services/job-finder/campaign-scheduler.test.ts`; and the renderer tests for `campaign-rule-builder`, `campaigns-screen`, `campaign-notification-center`, `outcome-analytics-presentation`, `outcome-analytics-screen`, `resume-strategies-screen`, `companies-screen`, `company-detail-screen`, `safeguards-presentation`, `safeguards-screen`, and `applications-outcome-recorder`.
-- No commands, tests, typecheck, lint, formatting, or visual QA have been run after these six writers. The 2026-08-15 counts above (the focused checkpoint and the phase-one gate) predate the batch and remain historical evidence, not current verification.
-- Verification order when it resumes: Contracts/DB/Job Finder/Desktop typechecks, the focused Vitest list for the batch, format/lint/source-generic/docs checks, then `pnpm verify` once. Broad production Electron and visual acceptance remain a separate later stage and must not be claimed from scripted checks.
+- The integrated focused closeout passed 59 test files / 770 tests with zero failures, including 4 safeguard files / 92 tests. Navigation checks passed 9/9 reachability and 16/16 shell assertions. The affected Contracts/DB/AI Providers/Job Finder/Desktop TypeScript and lint checks, feature Prettier check, and `git diff --check` all passed. The production desktop build passed.
+- The hardened phase-two Electron replay passed 40 captures at 1440×920, 1280×720, and native Electron 200% zoom. It recorded zero runtime errors, safety violations, horizontal-overflow findings, or unreachable controls; nested-scroll movement passed 40/40. The run used synthetic data, executed no application actions or final-submit controls, and left zero Electron processes. Evidence is under `apps/desktop/test-artifacts/ui/phase-two-absolute-final/`.
+- The phase-two closeout's initial repository-wide attempt stopped before scripts ran because Corepack could not verify/fetch pnpm 10.8.0. That historical environment failure was superseded by the passing 2026-08-19 integrated `pnpm verify` run recorded above.
+- Application-terminal safeguards are complete for the implemented prepare-only technical failure, listing-signal, batch-review, simultaneous-application, and recovery paths. Explicit user-owned blockers remain excluded from technical-failure samples; credentials, CAPTCHA, MFA, legal consent, account creation, and final submission remain per-job/user-owned.
 
 ## Current Consolidated Release Evidence (2026-08-09)
 
@@ -181,6 +189,7 @@ Common package aliases:
 - `pnpm --filter @unemployed/desktop ui:interview-helper-protection`
 - `pnpm --filter @unemployed/desktop ui:apply-queue-controls`
 - `pnpm --filter @unemployed/desktop ui:action-inbox:built`
+- `pnpm --filter @unemployed/desktop ui:job-finder-phase-two` — hardened phase-two Electron replay. It builds the desktop app, seeds synthetic campaign/CRM/intelligence state, captures Home, Campaigns, Rapid review, Applications, Outcomes, Resume strategies, Companies, Safeguards, and Needs you at 1440×920, 1280×720, and native Electron 200% zoom, and checks renderer errors, layout overflow, persisted read/recovery actions, nested scroll ownership, and no application/final-submit authority. The accepted 40-capture report is `apps/desktop/test-artifacts/ui/phase-two-absolute-final/capture-report.json`.
 
 ## Running Desktop Benchmarks
 

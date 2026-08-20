@@ -8,6 +8,10 @@ import type {
 } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
 import {
+  CollectionPagination,
+  COLLECTION_PAGE_SIZE,
+} from "../../components/collection-pagination";
+import {
   CollectionNoMatches,
   CollectionSearchToolbar,
   matchesCollectionSearch,
@@ -24,17 +28,21 @@ function isTypingTarget(target: EventTarget | null): boolean {
   );
 }
 
-function latestDecision(
+export function buildLatestDecisionIndex(
   log: RapidReviewDecisionLog | null,
-  jobId: string,
-): RapidReviewDecision | null {
-  if (!log) return null;
-  let latest: RapidReviewDecision | null = null;
+): ReadonlyMap<string, RapidReviewDecision> {
+  const index = new Map<string, RapidReviewDecision>();
+  if (!log) return index;
+
   for (const entry of log.entries) {
-    if (entry.jobId !== jobId || entry.undo !== null) continue;
-    if (!latest || entry.revision >= latest.revision) latest = entry;
+    if (entry.undo !== null) continue;
+    const current = index.get(entry.jobId);
+    if (!current || entry.revision >= current.revision) {
+      index.set(entry.jobId, entry);
+    }
   }
-  return latest;
+
+  return index;
 }
 
 function formatRecommendation(value: string): string {
@@ -55,8 +63,13 @@ export function RapidReviewScreen(props: {
   const [activeJobId, setActiveJobId] = useState<string | null>(
     props.jobs[0]?.id ?? null,
   );
+  const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [localError, setLocalError] = useState<string | null>(null);
+  const latestDecisions = useMemo(
+    () => buildLatestDecisionIndex(props.log),
+    [props.log],
+  );
 
   const visibleJobs = useMemo(
     () =>
@@ -78,6 +91,19 @@ export function RapidReviewScreen(props: {
     visibleJobs.findIndex((job) => job.id === activeJobId),
   );
   const activeJob = visibleJobs[activeIndex] ?? null;
+  const pageCount = Math.max(
+    1,
+    Math.ceil(visibleJobs.length / COLLECTION_PAGE_SIZE),
+  );
+  const currentPage = Math.min(page, pageCount);
+  const pagedVisibleJobs = useMemo(
+    () =>
+      visibleJobs.slice(
+        (currentPage - 1) * COLLECTION_PAGE_SIZE,
+        currentPage * COLLECTION_PAGE_SIZE,
+      ),
+    [currentPage, visibleJobs],
+  );
   const comparedJobs = props.jobs
     .filter((job) => selectedIds.has(job.id))
     .slice(0, 4);
@@ -89,6 +115,19 @@ export function RapidReviewScreen(props: {
     }
   }, [activeJobId, visibleJobs]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [view.query]);
+
+  useEffect(() => {
+    setPage((currentPage) => Math.min(currentPage, pageCount));
+  }, [pageCount]);
+
+  useEffect(() => {
+    if (activeIndex < 0 || visibleJobs.length === 0) return;
+    setPage(Math.floor(activeIndex / COLLECTION_PAGE_SIZE) + 1);
+  }, [activeIndex, visibleJobs.length]);
+
   const move = useCallback(
     (offset: number) => {
       if (visibleJobs.length === 0) return;
@@ -97,6 +136,7 @@ export function RapidReviewScreen(props: {
         Math.max(0, activeIndex + offset),
       );
       setActiveJobId(visibleJobs[next]!.id);
+      setPage(Math.floor(next / COLLECTION_PAGE_SIZE) + 1);
     },
     [activeIndex, visibleJobs],
   );
@@ -114,7 +154,7 @@ export function RapidReviewScreen(props: {
           expectedRevisions: Object.fromEntries(
             jobIds.map((jobId) => [
               jobId,
-              latestDecision(props.log, jobId)?.revision ?? null,
+              latestDecisions.get(jobId)?.revision ?? null,
             ]),
           ),
           reason: null,
@@ -127,12 +167,12 @@ export function RapidReviewScreen(props: {
         );
       }
     },
-    [activeJobId, move, props],
+    [activeJobId, latestDecisions, move, props],
   );
 
   const undo = useCallback(
     async (jobId: string) => {
-      const current = latestDecision(props.log, jobId);
+      const current = latestDecisions.get(jobId);
       if (!current || props.pending) return;
       setLocalError(null);
       try {
@@ -147,7 +187,7 @@ export function RapidReviewScreen(props: {
         setLocalError(error instanceof Error ? error.message : "Undo failed.");
       }
     },
-    [props],
+    [latestDecisions, props],
   );
 
   useEffect(() => {
@@ -232,49 +272,61 @@ export function RapidReviewScreen(props: {
         />
       ) : (
         <div className="grid gap-4 xl:grid-cols-[minmax(20rem,0.8fr)_minmax(0,1.4fr)]">
-          <ul className="grid content-start gap-2" aria-label="Jobs to review">
-            {visibleJobs.map((job) => {
-              const current = latestDecision(props.log, job.id);
-              const active = activeJob?.id === job.id;
-              return (
-                <li key={job.id} className="relative">
-                  <button
-                    aria-current={active ? "true" : undefined}
-                    className={`w-full border p-3 text-left ${active ? "border-primary bg-secondary" : "border-border"}`}
-                    onClick={() => setActiveJobId(job.id)}
-                    type="button"
-                  >
-                    <span className="block font-semibold">{job.title}</span>
-                    <span className="block text-sm text-foreground-soft">
-                      {job.company} · {job.location}
-                    </span>
-                    <span className="mt-1 block text-xs text-foreground-muted">
-                      {job.matchAssessment.score}% fit
-                      {current
-                        ? ` · ${formatRecommendation(current.kind)}`
-                        : " · not reviewed"}
-                    </span>
-                  </button>
-                  <label className="absolute right-3 top-3 flex items-center gap-1 text-xs">
-                    <input
-                      aria-label={`Select ${job.title} at ${job.company}`}
-                      checked={selectedIds.has(job.id)}
-                      onChange={(event) =>
-                        setSelectedIds((currentIds) => {
-                          const next = new Set(currentIds);
-                          if (event.target.checked) next.add(job.id);
-                          else next.delete(job.id);
-                          return next;
-                        })
-                      }
-                      type="checkbox"
-                    />
-                    Compare
-                  </label>
-                </li>
-              );
-            })}
-          </ul>
+          <div className="grid content-start gap-2">
+            <ul
+              className="grid content-start gap-2"
+              aria-label="Jobs to review"
+            >
+              {pagedVisibleJobs.map((job) => {
+                const current = latestDecisions.get(job.id);
+                const active = activeJob?.id === job.id;
+                return (
+                  <li key={job.id} className="relative">
+                    <button
+                      aria-current={active ? "true" : undefined}
+                      className={`w-full border p-3 text-left ${active ? "border-primary bg-secondary" : "border-border"}`}
+                      onClick={() => setActiveJobId(job.id)}
+                      type="button"
+                    >
+                      <span className="block font-semibold">{job.title}</span>
+                      <span className="block text-sm text-foreground-soft">
+                        {job.company} · {job.location}
+                      </span>
+                      <span className="mt-1 block text-xs text-foreground-muted">
+                        {job.matchAssessment.score}% fit
+                        {current
+                          ? ` · ${formatRecommendation(current.kind)}`
+                          : " · not reviewed"}
+                      </span>
+                    </button>
+                    <label className="absolute right-3 top-3 flex items-center gap-1 text-xs">
+                      <input
+                        aria-label={`Select ${job.title} at ${job.company}`}
+                        checked={selectedIds.has(job.id)}
+                        onChange={(event) =>
+                          setSelectedIds((currentIds) => {
+                            const next = new Set(currentIds);
+                            if (event.target.checked) next.add(job.id);
+                            else next.delete(job.id);
+                            return next;
+                          })
+                        }
+                        type="checkbox"
+                      />
+                      Compare
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+            <CollectionPagination
+              itemLabel="jobs"
+              onPageChange={setPage}
+              page={currentPage}
+              pageSize={COLLECTION_PAGE_SIZE}
+              totalCount={visibleJobs.length}
+            />
+          </div>
 
           {activeJob ? (
             <article className="grid content-start gap-4 border border-border p-4">
@@ -349,7 +401,7 @@ export function RapidReviewScreen(props: {
                 >
                   Inspect details
                 </Button>
-                {latestDecision(props.log, activeJob.id) ? (
+                {latestDecisions.has(activeJob.id) ? (
                   <Button
                     pending={props.pending}
                     onClick={() => void undo(activeJob.id)}

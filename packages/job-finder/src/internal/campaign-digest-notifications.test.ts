@@ -525,7 +525,7 @@ describe("deriveCampaignNotifications", () => {
       body: null,
     });
     expect(notifications[2]).toMatchObject({
-      id: "n_campaign-1_blocked_apply-run-2",
+      id: "n_campaign-1_failed_apply-run-2",
       jobId: "job-3",
       title: "Failed: Staff Engineer",
       body: "The application form changed.",
@@ -543,6 +543,41 @@ describe("deriveCampaignNotifications", () => {
     expect(notifications).toEqual([]);
   });
 
+  test("uses source target identity and keeps blocked/failed identities distinct", () => {
+    const blocked = deriveCampaignNotifications({
+      campaignId: "campaign-1",
+      now: "2026-07-31T11:00:00.000Z",
+      blockedWork: [
+        {
+          sourceTargetId: "source-board",
+          title: "Source check",
+          reason: "Login required.",
+        },
+      ],
+    });
+    const failed = deriveCampaignNotifications({
+      campaignId: "campaign-1",
+      now: "2026-07-31T11:01:00.000Z",
+      failedWork: [
+        {
+          sourceTargetId: "source-board",
+          title: "Source check",
+          reason: "Runtime failed.",
+        },
+      ],
+    });
+
+    expect(blocked[0]).toMatchObject({
+      id: "n_campaign-1_blocked_source-board",
+      sourceTargetId: "source-board",
+    });
+    expect(failed[0]).toMatchObject({
+      id: "n_campaign-1_failed_source-board",
+      sourceTargetId: "source-board",
+    });
+    expect(blocked[0]?.id).not.toBe(failed[0]?.id);
+  });
+
   test("derives a blocked work notification from failed run facts", () => {
     const notifications = deriveCampaignNotifications({
       campaignId: "campaign-1",
@@ -558,7 +593,7 @@ describe("deriveCampaignNotifications", () => {
     expect(notifications).toHaveLength(1);
     expect(notifications[0]).toMatchObject({
       kind: "blocked_work",
-      id: "n_campaign-1_blocked_run_2026-07-31T11:00:00.000Z",
+      id: "n_campaign-1_failed_run_2026-07-31T11:00:00.000Z",
       title: "Failed: Scheduled campaign run",
       body: "The scheduled run failed after two attempts.",
       jobId: null,

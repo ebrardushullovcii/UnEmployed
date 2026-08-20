@@ -32,6 +32,7 @@ import {
 import {
   type CreateJobFinderWorkspaceServiceOptions,
   type JobFinderWorkspaceService,
+  type JobFinderWorkspaceResetOptions,
 } from "./internal/workspace-service-contracts";
 import { createWorkspaceSnapshotProfileMethods } from "./internal/workspace-snapshot-profile-methods";
 import { createWorkspaceDiscoveryMethods } from "./internal/workspace-discovery-methods";
@@ -74,6 +75,7 @@ export type {
   CreateJobFinderWorkspaceServiceOptions,
   CandidateAssetResolver,
   JobFinderDocumentManager,
+  JobFinderWorkspaceResetOptions,
   JobFinderWorkspaceService,
   RenderedResumeArtifact,
   ResolvedApplicationCandidateAsset,
@@ -123,6 +125,101 @@ export function createJobFinderWorkspaceService(
   const shutdownPromiseRef = {
     current: null as Promise<void> | null,
   };
+  const activeWorkspaceOperations = new Map<string, number>();
+  let workspaceResetInProgress = false;
+
+  const WORKSPACE_RESET_IN_PROGRESS_MESSAGE =
+    "Job Finder workspace reset is already in progress. Wait for it to finish before starting another operation.";
+
+  function activeWorkspaceOperationLabels(): string[] {
+    const labels = new Set(activeWorkspaceOperations.keys());
+
+    if (
+      activeDiscoveryAbortControllerRef.current ||
+      activeDiscoveryPromiseRef.current
+    ) {
+      labels.add("discovery");
+    }
+    if (
+      activeSourceDebugAbortControllerRef.current ||
+      activeSourceDebugPromiseRef.current
+    ) {
+      labels.add("source debug");
+    }
+    if (
+      activeApplyRunAbortControllers.size > 0 ||
+      activeApplyRunPromises.size > 0
+    ) {
+      labels.add("application preparation");
+    }
+    if (activeResumeVisionRunIds.size > 0) {
+      labels.add("resume analysis");
+    }
+
+    return [...labels];
+  }
+
+  function trackWorkspaceOperation<T>(
+    label: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    if (workspaceResetInProgress) {
+      return Promise.reject(new Error(WORKSPACE_RESET_IN_PROGRESS_MESSAGE));
+    }
+
+    activeWorkspaceOperations.set(
+      label,
+      (activeWorkspaceOperations.get(label) ?? 0) + 1,
+    );
+
+    let result: Promise<T>;
+    try {
+      result = operation();
+    } catch (error) {
+      const count = activeWorkspaceOperations.get(label) ?? 0;
+      if (count <= 1) {
+        activeWorkspaceOperations.delete(label);
+      } else {
+        activeWorkspaceOperations.set(label, count - 1);
+      }
+      return Promise.reject(
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
+
+    return result.finally(() => {
+      const count = activeWorkspaceOperations.get(label) ?? 0;
+      if (count <= 1) {
+        activeWorkspaceOperations.delete(label);
+      } else {
+        activeWorkspaceOperations.set(label, count - 1);
+      }
+    });
+  }
+
+  async function resetWorkspace(
+    seed: Parameters<JobFinderWorkspaceService["resetWorkspace"]>[0],
+    options?: JobFinderWorkspaceResetOptions,
+  ): Promise<JobFinderWorkspaceSnapshot> {
+    if (workspaceResetInProgress) {
+      throw new Error(WORKSPACE_RESET_IN_PROGRESS_MESSAGE);
+    }
+
+    const activeLabels = activeWorkspaceOperationLabels();
+    if (activeLabels.length > 0) {
+      throw new Error(
+        `Job Finder workspace reset is unavailable while ${activeLabels.join(", ")} ${activeLabels.length === 1 ? "is" : "are"} still running. Wait for the operation${activeLabels.length === 1 ? "" : "s"} to finish or cancel it, then try reset again. No workspace data was removed.`,
+      );
+    }
+
+    workspaceResetInProgress = true;
+    try {
+      await options?.beforeStateReset?.();
+      return await snapshotProfileMethods.resetWorkspace(seed);
+    } finally {
+      workspaceResetInProgress = false;
+    }
+  }
 
   const context: WorkspaceServiceContext = {
     aiClient,
@@ -442,6 +539,10 @@ export function createJobFinderWorkspaceService(
     return snapshotProfileMethods.getWorkspaceSnapshot();
   }
 
+  async function getWorkspaceBootstrap() {
+    return snapshotProfileMethods.getWorkspaceBootstrap();
+  }
+
   context.getWorkspaceSnapshot = getWorkspaceSnapshot;
   const crmMethods = createWorkspaceCrmMethods({
     ctx: context,
@@ -572,13 +673,12 @@ export function createJobFinderWorkspaceService(
   ): Promise<void> {
     const blockers =
       await safeguardMethods.evaluateApplicationPreparationBlockers(jobIds);
-    await safeguardMethods.requireNoBlockers(blockers);
+    safeguardMethods.requireNoBlockers(blockers);
   }
 
   async function requireDiscoverySafeguardClearance(): Promise<void> {
-    const blockers =
-      await safeguardMethods.evaluateGlobalDiscoveryBlockers();
-    await safeguardMethods.requireNoBlockers(blockers);
+    const blockers = await safeguardMethods.evaluateGlobalDiscoveryBlockers();
+    safeguardMethods.requireNoBlockers(blockers);
   }
 
   async function setActivityControl(
@@ -701,14 +801,53 @@ export function createJobFinderWorkspaceService(
   return {
     shutdown,
     ...snapshotProfileMethods,
+    resetWorkspace,
+    runResumeImport: (input) =>
+      trackWorkspaceOperation("resume import", () =>
+        snapshotProfileMethods.runResumeImport(input),
+      ),
+    analyzeProfileFromResume: () =>
+      trackWorkspaceOperation("resume analysis", () =>
+        snapshotProfileMethods.analyzeProfileFromResume(),
+      ),
+    sendProfileCopilotMessage: (content, context) =>
+      trackWorkspaceOperation("profile proposal", () =>
+        snapshotProfileMethods.sendProfileCopilotMessage(content, context),
+      ),
+    proposeProfileCopilotChange: (content, context) =>
+      trackWorkspaceOperation("profile proposal", () =>
+        snapshotProfileMethods.proposeProfileCopilotChange(content, context),
+      ),
+    applyProfileCopilotPatchGroup: (patchGroupId) =>
+      trackWorkspaceOperation("profile proposal", () =>
+        snapshotProfileMethods.applyProfileCopilotPatchGroup(patchGroupId),
+      ),
+    rejectProfileCopilotPatchGroup: (patchGroupId) =>
+      trackWorkspaceOperation("profile proposal", () =>
+        snapshotProfileMethods.rejectProfileCopilotPatchGroup(patchGroupId),
+      ),
+    undoProfileRevision: (revisionId) =>
+      trackWorkspaceOperation("profile proposal", () =>
+        snapshotProfileMethods.undoProfileRevision(revisionId),
+      ),
     openBrowserSession: async (input) => {
       await requireActivityEnabled();
       return snapshotProfileMethods.openBrowserSession(input);
     },
     ...campaignMethods,
+    runCampaignNow: (input) =>
+      trackWorkspaceOperation("discovery", () =>
+        campaignMethods.runCampaignNow(input),
+      ),
+    runDueScheduledCampaigns: (now) =>
+      trackWorkspaceOperation("discovery", () =>
+        campaignMethods.runDueScheduledCampaigns(now),
+      ),
     ...intelligenceMethods,
     setActivityControl,
-    getWorkspaceSnapshot,
+    getWorkspaceSnapshot: () =>
+      trackWorkspaceOperation("workspace read", () => getWorkspaceSnapshot()),
+    getWorkspaceBootstrap,
     mutateSafeguards: safeguardMethods.mutateSafeguards,
     getSafeguardsOverview: safeguardMethods.getSafeguardsOverview,
     evaluateApplicationSafeguardBlockers:
@@ -716,66 +855,119 @@ export function createJobFinderWorkspaceService(
     evaluateDiscoverySafeguardBlockers:
       safeguardMethods.evaluateGlobalDiscoveryBlockers,
     ...discoveryMethods,
-    runDiscovery: async (targetId) => {
-      await requireActivityEnabled();
-      return runCampaignScopedDiscovery(() =>
-        discoveryMethods.runDiscovery(targetId),
-      );
-    },
-    runAgentDiscovery: async (onActivity, signal, targetId) => {
-      await requireActivityEnabled();
-      return runCampaignScopedDiscovery(() =>
-        discoveryMethods.runAgentDiscovery(onActivity, signal, targetId),
-      );
-    },
-    runDiscoveryForTarget: async (targetId, onActivity, signal) => {
-      await requireActivityEnabled();
-      return runCampaignScopedDiscovery(() =>
-        discoveryMethods.runDiscoveryForTarget(targetId, onActivity, signal),
-      );
-    },
+    runDiscovery: (targetId) =>
+      trackWorkspaceOperation("discovery", async () => {
+        await requireActivityEnabled();
+        return runCampaignScopedDiscovery(() =>
+          discoveryMethods.runDiscovery(targetId),
+        );
+      }),
+    runAgentDiscovery: (onActivity, signal, targetId) =>
+      trackWorkspaceOperation("discovery", async () => {
+        await requireActivityEnabled();
+        return runCampaignScopedDiscovery(() =>
+          discoveryMethods.runAgentDiscovery(onActivity, signal, targetId),
+        );
+      }),
+    runDiscoveryForTarget: (targetId, onActivity, signal) =>
+      trackWorkspaceOperation("discovery", async () => {
+        await requireActivityEnabled();
+        return runCampaignScopedDiscovery(() =>
+          discoveryMethods.runDiscoveryForTarget(targetId, onActivity, signal),
+        );
+      }),
     ...sourceDebugMethods,
-    runSourceDebug: async (targetId, signal, onProgress) => {
-      await requireActivityEnabled();
-      return sourceDebugMethods.runSourceDebug(targetId, signal, onProgress);
-    },
-    verifySourceInstructions: async (
-      targetId,
-      instructionId,
-      signal,
-      onProgress,
-    ) => {
-      await requireActivityEnabled();
-      return sourceDebugMethods.verifySourceInstructions(
-        targetId,
-        instructionId,
-        signal,
-        onProgress,
-      );
-    },
+    runSourceDebug: (targetId, signal, onProgress) =>
+      trackWorkspaceOperation("source debug", async () => {
+        await requireActivityEnabled();
+        return sourceDebugMethods.runSourceDebug(targetId, signal, onProgress);
+      }),
+    verifySourceInstructions: (targetId, instructionId, signal, onProgress) =>
+      trackWorkspaceOperation("source debug", async () => {
+        await requireActivityEnabled();
+        return sourceDebugMethods.verifySourceInstructions(
+          targetId,
+          instructionId,
+          signal,
+          onProgress,
+        );
+      }),
     ...applyRunStoreMethods,
     ...applicationAnswerMethods,
     ...groupedAnswerMethods,
-    performUserAction: userActionMethods.performUserAction,
+    performUserAction: (command) =>
+      trackWorkspaceOperation("application user action", () =>
+        userActionMethods.performUserAction(command),
+      ),
     ...applicationMethods,
-    startApplyCopilotRun: async (jobId, options) => {
-      await requireActivityEnabled();
-      await requireCampaignPreparationCapacity([jobId]);
-      await requireApplicationSafeguardClearance([jobId]);
-      return applicationMethods.startApplyCopilotRun(jobId, options);
-    },
-    startAutoApplyRun: async (jobId) => {
-      await requireActivityEnabled();
-      await requireCampaignPreparationCapacity([jobId]);
-      await requireApplicationSafeguardClearance([jobId]);
-      return applicationMethods.startAutoApplyRun(jobId);
-    },
-    startAutoApplyQueueRun: async (jobIds) => {
-      await requireActivityEnabled();
-      await requireCampaignPreparationCapacity(jobIds);
-      await requireApplicationSafeguardClearance(jobIds);
-      return applicationMethods.startAutoApplyQueueRun(jobIds);
-    },
+    generateResume: (jobId) =>
+      trackWorkspaceOperation("resume generation", () =>
+        applicationMethods.generateResume(jobId),
+      ),
+    regenerateResumeDraft: (jobId) =>
+      trackWorkspaceOperation("resume generation", () =>
+        applicationMethods.regenerateResumeDraft(jobId),
+      ),
+    regenerateResumeSection: (jobId, sectionId) =>
+      trackWorkspaceOperation("resume generation", () =>
+        applicationMethods.regenerateResumeSection(jobId, sectionId),
+      ),
+    sendResumeAssistantMessage: (jobId, content) =>
+      trackWorkspaceOperation("resume proposal", () =>
+        applicationMethods.sendResumeAssistantMessage(jobId, content),
+      ),
+    resolveResumeAssistantProposal: (jobId, proposalId, action, patchIds) =>
+      trackWorkspaceOperation("resume proposal", () =>
+        applicationMethods.resolveResumeAssistantProposal(
+          jobId,
+          proposalId,
+          action,
+          patchIds,
+        ),
+      ),
+    startApplyCopilotRun: (jobId, options) =>
+      trackWorkspaceOperation("application preparation", async () => {
+        await requireActivityEnabled();
+        await requireCampaignPreparationCapacity([jobId]);
+        await requireApplicationSafeguardClearance([jobId]);
+        return applicationMethods.startApplyCopilotRun(jobId, options);
+      }),
+    startAutoApplyRun: (jobId) =>
+      trackWorkspaceOperation("application preparation", async () => {
+        await requireActivityEnabled();
+        await requireCampaignPreparationCapacity([jobId]);
+        await requireApplicationSafeguardClearance([jobId]);
+        return applicationMethods.startAutoApplyRun(jobId);
+      }),
+    startAutoApplyQueueRun: (jobIds) =>
+      trackWorkspaceOperation("application preparation", async () => {
+        await requireActivityEnabled();
+        await requireCampaignPreparationCapacity(jobIds);
+        await requireApplicationSafeguardClearance(jobIds);
+        return applicationMethods.startAutoApplyQueueRun(jobIds);
+      }),
+    approveApplyRun: (runId) =>
+      trackWorkspaceOperation("application preparation", () =>
+        applicationMethods.approveApplyRun(runId),
+      ),
+    cancelApplyRun: (runId) =>
+      trackWorkspaceOperation("application preparation", () =>
+        applicationMethods.cancelApplyRun(runId),
+      ),
+    resolveApplyConsentRequest: (requestId, action) =>
+      trackWorkspaceOperation("application preparation", async () => {
+        await requireActivityEnabled();
+        return applicationMethods.resolveApplyConsentRequest(requestId, action);
+      }),
+    revokeApplyRunApproval: (runId) =>
+      trackWorkspaceOperation("application preparation", () =>
+        applicationMethods.revokeApplyRunApproval(runId),
+      ),
+    approveApply: (jobId) =>
+      trackWorkspaceOperation("application preparation", async () => {
+        await requireActivityEnabled();
+        return applicationMethods.approveApply(jobId);
+      }),
     ...crmMethods,
   };
 }

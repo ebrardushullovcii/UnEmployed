@@ -1,3 +1,4 @@
+import type { DiscoveryTargetEditorValue } from '../../../lib/job-finder-types'
 import type {
   CandidateProfile,
   JobSearchPreferences,
@@ -5,6 +6,34 @@ import type {
   ProfileSetupState,
   ProfileSetupStep,
 } from '@unemployed/contracts'
+
+/** Keep setup source editing bounded while leaving the complete catalog searchable. */
+export const PROFILE_SETUP_SOURCE_PAGE_SIZE = 25
+
+export function filterProfileSetupSources(
+  targets: readonly DiscoveryTargetEditorValue[],
+  query: string,
+): Array<{ index: number; target: DiscoveryTargetEditorValue }> {
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+
+  return targets.flatMap((target, index) => {
+    const matchesQuery =
+      normalizedQuery.length === 0 ||
+      target.label.toLocaleLowerCase().includes(normalizedQuery) ||
+      target.startingUrl.toLocaleLowerCase().includes(normalizedQuery)
+
+    return matchesQuery ? [{ index, target }] : []
+  })
+}
+
+export function isValidProfileSetupSourceUrl(value: string): boolean {
+  try {
+    const url = new URL(value.trim())
+    return url.protocol === 'http:' || url.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
 
 export type ProfileSetupReviewItem = ProfileSetupState['reviewItems'][number]
 export type ProfileSetupReviewItemDisplay = ProfileSetupReviewItem & {

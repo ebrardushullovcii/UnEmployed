@@ -4,6 +4,7 @@ import type {
 } from "@unemployed/ai-providers";
 import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
 import type {
+  ApplicationCrmBulkStageMutationInput,
   ApplicationCrmExportInput,
   ApplicationCrmExportResult,
   ApplicationCrmMutationInput,
@@ -83,9 +84,24 @@ import type {
 import type { ResumeExportFileVerifier } from "./workspace-service-context";
 import type { ResumeRenderDocument } from "./resume-workspace-structure";
 
+export interface JobFinderWorkspaceResetOptions {
+  /**
+   * Runs while the service reset gate is held, immediately before replacing
+   * the repository state. Desktop callers use this to remove app-owned files
+   * without allowing a new operation to start between the file and database
+   * reset.
+   */
+  beforeStateReset?: () => Promise<void>;
+}
+
 export interface JobFinderWorkspaceService {
   shutdown(): Promise<void>;
   getWorkspaceSnapshot(): Promise<JobFinderWorkspaceSnapshot>;
+  /**
+   * Returns the small, shell-safe first paint. Deferred collections are empty
+   * by design and are marked in the snapshot hydration metadata.
+   */
+  getWorkspaceBootstrap(): Promise<JobFinderWorkspaceSnapshot>;
   getResumeImportState(): Promise<{
     resumeImportRuns: readonly ResumeImportRun[];
     resumeImportDocumentBundles: readonly ResumeDocumentBundle[];
@@ -115,6 +131,7 @@ export interface JobFinderWorkspaceService {
   ): Promise<ApplyRunDetails>;
   resetWorkspace(
     seed: JobFinderRepositorySeed,
+    options?: JobFinderWorkspaceResetOptions,
   ): Promise<JobFinderWorkspaceSnapshot>;
   saveProfile(profile: CandidateProfile): Promise<JobFinderWorkspaceSnapshot>;
   saveProfileAndSearchPreferences(
@@ -308,7 +325,9 @@ export interface JobFinderWorkspaceService {
    * Read-only gate projection for a discovery run (global pauses and pending
    * sample reviews only; job-scoped gates are enforced at preparation time).
    */
-  evaluateDiscoverySafeguardBlockers(): Promise<readonly SafeguardBlockerView[]>;
+  evaluateDiscoverySafeguardBlockers(): Promise<
+    readonly SafeguardBlockerView[]
+  >;
   saveResumeStrategy(
     input: SaveResumeStrategyInput,
   ): Promise<JobFinderWorkspaceSnapshot>;
@@ -326,7 +345,10 @@ export interface JobFinderWorkspaceService {
   ): Promise<JobFinderWorkspaceSnapshot>;
   generateResume(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
   getResumeWorkspace(jobId: string): Promise<JobFinderResumeWorkspace>;
-  previewResumeDraft(draft: ResumeDraft): Promise<JobFinderResumePreview>;
+  previewResumeDraft(
+    draft: ResumeDraft,
+    signal?: AbortSignal,
+  ): Promise<JobFinderResumePreview>;
   saveResumeDraft(draft: ResumeDraft): Promise<JobFinderWorkspaceSnapshot>;
   restoreResumeDraftRevision(
     jobId: string,
@@ -393,6 +415,9 @@ export interface JobFinderWorkspaceService {
   mutateApplicationCrm(
     command: ApplicationCrmMutationInput,
   ): Promise<JobFinderWorkspaceSnapshot>;
+  mutateApplicationCrmBulkStage(
+    command: ApplicationCrmBulkStageMutationInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
   runApplicationNoResponseAutomation(
     settings?: ApplicationCrmSettings,
   ): Promise<JobFinderWorkspaceSnapshot>;
@@ -443,13 +468,16 @@ export interface CampaignRunContext {
 
 export interface JobFinderDocumentManager {
   listResumeTemplates(): readonly ResumeTemplateDefinition[];
-  renderResumePreview(input: {
-    job: SavedJob;
-    profile: CandidateProfile;
-    renderDocument: ResumeRenderDocument;
-    templateId: ResumeTemplateId;
-    settings: JobFinderSettings;
-  }): Promise<{
+  renderResumePreview(
+    input: {
+      job: SavedJob;
+      profile: CandidateProfile;
+      renderDocument: ResumeRenderDocument;
+      templateId: ResumeTemplateId;
+      settings: JobFinderSettings;
+    },
+    signal?: AbortSignal,
+  ): Promise<{
     html: string;
     warnings?: readonly string[];
   }>;

@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
+  ApplicationCrmBulkStageMutationInput,
   ApplicationCrmExportInput,
   ApplicationCrmFileExportResult,
   ApplicationCrmMutationInput,
@@ -381,6 +382,10 @@ const desktopApi = {
     getWorkspace: () =>
       ipcRenderer.invoke(
         "job-finder:get-workspace",
+      ) as Promise<JobFinderWorkspaceSnapshot>,
+    getWorkspaceBootstrap: () =>
+      ipcRenderer.invoke(
+        "job-finder:get-workspace-bootstrap",
       ) as Promise<JobFinderWorkspaceSnapshot>,
     syncWorkspace: (baseRevision: WorkspaceRevision | null) =>
       ipcRenderer.invoke("job-finder:sync-workspace", {
@@ -838,9 +843,10 @@ const desktopApi = {
       ipcRenderer.invoke("job-finder:get-resume-workspace", {
         jobId,
       }) as Promise<JobFinderResumeWorkspace>,
-    previewResumeDraft: (draft: ResumeDraft) =>
+    previewResumeDraft: (draft: ResumeDraft, requestId?: string) =>
       ipcRenderer.invoke("job-finder:preview-resume-draft", {
         draft,
+        requestId,
       }) as Promise<JobFinderResumePreview>,
     saveResumeDraft: (draft: ResumeDraft) =>
       ipcRenderer.invoke("job-finder:save-resume-draft", {
@@ -956,6 +962,13 @@ const desktopApi = {
     mutateApplicationCrm: (input: ApplicationCrmMutationInput) =>
       ipcRenderer.invoke(
         "job-finder:mutate-application-crm",
+        input,
+      ) as Promise<JobFinderWorkspaceSnapshot>,
+    mutateApplicationCrmBulkStage: (
+      input: ApplicationCrmBulkStageMutationInput,
+    ) =>
+      ipcRenderer.invoke(
+        "job-finder:mutate-application-crm-bulk-stage",
         input,
       ) as Promise<JobFinderWorkspaceSnapshot>,
     runApplicationNoResponseAutomation: (settings?: ApplicationCrmSettings) =>

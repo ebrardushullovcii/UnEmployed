@@ -83,4 +83,31 @@ describe("ApplicationsCrmSettingsEditor", () => {
       baseStage: "reviewing",
     });
   });
+
+  it("keeps tracker settings rows shrinkable before the desktop breakpoint", () => {
+    render(
+      <ApplicationsCrmSettingsEditor
+        onSave={vi.fn<(settings: ApplicationCrmSettings) => Promise<void>>()}
+        settings={{
+          noResponseAutomation: { enabled: true, afterDays: 14 },
+          customStages: [
+            {
+              id: "custom_screening",
+              label: "Screening call",
+              baseStage: "recruiter_contact",
+              color: "cyan",
+              position: 0,
+              isTerminal: false,
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(document.querySelector("form")?.className).toContain("min-w-0");
+    expect(screen.getByRole("list").className).toContain("min-w-0");
+    expect(screen.getByDisplayValue("Screening call").className).toContain(
+      "min-w-0",
+    );
+  });
 });

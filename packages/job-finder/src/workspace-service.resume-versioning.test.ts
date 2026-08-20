@@ -232,6 +232,83 @@ describe("resume draft versioning", () => {
     ).toBe("rejected");
   });
 
+  test("serializes concurrent accept and reject actions for one proposal", async () => {
+    const baseAiClient = createAiClient();
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      aiClient: {
+        ...baseAiClient,
+        reviseResumeDraft(input) {
+          const section = findEditableTextSection(input.draft.sections);
+          return Promise.resolve({
+            content: "One concurrent-safe rewrite.",
+            patches: [
+              {
+                id: "assistant_concurrent_resolution_patch",
+                draftId: input.draft.id,
+                operation: "replace_section_text" as const,
+                targetSectionId: section.id,
+                targetEntryId: null,
+                anchorEntryId: null,
+                targetBulletId: null,
+                anchorBulletId: null,
+                position: null,
+                newText: `${section.text} Concurrent-safe wording.`,
+                newIncluded: null,
+                newLocked: null,
+                newBullets: null,
+                appliedAt: new Date().toISOString(),
+                origin: "assistant" as const,
+                conflictReason: null,
+              },
+            ],
+          });
+        },
+      },
+    });
+    await workspaceService.generateResume("job_ready");
+    const messages = await workspaceService.sendResumeAssistantMessage(
+      "job_ready",
+      "Prepare one rewrite.",
+    );
+    const proposal = messages.find(
+      (message) => message.proposalStatus === "pending",
+    );
+    expect(proposal).toBeTruthy();
+
+    const outcomes = await Promise.allSettled([
+      workspaceService.resolveResumeAssistantProposal(
+        "job_ready",
+        proposal!.id,
+        "accept",
+        [proposal!.patches[0]!.id],
+      ),
+      workspaceService.resolveResumeAssistantProposal(
+        "job_ready",
+        proposal!.id,
+        "reject",
+        [],
+      ),
+    ]);
+
+    expect(
+      outcomes.filter((outcome) => outcome.status === "fulfilled"),
+    ).toHaveLength(1);
+    expect(
+      outcomes.filter((outcome) => outcome.status === "rejected"),
+    ).toHaveLength(1);
+    const persistedProposal = (
+      await workspaceService.getResumeAssistantMessages("job_ready")
+    ).find((message) => message.id === proposal!.id);
+    expect(persistedProposal).toMatchObject({
+      proposalStatus: "accepted",
+      resolvedPatchIds: [proposal!.patches[0]!.id],
+      proposalError: null,
+    });
+    expect(
+      await repository.listResumeDraftRevisions("resume_draft_job_ready"),
+    ).toHaveLength(1);
+  });
+
   test("does not offer an empty text replacement for approval", async () => {
     const baseAiClient = createAiClient();
     const { workspaceService } = createWorkspaceServiceHarness({

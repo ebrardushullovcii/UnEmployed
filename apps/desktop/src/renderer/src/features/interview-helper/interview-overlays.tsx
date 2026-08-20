@@ -113,7 +113,7 @@ export function ProtectionBadge({
       )}
     >
       <Shield className="size-3" />
-      {protectedState ? "Protected" : "Best effort"}
+      {protectedState ? "Protected" : "Protection not verified"}
     </span>
   );
 }
@@ -229,7 +229,7 @@ export function AnswerCueOverlay(props: {
               <span>{cue.disclosure.transcriptWindow}</span>
               <span>{cue.disclosure.screenshotCount} screenshots</span>
               {cue.disclosure.overlayContaminated ? (
-                <span>visual degraded</span>
+                <span>Visual context may be incomplete.</span>
               ) : null}
             </footer>
           </>

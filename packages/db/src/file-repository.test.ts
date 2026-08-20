@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, test } from "vitest";
 import {
+  ApplicationRecordSchema,
   ApplicationAnswerRecordSchema,
   ApplicationArtifactRefSchema,
   ApplicationConsentRequestSchema,
@@ -67,6 +68,109 @@ function createPersistedRetentionRevision(draftId: string, index: number) {
   });
 }
 describe("createFileJobFinderRepository", () => {
+  test("commits revision-guarded CRM batches atomically and survives reopen", async () => {
+    const temp = await createTempRepository("unemployed-db-crm-batch-");
+    const seed = createSeed();
+    seed.applicationRecords = [
+      ApplicationRecordSchema.parse({
+        id: "application_1",
+        jobId: "job_1",
+        title: "Frontend Engineer",
+        company: "Acme",
+        status: "submitted",
+        lastActionLabel: "Applied",
+        nextActionLabel: null,
+        lastUpdatedAt: "2026-08-15T10:00:00.000Z",
+        crm: {
+          revision: 2,
+          stage: "applied",
+          stageChangedAt: "2026-08-15T10:00:00.000Z",
+        },
+      }),
+      ApplicationRecordSchema.parse({
+        id: "application_2",
+        jobId: "job_2",
+        title: "Backend Engineer",
+        company: "Beta",
+        status: "submitted",
+        lastActionLabel: "Applied",
+        nextActionLabel: null,
+        lastUpdatedAt: "2026-08-15T10:00:00.000Z",
+        crm: {
+          revision: 1,
+          stage: "applied",
+          stageChangedAt: "2026-08-15T10:00:00.000Z",
+        },
+      }),
+    ];
+    let repository: FileRepository | null = null;
+    let reopened: FileRepository | null = null;
+    try {
+      repository = await createFileJobFinderRepository({
+        filePath: temp.filePath,
+        seed,
+      });
+      const current = await repository.listApplicationRecords();
+      const next = current.map((record) =>
+        ApplicationRecordSchema.parse({
+          ...record,
+          lastUpdatedAt: "2026-08-15T10:05:00.000Z",
+          crm: {
+            ...record.crm,
+            revision: (record.crm?.revision ?? 0) + 1,
+            stage: "reviewing",
+            stageChangedAt: "2026-08-15T10:05:00.000Z",
+          },
+        }),
+      );
+
+      await expect(
+        repository.commitApplicationRecordBatch({
+          expectedRevisions: [
+            { applicationRecordId: "application_1", expectedRevision: 999 },
+            { applicationRecordId: "application_2", expectedRevision: 1 },
+          ],
+          records: next,
+        }),
+      ).resolves.toEqual({
+        status: "stale",
+        recordIds: ["application_1"],
+      });
+      expect((await repository.listApplicationRecords())[0]?.crm?.stage).toBe(
+        "applied",
+      );
+
+      await expect(
+        repository.commitApplicationRecordBatch({
+          expectedRevisions: [
+            { applicationRecordId: "application_1", expectedRevision: 2 },
+            { applicationRecordId: "application_2", expectedRevision: 1 },
+          ],
+          records: next,
+        }),
+      ).resolves.toMatchObject({
+        status: "applied",
+        committedRecordIds: ["application_1", "application_2"],
+      });
+
+      await repository.close();
+      repository = null;
+      reopened = await createFileJobFinderRepository({
+        filePath: temp.filePath,
+        seed,
+      });
+      expect(
+        (await reopened.listApplicationRecords()).map(
+          (record) => record.crm?.stage,
+        ),
+      ).toEqual(["reviewing", "reviewing"]);
+    } finally {
+      await repository?.close();
+      await reopened?.close();
+      await temp.cleanup();
+    }
+  });
+
   test("deletes only source instruction artifacts for the requested target in file storage", async () => {
     const temp = await createTempRepository("unemployed-db-artifacts-");
     let repository: FileRepository | null = null;
@@ -224,6 +328,105 @@ describe("createFileJobFinderRepository", () => {
       await temp.cleanup();
     }
   });
+
+  test("CAS-protects application answer revisions across sqlite repositories", async () => {
+    const temp = await createTempRepository("unemployed-db-answer-cas-");
+    let firstRepository: FileRepository | null = null;
+    let secondRepository: FileRepository | null = null;
+
+    try {
+      firstRepository = await temp.createRepository();
+      secondRepository = await temp.createRepository();
+
+      const question = ApplicationQuestionRecordSchema.parse({
+        id: "question_answer_cas",
+        runId: "run_answer_cas",
+        jobId: "job_1",
+        resultId: "result_answer_cas",
+        prompt: "Do you have work authorization?",
+        kind: "work_authorization",
+        answerControlType: "single_choice",
+        isRequired: true,
+        detectedAt: "2026-07-30T10:00:00.000Z",
+        answerOptions: ["Yes", "No"],
+        selectedAnswerId: null,
+        submittedAnswer: null,
+        status: "detected",
+      });
+      await firstRepository.upsertApplicationQuestionRecord(question);
+
+      const answerA = ApplicationAnswerRecordSchema.parse({
+        id: "application_answer_cas_a",
+        runId: question.runId,
+        jobId: question.jobId,
+        resultId: question.resultId,
+        questionId: question.id,
+        text: "Yes",
+        value: { type: "single_choice", value: "Yes" },
+        revision: 1,
+        sourceKind: "user",
+        sourceId: "cas-a",
+        createdAt: "2026-07-30T10:00:01.000Z",
+      });
+      const answerB = ApplicationAnswerRecordSchema.parse({
+        ...answerA,
+        id: "application_answer_cas_b",
+        text: "No",
+        value: { type: "single_choice", value: "No" },
+        sourceId: "cas-b",
+        createdAt: "2026-07-30T10:00:02.000Z",
+      });
+      const questionA = {
+        ...question,
+        selectedAnswerId: answerA.id,
+        submittedAnswer: answerA.text,
+        status: "answered" as const,
+      };
+      const questionB = {
+        ...question,
+        selectedAnswerId: answerB.id,
+        submittedAnswer: answerB.text,
+        status: "answered" as const,
+      };
+
+      const results = await Promise.all([
+        firstRepository.commitApplicationAnswerMutation({
+          expectedAnswer: null,
+          expectedQuestion: question,
+          answer: answerA,
+          question: questionA,
+        }),
+        secondRepository.commitApplicationAnswerMutation({
+          expectedAnswer: null,
+          expectedQuestion: question,
+          answer: answerB,
+          question: questionB,
+        }),
+      ]);
+
+      expect(results.filter((result) => result === "applied")).toHaveLength(1);
+      expect(results.filter((result) => result === "stale")).toHaveLength(1);
+      const persistedAnswers =
+        await firstRepository.listApplicationAnswerRecords({
+          questionId: question.id,
+        });
+      expect(persistedAnswers).toHaveLength(1);
+      expect(persistedAnswers[0]?.revision).toBe(1);
+
+      const persistedQuestion = (
+        await firstRepository.listApplicationQuestionRecords()
+      )[0];
+      expect(persistedQuestion?.selectedAnswerId).toBe(persistedAnswers[0]?.id);
+      expect(persistedQuestion?.submittedAnswer).toBe(
+        persistedAnswers[0]?.text,
+      );
+    } finally {
+      if (secondRepository) await secondRepository.close();
+      if (firstRepository) await firstRepository.close();
+      await temp.cleanup();
+    }
+  });
+
   test("persists repository state to a local sqlite file", async () => {
     const temp = await createTempRepository("unemployed-db-");
     let firstRepository: FileRepository | null = null;

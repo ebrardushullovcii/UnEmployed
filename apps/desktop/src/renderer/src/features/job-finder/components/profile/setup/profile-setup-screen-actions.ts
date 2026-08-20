@@ -2,18 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import type { CandidateProfile, JobSearchPreferences, ProfileSetupStep } from '@unemployed/contracts'
 import type { ProfileEditorValues, SearchPreferencesEditorValues } from '../../../lib/profile-editor'
 import { buildProfilePayload, buildSearchPreferencesPayload } from '../../../lib/profile-editor'
+import { getJobFinderScrollBehavior } from '../../../lib/job-finder-scroll-behavior'
 import { getReviewItemScrollTargetId } from './profile-setup-review-scroll-targets'
 import type { ProfileSetupReviewItemDisplay } from './profile-setup-screen-helpers'
 
-export function getProfileSetupScrollBehavior(
-  windowRef: {
-    matchMedia?: (query: string) => { matches: boolean }
-  } = window,
-): ScrollBehavior {
-  return windowRef.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-    ? 'auto'
-    : 'smooth'
-}
+export { getJobFinderScrollBehavior as getProfileSetupScrollBehavior } from '../../../lib/job-finder-scroll-behavior'
 
 export function useProfileSetupScreenActions(input: {
   draftAwareReviewItems: readonly ProfileSetupReviewItemDisplay[]
@@ -58,7 +51,7 @@ export function useProfileSetupScreenActions(input: {
     }
 
     target.scrollIntoView({
-      behavior: getProfileSetupScrollBehavior(),
+      behavior: getJobFinderScrollBehavior(),
       block: 'center',
     })
 

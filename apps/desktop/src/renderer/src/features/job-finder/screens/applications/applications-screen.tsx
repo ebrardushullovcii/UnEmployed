@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
+  ApplicationCrmBulkStageMutationInput,
   ApplicationCrmExportFormat,
   ApplicationCrmMutationInput,
   ApplicationCrmSettings,
@@ -74,12 +75,16 @@ export function ApplicationsScreen(props: {
   onMutateApplicationCrm?: (
     command: ApplicationCrmMutationInput,
   ) => Promise<void>;
+  onMutateApplicationCrmBulkStage?: (
+    command: ApplicationCrmBulkStageMutationInput,
+  ) => Promise<void>;
   onExportApplicationCrm?: (
     format: ApplicationCrmExportFormat,
     recordId: string,
   ) => Promise<void>;
   onRecordOutcome?: (input: RecordOutcomeInput) => Promise<void>;
   isRecordOutcomePending?: (jobId: string) => boolean;
+  outcomeCampaignId?: string | null;
   getOutcomeResumeStrategyId?: (jobId: string) => string | null;
   safeguardsBlockerCount?: number;
   onOpenSafeguards?: () => void;
@@ -423,25 +428,30 @@ export function ApplicationsScreen(props: {
       <div className="grid min-h-124 min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(22rem,0.95fr)_minmax(30rem,1.45fr)] xl:overflow-hidden">
         {workspaceView === "crm" ? (
           <ApplicationsCrmViews
-            {...(props.onMutateApplicationCrm
+            {...(props.onMutateApplicationCrmBulkStage
               ? {
                   onBulkStageChange: async (recordIds, stage) => {
-                    for (const recordId of recordIds) {
-                      const record = applicationRecords.find(
-                        (candidate) => candidate.id === recordId,
+                    const recordsById = new Map(
+                      applicationRecords.map((record) => [record.id, record]),
+                    );
+                    const missingRecordIds = recordIds.filter(
+                      (recordId) => !recordsById.has(recordId),
+                    );
+                    if (missingRecordIds.length > 0) {
+                      throw new Error(
+                        "Some selected applications are no longer available. Refresh and try again.",
                       );
-                      if (!record) continue;
-                      await props.onMutateApplicationCrm?.({
-                        applicationRecordId: record.id,
-                        expectedRevision: record.crm?.revision ?? 0,
-                        mutation: {
-                          type: "set_stage",
-                          stage,
-                          customStageId: null,
-                          note: "Updated from the application tracker bulk action.",
-                        },
-                      });
                     }
+                    await props.onMutateApplicationCrmBulkStage?.({
+                      items: recordIds.map((recordId) => ({
+                        applicationRecordId: recordId,
+                        expectedRevision:
+                          recordsById.get(recordId)?.crm?.revision ?? 0,
+                      })),
+                      stage,
+                      customStageId: null,
+                      note: "Updated from the application tracker bulk action.",
+                    });
                   },
                 }
               : {})}
@@ -483,6 +493,7 @@ export function ApplicationsScreen(props: {
                   effectiveSelectedRecord.jobId,
                 ) ?? null
               }
+              outcomeCampaignId={props.outcomeCampaignId ?? null}
               record={effectiveSelectedRecord}
               settings={props.crmSettings}
             />

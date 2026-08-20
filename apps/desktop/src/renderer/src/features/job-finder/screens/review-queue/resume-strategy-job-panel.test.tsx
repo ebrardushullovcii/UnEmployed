@@ -7,7 +7,9 @@ import type {
   SelectResumeStrategyInput,
 } from "@unemployed/contracts";
 import { ResumeStrategySchema } from "@unemployed/contracts";
+import { StrictMode } from "react";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -53,6 +55,21 @@ function recommendation(
     reason: 'Exact enabled role family match: "Backend Engineering".',
     ...overrides,
   };
+}
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason?: unknown) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+
+  return { promise, resolve, reject };
 }
 
 describe("ResumeStrategyJobPanel", () => {
@@ -233,6 +250,291 @@ describe("ResumeStrategyJobPanel", () => {
     );
     expect(options).toContain("Data engineering");
     expect(options).not.toContain("Backend engineering");
+  });
+
+  it("does not re-request when the callback identity changes, but does refresh for a new job", async () => {
+    let resolveRecommendation: (
+      value: ResumeStrategyRecommendation | null,
+    ) => void = () => undefined;
+    const onRecommend = vi
+      .fn<
+        (input: {
+          jobId: string;
+        }) => Promise<ResumeStrategyRecommendation | null>
+      >()
+      .mockImplementation(
+        () =>
+          new Promise<ResumeStrategyRecommendation | null>((resolve) => {
+            resolveRecommendation = resolve;
+          }),
+      );
+    const { rerender } = render(
+      <ResumeStrategyJobPanel
+        campaignId="campaign_1"
+        isPending={false}
+        jobId="job_1"
+        onRecommend={onRecommend}
+        onSelect={vi.fn()}
+        selections={[]}
+        strategies={[strategy()]}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(onRecommend).toHaveBeenCalledTimes(1);
+    });
+
+    const replacementOnRecommend = vi
+      .fn<
+        (input: {
+          jobId: string;
+        }) => Promise<ResumeStrategyRecommendation | null>
+      >()
+      .mockImplementation(({ jobId }) =>
+        Promise.resolve(recommendation({ jobId })),
+      );
+    rerender(
+      <ResumeStrategyJobPanel
+        campaignId="campaign_1"
+        isPending={true}
+        jobId="job_1"
+        onRecommend={replacementOnRecommend}
+        onSelect={vi.fn()}
+        selections={[]}
+        strategies={[strategy()]}
+      />,
+    );
+
+    expect(replacementOnRecommend).not.toHaveBeenCalled();
+
+    resolveRecommendation(recommendation());
+    await waitFor(() => {
+      expect(screen.getByText(/Recommended: Backend engineering/)).toBeTruthy();
+    });
+
+    rerender(
+      <ResumeStrategyJobPanel
+        campaignId="campaign_1"
+        isPending={false}
+        jobId="job_2"
+        onRecommend={replacementOnRecommend}
+        onSelect={vi.fn()}
+        selections={[]}
+        strategies={[strategy()]}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(replacementOnRecommend).toHaveBeenCalledWith({ jobId: "job_2" });
+    });
+    expect(onRecommend).toHaveBeenCalledTimes(1);
+    expect(replacementOnRecommend).toHaveBeenCalledTimes(1);
+  });
+
+  it("deduplicates the recommendation request when StrictMode replays the effect", async () => {
+    const recommendationRequest =
+      deferred<ResumeStrategyRecommendation | null>();
+    const onRecommend = vi
+      .fn<
+        (input: {
+          jobId: string;
+        }) => Promise<ResumeStrategyRecommendation | null>
+      >()
+      .mockReturnValue(recommendationRequest.promise);
+
+    render(
+      <StrictMode>
+        <ResumeStrategyJobPanel
+          campaignId="campaign_1"
+          isPending={false}
+          jobId="job_1"
+          onRecommend={onRecommend}
+          onSelect={vi.fn()}
+          selections={[]}
+          strategies={[strategy()]}
+        />
+      </StrictMode>,
+    );
+
+    await waitFor(() => {
+      expect(onRecommend).toHaveBeenCalledTimes(1);
+    });
+    expect(onRecommend).toHaveBeenCalledWith({ jobId: "job_1" });
+
+    await act(async () => {
+      recommendationRequest.resolve(recommendation());
+      await recommendationRequest.promise;
+    });
+    expect(screen.getByText(/Recommended: Backend engineering/)).toBeTruthy();
+  });
+
+  it("ignores a job 1 recommendation that resolves after switching to job 2", async () => {
+    const job1Request = deferred<ResumeStrategyRecommendation | null>();
+    const job2Request = deferred<ResumeStrategyRecommendation | null>();
+    const onRecommend = vi
+      .fn<
+        (input: {
+          jobId: string;
+        }) => Promise<ResumeStrategyRecommendation | null>
+      >()
+      .mockImplementation(({ jobId }) =>
+        jobId === "job_1" ? job1Request.promise : job2Request.promise,
+      );
+    const { rerender } = render(
+      <ResumeStrategyJobPanel
+        campaignId="campaign_1"
+        isPending={false}
+        jobId="job_1"
+        onRecommend={onRecommend}
+        onSelect={vi.fn()}
+        selections={[]}
+        strategies={[strategy()]}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(onRecommend).toHaveBeenCalledWith({ jobId: "job_1" });
+    });
+    rerender(
+      <ResumeStrategyJobPanel
+        campaignId="campaign_1"
+        isPending={false}
+        jobId="job_2"
+        onRecommend={onRecommend}
+        onSelect={vi.fn()}
+        selections={[]}
+        strategies={[strategy()]}
+      />,
+    );
+    await waitFor(() => {
+      expect(onRecommend).toHaveBeenCalledWith({ jobId: "job_2" });
+    });
+
+    await act(async () => {
+      job1Request.resolve(
+        recommendation({
+          jobId: "job_1",
+          reason: "Stale job 1 recommendation.",
+        }),
+      );
+      await job1Request.promise;
+    });
+    expect(screen.getByText(/Checking strategies for this job/)).toBeTruthy();
+    expect(screen.queryByText("Stale job 1 recommendation.")).toBeNull();
+
+    await act(async () => {
+      job2Request.resolve(
+        recommendation({
+          jobId: "job_2",
+          reason: "Fresh job 2 recommendation.",
+        }),
+      );
+      await job2Request.promise;
+    });
+    expect(screen.getByText("Fresh job 2 recommendation.")).toBeTruthy();
+  });
+
+  it("ignores a job 1 recommendation failure after switching to job 2", async () => {
+    const job1Request = deferred<ResumeStrategyRecommendation | null>();
+    const job2Request = deferred<ResumeStrategyRecommendation | null>();
+    const onRecommend = vi
+      .fn<
+        (input: {
+          jobId: string;
+        }) => Promise<ResumeStrategyRecommendation | null>
+      >()
+      .mockImplementation(({ jobId }) =>
+        jobId === "job_1" ? job1Request.promise : job2Request.promise,
+      );
+    const { rerender } = render(
+      <ResumeStrategyJobPanel
+        campaignId="campaign_1"
+        isPending={false}
+        jobId="job_1"
+        onRecommend={onRecommend}
+        onSelect={vi.fn()}
+        selections={[]}
+        strategies={[strategy()]}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(onRecommend).toHaveBeenCalledWith({ jobId: "job_1" });
+    });
+    rerender(
+      <ResumeStrategyJobPanel
+        campaignId="campaign_1"
+        isPending={false}
+        jobId="job_2"
+        onRecommend={onRecommend}
+        onSelect={vi.fn()}
+        selections={[]}
+        strategies={[strategy()]}
+      />,
+    );
+    await waitFor(() => {
+      expect(onRecommend).toHaveBeenCalledWith({ jobId: "job_2" });
+    });
+
+    await act(async () => {
+      job1Request.reject(new Error("Stale job 1 failure."));
+      await Promise.resolve();
+    });
+    expect(screen.getByText(/Checking strategies for this job/)).toBeTruthy();
+    expect(screen.queryByText("Stale job 1 failure.")).toBeNull();
+    expect(
+      screen.queryByText("Strategy recommendation unavailable"),
+    ).toBeNull();
+
+    await act(async () => {
+      job2Request.resolve(
+        recommendation({
+          jobId: "job_2",
+          reason: "Fresh job 2 recommendation after stale failure.",
+        }),
+      );
+      await job2Request.promise;
+    });
+    expect(
+      screen.getByText("Fresh job 2 recommendation after stale failure."),
+    ).toBeTruthy();
+  });
+
+  it("does not update after a pending recommendation resolves after unmount", async () => {
+    const recommendationRequest =
+      deferred<ResumeStrategyRecommendation | null>();
+    const onRecommend = vi
+      .fn<
+        (input: {
+          jobId: string;
+        }) => Promise<ResumeStrategyRecommendation | null>
+      >()
+      .mockReturnValue(recommendationRequest.promise);
+    const { unmount } = render(
+      <ResumeStrategyJobPanel
+        campaignId="campaign_1"
+        isPending={false}
+        jobId="job_1"
+        onRecommend={onRecommend}
+        onSelect={vi.fn()}
+        selections={[]}
+        strategies={[strategy()]}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(onRecommend).toHaveBeenCalledTimes(1);
+    });
+    unmount();
+
+    await act(async () => {
+      recommendationRequest.resolve(
+        recommendation({ reason: "Resolved after unmount." }),
+      );
+      await recommendationRequest.promise;
+    });
+    expect(screen.queryByText("Resolved after unmount.")).toBeNull();
+    expect(screen.queryByText(/Recommended:/)).toBeNull();
   });
 
   it("shows a loading state while recommending and an error state on failure", async () => {

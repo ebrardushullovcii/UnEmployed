@@ -259,6 +259,43 @@ export type ApplicationCrmMutationInput = z.infer<
   typeof ApplicationCrmMutationInputSchema
 >;
 
+export const ApplicationCrmBulkStageMutationItemSchema = z.object({
+  applicationRecordId: NonEmptyStringSchema,
+  expectedRevision: z.number().int().nonnegative(),
+});
+export type ApplicationCrmBulkStageMutationItem = z.infer<
+  typeof ApplicationCrmBulkStageMutationItemSchema
+>;
+
+/**
+ * A stage-only bulk command. Each selected record carries the revision that
+ * was visible to the user so the entire command can be rejected as stale
+ * without partially changing the CRM.
+ */
+export const ApplicationCrmBulkStageMutationInputSchema = z
+  .object({
+    items: ApplicationCrmBulkStageMutationItemSchema.array().min(1).max(1000),
+    stage: ApplicationCrmStageSchema,
+    customStageId: NonEmptyStringSchema.nullable().default(null),
+    note: NonEmptyStringSchema.nullable().default(null),
+  })
+  .superRefine((input, context) => {
+    const seen = new Set<string>();
+    for (const [index, item] of input.items.entries()) {
+      if (seen.has(item.applicationRecordId)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Each application record may appear only once.",
+          path: ["items", index, "applicationRecordId"],
+        });
+      }
+      seen.add(item.applicationRecordId);
+    }
+  });
+export type ApplicationCrmBulkStageMutationInput = z.infer<
+  typeof ApplicationCrmBulkStageMutationInputSchema
+>;
+
 export const ApplicationCrmDuplicateHintSchema = z.object({
   applicationRecordId: NonEmptyStringSchema,
   duplicateApplicationRecordId: NonEmptyStringSchema,

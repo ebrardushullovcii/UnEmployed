@@ -23,6 +23,7 @@ import {
   snoozeGroupedDecision,
   type GroupedManualAnswerRequestContext,
 } from "./grouped-manual-answer-operations";
+import { recordContradictoryAnswerDetection } from "./safeguard-operations";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
 
 /**
@@ -235,6 +236,32 @@ export function createWorkspaceGroupedAnswerMethods(input: {
         occurredAt: now,
       });
 
+      // Persist advisory contradiction evidence independently of decision
+      // projection. A conflicting saved answer intentionally produces no
+      // grouped decision, but the evidence must survive that rejected
+      // projection so the user can resolve or dismiss it later.
+      let nextSafeguards = intelligence.safeguards;
+      for (const evidence of projected.contradictionEvidence) {
+        const result = recordContradictoryAnswerDetection({
+          safeguards: nextSafeguards,
+          detection: evidence,
+          now,
+        });
+        if (result.ok) nextSafeguards = result.safeguards;
+      }
+      const safeguardsChanged =
+        JSON.stringify(nextSafeguards) !==
+        JSON.stringify(intelligence.safeguards);
+      if (safeguardsChanged) {
+        await ctx.repository.saveIntelligenceState(
+          JobFinderIntelligenceStateSchema.parse({
+            ...intelligence,
+            safeguards: nextSafeguards,
+            updatedAt: now,
+          }),
+        );
+      }
+
       if (projected.decisions.length === 0) {
         throw new Error(
           "No compatible manual-answer group could be projected from the pending requests.",
@@ -277,6 +304,7 @@ export function createWorkspaceGroupedAnswerMethods(input: {
         JobFinderIntelligenceStateSchema.parse({
           ...intelligence,
           groupedDecisions: nextDecisions,
+          safeguards: nextSafeguards,
           updatedAt: now,
         }),
       );

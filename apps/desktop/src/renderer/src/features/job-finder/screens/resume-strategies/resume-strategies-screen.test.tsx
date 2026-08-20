@@ -7,7 +7,13 @@ import type {
   SetCampaignResumeStrategyDefaultInput,
 } from "@unemployed/contracts";
 import { ResumeStrategySchema } from "@unemployed/contracts";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ResumeStrategiesScreen } from "./resume-strategies-screen";
 
@@ -16,9 +22,7 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
-function strategy(
-  overrides: Partial<ResumeStrategy> = {},
-): ResumeStrategy {
+function strategy(overrides: Partial<ResumeStrategy> = {}): ResumeStrategy {
   return ResumeStrategySchema.parse({
     id: "strategy_1",
     name: "Backend engineering",
@@ -37,7 +41,9 @@ function strategy(
   });
 }
 
-function campaign(overrides: Partial<JobSearchCampaign> = {}): JobSearchCampaign {
+function campaign(
+  overrides: Partial<JobSearchCampaign> = {},
+): JobSearchCampaign {
   return {
     id: "campaign_1",
     name: "Remote backend",
@@ -215,8 +221,9 @@ describe("ResumeStrategiesScreen", () => {
       },
     );
     expect(
-      screen.getByText((_content, element) =>
-        element?.textContent === 'No strategies match “design”',
+      screen.getByText(
+        (_content, element) =>
+          element?.textContent === "No strategies match “design”",
       ),
     ).toBeTruthy();
   });
@@ -245,7 +252,9 @@ describe("ResumeStrategiesScreen", () => {
   });
 
   it("re-enables a disabled strategy by saving with enabled true", () => {
-    const onSaveStrategy = vi.fn<(input: SaveResumeStrategyInput) => void>();
+    const onSaveStrategy = vi
+      .fn<(input: SaveResumeStrategyInput) => Promise<boolean>>()
+      .mockResolvedValue(true);
     const disabled = strategy({ enabled: false });
     render(
       <ResumeStrategiesScreen
@@ -272,7 +281,9 @@ describe("ResumeStrategiesScreen", () => {
   });
 
   it("creates a strategy with explicit policy fields and never an approval flag", () => {
-    const onSaveStrategy = vi.fn<(input: SaveResumeStrategyInput) => void>();
+    const onSaveStrategy = vi
+      .fn<(input: SaveResumeStrategyInput) => Promise<boolean>>()
+      .mockResolvedValue(true);
     render(
       <ResumeStrategiesScreen
         actionMessage={null}
@@ -303,7 +314,9 @@ describe("ResumeStrategiesScreen", () => {
     fireEvent.change(screen.getByLabelText("Tailoring strength"), {
       target: { value: "balanced" },
     });
-    fireEvent.click(screen.getByLabelText("Allow paraphrased claims grounded in evidence"));
+    fireEvent.click(
+      screen.getByLabelText("Allow paraphrased claims grounded in evidence"),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Create strategy" }));
 
     const saved = onSaveStrategy.mock.calls[0]?.[0];
@@ -319,9 +332,8 @@ describe("ResumeStrategiesScreen", () => {
   });
 
   it("assigns a campaign default from enabled strategies only", () => {
-    const onSetCampaignDefault = vi.fn<
-      (input: SetCampaignResumeStrategyDefaultInput) => void
-    >();
+    const onSetCampaignDefault =
+      vi.fn<(input: SetCampaignResumeStrategyDefaultInput) => void>();
     const disabled = strategy({
       id: "strategy_disabled",
       name: "Legacy",
@@ -345,9 +357,9 @@ describe("ResumeStrategiesScreen", () => {
     );
 
     const select = screen.getByLabelText("Remote backend");
-    const options = Array.from(
-      select.querySelectorAll("option"),
-    ).map((option) => option.textContent);
+    const options = Array.from(select.querySelectorAll("option")).map(
+      (option) => option.textContent,
+    );
     // The disabled strategy is not offered as a campaign default.
     expect(options).toContain("Backend engineering");
     expect(options).not.toContain("Legacy");
@@ -357,6 +369,128 @@ describe("ResumeStrategiesScreen", () => {
       campaignId: "campaign_1",
       strategyId: "strategy_1",
     });
+  });
+
+  it("keeps a disabled persisted default visible with status and a clear action", () => {
+    const onSetCampaignDefault =
+      vi.fn<(input: SetCampaignResumeStrategyDefaultInput) => void>();
+    const disabled = strategy({
+      id: "strategy_disabled",
+      name: "Legacy",
+      enabled: false,
+    });
+    render(
+      <ResumeStrategiesScreen
+        actionMessage={null}
+        baseResumeDocumentId="resume_1"
+        campaigns={[
+          campaign({
+            applicationPolicy: {
+              ...campaign().applicationPolicy,
+              defaultResumeStrategyId: "strategy_disabled",
+            },
+          }),
+        ]}
+        candidateDocumentIds={[]}
+        isCampaignDefaultPending={() => false}
+        isDisablePending={() => false}
+        isLoading={false}
+        isSavePending={false}
+        onDisableStrategy={vi.fn()}
+        onSaveStrategy={vi.fn()}
+        onSetCampaignDefault={onSetCampaignDefault}
+        strategies={[strategy(), disabled]}
+      />,
+    );
+
+    const disabledOption = screen.getByRole("option", {
+      name: "Legacy (Disabled)",
+    });
+    expect(disabledOption).toBeTruthy();
+    expect((disabledOption as HTMLOptionElement).disabled).toBe(true);
+    expect(screen.getByRole("status").textContent).toContain(
+      "Legacy remains persisted as this campaign's default, but it will not be recommended while disabled.",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear default" }));
+    expect(onSetCampaignDefault).toHaveBeenCalledWith({
+      campaignId: "campaign_1",
+      strategyId: null,
+    });
+  });
+
+  it("retains the editor draft when saving fails", async () => {
+    const onSaveStrategy = vi
+      .fn<(input: SaveResumeStrategyInput) => Promise<boolean>>()
+      .mockResolvedValue(false);
+    render(
+      <ResumeStrategiesScreen
+        actionMessage={null}
+        baseResumeDocumentId="resume_1"
+        campaigns={[]}
+        candidateDocumentIds={[]}
+        isCampaignDefaultPending={() => false}
+        isDisablePending={() => false}
+        isLoading={false}
+        isSavePending={false}
+        onDisableStrategy={vi.fn()}
+        onSaveStrategy={onSaveStrategy}
+        onSetCampaignDefault={vi.fn()}
+        strategies={[]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "New strategy" }));
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Frontend engineering" },
+    });
+    fireEvent.change(screen.getByLabelText("Role family"), {
+      target: { value: "Frontend Engineering" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create strategy" }));
+
+    await waitFor(() => expect(onSaveStrategy).toHaveBeenCalledTimes(1));
+    expect(
+      screen.getByRole("heading", { name: "Create strategy" }),
+    ).toBeTruthy();
+    expect(screen.getByDisplayValue("Frontend engineering")).toBeTruthy();
+  });
+
+  it("closes the editor only after saving succeeds", async () => {
+    const onSaveStrategy = vi
+      .fn<(input: SaveResumeStrategyInput) => Promise<boolean>>()
+      .mockResolvedValue(true);
+    render(
+      <ResumeStrategiesScreen
+        actionMessage={null}
+        baseResumeDocumentId="resume_1"
+        campaigns={[]}
+        candidateDocumentIds={[]}
+        isCampaignDefaultPending={() => false}
+        isDisablePending={() => false}
+        isLoading={false}
+        isSavePending={false}
+        onDisableStrategy={vi.fn()}
+        onSaveStrategy={onSaveStrategy}
+        onSetCampaignDefault={vi.fn()}
+        strategies={[]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "New strategy" }));
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Frontend engineering" },
+    });
+    fireEvent.change(screen.getByLabelText("Role family"), {
+      target: { value: "Frontend Engineering" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create strategy" }));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("heading", { name: "Create strategy" }),
+      ).toBeNull(),
+    );
   });
 
   it("rejects nothing and keeps controls keyboard accessible", () => {
@@ -377,9 +511,7 @@ describe("ResumeStrategiesScreen", () => {
       />,
     );
 
-    expect(
-      screen.getByRole("status"),
-    ).toBeTruthy();
+    expect(screen.getByRole("status")).toBeTruthy();
     // Native controls used throughout are keyboard reachable.
     expect(screen.getByRole("button", { name: "Disable" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Edit" })).toBeTruthy();

@@ -15,7 +15,6 @@ describe("workspace company intelligence end to end", () => {
 
   test("refreshCompanyIntelligence reconciles companies from saved jobs and applications", async () => {
     const harness = createWorkspaceServiceHarness();
-    const { workspaceService } = harness;
     const snapshot = await withReconciledCompanies(harness);
 
     const companies = snapshot.intelligence.companies;

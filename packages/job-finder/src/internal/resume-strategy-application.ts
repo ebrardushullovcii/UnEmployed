@@ -1,4 +1,8 @@
 import {
+  ResumeGenerationStrategyPolicySchema,
+  type ResumeGenerationStrategyPolicy,
+} from "@unemployed/ai-providers";
+import {
   JobFinderResumeWorkspaceStrategyContextSchema,
   type JobFinderIntelligenceState,
   type JobFinderResumeWorkspaceStrategyContext,
@@ -171,17 +175,16 @@ function findEnabledStrategy(
   );
 }
 
-/**
- * Builds the read-only strategy context shown in Resume Studio: the current
- * recommendation (with its inspectable reason), the persisted per-job
- * selection (with its own reason), and the policy fields of the enabled
- * strategy that currently applies as a presentation default.
- */
-export function buildResumeStrategyContext(input: {
+interface ResumeStrategyApplicationResolution {
+  context: JobFinderResumeWorkspaceStrategyContext;
+  policy: ResumeGenerationStrategyPolicy | null;
+}
+
+function resolveResumeStrategyApplication(input: {
   state: JobFinderIntelligenceState;
   job: SavedJob;
   campaignDefaultResumeStrategyId?: string | null;
-}): JobFinderResumeWorkspaceStrategyContext {
+}): ResumeStrategyApplicationResolution {
   const { roleFamily, recommendation } = recommendResumeStrategyForJob(input);
   const selection =
     input.state.resumeStrategySelections.find(
@@ -197,14 +200,19 @@ export function buildResumeStrategyContext(input: {
         (strategy) => strategy.id === selection.strategyId,
       ) ?? null)
     : null;
-  // Policy defaults come only from enabled strategies. A selection that was
-  // later disabled still shows as the persisted selection, but it no longer
-  // drives template/policy defaults.
   const effectiveStrategy =
     findEnabledStrategy(input.state, selectedStrategy?.id ?? null) ??
     findEnabledStrategy(input.state, recommendedStrategy?.id ?? null);
+  const effectiveSource = selectedStrategy?.enabled
+    ? "selection"
+    : effectiveStrategy
+      ? "recommendation"
+      : null;
+  const effectiveReason = selectedStrategy?.enabled
+    ? selection?.reason
+    : recommendation.reason;
 
-  return JobFinderResumeWorkspaceStrategyContextSchema.parse({
+  const context = JobFinderResumeWorkspaceStrategyContextSchema.parse({
     roleFamily,
     recommendedStrategyId: recommendation.strategyId,
     recommendedStrategyName: recommendedStrategy?.name ?? null,
@@ -222,6 +230,52 @@ export function buildResumeStrategyContext(input: {
     tailoringStrength: effectiveStrategy?.tailoringStrength ?? null,
     evidenceBoundaries: effectiveStrategy?.evidenceBoundaries ?? null,
   });
+
+  const policy =
+    effectiveStrategy && effectiveSource && effectiveReason
+      ? ResumeGenerationStrategyPolicySchema.parse({
+          strategyId: effectiveStrategy.id,
+          strategyName: effectiveStrategy.name,
+          roleFamily: effectiveStrategy.roleFamily,
+          baseResumeDocumentId: effectiveStrategy.baseResumeDocumentId,
+          templateId: effectiveStrategy.templateId,
+          headlinePolicy: effectiveStrategy.headlinePolicy,
+          skillsPolicy: effectiveStrategy.skillsPolicy,
+          coveragePolicy: effectiveStrategy.coveragePolicy,
+          tailoringStrength: effectiveStrategy.tailoringStrength,
+          evidenceBoundaries: effectiveStrategy.evidenceBoundaries,
+          effectiveSource,
+          effectiveReason,
+          recommendationSource: recommendation.source,
+          recommendationReason: recommendation.reason,
+          selectionSource: selection?.source ?? null,
+          selectionReason: selection?.reason ?? null,
+        })
+      : null;
+
+  return { context, policy };
+}
+
+/**
+ * Builds the read-only strategy context shown in Resume Studio: the current
+ * recommendation (with its inspectable reason), the persisted per-job
+ * selection (with its own reason), and the policy fields of the enabled
+ * strategy that currently applies as a presentation default.
+ */
+export function buildResumeStrategyContext(input: {
+  state: JobFinderIntelligenceState;
+  job: SavedJob;
+  campaignDefaultResumeStrategyId?: string | null;
+}): JobFinderResumeWorkspaceStrategyContext {
+  return resolveResumeStrategyApplication(input).context;
+}
+
+export function buildResumeGenerationStrategyPolicy(input: {
+  state: JobFinderIntelligenceState;
+  job: SavedJob;
+  campaignDefaultResumeStrategyId?: string | null;
+}): ResumeGenerationStrategyPolicy | null {
+  return resolveResumeStrategyApplication(input).policy;
 }
 
 export function resolveCampaignDefaultResumeStrategyId(

@@ -18,7 +18,10 @@ export interface ResumeWorkspaceScreenProps {
   onBack: () => void
   onRefresh: () => void
   onDirtyChange: (dirty: boolean) => void
-  onPreviewDraft: (draft: ResumeDraft) => Promise<JobFinderResumePreview>
+  onPreviewDraft: (
+    draft: ResumeDraft,
+    requestId?: string,
+  ) => Promise<JobFinderResumePreview>
   onSaveDraft: (draft: ResumeDraft) => void
   onSaveDraftAndThen: (
     draft: ResumeDraft,

@@ -191,6 +191,48 @@ describe("appendOutcomeEvent", () => {
 });
 
 describe("deriveOutcomeAnalytics", () => {
+  it("derives one requested dimension deterministically for 10k events", () => {
+    const events = Array.from({ length: 10_000 }, (_, index) =>
+      event({
+        id: `large-${index}`,
+        jobId: `large-job-${index}`,
+        campaignId: `large-campaign-${index % 4}`,
+        source: `source-${String(index % 100).padStart(3, "0")}`,
+        company: `Company ${index % 25}`,
+        jobTitle: `Role ${index % 10}`,
+        resumeStrategyId: `strategy-${index % 5}`,
+        outcome:
+          index % 3 === 0
+            ? "interview"
+            : index % 3 === 1
+              ? "rejected"
+              : "applied",
+      }),
+    );
+    const input = {
+      events,
+      generatedAt: now,
+      dimensions: ["source"] as const,
+    };
+
+    const first = deriveOutcomeAnalytics(input);
+    const second = deriveOutcomeAnalytics(input);
+
+    expect(first).toEqual(second);
+    expect([
+      ...new Set(first.buckets.map((bucket) => bucket.dimension)),
+    ]).toEqual(["source"]);
+    expect(first.buckets).toHaveLength(100);
+    expect(first.buckets.slice(0, 3).map((bucket) => bucket.key)).toEqual([
+      "source-000",
+      "source-001",
+      "source-002",
+    ]);
+    expect(first.buckets.every((bucket) => bucket.sampleSize === 100)).toBe(
+      true,
+    );
+  });
+
   it("derives buckets for every supported dimension from actual events", () => {
     const events: OutcomeEvent[] = [
       ...Array.from({ length: 12 }, (_, index) =>

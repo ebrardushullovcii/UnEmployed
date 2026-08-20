@@ -313,6 +313,40 @@ describe("workspace grouped reusable manual answers", () => {
     expect(state.groupedDecisions).toEqual([]);
   });
 
+  test("persists advisory contradiction evidence when saved reuse conflicts", async () => {
+    const seed = createSeed();
+    seedGroupedRequests({ seed, memberBHasAnswer: true });
+    seed.applicationAnswerRecords = seed.applicationAnswerRecords.map(
+      (answer) => ({
+        ...answer,
+        text: "7 years",
+        value: { type: "text" as const, value: "7 years" },
+      }),
+    );
+    const harness = createWorkspaceServiceHarness({ seed });
+
+    await expect(
+      harness.workspaceService.projectGroupedManualAnswer(projectCommand()),
+    ).rejects.toThrow(/no compatible manual-answer group/i);
+
+    const first = await harness.repository.getIntelligenceState();
+    expect(first.groupedDecisions).toEqual([]);
+    expect(first.safeguards.contradictoryAnswerDetections).toHaveLength(1);
+    expect(first.safeguards.contradictoryAnswerDetections[0]).toEqual(
+      expect.objectContaining({
+        answerA: "7 years",
+        answerB: "5 years",
+        status: "detected",
+      }),
+    );
+
+    await expect(
+      harness.workspaceService.projectGroupedManualAnswer(projectCommand()),
+    ).rejects.toThrow(/no compatible manual-answer group/i);
+    const second = await harness.repository.getIntelligenceState();
+    expect(second.safeguards.contradictoryAnswerDetections).toHaveLength(1);
+  });
+
   test("applies the exact lineage, creating revision-1 answers for revision-0 members", async () => {
     const seed = createSeed();
     seedGroupedRequests({ seed, memberBHasAnswer: true });

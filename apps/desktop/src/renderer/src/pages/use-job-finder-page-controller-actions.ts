@@ -1,4 +1,5 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
+import { appendDiscoveryLiveActivityEvent } from "@unemployed/contracts";
 import type {
   CandidateProfile,
   DiscoveryActivityEvent,
@@ -43,6 +44,7 @@ import {
 
 type ActionOptions = {
   clearMessageOnStart?: boolean;
+  rethrowError?: boolean;
   scope?: PendingActionScope;
   startMessage?: string;
 };
@@ -99,6 +101,87 @@ type BaseActionArgs = {
 };
 
 const handledRefreshErrorTag = Symbol("handledRefreshError");
+
+export const DISCOVERY_PROGRESS_REFRESH_INTERVAL_MS = 250;
+
+export type DiscoveryWorkspaceRefreshCoordinator = {
+  notifySourceCompleted: () => void;
+  flushFinal: () => Promise<unknown>;
+  dispose: () => void;
+};
+
+/**
+ * Coalesces source-completion refreshes while keeping at most one snapshot
+ * request in flight. The final flush always performs a fresh authoritative
+ * read after any progressive request settles, so a slow earlier snapshot
+ * cannot overwrite the completed run.
+ */
+export function createDiscoveryWorkspaceRefreshCoordinator(
+  refreshWorkspace: () => Promise<unknown>,
+  options: { intervalMs?: number } = {},
+): DiscoveryWorkspaceRefreshCoordinator {
+  const intervalMs =
+    options.intervalMs ?? DISCOVERY_PROGRESS_REFRESH_INTERVAL_MS;
+  let disposed = false;
+  let pending = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let inFlight: Promise<void> | null = null;
+
+  const schedule = () => {
+    if (disposed || !pending || timer !== null || inFlight !== null) {
+      return;
+    }
+
+    timer = setTimeout(() => {
+      timer = null;
+      if (disposed || !pending) {
+        return;
+      }
+
+      pending = false;
+      inFlight = Promise.resolve()
+        .then(() => refreshWorkspace())
+        .then(() => undefined)
+        .catch(() => undefined)
+        .finally(() => {
+          inFlight = null;
+          schedule();
+        });
+    }, intervalMs);
+  };
+
+  return {
+    notifySourceCompleted: () => {
+      pending = true;
+      schedule();
+    },
+    flushFinal: async () => {
+      pending = false;
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+
+      if (inFlight !== null) {
+        await inFlight;
+      }
+
+      if (!disposed) {
+        return refreshWorkspace();
+      }
+
+      return undefined;
+    },
+    dispose: () => {
+      disposed = true;
+      pending = false;
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    },
+  };
+}
 
 type HandledRefreshError = Error & {
   [handledRefreshErrorTag]: true;
@@ -236,6 +319,9 @@ export function createActionRunners(args: {
         "The requested Job Finder action failed.",
       );
       setActionState({ message });
+      if (options?.rethrowError) {
+        throw error instanceof Error ? error : new Error(message);
+      }
       return false;
     }
   };
@@ -404,25 +490,27 @@ export function createPrimaryPageActions(
     setLiveDiscoveryEvents([]);
     void runAction(
       async () => {
-        let progressiveRefresh: Promise<unknown> = Promise.resolve();
+        const refreshCoordinator = createDiscoveryWorkspaceRefreshCoordinator(
+          actions.refreshWorkspace,
+        );
 
         try {
           await actions.runAgentDiscovery((event) => {
-            setLiveDiscoveryEvents((current) => [...current, event]);
+            setLiveDiscoveryEvents((current) =>
+              appendDiscoveryLiveActivityEvent(current, event),
+            );
 
             if (event.terminalState === "completed" && event.targetId) {
-              progressiveRefresh = progressiveRefresh
-                .then(() => actions.refreshWorkspace())
-                .catch(() => undefined);
+              refreshCoordinator.notifySourceCompleted();
             }
           }, targetId);
-          await progressiveRefresh;
 
-          // A slower snapshot requested for an earlier source must not win a
-          // race against the completed run. Finish with one authoritative
-          // workspace read after every progressive refresh has settled.
-          return await actions.refreshWorkspace();
+          // Finish with one authoritative workspace read after any bounded
+          // progressive refresh has settled. A slower snapshot requested for
+          // an earlier source cannot win a race against the completed run.
+          return await refreshCoordinator.flushFinal();
         } finally {
+          refreshCoordinator.dispose();
           setLiveDiscoveryEvents([]);
         }
       },
@@ -581,8 +669,8 @@ export function createPrimaryPageActions(
             () =>
               actions.startApplyCopilotRun(jobId, { visualCheckpointsEnabled }),
             visualCheckpointsEnabled
-              ? "Apply copilot prepared the application with visual checkpoints and paused before final submit. Review it in Applications."
-              : "Apply copilot prepared the application and paused before final submit. Review it in Applications.",
+              ? "Apply Copilot prepared the application with visual checkpoints and paused before final submit. Review it in Applications."
+              : "Apply Copilot prepared the application and paused before final submit. Review it in Applications.",
             jobFinderPendingActions.apply(),
           );
         },
@@ -1167,7 +1255,7 @@ export function createPrimaryPageActions(
         { scope: jobFinderPendingActions.profileMutation() },
       ),
     onSaveResumeStrategy: (input: SaveResumeStrategyInput) =>
-      void runAction(
+      runAction(
         () => actions.saveResumeStrategy(input),
         () => undefined,
         input.id

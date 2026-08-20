@@ -82,7 +82,9 @@ function JobRow(props: { job: SavedJob; onOpen: (jobId: string) => void }) {
         </p>
         <p className="text-(length:--text-tiny) text-foreground-muted">
           {props.job.location} · {formatStatusLabel(props.job.status)}
-          {props.job.postedAt ? ` · Posted ${props.job.postedAt.slice(0, 10)}` : ""}
+          {props.job.postedAt
+            ? ` · Posted ${props.job.postedAt.slice(0, 10)}`
+            : ""}
         </p>
       </div>
       <Button
@@ -154,11 +156,13 @@ function ContactsSection(props: {
       createdAt: now,
       updatedAt: now,
     };
-    void props.onMutate({
-      companyId: props.company.id,
-      expectedUpdatedAt: props.company.updatedAt,
-      mutation: { type: "upsert_contact", contact },
-    }).then(reset);
+    void props
+      .onMutate({
+        companyId: props.company.id,
+        expectedUpdatedAt: props.company.updatedAt,
+        mutation: { type: "upsert_contact", contact },
+      })
+      .then(reset);
   };
 
   return (
@@ -203,7 +207,10 @@ function ContactsSection(props: {
                     void props.onMutate({
                       companyId: props.company.id,
                       expectedUpdatedAt: props.company.updatedAt,
-                      mutation: { type: "remove_contact", contactId: contact.id },
+                      mutation: {
+                        type: "remove_contact",
+                        contactId: contact.id,
+                      },
                     })
                   }
                   size="sm"
@@ -311,11 +318,13 @@ function NotesSection(props: {
       createdAt: now,
       updatedAt: now,
     };
-    void props.onMutate({
-      companyId: props.company.id,
-      expectedUpdatedAt: props.company.updatedAt,
-      mutation: { type: "add_note", note },
-    }).then(() => setBody(""));
+    void props
+      .onMutate({
+        companyId: props.company.id,
+        expectedUpdatedAt: props.company.updatedAt,
+        mutation: { type: "add_note", note },
+      })
+      .then(() => setBody(""));
   };
 
   return (
@@ -418,11 +427,13 @@ function EvidenceSection(props: {
       createdAt: now,
       updatedAt: now,
     };
-    void props.onMutate({
-      companyId: props.company.id,
-      expectedUpdatedAt: props.company.updatedAt,
-      mutation: { type: "upsert_salary_offer_evidence", evidence },
-    }).then(reset);
+    void props
+      .onMutate({
+        companyId: props.company.id,
+        expectedUpdatedAt: props.company.updatedAt,
+        mutation: { type: "upsert_salary_offer_evidence", evidence },
+      })
+      .then(reset);
   };
 
   return (
@@ -448,7 +459,11 @@ function EvidenceSection(props: {
                 {evidence.jobId || evidence.applicationRecordId ? (
                   <p className="text-(length:--text-tiny) text-foreground-muted">
                     Linked to{" "}
-                    {[evidence.jobId && `job ${evidence.jobId}`, evidence.applicationRecordId && `application ${evidence.applicationRecordId}`]
+                    {[
+                      evidence.jobId && `job ${evidence.jobId}`,
+                      evidence.applicationRecordId &&
+                        `application ${evidence.applicationRecordId}`,
+                    ]
                       .filter(Boolean)
                       .join(", ")}
                   </p>
@@ -549,7 +564,8 @@ function EvidenceSection(props: {
             onChange={(event) =>
               setDraft((current) => ({
                 ...current,
-                minimum: event.target.value === "" ? null : Number(event.target.value),
+                minimum:
+                  event.target.value === "" ? null : Number(event.target.value),
               }))
             }
             min={0}
@@ -564,7 +580,8 @@ function EvidenceSection(props: {
             onChange={(event) =>
               setDraft((current) => ({
                 ...current,
-                maximum: event.target.value === "" ? null : Number(event.target.value),
+                maximum:
+                  event.target.value === "" ? null : Number(event.target.value),
               }))
             }
             min={0}
@@ -583,7 +600,8 @@ function EvidenceSection(props: {
                 period:
                   event.target.value === ""
                     ? null
-                    : (event.target.value as CompanySalaryOfferEvidence["period"]),
+                    : (event.target
+                        .value as CompanySalaryOfferEvidence["period"]),
               }))
             }
             value={draft.period ?? ""}
@@ -604,7 +622,8 @@ function EvidenceSection(props: {
                 offerStatus:
                   event.target.value === ""
                     ? null
-                    : (event.target.value as CompanySalaryOfferEvidence["offerStatus"]),
+                    : (event.target
+                        .value as CompanySalaryOfferEvidence["offerStatus"]),
               }))
             }
             value={draft.offerStatus ?? ""}
@@ -699,13 +718,13 @@ function MergeReviewSection(props: {
               <div className="flex gap-2">
                 <Button
                   disabled={props.isPending(props.company.id)}
-                  onClick={() =>
-                    props.onReview({
+                  onClick={() => {
+                    void props.onReview({
                       companyId: props.company.id,
                       candidateId: candidate.candidateCompanyId,
                       decision: "rejected",
-                    })
-                  }
+                    });
+                  }}
                   pending={props.isPending(props.company.id)}
                   size="sm"
                   type="button"
@@ -715,13 +734,13 @@ function MergeReviewSection(props: {
                 </Button>
                 <Button
                   disabled={props.isPending(props.company.id)}
-                  onClick={() =>
-                    props.onReview({
+                  onClick={() => {
+                    void props.onReview({
                       companyId: props.company.id,
                       candidateId: candidate.candidateCompanyId,
                       decision: "accepted",
-                    })
-                  }
+                    });
+                  }}
                   pending={props.isPending(props.company.id)}
                   size="sm"
                   type="button"
@@ -769,13 +788,15 @@ export function CompanyDetailScreen(props: CompanyDetailScreenProps) {
 
   const handleMutate = (command: CompanyIntelligenceMutationInput) => {
     setMutationError(null);
-    return props.onMutateCompanyIntelligence(command).catch((error: unknown) => {
-      setMutationError(
-        error instanceof Error
-          ? error.message
-          : "The company change could not be saved. Refresh and try again.",
-      );
-    });
+    return props
+      .onMutateCompanyIntelligence(command)
+      .catch((error: unknown) => {
+        setMutationError(
+          error instanceof Error
+            ? error.message
+            : "The company change could not be saved. Refresh and try again.",
+        );
+      });
   };
 
   if (!company) {
@@ -790,12 +811,7 @@ export function CompanyDetailScreen(props: CompanyDetailScreenProps) {
   return (
     <section className="grid gap-5 pb-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Button
-          onClick={props.onBack}
-          size="sm"
-          type="button"
-          variant="ghost"
-        >
+        <Button onClick={props.onBack} size="sm" type="button" variant="ghost">
           <ArrowLeft aria-hidden="true" className="mr-1 size-4" />
           All companies
         </Button>
@@ -876,13 +892,13 @@ export function CompanyDetailScreen(props: CompanyDetailScreenProps) {
             }
             value={company.preference}
           >
-            {(
-              Object.keys(companyPreferenceLabels) as CompanyPreference[]
-            ).map((preference) => (
-              <option key={preference} value={preference}>
-                {companyPreferenceLabels[preference]}
-              </option>
-            ))}
+            {(Object.keys(companyPreferenceLabels) as CompanyPreference[]).map(
+              (preference) => (
+                <option key={preference} value={preference}>
+                  {companyPreferenceLabels[preference]}
+                </option>
+              ),
+            )}
           </select>
           <span className="max-w-96 text-(length:--text-tiny) leading-5 text-foreground-muted">
             Preference is a local tracking and ranking signal only. It never
@@ -976,7 +992,9 @@ export function CompanyDetailScreen(props: CompanyDetailScreenProps) {
                     <StatusBadge
                       tone={group.kind === "exact" ? "critical" : "neutral"}
                     >
-                      {group.kind === "exact" ? "Exact match" : "Possible match"}
+                      {group.kind === "exact"
+                        ? "Exact match"
+                        : "Possible match"}
                     </StatusBadge>
                   </div>
                   <p className="text-(length:--text-small) leading-5 text-foreground">

@@ -51,6 +51,7 @@ import {
   ApplyVisualCheckpointSchema,
 } from "./visual";
 import { ApplicationCrmDataSchema } from "./application-crm";
+import { ApplicationListingSignalEvidenceSchema } from "./job-finder-intelligence";
 
 export const JobDiscoveryTargetSchema = z.object({
   id: NonEmptyStringSchema,
@@ -1366,6 +1367,8 @@ export const ApplicationAttemptSchema = z.object({
   checkpoints: z.array(ApplicationAttemptCheckpointSchema).default([]),
   questions: z.array(ApplicationAttemptQuestionSchema).default([]),
   blocker: ApplicationAttemptBlockerSchema.nullable().default(null),
+  listingSignalEvidence:
+    ApplicationListingSignalEvidenceSchema.nullable().default(null),
   consentDecisions: z
     .array(ApplicationAttemptConsentDecisionSchema)
     .default([]),
@@ -1389,6 +1392,8 @@ export const ApplyExecutionResultSchema = z.object({
   checkpoints: z.array(ApplicationAttemptCheckpointSchema).default([]),
   questions: z.array(ApplicationAttemptQuestionSchema).default([]),
   blocker: ApplicationAttemptBlockerSchema.nullable().default(null),
+  listingSignalEvidence:
+    ApplicationListingSignalEvidenceSchema.nullable().default(null),
   consentDecisions: z
     .array(ApplicationAttemptConsentDecisionSchema)
     .default([]),
@@ -1606,6 +1611,102 @@ export const DiscoveryActivityEventSchema = z.object({
 export type DiscoveryActivityEvent = z.infer<
   typeof DiscoveryActivityEventSchema
 >;
+
+/**
+ * The persisted run activity below is the complete, append-only history. The
+ * renderer receives a separate rolling projection while a run is live, so a
+ * chatty source cannot make the UI retain one entry for every progress tick.
+ * Run-level (target-less) activity is limited to this many non-terminal
+ * entries. The projection also keeps the latest event and the latest
+ * terminal/error event for each source, so source truth is not lost when old
+ * progress is compacted.
+ */
+export const DISCOVERY_LIVE_ACTIVITY_EVENT_LIMIT = 256;
+
+function isTerminalOrErrorDiscoveryActivityEvent(
+  event: DiscoveryActivityEvent,
+): boolean {
+  return event.terminalState !== null || event.kind === "error";
+}
+
+function findLastTerminalOrErrorDiscoveryActivityEvent(
+  events: readonly DiscoveryActivityEvent[],
+): DiscoveryActivityEvent | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event && isTerminalOrErrorDiscoveryActivityEvent(event)) {
+      return event;
+    }
+  }
+
+  return undefined;
+}
+
+function getDiscoveryActivitySourceKey(event: DiscoveryActivityEvent): string {
+  return `${event.runId}:${event.targetId ?? "__run__"}`;
+}
+
+/**
+ * Adds an event to the bounded live activity projection.
+ *
+ * This is intentionally different from appending to `DiscoveryRunRecord`
+ * history: the persisted record remains complete for search, timing, and
+ * recovery. For each source, the projection keeps its latest event and, when
+ * distinct, its latest terminal/error event. Target-less progress is a rolling
+ * window capped by `DISCOVERY_LIVE_ACTIVITY_EVENT_LIMIT`; the latest
+ * target-less terminal/error event for each run is retained as well.
+ */
+export function appendDiscoveryLiveActivityEvent(
+  current: readonly DiscoveryActivityEvent[],
+  event: DiscoveryActivityEvent,
+): DiscoveryActivityEvent[] {
+  const sourceKey = getDiscoveryActivitySourceKey(event);
+  const currentRunEvents = current.filter(
+    (candidate) => candidate.runId === event.runId,
+  );
+
+  if (event.targetId !== null) {
+    const sourceEvents = currentRunEvents.filter(
+      (candidate) =>
+        candidate.targetId !== null &&
+        getDiscoveryActivitySourceKey(candidate) === sourceKey,
+    );
+    const previousTerminal = findLastTerminalOrErrorDiscoveryActivityEvent(
+      sourceEvents,
+    );
+    const nextSourceEvents = isTerminalOrErrorDiscoveryActivityEvent(event)
+      ? [event]
+      : previousTerminal
+        ? [event, previousTerminal]
+        : [event];
+
+    return [
+      ...currentRunEvents.filter(
+        (candidate) => getDiscoveryActivitySourceKey(candidate) !== sourceKey,
+      ),
+      ...nextSourceEvents,
+    ];
+  }
+
+  const next = [...currentRunEvents, event];
+  const runActivity = next.filter((candidate) => candidate.targetId === null);
+  const latestCriticalRunEvent =
+    findLastTerminalOrErrorDiscoveryActivityEvent(runActivity);
+  const rollingRunEvents = runActivity
+    .filter((candidate) => !isTerminalOrErrorDiscoveryActivityEvent(candidate))
+    .slice(-DISCOVERY_LIVE_ACTIVITY_EVENT_LIMIT);
+  const retainedRunEvents = latestCriticalRunEvent
+    ? [...rollingRunEvents, latestCriticalRunEvent]
+    : rollingRunEvents;
+  const retainedRunEventIds = new Set(
+    retainedRunEvents.map((candidate) => candidate.id),
+  );
+
+  return next.filter(
+    (candidate) =>
+      candidate.targetId !== null || retainedRunEventIds.has(candidate.id),
+  );
+}
 
 export const DiscoveryRunSummarySchema = z.object({
   targetsPlanned: z.number().int().nonnegative().default(0),

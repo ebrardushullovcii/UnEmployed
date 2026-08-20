@@ -90,15 +90,13 @@ function StrategyForm(props: {
   candidateDocumentIds: readonly string[];
   isPending: boolean;
   onCancel: () => void;
-  onSave: (input: SaveResumeStrategyInput) => void;
+  onSave: (input: SaveResumeStrategyInput) => void | Promise<void>;
   value: SaveResumeStrategyInput;
 }) {
   const [draft, setDraft] = useState<SaveResumeStrategyInput>(props.value);
   const update = (patch: Partial<SaveResumeStrategyInput>) =>
     setDraft((current) => ({ ...current, ...patch }));
-  const updateBoundaries = (
-    patch: Partial<ResumeStrategyEvidenceBoundaries>,
-  ) =>
+  const updateBoundaries = (patch: Partial<ResumeStrategyEvidenceBoundaries>) =>
     update({
       evidenceBoundaries: { ...draft.evidenceBoundaries, ...patch },
     });
@@ -109,7 +107,7 @@ function StrategyForm(props: {
       className="surface-panel-shell grid gap-5 rounded-(--radius-panel) border border-(--surface-panel-border) p-5"
       onSubmit={(event) => {
         event.preventDefault();
-        props.onSave(draft);
+        void props.onSave(draft);
       }}
     >
       <div>
@@ -160,8 +158,7 @@ function StrategyForm(props: {
           <datalist id="resume-strategy-base-resume-options">
             {[props.baseResumeDocumentId, ...props.candidateDocumentIds]
               .filter(
-                (value, index, all) =>
-                  value && all.indexOf(value) === index,
+                (value, index, all) => value && all.indexOf(value) === index,
               )
               .map((value) => (
                 <option key={value} value={value} />
@@ -286,10 +283,7 @@ function StrategyForm(props: {
           still decide what is supported.
         </p>
         {evidenceBoundaryOptions.map((option) => (
-          <label
-            className="flex items-center gap-2 text-sm"
-            key={option.key}
-          >
+          <label className="flex items-center gap-2 text-sm" key={option.key}>
             <input
               checked={Boolean(draft.evidenceBoundaries[option.key])}
               onChange={(event) =>
@@ -466,7 +460,9 @@ function CampaignDefaultsSection(props: {
   onSetDefault: (input: SetCampaignResumeStrategyDefaultInput) => void;
   strategies: readonly ResumeStrategy[];
 }) {
-  const enabledStrategies = props.strategies.filter((strategy) => strategy.enabled);
+  const enabledStrategies = props.strategies.filter(
+    (strategy) => strategy.enabled,
+  );
 
   if (props.campaigns.length === 0) {
     return (
@@ -498,33 +494,76 @@ function CampaignDefaultsSection(props: {
         {props.campaigns.map((campaign) => {
           const currentDefaultId =
             campaign.applicationPolicy.defaultResumeStrategyId ?? "";
+          const currentDefaultStrategy = props.strategies.find(
+            (strategy) => strategy.id === currentDefaultId,
+          );
+          const currentDefaultIsDisabled =
+            currentDefaultStrategy?.enabled === false;
           return (
-            <label className="grid gap-1 text-sm" key={campaign.id}>
-              <span className="font-medium">{campaign.name}</span>
-              <select
-                className="h-10 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
-                disabled={props.isPending(campaign.id)}
-                onChange={(event) =>
-                  props.onSetDefault({
-                    campaignId: campaign.id,
-                    strategyId: event.target.value || null,
-                  })
-                }
-                value={currentDefaultId}
-              >
-                <option value="">No default</option>
-                {enabledStrategies.map((strategy) => (
-                  <option key={strategy.id} value={strategy.id}>
-                    {strategy.name}
-                  </option>
-                ))}
-              </select>
-              {props.isPending(campaign.id) ? (
-                <span className="text-(length:--text-tiny) text-foreground-muted">
-                  Saving…
-                </span>
+            <div className="grid gap-2 text-sm" key={campaign.id}>
+              <label className="grid gap-1">
+                <span className="font-medium">{campaign.name}</span>
+                <select
+                  className="h-10 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
+                  disabled={props.isPending(campaign.id)}
+                  onChange={(event) =>
+                    props.onSetDefault({
+                      campaignId: campaign.id,
+                      strategyId: event.target.value || null,
+                    })
+                  }
+                  value={currentDefaultId}
+                >
+                  <option value="">No default</option>
+                  {currentDefaultIsDisabled && currentDefaultStrategy ? (
+                    <option disabled value={currentDefaultStrategy.id}>
+                      {currentDefaultStrategy.name} (Disabled)
+                    </option>
+                  ) : null}
+                  {enabledStrategies.map((strategy) => (
+                    <option key={strategy.id} value={strategy.id}>
+                      {strategy.name}
+                    </option>
+                  ))}
+                </select>
+                {props.isPending(campaign.id) ? (
+                  <span className="text-(length:--text-tiny) text-foreground-muted">
+                    Saving…
+                  </span>
+                ) : null}
+              </label>
+              {currentDefaultIsDisabled && currentDefaultStrategy ? (
+                <div
+                  aria-live="polite"
+                  className="grid gap-2 rounded-(--radius-small) border border-destructive/25 bg-destructive/5 p-3"
+                  role="status"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusBadge tone="critical">Disabled default</StatusBadge>
+                    <span className="text-(length:--text-small) leading-5 text-foreground-soft">
+                      {currentDefaultStrategy.name} remains persisted as this
+                      campaign&apos;s default, but it will not be recommended
+                      while disabled.
+                    </span>
+                  </div>
+                  <Button
+                    disabled={props.isPending(campaign.id)}
+                    onClick={() =>
+                      props.onSetDefault({
+                        campaignId: campaign.id,
+                        strategyId: null,
+                      })
+                    }
+                    pending={props.isPending(campaign.id)}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    Clear default
+                  </Button>
+                </div>
               ) : null}
-            </label>
+            </div>
           );
         })}
       </div>
@@ -542,7 +581,7 @@ export function ResumeStrategiesScreen(props: {
   isLoading: boolean;
   isSavePending: boolean;
   onDisableStrategy: (strategyId: string) => void;
-  onSaveStrategy: (input: SaveResumeStrategyInput) => void;
+  onSaveStrategy: (input: SaveResumeStrategyInput) => Promise<boolean>;
   onSetCampaignDefault: (input: SetCampaignResumeStrategyDefaultInput) => void;
   strategies: readonly ResumeStrategy[];
 }) {
@@ -578,9 +617,7 @@ export function ResumeStrategiesScreen(props: {
           description="Name role-family targeting preferences: base resume, template, headline/skills/coverage policy, tailoring strength, and evidence boundaries."
         />
         <Button
-          onClick={() =>
-            setEditing(emptyFormInput(props.baseResumeDocumentId))
-          }
+          onClick={() => setEditing(emptyFormInput(props.baseResumeDocumentId))}
           type="button"
         >
           New strategy
@@ -604,9 +641,11 @@ export function ResumeStrategiesScreen(props: {
           candidateDocumentIds={props.candidateDocumentIds}
           isPending={props.isSavePending}
           onCancel={() => setEditing(null)}
-          onSave={(input) => {
-            props.onSaveStrategy(input);
-            setEditing(null);
+          onSave={async (input) => {
+            const saved = await props.onSaveStrategy(input);
+            if (saved) {
+              setEditing(null);
+            }
           }}
           value={editing}
         />
@@ -649,12 +688,10 @@ export function ResumeStrategiesScreen(props: {
               isSavePending={props.isSavePending}
               key={strategy.id}
               onDisable={props.onDisableStrategy}
-              onEdit={(next) =>
-                setEditing(toSaveInput(next))
-              }
-              onEnable={(next) =>
-                props.onSaveStrategy(toSaveInput(next, { enabled: true }))
-              }
+              onEdit={(next) => setEditing(toSaveInput(next))}
+              onEnable={(next) => {
+                void props.onSaveStrategy(toSaveInput(next, { enabled: true }));
+              }}
               strategy={strategy}
             />
           ))}

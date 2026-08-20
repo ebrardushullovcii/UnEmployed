@@ -43,6 +43,7 @@ export function getDiscoveryResultVisibility(
   jobs: readonly SavedJob[],
   selectedJob: SavedJob | null,
   showClearMismatches: boolean,
+  preserveSelectedJob = false,
 ): {
   hiddenMismatchCount: number;
   jobs: readonly SavedJob[];
@@ -53,7 +54,9 @@ export function getDiscoveryResultVisibility(
   );
   const displayCandidates = showClearMismatches
     ? jobs
-    : jobs.filter((job) => job.matchAssessment.recommendation !== "skip");
+    : preserveSelectedJob
+      ? jobs
+      : jobs.filter((job) => job.matchAssessment.recommendation !== "skip");
   const visibleJobs = displayCandidates
     .map((job, sourceIndex) => ({ job, sourceIndex }))
     .sort(
@@ -104,7 +107,9 @@ export function DiscoveryScreen(props: {
   onSelectJob: (jobId: string) => void;
   recentRuns: readonly DiscoveryRunRecord[];
   searchPreferences: JobSearchPreferences;
+  preserveSelectedJob?: boolean;
   selectedJob: SavedJob | null;
+  selectedSourceTargetId?: string | null;
   sourceAccessPrompts: readonly SourceAccessPrompt[];
 }) {
   const {
@@ -131,7 +136,9 @@ export function DiscoveryScreen(props: {
     onSelectJob,
     recentRuns,
     searchPreferences,
+    preserveSelectedJob,
     selectedJob,
+    selectedSourceTargetId,
     sourceAccessPrompts,
   } = props;
   const [showHistory, setShowHistory] = useState(false);
@@ -140,6 +147,7 @@ export function DiscoveryScreen(props: {
     jobs,
     selectedJob,
     showClearMismatches,
+    preserveSelectedJob,
   );
   const selectedJobCompanyId =
     resultVisibility.selectedJob && (companies ?? []).length > 0
@@ -163,6 +171,11 @@ export function DiscoveryScreen(props: {
     enabledTargetIds.has(prompt.targetId),
   );
   const primarySourceAccessPrompt =
+    (selectedSourceTargetId
+      ? enabledSourceAccessPrompts.find(
+          (prompt) => prompt.targetId === selectedSourceTargetId,
+        )
+      : null) ??
     enabledSourceAccessPrompts.find(
       (prompt) => prompt.state === "prompt_login_required",
     ) ??

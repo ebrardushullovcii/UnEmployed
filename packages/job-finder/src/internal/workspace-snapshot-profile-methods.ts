@@ -38,6 +38,7 @@ import {
 } from "./resume-workspace-staleness";
 import { selectLatestApplyRunId } from "./workspace-apply-run-support";
 import { recoverInterruptedApplyRun } from "./workspace-apply-run-recovery";
+import { persistAutomaticApplicationSafeguards } from "./automatic-safeguards";
 import { recoverInterruptedDiscoveryRun } from "./workspace-discovery-run-helpers";
 import {
   deriveSourceAccessPrompts,
@@ -61,8 +62,18 @@ import type { JobFinderWorkspaceService } from "./workspace-service-contracts";
 import {
   deriveCampaignProgress,
   deriveDashboardSummary,
+  createCampaign,
   ensureCampaignState,
 } from "./campaign-dashboard";
+
+const BOOTSTRAP_DEFERRED_COLLECTIONS = [
+  "discovery_jobs",
+  "review_queue",
+  "applications",
+  "source_history",
+  "documents",
+  "intelligence",
+] as const;
 
 const NO_RESPONSE_AUTOMATION_MIN_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -71,6 +82,7 @@ export function createWorkspaceSnapshotProfileMethods(
 ): Pick<
   JobFinderWorkspaceService,
   | "getWorkspaceSnapshot"
+  | "getWorkspaceBootstrap"
   | "getResumeImportState"
   | "resetWorkspace"
   | "openBrowserSession"
@@ -189,11 +201,20 @@ export function createWorkspaceSnapshotProfileMethods(
 
       const completedAt = new Date().toISOString();
       await Promise.all(
-        interruptedRuns.map((run) =>
-          ctx.repository.upsertApplyRun(
-            recoverInterruptedApplyRun(run, completedAt),
-          ),
-        ),
+        interruptedRuns.map(async (run) => {
+          const recoveredRun = recoverInterruptedApplyRun(run, completedAt);
+          await ctx.repository.upsertApplyRun(recoveredRun);
+          await persistAutomaticApplicationSafeguards({
+            ctx,
+            run: recoveredRun,
+            now: completedAt,
+          }).catch((safeguardError: unknown) => {
+            console.error(
+              "Failed to persist automatic application safeguards.",
+              safeguardError,
+            );
+          });
+        }),
       );
     })();
 
@@ -542,6 +563,10 @@ export function createWorkspaceSnapshotProfileMethods(
     return JobFinderWorkspaceSnapshotSchema.parse({
       module: "job-finder",
       generatedAt,
+      hydration: {
+        phase: "complete",
+        deferredCollections: [],
+      },
       agentProvider: ctx.aiClient.getStatus(),
       visionProvider: ctx.visionProvider?.getStatus() ?? null,
       availableResumeTemplates,
@@ -589,6 +614,130 @@ export function createWorkspaceSnapshotProfileMethods(
     });
   }
 
+  async function getWorkspaceBootstrap(): Promise<JobFinderWorkspaceSnapshot> {
+    // The first paint must not wait for every job, source history, application,
+    // document, and intelligence row. Keep this response deliberately small:
+    // it contains only the profile and controls needed to render the shell.
+    // The explicit hydration marker prevents empty deferred collections from
+    // being mistaken for a completed search.
+    const [
+      setupContext,
+      rawSettings,
+      discovery,
+      existingCampaignState,
+      userActionRequests,
+      activityControl,
+    ] = await Promise.all([
+      getCurrentSetupStateContext(),
+      ctx.repository.getSettings(),
+      ctx.repository.getDiscoveryState(),
+      ctx.repository.getCampaignState(),
+      ctx.repository.listUserActionRequests(),
+      ctx.repository.getActivityControl(),
+    ]);
+    const availableResumeTemplates = ctx.documentManager.listResumeTemplates();
+    const settings = normalizeJobFinderSettings(
+      rawSettings,
+      availableResumeTemplates,
+    );
+    const generatedAt = new Date().toISOString();
+    // Keep source targets in the bootstrap. They are small setup data, and
+    // clearing them here would let an early settings save erase the sources
+    // before the large collections finish hydrating.
+    const bootstrapSearchPreferences = JobSearchPreferencesSchema.parse(
+      setupContext.searchPreferences,
+    );
+    const campaignState = existingCampaignState ?? {
+      activeCampaignId: "campaign_default",
+      campaigns: [
+        createCampaign({
+          id: "campaign_default",
+          name: "My job search",
+          description: "Your existing Job Finder workspace.",
+          mode: "precision",
+          searchPreferences: setupContext.searchPreferences,
+          now: generatedAt,
+        }),
+      ],
+      notifications: [],
+    };
+    const bootstrapCampaignState = campaignState;
+    const dashboard = deriveDashboardSummary({
+      generatedAt,
+      campaigns: bootstrapCampaignState,
+      savedJobs: [],
+      reviewQueue: [],
+      applicationRecords: [],
+      applyRuns: [],
+      userActionRequests,
+      discovery: {
+        ...discovery,
+        activeRun: discovery.activeRun,
+        recentRuns: [],
+        activeSourceDebugRun: discovery.activeSourceDebugRun,
+        recentSourceDebugRuns: [],
+        sessions: discovery.sessions,
+      },
+      searchPreferences: bootstrapSearchPreferences,
+    });
+
+    return JobFinderWorkspaceSnapshotSchema.parse({
+      module: "job-finder",
+      generatedAt,
+      hydration: {
+        phase: "bootstrap",
+        deferredCollections: [...BOOTSTRAP_DEFERRED_COLLECTIONS],
+      },
+      agentProvider: ctx.aiClient.getStatus(),
+      visionProvider: ctx.visionProvider?.getStatus() ?? null,
+      availableResumeTemplates,
+      profile: setupContext.profile,
+      searchPreferences: bootstrapSearchPreferences,
+      profileSetupState: setupContext.profileSetupState,
+      browserSession: createBrowserSessionSnapshot(
+        discovery.sessions,
+        getPreferredSessionAdapter(setupContext.searchPreferences),
+      ),
+      sourceAccessPrompts: [],
+      discoverySessions: discovery.sessions,
+      discoveryRunState: discovery.runState,
+      activeDiscoveryRun: discovery.activeRun,
+      recentDiscoveryRuns: [],
+      activeSourceDebugRun: discovery.activeSourceDebugRun,
+      recentSourceDebugRuns: [],
+      discoveryJobs: [],
+      dismissedDiscoveryJobs: [],
+      selectedDiscoveryJobId: null,
+      reviewQueue: [],
+      selectedReviewJobId: null,
+      tailoredAssets: [],
+      resumeDrafts: [],
+      resumeExportArtifacts: [],
+      resumeResearchArtifacts: [],
+      applyRuns: [],
+      applyJobResults: [],
+      applicationRecords: [],
+      applicationAttempts: [],
+      sourceInstructionArtifacts: [],
+      latestResumeImportRun: setupContext.latestResumeImportRun,
+      latestResumeImportReviewCandidates:
+        setupContext.latestResumeImportReviewCandidateSummaries,
+      profileCopilotMessages: [],
+      profileRevisions: [],
+      selectedApplyRunId: null,
+      selectedApplicationRecordId: null,
+      settings,
+      campaigns: bootstrapCampaignState.campaigns,
+      activeCampaignId: bootstrapCampaignState.activeCampaignId,
+      campaignNotifications: bootstrapCampaignState.notifications,
+      dashboard,
+      activityControl,
+      intelligence: {},
+      userActionRequests,
+      userActionEvents: [],
+    });
+  }
+
   const profileSetupReviewMethods = createWorkspaceProfileSetupReviewMethods({
     ctx,
     getCurrentSetupStateContext,
@@ -603,6 +752,7 @@ export function createWorkspaceSnapshotProfileMethods(
 
   return {
     getWorkspaceSnapshot,
+    getWorkspaceBootstrap,
     async getResumeImportState() {
       const [
         resumeImportRuns,

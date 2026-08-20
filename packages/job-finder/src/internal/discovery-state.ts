@@ -1,7 +1,6 @@
 import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
 import {
   DiscoveryActivityEventSchema,
-  DiscoveryRunRecordSchema,
   DiscoveryTargetExecutionSchema,
   JobFinderDiscoveryStateSchema,
   type AgentDiscoveryProgress,
@@ -33,7 +32,10 @@ export function formatFoundSuffix(jobsFound: number): string {
 }
 
 export function summarizeProgressAction(
-  progress: Pick<AgentDiscoveryProgress, "currentAction" | "message" | "waitReason">,
+  progress: Pick<
+    AgentDiscoveryProgress,
+    "currentAction" | "message" | "waitReason"
+  >,
   siteLabel: string,
   jobsFound: number,
 ): {
@@ -261,10 +263,16 @@ export function appendDiscoveryEvent(
     return run;
   }
 
-  return DiscoveryRunRecordSchema.parse({
-    ...run,
-    activity: [...run.activity, event],
-  });
+  // Discovery activity is persisted as a complete run history. This function
+  // is called for every agent progress event, so cloning and reparsing the
+  // entire history here turns a long run into quadratic work. The run is an
+  // owned mutable accumulator inside the discovery service; the repository
+  // still schema-validates and clones it at each persistence boundary, and
+  // final history is never compacted. Validate only the new event and append
+  // in place so each event remains an O(1) state update.
+  const parsedEvent = DiscoveryActivityEventSchema.parse(event);
+  run.activity.push(parsedEvent);
+  return run;
 }
 
 export function updateTargetExecution(
@@ -272,17 +280,32 @@ export function updateTargetExecution(
   targetId: string,
   updater: (target: DiscoveryTargetExecution) => DiscoveryTargetExecution,
 ): DiscoveryRunRecord {
-  return DiscoveryRunRecordSchema.parse({
-    ...run,
-    targetExecutions: run.targetExecutions.map((target) =>
-      target.targetId === targetId
-        ? DiscoveryTargetExecutionSchema.parse(updater(target))
-        : target,
-    ),
-  });
+  const targetIndex = run.targetExecutions.findIndex(
+    (target) => target.targetId === targetId,
+  );
+
+  if (targetIndex < 0) {
+    return run;
+  }
+
+  const currentTarget = run.targetExecutions[targetIndex];
+  if (!currentTarget) {
+    return run;
+  }
+
+  // Like appendDiscoveryEvent, this is an update on the discovery service's
+  // owned accumulator. Avoid rebuilding and reparsing every target and every
+  // activity event for each checkpoint; the repository validates the complete
+  // run when it crosses the persistence boundary.
+  run.targetExecutions[targetIndex] = DiscoveryTargetExecutionSchema.parse(
+    updater(currentTarget),
+  );
+  return run;
 }
 
-export function countCompletedTargetExecutions(run: DiscoveryRunRecord): number {
+export function countCompletedTargetExecutions(
+  run: DiscoveryRunRecord,
+): number {
   return run.targetExecutions.filter(
     (execution) =>
       execution.state !== "planned" && execution.state !== "running",

@@ -15,6 +15,7 @@ import {
   ApplicationQuestionKindSchema,
   ApplicationQuestionStatusSchema,
 } from "./discovery";
+import { ApplicationListingSignalEvidenceSchema } from "./job-finder-intelligence";
 import {
   BrowserVisualEvidenceSummarySchema,
   BrowserVisualObservationSetSchema,
@@ -717,6 +718,8 @@ export const ApplyJobResultSchema = z.object({
   completedAt: IsoDateTimeSchema.nullable().default(null),
   blockerReason: ApplyBlockerReasonSchema.nullable().default(null),
   blockerSummary: NonEmptyStringSchema.nullable().default(null),
+  listingSignalEvidence:
+    ApplicationListingSignalEvidenceSchema.nullable().default(null),
   visualObservationSets: z.array(BrowserVisualObservationSetSchema).default([]),
   visualCheckpoints: z.array(ApplyVisualCheckpointSchema).default([]),
   latestQuestionCount: z.number().int().nonnegative().default(0),
@@ -732,6 +735,10 @@ export type ApplyJobResultInput = z.input<typeof ApplyJobResultSchema>;
 
 export const ApplyRunSchema = z.object({
   id: NonEmptyStringSchema,
+  // Captured when the run is created so terminal safeguards and campaign
+  // notifications remain scoped to the campaign that authorized preparation.
+  // Nullable keeps older persisted runs migration-compatible.
+  campaignId: NonEmptyStringSchema.nullable().default(null),
   mode: ApplyRunModeSchema.default("copilot"),
   state: ApplyRunStateSchema.default("draft"),
   jobIds: z.array(NonEmptyStringSchema).default([]),

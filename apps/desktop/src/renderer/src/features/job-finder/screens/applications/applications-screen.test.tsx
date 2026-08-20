@@ -97,7 +97,7 @@ describe("ApplicationsScreen", () => {
     ).toBe("#/job-finder/discovery");
 
     fireEvent.click(screen.getByRole("button", { name: "Tracker" }));
-    expect(screen.getByText("Application CRM")).toBeTruthy();
+    expect(screen.getByText("Application tracker")).toBeTruthy();
     expect(screen.getByText("No applications yet")).toBeTruthy();
   });
 
@@ -142,6 +142,7 @@ describe("ApplicationsScreen", () => {
     const applyRuns: ApplyRunSummary[] = [
       {
         id: "apply_run_latest",
+        campaignId: null,
         mode: "copilot",
         state: "completed",
         jobIds: ["job_ready"],
@@ -162,6 +163,7 @@ describe("ApplicationsScreen", () => {
       },
       {
         id: "apply_run_older",
+        campaignId: null,
         mode: "copilot",
         state: "completed",
         jobIds: ["job_ready"],
@@ -195,6 +197,7 @@ describe("ApplicationsScreen", () => {
         completedAt: "2026-03-20T10:05:00.000Z",
         blockerReason: null,
         blockerSummary: null,
+        listingSignalEvidence: null,
         visualObservationSets: [],
         visualCheckpoints: [],
         latestQuestionCount: 0,
@@ -217,6 +220,7 @@ describe("ApplicationsScreen", () => {
         completedAt: "2026-03-20T09:55:00.000Z",
         blockerReason: "required_human_input",
         blockerSummary: "Needed manual follow-up",
+        listingSignalEvidence: null,
         visualObservationSets: [],
         visualCheckpoints: [],
         latestQuestionCount: 0,
@@ -337,6 +341,7 @@ describe("ApplicationsScreen", () => {
     };
     const applyRun: ApplyRunSummary = {
       id: "apply_run_visual",
+      campaignId: null,
       mode: "copilot",
       state: "paused_for_user_review",
       jobIds: ["job_visual"],
@@ -368,6 +373,7 @@ describe("ApplicationsScreen", () => {
       completedAt: null,
       blockerReason: null,
       blockerSummary: null,
+      listingSignalEvidence: null,
       visualObservationSets: [],
       visualCheckpoints: [
         {
@@ -519,6 +525,7 @@ describe("ApplicationsScreen", () => {
       checkpoints: [],
       questions: [],
       blocker: null,
+      listingSignalEvidence: null,
       consentDecisions: [],
       replay: {
         sourceInstructionArtifactId: null,

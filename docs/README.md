@@ -29,12 +29,18 @@ Read `docs/ARCHITECTURE.md` before changing discovery or source-debug behavior.
 - `docs/exec-plans/active/`: detailed active plans
 - `docs/exec-plans/queued/`: detailed ready plans
 
-There is no active or queued implementation plan. The completed AI capability
-reliability work is recorded in `docs/HISTORY.md`, the model-routing ADRs, and
+The active implementation plan is
+`docs/exec-plans/active/job-finder-campaigns-dashboard-crm-scale.md`. The
+campaign/dashboard/CRM phase-two behavior is implemented and has passed the
+focused checks plus the hardened production-Electron harness. The broad
+repository gate remains unpassed because the single attempt stopped before
+repository scripts ran when Corepack could not verify/fetch the pinned pnpm
+10.8 package; the exact state is recorded in `docs/STATUS.md` and
+`docs/TRACKS.md`. The
+completed AI capability reliability work is recorded in `docs/HISTORY.md`, the
+model-routing ADRs, and
 `docs/audits/LUNA_HIGH_AND_PRODUCTION_ACCEPTANCE_2026-08-12.html`. The approved
-Candidate Asset lifecycle and résumé visual/export refinement remain integrated;
-current release state and external acceptance are recorded in `docs/STATUS.md`
-and `docs/TRACKS.md`.
+Candidate Asset lifecycle and résumé visual/export refinement remain integrated.
 
 The completed configured-model comparison is recorded in
 `docs/audits/AI_MODEL_CAPABILITY_BENCHMARK_FULL_2026-08-12.html`; scoped provider

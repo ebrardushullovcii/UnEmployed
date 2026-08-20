@@ -463,7 +463,10 @@ export function ProfileJobSourcesTab(props: ProfileJobSourcesTabProps) {
                     >
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <h4 className="min-w-0 truncate font-semibold text-(--text-headline)">
+                          <h4
+                            className="min-w-0 max-w-full truncate font-semibold text-(--text-headline)"
+                            title={displayName}
+                          >
                             {displayName}
                           </h4>
                           <Badge

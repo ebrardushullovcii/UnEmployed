@@ -30,12 +30,14 @@ function makeCompany(overrides: Partial<CompanyEntity> = {}): CompanyEntity {
   };
 }
 
-function renderScreen(overrides: {
-  companies?: readonly CompanyEntity[];
-  onReviewCompanyMerge?: ReturnType<typeof vi.fn>;
-  onSetCompanyPreference?: ReturnType<typeof vi.fn>;
-  onNavigate?: ReturnType<typeof vi.fn>;
-} = {}) {
+function renderScreen(
+  overrides: {
+    companies?: readonly CompanyEntity[];
+    onReviewCompanyMerge?: ReturnType<typeof vi.fn>;
+    onSetCompanyPreference?: ReturnType<typeof vi.fn>;
+    onNavigate?: ReturnType<typeof vi.fn>;
+  } = {},
+) {
   const onReviewCompanyMerge = overrides.onReviewCompanyMerge ?? vi.fn();
   const onSetCompanyPreference = overrides.onSetCompanyPreference ?? vi.fn();
   const onNavigate = overrides.onNavigate ?? vi.fn();
@@ -72,7 +74,11 @@ describe("CompaniesScreen", () => {
           id: "c1",
           canonicalName: "Acme Inc",
           aliases: [
-            { alias: "Acme Corporation", normalized: "acme corporation", confidence: 1 },
+            {
+              alias: "Acme Corporation",
+              normalized: "acme corporation",
+              confidence: 1,
+            },
           ],
           domains: [{ domain: "acme.com", primary: true, verifiedAt: null }],
         }),
@@ -110,12 +116,33 @@ describe("CompaniesScreen", () => {
       target: { value: "zzz no such company" },
     });
 
-    expect(
-      screen.getByText(/No companies match/),
-    ).toBeTruthy();
+    expect(screen.getByText(/No companies match/)).toBeTruthy();
     expect(
       screen.getAllByRole("button", { name: "Clear search" }).length,
     ).toBeGreaterThanOrEqual(1);
+  });
+
+  it("mounts one page at a time for a 500-plus company catalog", () => {
+    const companies = Array.from({ length: 501 }, (_, index) =>
+      makeCompany({
+        id: `company_${index}`,
+        canonicalName: `Company ${String(index).padStart(3, "0")}`,
+      }),
+    );
+    renderScreen({ companies });
+
+    expect(screen.getAllByTestId(/^company-card-/)).toHaveLength(40);
+    expect(screen.getByText("Showing 1–40 of 501 companies")).toBeTruthy();
+    expect(screen.getByText("Page 1 of 13")).toBeTruthy();
+    expect(screen.getByText("Company 000")).toBeTruthy();
+    expect(screen.queryByText("Company 040")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+
+    expect(screen.getAllByTestId(/^company-card-/)).toHaveLength(40);
+    expect(screen.getByText("Showing 41–80 of 501 companies")).toBeTruthy();
+    expect(screen.getByText("Company 040")).toBeTruthy();
+    expect(screen.queryByText("Company 000")).toBeNull();
   });
 
   it("links a company card to its detail route", () => {
@@ -150,6 +177,7 @@ describe("CompaniesScreen", () => {
     });
 
     expect(screen.getByText("Duplicate employer review")).toBeTruthy();
+    expect(screen.getByText("Possible match: Acme")).toBeTruthy();
     expect(screen.getByText("1 merge review")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Reject" }));
@@ -174,10 +202,9 @@ describe("CompaniesScreen", () => {
       onSetCompanyPreference,
     });
 
-    fireEvent.change(
-      screen.getByLabelText("Preference for Acme Inc"),
-      { target: { value: "exclude" } },
-    );
+    fireEvent.change(screen.getByLabelText("Preference for Acme Inc"), {
+      target: { value: "exclude" },
+    });
     expect(onSetCompanyPreference).toHaveBeenCalledWith({
       companyId: "c1",
       preference: "exclude",

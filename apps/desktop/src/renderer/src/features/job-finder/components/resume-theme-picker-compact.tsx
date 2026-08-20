@@ -1,4 +1,7 @@
-import type { ResumeTemplateDefinition, ResumeTemplateId } from "@unemployed/contracts";
+import type {
+  ResumeTemplateDefinition,
+  ResumeTemplateId,
+} from "@unemployed/contracts";
 import {
   getResumeTemplateAtsConfidence,
   getResumeTemplateDeliveryLane,
@@ -21,14 +24,21 @@ export function ResumeThemePickerCompact(props: {
   selectedThemeId: ResumeTemplateId;
   themes: readonly ResumeTemplateDefinition[];
 }) {
-  const { disabled, id, onChange, recommendationReasons, selectedThemeId, themes } = props;
+  const {
+    disabled,
+    id,
+    onChange,
+    recommendationReasons,
+    selectedThemeId,
+    themes,
+  } = props;
 
   return (
-    <div className="grid gap-3" aria-labelledby={id}>
-      <section className="surface-panel-shell relative overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border)">
-        <div className="grid content-start gap-3 p-3">
-          <div className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/55 px-3 py-2.5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+    <div className="grid min-w-0 gap-3" aria-labelledby={id}>
+      <section className="surface-panel-shell relative min-w-0 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border)">
+        <div className="grid min-w-0 content-start gap-3 p-3">
+          <div className="grid min-w-0 gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/55 px-3 py-2.5">
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
               <p className="label-mono-xs">Choose a template</p>
               <Badge variant="section">{themes.length} options</Badge>
             </div>
@@ -62,7 +72,8 @@ function CompactVariantCard(props: {
   const { disabled, onChange, recommendationReason, selected, theme } = props;
   const deliveryLane = getResumeTemplateDeliveryLane(theme);
   const atsConfidence = getResumeTemplateAtsConfidence(theme);
-  const compactReason = recommendationReason ?? theme.fitSummary ?? theme.description;
+  const compactReason =
+    recommendationReason ?? theme.fitSummary ?? theme.description;
 
   return (
     <div
@@ -84,7 +95,9 @@ function CompactVariantCard(props: {
             <Badge variant={getLaneBadgeVariant(deliveryLane)}>
               {getLaneLabel(deliveryLane)}
             </Badge>
-            <Badge variant="outline">{getAtsConfidenceLabel(atsConfidence)}</Badge>
+            <Badge variant="outline">
+              {getAtsConfidenceLabel(atsConfidence)}
+            </Badge>
           </div>
           <p className="text-(length:--text-small) leading-5 text-foreground-soft">
             {compactReason}

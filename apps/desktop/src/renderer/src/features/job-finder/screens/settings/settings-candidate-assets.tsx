@@ -2,10 +2,12 @@ import {
   useCallback,
   useDeferredValue,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import type {
   CandidateAsset,
   CandidateAssetConsentScope,
@@ -19,6 +21,7 @@ import {
   matchesCollectionSearch,
 } from "../../components/collection-search-toolbar";
 import { FormSelect } from "../../components/form-select";
+import { useModalFocusTrap } from "../../components/profile/use-modal-focus-trap";
 import { usePersistedCollectionView } from "../../hooks/use-persisted-collection-view";
 
 const kindOptions = [
@@ -67,6 +70,8 @@ function formatRetention(retention: CandidateAssetRetention) {
 
 export function SettingsCandidateAssets() {
   const mountedRef = useRef(true);
+  const pendingActionRef = useRef<string | null>(null);
+  const removalDialogRef = useRef<HTMLDivElement | null>(null);
   const [assets, setAssets] = useState<readonly CandidateAsset[]>([]);
   const [kind, setKind] = useState<CandidateAssetKind>("work_sample");
   const [consentScope, setConsentScope] = useState<CandidateAssetConsentScope>(
@@ -77,6 +82,9 @@ export function SettingsCandidateAssets() {
   const [restoreRetention, setRestoreRetention] = useState<
     Readonly<Record<string, CandidateAssetRetention>>
   >({});
+  const [assetPendingRemoval, setAssetPendingRemoval] =
+    useState<CandidateAsset | null>(null);
+  const [removalError, setRemovalError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">(
     "loading",
@@ -84,6 +92,20 @@ export function SettingsCandidateAssets() {
   const [status, setStatus] = useState("Loading your private asset library…");
   const view = usePersistedCollectionView("candidate-assets", "comfortable");
   const deferredQuery = useDeferredValue(view.query);
+  const removalDialogTitleId = useId();
+  const removalDialogDescriptionId = useId();
+
+  const closeRemovalDialog = useCallback(() => {
+    if (pendingActionRef.current !== null) return;
+    setAssetPendingRemoval(null);
+    setRemovalError(null);
+  }, []);
+
+  useModalFocusTrap(
+    assetPendingRemoval !== null,
+    removalDialogRef,
+    closeRemovalDialog,
+  );
 
   const refreshAssets = useCallback(async (successMessage?: string) => {
     if (mountedRef.current) {
@@ -156,16 +178,23 @@ export function SettingsCandidateAssets() {
   }
 
   async function deleteAsset(assetId: string) {
-    if (pendingAction) return;
+    if (pendingAction || pendingActionRef.current !== null) return;
+    pendingActionRef.current = assetId;
+    setRemovalError(null);
     setPendingAction(assetId);
     try {
       await window.unemployed.jobFinder.deleteCandidateAsset({
         assetId,
       });
       await refreshAssets("Asset moved to Trash for 7 days.");
+      setAssetPendingRemoval((current) =>
+        current?.id === assetId ? null : current,
+      );
     } catch {
+      setRemovalError("The asset could not be removed. Try again.");
       setStatus("The asset could not be removed. Try again.");
     } finally {
+      pendingActionRef.current = null;
       setPendingAction(null);
     }
   }
@@ -209,14 +238,16 @@ export function SettingsCandidateAssets() {
     (asset) => asset.deletedAt !== null,
   );
   const controlsDisabled = pendingAction !== null || loadState === "loading";
+  const removalPending =
+    assetPendingRemoval !== null && pendingAction === assetPendingRemoval.id;
 
   return (
-    <section className="surface-panel-shell grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
-      <div className="grid gap-1.5">
+    <section className="surface-panel-shell grid min-w-0 gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
+      <div className="grid min-w-0 gap-1.5">
         <p className="text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">
           Documents &amp; assets
         </p>
-        <h2 className="font-display text-lg font-semibold text-(--text-headline)">
+        <h2 className="min-w-0 break-words font-display text-lg font-semibold text-(--text-headline)">
           Keep reusable application material on this device
         </h2>
         <p className="text-sm leading-6 text-foreground-soft">
@@ -226,8 +257,8 @@ export function SettingsCandidateAssets() {
         </p>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-3">
-        <div className="grid gap-1.5 text-sm text-foreground-soft">
+      <div className="grid min-w-0 gap-3 md:grid-cols-3">
+        <div className="grid min-w-0 gap-1.5 text-sm text-foreground-soft">
           <label htmlFor="candidate-asset-kind">Asset type</label>
           <FormSelect
             disabled={controlsDisabled}
@@ -237,7 +268,7 @@ export function SettingsCandidateAssets() {
             value={kind}
           />
         </div>
-        <div className="grid gap-1.5 text-sm text-foreground-soft">
+        <div className="grid min-w-0 gap-1.5 text-sm text-foreground-soft">
           <label htmlFor="candidate-asset-consent">Consent scope</label>
           <FormSelect
             disabled={controlsDisabled}
@@ -249,7 +280,7 @@ export function SettingsCandidateAssets() {
             value={consentScope}
           />
         </div>
-        <div className="grid gap-1.5 text-sm text-foreground-soft">
+        <div className="grid min-w-0 gap-1.5 text-sm text-foreground-soft">
           <label htmlFor="candidate-asset-retention">Retention</label>
           <FormSelect
             disabled={controlsDisabled}
@@ -266,7 +297,7 @@ export function SettingsCandidateAssets() {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex min-w-0 flex-wrap items-center gap-3">
         <Button
           disabled={controlsDisabled}
           onClick={() => void importAsset()}
@@ -278,7 +309,7 @@ export function SettingsCandidateAssets() {
         </Button>
         <p
           aria-live="polite"
-          className="text-(length:--text-description) text-foreground-soft"
+          className="min-w-0 flex-1 break-words text-(length:--text-description) text-foreground-soft"
           role="status"
         >
           {status}
@@ -342,7 +373,10 @@ export function SettingsCandidateAssets() {
               <Button
                 aria-label={`Remove ${asset.originalName}`}
                 disabled={controlsDisabled}
-                onClick={() => void deleteAsset(asset.id)}
+                onClick={() => {
+                  setRemovalError(null);
+                  setAssetPendingRemoval(asset);
+                }}
                 pending={pendingAction === asset.id}
                 size="compact"
                 type="button"
@@ -356,8 +390,8 @@ export function SettingsCandidateAssets() {
       ) : null}
 
       {trashedAssets.length > 0 ? (
-        <div className="grid gap-2 border-t border-(--surface-panel-border) pt-4">
-          <div className="grid gap-1">
+        <div className="grid min-w-0 gap-2 border-t border-(--surface-panel-border) pt-4">
+          <div className="grid min-w-0 gap-1">
             <h3 className="text-sm font-semibold text-(--text-headline)">
               Trash
             </h3>
@@ -366,13 +400,13 @@ export function SettingsCandidateAssets() {
               within 7 days or the app deletes the stored file and record.
             </p>
           </div>
-          <ul className="grid gap-2" aria-label="Candidate asset Trash">
+          <ul className="grid min-w-0 gap-2" aria-label="Candidate asset Trash">
             {trashedAssets.map((asset) => {
               const selectedRetention =
                 restoreRetention[asset.id] ?? "until_deleted";
               return (
                 <li
-                  className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/45 px-3 py-3 md:grid-cols-[minmax(0,1fr)_minmax(12rem,auto)_auto] md:items-end"
+                  className="grid min-w-0 gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/45 px-3 py-3 md:grid-cols-[minmax(0,1fr)_minmax(12rem,auto)_auto] md:items-end"
                   key={asset.id}
                 >
                   <div className="min-w-0">
@@ -422,6 +456,75 @@ export function SettingsCandidateAssets() {
           </ul>
         </div>
       ) : null}
+
+      {assetPendingRemoval
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[80] grid place-items-center overflow-y-auto bg-(--modal-scrim) px-4 py-6 backdrop-blur-sm"
+              onClick={() => {
+                if (!removalPending) closeRemovalDialog();
+              }}
+            >
+              <div
+                aria-describedby={removalDialogDescriptionId}
+                aria-labelledby={removalDialogTitleId}
+                aria-modal="true"
+                className="surface-panel-shell grid min-w-0 w-full max-w-lg gap-5 rounded-(--radius-panel) border border-(--surface-panel-border) p-6 shadow-(--modal-shadow)"
+                onClick={(event) => event.stopPropagation()}
+                ref={removalDialogRef}
+                role="alertdialog"
+                tabIndex={-1}
+              >
+                <div className="grid min-w-0 gap-2">
+                  <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-destructive">
+                    Candidate asset removal
+                  </p>
+                  <h2
+                    className="min-w-0 break-words font-display text-xl font-semibold text-(--text-headline)"
+                    id={removalDialogTitleId}
+                  >
+                    Remove {assetPendingRemoval.originalName}?
+                  </h2>
+                  <p
+                    className="min-w-0 break-words text-sm leading-6 text-foreground-soft"
+                    id={removalDialogDescriptionId}
+                  >
+                    This moves the asset to Trash for seven days. Prepared
+                    applications that use this asset may lose access to the
+                    attachment until you restore it.
+                  </p>
+                  {removalError ? (
+                    <p
+                      className="rounded-(--radius-small) border border-critical/35 bg-critical/10 px-3 py-2 text-sm leading-5 text-critical"
+                      role="alert"
+                    >
+                      {removalError}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="flex min-w-0 flex-wrap justify-end gap-3">
+                  <Button
+                    disabled={removalPending}
+                    onClick={closeRemovalDialog}
+                    type="button"
+                    variant="ghost"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => void deleteAsset(assetPendingRemoval.id)}
+                    pending={removalPending}
+                    type="button"
+                    variant="destructive"
+                  >
+                    Move to Trash
+                  </Button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </section>
   );
 }

@@ -23,11 +23,17 @@ const corepackEntrypoint = path.join(
   "dist",
   "corepack.js",
 );
+const corepackShimDir = path.join(nodeDir, "node_modules", "corepack", "shims");
 
 if (!fs.existsSync(corepackEntrypoint)) {
   console.error(
     `Corepack entrypoint not found beside Node.js: ${corepackEntrypoint}`,
   );
+  process.exit(1);
+}
+
+if (!fs.existsSync(corepackShimDir)) {
+  console.error(`Corepack shims not found beside Node.js: ${corepackShimDir}`);
   process.exit(1);
 }
 
@@ -37,7 +43,12 @@ const pathKey =
 const inheritedPath = process.env[pathKey] ?? "";
 const env = {
   ...process.env,
-  [pathKey]: [nodeDir, inheritedPath].filter(Boolean).join(path.delimiter),
+  // Turbo launches package scripts through the package manager discovered on
+  // PATH. Put Corepack's shims first so those child invocations honor the
+  // repository-pinned version instead of a globally installed pnpm.
+  [pathKey]: [corepackShimDir, nodeDir, inheritedPath]
+    .filter(Boolean)
+    .join(path.delimiter),
 };
 
 const result = spawnSync(

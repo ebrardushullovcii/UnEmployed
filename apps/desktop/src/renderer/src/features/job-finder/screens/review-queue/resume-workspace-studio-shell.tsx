@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
+import { getJobFinderScrollBehavior } from "../../lib/job-finder-scroll-behavior";
 import {
   Tabs,
   TabsContent,
@@ -74,7 +75,10 @@ export function ResumeWorkspaceStudioShell(
         mobileTemplatePanelRef.current ??
         desktopTemplatePanelRef.current;
 
-      target?.scrollIntoView({ behavior: "smooth", block: "start" });
+      target?.scrollIntoView({
+        behavior: getJobFinderScrollBehavior(),
+        block: "start",
+      });
       target?.focus({ preventScroll: true });
     });
   }

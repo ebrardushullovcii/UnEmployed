@@ -11,6 +11,7 @@ function createAwaitingApprovalDetails(): ApplyRunDetails {
   return {
     run: {
       id: "run_1",
+      campaignId: null,
       mode: "queue_auto",
       state: "awaiting_submit_approval",
       jobIds: ["job_1"],
@@ -69,9 +70,17 @@ describe("ApplicationsDetailPanelSubmitApprovalSection", () => {
     expect(
       screen.getByRole("heading", { name: "Safe application preparation" }),
     ).toBeTruthy();
-    expect(screen.getByText(/does not authorize account creation/i)).toBeTruthy();
-    expect(screen.getByText(/final submission and account creation remain disabled/i)).toBeTruthy();
-    expect(screen.queryByText(/automatic application authorization/i)).toBeNull();
+    expect(
+      screen.getByText(/does not authorize account creation/i),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        /final submission and account creation remain disabled/i,
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText(/automatic application authorization/i),
+    ).toBeNull();
 
     fireEvent.click(
       screen.getByRole("button", { name: "Approve safe preparation" }),

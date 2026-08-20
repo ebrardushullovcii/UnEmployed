@@ -1,9 +1,13 @@
-import { useId } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import type { ApplicationRecord } from "@unemployed/contracts";
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
 import { cn } from "@renderer/lib/utils";
 import { EmptyState } from "../../components/empty-state";
+import {
+  CollectionPagination,
+  COLLECTION_PAGE_SIZE,
+} from "../../components/collection-pagination";
 import { StatusBadge } from "../../components/status-badge";
 import { JOB_FINDER_ROUTE_HREFS } from "../../lib/job-finder-route-hrefs";
 import { getAttemptLabel, getAttemptTone } from "../../lib/job-finder-utils";
@@ -38,6 +42,37 @@ export function ApplicationsRecordsPanel({
 }: ApplicationsRecordsPanelProps) {
   const recordCount = applicationRecords.length;
   const filterGroupId = useId();
+  const [page, setPage] = useState(1);
+  const pageCount = Math.max(1, Math.ceil(recordCount / COLLECTION_PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const selectedRecordId = selectedRecord?.id ?? null;
+  const selectedRecordIndex = useMemo(
+    () =>
+      selectedRecordId
+        ? applicationRecords.findIndex(
+            (record) => record.id === selectedRecordId,
+          )
+        : -1,
+    [applicationRecords, selectedRecordId],
+  );
+  useEffect(() => {
+    setPage(1);
+  }, [activeFilter]);
+  useEffect(() => {
+    setPage((currentPage) => Math.min(currentPage, pageCount));
+  }, [pageCount]);
+  useEffect(() => {
+    if (selectedRecordIndex < 0) return;
+    setPage(Math.floor(selectedRecordIndex / COLLECTION_PAGE_SIZE) + 1);
+  }, [selectedRecordIndex]);
+  const pagedRecords = useMemo(
+    () =>
+      applicationRecords.slice(
+        (currentPage - 1) * COLLECTION_PAGE_SIZE,
+        currentPage * COLLECTION_PAGE_SIZE,
+      ),
+    [applicationRecords, currentPage],
+  );
 
   return (
     <section className="surface-panel-shell @container/tracker relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
@@ -88,7 +123,7 @@ export function ApplicationsRecordsPanel({
             <div className="grid w-full gap-4">
               <EmptyState
                 title="Start your first application"
-                description="Applications appear here after you move a shortlisted job into Apply Copilot."
+                description="Start preparing a shortlisted job with Apply Copilot to see it here."
               />
               <div className="flex flex-wrap items-center justify-center gap-3">
                 <Button asChild size="sm" type="button" variant="primary">
@@ -108,7 +143,7 @@ export function ApplicationsRecordsPanel({
           className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
           aria-label="Applications"
         >
-          {applicationRecords.map((record) => {
+          {pagedRecords.map((record) => {
             const stage = getApplicationStagePresentation(record);
 
             return (
@@ -170,6 +205,15 @@ export function ApplicationsRecordsPanel({
           })}
         </ul>
       )}
+      {recordCount > 0 ? (
+        <CollectionPagination
+          itemLabel="applications"
+          onPageChange={setPage}
+          page={currentPage}
+          pageSize={COLLECTION_PAGE_SIZE}
+          totalCount={recordCount}
+        />
+      ) : null}
     </section>
   );
 }

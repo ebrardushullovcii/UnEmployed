@@ -7,6 +7,10 @@ import { Button } from "@renderer/components/ui/button";
 import { cn } from "@renderer/lib/utils";
 import { Badge } from "@renderer/components/ui/badge";
 import {
+  APPLICATION_CRM_PAGE_SIZE,
+  CollectionPagination,
+} from "../../components/collection-pagination";
+import {
   CollectionColumnPicker,
   CollectionNoMatches,
   CollectionSavedViews,
@@ -158,6 +162,7 @@ export function ApplicationsCrmViews(props: {
   );
   const [selectedIds, setSelectedIds] = useState<readonly string[]>([]);
   const [bulkPending, setBulkPending] = useState(false);
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     try {
@@ -210,28 +215,103 @@ export function ApplicationsCrmViews(props: {
     setSelectedIds((current) => current.filter((id) => visibleIds.has(id)));
   }, [filteredRecords]);
 
-  const grouped = useMemo(
-    () => groupApplicationRecordsByStage(filteredRecords),
-    [filteredRecords],
-  );
+  useEffect(() => {
+    setPage(1);
+  }, [props.view, query, savedView]);
+
   const calendar = useMemo(
     () => buildApplicationCrmCalendarForView(filteredRecords),
     [filteredRecords],
+  );
+  const pageItemCount =
+    props.view === "calendar" ? calendar.length : filteredRecords.length;
+  const pageCount = Math.max(
+    1,
+    Math.ceil(pageItemCount / APPLICATION_CRM_PAGE_SIZE),
+  );
+  const currentPage = Math.min(page, pageCount);
+  useEffect(() => {
+    setPage((currentPage) => Math.min(currentPage, pageCount));
+  }, [pageCount]);
+  const pagedRecords = useMemo(
+    () =>
+      filteredRecords.slice(
+        (currentPage - 1) * APPLICATION_CRM_PAGE_SIZE,
+        currentPage * APPLICATION_CRM_PAGE_SIZE,
+      ),
+    [currentPage, filteredRecords],
+  );
+
+  const grouped = useMemo(
+    () => groupApplicationRecordsByStage(pagedRecords),
+    [pagedRecords],
+  );
+  const groupedTotals = useMemo(
+    () => groupApplicationRecordsByStage(filteredRecords),
+    [filteredRecords],
+  );
+  const pagedCalendar = useMemo(
+    () =>
+      calendar.slice(
+        (currentPage - 1) * APPLICATION_CRM_PAGE_SIZE,
+        currentPage * APPLICATION_CRM_PAGE_SIZE,
+      ),
+    [calendar, currentPage],
   );
   const recordsById = useMemo(
     () => new Map(filteredRecords.map((record) => [record.id, record])),
     [filteredRecords],
   );
+  const selectedRecordIndex = useMemo(
+    () =>
+      props.selectedRecordId
+        ? filteredRecords.findIndex(
+            (record) => record.id === props.selectedRecordId,
+          )
+        : -1,
+    [filteredRecords, props.selectedRecordId],
+  );
+  const selectedCalendarIndex = useMemo(
+    () =>
+      props.selectedRecordId
+        ? calendar.findIndex(
+            (entry) => entry.applicationRecordId === props.selectedRecordId,
+          )
+        : -1,
+    [calendar, props.selectedRecordId],
+  );
+  useEffect(() => {
+    const selectedIndex =
+      props.view === "calendar" ? selectedCalendarIndex : selectedRecordIndex;
+    if (selectedIndex < 0) return;
+    setPage(Math.floor(selectedIndex / APPLICATION_CRM_PAGE_SIZE) + 1);
+  }, [props.view, selectedCalendarIndex, selectedRecordIndex]);
+  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const columnVisible = (column: CrmColumn) => visibleColumns.includes(column);
   const rowPadding =
     density === "compact" ? "py-2" : density === "detailed" ? "py-5" : "py-3";
+
+  function submitBulkStageChange(stage: ApplicationCrmStage) {
+    if (!props.onBulkStageChange || selectedIds.length === 0) return;
+    setBulkPending(true);
+    const operation = props.onBulkStageChange(selectedIds, stage);
+    void operation
+      .then(
+        () => setSelectedIds([]),
+        () => undefined,
+      )
+      .finally(() => setBulkPending(false));
+  }
 
   return (
     <section className="surface-panel-shell flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border)">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-(--surface-panel-border) px-5 py-3">
         <div>
-          <h2 className="font-display text-lg font-bold uppercase tracking-(--tracking-heading) text-primary">
-            Application CRM
+          <h2
+            className="font-display text-lg font-bold uppercase tracking-(--tracking-heading) text-primary"
+            id="application-tracker-heading"
+          >
+            Application tracker
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
             {filteredRecords.length} of {props.records.length} applications in
@@ -349,15 +429,18 @@ export function ApplicationsCrmViews(props: {
 
       {props.view === "table" && filteredRecords.length > 0 ? (
         <div className="min-h-0 flex-1 overflow-auto">
-          <table className="w-full min-w-200 border-collapse text-left text-sm">
+          <table
+            aria-labelledby="application-tracker-heading"
+            className="w-full min-w-200 border-collapse text-left text-sm"
+          >
             <thead className="sticky top-0 z-10 bg-(--surface-panel-solid)">
               <tr className="border-b border-(--surface-panel-border)">
                 <th className="w-10 px-3 py-3" scope="col">
                   <input
-                    aria-label="Select all visible applications"
+                    aria-label="Select all matching applications"
                     checked={
-                      selectedIds.length > 0 &&
-                      selectedIds.length === filteredRecords.length
+                      selectedIdSet.size > 0 &&
+                      selectedIdSet.size === filteredRecords.length
                     }
                     onChange={(event) =>
                       setSelectedIds(
@@ -381,7 +464,7 @@ export function ApplicationsCrmViews(props: {
               </tr>
             </thead>
             <tbody>
-              {filteredRecords.map((record) => {
+              {pagedRecords.map((record) => {
                 const crm = applicationCrmDataForView(record);
                 const reminder = crm.reminders
                   .filter((entry) => entry.status === "pending")
@@ -409,13 +492,17 @@ export function ApplicationsCrmViews(props: {
                     >
                       <input
                         aria-label={`Select ${record.title} at ${record.company}`}
-                        checked={selectedIds.includes(record.id)}
+                        checked={selectedIdSet.has(record.id)}
                         onChange={(event) =>
-                          setSelectedIds((current) =>
-                            event.target.checked
-                              ? [...current, record.id]
-                              : current.filter((id) => id !== record.id),
-                          )
+                          setSelectedIds((current) => {
+                            const next = new Set(current);
+                            if (event.target.checked) {
+                              next.add(record.id);
+                            } else {
+                              next.delete(record.id);
+                            }
+                            return [...next];
+                          })
                         }
                         type="checkbox"
                       />
@@ -495,18 +582,13 @@ export function ApplicationsCrmViews(props: {
       {props.view === "table" && selectedIds.length > 0 ? (
         <div className="sticky bottom-0 z-20 flex flex-wrap items-center justify-between gap-3 border-t border-primary/30 bg-(--surface-panel-solid) px-5 py-3 shadow-[0_-12px_28px_rgba(0,0,0,0.35)]">
           <strong className="text-sm text-foreground">
-            {selectedIds.length} selected
+            {selectedIds.length} matching application
+            {selectedIds.length === 1 ? "" : "s"} selected
           </strong>
           <div className="flex flex-wrap gap-2">
             <Button
               disabled={bulkPending || !props.onBulkStageChange}
-              onClick={() => {
-                setBulkPending(true);
-                void props
-                  .onBulkStageChange?.(selectedIds, "reviewing")
-                  .then(() => setSelectedIds([]))
-                  .finally(() => setBulkPending(false));
-              }}
+              onClick={() => submitBulkStageChange("reviewing")}
               size="sm"
               type="button"
               variant="secondary"
@@ -515,13 +597,7 @@ export function ApplicationsCrmViews(props: {
             </Button>
             <Button
               disabled={bulkPending || !props.onBulkStageChange}
-              onClick={() => {
-                setBulkPending(true);
-                void props
-                  .onBulkStageChange?.(selectedIds, "withdrawn")
-                  .then(() => setSelectedIds([]))
-                  .finally(() => setBulkPending(false));
-              }}
+              onClick={() => submitBulkStageChange("withdrawn")}
               size="sm"
               type="button"
               variant="ghost"
@@ -555,7 +631,9 @@ export function ApplicationsCrmViews(props: {
                     <h3 className="text-sm font-semibold text-foreground">
                       {APPLICATION_CRM_STAGE_LABELS[stage]}
                     </h3>
-                    <Badge variant="section">{stageRecords.length}</Badge>
+                    <Badge variant="section">
+                      {groupedTotals.get(stage)?.length ?? 0}
+                    </Badge>
                   </div>
                   <div className="grid gap-2">
                     {stageRecords.length > 0 ? (
@@ -585,7 +663,7 @@ export function ApplicationsCrmViews(props: {
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
           {calendar.length > 0 ? (
             <ol className="grid gap-3">
-              {calendar.map((entry) => {
+              {pagedCalendar.map((entry) => {
                 const record = recordsById.get(entry.applicationRecordId);
                 return (
                   <li
@@ -633,6 +711,17 @@ export function ApplicationsCrmViews(props: {
             </div>
           )}
         </div>
+      ) : null}
+      {pageItemCount > 0 ? (
+        <CollectionPagination
+          itemLabel={
+            props.view === "calendar" ? "scheduled items" : "applications"
+          }
+          onPageChange={setPage}
+          page={currentPage}
+          pageSize={APPLICATION_CRM_PAGE_SIZE}
+          totalCount={pageItemCount}
+        />
       ) : null}
     </section>
   );

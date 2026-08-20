@@ -11,8 +11,10 @@ import type {
   ApplicationCrmStage,
   ApplicationRecord,
 } from "@unemployed/contracts";
+import type { ApplicationRecordBatchCommitResult } from "@unemployed/db";
 import {
   ApplicationCrmDataSchema,
+  ApplicationCrmBulkStageMutationInputSchema,
   ApplicationCrmExportInputSchema,
   ApplicationCrmMutationInputSchema,
   ApplicationCrmSettingsSchema,
@@ -24,12 +26,46 @@ export interface ApplicationCrmRepository {
   upsertApplicationRecord(record: ApplicationRecord): Promise<void>;
 }
 
+export interface ApplicationCrmBatchRepository extends ApplicationCrmRepository {
+  commitApplicationRecordBatch(input: {
+    expectedRevisions: readonly {
+      applicationRecordId: string;
+      expectedRevision: number;
+    }[];
+    records: readonly ApplicationRecord[];
+  }): Promise<ApplicationRecordBatchCommitResult>;
+}
+
 export class ApplicationCrmRevisionConflictError extends Error {
   constructor() {
     super(
       "This application changed after you opened it. Refresh and try again.",
     );
     this.name = "ApplicationCrmRevisionConflictError";
+  }
+}
+
+export class ApplicationCrmBulkStageValidationError extends Error {
+  readonly recordIds: readonly string[];
+
+  constructor(message: string, recordIds: readonly string[]) {
+    super(message);
+    this.name = "ApplicationCrmBulkStageValidationError";
+    this.recordIds = [...recordIds];
+  }
+}
+
+export class ApplicationCrmBulkStageRevisionConflictError extends ApplicationCrmRevisionConflictError {
+  readonly recordIds: readonly string[];
+
+  constructor(recordIds: readonly string[]) {
+    super();
+    this.message =
+      recordIds.length === 1
+        ? "That application changed before the bulk stage update could be saved. Refresh and try again."
+        : `${recordIds.length} applications changed before the bulk stage update could be saved. Refresh and try again.`;
+    this.name = "ApplicationCrmBulkStageRevisionConflictError";
+    this.recordIds = [...recordIds];
   }
 }
 
@@ -465,6 +501,118 @@ export async function mutateApplicationCrm(input: {
 
   await input.repository.upsertApplicationRecord(nextRecord);
   return nextRecord;
+}
+
+export function prepareApplicationCrmBulkStageMutation(input: {
+  records: readonly ApplicationRecord[];
+  command: unknown;
+  now?: () => string;
+  createId?: () => string;
+}): {
+  nextRecords: readonly ApplicationRecord[];
+  changedRecordIds: readonly string[];
+} {
+  const command = ApplicationCrmBulkStageMutationInputSchema.parse(
+    input.command,
+  );
+  const recordsById = new Map(
+    input.records.map((record) => [record.id, record]),
+  );
+  const missingRecordIds = command.items
+    .map((item) => item.applicationRecordId)
+    .filter((recordId) => !recordsById.has(recordId));
+  if (missingRecordIds.length > 0) {
+    throw new ApplicationCrmBulkStageValidationError(
+      missingRecordIds.length === 1
+        ? "The selected application no longer exists. Refresh and try again."
+        : `${missingRecordIds.length} selected applications no longer exist. Refresh and try again.`,
+      missingRecordIds,
+    );
+  }
+
+  const staleRecordIds = command.items
+    .filter(
+      ({ applicationRecordId, expectedRevision }) =>
+        getApplicationCrmData(recordsById.get(applicationRecordId)!)
+          .revision !== expectedRevision,
+    )
+    .map(({ applicationRecordId }) => applicationRecordId);
+  if (staleRecordIds.length > 0) {
+    throw new ApplicationCrmBulkStageRevisionConflictError(staleRecordIds);
+  }
+
+  const now = input.now?.() ?? new Date().toISOString();
+  const createId =
+    input.createId ??
+    (() => `crm_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
+  const changedRecordIds: string[] = [];
+  const nextRecords = command.items.map(({ applicationRecordId }) => {
+    const record = recordsById.get(applicationRecordId)!;
+    const crm = getApplicationCrmData(record);
+    const mutated = applyMutation({
+      crm,
+      mutation: {
+        type: "set_stage",
+        stage: command.stage,
+        customStageId: command.customStageId,
+        note: command.note,
+      },
+      now,
+      createId,
+    });
+    if (mutated === crm) return record;
+
+    changedRecordIds.push(record.id);
+    const nextCrm = ApplicationCrmDataSchema.parse({
+      ...mutated,
+      revision: crm.revision + 1,
+    });
+    return ApplicationRecordSchema.parse({
+      ...record,
+      status: record.status,
+      lastActionLabel: `Stage changed to ${nextCrm.stage.replaceAll("_", " ")}`,
+      lastUpdatedAt: now,
+      crm: nextCrm,
+    });
+  });
+
+  return { nextRecords, changedRecordIds };
+}
+
+export async function mutateApplicationCrmBulkStage(input: {
+  repository: ApplicationCrmBatchRepository;
+  command: unknown;
+  now?: () => string;
+  createId?: () => string;
+}): Promise<readonly ApplicationRecord[]> {
+  const command = ApplicationCrmBulkStageMutationInputSchema.parse(
+    input.command,
+  );
+  const records = await input.repository.listApplicationRecords();
+  const prepared = prepareApplicationCrmBulkStageMutation({
+    records,
+    command,
+    ...(input.now ? { now: input.now } : {}),
+    ...(input.createId ? { createId: input.createId } : {}),
+  });
+  if (prepared.changedRecordIds.length === 0) {
+    return prepared.nextRecords;
+  }
+
+  const result = await input.repository.commitApplicationRecordBatch({
+    expectedRevisions: command.items,
+    records: prepared.nextRecords,
+  });
+  if (result.status === "missing") {
+    throw new ApplicationCrmBulkStageValidationError(
+      "One or more selected applications no longer exist. Refresh and try again.",
+      result.recordIds,
+    );
+  }
+  if (result.status === "stale") {
+    throw new ApplicationCrmBulkStageRevisionConflictError(result.recordIds);
+  }
+  return prepared.nextRecords;
 }
 
 export async function runApplicationNoResponseAutomation(input: {

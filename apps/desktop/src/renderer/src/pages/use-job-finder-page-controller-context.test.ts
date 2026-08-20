@@ -4,12 +4,9 @@ import type {
   ActionState,
   JobFinderShellActions,
 } from "@renderer/features/job-finder/lib/job-finder-types";
-import type {
-  PendingActionState,
-} from "./job-finder-pending-actions";
+import type { PendingActionState } from "./job-finder-pending-actions";
 import { jobFinderPendingActions } from "./job-finder-pending-actions";
 import { buildJobFinderPageContext } from "./use-job-finder-page-controller-context";
-import type { JobFinderPageContext } from "./job-finder-page-context";
 import type { JobFinderWorkspaceSnapshot } from "@unemployed/contracts";
 import { createJobFinderSaveCoordinator } from "./job-finder-save-state";
 
@@ -54,7 +51,7 @@ function buildContext(overrides: {
     profileSetupState: null,
     saveCoordinator,
     saveState: { state: "idle", version: 0 },
-    refreshResumeWorkspace: async () => false,
+    refreshResumeWorkspace: () => Promise.resolve(false),
     resumeAssistantRequestTokenRef: { current: 0 },
     selectedApplicationAttempt: null,
     selectedApplicationRecord: null,
@@ -99,9 +96,7 @@ describe("buildJobFinderPageContext campaign schedule and notifications", () => 
       actions: { runCampaignNow },
     });
 
-    const completed = await (context as JobFinderPageContext).onRunCampaignNow(
-      "campaign_b",
-    );
+    const completed = await context.onRunCampaignNow("campaign_b");
 
     expect(runCampaignNow).toHaveBeenCalledWith("campaign_b");
     expect(completed).toBe(true);
@@ -120,7 +115,7 @@ describe("buildJobFinderPageContext campaign schedule and notifications", () => 
       } as JobFinderWorkspaceSnapshot,
     });
 
-    await (context as JobFinderPageContext).onRunCampaignNow();
+    await context.onRunCampaignNow();
 
     expect(runCampaignNow).toHaveBeenCalledWith(undefined);
   });
@@ -139,9 +134,7 @@ describe("buildJobFinderPageContext campaign schedule and notifications", () => 
       actions: { runCampaignNow },
     });
 
-    const actionPromise = (
-      context as JobFinderPageContext
-    ).onRunCampaignNow("campaign_b");
+    const actionPromise = context.onRunCampaignNow("campaign_b");
     expect(getPendingActionState()).toEqual({
       [jobFinderPendingActions.campaignRun("campaign_b")]: 1,
     });
@@ -164,7 +157,7 @@ describe("buildJobFinderPageContext campaign schedule and notifications", () => 
         markAllCampaignNotificationsRead,
       },
     });
-    const pageContext = context as JobFinderPageContext;
+    const pageContext = context;
 
     pageContext.onMarkCampaignNotificationRead("n_1");
     await vi.waitFor(() => {
@@ -187,7 +180,7 @@ describe("buildJobFinderPageContext outcome recording and suggestions", () => {
     const { context, getPendingActionState, getActionState } = buildContext({
       actions: { recordOutcome },
     });
-    const pageContext = context as JobFinderPageContext;
+    const pageContext = context;
 
     const completed = await pageContext.onRecordOutcome({
       jobId: "job_1",
@@ -220,7 +213,7 @@ describe("buildJobFinderPageContext outcome recording and suggestions", () => {
     const { context, getPendingActionState } = buildContext({
       actions: { recordOutcome },
     });
-    const actionPromise = (context as JobFinderPageContext).onRecordOutcome({
+    const actionPromise = context.onRecordOutcome({
       jobId: "job_1",
       outcome: "applied",
       resumeStrategyId: null,
@@ -241,7 +234,7 @@ describe("buildJobFinderPageContext outcome recording and suggestions", () => {
       .fn<JobFinderShellActions["recordOutcome"]>()
       .mockRejectedValue(new Error("That job is no longer available."));
     const { context } = buildContext({ actions: { recordOutcome } });
-    const pageContext = context as JobFinderPageContext;
+    const pageContext = context;
 
     await expect(
       pageContext.onRecordOutcome({
@@ -260,7 +253,7 @@ describe("buildJobFinderPageContext outcome recording and suggestions", () => {
     const { context, getPendingActionState, getActionState } = buildContext({
       actions: { setOutcomeSuggestionEnabled },
     });
-    const pageContext = context as JobFinderPageContext;
+    const pageContext = context;
 
     const completed = await pageContext.onSetOutcomeSuggestionEnabled({
       dimension: "source",
@@ -287,7 +280,7 @@ describe("buildJobFinderPageContext outcome recording and suggestions", () => {
     const { context, getActionState } = buildContext({
       actions: { setOutcomeSuggestionEnabled },
     });
-    const pageContext = context as JobFinderPageContext;
+    const pageContext = context;
 
     const completed = await pageContext.onSetOutcomeSuggestionEnabled({
       dimension: "campaign",

@@ -225,4 +225,18 @@ describe("ProfileJobSourcesTab", () => {
       screen.getByDisplayValue("https://jobs-5.example.com/openings"),
     ).toBeTruthy();
   });
+
+  it("truncates long source names in rows while exposing the complete name", () => {
+    const longName = "SourceNameWithoutAnyWordBreaksAtAll";
+    const { container } = render(
+      <JobSourcesHarness targets={[createTarget(1, { label: longName })]} />,
+    );
+
+    const title = container.querySelector("h4");
+    expect(title?.textContent).toBe(longName);
+    expect(title?.className).toContain("min-w-0");
+    expect(title?.className).toContain("max-w-full");
+    expect(title?.className).toContain("truncate");
+    expect(title?.getAttribute("title")).toBe(longName);
+  });
 });

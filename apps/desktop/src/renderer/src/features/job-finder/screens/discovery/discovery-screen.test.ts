@@ -205,6 +205,21 @@ describe("getDiscoveryResultVisibility", () => {
     expect(visible.selectedJob?.id).toBe("review");
   });
 
+  it("keeps a requested mismatch visible for contextual navigation", () => {
+    const strong = createSavedJob("strong", "strong_fit");
+    const mismatch = createSavedJob("mismatch", "skip");
+
+    const visible = getDiscoveryResultVisibility(
+      [strong, mismatch],
+      mismatch,
+      false,
+      true,
+    );
+
+    expect(visible.jobs.map((job) => job.id)).toEqual(["strong", "mismatch"]);
+    expect(visible.selectedJob?.id).toBe("mismatch");
+  });
+
   it("orders reviewable results by descending displayed fit without mutating source order", () => {
     const ninety = createSavedJob("ninety", "strong_fit", 90);
     const ninetyTwo = createSavedJob(

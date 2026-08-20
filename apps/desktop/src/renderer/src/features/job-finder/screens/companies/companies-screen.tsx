@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   CompanyEntity,
   CompanyIntelligenceMutationInput,
@@ -8,6 +8,10 @@ import type {
 } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
 import { EmptyState } from "../../components/empty-state";
+import {
+  CollectionPagination,
+  COLLECTION_PAGE_SIZE,
+} from "../../components/collection-pagination";
 import { PageHeader } from "../../components/page-header";
 import { StatusBadge } from "../../components/status-badge";
 import {
@@ -78,7 +82,8 @@ function CompanyCard(props: {
           ) : null}
           {company.aliases.length > 0 ? (
             <p className="min-w-0 break-words text-(length:--text-tiny) text-foreground-muted">
-              Also known as: {company.aliases.map((alias) => alias.alias).join(", ")}
+              Also known as:{" "}
+              {company.aliases.map((alias) => alias.alias).join(", ")}
             </p>
           ) : null}
         </div>
@@ -139,13 +144,13 @@ function CompanyCard(props: {
             }
             value={company.preference}
           >
-            {(
-              Object.keys(companyPreferenceLabels) as CompanyPreference[]
-            ).map((preference) => (
-              <option key={preference} value={preference}>
-                {companyPreferenceLabels[preference]}
-              </option>
-            ))}
+            {(Object.keys(companyPreferenceLabels) as CompanyPreference[]).map(
+              (preference) => (
+                <option key={preference} value={preference}>
+                  {companyPreferenceLabels[preference]}
+                </option>
+              ),
+            )}
           </select>
         </label>
         <div className="flex flex-wrap gap-2">
@@ -245,6 +250,14 @@ function MergeReviewSection(props: {
                     key={candidate.candidateCompanyId}
                   >
                     <div className="grid min-w-0 flex-1 gap-1">
+                      <p className="text-(length:--text-small) font-medium leading-5 text-foreground">
+                        Possible match:{" "}
+                        {props.companies.find(
+                          (candidateCompany) =>
+                            candidateCompany.id ===
+                            candidate.candidateCompanyId,
+                        )?.canonicalName ?? candidate.candidateCompanyId}
+                      </p>
                       <p className="text-(length:--text-small) leading-5 text-foreground">
                         {candidate.reason}
                       </p>
@@ -256,13 +269,13 @@ function MergeReviewSection(props: {
                     <div className="flex shrink-0 gap-2">
                       <Button
                         disabled={props.isPending(company.id)}
-                        onClick={() =>
-                          props.onReview({
+                        onClick={() => {
+                          void props.onReview({
                             companyId: company.id,
                             candidateId: candidate.candidateCompanyId,
                             decision: "rejected",
-                          })
-                        }
+                          });
+                        }}
                         pending={props.isPending(company.id)}
                         size="sm"
                         type="button"
@@ -272,13 +285,13 @@ function MergeReviewSection(props: {
                       </Button>
                       <Button
                         disabled={props.isPending(company.id)}
-                        onClick={() =>
-                          props.onReview({
+                        onClick={() => {
+                          void props.onReview({
                             companyId: company.id,
                             candidateId: candidate.candidateCompanyId,
                             decision: "accepted",
-                          })
-                        }
+                          });
+                        }}
                         pending={props.isPending(company.id)}
                         size="sm"
                         type="button"
@@ -299,6 +312,7 @@ function MergeReviewSection(props: {
 
 export function CompaniesScreen(props: CompaniesScreenProps) {
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
   const [refreshError, setRefreshError] = useState<string | null>(null);
 
   if (props.isLoading) {
@@ -327,6 +341,26 @@ export function CompaniesScreen(props: CompaniesScreenProps) {
       ),
     [props.companies, query],
   );
+  const pageCount = Math.max(
+    1,
+    Math.ceil(filteredCompanies.length / COLLECTION_PAGE_SIZE),
+  );
+  const currentPage = Math.min(page, pageCount);
+  const pagedCompanies = useMemo(
+    () =>
+      filteredCompanies.slice(
+        (currentPage - 1) * COLLECTION_PAGE_SIZE,
+        currentPage * COLLECTION_PAGE_SIZE,
+      ),
+    [currentPage, filteredCompanies],
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [query]);
+  useEffect(() => {
+    setPage((currentPage) => Math.min(currentPage, pageCount));
+  }, [pageCount]);
 
   const handleRefresh = () => {
     setRefreshError(null);
@@ -355,7 +389,7 @@ export function CompaniesScreen(props: CompaniesScreenProps) {
             type="button"
             variant="secondary"
           >
-            Refresh from jobs
+            Refresh from jobs and applications
           </Button>
         </div>
       </div>
@@ -392,7 +426,7 @@ export function CompaniesScreen(props: CompaniesScreenProps) {
       {props.companies.length === 0 ? (
         <EmptyState
           title="No companies yet"
-          description="Companies appear here after jobs are discovered or applications are tracked. Refresh from jobs to reconcile the employers you already have."
+          description="Companies appear here after jobs are discovered or applications are tracked. Refresh from jobs and applications to reconcile the employers you already have."
         />
       ) : (
         <>
@@ -411,24 +445,33 @@ export function CompaniesScreen(props: CompaniesScreenProps) {
               query={query}
             />
           ) : (
-            <div className="grid gap-3 xl:grid-cols-2">
-              {filteredCompanies.map((company) => (
-                <CompanyCard
-                  company={company}
-                  isMutationPending={props.isMutationPending(company.id)}
-                  isPreferencePending={props.isPreferencePending(company.id)}
-                  jobsByStatus={jobsByStatus}
-                  key={company.id}
-                  onNavigate={props.onNavigate}
-                  onSetPreference={(preference) => {
-                    void props.onSetCompanyPreference({
-                      companyId: company.id,
-                      preference,
-                    });
-                  }}
-                />
-              ))}
-            </div>
+            <>
+              <div className="grid gap-3 xl:grid-cols-2">
+                {pagedCompanies.map((company) => (
+                  <CompanyCard
+                    company={company}
+                    isMutationPending={props.isMutationPending(company.id)}
+                    isPreferencePending={props.isPreferencePending(company.id)}
+                    jobsByStatus={jobsByStatus}
+                    key={company.id}
+                    onNavigate={props.onNavigate}
+                    onSetPreference={(preference) => {
+                      void props.onSetCompanyPreference({
+                        companyId: company.id,
+                        preference,
+                      });
+                    }}
+                  />
+                ))}
+              </div>
+              <CollectionPagination
+                itemLabel="companies"
+                onPageChange={setPage}
+                page={currentPage}
+                pageSize={COLLECTION_PAGE_SIZE}
+                totalCount={filteredCompanies.length}
+              />
+            </>
           )}
         </>
       )}

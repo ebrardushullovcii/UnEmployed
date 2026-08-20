@@ -113,7 +113,7 @@ describe("ReviewQueueMissionPanel", () => {
 
     const footer = screen.getByTestId("apply-copilot-footer");
     const heading = screen.getByRole("heading", {
-      name: "Apply copilot readiness",
+      name: "Apply Copilot readiness",
     });
     const evidence = screen.getByRole("heading", {
       name: "Application readiness",

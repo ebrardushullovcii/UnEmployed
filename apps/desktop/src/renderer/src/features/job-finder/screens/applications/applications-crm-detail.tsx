@@ -42,6 +42,7 @@ export function ApplicationsCrmDetail(props: {
   ) => Promise<void>;
   onRecordOutcome?: (input: RecordOutcomeInput) => Promise<void>;
   isRecordOutcomePending?: boolean;
+  outcomeCampaignId?: string | null;
   outcomeResumeStrategyId?: string | null;
 }) {
   const crm = applicationCrmDataForView(props.record);
@@ -133,7 +134,7 @@ export function ApplicationsCrmDetail(props: {
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="label-mono-xs">Application CRM</p>
+          <p className="label-mono-xs">Application tracker</p>
           <h3
             className="mt-1 font-semibold text-foreground"
             id="application-crm-details-heading"
@@ -689,7 +690,7 @@ export function ApplicationsCrmDetail(props: {
           </ol>
         ) : (
           <p className="mt-2 text-sm text-muted-foreground">
-            No CRM activity has been recorded yet. Existing safe-apply history
+            No tracker activity has been recorded yet. Existing safe-apply history
             remains available below.
           </p>
         )}
@@ -699,6 +700,8 @@ export function ApplicationsCrmDetail(props: {
         <ApplicationsOutcomeRecorder
           isPending={props.isRecordOutcomePending ?? false}
           jobId={props.record.jobId}
+          campaignId={props.outcomeCampaignId ?? null}
+          applicationRecordId={props.record.id}
           onRecordOutcome={props.onRecordOutcome}
           resumeStrategyId={props.outcomeResumeStrategyId ?? null}
         />

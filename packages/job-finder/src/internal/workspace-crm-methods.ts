@@ -1,14 +1,19 @@
 import type {
+  ApplicationCrmBulkStageMutationInput,
   ApplicationCrmExportInput,
   ApplicationCrmExportResult,
   ApplicationCrmMutationInput,
   ApplicationCrmSettings,
   JobFinderWorkspaceSnapshot,
 } from "@unemployed/contracts";
-import { ApplicationCrmSettingsSchema } from "@unemployed/contracts";
+import {
+  ApplicationCrmBulkStageMutationInputSchema,
+  ApplicationCrmSettingsSchema,
+} from "@unemployed/contracts";
 
 import {
   exportApplicationCrm,
+  mutateApplicationCrmBulkStage,
   mutateApplicationCrm,
   runApplicationNoResponseAutomation,
 } from "./application-crm";
@@ -57,6 +62,34 @@ export function createWorkspaceCrmMethods(input: {
               );
             return resolved.asset;
           },
+        });
+      });
+      return input.getWorkspaceSnapshot();
+    },
+
+    async mutateApplicationCrmBulkStage(
+      command: ApplicationCrmBulkStageMutationInput,
+    ): Promise<JobFinderWorkspaceSnapshot> {
+      await input.ctx.withApplicationCrmTransition(async () => {
+        const parsedCommand =
+          ApplicationCrmBulkStageMutationInputSchema.parse(command);
+        if (parsedCommand.customStageId) {
+          const settings = ApplicationCrmSettingsSchema.parse(
+            (await input.ctx.repository.getSettings()).applicationCrm ?? {},
+          );
+          const customStage = settings.customStages.find(
+            (stage) => stage.id === parsedCommand.customStageId,
+          );
+          if (!customStage || customStage.baseStage !== parsedCommand.stage) {
+            throw new Error(
+              "That custom application stage is no longer available. Refresh and choose another stage.",
+            );
+          }
+        }
+
+        return mutateApplicationCrmBulkStage({
+          repository: input.ctx.repository,
+          command: parsedCommand,
         });
       });
       return input.getWorkspaceSnapshot();

@@ -24,6 +24,7 @@ export function createSubmittedAttempt(): ApplicationAttempt {
     outcome: "submitted" as const,
     questions: [],
     blocker: null,
+    listingSignalEvidence: null,
     consentDecisions: [],
     replay: {
       sourceInstructionArtifactId: null,

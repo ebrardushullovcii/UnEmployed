@@ -151,6 +151,51 @@ describe("SettingsEditableDefaults", () => {
     );
   });
 
+  it("keeps nested default controls shrinkable at narrow CSS widths", () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(
+        <SettingsEditableDefaults
+          actionMessage={null}
+          availableResumeTemplates={[resumeTemplateFixtures.classicAts]}
+          isSavePending={false}
+          onSaveSettings={vi.fn()}
+          saveState={idleSaveState}
+          settings={{
+            resumeFormat: "pdf",
+            resumeTemplateId: "classic_ats",
+            fontPreset: "inter_requisite",
+            appearanceTheme: "system",
+            humanReviewRequired: true,
+            allowAutoSubmitOverride: false,
+            keepSessionAlive: false,
+            discoveryOnly: false,
+          }}
+        />,
+      );
+    });
+
+    const panel = container.firstElementChild;
+    const modeGroup = container.querySelector('[role="radiogroup"]');
+    const previewFrame = container.querySelector("iframe");
+    const selectTriggers = [
+      ...container.querySelectorAll('[data-slot="select-trigger"]'),
+    ];
+
+    expect(panel?.className).toContain("min-w-0");
+    expect(modeGroup?.className).toContain("min-w-0");
+    expect(selectTriggers.length).toBeGreaterThan(0);
+    expect(
+      selectTriggers.every((trigger) => trigger.className.includes("min-w-0")),
+    ).toBe(true);
+    expect(previewFrame?.className).toContain("min-w-0");
+    expect(previewFrame?.className).toContain("max-w-full");
+    expect(previewFrame?.parentElement?.className).toContain("min-w-0");
+  });
+
   it("disables form controls and marks save as pending while saving", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -440,9 +485,7 @@ describe("SettingsEditableDefaults", () => {
     expect(container.textContent).toContain(
       "Original CV is the saved application default.",
     );
-    expect(container.textContent).toContain(
-      "Newly shortlisted jobs",
-    );
+    expect(container.textContent).toContain("Newly shortlisted jobs");
     expect(
       Array.from(container.querySelectorAll("button"))
         .find((button) => button.textContent?.trim() === "Save CV preference")

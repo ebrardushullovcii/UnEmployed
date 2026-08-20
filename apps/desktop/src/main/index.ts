@@ -14,8 +14,12 @@ import {
   initializeInterviewSessionControls,
 } from "./setup/interview-session-controls";
 import { areAdvancedInterviewSurfacesEnabled } from "./setup/interview-surface-mode";
-import { configureDesktopUserDataDirectory } from "./setup/user-data-directory";
+import {
+  configureDesktopUserDataDirectory,
+  getDesktopStartupDiagnosticsPath,
+} from "./setup/user-data-directory";
 import { createMainWindow } from "./setup/window-shell";
+import { runShutdownWithTimeout } from "./setup/shutdown-with-timeout";
 import {
   getJobFinderWorkspaceService,
   shutdownJobFinderWorkspaceService,
@@ -34,9 +38,7 @@ loadDesktopEnvironment();
 configureDesktopUserDataDirectory(app);
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
-const startupDiagnosticsPath = process.env.UNEMPLOYED_USER_DATA_DIR?.trim()
-  ? path.join(process.env.UNEMPLOYED_USER_DATA_DIR, "startup-diagnostics.log")
-  : null;
+const startupDiagnosticsPath = getDesktopStartupDiagnosticsPath();
 
 function recordStartupDiagnostic(message: string, error?: unknown) {
   if (!startupDiagnosticsPath || process.env.ELECTRON_ENABLE_LOGGING !== "1") {
@@ -61,6 +63,17 @@ function recordStartupDiagnostic(message: string, error?: unknown) {
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const jobFinderShutdownTimeoutMs = 15_000;
 const advancedInterviewSurfacesEnabled = areAdvancedInterviewSurfacesEnabled();
+
+function createMainWindowSafely(): BrowserWindow | null {
+  try {
+    return createMainWindow(currentDir);
+  } catch (error) {
+    recordStartupDiagnostic("main window creation failed", error);
+    console.error("[Desktop] Failed to create the main window.", error);
+    app.quit();
+    return null;
+  }
+}
 
 recordStartupDiagnostic("main module loaded");
 if (hasSingleInstanceLock) {
@@ -93,7 +106,10 @@ void app
     recordStartupDiagnostic("app ready");
     Menu.setApplicationMenu(null);
     recordStartupDiagnostic("creating main window");
-    const mainWindow = createMainWindow(currentDir);
+    const mainWindow = createMainWindowSafely();
+    if (!mainWindow) {
+      return;
+    }
     recordStartupDiagnostic("main window created");
     mainWindow.on("closed", () => {
       closeInterviewOverlayWindows();
@@ -143,7 +159,7 @@ void app
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {
-        createMainWindow(currentDir);
+        createMainWindowSafely();
       }
     });
   })
@@ -153,6 +169,7 @@ void app
       "[Desktop] Startup failed before the main window was ready.",
       error,
     );
+    app.quit();
   });
 
 let jobFinderShutdownInFlight = false;
@@ -189,34 +206,27 @@ app.on("before-quit", (event) => {
 
   jobFinderShutdownInFlight = true;
   event.preventDefault();
-  let shutdownTimeoutId: ReturnType<typeof setTimeout> | null = null;
-  const shutdownTimeout = new Promise<void>((resolve) => {
-    shutdownTimeoutId = setTimeout(() => {
+  void runShutdownWithTimeout(
+    () =>
+      Promise.all([
+        stopCampaignScheduler().then(() => shutdownJobFinderWorkspaceService()),
+        shutdownInterviewHelperService(),
+      ]).then(() => undefined),
+    jobFinderShutdownTimeoutMs,
+    () => {
       console.warn(
-        `[Desktop] Job Finder workspace service shutdown exceeded ${jobFinderShutdownTimeoutMs}ms; continuing quit.`,
+        `[Desktop] Desktop service shutdown exceeded ${jobFinderShutdownTimeoutMs}ms; continuing quit.`,
       );
-      resolve();
-    }, jobFinderShutdownTimeoutMs);
-  });
-  void Promise.race([
-    Promise.all([
-      stopCampaignScheduler().then(() => shutdownJobFinderWorkspaceService()),
-      shutdownInterviewHelperService(),
-    ]).then(() => undefined),
-    shutdownTimeout,
-  ])
-    .catch((error) => {
+    },
+  ).then((result) => {
+    if (result.status === "failed") {
       console.warn(
         "[Desktop] Failed to shut down Job Finder workspace service before quit.",
-        error,
+        result.error,
       );
-    })
-    .finally(() => {
-      if (shutdownTimeoutId) {
-        clearTimeout(shutdownTimeoutId);
-      }
-      app.quit();
-    });
+    }
+    app.quit();
+  });
 });
 
 app.on("window-all-closed", () => {

@@ -22,7 +22,7 @@ Turn Job Finder into a campaign-based command center that works for both careful
 - Keep browser workflow policy source-generic and below Job Finder orchestration.
 - Preserve application receipts, Candidate Assets, recovery, consent, Needs you lineage, and `submitAuthorized: false`.
 - No real submissions, credentials, accounts, deployments, commits, pushes, or PR updates.
-- No broad Electron or Computer Use QA was run in this closeout; it remains a later separate stage now that implementation and focused integration checks are complete.
+- The hardened phase-two Electron replay was run against the production build with synthetic data, no browser agent, and prepare-only safety settings. It is not a substitute for authenticated-site or final-submit acceptance.
 
 ## Workstreams and ownership
 
@@ -78,12 +78,12 @@ Turn Job Finder into a campaign-based command center that works for both careful
 ## Phase one scripted checkpoint
 
 - Complete on 2026-08-15: guidance, docs, source-generic checks, structure checks, all 14 package lint and typecheck tasks, and the 52-case fit calibration pass.
-- The broad test gate passes 2,100 tests: 2,099 ordinary tests run in parallel and the timing-sensitive repeated-source benchmark runs in an isolated worker without changing its 2,000 ms CPU budget. One live benchmark remains intentionally skipped.
+- The historical phase-one broad test gate passed 2,100 tests: 2,099 ordinary tests ran in parallel and the timing-sensitive repeated-source benchmark ran in an isolated worker without changing its 2,000 ms CPU budget. One live benchmark remains intentionally skipped. This does not establish a passing phase-two broad gate.
 - Broad production Electron and visual acceptance remains separate and must be repeated after phase two is coherently integrated.
 
 ## Phase two — faster review and deeper job-search operations
 
-Status: all six slices below are implemented in the current checkout (typed contracts, pure operations, service methods, typed IPC/preload, renderer screens, and focused tests) and focused-verified: 165 test files / 630 tests pass with zero failures. Final closeout checks passed: the feature Prettier check passed, `git diff --check` passed, the affected Contracts/DB/Job Finder/Desktop ESLint scope passed, and Contracts/DB/Job Finder/Desktop TypeScript all passed. Exactly one broad `pnpm verify` attempt was made and stopped before repository scripts ran because the pnpm 10.8.0 registry signature/package fetch verification failed; it was not bypassed or rerun and has not been claimed to pass. Electron/Computer Use/visual QA was not run in this closeout and remains a later separate stage.
+Status: all six slices below are implemented in the current checkout (typed contracts, migration-safe persistence, pure operations, service methods, typed IPC/preload, renderer screens, and focused tests). The integrated focused closeout passed 59 test files / 770 tests with zero failures, including 4 safeguard files / 92 tests. Navigation checks passed 9/9 reachability and 16/16 shell assertions. Affected lint, typecheck, Prettier, and `git diff --check` checks passed, and the production desktop build passed. The hardened Electron replay passed 40 captures at 1440×920, 1280×720, and native 200% zoom with zero runtime errors, safety violations, horizontal-overflow findings, or unreachable controls; nested-scroll movement passed 40/40. Evidence is under `apps/desktop/test-artifacts/ui/phase-two-absolute-final/`. The later 2026-08-19 release-hardening integration also passed the repository-wide `pnpm verify` gate and a final 516-job/511-source production scale replay with zero renderer errors; exact evidence is recorded in `docs/STATUS.md` and `docs/TESTING.md`.
 
 ### Rapid Review
 
@@ -93,7 +93,7 @@ Status: all six slices below are implemented in the current checkout (typed cont
 
 ### Advanced campaign rules
 
-Implemented and focused-verified — final gate pending.
+Implemented and verified by focused checks and the phase-two production harness.
 
 - Add enabled/disabled Must have, Prefer, and Never rules for the evidence-backed fields already present in job contracts.
 - Keep hard exclusions separate from ranking preferences and show each rule's origin plus measured remove/downgrade counts.
@@ -101,7 +101,7 @@ Implemented and focused-verified — final gate pending.
 
 ### Local schedules and digests
 
-Implemented and focused-verified — final gate pending.
+Implemented and verified by focused checks and the phase-two production harness.
 
 - Enforce run-now, daily, and selected-time local schedules, pause windows, campaign limits, and the existing safe stop conditions.
 - Persist a campaign digest for new, changed, reactivated, inactive, known, skipped, and failed-source outcomes.
@@ -115,7 +115,7 @@ Implemented and focused-verified — final gate pending.
 
 ### Outcome learning and resume strategies
 
-Implemented and focused-verified — final gate pending.
+Implemented and verified by focused checks and the phase-two production harness.
 
 - Add campaign/source/title/company/resume-strategy outcome views with visible sample size and uncertainty.
 - Suggestions remain inspectable, optional, resettable, and separate from objective job facts.
@@ -124,7 +124,7 @@ Implemented and focused-verified — final gate pending.
 
 ### Company intelligence and high-volume safeguards
 
-Implemented and focused-verified — final gate pending.
+Implemented and verified by focused checks and the phase-two production harness.
 
 - Add company entities/pages with openings, applications, outcomes, contacts, notes, salary/offer evidence, source history, preferences, and conservative duplicate-review/merge handling.
 - Add per-company/time-window caps, simultaneous-application conflict checks, stale/closed/suspicious signals, abnormal-failure pauses, quality-review sampling, contradictory-answer protection, and explicit recovery guidance.
@@ -134,8 +134,8 @@ Implemented and focused-verified — final gate pending.
 1. Extend contracts and migration-safe persistence for rules, schedules/digests, grouped decisions, outcomes, strategies, companies, and safeguards.
 2. Add pure projections and service operations before wiring renderer actions.
 3. Integrate Rapid Review, rule builder, schedule/digest, grouped Needs you, analytics, strategy, and company screens through typed IPC/preload.
-4. Write focused contract, repository, service, renderer, and safety tests while each boundary lands. Focused feature verification now passes 165 test files / 630 tests with zero failures.
-5. Remaining: run the broad scripted gate exactly once — the single earlier attempt stopped before repository scripts ran because the pnpm 10.8.0 registry signature/package fetch verification failed and was not bypassed or rerun — then deterministic production Electron screenshots and Luna High visual review only where screenshots answer a real layout question; Electron/Computer Use/visual QA was not run in this closeout and remains a later separate stage. Final-gate reruns are complete and passed: Contracts/DB/Job Finder/Desktop TypeScript, the affected Contracts/DB/Job Finder/Desktop ESLint scope, the feature Prettier check, and `git diff --check`.
+4. Write focused contract, repository, service, renderer, and safety tests while each boundary lands. The integrated focused closeout passes 59 test files / 770 tests with zero failures, including 4 safeguard files / 92 tests.
+5. Run the affected lint/typecheck/format/diff checks and production build, then run the hardened phase-two Electron replay (`pnpm --filter @unemployed/desktop ui:job-finder-phase-two`) against synthetic data. The replay passes 40 captures, 40/40 nested-scroll checks, and zero runtime/safety/overflow/unreachable findings. The original broad attempt was blocked before scripts ran; a later 2026-08-19 integrated `pnpm verify` run passed.
 
 ## Later explicit phases
 
@@ -145,20 +145,20 @@ Implemented and focused-verified — final gate pending.
 
 ## Closeout checkpoint — 2026-08-15
 
-No implementation is currently running. This plan stays active as the durable record until the six-slice phase-two batch passes its final gate.
+This plan remains as the durable record of the closeout. The implementation and focused/Electron verification are complete, and the later 2026-08-19 release-hardening pass supplied a passing repository-wide scripted gate. No HISTORY/ADR update is part of this closeout.
 
-### Fully implemented and broadly verified (historical)
+### Fully implemented and verified
 
 - Phase one: durable precision/scale campaigns, the Job Search Home dashboard, campaign-scoped lists, global/local collection search, workspace activity pause, and the local application CRM.
-- The phase-one scripted gate passed all package lint/typecheck tasks and 2,100 tests, with one intentional live skip and the timing-sensitive performance case run separately under its unchanged budget.
+- The phase-one scripted gate passed all package lint/typecheck tasks and 2,100 tests, with one intentional live skip and the timing-sensitive performance case run separately under its unchanged budget. Phase two passed the integrated focused checks and the hardened production Electron replay described above.
 
 ### Implemented and focused-verified
 
 - Rapid Review: campaign-scoped queue, keyboard decisions, undo, bulk actions, and comparison.
 - Local campaign scheduler foundations: persisted schedules, run-now/daily/selected-time evaluation, digests, in-app notification records, typed service/IPC/preload boundaries, and the desktop scheduler service.
 - Grouped Needs you answers: compatibility projection, exact job lineage, atomic all-or-nothing application, snooze, typed Electron bridge, and the Needs you UI.
-- Focused feature verification passed 165 test files / 630 tests with zero failures. Final-gate reruns passed: Contracts/DB/Job Finder/Desktop TypeScript all passed, the affected Contracts/DB/Job Finder/Desktop ESLint scope passed, the feature Prettier check passed, and `git diff --check` passed.
-- The single repository-wide `pnpm verify` attempt stopped before repository scripts ran because the pnpm 10.8.0 registry signature/package fetch verification failed. It was not bypassed or rerun; exactly one attempt was made and it has not been claimed to pass. The earlier phase-one broad gate remains the latest completed broad evidence.
+- Focused feature verification passed 59 test files / 770 tests with zero failures, including 4 safeguard files / 92 tests. Navigation checks passed 9/9 reachability and 16/16 shell assertions. Contracts/DB/AI Providers/Job Finder/Desktop TypeScript, the affected lint scope, the feature Prettier check, and `git diff --check` passed; the production desktop build passed.
+- The phase-two Electron replay passed 40 captures at 1440×920, 1280×720, and native 200% zoom with zero runtime errors, safety violations, horizontal-overflow findings, or unreachable controls; nested-scroll movement passed 40/40. Evidence is under `apps/desktop/test-artifacts/ui/phase-two-absolute-final/` and the run left zero Electron processes.
 
 - Advanced campaign rules and truthful pre-search funnel: enabled/disabled Must have/Prefer/Never rules over evidence-backed fields, provenance and measured remove/downgrade/unknown counts, and a funnel projection derived only from the campaign's retained jobs.
 - Local schedules, digests, and notifications: run-now/daily/selected-time enforcement with pause windows and persisted run facts, truthful digests, in-app notifications for strong matches and blocked/failed work, campaign management UI, and the desktop scheduler service.
@@ -168,17 +168,16 @@ No implementation is currently running. This plan stays active as the durable re
 - High-volume safeguards and recovery: company application caps, simultaneous-application conflicts, listing signals, abnormal-failure pauses, batch sample reviews, contradictory-answer detections, reversible dismissals, and explicit recovery guidance.
 - Each slice has typed contracts, pure operations, workspace-service methods, typed IPC/preload routes, renderer screens, and focused test files, and is covered by the focused feature verification above.
 
-### Final gate pending
+### Repository-wide gate caveat
 
-- Contracts/DB/Job Finder/Desktop TypeScript all passed, the affected Contracts/DB/Job Finder/Desktop ESLint scope passed, the feature Prettier check passed, and `git diff --check` passed; final-gate reruns are complete. The focused suite passed 165 test files / 630 tests with zero failures.
-- The broad scripted gate (`pnpm verify`) has not been claimed to pass. Exactly one attempt was made and stopped before repository scripts ran because the pnpm 10.8.0 registry signature/package fetch verification failed; it was not bypassed or rerun.
-- Electron/Computer Use/visual QA was not run in this closeout and remains a later separate stage; normal-resolution production Electron and visual acceptance remain pending.
+- The closeout's initial broad attempt was blocked before repository scripts ran; the later 2026-08-19 integrated `pnpm verify` run passed.
+- The phase-two production Electron harness did run and passed; authenticated-site testing, live provider/network validation, Computer Use on external sites, and final-submit testing remain outside this closeout.
 
 ### Partial or incomplete
 
-- None: every phase-one and phase-two item above is implemented and focused-verified; the remaining work is final-gate verification, not implementation.
+- The historical package-manager verification failure was superseded by the passing 2026-08-19 integrated `pnpm verify` run.
 
 ### Deferred from the phase-two wishlist
 
 - External email/push integrations, connected-account ingestion, authenticated-site acceptance, and any real final-submit authority.
-- Production Electron, Computer Use, and Luna visual review remain separate follow-up work after the batch is verified.
+- Broader live-site/network/provider acceptance and native-platform coverage beyond the synthetic Electron harness.

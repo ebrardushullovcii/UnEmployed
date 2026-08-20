@@ -225,7 +225,7 @@ describe("CampaignRuleBuilder", () => {
     expect(screen.getByText("Never · 1")).toBeTruthy();
     expect(screen.getByText("Role contains frontend")).toBeTruthy();
     expect(screen.getByText(/1 removed/)).toBeTruthy();
-    expect(screen.getAllByText(/origin: You/)).toHaveLength(3);
+    expect(screen.getAllByText(/Source: You/)).toHaveLength(3);
     // Disabled rules are labeled and never reported as measured.
     expect(screen.getByText("Disabled — not measured")).toBeTruthy();
   });
@@ -246,9 +246,7 @@ describe("CampaignRuleBuilder", () => {
       },
     });
     renderBuilder({ projection: zeroed });
-    expect(
-      screen.getByText(/no funnel is projected/i),
-    ).toBeTruthy();
+    expect(screen.getByText(/no funnel is projected/i)).toBeTruthy();
     expect(screen.queryByText(/Hard removed/)).toBeNull();
   });
 
@@ -312,6 +310,26 @@ describe("CampaignRuleBuilder", () => {
 
     expect(onSaveRule).toHaveBeenCalledTimes(1);
     expect(onSaveRule.mock.calls[0]?.[0]?.value).toBe("Berlin");
+  });
+
+  it("shows field-level feedback and disables add for a nonnumeric travel value", () => {
+    const onSaveRule = vi.fn<(rule: SaveCampaignRuleInput) => void>();
+    renderBuilder({ onSaveRule });
+
+    fireEvent.change(screen.getByLabelText("Job field"), {
+      target: { value: "travel" },
+    });
+    const valueInput = screen.getByLabelText("Value (number)");
+    fireEvent.change(valueInput, { target: { value: "not-a-number" } });
+
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Enter a valid non-negative number.",
+    );
+    expect(valueInput.getAttribute("aria-invalid")).toBe("true");
+    expect(
+      screen.getByRole("button", { name: "Add rule" }).hasAttribute("disabled"),
+    ).toBe(true);
+    expect(onSaveRule).not.toHaveBeenCalled();
   });
 
   it("closes the builder on Escape", () => {

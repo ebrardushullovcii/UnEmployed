@@ -24,10 +24,10 @@ export function getAdjacentCollectionItemId(
 
 export function focusCollectionItem(itemId: string): void {
   window.requestAnimationFrame(() => {
-    document
-      .querySelector<HTMLElement>(
-        `[data-collection-item-id="${CSS.escape(itemId)}"]`,
-      )
+    Array.from(
+      document.querySelectorAll<HTMLElement>("[data-collection-item-id]"),
+    )
+      .find((item) => item.dataset.collectionItemId === itemId)
       ?.focus();
   });
 }

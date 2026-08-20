@@ -60,12 +60,12 @@ export function CollectionSearchToolbar(props: {
   return (
     <div
       className={cn(
-        "grid gap-2 border-y border-(--surface-panel-border) px-5 py-3",
+        "grid min-w-0 gap-2 border-y border-(--surface-panel-border) px-5 py-3",
         props.className,
       )}
     >
-      <div className="flex flex-wrap items-end gap-2">
-        <div className="min-w-56 flex-1">
+      <div className="flex min-w-0 flex-wrap items-end gap-2">
+        <div className="min-w-0 w-full flex-1 sm:min-w-56">
           <label
             className="mb-1 block text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted"
             htmlFor={inputId}
@@ -102,11 +102,11 @@ export function CollectionSearchToolbar(props: {
         ) : null}
         {props.viewActions}
       </div>
-      <div className="flex min-h-5 items-center justify-between gap-3">
+      <div className="flex min-h-5 min-w-0 flex-wrap items-center justify-between gap-3">
         <p
           aria-atomic="true"
           aria-live="polite"
-          className="text-(length:--text-small) text-foreground-muted"
+          className="min-w-0 text-(length:--text-small) text-foreground-muted"
         >
           {showingSubset
             ? `${props.visibleCount} of ${props.totalCount} results`

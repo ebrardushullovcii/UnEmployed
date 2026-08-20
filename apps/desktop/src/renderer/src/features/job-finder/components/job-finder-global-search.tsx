@@ -79,7 +79,7 @@ export function JobFinderGlobalSearch(props: {
                 </h3>
                 {group.entries.map((entry) => (
                   <button
-                    className="grid rounded-(--radius-field) px-3 py-2 text-left hover:bg-(--surface-panel-raised) focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30"
+                    className="grid w-full min-w-0 rounded-(--radius-field) px-3 py-2 text-left hover:bg-(--surface-panel-raised) focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30"
                     key={`${entry.kind}:${entry.id}`}
                     onClick={() => {
                       props.onNavigate(entry);
@@ -87,10 +87,16 @@ export function JobFinderGlobalSearch(props: {
                     }}
                     type="button"
                   >
-                    <strong className="text-sm text-(--text-headline)">
+                    <strong
+                      className="min-w-0 break-words text-sm text-(--text-headline)"
+                      title={entry.title}
+                    >
                       {entry.title}
                     </strong>
-                    <span className="text-xs text-foreground-muted">
+                    <span
+                      className="min-w-0 break-words text-xs text-foreground-muted"
+                      title={entry.subtitle}
+                    >
                       {entry.subtitle}
                     </span>
                   </button>

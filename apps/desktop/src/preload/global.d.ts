@@ -1,4 +1,5 @@
 import type {
+  ApplicationCrmBulkStageMutationInput,
   ApplicationCrmExportInput,
   ApplicationCrmFileExportResult,
   ApplicationCrmMutationInput,
@@ -205,6 +206,7 @@ declare global {
           input: CandidateAssetRestoreInput,
         ) => Promise<CandidateAssetRestoreResult>;
         getWorkspace: () => Promise<JobFinderWorkspaceSnapshot>;
+        getWorkspaceBootstrap: () => Promise<JobFinderWorkspaceSnapshot>;
         syncWorkspace: (
           baseRevision: WorkspaceRevision | null,
         ) => Promise<JobFinderWorkspaceSyncResult>;
@@ -415,6 +417,7 @@ declare global {
         ) => Promise<JobFinderResumeWorkspace>;
         previewResumeDraft: (
           draft: ResumeDraft,
+          requestId?: string,
         ) => Promise<JobFinderResumePreview>;
         saveResumeDraft: (
           draft: ResumeDraft,
@@ -481,6 +484,9 @@ declare global {
         approveApply: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
         mutateApplicationCrm: (
           input: ApplicationCrmMutationInput,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
+        mutateApplicationCrmBulkStage: (
+          input: ApplicationCrmBulkStageMutationInput,
         ) => Promise<JobFinderWorkspaceSnapshot>;
         runApplicationNoResponseAutomation: (
           settings?: ApplicationCrmSettings,

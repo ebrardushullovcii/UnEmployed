@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   JobSearchCampaign,
   OutcomeAnalyticsBucket,
@@ -13,6 +13,10 @@ import { Input } from "@renderer/components/ui/input";
 import { EmptyState } from "../../components/empty-state";
 import { PageHeader } from "../../components/page-header";
 import { StatusBadge } from "../../components/status-badge";
+import {
+  CollectionPagination,
+  COLLECTION_PAGE_SIZE,
+} from "../../components/collection-pagination";
 import {
   OUTCOME_VIEW_MINIMUM_SAMPLE_FOR_CONFIDENCE,
   OUTCOME_VIEW_MINIMUM_SAMPLE_FOR_RATES,
@@ -282,6 +286,7 @@ export function OutcomeAnalyticsScreen(props: {
   const [dimension, setDimension] =
     useState<OutcomeBucketDimension>("campaign");
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
 
   const campaignById = useMemo(
     () => new Map(props.campaigns.map((campaign) => [campaign.id, campaign])),
@@ -328,6 +333,7 @@ export function OutcomeAnalyticsScreen(props: {
       return deriveCampaignScopedOutcomeAnalytics({
         events: scopedEvents,
         generatedAt: props.generatedAt,
+        dimensions: [dimension],
         previousOverview: props.overview,
       });
     }
@@ -338,11 +344,18 @@ export function OutcomeAnalyticsScreen(props: {
       return deriveCampaignScopedOutcomeAnalytics({
         events: scopedEvents,
         generatedAt: props.generatedAt,
+        dimensions: [dimension],
         previousOverview: null,
       });
     }
     return null;
-  }, [effectiveScope, props.generatedAt, props.overview, scopedEvents]);
+  }, [
+    dimension,
+    effectiveScope,
+    props.generatedAt,
+    props.overview,
+    scopedEvents,
+  ]);
 
   const bucketsForDimension = useMemo(
     () =>
@@ -363,6 +376,32 @@ export function OutcomeAnalyticsScreen(props: {
       ),
     [bucketsForDimension, query, resolvers],
   );
+  const pageCount = Math.max(
+    1,
+    Math.ceil(visibleBuckets.length / COLLECTION_PAGE_SIZE),
+  );
+  const currentPage = Math.min(Math.max(page, 1), pageCount);
+  const pagedVisibleBuckets = useMemo(
+    () =>
+      visibleBuckets.slice(
+        (currentPage - 1) * COLLECTION_PAGE_SIZE,
+        currentPage * COLLECTION_PAGE_SIZE,
+      ),
+    [currentPage, visibleBuckets],
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [
+    dimension,
+    effectiveScope.kind,
+    effectiveScope.kind === "campaign" ? effectiveScope.campaignId : null,
+    query,
+  ]);
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, pageCount));
+  }, [pageCount]);
 
   const totalEventCount = useMemo(
     () => countOutcomeEvents(props.events),
@@ -383,7 +422,7 @@ export function OutcomeAnalyticsScreen(props: {
     effectiveScope.kind === "all"
       ? "All campaigns"
       : (campaignById.get(effectiveScope.campaignId)?.name ??
-          effectiveScope.campaignId);
+        effectiveScope.campaignId);
 
   const hasAnyEvents = props.events.length > 0;
   const scopeHasEvents = scopedEvents.length > 0;
@@ -442,7 +481,11 @@ export function OutcomeAnalyticsScreen(props: {
                   : { kind: "campaign", campaignId: value },
               );
             }}
-            value={effectiveScope.kind === "all" ? "__all__" : effectiveScope.campaignId}
+            value={
+              effectiveScope.kind === "all"
+                ? "__all__"
+                : effectiveScope.campaignId
+            }
           >
             <option value="__all__">All campaigns</option>
             {props.campaigns.map((campaign) => (
@@ -562,23 +605,32 @@ export function OutcomeAnalyticsScreen(props: {
               </div>
             </div>
           ) : (
-            <ul className="grid gap-3">
-              {visibleBuckets.map((bucket) => (
-                <li key={`${bucket.dimension}:${bucket.key}`}>
-                  <BucketCard
-                    activeCampaignId={props.activeCampaignId}
-                    bucket={bucket}
-                    isPending={props.isSuggestionPending(
-                      bucket.dimension,
-                      bucket.key,
-                    )}
-                    onDisable={handleDisable}
-                    onReset={handleReset}
-                    resolvers={resolvers}
-                  />
-                </li>
-              ))}
-            </ul>
+            <>
+              <ul className="grid gap-3">
+                {pagedVisibleBuckets.map((bucket) => (
+                  <li key={`${bucket.dimension}:${bucket.key}`}>
+                    <BucketCard
+                      activeCampaignId={props.activeCampaignId}
+                      bucket={bucket}
+                      isPending={props.isSuggestionPending(
+                        bucket.dimension,
+                        bucket.key,
+                      )}
+                      onDisable={handleDisable}
+                      onReset={handleReset}
+                      resolvers={resolvers}
+                    />
+                  </li>
+                ))}
+              </ul>
+              <CollectionPagination
+                itemLabel={outcomeDimensionNoun(dimension)}
+                onPageChange={setPage}
+                page={currentPage}
+                pageSize={COLLECTION_PAGE_SIZE}
+                totalCount={visibleBuckets.length}
+              />
+            </>
           )}
 
           {bucketsForDimension.length === 0 ? (

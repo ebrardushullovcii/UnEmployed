@@ -346,11 +346,11 @@ function getBrowserActionMessage(browserSession: BrowserSessionState) {
     case "login_required":
       return "Apply Copilot can open the destination and wait while you sign in.";
     case "blocked":
-      return "Resolve the browser issue before you start apply copilot.";
+      return "Resolve the browser issue before you start Apply Copilot.";
     case "unknown":
       return "Apply Copilot will open and check the destination when you start.";
     default:
-      return "Wait for the browser to finish starting before you start apply copilot.";
+      return "Wait for the browser to finish starting before you start Apply Copilot.";
   }
 }
 
@@ -414,12 +414,14 @@ export function getReadinessDescription(input: {
 
   if (!hasReadyApprovedAsset) {
     return resumeReviewStatus === "stale"
-      ? "The last approved PDF is out of date and needs a fresh approval."
-      : "Open the resume workspace to export a PDF and approve it before applying.";
+      ? "The last approved tailored PDF is out of date and needs a fresh approval."
+      : selectedItem.resumeApplicationMode === "original_resume"
+        ? "The unchanged original CV is not ready for this job. Import or verify it in Profile before applying."
+        : "Open the resume workspace to export a tailored PDF and approve it before applying.";
   }
 
   if (applySupportState === "incomplete") {
-    return `${selectedItem.resumeReview.status === "original_resume" ? "The original CV" : "The approved PDF"} is ready, but this selection is missing apply-path data. Refresh the job details before starting apply copilot.`;
+    return `${selectedItem.resumeReview.status === "original_resume" ? "The original CV" : "The approved tailored PDF"} is ready, but this selection is missing apply-path data. Refresh the job details before starting Apply Copilot.`;
   }
 
   if (browserActionMessage) {
@@ -427,12 +429,12 @@ export function getReadinessDescription(input: {
   }
 
   if (applySupportState === "manual_follow_up") {
-    return `${selectedItem.resumeReview.status === "original_resume" ? "The original CV" : "The approved PDF"} is ready. This job opens an employer form, so Apply Copilot will check it live, fill supported fields, and pause for anything that needs you.`;
+    return `${selectedItem.resumeReview.status === "original_resume" ? "The original CV" : "The approved tailored PDF"} is ready. This job opens an employer form, so Apply Copilot will check it live, fill supported fields, and pause for anything that needs you.`;
   }
 
   return selectedItem.resumeReview.status === "original_resume"
-    ? "Your original CV is ready to use unchanged. Apply copilot can attach it and prepare the application, then pause before final submit."
-    : "The approved PDF is ready to use. Apply copilot can prepare the application and pause before final submit if the live form asks for unsupported information.";
+    ? "Your original CV is ready to use unchanged. Apply Copilot can attach it and prepare the application, then pause before final submit."
+    : "The approved tailored PDF is ready to use. Apply Copilot can prepare the application and pause before final submit if the live form asks for unsupported information.";
 }
 
 export function buildMissionPanelState(input: {
@@ -536,16 +538,16 @@ export function buildMissionPanelState(input: {
     {
       label: usesOriginalResume
         ? "Original file selected"
-        : "Approved PDF ready",
+        : "Approved tailored PDF ready",
       state: hasReadyApprovedAsset ? "complete" : "blocked",
       description: hasReadyApprovedAsset
         ? usesOriginalResume
           ? "Apply Copilot will attach the original file shown in Review Queue."
-          : "The current approved PDF will be used when you start apply copilot."
+          : "The current approved tailored PDF will be used when you start Apply Copilot."
         : resumeReviewStatus === "approved"
-          ? "The approved PDF could not be matched to the latest ready export. Reopen the workspace and approve again."
+          ? "The approved tailored PDF could not be matched to the latest ready export. Reopen the workspace and approve again."
           : resumeReviewStatus === "stale"
-            ? "Your last approved PDF is out of date. Export and approve a fresh version."
+            ? "Your last approved tailored PDF is out of date. Export and approve a fresh version."
             : "Open the workspace to export a PDF and approve the version you want to use.",
     },
     {
@@ -558,7 +560,7 @@ export function buildMissionPanelState(input: {
             : "complete",
       description:
         applySupportState === "incomplete"
-          ? "This selection is missing saved apply-path data. Refresh the job details before you start apply copilot."
+          ? "This selection is missing saved apply-path data. Refresh the job details before you start Apply Copilot."
           : applySupportState === "manual_follow_up"
             ? "This job opens an employer form. Apply Copilot will verify it live, fill supported fields, and pause before any unsupported or final step."
             : "Saved job data still points to a supported Easy Apply path. Live questions can still pause copilot before final submission.",
@@ -573,7 +575,7 @@ export function buildMissionPanelState(input: {
             : "attention",
       description:
         browserSession.status === "ready"
-          ? "The browser is ready for supported apply-copilot steps."
+          ? "The browser is ready for supported Apply Copilot steps."
           : (browserActionMessage ??
             "Open or refresh the browser before continuing."),
     },
@@ -625,10 +627,10 @@ export function buildMissionPanelState(input: {
   const queueSummary =
     selectedQueueItems.length === 0
       ? queueReadyCount === 0
-        ? "No shortlisted jobs currently meet the approved-PDF requirement for queue staging."
-        : `Select up to ${queueReadyCount} approved jobs from the list to stage one bounded queue run.`
+        ? "No shortlisted jobs currently have a ready resume file (approved tailored PDF or unchanged original CV) for queue staging."
+        : `Select up to ${queueReadyCount} shortlisted jobs with a ready resume file (approved tailored PDF or unchanged original CV) to stage one bounded queue run.`
       : selectedQueueBlockedCount > 0
-        ? "Only jobs with an approved ready PDF can enter the queue. Remove the blocked selection to continue."
+        ? "Only jobs with a ready resume file (approved tailored PDF or unchanged original CV) can enter the queue. Remove the blocked selection to continue."
         : `${selectedQueueReadyItems.length} selected job${selectedQueueReadyItems.length === 1 ? "" : "s"} will be staged into one safe non-submitting queue run.`;
 
   return {

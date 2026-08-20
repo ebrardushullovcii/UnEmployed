@@ -1,4 +1,5 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { jobFinderPendingActions } from "./job-finder-pending-actions";
 import { Button } from "@renderer/components/ui/button";
 import { JobFinderRouteErrorBoundary } from "./job-finder-route-error-boundary";
@@ -21,6 +22,7 @@ import { SafeguardsScreen } from "@renderer/features/job-finder/screens/safeguar
 import { getDefaultProfileRoute } from "@renderer/features/job-finder/lib/job-finder-utils";
 import {
   Navigate,
+  useSearchParams,
   useLocation,
   useOutletContext,
   useParams,
@@ -39,6 +41,12 @@ import type {
 } from "@unemployed/contracts";
 import { ApplicationCrmSettingsSchema } from "@unemployed/contracts";
 import { countActiveSafeguardBlockers } from "@renderer/features/job-finder/lib/safeguards-blocker-count";
+import {
+  clearJobFinderContextQuery,
+  JOB_FINDER_CONTEXT_QUERY_KEYS,
+  readJobFinderNavigationContext,
+  selectJobFinderContext,
+} from "@renderer/features/job-finder/lib/job-finder-context-navigation";
 
 function useJobFinderPageContext() {
   return useOutletContext<JobFinderPageContext>();
@@ -102,36 +110,88 @@ export function WorkspaceStateScreen(props: {
   );
 }
 
+type JobFinderDeferredCollection =
+  JobFinderWorkspaceSnapshot["hydration"]["deferredCollections"][number];
+
+export function isJobFinderHydratingCollections(
+  workspace: JobFinderWorkspaceSnapshot,
+  collections: readonly JobFinderDeferredCollection[],
+): boolean {
+  return (
+    workspace.hydration.phase === "bootstrap" &&
+    collections.some((collection) =>
+      workspace.hydration.deferredCollections.includes(collection),
+    )
+  );
+}
+
+/**
+ * Bootstrap snapshots intentionally leave large collections empty. Routes
+ * that depend on those collections must not render an empty result state or
+ * offer actions that the workspace hook will reject while hydration runs.
+ */
+export function JobFinderHydrationGate(props: {
+  children: ReactNode;
+  collections: readonly JobFinderDeferredCollection[];
+  workspace: JobFinderWorkspaceSnapshot;
+}) {
+  const isHydrating = isJobFinderHydratingCollections(
+    props.workspace,
+    props.collections,
+  );
+
+  if (!isHydrating) {
+    return props.children;
+  }
+
+  return (
+    <WorkspaceStateScreen
+      kicker="Job Finder"
+      message="We’re loading your saved workspace data from disk. This page will appear here as soon as it is ready."
+      title="Loading your workspace"
+    />
+  );
+}
+
 export { JobFinderRouteErrorBoundary };
 
 export function JobFinderCompaniesRoute() {
   const context = useJobFinderPageContext();
 
   return (
-    <CompaniesScreen
-      actionMessage={context.actionState.message}
-      companies={context.workspace.intelligence.companies}
-      discoveryJobs={context.workspace.discoveryJobs}
-      isMergePending={(companyId) =>
-        context.isPending(jobFinderPendingActions.companyMergeReview(companyId))
-      }
-      isMutationPending={(companyId) =>
-        context.isPending(
-          jobFinderPendingActions.companyIntelligenceMutation(companyId),
-        )
-      }
-      isPreferencePending={(companyId) =>
-        context.isPending(jobFinderPendingActions.companyPreference(companyId))
-      }
-      isRefreshPending={context.isPending(
-        jobFinderPendingActions.companyIntelligenceRefresh(),
-      )}
-      onMutateCompanyIntelligence={context.onMutateCompanyIntelligence}
-      onNavigate={context.onNavigateSafely}
-      onRefresh={context.onRefreshCompanyIntelligence}
-      onReviewCompanyMerge={context.onReviewCompanyMerge}
-      onSetCompanyPreference={context.onSetCompanyPreference}
-    />
+    <JobFinderHydrationGate
+      collections={["discovery_jobs", "applications", "intelligence"]}
+      workspace={context.workspace}
+    >
+      <CompaniesScreen
+        actionMessage={context.actionState.message}
+        companies={context.workspace.intelligence.companies}
+        discoveryJobs={context.workspace.discoveryJobs}
+        isMergePending={(companyId) =>
+          context.isPending(
+            jobFinderPendingActions.companyMergeReview(companyId),
+          )
+        }
+        isMutationPending={(companyId) =>
+          context.isPending(
+            jobFinderPendingActions.companyIntelligenceMutation(companyId),
+          )
+        }
+        isPreferencePending={(companyId) =>
+          context.isPending(
+            jobFinderPendingActions.companyPreference(companyId),
+          )
+        }
+        isRefreshPending={context.isPending(
+          jobFinderPendingActions.companyIntelligenceRefresh(),
+        )}
+        onMutateCompanyIntelligence={context.onMutateCompanyIntelligence}
+        onNavigate={context.onNavigateSafely}
+        onRefresh={context.onRefreshCompanyIntelligence}
+        onReviewCompanyMerge={context.onReviewCompanyMerge}
+        onSetCompanyPreference={context.onSetCompanyPreference}
+      />
+    </JobFinderHydrationGate>
   );
 }
 
@@ -143,55 +203,63 @@ export function JobFinderCompanyDetailRoute() {
     context.workspace.intelligence.companies.find(
       (entry) => entry.id === companyId,
     ) ?? null;
-  const relatedCompany = company ?? context.workspace.intelligence.companies[0] ?? null;
-
-  if (!companyId || !relatedCompany) {
-    return <Navigate replace to="/job-finder/companies" />;
-  }
+  const relatedCompany =
+    company ?? context.workspace.intelligence.companies[0] ?? null;
 
   return (
-    <CompanyDetailScreen
-      actionMessage={context.actionState.message}
-      applicationRecords={context.workspace.applicationRecords}
-      companies={context.workspace.intelligence.companies}
-      company={relatedCompany}
-      companyId={companyId}
-      discoveryJobs={context.workspace.discoveryJobs}
-      isMergePending={(targetCompanyId) =>
-        context.isPending(
-          jobFinderPendingActions.companyMergeReview(targetCompanyId),
-        )
-      }
-      isMutationPending={(targetCompanyId) =>
-        context.isPending(
-          jobFinderPendingActions.companyIntelligenceMutation(targetCompanyId),
-        )
-      }
-      isPreferencePending={(targetCompanyId) =>
-        context.isPending(
-          jobFinderPendingActions.companyPreference(targetCompanyId),
-        )
-      }
-      onBack={() => context.onNavigateSafely("/job-finder/companies")}
-      onMutateCompanyIntelligence={context.onMutateCompanyIntelligence}
-      onNavigate={context.onNavigateSafely}
-      onOpenJob={(jobId) => {
-        context.onSelectDiscoveryJob(jobId);
-        context.onNavigateSafely("/job-finder/discovery");
-      }}
-      onOpenApplication={(recordId) => {
-        context.onSelectApplicationRecord(recordId);
-        context.onNavigateSafely("/job-finder/applications");
-      }}
-      onReviewCompanyMerge={context.onReviewCompanyMerge}
-      onSetCompanyPreference={context.onSetCompanyPreference}
-      activeCapLimitReached={context.workspace.intelligence.safeguards.companyApplicationCaps.some(
-        (cap) => cap.companyId === companyId && cap.limitReached,
+    <JobFinderHydrationGate
+      collections={["discovery_jobs", "applications", "intelligence"]}
+      workspace={context.workspace}
+    >
+      {!companyId || !relatedCompany ? (
+        <Navigate replace to="/job-finder/companies" />
+      ) : (
+        <CompanyDetailScreen
+          actionMessage={context.actionState.message}
+          applicationRecords={context.workspace.applicationRecords}
+          companies={context.workspace.intelligence.companies}
+          company={relatedCompany}
+          companyId={companyId}
+          discoveryJobs={context.workspace.discoveryJobs}
+          isMergePending={(targetCompanyId) =>
+            context.isPending(
+              jobFinderPendingActions.companyMergeReview(targetCompanyId),
+            )
+          }
+          isMutationPending={(targetCompanyId) =>
+            context.isPending(
+              jobFinderPendingActions.companyIntelligenceMutation(
+                targetCompanyId,
+              ),
+            )
+          }
+          isPreferencePending={(targetCompanyId) =>
+            context.isPending(
+              jobFinderPendingActions.companyPreference(targetCompanyId),
+            )
+          }
+          onBack={() => context.onNavigateSafely("/job-finder/companies")}
+          onMutateCompanyIntelligence={context.onMutateCompanyIntelligence}
+          onNavigate={context.onNavigateSafely}
+          onOpenJob={(jobId) => {
+            context.onSelectDiscoveryJob(jobId);
+            context.onNavigateSafely("/job-finder/discovery");
+          }}
+          onOpenApplication={(recordId) => {
+            context.onSelectApplicationRecord(recordId);
+            context.onNavigateSafely("/job-finder/applications");
+          }}
+          onReviewCompanyMerge={context.onReviewCompanyMerge}
+          onSetCompanyPreference={context.onSetCompanyPreference}
+          activeCapLimitReached={context.workspace.intelligence.safeguards.companyApplicationCaps.some(
+            (cap) => cap.companyId === companyId && cap.limitReached,
+          )}
+          onOpenSafeguards={() =>
+            context.onNavigateSafely("/job-finder/safeguards")
+          }
+        />
       )}
-      onOpenSafeguards={() =>
-        context.onNavigateSafely("/job-finder/safeguards")
-      }
-    />
+    </JobFinderHydrationGate>
   );
 }
 
@@ -257,7 +325,6 @@ export function JobFinderCampaignsRoute() {
   const [rulePending, setRulePending] = useState(false);
   const [funnelProjection, setFunnelProjection] =
     useState<CampaignRuleFunnelProjection | null>(null);
-  const [funnelCampaignId, setFunnelCampaignId] = useState<string | null>(null);
 
   const handleSaveCampaign = (campaign: SaveJobSearchCampaignInput) => {
     setPending(true);
@@ -280,11 +347,9 @@ export function JobFinderCampaignsRoute() {
         .onProjectCampaignRuleFunnel(campaignId)
         .then((projection) => {
           setFunnelProjection(projection);
-          setFunnelCampaignId(campaignId);
         })
         .catch(() => {
           setFunnelProjection(null);
-          setFunnelCampaignId(null);
         })
         .finally(() => {
           setRulePending(false);
@@ -317,13 +382,13 @@ export function JobFinderCampaignsRoute() {
     ruleId: string,
     enabled: boolean,
   ) => {
-    void context.onToggleCampaignRule(campaignId, ruleId, enabled).then(
-      (saved) => {
+    void context
+      .onToggleCampaignRule(campaignId, ruleId, enabled)
+      .then((saved) => {
         if (saved) {
           refreshCampaignRuleFunnel(campaignId);
         }
-      },
-    );
+      });
   };
 
   const handleRunCampaignNow = (campaignId: string) => {
@@ -331,23 +396,28 @@ export function JobFinderCampaignsRoute() {
   };
 
   return (
-    <CampaignsScreen
-      activeCampaignId={context.workspace.activeCampaignId}
-      campaignRuleFunnel={funnelProjection}
-      campaignRulePending={rulePending}
-      campaigns={context.workspace.campaigns}
-      onDeleteCampaignRule={handleDeleteCampaignRule}
-      onRefreshCampaignRuleFunnel={refreshCampaignRuleFunnel}
-      onRunCampaignNow={handleRunCampaignNow}
-      onSaveCampaign={handleSaveCampaign}
-      onSaveCampaignRule={handleSaveCampaignRule}
-      onSelectCampaign={handleSelectCampaign}
-      onToggleCampaignRule={handleToggleCampaignRule}
-      pending={pending}
-      runCampaignPending={(campaignId) =>
-        context.isPending(jobFinderPendingActions.campaignRun(campaignId))
-      }
-    />
+    <JobFinderHydrationGate
+      collections={["discovery_jobs"]}
+      workspace={context.workspace}
+    >
+      <CampaignsScreen
+        activeCampaignId={context.workspace.activeCampaignId}
+        campaignRuleFunnel={funnelProjection}
+        campaignRulePending={rulePending}
+        campaigns={context.workspace.campaigns}
+        onDeleteCampaignRule={handleDeleteCampaignRule}
+        onRefreshCampaignRuleFunnel={refreshCampaignRuleFunnel}
+        onRunCampaignNow={handleRunCampaignNow}
+        onSaveCampaign={handleSaveCampaign}
+        onSaveCampaignRule={handleSaveCampaignRule}
+        onSelectCampaign={handleSelectCampaign}
+        onToggleCampaignRule={handleToggleCampaignRule}
+        pending={pending}
+        runCampaignPending={(campaignId) =>
+          context.isPending(jobFinderPendingActions.campaignRun(campaignId))
+        }
+      />
+    </JobFinderHydrationGate>
   );
 }
 
@@ -494,6 +564,8 @@ export function JobFinderProfileSetupRoute() {
 
 export function JobFinderDiscoveryRoute() {
   const context = useJobFinderPageContext();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigationContext = readJobFinderNavigationContext(searchParams);
   const activeCampaign = context.workspace.campaigns.find(
     (campaign) => campaign.id === context.workspace.activeCampaignId,
   );
@@ -504,65 +576,152 @@ export function JobFinderDiscoveryRoute() {
   const dismissedJobs = context.workspace.dismissedDiscoveryJobs.filter((job) =>
     campaignJobIds.has(job.id),
   );
-  const selectedJob =
-    jobs.find((job) => job.id === context.selectedDiscoveryJob?.id) ??
-    jobs[0] ??
-    null;
+  const requestedJob = navigationContext.jobId
+    ? (jobs.find((job) => job.id === navigationContext.jobId) ?? null)
+    : null;
+  const requestedTarget = navigationContext.targetId
+    ? (context.workspace.searchPreferences.discovery.targets.find(
+        (target) => target.id === navigationContext.targetId,
+      ) ?? null)
+    : null;
+  const isHydrating = isJobFinderHydratingCollections(context.workspace, [
+    "discovery_jobs",
+  ]);
+
+  useEffect(() => {
+    if (requestedJob && requestedJob.id !== context.selectedDiscoveryJob?.id) {
+      context.onSelectDiscoveryJob(requestedJob.id);
+    }
+  }, [
+    context.onSelectDiscoveryJob,
+    context.selectedDiscoveryJob?.id,
+    requestedJob,
+  ]);
+
+  const handleSelectJob = useCallback(
+    (jobId: string) => {
+      context.onSelectDiscoveryJob(jobId);
+      if (navigationContext.jobId) {
+        setSearchParams(
+          (current) =>
+            clearJobFinderContextQuery(
+              current,
+              JOB_FINDER_CONTEXT_QUERY_KEYS.jobId,
+            ),
+          { replace: true },
+        );
+      }
+    },
+    [context.onSelectDiscoveryJob, navigationContext.jobId, setSearchParams],
+  );
+
+  if (isHydrating) {
+    return (
+      <JobFinderHydrationGate
+        collections={["discovery_jobs"]}
+        workspace={context.workspace}
+      >
+        {null}
+      </JobFinderHydrationGate>
+    );
+  }
+
+  if (navigationContext.jobId && !requestedJob) {
+    return (
+      <WorkspaceStateScreen
+        action={{
+          label: "View Find jobs",
+          onClick: () => context.onNavigateSafely("/job-finder/discovery"),
+        }}
+        kicker="Find jobs"
+        message="The requested job is no longer available in the active campaign, so no other job was selected."
+        title="Job unavailable"
+      />
+    );
+  }
+
+  if (navigationContext.targetId && !requestedTarget) {
+    return (
+      <WorkspaceStateScreen
+        action={{
+          label: "View Find jobs",
+          onClick: () => context.onNavigateSafely("/job-finder/discovery"),
+        }}
+        kicker="Find jobs"
+        message="The requested job source is no longer configured, so no other source was selected."
+        title="Job source unavailable"
+      />
+    );
+  }
+
+  const selectedJob = selectJobFinderContext(
+    jobs,
+    navigationContext.jobId,
+    context.selectedDiscoveryJob?.id,
+    (job) => job.id,
+  );
 
   return (
-    <DiscoveryScreen
-      actionState={context.actionState}
-      activeRun={context.workspace.activeDiscoveryRun}
-      browserSession={context.workspace.browserSession}
-      companies={context.workspace.intelligence.companies}
-      isBrowserSessionPending={context.isPending(
-        jobFinderPendingActions.browserSession(),
-      )}
-      isBrowserSessionPendingForTarget={(targetId) =>
-        context.isPending(
-          jobFinderPendingActions.browserSessionTarget(targetId),
-        )
-      }
-      isDiscoveryAllPending={context.isPending(
-        jobFinderPendingActions.discoveryAll(),
-      )}
-      discoverySessions={context.workspace.discoverySessions}
-      jobs={jobs}
-      dismissedJobs={dismissedJobs}
-      liveEvents={context.liveDiscoveryEvents}
-      isJobPending={(jobId) =>
-        context.isAnyPending([
-          jobFinderPendingActions.discoveryJob(jobId),
-          jobFinderPendingActions.resumeJob(jobId),
-        ])
-      }
-      isTargetPending={(targetId) =>
-        context.isAnyPending([
-          jobFinderPendingActions.discoveryTarget(targetId),
-          jobFinderPendingActions.sourceDebug(targetId),
-          jobFinderPendingActions.sourceInstruction(targetId),
-        ])
-      }
-      onDismissJob={context.onDismissJob}
-      onRestoreDismissedJob={context.onRestoreDismissedJob}
-      onOpenBrowserSession={context.onOpenBrowserSession}
-      onOpenBrowserSessionForTarget={(targetId) =>
-        context.onOpenBrowserSession({ targetId })
-      }
-      onOpenCompany={(companyId) =>
-        context.onNavigateSafely(`/job-finder/companies/${companyId}`)
-      }
-      onQueueJob={context.onQueueJob}
-      onRunAgentDiscovery={context.onRunAgentDiscovery}
-      {...(context.onRunDiscoveryForTarget
-        ? { onRunDiscoveryForTarget: context.onRunDiscoveryForTarget }
-        : {})}
-      onSelectJob={context.onSelectDiscoveryJob}
-      recentRuns={context.workspace.recentDiscoveryRuns}
-      searchPreferences={context.workspace.searchPreferences}
-      selectedJob={selectedJob}
-      sourceAccessPrompts={context.workspace.sourceAccessPrompts}
-    />
+    <JobFinderHydrationGate
+      collections={["discovery_jobs"]}
+      workspace={context.workspace}
+    >
+      <DiscoveryScreen
+        actionState={context.actionState}
+        activeRun={context.workspace.activeDiscoveryRun}
+        browserSession={context.workspace.browserSession}
+        companies={context.workspace.intelligence.companies}
+        isBrowserSessionPending={context.isPending(
+          jobFinderPendingActions.browserSession(),
+        )}
+        isBrowserSessionPendingForTarget={(targetId) =>
+          context.isPending(
+            jobFinderPendingActions.browserSessionTarget(targetId),
+          )
+        }
+        isDiscoveryAllPending={context.isPending(
+          jobFinderPendingActions.discoveryAll(),
+        )}
+        discoverySessions={context.workspace.discoverySessions}
+        jobs={jobs}
+        dismissedJobs={dismissedJobs}
+        liveEvents={context.liveDiscoveryEvents}
+        isJobPending={(jobId) =>
+          context.isAnyPending([
+            jobFinderPendingActions.discoveryJob(jobId),
+            jobFinderPendingActions.resumeJob(jobId),
+          ])
+        }
+        isTargetPending={(targetId) =>
+          context.isAnyPending([
+            jobFinderPendingActions.discoveryTarget(targetId),
+            jobFinderPendingActions.sourceDebug(targetId),
+            jobFinderPendingActions.sourceInstruction(targetId),
+          ])
+        }
+        onDismissJob={context.onDismissJob}
+        onRestoreDismissedJob={context.onRestoreDismissedJob}
+        onOpenBrowserSession={context.onOpenBrowserSession}
+        onOpenBrowserSessionForTarget={(targetId) =>
+          context.onOpenBrowserSession({ targetId })
+        }
+        onOpenCompany={(companyId) =>
+          context.onNavigateSafely(`/job-finder/companies/${companyId}`)
+        }
+        onQueueJob={context.onQueueJob}
+        onRunAgentDiscovery={context.onRunAgentDiscovery}
+        {...(context.onRunDiscoveryForTarget
+          ? { onRunDiscoveryForTarget: context.onRunDiscoveryForTarget }
+          : {})}
+        onSelectJob={handleSelectJob}
+        preserveSelectedJob={Boolean(navigationContext.jobId)}
+        recentRuns={context.workspace.recentDiscoveryRuns}
+        searchPreferences={context.workspace.searchPreferences}
+        selectedSourceTargetId={requestedTarget?.id ?? null}
+        selectedJob={selectedJob}
+        sourceAccessPrompts={context.workspace.sourceAccessPrompts}
+      />
+    </JobFinderHydrationGate>
   );
 }
 
@@ -575,23 +734,30 @@ export function JobFinderRapidReviewRoute() {
   }
 
   return (
-    <RapidReviewScreen
-      campaignId={campaign.id}
-      campaignName={campaign.name}
-      jobs={jobs}
-      log={log}
-      onInspectJob={(jobId) => {
-        context.onSelectDiscoveryJob(jobId);
-        context.onNavigateSafely("/job-finder/discovery");
-      }}
-      onMutate={context.onMutateRapidReview}
-      pending={context.isPending(jobFinderPendingActions.rapidReview())}
-    />
+    <JobFinderHydrationGate
+      collections={["discovery_jobs", "intelligence"]}
+      workspace={context.workspace}
+    >
+      <RapidReviewScreen
+        campaignId={campaign.id}
+        campaignName={campaign.name}
+        jobs={jobs}
+        log={log}
+        onInspectJob={(jobId) => {
+          context.onSelectDiscoveryJob(jobId);
+          context.onNavigateSafely("/job-finder/discovery");
+        }}
+        onMutate={context.onMutateRapidReview}
+        pending={context.isPending(jobFinderPendingActions.rapidReview())}
+      />
+    </JobFinderHydrationGate>
   );
 }
 
 export function JobFinderReviewQueueRoute() {
   const context = useJobFinderPageContext();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigationContext = readJobFinderNavigationContext(searchParams);
   const activeCampaign = context.workspace.campaigns.find(
     (campaign) => campaign.id === context.workspace.activeCampaignId,
   );
@@ -599,10 +765,76 @@ export function JobFinderReviewQueueRoute() {
   const queue = context.workspace.reviewQueue.filter((item) =>
     campaignJobIds.has(item.jobId),
   );
-  const selectedItem =
-    queue.find((item) => item.jobId === context.selectedReviewItem?.jobId) ??
-    queue[0] ??
-    null;
+  const requestedItem = navigationContext.jobId
+    ? (queue.find((item) => item.jobId === navigationContext.jobId) ?? null)
+    : null;
+  const isHydrating = isJobFinderHydratingCollections(context.workspace, [
+    "discovery_jobs",
+    "review_queue",
+    "documents",
+  ]);
+
+  useEffect(() => {
+    if (
+      requestedItem &&
+      requestedItem.jobId !== context.selectedReviewItem?.jobId
+    ) {
+      context.onSelectReviewItem(requestedItem.jobId);
+    }
+  }, [
+    context.onSelectReviewItem,
+    context.selectedReviewItem?.jobId,
+    requestedItem,
+  ]);
+
+  const handleSelectItem = useCallback(
+    (jobId: string) => {
+      context.onSelectReviewItem(jobId);
+      if (navigationContext.jobId) {
+        setSearchParams(
+          (current) =>
+            clearJobFinderContextQuery(
+              current,
+              JOB_FINDER_CONTEXT_QUERY_KEYS.jobId,
+            ),
+          { replace: true },
+        );
+      }
+    },
+    [context.onSelectReviewItem, navigationContext.jobId, setSearchParams],
+  );
+
+  if (isHydrating) {
+    return (
+      <JobFinderHydrationGate
+        collections={["discovery_jobs", "review_queue", "documents"]}
+        workspace={context.workspace}
+      >
+        {null}
+      </JobFinderHydrationGate>
+    );
+  }
+
+  if (navigationContext.jobId && !requestedItem) {
+    return (
+      <WorkspaceStateScreen
+        action={{
+          label: "View Shortlisted",
+          onClick: () => context.onNavigateSafely("/job-finder/review-queue"),
+        }}
+        kicker="Shortlisted"
+        message="The requested job is no longer in Shortlisted, so no other job was selected."
+        title="Shortlisted job unavailable"
+      />
+    );
+  }
+
+  const selectedItem = selectJobFinderContext(
+    queue,
+    navigationContext.jobId,
+    context.selectedReviewItem?.jobId,
+    (item) => item.jobId,
+  );
   const selectedJob = selectedItem
     ? (context.workspace.discoveryJobs.find(
         (job) => job.id === selectedItem.jobId,
@@ -615,45 +847,50 @@ export function JobFinderReviewQueueRoute() {
     : null;
 
   return (
-    <ReviewQueueScreen
-      actionState={context.actionState}
-      browserSession={context.workspace.browserSession}
-      campaignId={activeCampaign?.id ?? ""}
-      isApplyPending={context.isPending(jobFinderPendingActions.apply())}
-      isJobPending={(jobId) =>
-        context.isPending(jobFinderPendingActions.resumeJob(jobId))
-      }
-      isResumeStrategyPending={(jobId) =>
-        context.isAnyPending([
-          jobFinderPendingActions.resumeStrategyRecommend(jobId),
-          jobFinderPendingActions.resumeStrategySelect(jobId),
-        ])
-      }
-      onRecommendResumeStrategy={context.onRecommendResumeStrategy}
-      onSelectResumeStrategy={context.onSelectResumeStrategy}
-      onStartAutoApplyQueue={context.onStartAutoApplyQueue}
-      onStartApplyCopilot={context.onStartApplyCopilot}
-      onEditResumeWorkspace={context.onEditResumeWorkspace}
-      onGenerateResume={context.onGenerateResume}
-      onOpenBrowserSession={() => context.onOpenBrowserSession()}
-      onOpenJobDetails={(jobId) => {
-        context.onSelectDiscoveryJob(jobId);
-        context.onNavigateSafely("/job-finder/discovery");
-      }}
-      onOpenProfile={context.onOpenProfile}
-      onRemoveReviewJob={context.onRemoveReviewJob}
-      onSetJobResumeApplicationMode={context.onSetJobResumeApplicationMode}
-      onSelectItem={context.onSelectReviewItem}
-      originalResume={context.workspace.profile.baseResume}
-      queue={queue}
-      resumeStrategies={context.workspace.intelligence.resumeStrategies}
-      resumeStrategySelections={
-        context.workspace.intelligence.resumeStrategySelections
-      }
-      selectedAsset={selectedAsset}
-      selectedItem={selectedItem}
-      selectedJob={selectedJob}
-    />
+    <JobFinderHydrationGate
+      collections={["discovery_jobs", "review_queue", "documents"]}
+      workspace={context.workspace}
+    >
+      <ReviewQueueScreen
+        actionState={context.actionState}
+        browserSession={context.workspace.browserSession}
+        campaignId={activeCampaign?.id ?? ""}
+        isApplyPending={context.isPending(jobFinderPendingActions.apply())}
+        isJobPending={(jobId) =>
+          context.isPending(jobFinderPendingActions.resumeJob(jobId))
+        }
+        isResumeStrategyPending={(jobId) =>
+          context.isAnyPending([
+            jobFinderPendingActions.resumeStrategyRecommend(jobId),
+            jobFinderPendingActions.resumeStrategySelect(jobId),
+          ])
+        }
+        onRecommendResumeStrategy={context.onRecommendResumeStrategy}
+        onSelectResumeStrategy={context.onSelectResumeStrategy}
+        onStartAutoApplyQueue={context.onStartAutoApplyQueue}
+        onStartApplyCopilot={context.onStartApplyCopilot}
+        onEditResumeWorkspace={context.onEditResumeWorkspace}
+        onGenerateResume={context.onGenerateResume}
+        onOpenBrowserSession={() => context.onOpenBrowserSession()}
+        onOpenJobDetails={(jobId) => {
+          context.onSelectDiscoveryJob(jobId);
+          context.onNavigateSafely("/job-finder/discovery");
+        }}
+        onOpenProfile={context.onOpenProfile}
+        onRemoveReviewJob={context.onRemoveReviewJob}
+        onSetJobResumeApplicationMode={context.onSetJobResumeApplicationMode}
+        onSelectItem={handleSelectItem}
+        originalResume={context.workspace.profile.baseResume}
+        queue={queue}
+        resumeStrategies={context.workspace.intelligence.resumeStrategies}
+        resumeStrategySelections={
+          context.workspace.intelligence.resumeStrategySelections
+        }
+        selectedAsset={selectedAsset}
+        selectedItem={selectedItem}
+        selectedJob={selectedJob}
+      />
+    </JobFinderHydrationGate>
   );
 }
 
@@ -674,37 +911,44 @@ export function JobFinderResumeWorkspaceRoute() {
   }
 
   return (
-    <ResumeWorkspaceScreen
-      actionMessage={context.actionState.message}
-      assistantMessages={context.resumeAssistantMessages}
-      availableResumeTemplates={context.workspace.availableResumeTemplates}
-      assistantPending={context.resumeAssistantPending}
-      isWorkspacePending={context.isPending(
-        jobFinderPendingActions.resumeJob(jobId),
-      )}
-      jobId={jobId}
-      onApproveResume={context.onApproveResume}
-      onBack={() => context.onEditResumeWorkspace("")}
-      onClearResumeApproval={context.onClearResumeApproval}
-      onExportPdf={context.onExportResumePdf}
-      onApplyPatch={context.onApplyResumePatch}
-      onDirtyChange={context.onResumeWorkspaceDirtyChange}
-      onPreviewDraft={context.onPreviewResumeDraft}
-      onRefresh={() => context.onRefreshResumeWorkspace(jobId)}
-      onRegenerateDraft={context.onRegenerateResumeDraft}
-      onRegenerateSection={context.onRegenerateResumeSection}
-      onRestoreRevision={context.onRestoreResumeDraftRevision}
-      onSaveDraft={context.onSaveResumeDraft}
-      onSaveDraftAndThen={context.onSaveResumeDraftAndThen}
-      onSendAssistantMessage={context.onSendResumeAssistantMessage}
-      onResolveAssistantProposal={context.onResolveResumeAssistantProposal}
-      workspace={context.resumeWorkspace}
-    />
+    <JobFinderHydrationGate
+      collections={["discovery_jobs", "review_queue", "documents"]}
+      workspace={context.workspace}
+    >
+      <ResumeWorkspaceScreen
+        actionMessage={context.actionState.message}
+        assistantMessages={context.resumeAssistantMessages}
+        availableResumeTemplates={context.workspace.availableResumeTemplates}
+        assistantPending={context.resumeAssistantPending}
+        isWorkspacePending={context.isPending(
+          jobFinderPendingActions.resumeJob(jobId),
+        )}
+        jobId={jobId}
+        onApproveResume={context.onApproveResume}
+        onBack={() => context.onEditResumeWorkspace("")}
+        onClearResumeApproval={context.onClearResumeApproval}
+        onExportPdf={context.onExportResumePdf}
+        onApplyPatch={context.onApplyResumePatch}
+        onDirtyChange={context.onResumeWorkspaceDirtyChange}
+        onPreviewDraft={context.onPreviewResumeDraft}
+        onRefresh={() => context.onRefreshResumeWorkspace(jobId)}
+        onRegenerateDraft={context.onRegenerateResumeDraft}
+        onRegenerateSection={context.onRegenerateResumeSection}
+        onRestoreRevision={context.onRestoreResumeDraftRevision}
+        onSaveDraft={context.onSaveResumeDraft}
+        onSaveDraftAndThen={context.onSaveResumeDraftAndThen}
+        onSendAssistantMessage={context.onSendResumeAssistantMessage}
+        onResolveAssistantProposal={context.onResolveResumeAssistantProposal}
+        workspace={context.resumeWorkspace}
+      />
+    </JobFinderHydrationGate>
   );
 }
 
 export function JobFinderApplicationsRoute() {
   const context = useJobFinderPageContext();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigationContext = readJobFinderNavigationContext(searchParams);
   const activeCampaign = context.workspace.campaigns.find(
     (campaign) => campaign.id === context.workspace.activeCampaignId,
   );
@@ -726,15 +970,112 @@ export function JobFinderApplicationsRoute() {
     (result) =>
       campaignJobIds.has(result.jobId) && applyRunIds.has(result.runId),
   );
+  const requestedApplicationRecord = (() => {
+    if (navigationContext.applicationRecordId) {
+      const record = applicationRecords.find(
+        (candidate) =>
+          candidate.id === navigationContext.applicationRecordId &&
+          (!navigationContext.jobId ||
+            candidate.jobId === navigationContext.jobId),
+      );
+      return record ?? null;
+    }
+
+    if (navigationContext.jobId) {
+      const matchingRecords = applicationRecords.filter(
+        (record) => record.jobId === navigationContext.jobId,
+      );
+      return matchingRecords.length === 1 ? (matchingRecords[0] ?? null) : null;
+    }
+
+    return null;
+  })();
+  const hasRequestedApplicationContext = Boolean(
+    navigationContext.applicationRecordId || navigationContext.jobId,
+  );
+  const isHydrating = isJobFinderHydratingCollections(context.workspace, [
+    "discovery_jobs",
+    "applications",
+    "intelligence",
+  ]);
+
+  useEffect(() => {
+    if (
+      requestedApplicationRecord &&
+      requestedApplicationRecord.id !== context.selectedApplicationRecord?.id
+    ) {
+      context.onSelectApplicationRecord(requestedApplicationRecord.id);
+    }
+  }, [
+    context.onSelectApplicationRecord,
+    context.selectedApplicationRecord?.id,
+    requestedApplicationRecord,
+  ]);
+
+  const handleSelectRecord = useCallback(
+    (recordId: string) => {
+      context.onSelectApplicationRecord(recordId);
+      if (hasRequestedApplicationContext) {
+        setSearchParams(
+          (current) => {
+            const next = clearJobFinderContextQuery(
+              current,
+              JOB_FINDER_CONTEXT_QUERY_KEYS.applicationRecordId,
+            );
+            return clearJobFinderContextQuery(
+              next,
+              JOB_FINDER_CONTEXT_QUERY_KEYS.jobId,
+            );
+          },
+          { replace: true },
+        );
+      }
+    },
+    [
+      context.onSelectApplicationRecord,
+      hasRequestedApplicationContext,
+      setSearchParams,
+    ],
+  );
+
+  if (isHydrating) {
+    return (
+      <JobFinderHydrationGate
+        collections={["discovery_jobs", "applications", "intelligence"]}
+        workspace={context.workspace}
+      >
+        {null}
+      </JobFinderHydrationGate>
+    );
+  }
+
+  if (hasRequestedApplicationContext && !requestedApplicationRecord) {
+    return (
+      <WorkspaceStateScreen
+        action={{
+          label: "View Applications",
+          onClick: () => context.onNavigateSafely("/job-finder/applications"),
+        }}
+        kicker="Applications"
+        message="The requested application is no longer available or is not unique, so no other application was selected."
+        title="Application unavailable"
+      />
+    );
+  }
+
   const selectedRecord =
-    applicationRecords.find(
-      (record) => record.id === context.selectedApplicationRecord?.id,
-    ) ??
-    applicationRecords[0] ??
-    null;
+    requestedApplicationRecord ??
+    selectJobFinderContext(
+      applicationRecords,
+      null,
+      context.selectedApplicationRecord?.id,
+      (record) => record.id,
+    );
   const selectedAttempt = selectedRecord
     ? (applicationAttempts.find(
-        (attempt) => attempt.id === context.selectedApplicationAttempt?.id,
+        (attempt) =>
+          attempt.id === context.selectedApplicationAttempt?.id &&
+          attempt.jobId === selectedRecord.jobId,
       ) ??
       applicationAttempts
         .filter((attempt) => attempt.jobId === selectedRecord.jobId)
@@ -745,67 +1086,76 @@ export function JobFinderApplicationsRoute() {
     : null;
 
   return (
-    <ApplicationsScreen
-      applicationAttempts={applicationAttempts}
-      applicationRecords={applicationRecords}
-      applyRuns={applyRuns}
-      applyJobResults={applyJobResults}
-      companies={context.workspace.intelligence.companies}
-      crmSettings={
-        context.workspace.settings.applicationCrm ??
-        ApplicationCrmSettingsSchema.parse({})
-      }
-      discoveryJobs={discoveryJobs}
-      isApplyPending={context.isPending(jobFinderPendingActions.apply())}
-      isApplyRequestPending={(requestId) =>
-        context.isPending(jobFinderPendingActions.applyRequest(requestId))
-      }
-      isApplyRunPending={(runId) =>
-        context.isPending(jobFinderPendingActions.applyRun(runId))
-      }
-      onApproveApplyRun={context.onApproveApplyRun}
-      onCancelApplyRun={(runId) => {
-        void context.onCancelApplyRun(runId);
-      }}
-      onGetApplyRunDetails={context.onGetApplyRunDetails}
-      onSaveApplicationAnswer={context.onSaveApplicationAnswer}
-      onClearApplicationAnswer={context.onClearApplicationAnswer}
-      onOpenCompany={(companyId) =>
-        context.onNavigateSafely(`/job-finder/companies/${companyId}`)
-      }
-      onExportApplicationPacket={context.onExportApplicationPacket}
-      onExportApplicationCrm={context.onExportApplicationCrm}
-      onMutateApplicationCrm={context.onMutateApplicationCrm}
-      onRecordOutcome={async (input) => {
-        const completed = await context.onRecordOutcome(input);
-        if (!completed) {
-          throw new Error("The outcome could not be recorded.");
+    <JobFinderHydrationGate
+      collections={["discovery_jobs", "applications", "intelligence"]}
+      workspace={context.workspace}
+    >
+      <ApplicationsScreen
+        applicationAttempts={applicationAttempts}
+        applicationRecords={applicationRecords}
+        applyRuns={applyRuns}
+        applyJobResults={applyJobResults}
+        companies={context.workspace.intelligence.companies}
+        crmSettings={
+          context.workspace.settings.applicationCrm ??
+          ApplicationCrmSettingsSchema.parse({})
         }
-      }}
-      isRecordOutcomePending={(jobId) =>
-        context.isPending(jobFinderPendingActions.recordOutcome(jobId))
-      }
-      getOutcomeResumeStrategyId={(jobId) =>
-        context.workspace.intelligence.resumeStrategySelections.find(
-          (selection) => selection.jobId === jobId,
-        )?.strategyId ?? null
-      }
-      onResolveApplyConsentRequest={context.onResolveApplyConsentRequest}
-      onRevokeApplyRunApproval={context.onRevokeApplyRunApproval}
-      onStartAutoApplyQueue={context.onStartAutoApplyQueue}
-      onStartApplyCopilot={context.onStartApplyCopilot}
-      onStartAutoApply={context.onStartAutoApply}
-      onSelectRecord={context.onSelectApplicationRecord}
-      selectedApplyRunId={context.workspace.selectedApplyRunId}
-      selectedAttempt={selectedAttempt}
-      selectedRecord={selectedRecord}
-      safeguardsBlockerCount={countActiveSafeguardBlockers(
-        context.workspace.intelligence.safeguards,
-      )}
-      onOpenSafeguards={() =>
-        context.onNavigateSafely("/job-finder/safeguards")
-      }
-    />
+        discoveryJobs={discoveryJobs}
+        isApplyPending={context.isPending(jobFinderPendingActions.apply())}
+        isApplyRequestPending={(requestId) =>
+          context.isPending(jobFinderPendingActions.applyRequest(requestId))
+        }
+        isApplyRunPending={(runId) =>
+          context.isPending(jobFinderPendingActions.applyRun(runId))
+        }
+        onApproveApplyRun={context.onApproveApplyRun}
+        onCancelApplyRun={(runId) => {
+          void context.onCancelApplyRun(runId);
+        }}
+        onGetApplyRunDetails={context.onGetApplyRunDetails}
+        onSaveApplicationAnswer={context.onSaveApplicationAnswer}
+        onClearApplicationAnswer={context.onClearApplicationAnswer}
+        onOpenCompany={(companyId) =>
+          context.onNavigateSafely(`/job-finder/companies/${companyId}`)
+        }
+        onExportApplicationPacket={context.onExportApplicationPacket}
+        onExportApplicationCrm={context.onExportApplicationCrm}
+        onMutateApplicationCrm={context.onMutateApplicationCrm}
+        onMutateApplicationCrmBulkStage={
+          context.onMutateApplicationCrmBulkStage
+        }
+        onRecordOutcome={async (input) => {
+          const completed = await context.onRecordOutcome(input);
+          if (!completed) {
+            throw new Error("The outcome could not be recorded.");
+          }
+        }}
+        isRecordOutcomePending={(jobId) =>
+          context.isPending(jobFinderPendingActions.recordOutcome(jobId))
+        }
+        outcomeCampaignId={activeCampaign?.id ?? null}
+        getOutcomeResumeStrategyId={(jobId) =>
+          context.workspace.intelligence.resumeStrategySelections.find(
+            (selection) => selection.jobId === jobId,
+          )?.strategyId ?? null
+        }
+        onResolveApplyConsentRequest={context.onResolveApplyConsentRequest}
+        onRevokeApplyRunApproval={context.onRevokeApplyRunApproval}
+        onStartAutoApplyQueue={context.onStartAutoApplyQueue}
+        onStartApplyCopilot={context.onStartApplyCopilot}
+        onStartAutoApply={context.onStartAutoApply}
+        onSelectRecord={handleSelectRecord}
+        selectedApplyRunId={context.workspace.selectedApplyRunId}
+        selectedAttempt={selectedAttempt}
+        selectedRecord={selectedRecord}
+        safeguardsBlockerCount={countActiveSafeguardBlockers(
+          context.workspace.intelligence.safeguards,
+        )}
+        onOpenSafeguards={() =>
+          context.onNavigateSafely("/job-finder/safeguards")
+        }
+      />
+    </JobFinderHydrationGate>
   );
 }
 
@@ -835,24 +1185,30 @@ export function JobFinderActionsRoute() {
   const scope = selectJobFinderActionsScope(context);
 
   return (
-    <ActionsScreen
-      applicationAttempts={context.workspace.applicationAttempts}
-      discoveryJobs={context.workspace.discoveryJobs}
-      groupedDecisions={scope.groupedDecisions}
-      isGroupedApplyPending={scope.isGroupedApplyPending}
-      isGroupedProjectPending={scope.isGroupedProjectPending}
-      isGroupedSnoozePending={scope.isGroupedSnoozePending}
-      isPending={(requestId) =>
-        context.isPending(jobFinderPendingActions.userAction(requestId))
-      }
-      onApplyGroupedManualAnswer={scope.onApplyGroupedManualAnswer}
-      onCommand={context.onPerformUserAction}
-      onNavigate={context.onNavigateSafely}
-      onProjectGroupedManualAnswer={scope.onProjectGroupedManualAnswer}
-      onSnoozeGroupedDecision={scope.onSnoozeGroupedDecision}
-      profile={context.workspace.profile}
-      requests={context.workspace.userActionRequests ?? []}
-    />
+    <JobFinderHydrationGate
+      collections={["discovery_jobs", "applications", "intelligence"]}
+      workspace={context.workspace}
+    >
+      <ActionsScreen
+        applicationAttempts={context.workspace.applicationAttempts}
+        applicationRecords={context.workspace.applicationRecords}
+        discoveryJobs={context.workspace.discoveryJobs}
+        groupedDecisions={scope.groupedDecisions}
+        isGroupedApplyPending={scope.isGroupedApplyPending}
+        isGroupedProjectPending={scope.isGroupedProjectPending}
+        isGroupedSnoozePending={scope.isGroupedSnoozePending}
+        isPending={(requestId) =>
+          context.isPending(jobFinderPendingActions.userAction(requestId))
+        }
+        onApplyGroupedManualAnswer={scope.onApplyGroupedManualAnswer}
+        onCommand={context.onPerformUserAction}
+        onNavigate={context.onNavigateSafely}
+        onProjectGroupedManualAnswer={scope.onProjectGroupedManualAnswer}
+        onSnoozeGroupedDecision={scope.onSnoozeGroupedDecision}
+        profile={context.workspace.profile}
+        requests={context.workspace.userActionRequests ?? []}
+      />
+    </JobFinderHydrationGate>
   );
 }
 
@@ -875,21 +1231,26 @@ export function JobFinderAnalyticsRoute() {
   const context = useJobFinderPageContext();
   const scope = selectOutcomeAnalyticsScope(context.workspace);
   return (
-    <OutcomeAnalyticsScreen
-      actionMessage={context.actionState.message}
-      activeCampaignId={scope.activeCampaignId}
-      campaigns={scope.campaigns}
-      events={scope.events}
-      generatedAt={context.workspace.generatedAt}
-      isSuggestionPending={(dimension, key) =>
-        context.isPending(
-          jobFinderPendingActions.outcomeSuggestion(dimension, key),
-        )
-      }
-      onSetOutcomeSuggestionEnabled={context.onSetOutcomeSuggestionEnabled}
-      overview={scope.overview}
-      resumeStrategies={scope.resumeStrategies}
-    />
+    <JobFinderHydrationGate
+      collections={["applications", "intelligence"]}
+      workspace={context.workspace}
+    >
+      <OutcomeAnalyticsScreen
+        actionMessage={context.actionState.message}
+        activeCampaignId={scope.activeCampaignId}
+        campaigns={scope.campaigns}
+        events={scope.events}
+        generatedAt={context.workspace.generatedAt}
+        isSuggestionPending={(dimension, key) =>
+          context.isPending(
+            jobFinderPendingActions.outcomeSuggestion(dimension, key),
+          )
+        }
+        onSetOutcomeSuggestionEnabled={context.onSetOutcomeSuggestionEnabled}
+        overview={scope.overview}
+        resumeStrategies={scope.resumeStrategies}
+      />
+    </JobFinderHydrationGate>
   );
 }
 
@@ -920,16 +1281,21 @@ export function JobFinderSafeguardsRoute() {
   const context = useJobFinderPageContext();
 
   return (
-    <SafeguardsScreen
-      actionMessage={context.actionState.message}
-      isPending={(controlId) =>
-        context.isPending(
-          jobFinderPendingActions.safeguardsMutation(controlId),
-        )
-      }
-      onMutateSafeguards={context.onMutateSafeguards}
+    <JobFinderHydrationGate
+      collections={["applications", "intelligence"]}
       workspace={context.workspace}
-    />
+    >
+      <SafeguardsScreen
+        actionMessage={context.actionState.message}
+        isPending={(controlId) =>
+          context.isPending(
+            jobFinderPendingActions.safeguardsMutation(controlId),
+          )
+        }
+        onMutateSafeguards={context.onMutateSafeguards}
+        workspace={context.workspace}
+      />
+    </JobFinderHydrationGate>
   );
 }
 
@@ -941,29 +1307,34 @@ export function JobFinderResumeStrategiesRoute() {
   );
 
   return (
-    <ResumeStrategiesScreen
-      actionMessage={context.actionState.message}
-      baseResumeDocumentId={context.workspace.profile.baseResume.id}
-      campaigns={context.workspace.campaigns}
-      candidateDocumentIds={candidateDocumentIds}
-      isCampaignDefaultPending={(campaignId) =>
-        context.isPending(
-          jobFinderPendingActions.resumeStrategyCampaignDefault(campaignId),
-        )
-      }
-      isDisablePending={(strategyId) =>
-        context.isPending(
-          jobFinderPendingActions.resumeStrategyDisable(strategyId),
-        )
-      }
-      isLoading={false}
-      isSavePending={context.isPending(
-        jobFinderPendingActions.resumeStrategySave(),
-      )}
-      onDisableStrategy={context.onDisableResumeStrategy}
-      onSaveStrategy={context.onSaveResumeStrategy}
-      onSetCampaignDefault={context.onSetCampaignResumeStrategyDefault}
-      strategies={intelligence.resumeStrategies}
-    />
+    <JobFinderHydrationGate
+      collections={["documents", "intelligence"]}
+      workspace={context.workspace}
+    >
+      <ResumeStrategiesScreen
+        actionMessage={context.actionState.message}
+        baseResumeDocumentId={context.workspace.profile.baseResume.id}
+        campaigns={context.workspace.campaigns}
+        candidateDocumentIds={candidateDocumentIds}
+        isCampaignDefaultPending={(campaignId) =>
+          context.isPending(
+            jobFinderPendingActions.resumeStrategyCampaignDefault(campaignId),
+          )
+        }
+        isDisablePending={(strategyId) =>
+          context.isPending(
+            jobFinderPendingActions.resumeStrategyDisable(strategyId),
+          )
+        }
+        isLoading={false}
+        isSavePending={context.isPending(
+          jobFinderPendingActions.resumeStrategySave(),
+        )}
+        onDisableStrategy={context.onDisableResumeStrategy}
+        onSaveStrategy={context.onSaveResumeStrategy}
+        onSetCampaignDefault={context.onSetCampaignResumeStrategyDefault}
+        strategies={intelligence.resumeStrategies}
+      />
+    </JobFinderHydrationGate>
   );
 }

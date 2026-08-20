@@ -1,5 +1,8 @@
 import { useEffect, useRef } from "react";
-import type { ResumeTemplateDefinition, ResumeTemplateId } from "@unemployed/contracts";
+import type {
+  ResumeTemplateDefinition,
+  ResumeTemplateId,
+} from "@unemployed/contracts";
 import {
   getResumeTemplateAtsConfidence,
   getResumeTemplateDeliveryLane,
@@ -77,11 +80,11 @@ export function ResumeThemePickerFull(props: {
   }, [heroTemplate.id]);
 
   return (
-    <div className="grid gap-4" aria-labelledby={id}>
-      <section className="surface-panel-shell relative overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border)">
-        <div className="grid gap-3 p-3.5 xl:gap-3.5">
-          <div className="flex flex-wrap items-start justify-between gap-2.5">
-            <div className="grid gap-1.5">
+    <div className="grid min-w-0 gap-4" aria-labelledby={id}>
+      <section className="surface-panel-shell relative min-w-0 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border)">
+        <div className="grid min-w-0 gap-3 p-3.5 xl:gap-3.5">
+          <div className="flex min-w-0 flex-wrap items-start justify-between gap-2.5">
+            <div className="grid min-w-0 gap-1.5">
               <p className="label-mono-xs">Current selection</p>
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="font-display text-[clamp(1.18rem,1.45vw,1.5rem)] font-semibold tracking-[-0.04em] text-(--text-headline)">
@@ -103,39 +106,44 @@ export function ResumeThemePickerFull(props: {
               ) : null}
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="flex min-w-0 flex-wrap gap-2">
               <Badge variant="default">Sample renderer preview</Badge>
               <Badge variant="section">
                 {getLaneLabel(getResumeTemplateDeliveryLane(heroTemplate))}
               </Badge>
               <Badge variant="section">
-                {getAtsConfidenceLabel(getResumeTemplateAtsConfidence(heroTemplate))}
+                {getAtsConfidenceLabel(
+                  getResumeTemplateAtsConfidence(heroTemplate),
+                )}
               </Badge>
             </div>
           </div>
 
-          <div className="grid gap-3 xl:grid-cols-[minmax(0,1.72fr)_minmax(18rem,19.5rem)] xl:items-start">
-            <div className="overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--resume-preview-frame) p-1.5 shadow-[var(--resume-preview-shell-shadow)] xl:p-2">
+          <div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1.72fr)_minmax(18rem,19.5rem)] xl:items-start">
+            <div className="min-w-0 max-w-full overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--resume-preview-frame) p-1.5 shadow-[var(--resume-preview-shell-shadow)] xl:p-2">
               <iframe
                 aria-hidden="true"
-                className="block w-full rounded-2xl border-0 bg-transparent"
+                className="block min-w-0 max-w-full w-full rounded-2xl border-0 bg-transparent"
                 ref={previewFrameRef}
                 sandbox="allow-same-origin"
-                srcDoc={renderResumeTemplateCatalogPreviewHtml(heroTemplate.id, {
-                  layout: "panel",
-                })}
+                srcDoc={renderResumeTemplateCatalogPreviewHtml(
+                  heroTemplate.id,
+                  {
+                    layout: "panel",
+                  },
+                )}
                 style={{ height: "34rem" }}
                 title={`${heroTemplate.label} preview`}
               />
             </div>
 
             <div className="sr-only">
-              This preview uses sample resume content rendered through the shared
-              production template engine.
+              This preview uses sample resume content rendered through the
+              shared production template engine.
             </div>
 
-            <div className="min-w-0 grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/55 px-3 py-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/55 px-3 py-3">
+              <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
                 <p className="label-mono-xs">Choose a template</p>
                 <Badge variant="section">{themes.length} options</Badge>
               </div>

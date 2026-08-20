@@ -6,6 +6,7 @@ import { ResumeWorkspaceStudioShell } from "./resume-workspace-studio-shell";
 
 describe("ResumeWorkspaceStudioShell", () => {
   afterEach(() => {
+    Reflect.deleteProperty(window, "matchMedia");
     vi.restoreAllMocks();
   });
 
@@ -75,6 +76,61 @@ describe("ResumeWorkspaceStudioShell", () => {
     expect(
       document.activeElement?.hasAttribute("data-resume-template-chooser"),
     ).toBe(true);
+  });
+
+  it("uses instant navigation for the template chooser when reduced motion is requested", () => {
+    const scrollIntoView = vi.fn();
+
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: true })),
+    });
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    render(
+      <ResumeWorkspaceStudioShell
+        approvalStateLabel={null}
+        assistantRail={<div>Assistant</div>}
+        canApproveCurrentPdf={false}
+        canClearApproval={false}
+        editorPanel={<div>Editor</div>}
+        exportBlockedReason={null}
+        hasUnsavedChanges={false}
+        historyPanel={<div>History</div>}
+        isWorkspacePending={false}
+        mobileStudioTab="preview"
+        onApproveCurrentPdf={vi.fn()}
+        onClearApproval={vi.fn()}
+        onContinueToShortlisted={vi.fn()}
+        onExportPdf={vi.fn()}
+        onReviewBlockingIssues={vi.fn()}
+        onRegenerateDraft={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onSetMobileStudioTab={vi.fn()}
+        previewPane={<div>Preview</div>}
+        selectedTemplateApprovalEligible={false}
+        studioStatusMessage="Choose a template"
+        templatePanel={<button type="button">Use this template</button>}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getAllByRole("button", {
+        name: "Choose an apply-safe template",
+      })[0]!,
+    );
+
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      behavior: "auto",
+      block: "start",
+    });
   });
 
   it("blocks every export entry point and links directly to unsupported claims", () => {

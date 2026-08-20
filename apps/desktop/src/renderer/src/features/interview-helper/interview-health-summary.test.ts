@@ -167,7 +167,7 @@ describe("deriveInterviewHealthSummary", () => {
 
   it("clears the recoverable failure after capture recovers", () => {
     const failed = derive({
-      systemAudioDetail: "Not checked in this renderer.",
+      systemAudioDetail: "Not checked yet.",
       systemRecorderDetail:
         "Display capture did not expose a system audio track.",
       systemRecorderStatus: "failed",

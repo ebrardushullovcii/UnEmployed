@@ -130,6 +130,10 @@ describe("buildSafeguardsPresentationModel", () => {
 
     const conflictRows = model.rows.filter((row) => row.kind === "conflicts");
     expect(conflictRows).toHaveLength(1);
+    expect(conflictRows[0]?.title).toContain(
+      "Senior Product Designer · Signal Systems",
+    );
+    expect(conflictRows[0]?.title).not.toContain("application_a");
     expect(conflictRows[0]?.blocked).toBe(true);
     expect(conflictRows[0]?.controls.map((control) => control.kind)).toEqual([
       "resolve",
@@ -207,6 +211,7 @@ describe("buildSafeguardsPresentationModel", () => {
 
     const reviewRows = model.rows.filter((row) => row.kind === "reviews");
     expect(reviewRows).toHaveLength(1);
+    expect(reviewRows[0]?.title).toBe("Quality sample review");
     expect(reviewRows[0]?.blocked).toBe(true);
     const increment = reviewRows[0]?.controls.find(
       (control) => control.kind === "review_increment",
@@ -303,7 +308,11 @@ describe("filterSafeguardRows", () => {
       active: true,
       blocked: true,
       dismissed: false,
-      lineage: { jobs: ["Senior Product Designer · Signal Systems"], companies: [], campaigns: [] },
+      lineage: {
+        jobs: ["Senior Product Designer · Signal Systems"],
+        companies: [],
+        campaigns: [],
+      },
       tags: ["signal:closed"],
       controls: [],
       searchText: "listing closed signal systems",

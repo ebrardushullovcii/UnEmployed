@@ -774,6 +774,7 @@ export function buildApplyCopilotArtifacts(input: {
       input.executionResult.blocker,
     ),
     blockerSummary: input.executionResult.blocker?.summary ?? null,
+    listingSignalEvidence: input.executionResult.listingSignalEvidence,
     visualObservationSets: input.executionResult.visualObservationSets,
     visualCheckpoints: input.executionResult.visualCheckpoints,
     latestQuestionCount: questionRecords.length,
