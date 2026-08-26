@@ -47,6 +47,51 @@ Audio configuration is intentionally not included in this mixed provider routing
 Keep local Whisper or an explicit audio-capable transcription model configured
 for Interview Helper audio.
 
+## Temporary Muse Free dogfood override
+
+For current local dogfood only, the owner selected OpenCode Zen's free Muse
+contributor route for all shared text and image-capable AI surfaces:
+
+```dotenv
+UNEMPLOYED_AI_API_KEY=your-opencode-zen-key
+UNEMPLOYED_AI_BASE_URL=https://opencode.ai/zen/v1
+UNEMPLOYED_AI_MODEL=muse-spark-1.2-contributor-free
+UNEMPLOYED_AI_API_MODE=responses
+UNEMPLOYED_AI_REASONING_EFFORT=xhigh
+
+UNEMPLOYED_AI_VISION_BASE_URL=https://opencode.ai/zen/v1
+UNEMPLOYED_AI_VISION_MODEL=muse-spark-1.2-contributor-free
+UNEMPLOYED_AI_VISION_API_MODE=responses
+UNEMPLOYED_AI_VISION_REASONING_EFFORT=xhigh
+```
+
+The shared text variables cover Job Finder generative work and Interview Helper
+text unless a narrower override is present. The shared vision variables cover
+resume visual analysis, browser visual analysis, and Interview Helper screenshot
+analysis unless a narrower override is present. Audio transcription remains
+local Whisper or a separately configured audio model.
+
+On 2026-08-26, synthetic direct API probes confirmed both text and image input
+return HTTP 200 through `https://opencode.ai/zen/v1/responses`. The same model
+returned HTTP 500 through Chat Completions, so this override must stay on the
+Responses API. This is transport evidence only, not an end-to-end capability,
+quality, privacy, or release acceptance result.
+
+`muse-spark-1.2-contributor-free` is a limited-time zero-token-cost Zen model,
+not the subscription-included Go model `muse-spark-1.2-contributor`. OpenCode's
+published terms state that prompts and completions on the free contributor route
+may be used to train future Meta models. Do not send a private resume, credentials,
+application answers, interview media, or other personal/confidential data through
+this route without explicit informed user consent. Use synthetic data for initial
+testing. Keep the API key only in ignored `.env.local`, never documentation or
+tracked examples, and rotate any temporary key shared through a conversation.
+
+ADR 0010 remains the accepted production route until synthetic capability tests,
+privacy review, and owner acceptance justify a new routing decision. If Muse Free
+is adopted beyond temporary dogfood, update ADR 0010 (or supersede it), the
+recommended production setup above, `.env.example`, and provider acceptance
+evidence together.
+
 ## Desktop test API precedence for Interview Helper
 
 With `UNEMPLOYED_ENABLE_TEST_API=1`, Interview Helper providers resolve to the

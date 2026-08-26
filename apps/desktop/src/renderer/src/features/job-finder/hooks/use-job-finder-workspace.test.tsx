@@ -32,38 +32,192 @@ function requireReadyWorkspace(
   return value;
 }
 
-function identified<T>(id: string): T {
-  return { id } as T;
-}
-
-function createWorkspace(
-  jobId: string,
-  generatedAt = "2026-08-09T10:00:00.000Z",
+function createBaseSnapshot(
+  generatedAt: string,
 ): JobFinderWorkspaceSnapshot {
-  return {
+  const profile = createFreshStartCandidateProfile();
+  const searchPreferences = JobSearchPreferencesSchema.parse({
+    targetRoles: [],
+    jobFamilies: [],
+    locations: [],
+    excludedLocations: [],
+    workModes: [],
+    seniorityLevels: [],
+    minimumSalaryUsd: null,
+    targetSalaryUsd: null,
+    salaryCurrency: "USD",
+    targetIndustries: [],
+    targetCompanyStages: [],
+    employmentTypes: [],
+    approvalMode: "review_before_submit",
+    tailoringMode: "balanced",
+    companyBlacklist: [],
+    companyWhitelist: [],
+    discovery: {
+      historyLimit: 5,
+      targets: [],
+    },
+  });
+  const settings = JobFinderSettingsSchema.parse({
+    resumeTemplateId: "classic_ats",
+    resumeFormat: "pdf",
+    fontPreset: "inter_requisite",
+    appearanceTheme: "system",
+    humanReviewRequired: true,
+    keepSessionAlive: false,
+    allowAutoSubmitOverride: false,
+    discoveryOnly: false,
+  });
+  const campaign = JobSearchCampaignSchema.parse({
+    id: "campaign_1",
+    name: "Test campaign",
+    description: "",
+    mode: "precision",
+    status: "active",
+    createdAt: generatedAt,
+    updatedAt: generatedAt,
+    searchPreferences,
+    sourceTargetIds: [],
+    jobIds: [],
+    minimumFitScore: null,
+    ...getDefaultCampaignConfiguration("precision"),
+    schedule: {},
+    progress: { lastUpdatedAt: generatedAt },
+    history: [],
+  });
+  return JobFinderWorkspaceSnapshotSchema.parse({
+    module: "job-finder",
     generatedAt,
     hydration: { phase: "complete", deferredCollections: [] },
+    agentProvider: {
+      kind: "deterministic",
+      role: "chat",
+      ready: true,
+      label: "Test AI",
+      model: null,
+      baseUrl: null,
+      modelContextWindowTokens: null,
+      reservedHeadroomTokens: null,
+      requestTimeoutMs: null,
+      detail: "Test AI",
+    },
+    visionProvider: null,
+    availableResumeTemplates: [],
+    profile,
+    searchPreferences,
+    profileSetupState: {
+      status: "completed",
+      currentStep: "import",
+      completedAt: generatedAt,
+      reviewItems: [],
+      lastResumedAt: null,
+    },
+    browserSession: {
+      source: "target_site",
+      status: "ready",
+      driver: "catalog_seed",
+      label: "Ready",
+      detail: "Ready",
+      lastCheckedAt: generatedAt,
+    },
+    sourceAccessPrompts: [],
+    discoverySessions: [],
     discoveryRunState: "idle",
     activeDiscoveryRun: null,
-    discoverySessions: [],
-    sourceAccessPrompts: [],
-    latestResumeImportRun: null,
-    discoveryJobs: [identified(jobId)],
+    recentDiscoveryRuns: [],
+    activeSourceDebugRun: null,
+    recentSourceDebugRuns: [],
+    discoveryJobs: [],
     dismissedDiscoveryJobs: [],
     companyJobs: [],
-    recentDiscoveryRuns: [],
+    selectedDiscoveryJobId: null,
     reviewQueue: [],
+    selectedReviewJobId: null,
+    tailoredAssets: [],
+    resumeDrafts: [],
+    resumeExportArtifacts: [],
+    resumeResearchArtifacts: [],
     applyRuns: [],
     applyJobResults: [],
     applicationRecords: [],
     applicationAttempts: [],
     userActionRequests: [],
     userActionEvents: [],
-    selectedDiscoveryJobId: jobId,
-    selectedReviewJobId: null,
+    sourceInstructionArtifacts: [],
+    latestResumeImportRun: null,
+    latestResumeImportReviewCandidates: [],
+    profileCopilotMessages: [],
+    profileRevisions: [],
     selectedApplyRunId: null,
     selectedApplicationRecordId: null,
-  } as unknown as JobFinderWorkspaceSnapshot;
+    settings,
+    campaigns: [campaign],
+    activeCampaignId: campaign.id,
+    campaignNotifications: [],
+    dashboard: {
+      generatedAt,
+      activeCampaignId: campaign.id,
+      activeCampaignCount: 1,
+      jobsFoundToday: 0,
+      jobsAwaitingReview: 0,
+      applicationsReadyForApproval: 0,
+      applicationsAppliedToday: 0,
+      applicationsAppliedThisWeek: 0,
+      needsYouCount: 0,
+      upcomingInterviews: 0,
+      upcomingFollowUps: 0,
+      responseRate: null,
+      interviewRate: null,
+      sourceHealth: {
+        healthy: 0,
+        needsAttention: 0,
+        running: 0,
+        total: 0,
+      },
+      backgroundOperationCount: 0,
+      recommendedNextAction: {
+        label: "Review profile",
+        detail: "Complete the profile before searching.",
+        route: "/job-finder/profile",
+      },
+    },
+    activityControl: { paused: false, pausedAt: null, reason: null },
+    intelligence: {},
+  });
+}
+
+function createDiscoveryJob(jobId: string, generatedAt: string) {
+  return DiscoveryJobViewSchema.parse({
+    id: jobId,
+    source: "target_site",
+    sourceJobId: `source_${jobId}`,
+    canonicalUrl: `https://jobs.example.com/roles/${jobId}`,
+    applicationUrl: `https://jobs.example.com/roles/${jobId}/apply`,
+    title: `Role ${jobId}`,
+    company: "Acme",
+    location: "Remote",
+    workMode: ["remote"],
+    applyPath: "external_redirect",
+    easyApplyEligible: false,
+    discoveredAt: generatedAt,
+    salaryText: null,
+    description: `Description for ${jobId}`,
+    status: "discovered",
+    matchAssessment: { score: 80, reasons: [], gaps: [] },
+    listingActivity: { status: "unknown" },
+  });
+}
+
+function createWorkspace(
+  jobId: string,
+  generatedAt = "2026-08-09T10:00:00.000Z",
+): JobFinderWorkspaceSnapshot {
+  const base = createBaseSnapshot(generatedAt);
+  return {
+    ...base,
+    discoveryJobs: [createDiscoveryJob(jobId, generatedAt)],
+    selectedDiscoveryJobId: jobId,
+  };
 }
 
 function createJobReplacementDelta(input: {
@@ -72,21 +226,29 @@ function createJobReplacementDelta(input: {
   previousJobId: string;
   currentJobId: string;
 }): JobFinderWorkspaceDelta {
-  return {
+  const generatedAt = "2026-08-09T10:01:00.000Z";
+  const base = createBaseSnapshot(generatedAt);
+  return JobFinderWorkspaceDeltaSchema.parse({
     baseRevision: input.baseRevision,
     currentRevision: input.currentRevision,
-    generatedAt: "2026-08-09T10:01:00.000Z",
+    generatedAt,
     discoveryRunState: "idle",
     activeDiscoveryRun: null,
     discoverySessions: [],
     sourceAccessPrompts: [],
     latestResumeImportRun: null,
+    campaigns: base.campaigns,
+    activeCampaignId: base.activeCampaignId,
+    campaignNotifications: [],
+    dashboard: base.dashboard,
+    activityControl: base.activityControl,
+    intelligence: base.intelligence,
     selectedDiscoveryJobId: input.currentJobId,
     selectedReviewJobId: null,
     selectedApplyRunId: null,
     selectedApplicationRecordId: null,
     discoveryJobs: {
-      upserts: [identified(input.currentJobId)],
+      upserts: [createDiscoveryJob(input.currentJobId, generatedAt)],
       removedIds: [input.previousJobId],
     },
     dismissedDiscoveryJobs: { upserts: [], removedIds: [] },
@@ -99,7 +261,7 @@ function createJobReplacementDelta(input: {
     applicationAttempts: { upserts: [], removedIds: [] },
     userActionRequests: { upserts: [], removedIds: [] },
     userActionEvents: { upserts: [], removedIds: [] },
-  } as unknown as JobFinderWorkspaceDelta;
+  });
 }
 
 function deferred<T>(): {
@@ -321,7 +483,7 @@ describe("useJobFinderWorkspace entity mutations", () => {
 
   it("shows the bootstrap before deferred collections arrive and then hydrates them", async () => {
     enableBootstrapApi();
-    const bootstrap = {
+    const bootstrap: JobFinderWorkspaceSnapshot = {
       ...createWorkspace("job-bootstrap"),
       discoveryJobs: [],
       selectedDiscoveryJobId: null,
@@ -329,7 +491,7 @@ describe("useJobFinderWorkspace entity mutations", () => {
         phase: "bootstrap" as const,
         deferredCollections: ["discovery_jobs", "applications"] as const,
       },
-    } as unknown as JobFinderWorkspaceSnapshot;
+    };
     const hydrated = createWorkspace("job-hydrated");
     const hydration = deferred<JobFinderWorkspaceSyncResult>();
     getWorkspaceBootstrap.mockResolvedValueOnce(bootstrap);
@@ -367,7 +529,7 @@ describe("useJobFinderWorkspace entity mutations", () => {
 
   it("does not let late hydration overwrite a newer user action", async () => {
     enableBootstrapApi();
-    const bootstrap = {
+    const bootstrap: JobFinderWorkspaceSnapshot = {
       ...createWorkspace("job-bootstrap"),
       discoveryJobs: [],
       selectedDiscoveryJobId: null,
@@ -375,7 +537,7 @@ describe("useJobFinderWorkspace entity mutations", () => {
         phase: "bootstrap" as const,
         deferredCollections: ["discovery_jobs"] as const,
       },
-    } as unknown as JobFinderWorkspaceSnapshot;
+    };
     const hydrated = createWorkspace("job-hydrated");
     const actionWorkspace = createWorkspace("job-action");
     const hydration = deferred<JobFinderWorkspaceSyncResult>();
@@ -621,10 +783,14 @@ describe("useJobFinderWorkspace concurrency convergence", () => {
   function createBootstrapPhaseWorkspace(
     jobId: string,
   ): JobFinderWorkspaceSnapshot {
+    const base = createWorkspace(jobId);
     return {
-      ...createWorkspace(jobId),
-      hydration: { phase: "bootstrap", deferredCollections: ["discovery_jobs"] },
-    } as JobFinderWorkspaceSnapshot;
+      ...base,
+      hydration: {
+        phase: "bootstrap" as const,
+        deferredCollections: ["discovery_jobs"] as const,
+      },
+    };
   }
 
   function queueSyncResponses(

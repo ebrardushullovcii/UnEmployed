@@ -15,6 +15,19 @@ Updated: 2026-08-26
 
 ## Active
 
+- **Active — temporary Muse Free provider dogfood:** ignored local configuration
+  routes shared text and image-capable AI calls to OpenCode Zen
+  `muse-spark-1.2-contributor-free` through Responses with requested `xhigh`
+  reasoning. Synthetic text and one-pixel image probes pass; no end-to-end app,
+  configured-tool, resume-quality, browser-agent, or Interview Helper capability
+  acceptance exists yet. Run initial checks with synthetic data only. Before any
+  private resume, application answer, credential, or interview input, obtain
+  explicit informed consent because this contributor tier may use prompts and
+  completions for Meta model training. Rotate the temporary conversation-shared
+  key. Decide after capability/privacy review whether to revert to ADR 0010's
+  mixed OpenCode Go production route or supersede that ADR and update the tracked
+  defaults and acceptance evidence. Setup: `docs/AI_PROVIDER_SETUP.md`.
+
 - **Active — autonomous application architecture reset:** ADR 0012 authorizes
   prepare-only, confirm-before-submit, and autonomous-submit modes under an
   explicit user-scoped authority envelope. Current code remains prepare-only.

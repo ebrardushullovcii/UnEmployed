@@ -1,5 +1,16 @@
 // @vitest-environment jsdom
 
+import {
+  createFreshStartCandidateProfile,
+  DiscoveryJobViewSchema,
+  getDefaultCampaignConfiguration,
+  JobFinderResumeWorkspaceSchema,
+  JobFinderSettingsSchema,
+  JobFinderWorkspaceSnapshotSchema,
+  JobSearchCampaignSchema,
+  JobSearchPreferencesSchema,
+  ResumeDraftSchema,
+} from "@unemployed/contracts";
 import type {
   JobFinderResumeWorkspace,
   JobFinderWorkspaceSnapshot,
@@ -40,44 +51,214 @@ function createReviewQueueItem(jobId: string) {
   };
 }
 
-function createWorkspace(): JobFinderWorkspaceSnapshot {
-  return {
+function createBaseSnapshot(): JobFinderWorkspaceSnapshot {
+  const generatedAt = "2026-08-20T00:00:00.000Z";
+  const profile = createFreshStartCandidateProfile();
+  const searchPreferences = JobSearchPreferencesSchema.parse({
+    targetRoles: [],
+    jobFamilies: [],
+    locations: [],
+    excludedLocations: [],
+    workModes: [],
+    seniorityLevels: [],
+    minimumSalaryUsd: null,
+    targetSalaryUsd: null,
+    salaryCurrency: "USD",
+    targetIndustries: [],
+    targetCompanyStages: [],
+    employmentTypes: [],
+    approvalMode: "review_before_submit",
+    tailoringMode: "balanced",
+    companyBlacklist: [],
+    companyWhitelist: [],
+    discovery: { historyLimit: 5, targets: [] },
+  });
+  const settings = JobFinderSettingsSchema.parse({
+    resumeTemplateId: "classic_ats",
+    resumeFormat: "pdf",
+    fontPreset: "inter_requisite",
+    appearanceTheme: "system",
+    humanReviewRequired: true,
+    keepSessionAlive: false,
+    allowAutoSubmitOverride: false,
+    discoveryOnly: false,
+  });
+  const campaign = JobSearchCampaignSchema.parse({
+    id: "campaign_1",
+    name: "Test campaign",
+    description: "",
+    mode: "precision",
+    status: "active",
+    createdAt: generatedAt,
+    updatedAt: generatedAt,
+    searchPreferences,
+    sourceTargetIds: [],
+    jobIds: ["job_1", "job_2", "job_3"],
+    minimumFitScore: null,
+    ...getDefaultCampaignConfiguration("precision"),
+    schedule: {},
+    progress: { lastUpdatedAt: generatedAt },
+    history: [],
+  });
+  return JobFinderWorkspaceSnapshotSchema.parse({
+    module: "job-finder",
+    generatedAt,
     hydration: { phase: "complete", deferredCollections: [] },
-    activeCampaignId: "campaign_1",
-    campaigns: [{ id: "campaign_1", jobIds: ["job_1", "job_2", "job_3"] }],
+    agentProvider: {
+      kind: "deterministic",
+      role: "chat",
+      ready: true,
+      label: "Test AI",
+      model: null,
+      baseUrl: null,
+      modelContextWindowTokens: null,
+      reservedHeadroomTokens: null,
+      requestTimeoutMs: null,
+      detail: "Test AI",
+    },
+    visionProvider: null,
+    availableResumeTemplates: [],
+    profile,
+    searchPreferences,
+    profileSetupState: {
+      status: "completed",
+      currentStep: "import",
+      completedAt: generatedAt,
+      reviewItems: [],
+      lastResumedAt: null,
+    },
+    browserSession: {
+      source: "target_site",
+      status: "ready",
+      driver: "catalog_seed",
+      label: "Ready",
+      detail: "Ready",
+      lastCheckedAt: generatedAt,
+    },
+    sourceAccessPrompts: [],
+    discoverySessions: [],
+    discoveryRunState: "idle",
+    activeDiscoveryRun: null,
+    recentDiscoveryRuns: [],
+    activeSourceDebugRun: null,
+    recentSourceDebugRuns: [],
     discoveryJobs: [],
     dismissedDiscoveryJobs: [],
-    recentDiscoveryRuns: [],
-    discoverySessions: [],
-    sourceAccessPrompts: [],
-    activeDiscoveryRun: null,
+    companyJobs: [],
+    selectedDiscoveryJobId: null,
     reviewQueue: [
       createReviewQueueItem("job_1"),
       createReviewQueueItem("job_2"),
       createReviewQueueItem("job_3"),
     ],
+    selectedReviewJobId: null,
     tailoredAssets: [],
-    applicationRecords: [],
-    applicationAttempts: [],
+    resumeDrafts: [],
+    resumeExportArtifacts: [],
+    resumeResearchArtifacts: [],
     applyRuns: [],
     applyJobResults: [],
-    selectedDiscoveryJobId: null,
-    selectedReviewJobId: null,
-    selectedApplicationRecordId: null,
-    selectedApplyRunId: null,
-    settings: { appearanceTheme: "system" },
-    profileSetupState: { status: "completed", reviewItems: [] },
+    applicationRecords: [],
+    applicationAttempts: [],
+    userActionRequests: [],
+    userActionEvents: [],
+    sourceInstructionArtifacts: [],
+    latestResumeImportRun: null,
+    latestResumeImportReviewCandidates: [],
     profileCopilotMessages: [],
-  } as unknown as JobFinderWorkspaceSnapshot;
+    profileRevisions: [],
+    selectedApplyRunId: null,
+    selectedApplicationRecordId: null,
+    settings,
+    campaigns: [campaign],
+    activeCampaignId: campaign.id,
+    campaignNotifications: [],
+    dashboard: {
+      generatedAt,
+      activeCampaignId: campaign.id,
+      activeCampaignCount: 1,
+      jobsFoundToday: 0,
+      jobsAwaitingReview: 0,
+      applicationsReadyForApproval: 0,
+      applicationsAppliedToday: 0,
+      applicationsAppliedThisWeek: 0,
+      needsYouCount: 0,
+      upcomingInterviews: 0,
+      upcomingFollowUps: 0,
+      responseRate: null,
+      interviewRate: null,
+      sourceHealth: { healthy: 0, needsAttention: 0, running: 0, total: 0 },
+      backgroundOperationCount: 0,
+      recommendedNextAction: {
+        label: "Review profile",
+        detail: "Complete the profile before searching.",
+        route: "/job-finder/profile",
+      },
+    },
+    activityControl: { paused: false, pausedAt: null, reason: null },
+    intelligence: {},
+  });
 }
+
+function createWorkspace(): JobFinderWorkspaceSnapshot {
+  return createBaseSnapshot();
+}
+
+type TestResumeWorkspace = JobFinderResumeWorkspace & { marker: string };
 
 function createResumeWorkspace(
   jobId: string,
   marker: string,
-): JobFinderResumeWorkspace {
-  // Only `job.id` drives controller routing decisions; the marker makes the
-  // applied version observable in assertions.
-  return { job: { id: jobId }, marker } as unknown as JobFinderResumeWorkspace;
+): TestResumeWorkspace {
+  const job = DiscoveryJobViewSchema.parse({
+    id: jobId,
+    source: "target_site",
+    sourceJobId: `source_${jobId}`,
+    canonicalUrl: `https://jobs.example.com/roles/${jobId}`,
+    applicationUrl: `https://jobs.example.com/roles/${jobId}/apply`,
+    title: `Role ${jobId}`,
+    company: "Acme",
+    location: "Remote",
+    workMode: ["remote"],
+    applyPath: "external_redirect",
+    easyApplyEligible: false,
+    discoveredAt: "2026-08-20T00:00:00.000Z",
+    salaryText: null,
+    description: `Description for ${jobId}`,
+    status: "discovered",
+    matchAssessment: { score: 80, reasons: [], gaps: [] },
+    listingActivity: { status: "unknown" },
+  });
+  const draft = ResumeDraftSchema.parse({
+    id: `draft_${jobId}`,
+    jobId,
+    status: "draft",
+    templateId: "classic_ats",
+    sections: [],
+    targetPageCount: 2,
+    generationMethod: null,
+    approvedAt: null,
+    approvedExportId: null,
+    staleReason: null,
+    workHistoryReviewAcknowledgments: [],
+    claimConfirmations: [],
+    createdAt: "2026-08-20T00:00:00.000Z",
+    updatedAt: "2026-08-20T00:00:00.000Z",
+  });
+  const workspace = JobFinderResumeWorkspaceSchema.parse({
+    job,
+    draft,
+    validation: null,
+    exports: [],
+    research: [],
+    assistantMessages: [],
+    revisions: [],
+    tailoredAsset: null,
+    sharedProfile: {},
+    workHistoryReviewSuggestions: [],
+    strategyContext: null,
+  });
+  return { ...workspace, marker };
 }
 
 function activeResumeWorkspaceMarker(
@@ -87,10 +268,7 @@ function activeResumeWorkspaceMarker(
   if (!context) {
     throw new Error("Expected an assembled Job Finder page context.");
   }
-  const workspace = context.resumeWorkspace as unknown as {
-    job: { id: string };
-    marker: string;
-  } | null;
+  const workspace = context.resumeWorkspace as TestResumeWorkspace | null;
   return workspace?.marker ?? null;
 }
 

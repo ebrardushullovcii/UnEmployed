@@ -6,6 +6,22 @@ Updated: 2026-08-26
 
 ## Current Truth
 
+- Temporary local AI routing 2026-08-26: ignored `.env.local` currently points
+  shared text and vision-capable providers at OpenCode Zen's
+  `muse-spark-1.2-contributor-free` through the Responses API with requested
+  `xhigh` reasoning. Synthetic direct probes passed for text and image input;
+  Chat Completions returned HTTP 500 and is not used. Job Finder, Interview
+  Helper text, resume vision, browser vision, and Interview screenshot analysis
+  inherit these shared values unless a narrower override is present; audio stays
+  local or separately configured. This is a temporary dogfood override, not a
+  production routing decision or end-to-end acceptance result. The free
+  contributor route may use prompts and completions for Meta model training, so
+  private resume, credential, answer, and interview data require explicit
+  informed consent; initial testing stays synthetic. The temporary key shared in
+  conversation must be rotated and remains untracked. ADR 0010's mixed OpenCode
+  Go production recommendation remains accepted pending capability and privacy
+  review. Exact setup and follow-up: `docs/AI_PROVIDER_SETUP.md`.
+
 - Current-source dogfood and publication gate 2026-08-26: the user authorized a
   commit and push only if there is no blocker to testing the app and seeing the
   current progress. That condition is met for the existing prepare-only journey:
