@@ -1,8 +1,10 @@
 import { chmod } from "node:fs/promises";
 import type { DatabaseSync } from "node:sqlite";
 import {
+  ApplyJobResultSchema,
   JobSearchPreferencesSchema,
   getDefaultCampaignConfiguration,
+  normalizeCompanyName,
 } from "@unemployed/contracts";
 
 export function secureDatabaseFile(filePath: string): Promise<void> {
@@ -88,6 +90,366 @@ export function runMigrations(database: DatabaseSync): void {
         )
         .get(tableName),
     );
+  }
+
+  function hasSingletonStateRevisionColumn(): boolean {
+    if (!hasTable("singleton_state")) return false;
+    const columns = database
+      .prepare("PRAGMA table_info(singleton_state)")
+      .all() as Array<{ name?: unknown }>;
+    return columns.some((column) => column?.name === "revision");
+  }
+
+  function ensureSingletonStateRevisionColumn(): void {
+    if (hasSingletonStateRevisionColumn()) return;
+    database.exec(
+      "ALTER TABLE singleton_state ADD COLUMN revision INTEGER NOT NULL DEFAULT 1",
+    );
+  }
+
+  function hasColumn(tableName: string, columnName: string): boolean {
+    if (!hasTable(tableName)) return false;
+    const columns = database
+      .prepare(`PRAGMA table_info(${tableName})`)
+      .all() as Array<{ name?: unknown }>;
+    return columns.some((column) => column.name === columnName);
+  }
+
+  function hasIndex(indexName: string): boolean {
+    return Boolean(
+      database
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='index' AND name = ?",
+        )
+        .get(indexName),
+    );
+  }
+
+  const applicationLineageTables = [
+    "apply_job_results",
+    "application_question_records",
+    "application_answer_records",
+    "application_artifact_refs",
+    "application_replay_checkpoints",
+    "application_consent_requests",
+    "application_attempts",
+    "user_action_requests",
+  ] as const;
+
+  function ensureApplicationLineageColumns(): void {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS application_records (
+        id TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS application_attempts (
+        id TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+    `);
+
+    for (const tableName of applicationLineageTables) {
+      if (!hasColumn(tableName, "application_record_id")) {
+        database.exec(
+          `ALTER TABLE ${tableName} ADD COLUMN application_record_id TEXT`,
+        );
+      }
+    }
+
+    if (!hasColumn("application_attempts", "job_id")) {
+      database.exec("ALTER TABLE application_attempts ADD COLUMN job_id TEXT");
+    }
+    if (!hasColumn("application_attempts", "updated_at")) {
+      database.exec(
+        "ALTER TABLE application_attempts ADD COLUMN updated_at TEXT",
+      );
+    }
+
+    database.exec(`
+      CREATE INDEX IF NOT EXISTS apply_job_results_application_record_idx
+        ON apply_job_results(application_record_id, updated_at DESC, id ASC);
+      CREATE INDEX IF NOT EXISTS application_question_records_application_record_idx
+        ON application_question_records(application_record_id, detected_at ASC, id ASC);
+      CREATE INDEX IF NOT EXISTS application_answer_records_application_record_idx
+        ON application_answer_records(application_record_id, created_at ASC, id ASC);
+      CREATE INDEX IF NOT EXISTS application_artifact_refs_application_record_idx
+        ON application_artifact_refs(application_record_id, created_at DESC, id ASC);
+      CREATE INDEX IF NOT EXISTS application_replay_checkpoints_application_record_idx
+        ON application_replay_checkpoints(application_record_id, created_at DESC, id ASC);
+      CREATE INDEX IF NOT EXISTS application_consent_requests_application_record_idx
+        ON application_consent_requests(application_record_id, requested_at DESC, id ASC);
+      CREATE INDEX IF NOT EXISTS application_attempts_application_record_idx
+        ON application_attempts(application_record_id, updated_at DESC, id ASC);
+      CREATE INDEX IF NOT EXISTS application_attempts_job_idx
+        ON application_attempts(job_id, updated_at DESC, id ASC);
+      CREATE INDEX IF NOT EXISTS user_action_requests_application_record_idx
+        ON user_action_requests(application_record_id, updated_at DESC, id ASC);
+    `);
+  }
+
+  function parseMigrationObject(
+    tableName: string,
+    rowId: string,
+    serializedValue: string,
+  ): Record<string, unknown> {
+    const parsed = JSON.parse(serializedValue) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error(
+        `Cannot migrate ${tableName}.${rowId}: persisted value is not an object.`,
+      );
+    }
+    return parsed as Record<string, unknown>;
+  }
+
+  function backfillApplicationRecordLineage(): void {
+    const applicationRecords = (
+      database
+        .prepare("SELECT id, value FROM application_records")
+        .all() as Array<{
+        id: string;
+        value: string;
+      }>
+    ).map((row) => {
+      const value = parseMigrationObject(
+        "application_records",
+        row.id,
+        row.value,
+      );
+      return {
+        id: row.id,
+        jobId: typeof value.jobId === "string" ? value.jobId : null,
+      };
+    });
+    const applicationRecordById = new Map(
+      applicationRecords.map((record) => [record.id, record]),
+    );
+    const applicationRecordIdsByJob = new Map<string, string[]>();
+    for (const record of applicationRecords) {
+      if (record.jobId === null) continue;
+      const ids = applicationRecordIdsByJob.get(record.jobId) ?? [];
+      ids.push(record.id);
+      applicationRecordIdsByJob.set(record.jobId, ids);
+    }
+
+    function resolveDirectLineage(
+      value: Record<string, unknown>,
+      jobId: string,
+    ): string | null {
+      if (typeof value.applicationRecordId === "string") {
+        const exact = applicationRecordById.get(value.applicationRecordId);
+        return exact?.jobId === jobId ? exact.id : null;
+      }
+      if (Object.prototype.hasOwnProperty.call(value, "applicationRecordId")) {
+        return null;
+      }
+      const candidates = applicationRecordIdsByJob.get(jobId) ?? [];
+      return candidates.length === 1 ? candidates[0]! : null;
+    }
+
+    const resultRows = database
+      .prepare("SELECT id, run_id, job_id, value FROM apply_job_results")
+      .all() as Array<{
+      id: string;
+      run_id: string;
+      job_id: string;
+      value: string;
+    }>;
+    const resultLineage = new Map<
+      string,
+      { runId: string; jobId: string; applicationRecordId: string | null }
+    >();
+    const updateResult = database.prepare(
+      "UPDATE apply_job_results SET application_record_id = ?, value = ? WHERE id = ?",
+    );
+    for (const row of resultRows) {
+      const value = parseMigrationObject(
+        "apply_job_results",
+        row.id,
+        row.value,
+      );
+      const applicationRecordId = resolveDirectLineage(value, row.job_id);
+      value.applicationRecordId = applicationRecordId;
+      const receipt = value.privacyReceipt;
+      if (receipt && typeof receipt === "object" && !Array.isArray(receipt)) {
+        const lineage = (receipt as Record<string, unknown>).lineage;
+        if (lineage && typeof lineage === "object" && !Array.isArray(lineage)) {
+          const lineageValue = lineage as Record<string, unknown>;
+          const matchesResult =
+            lineageValue.runId === row.run_id &&
+            lineageValue.jobId === row.job_id &&
+            lineageValue.resultId === row.id;
+          const existingApplicationRecordMatches =
+            !Object.prototype.hasOwnProperty.call(
+              lineageValue,
+              "applicationRecordId",
+            ) || lineageValue.applicationRecordId === applicationRecordId;
+          lineageValue.applicationRecordId =
+            matchesResult && existingApplicationRecordMatches
+              ? applicationRecordId
+              : null;
+        }
+      }
+      updateResult.run(applicationRecordId, JSON.stringify(value), row.id);
+      resultLineage.set(row.id, {
+        runId: row.run_id,
+        jobId: row.job_id,
+        applicationRecordId,
+      });
+    }
+
+    const descendantTables = [
+      "application_question_records",
+      "application_answer_records",
+      "application_artifact_refs",
+      "application_replay_checkpoints",
+      "application_consent_requests",
+    ] as const;
+    for (const tableName of descendantTables) {
+      const rows = database
+        .prepare(
+          `SELECT id, run_id, job_id, result_id, value FROM ${tableName}`,
+        )
+        .all() as Array<{
+        id: string;
+        run_id: string;
+        job_id: string;
+        result_id: string | null;
+        value: string;
+      }>;
+      const update = database.prepare(
+        `UPDATE ${tableName} SET application_record_id = ?, value = ? WHERE id = ?`,
+      );
+      for (const row of rows) {
+        const value = parseMigrationObject(tableName, row.id, row.value);
+        const result = row.result_id ? resultLineage.get(row.result_id) : null;
+        const applicationRecordId =
+          result && result.runId === row.run_id && result.jobId === row.job_id
+            ? result.applicationRecordId
+            : null;
+        value.applicationRecordId = applicationRecordId;
+        update.run(applicationRecordId, JSON.stringify(value), row.id);
+      }
+    }
+
+    const attemptRows = database
+      .prepare("SELECT id, value FROM application_attempts")
+      .all() as Array<{ id: string; value: string }>;
+    const updateAttempt = database.prepare(
+      `UPDATE application_attempts
+       SET job_id = ?, application_record_id = ?, updated_at = ?, value = ?
+       WHERE id = ?`,
+    );
+    for (const row of attemptRows) {
+      const value = parseMigrationObject(
+        "application_attempts",
+        row.id,
+        row.value,
+      );
+      const jobId = typeof value.jobId === "string" ? value.jobId : null;
+      const updatedAt =
+        typeof value.updatedAt === "string" ? value.updatedAt : null;
+      const applicationRecordId = jobId
+        ? resolveDirectLineage(value, jobId)
+        : null;
+      value.applicationRecordId = applicationRecordId;
+      updateAttempt.run(
+        jobId,
+        applicationRecordId,
+        updatedAt,
+        JSON.stringify(value),
+        row.id,
+      );
+    }
+
+    const userActionRows = database
+      .prepare("SELECT id, value FROM user_action_requests")
+      .all() as Array<{ id: string; value: string }>;
+    const updateUserAction = database.prepare(
+      "UPDATE user_action_requests SET application_record_id = ?, value = ? WHERE id = ?",
+    );
+    for (const row of userActionRows) {
+      const value = parseMigrationObject(
+        "user_action_requests",
+        row.id,
+        row.value,
+      );
+      const scope = value.scope;
+      let applicationRecordId: string | null = null;
+      if (scope && typeof scope === "object" && !Array.isArray(scope)) {
+        const scopeValue = scope as Record<string, unknown>;
+        if (
+          scopeValue.type === "application" &&
+          typeof scopeValue.resultId === "string" &&
+          typeof scopeValue.runId === "string" &&
+          typeof scopeValue.jobId === "string"
+        ) {
+          const result = resultLineage.get(scopeValue.resultId);
+          if (
+            result?.runId === scopeValue.runId &&
+            result.jobId === scopeValue.jobId
+          ) {
+            applicationRecordId = result.applicationRecordId;
+          }
+          scopeValue.applicationRecordId = applicationRecordId;
+        }
+      }
+      updateUserAction.run(applicationRecordId, JSON.stringify(value), row.id);
+    }
+  }
+
+  function applyApplicationLineageMigration(): void {
+    ensureApplicationLineageColumns();
+    backfillApplicationRecordLineage();
+  }
+
+  function applyApplicationPreparationStartedMigration(): void {
+    if (!hasColumn("apply_job_results", "application_preparation_started_at")) {
+      database.exec(
+        "ALTER TABLE apply_job_results ADD COLUMN application_preparation_started_at TEXT",
+      );
+    }
+    if (
+      !hasColumn(
+        "apply_job_results",
+        "application_preparation_started_local_date",
+      )
+    ) {
+      database.exec(
+        "ALTER TABLE apply_job_results ADD COLUMN application_preparation_started_local_date TEXT",
+      );
+    }
+
+    const rows = database
+      .prepare("SELECT id, value FROM apply_job_results")
+      .all() as Array<{ id: string; value: string }>;
+    const update = database.prepare(`
+      UPDATE apply_job_results
+      SET application_preparation_started_at = ?,
+          application_preparation_started_local_date = ?
+      WHERE id = ?
+    `);
+    for (const row of rows) {
+      const persisted = parseMigrationObject(
+        "apply_job_results",
+        row.id,
+        row.value,
+      );
+      const result = ApplyJobResultSchema.parse(persisted);
+      update.run(
+        result.applicationPreparationStartedAt ?? null,
+        result.applicationPreparationStartedLocalDate ?? null,
+        row.id,
+      );
+    }
+
+    database.exec(`
+      CREATE INDEX IF NOT EXISTS apply_job_results_preparation_local_date_run_job_idx
+        ON apply_job_results(
+          application_preparation_started_local_date,
+          run_id,
+          job_id
+        );
+    `);
   }
 
   function ensureDefaultCampaignState(): void {
@@ -328,6 +690,60 @@ export function runMigrations(database: DatabaseSync): void {
       } catch {
         // Leave malformed revision rows untouched; schema loading will surface them.
       }
+    }
+  }
+
+  function repairPersistedCompanyAliasNormalization(): void {
+    if (!hasTable("singleton_state")) return;
+
+    const row = database
+      .prepare("SELECT value FROM singleton_state WHERE key = ?")
+      .get("intelligence_state") as { value?: string } | undefined;
+    if (!row?.value) return;
+
+    try {
+      const intelligence = JSON.parse(row.value) as unknown;
+      if (
+        !intelligence ||
+        typeof intelligence !== "object" ||
+        Array.isArray(intelligence) ||
+        !Array.isArray((intelligence as { companies?: unknown }).companies)
+      ) {
+        return;
+      }
+
+      let changed = false;
+      for (const company of (intelligence as { companies: unknown[] })
+        .companies) {
+        if (
+          !company ||
+          typeof company !== "object" ||
+          Array.isArray(company) ||
+          !Array.isArray((company as { aliases?: unknown }).aliases)
+        ) {
+          continue;
+        }
+
+        for (const alias of (company as { aliases: unknown[] }).aliases) {
+          if (!alias || typeof alias !== "object" || Array.isArray(alias)) {
+            continue;
+          }
+          const aliasRecord = alias as Record<string, unknown>;
+          if (typeof aliasRecord.alias !== "string") continue;
+          const normalized = normalizeCompanyName(aliasRecord.alias);
+          if (!normalized || aliasRecord.normalized === normalized) continue;
+          aliasRecord.normalized = normalized;
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        database
+          .prepare("UPDATE singleton_state SET value = ? WHERE key = ?")
+          .run(JSON.stringify(intelligence), "intelligence_state");
+      }
+    } catch {
+      // Leave unrelated malformed state untouched; schema loading will surface it.
     }
   }
 
@@ -677,6 +1093,27 @@ export function runMigrations(database: DatabaseSync): void {
     const needsProfileAchievementRepairMigration = !appliedVersions.has(8);
     const needsUserActionMigration = !appliedVersions.has(9);
     const needsCampaignMigration = !appliedVersions.has(10);
+    const singletonRevisionColumnMissing = !hasSingletonStateRevisionColumn();
+    const needsSingletonRevisionMigration = !appliedVersions.has(11);
+    const applicationLineageColumnsMissing = applicationLineageTables.some(
+      (tableName) => !hasColumn(tableName, "application_record_id"),
+    );
+    const applicationAttemptIndexColumnsMissing =
+      !hasColumn("application_attempts", "job_id") ||
+      !hasColumn("application_attempts", "updated_at");
+    const needsApplicationLineageMigration = !appliedVersions.has(12);
+    const applicationPreparationColumnsMissing =
+      !hasColumn("apply_job_results", "application_preparation_started_at") ||
+      !hasColumn(
+        "apply_job_results",
+        "application_preparation_started_local_date",
+      );
+    const applicationPreparationIndexMissing = !hasIndex(
+      "apply_job_results_preparation_local_date_run_job_idx",
+    );
+    const needsApplicationPreparationStartedMigration =
+      !appliedVersions.has(13);
+    const needsCompanyAliasNormalizationMigration = !appliedVersions.has(14);
 
     if (
       resumeImportTablesMissing ||
@@ -688,7 +1125,16 @@ export function runMigrations(database: DatabaseSync): void {
       needsProfileAchievementRepairMigration ||
       userActionTablesMissing ||
       needsUserActionMigration ||
-      needsCampaignMigration
+      needsCampaignMigration ||
+      singletonRevisionColumnMissing ||
+      needsSingletonRevisionMigration ||
+      applicationLineageColumnsMissing ||
+      applicationAttemptIndexColumnsMissing ||
+      needsApplicationLineageMigration ||
+      applicationPreparationColumnsMissing ||
+      applicationPreparationIndexMissing ||
+      needsApplicationPreparationStartedMigration ||
+      needsCompanyAliasNormalizationMigration
     ) {
       database.exec("BEGIN IMMEDIATE");
       try {
@@ -767,6 +1213,59 @@ export function runMigrations(database: DatabaseSync): void {
               "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
             )
             .run(10, "job_search_campaigns");
+        }
+
+        if (singletonRevisionColumnMissing || needsSingletonRevisionMigration) {
+          ensureSingletonStateRevisionColumn();
+        }
+
+        if (needsSingletonRevisionMigration) {
+          database
+            .prepare(
+              "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
+            )
+            .run(11, "singleton_state_revision");
+        }
+
+        if (
+          applicationLineageColumnsMissing ||
+          applicationAttemptIndexColumnsMissing ||
+          needsApplicationLineageMigration
+        ) {
+          applyApplicationLineageMigration();
+        }
+
+        if (needsApplicationLineageMigration) {
+          database
+            .prepare(
+              "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
+            )
+            .run(12, "exact_application_record_lineage");
+        }
+
+        if (
+          applicationPreparationColumnsMissing ||
+          applicationPreparationIndexMissing ||
+          needsApplicationPreparationStartedMigration
+        ) {
+          applyApplicationPreparationStartedMigration();
+        }
+
+        if (needsApplicationPreparationStartedMigration) {
+          database
+            .prepare(
+              "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
+            )
+            .run(13, "durable_application_preparation_started");
+        }
+
+        if (needsCompanyAliasNormalizationMigration) {
+          repairPersistedCompanyAliasNormalization();
+          database
+            .prepare(
+              "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
+            )
+            .run(14, "repair_company_alias_normalization");
         }
 
         database.exec("COMMIT");
@@ -970,6 +1469,34 @@ export function runMigrations(database: DatabaseSync): void {
       database
         .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
         .run(10, "job_search_campaigns");
+    }
+
+    if (currentVersion < 11) {
+      ensureSingletonStateRevisionColumn();
+      database
+        .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+        .run(11, "singleton_state_revision");
+    }
+
+    if (currentVersion < 12) {
+      applyApplicationLineageMigration();
+      database
+        .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+        .run(12, "exact_application_record_lineage");
+    }
+
+    if (currentVersion < 13) {
+      applyApplicationPreparationStartedMigration();
+      database
+        .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+        .run(13, "durable_application_preparation_started");
+    }
+
+    if (currentVersion < 14) {
+      repairPersistedCompanyAliasNormalization();
+      database
+        .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+        .run(14, "repair_company_alias_normalization");
     }
 
     database.exec("COMMIT");

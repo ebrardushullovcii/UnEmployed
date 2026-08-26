@@ -1,11 +1,391 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { SavedJobSchema } from "@unemployed/contracts";
+import {
+  SavedJobSchema,
+  type JobSearchCampaign,
+  type SaveJobSearchCampaignInput,
+} from "@unemployed/contracts";
+import type { JobFinderRepository } from "@unemployed/db";
 import { mergeSavedJobs } from "./internal/workspace-discovery-state-helpers";
+import { createJobFinderWorkspaceService } from "./index";
 import { createWorkspaceServiceHarness } from "./workspace-service.test-harness";
+import {
+  createAiClient,
+  createBrowserRuntime,
+  createDocumentManager,
+  createResearchAdapter,
+} from "./workspace-service.test-runtimes";
 import { createSeed } from "./workspace-service.test-fixtures";
 
+function campaignInput(
+  campaign: JobSearchCampaign,
+  overrides: Partial<SaveJobSearchCampaignInput> = {},
+): SaveJobSearchCampaignInput {
+  return {
+    id: campaign.id,
+    name: campaign.name,
+    description: campaign.description,
+    mode: campaign.mode,
+    status: campaign.status,
+    searchPreferences: campaign.searchPreferences,
+    sourceTargetIds: campaign.sourceTargetIds,
+    minimumFitScore: campaign.minimumFitScore,
+    limits: campaign.limits,
+    stopRules: campaign.stopRules,
+    applicationPolicy: campaign.applicationPolicy,
+    rules: campaign.rules,
+    schedule: campaign.schedule,
+    latestDigest: campaign.latestDigest,
+    ...overrides,
+  };
+}
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 describe("not-interested discovery feedback", () => {
+  it("atomically hides and excludes only the previewed exact company name", async () => {
+    const seed = createSeed();
+    seed.searchPreferences = {
+      ...seed.searchPreferences,
+      companyWhitelist: [],
+      excludedLocations: ["Antarctica"],
+    };
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed,
+    });
+    const job = seed.savedJobs.find(
+      (candidate) => candidate.id === "job_generating",
+    )!;
+    await workspaceService.getWorkspaceSnapshot();
+    const preview = await workspaceService.previewEmployerExclusion(job.id);
+    expect(preview).toMatchObject({
+      status: "available",
+      displayCompanyName: "Northwind Labs",
+      normalizedCompanyName: "northwind labs",
+    });
+    if (preview.status !== "available") throw new Error("Expected preview");
+
+    await workspaceService.dismissDiscoveryJob({
+      jobId: job.id,
+      reasons: ["company"],
+      action: "hide_and_exclude_employer",
+      expectedNormalizedCompanyName: preview.normalizedCompanyName,
+    });
+
+    expect(await repository.getSearchPreferences()).toMatchObject({
+      companyBlacklist: ["Northwind Labs"],
+      excludedLocations: ["Antarctica"],
+    });
+    expect(
+      (await repository.getCampaignState())?.campaigns[0]?.searchPreferences,
+    ).toMatchObject({ companyBlacklist: ["Northwind Labs"] });
+    expect(
+      (await repository.listSavedJobs()).find(
+        (candidate) => candidate.id === job.id,
+      ),
+    ).toMatchObject({
+      status: "archived",
+      discoveryFeedback: {
+        employerExclusion: {
+          displayCompanyName: "Northwind Labs",
+          normalizedCompanyName: "northwind labs",
+          addedByThisFeedback: true,
+          campaignId: "campaign_default",
+        },
+      },
+    });
+
+    await workspaceService.removeEmployerExclusion({
+      jobId: job.id,
+      normalizedCompanyName: "northwind labs",
+    });
+    expect((await repository.getSearchPreferences()).companyBlacklist).toEqual(
+      [],
+    );
+    expect(
+      (await repository.listSavedJobs()).find(
+        (candidate) => candidate.id === job.id,
+      ),
+    ).toMatchObject({
+      status: "archived",
+      discoveryFeedback: { employerExclusion: null },
+    });
+  });
+
+  it("binds exclusion reversal to its original campaign across a concurrent selection", async () => {
+    const seed = createSeed();
+    seed.searchPreferences = {
+      ...seed.searchPreferences,
+      companyWhitelist: [],
+    };
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed,
+    });
+    const initial = await workspaceService.getWorkspaceSnapshot();
+    const campaignA = initial.campaigns.find(
+      (campaign) => campaign.id === initial.activeCampaignId,
+    )!;
+    const created = await workspaceService.saveCampaign(
+      campaignInput(campaignA, {
+        id: null,
+        name: "Campaign B",
+        searchPreferences: {
+          ...campaignA.searchPreferences,
+          companyBlacklist: ["B-only Employer"],
+        },
+      }),
+    );
+    const campaignB = created.campaigns.find(
+      (campaign) => campaign.name === "Campaign B",
+    )!;
+    const originalCommit =
+      repository.commitCampaignPreferencesUpdate.bind(repository);
+    const entered = deferred();
+    const release = deferred();
+    let parkSelection = true;
+    repository.commitCampaignPreferencesUpdate = async <TResult>(
+      update: Parameters<
+        JobFinderRepository["commitCampaignPreferencesUpdate"]
+      >[0],
+    ): Promise<TResult> => {
+      if (parkSelection) {
+        parkSelection = false;
+        entered.resolve();
+        await release.promise;
+      }
+      return originalCommit(update) as Promise<TResult>;
+    };
+
+    const selection = workspaceService.selectCampaign(campaignB.id);
+    await entered.promise;
+    const job = seed.savedJobs.find(
+      (candidate) => candidate.id === "job_generating",
+    )!;
+    const dismissal = workspaceService.dismissDiscoveryJob({
+      jobId: job.id,
+      reasons: ["company"],
+      action: "hide_and_exclude_employer",
+      expectedNormalizedCompanyName: "northwind labs",
+    });
+    await vi.waitFor(async () => {
+      expect(
+        (await repository.listSavedJobs()).find((entry) => entry.id === job.id),
+      ).toMatchObject({ status: "archived" });
+    });
+    release.resolve();
+    await Promise.all([selection, dismissal]);
+
+    expect((await repository.getSearchPreferences()).companyBlacklist).toEqual([
+      "B-only Employer",
+    ]);
+    expect(
+      (await repository.getCampaignState())?.campaigns.find(
+        (campaign) => campaign.id === campaignA.id,
+      )?.searchPreferences.companyBlacklist,
+    ).toContain("Northwind Labs");
+
+    await workspaceService.removeEmployerExclusion({
+      jobId: job.id,
+      normalizedCompanyName: "northwind labs",
+    });
+    const afterReversal = await repository.getCampaignState();
+    expect(
+      afterReversal?.campaigns.find((campaign) => campaign.id === campaignA.id)
+        ?.searchPreferences.companyBlacklist,
+    ).not.toContain("Northwind Labs");
+    expect(
+      afterReversal?.campaigns.find((campaign) => campaign.id === campaignB.id)
+        ?.searchPreferences.companyBlacklist,
+    ).toEqual(["B-only Employer"]);
+    expect((await repository.getSearchPreferences()).companyBlacklist).toEqual([
+      "B-only Employer",
+    ]);
+
+    await workspaceService.selectCampaign(campaignA.id);
+    expect((await repository.getSearchPreferences()).companyBlacklist).toEqual(
+      [],
+    );
+  });
+
+  it("rejects a transaction-current active-campaign whitelist conflict without partial writes", async () => {
+    const seed = createSeed();
+    seed.searchPreferences = {
+      ...seed.searchPreferences,
+      companyWhitelist: [],
+    };
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed,
+    });
+    await workspaceService.getWorkspaceSnapshot();
+    const state = await repository.getCampaignState();
+    await repository.saveCampaignState({
+      ...state!,
+      campaigns: state!.campaigns.map((campaign) =>
+        campaign.id === state!.activeCampaignId
+          ? {
+              ...campaign,
+              searchPreferences: {
+                ...campaign.searchPreferences,
+                companyWhitelist: ["Northwind Labs"],
+              },
+            }
+          : campaign,
+      ),
+    });
+    const job = seed.savedJobs.find(
+      (candidate) => candidate.id === "job_generating",
+    )!;
+
+    await expect(
+      workspaceService.dismissDiscoveryJob({
+        jobId: job.id,
+        reasons: ["company"],
+        action: "hide_and_exclude_employer",
+        expectedNormalizedCompanyName: "northwind labs",
+      }),
+    ).rejects.toThrow("company_whitelisted");
+    expect((await repository.getSearchPreferences()).companyBlacklist).toEqual(
+      [],
+    );
+    expect(
+      (await repository.listSavedJobs()).find((entry) => entry.id === job.id),
+    ).toMatchObject({ status: job.status, discoveryFeedback: null });
+  });
+
+  it("conflicts instead of overwriting a newer re-dismiss while restore is waiting", async () => {
+    const seed = createSeed();
+    const original = seed.savedJobs[0]!;
+    seed.savedJobs[0] = SavedJobSchema.parse({
+      ...original,
+      status: "discovered",
+    });
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed,
+    });
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-08-23T12:00:00.000Z"));
+      await workspaceService.dismissDiscoveryJob({
+        jobId: original.id,
+        reasons: ["role"],
+      });
+      const originalCommit =
+        repository.commitDiscoveryFeedbackUpdate.bind(repository);
+      const entered = deferred();
+      const release = deferred();
+      let parkRestore = true;
+      repository.commitDiscoveryFeedbackUpdate = async <TResult>(
+        jobId: string,
+        update: Parameters<
+          JobFinderRepository["commitDiscoveryFeedbackUpdate"]
+        >[1],
+      ): Promise<TResult> => {
+        if (parkRestore) {
+          parkRestore = false;
+          entered.resolve();
+          await release.promise;
+        }
+        return originalCommit(jobId, update) as Promise<TResult>;
+      };
+
+      const restore = workspaceService.restoreDismissedDiscoveryJob(
+        original.id,
+      );
+      await entered.promise;
+      vi.setSystemTime(new Date("2026-08-23T12:00:01.000Z"));
+      await workspaceService.dismissDiscoveryJob({
+        jobId: original.id,
+        reasons: ["company"],
+      });
+      release.resolve();
+      await expect(restore).rejects.toThrow(
+        "changed while it was being restored",
+      );
+      expect(
+        (await repository.listSavedJobs()).find(
+          (entry) => entry.id === original.id,
+        ),
+      ).toMatchObject({
+        status: "archived",
+        discoveryFeedback: { revision: 2, reasons: ["company"] },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("leaves every state unchanged when the previewed company identity is stale", async () => {
+    const seed = createSeed();
+    seed.searchPreferences = {
+      ...seed.searchPreferences,
+      companyWhitelist: [],
+    };
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed,
+    });
+    const job = seed.savedJobs.find(
+      (candidate) => candidate.id === "job_generating",
+    )!;
+    const preview = await workspaceService.previewEmployerExclusion(job.id);
+    if (preview.status !== "available") throw new Error("Expected preview");
+    await repository.commitSavedJobDelta({
+      update: (current) =>
+        current.id === job.id
+          ? SavedJobSchema.parse({ ...current, company: "Changed Employer" })
+          : current,
+    });
+
+    await expect(
+      workspaceService.dismissDiscoveryJob({
+        jobId: job.id,
+        reasons: ["company"],
+        action: "hide_and_exclude_employer",
+        expectedNormalizedCompanyName: preview.normalizedCompanyName,
+      }),
+    ).rejects.toThrow("identity changed");
+    expect((await repository.getSearchPreferences()).companyBlacklist).toEqual(
+      [],
+    );
+    expect(
+      (await repository.listSavedJobs()).find(
+        (candidate) => candidate.id === job.id,
+      ),
+    ).toMatchObject({ company: "Changed Employer", status: job.status });
+  });
+
+  it("keeps Show again independent from a persisted employer exclusion", async () => {
+    const seed = createSeed();
+    seed.searchPreferences = {
+      ...seed.searchPreferences,
+      companyWhitelist: [],
+    };
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed,
+    });
+    const job = seed.savedJobs.find(
+      (candidate) => candidate.id === "job_generating",
+    )!;
+    const preview = await workspaceService.previewEmployerExclusion(job.id);
+    if (preview.status !== "available") throw new Error("Expected preview");
+    await workspaceService.dismissDiscoveryJob({
+      jobId: job.id,
+      reasons: ["company"],
+      action: "hide_and_exclude_employer",
+      expectedNormalizedCompanyName: preview.normalizedCompanyName,
+    });
+    await workspaceService.restoreDismissedDiscoveryJob(job.id);
+
+    expect((await repository.getSearchPreferences()).companyBlacklist).toEqual([
+      "Northwind Labs",
+    ]);
+  });
+
   it("persists local reasons, preserves scoring facts, and supports resettable undo", async () => {
     const seed = createSeed();
     const original = seed.savedJobs[0]!;
@@ -13,7 +393,9 @@ describe("not-interested discovery feedback", () => {
       ...original,
       status: "discovered",
     });
-    const { repository, workspaceService } = createWorkspaceServiceHarness({ seed });
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed,
+    });
 
     const hidden = await workspaceService.dismissDiscoveryJob({
       jobId: original.id,
@@ -23,7 +405,9 @@ describe("not-interested discovery feedback", () => {
       (job) => job.id === original.id,
     );
 
-    expect(hidden.discoveryJobs.some((job) => job.id === original.id)).toBe(false);
+    expect(hidden.discoveryJobs.some((job) => job.id === original.id)).toBe(
+      false,
+    );
     expect(hidden.dismissedDiscoveryJobs[0]).toMatchObject({
       id: original.id,
       status: "archived",
@@ -35,9 +419,134 @@ describe("not-interested discovery feedback", () => {
     });
     expect(persisted?.matchAssessment).toEqual(original.matchAssessment);
 
-    const restored = await workspaceService.restoreDismissedDiscoveryJob(original.id);
+    const restored = await workspaceService.restoreDismissedDiscoveryJob(
+      original.id,
+    );
     expect(restored.dismissedDiscoveryJobs).toHaveLength(0);
-    expect(restored.discoveryJobs.find((job) => job.id === original.id)).toMatchObject({
+    expect(
+      restored.discoveryJobs.find((job) => job.id === original.id),
+    ).toMatchObject({
+      status: "discovered",
+      discoveryFeedback: null,
+    });
+  });
+
+  it("returns a dismissed shortlisted job to the shortlist after a restart", async () => {
+    const seed = createSeed();
+    const original = seed.savedJobs[0]!;
+    seed.savedJobs[0] = SavedJobSchema.parse({
+      ...original,
+      status: "shortlisted",
+    });
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed,
+    });
+
+    const hidden = await workspaceService.dismissDiscoveryJob({
+      jobId: original.id,
+      reasons: ["role"],
+    });
+    expect(hidden.dismissedDiscoveryJobs[0]).toMatchObject({
+      status: "archived",
+      discoveryFeedback: {
+        version: 1,
+        revision: 1,
+        reasons: ["role"],
+        priorStatus: "shortlisted",
+      },
+    });
+    expect(
+      (await repository.listSavedJobs()).find((job) => job.id === original.id),
+    ).toMatchObject({
+      status: "archived",
+      discoveryFeedback: { priorStatus: "shortlisted" },
+    });
+
+    // A fresh service over the same repository simulates an app restart.
+    const restarted = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime: createBrowserRuntime(),
+      aiClient: createAiClient(),
+      documentManager: createDocumentManager(),
+      exportFileVerifier: { exists: () => Promise.resolve(true) },
+      researchAdapter: createResearchAdapter(),
+    });
+    const restored = await restarted.restoreDismissedDiscoveryJob(original.id);
+
+    expect(restored.dismissedDiscoveryJobs).toHaveLength(0);
+    expect(
+      restored.discoveryJobs.find((job) => job.id === original.id),
+    ).toMatchObject({
+      status: "shortlisted",
+      discoveryFeedback: null,
+    });
+    expect(
+      (await repository.listSavedJobs()).find((job) => job.id === original.id),
+    ).toMatchObject({ status: "shortlisted", discoveryFeedback: null });
+  });
+
+  it("keeps the original prior status when a hidden job is hidden again", async () => {
+    const seed = createSeed();
+    const original = seed.savedJobs[0]!;
+    seed.savedJobs[0] = SavedJobSchema.parse({
+      ...original,
+      status: "shortlisted",
+    });
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed,
+    });
+
+    await workspaceService.dismissDiscoveryJob({
+      jobId: original.id,
+      reasons: ["role"],
+    });
+    await workspaceService.dismissDiscoveryJob({
+      jobId: original.id,
+      reasons: ["company"],
+    });
+    expect(
+      (await repository.listSavedJobs()).find((job) => job.id === original.id),
+    ).toMatchObject({
+      status: "archived",
+      discoveryFeedback: {
+        revision: 2,
+        reasons: ["company"],
+        priorStatus: "shortlisted",
+      },
+    });
+
+    const restored = await workspaceService.restoreDismissedDiscoveryJob(
+      original.id,
+    );
+    expect(
+      restored.discoveryJobs.find((job) => job.id === original.id),
+    ).toMatchObject({
+      status: "shortlisted",
+      discoveryFeedback: null,
+    });
+  });
+
+  it("restores feedback persisted before prior status tracking as discovered", async () => {
+    const seed = createSeed();
+    const original = seed.savedJobs[0]!;
+    seed.savedJobs[0] = SavedJobSchema.parse({
+      ...original,
+      status: "archived",
+      discoveryFeedback: {
+        version: 1,
+        revision: 1,
+        reasons: ["role"],
+        recordedAt: "2026-07-31T12:00:00.000Z",
+      },
+    });
+    const { workspaceService } = createWorkspaceServiceHarness({ seed });
+
+    const restored = await workspaceService.restoreDismissedDiscoveryJob(
+      original.id,
+    );
+    expect(
+      restored.discoveryJobs.find((job) => job.id === original.id),
+    ).toMatchObject({
       status: "discovered",
       discoveryFeedback: null,
     });

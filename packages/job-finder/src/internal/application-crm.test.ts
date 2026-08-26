@@ -1,6 +1,12 @@
 import { describe, expect, test } from "vitest";
 import { ApplicationRecordSchema } from "@unemployed/contracts";
-import type { ApplicationRecord } from "@unemployed/contracts";
+import type {
+  ApplicationCrmAttachment,
+  ApplicationCrmInterview,
+  ApplicationCrmMutation,
+  ApplicationCrmReminder,
+  ApplicationRecord,
+} from "@unemployed/contracts";
 import type { ApplicationRecordBatchCommitResult } from "@unemployed/db";
 
 import {
@@ -15,7 +21,9 @@ import {
   mutateApplicationCrmBulkStage,
   projectApplicationCrmDashboard,
   recommendApplicationCrmAction,
+  resolveApplicationRecordForJob,
   runApplicationNoResponseAutomation,
+  withApplicationRecordTransition,
 } from "./application-crm";
 
 function record(overrides: Record<string, unknown> = {}) {
@@ -37,9 +45,9 @@ function repository(initial = [record()]) {
   return {
     listApplicationRecords: () => Promise.resolve(records),
     upsertApplicationRecord: (next: (typeof records)[number]) => {
-      records = records.map((current) =>
-        current.id === next.id ? next : current,
-      );
+      records = records.some((current) => current.id === next.id)
+        ? records.map((current) => (current.id === next.id ? next : current))
+        : [...records, next];
       return Promise.resolve();
     },
     commitApplicationRecordBatch: ({
@@ -68,22 +76,147 @@ function repository(initial = [record()]) {
           recordIds: staleRecordIds,
         });
       }
+      const committedRecords = next.map((proposed) =>
+        ApplicationRecordSchema.parse({
+          ...currentById.get(proposed.id)!,
+          crm: proposed.crm,
+        }),
+      );
       records = records.map(
         (current) =>
-          next.find((candidate) => candidate.id === current.id) ?? current,
+          committedRecords.find((candidate) => candidate.id === current.id) ??
+          current,
       );
       return Promise.resolve({
         status: "applied" as const,
-        committedRecordIds: expectedRevisions.map(
-          ({ applicationRecordId }) => applicationRecordId,
-        ),
+        committedRecords,
       });
     },
     read: () => records,
   };
 }
 
+function reminder(
+  overrides: Partial<ApplicationCrmReminder> = {},
+): ApplicationCrmReminder {
+  return {
+    id: "reminder_1",
+    title: "Follow up",
+    dueAt: "2026-08-20T09:00:00.000Z",
+    status: "pending",
+    note: null,
+    createdAt: "2026-08-15T10:00:00.000Z",
+    updatedAt: "2026-08-15T10:00:00.000Z",
+    completedAt: null,
+    ...overrides,
+  };
+}
+
+function interview(
+  overrides: Partial<ApplicationCrmInterview> = {},
+): ApplicationCrmInterview {
+  return {
+    id: "interview_1",
+    title: "Panel interview",
+    startsAt: "2026-08-21T15:00:00.000Z",
+    endsAt: null,
+    timeZone: null,
+    location: null,
+    meetingUrl: null,
+    contactIds: [],
+    status: "scheduled",
+    notes: null,
+    createdAt: "2026-08-15T10:00:00.000Z",
+    updatedAt: "2026-08-15T10:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function attachment(
+  overrides: Partial<ApplicationCrmAttachment> = {},
+): ApplicationCrmAttachment {
+  return {
+    id: "attachment_1",
+    candidateAssetId: "asset_1",
+    label: "Resume v2",
+    kind: "resume",
+    addedAt: "2026-08-15T10:00:00.000Z",
+    ...overrides,
+  };
+}
+
+let crmEventSequence = 0;
+
+async function mutateCrm(
+  repo: ReturnType<typeof repository>,
+  expectedRevision: number,
+  mutation: ApplicationCrmMutation,
+  validateCandidateAsset?: (candidateAssetId: string) => Promise<{
+    id: string;
+    originalName: string;
+    consentScope: string;
+    deletedAt: string | null;
+  } | null>,
+) {
+  return mutateApplicationCrm({
+    repository: repo,
+    command: {
+      applicationRecordId: "application_1",
+      expectedRevision,
+      mutation,
+    },
+    now: () => "2026-08-15T12:00:00.000Z",
+    createId: () => {
+      crmEventSequence += 1;
+      return `crm_event_${crmEventSequence}`;
+    },
+    ...(validateCandidateAsset ? { validateCandidateAsset } : {}),
+  });
+}
+
 describe("application CRM service", () => {
+  test("resolves exact application lineage without guessing among siblings", async () => {
+    const job = {
+      id: "job_shared",
+      title: "Engineer",
+      company: "Example",
+      status: "shortlisted" as const,
+    };
+    const emptyRepository = repository([]);
+    const created = await resolveApplicationRecordForJob({
+      repository: emptyRepository,
+      job,
+      now: "2026-08-01T10:00:00.000Z",
+    });
+    expect(created.id).toBe("application_job_shared");
+    expect(emptyRepository.read()).toEqual([created]);
+
+    const selectedRepository = repository([
+      record({ id: "application_a", jobId: job.id }),
+      record({ id: "application_b", jobId: job.id }),
+    ]);
+    await expect(
+      resolveApplicationRecordForJob({
+        repository: selectedRepository,
+        job,
+      }),
+    ).rejects.toThrow(/explicit application selection is required/iu);
+    await expect(
+      resolveApplicationRecordForJob({
+        repository: selectedRepository,
+        job,
+        applicationRecordId: "application_b",
+      }),
+    ).resolves.toMatchObject({ id: "application_b", jobId: job.id });
+    await expect(
+      resolveApplicationRecordForJob({
+        repository: selectedRepository,
+        job: { ...job, id: "job_other" },
+        applicationRecordId: "application_b",
+      }),
+    ).rejects.toThrow(/does not belong to job/iu);
+  });
+
   test("maps legacy records into truthful CRM stages", () => {
     expect(getApplicationCrmData(record()).stage).toBe("applied");
     expect(
@@ -162,6 +295,183 @@ describe("application CRM service", () => {
       "reviewing",
     ]);
     expect(repo.read().map((entry) => entry.crm?.revision)).toEqual([1, 1]);
+  });
+
+  test("bulk stage commit owns the CRM only and leaves top-level lifecycle fields untouched", async () => {
+    const first = record({
+      id: "application_1",
+      lastActionLabel: "Applied",
+      nextActionLabel: "Interview prep",
+      lastUpdatedAt: "2026-08-01T10:00:00.000Z",
+      crm: {
+        revision: 2,
+        stage: "applied",
+        stageChangedAt: "2026-08-01T10:00:00.000Z",
+        appliedAt: "2026-08-01T09:00:00.000Z",
+      },
+    });
+    const second = record({
+      id: "application_2",
+      jobId: "job_2",
+      title: "Backend Engineer",
+      lastActionLabel: "Prepared",
+      nextActionLabel: null,
+      lastUpdatedAt: "2026-08-02T10:00:00.000Z",
+      crm: {
+        revision: 3,
+        stage: "applied",
+        stageChangedAt: "2026-08-02T10:00:00.000Z",
+      },
+    });
+    const repo = repository([first, second]);
+
+    const updated = await mutateApplicationCrmBulkStage({
+      repository: repo,
+      command: {
+        items: [
+          { applicationRecordId: "application_1", expectedRevision: 2 },
+          { applicationRecordId: "application_2", expectedRevision: 3 },
+        ],
+        stage: "reviewing",
+        customStageId: null,
+        note: "Reviewed together.",
+      },
+      now: () => "2026-08-15T10:00:00.000Z",
+      createId: (() => {
+        let index = 0;
+        return () => `event_${++index}`;
+      })(),
+    });
+
+    // Top-level lifecycle fields are owned by lifecycle transitions, not the
+    // bulk CRM commit: they must survive the stage move byte-for-byte.
+    expect(updated[0]).toMatchObject({
+      status: "submitted",
+      lastActionLabel: "Applied",
+      nextActionLabel: "Interview prep",
+      lastUpdatedAt: "2026-08-01T10:00:00.000Z",
+    });
+    expect(updated[1]).toMatchObject({
+      status: "submitted",
+      lastActionLabel: "Prepared",
+      nextActionLabel: null,
+      lastUpdatedAt: "2026-08-02T10:00:00.000Z",
+    });
+
+    // The CRM payload is the bulk commit's owned surface: revision, stage,
+    // and stage-change timestamp all move together.
+    expect(updated[0]?.crm).toMatchObject({
+      revision: 3,
+      stage: "reviewing",
+      customStageId: null,
+      stageChangedAt: "2026-08-15T10:00:00.000Z",
+    });
+    expect(updated[1]?.crm).toMatchObject({
+      revision: 4,
+      stage: "reviewing",
+      customStageId: null,
+      stageChangedAt: "2026-08-15T10:00:00.000Z",
+    });
+
+    // The timeline event is the truthful stage-change evidence.
+    expect(updated[0]?.crm?.events).toEqual([
+      {
+        id: "event_1",
+        at: "2026-08-15T10:00:00.000Z",
+        kind: "stage_changed",
+        title: "Moved to reviewing",
+        detail: "Reviewed together.",
+        fromStage: "applied",
+        toStage: "reviewing",
+        source: "user",
+      },
+    ]);
+    expect(updated[1]?.crm?.events).toEqual([
+      {
+        id: "event_2",
+        at: "2026-08-15T10:00:00.000Z",
+        kind: "stage_changed",
+        title: "Moved to reviewing",
+        detail: "Reviewed together.",
+        fromStage: "applied",
+        toStage: "reviewing",
+        source: "user",
+      },
+    ]);
+    expect(repo.read().map((entry) => entry.lastActionLabel)).toEqual([
+      "Applied",
+      "Prepared",
+    ]);
+    expect(repo.read().map((entry) => entry.lastUpdatedAt)).toEqual([
+      "2026-08-01T10:00:00.000Z",
+      "2026-08-02T10:00:00.000Z",
+    ]);
+  });
+
+  test("returns transaction-merged bulk records without erasing concurrent application fields", async () => {
+    const repo = repository();
+    const commit = repo.commitApplicationRecordBatch;
+    repo.commitApplicationRecordBatch = async (input) => {
+      await repo.upsertApplicationRecord(
+        record({
+          lastActionLabel: "Application flow resumed",
+          nextActionLabel: "Answer employer question",
+          lastUpdatedAt: "2026-08-15T09:59:00.000Z",
+        }),
+      );
+      return commit(input);
+    };
+
+    const updated = await mutateApplicationCrmBulkStage({
+      repository: repo,
+      command: {
+        items: [{ applicationRecordId: "application_1", expectedRevision: 0 }],
+        stage: "reviewing",
+      },
+      now: () => "2026-08-15T10:00:00.000Z",
+      createId: () => "event_1",
+    });
+
+    expect(updated[0]).toMatchObject({
+      lastActionLabel: "Application flow resumed",
+      nextActionLabel: "Answer employer question",
+      lastUpdatedAt: "2026-08-15T09:59:00.000Z",
+      crm: { revision: 1, stage: "reviewing" },
+    });
+    expect(updated).toEqual(repo.read());
+  });
+
+  test("validates unchanged selected rows at commit time", async () => {
+    const repo = repository();
+    const commit = repo.commitApplicationRecordBatch;
+    repo.commitApplicationRecordBatch = async (input) => {
+      await repo.upsertApplicationRecord(
+        record({
+          crm: {
+            revision: 1,
+            stage: "recruiter_contact",
+            stageChangedAt: "2026-08-15T10:00:00.000Z",
+          },
+        }),
+      );
+      return commit(input);
+    };
+
+    await expect(
+      mutateApplicationCrmBulkStage({
+        repository: repo,
+        command: {
+          items: [
+            { applicationRecordId: "application_1", expectedRevision: 0 },
+          ],
+          stage: "applied",
+        },
+      }),
+    ).rejects.toMatchObject({
+      name: "ApplicationCrmBulkStageRevisionConflictError",
+      recordIds: ["application_1"],
+    });
+    expect(repo.read()[0]?.crm?.stage).toBe("recruiter_contact");
   });
 
   test("rejects missing and stale bulk records before any partial write", async () => {
@@ -379,10 +689,100 @@ describe("application CRM service", () => {
       exportedAt: "2026-08-15T10:00:00.000Z",
     });
 
-    const parsed = JSON.parse(json.content) as { applications: unknown[] };
+    const parsed = JSON.parse(json.content) as {
+      applications: Array<{
+        crm: {
+          appliedAtProvenance: string | null;
+          externalVerification: string;
+          stageProvenance: string;
+        };
+      }>;
+    };
     expect(parsed.applications).toHaveLength(1);
+    expect(parsed.applications[0]?.crm).toMatchObject({
+      appliedAtProvenance: "local_historical_inference",
+      externalVerification: "not_verified_with_employer_or_ats",
+      stageProvenance: "local_historical_inference",
+    });
     expect(csv.content).toContain('"Example, ""Labs"""');
+    expect(csv.content).toContain(
+      "Stage provenance,Tags,Applied at,Applied at provenance,External verification",
+    );
+    expect(csv.content).toContain(
+      "local_historical_inference,not_verified_with_employer_or_ats",
+    );
     expect(csv.exportedCount).toBe(1);
+  });
+
+  test("exports inferred rows as local historical inference while persisted CRM rows stay user recorded", () => {
+    const records = [
+      record({
+        id: "application_persisted",
+        jobId: "job_persisted",
+        crm: {
+          stage: "applied",
+          stageChangedAt: "2026-08-10T10:00:00.000Z",
+          appliedAt: "2026-08-10T09:30:00.000Z",
+        },
+      }),
+      record({ id: "application_inferred", jobId: "job_inferred" }),
+      record({
+        id: "application_inferred_unapplied",
+        jobId: "job_inferred_unapplied",
+        status: "shortlisted" as const,
+      }),
+    ];
+    const request = { format: "json" as const, applicationRecordIds: [] };
+    const parsed = JSON.parse(
+      exportApplicationCrm({ records, request }).content,
+    ) as {
+      applications: Array<{
+        id: string;
+        crm: {
+          stageProvenance: string;
+          appliedAtProvenance: string | null;
+          externalVerification: string;
+        };
+      }>;
+    };
+    const crmById = new Map(
+      parsed.applications.map((application) => [
+        application.id,
+        application.crm,
+      ]),
+    );
+    expect(crmById.get("application_persisted")).toMatchObject({
+      stageProvenance: "user_recorded_local",
+      appliedAtProvenance: "user_recorded_local",
+      externalVerification: "not_verified_with_employer_or_ats",
+    });
+    expect(crmById.get("application_inferred")).toMatchObject({
+      stageProvenance: "local_historical_inference",
+      appliedAtProvenance: "local_historical_inference",
+      externalVerification: "not_verified_with_employer_or_ats",
+    });
+    expect(crmById.get("application_inferred_unapplied")).toMatchObject({
+      stageProvenance: "local_historical_inference",
+      appliedAtProvenance: null,
+      externalVerification: "not_verified_with_employer_or_ats",
+    });
+
+    const csv = exportApplicationCrm({
+      records,
+      request: { format: "csv", applicationRecordIds: [] },
+    });
+    const [, ...lines] = csv.content.split("\r\n");
+    expect(lines).toHaveLength(3);
+    const csvRows = new Map(lines.map((line) => [line.split(",", 1)[0], line]));
+    expect(csvRows.get("application_persisted")).toBe(
+      "application_persisted,job_persisted,Software Engineer,Example Inc,applied,user_recorded_local,,2026-08-10T09:30:00.000Z,user_recorded_local,not_verified_with_employer_or_ats,,,2026-08-01T10:00:00.000Z",
+    );
+    expect(csvRows.get("application_inferred")).toBe(
+      "application_inferred,job_inferred,Software Engineer,Example Inc,applied,local_historical_inference,,2026-08-01T10:00:00.000Z,local_historical_inference,not_verified_with_employer_or_ats,,,2026-08-01T10:00:00.000Z",
+    );
+    expect(csvRows.get("application_inferred_unapplied")).toBe(
+      "application_inferred_unapplied,job_inferred_unapplied,Software Engineer,Example Inc,shortlisted,local_historical_inference,,,,not_verified_with_employer_or_ats,,,2026-08-01T10:00:00.000Z",
+    );
   });
 
   test("builds truthful dashboard metrics only after enough applied records exist", () => {
@@ -401,6 +801,7 @@ describe("application CRM service", () => {
       records,
       now: "2026-08-15T10:00:00.000Z",
     });
+    expect(projection.trackingProvenance).toBe("user_recorded_local");
     expect(projection.appliedToday).toBe(5);
     expect(projection.appliedThisWeek).toBe(5);
     expect(projection.responseRate).toBe(40);
@@ -517,5 +918,444 @@ describe("application CRM service", () => {
     expect("PRIORITY".toLocaleLowerCase("tr")).not.toBe("priority");
     expect(updated.crm?.tags).toEqual(["Priority"]);
     expect(updated.crm?.events.at(-1)?.detail).toBe("Priority");
+  });
+
+  test("upsert_reminder adds then updates reminders with truthful event titles and persisted identity", async () => {
+    const repo = repository();
+
+    const created = await mutateCrm(repo, 0, {
+      type: "upsert_reminder",
+      reminder: reminder(),
+    });
+
+    expect(created.crm?.revision).toBe(1);
+    expect(created.crm?.reminders).toHaveLength(1);
+    expect(created.crm?.reminders[0]).toMatchObject({
+      id: "reminder_1",
+      title: "Follow up",
+      dueAt: "2026-08-20T09:00:00.000Z",
+      status: "pending",
+      createdAt: "2026-08-15T10:00:00.000Z",
+      updatedAt: "2026-08-15T10:00:00.000Z",
+    });
+    expect(created.crm?.events.at(-1)).toMatchObject({
+      kind: "reminder_changed",
+      title: "Added reminder Follow up",
+      detail: "Due 2026-08-20T09:00:00.000Z",
+      source: "user",
+    });
+
+    const completed = await mutateCrm(repo, 1, {
+      type: "upsert_reminder",
+      reminder: reminder({
+        status: "completed",
+        completedAt: "2026-08-16T09:00:00.000Z",
+        updatedAt: "2026-08-16T09:00:00.000Z",
+      }),
+    });
+
+    expect(completed.crm?.revision).toBe(2);
+    expect(completed.crm?.reminders).toHaveLength(1);
+    expect(completed.crm?.reminders[0]).toMatchObject({
+      id: "reminder_1",
+      status: "completed",
+      completedAt: "2026-08-16T09:00:00.000Z",
+      createdAt: "2026-08-15T10:00:00.000Z",
+      updatedAt: "2026-08-16T09:00:00.000Z",
+    });
+    expect(completed.crm?.events.at(-1)).toMatchObject({
+      kind: "reminder_changed",
+      title: "Updated reminder Follow up",
+    });
+    expect(completed.lastUpdatedAt).toBe("2026-08-15T12:00:00.000Z");
+    expect(repo.read()[0]?.crm).toMatchObject({
+      revision: 2,
+      reminders: [
+        {
+          id: "reminder_1",
+          status: "completed",
+          createdAt: "2026-08-15T10:00:00.000Z",
+        },
+      ],
+    });
+  });
+
+  test("upsert_interview validates contacts, then schedules and updates interviews with persisted status", async () => {
+    const repo = repository([
+      record({
+        crm: {
+          revision: 1,
+          stage: "recruiter_contact",
+          stageChangedAt: "2026-08-10T10:00:00.000Z",
+          contacts: [
+            {
+              id: "contact_1",
+              name: "Recruiter Dana",
+              email: "dana@example.com",
+              createdAt: "2026-08-10T10:00:00.000Z",
+              updatedAt: "2026-08-10T10:00:00.000Z",
+            },
+          ],
+        },
+      }),
+    ]);
+
+    await expect(
+      mutateCrm(repo, 1, {
+        type: "upsert_interview",
+        interview: interview({ contactIds: ["contact_missing"] }),
+      }),
+    ).rejects.toThrow(/interview contact is no longer available/iu);
+    expect(repo.read()[0]?.crm).toMatchObject({ revision: 1, interviews: [] });
+
+    const scheduled = await mutateCrm(repo, 1, {
+      type: "upsert_interview",
+      interview: interview({ contactIds: ["contact_1"] }),
+    });
+
+    expect(scheduled.crm?.revision).toBe(2);
+    expect(scheduled.crm?.interviews[0]).toMatchObject({
+      id: "interview_1",
+      title: "Panel interview",
+      startsAt: "2026-08-21T15:00:00.000Z",
+      status: "scheduled",
+      contactIds: ["contact_1"],
+    });
+    expect(scheduled.crm?.events.at(-1)).toMatchObject({
+      kind: "interview_changed",
+      title: "Scheduled interview Panel interview",
+      detail: "Starts 2026-08-21T15:00:00.000Z",
+    });
+
+    const completed = await mutateCrm(repo, 2, {
+      type: "upsert_interview",
+      interview: interview({ contactIds: ["contact_1"], status: "completed" }),
+    });
+
+    expect(completed.crm?.revision).toBe(3);
+    expect(completed.crm?.interviews).toHaveLength(1);
+    expect(completed.crm?.interviews[0]).toMatchObject({
+      id: "interview_1",
+      status: "completed",
+      contactIds: ["contact_1"],
+    });
+    expect(completed.crm?.events.at(-1)).toMatchObject({
+      kind: "interview_changed",
+      title: "Updated interview Panel interview",
+    });
+    expect(repo.read()[0]?.crm?.interviews[0]).toMatchObject({
+      status: "completed",
+      contactIds: ["contact_1"],
+    });
+  });
+
+  test("remove_reminder deletes only the targeted reminder and persists the removal", async () => {
+    const repo = repository([
+      record({
+        crm: {
+          revision: 1,
+          stage: "applied",
+          stageChangedAt: "2026-08-10T10:00:00.000Z",
+          appliedAt: "2026-08-10T09:30:00.000Z",
+          reminders: [
+            reminder(),
+            reminder({
+              id: "reminder_2",
+              title: "Send thank you note",
+              dueAt: "2026-08-22T09:00:00.000Z",
+            }),
+          ],
+        },
+      }),
+    ]);
+
+    const updated = await mutateCrm(repo, 1, {
+      type: "remove_reminder",
+      reminderId: "reminder_1",
+    });
+
+    expect(updated.crm?.revision).toBe(2);
+    expect(updated.crm?.reminders.map((entry) => entry.id)).toEqual([
+      "reminder_2",
+    ]);
+    expect(updated.crm?.events.at(-1)).toMatchObject({
+      kind: "reminder_changed",
+      title: "Removed a reminder",
+      source: "user",
+    });
+    expect(repo.read()[0]?.crm?.reminders.map((entry) => entry.id)).toEqual([
+      "reminder_2",
+    ]);
+  });
+
+  test("remove_contact removes the contact and detaches it from every interview", async () => {
+    const repo = repository([
+      record({
+        crm: {
+          revision: 2,
+          stage: "interview",
+          stageChangedAt: "2026-08-10T10:00:00.000Z",
+          contacts: [
+            {
+              id: "contact_1",
+              name: "Recruiter Dana",
+              createdAt: "2026-08-10T10:00:00.000Z",
+              updatedAt: "2026-08-10T10:00:00.000Z",
+            },
+            {
+              id: "contact_2",
+              name: "Engineer Lee",
+              createdAt: "2026-08-10T10:00:00.000Z",
+              updatedAt: "2026-08-10T10:00:00.000Z",
+            },
+          ],
+          interviews: [interview({ contactIds: ["contact_2", "contact_1"] })],
+        },
+      }),
+    ]);
+
+    const updated = await mutateCrm(repo, 2, {
+      type: "remove_contact",
+      contactId: "contact_1",
+    });
+
+    expect(updated.crm?.revision).toBe(3);
+    expect(updated.crm?.contacts.map((contact) => contact.id)).toEqual([
+      "contact_2",
+    ]);
+    expect(updated.crm?.interviews).toHaveLength(1);
+    expect(updated.crm?.interviews[0]).toMatchObject({
+      id: "interview_1",
+      contactIds: ["contact_2"],
+    });
+    expect(updated.crm?.events.at(-1)).toMatchObject({
+      kind: "contact_changed",
+      title: "Removed a contact",
+    });
+    expect(repo.read()[0]?.crm).toMatchObject({
+      revision: 3,
+      contacts: [{ id: "contact_2" }],
+    });
+    expect(repo.read()[0]?.crm?.interviews[0]?.contactIds).toEqual([
+      "contact_2",
+    ]);
+  });
+
+  test("add_attachment refuses missing resolvers, deleted assets, and assets outside the attachment consent scope without writing", async () => {
+    const unresolvedRepo = repository();
+    await expect(
+      mutateCrm(unresolvedRepo, 0, {
+        type: "add_attachment",
+        attachment: attachment(),
+      }),
+    ).rejects.toThrow(/could not be verified/iu);
+
+    const rejectingRepo = repository();
+    const rejectsAddAttachment = (
+      asset: {
+        id: string;
+        originalName: string;
+        consentScope: string;
+        deletedAt: string | null;
+      } | null,
+    ) =>
+      expect(
+        mutateCrm(
+          rejectingRepo,
+          0,
+          { type: "add_attachment", attachment: attachment() },
+          () => Promise.resolve(asset),
+        ),
+      ).rejects.toThrow(/unavailable or is not approved/iu);
+
+    await rejectsAddAttachment(null);
+    await rejectsAddAttachment({
+      id: "asset_other",
+      originalName: "resume-final.pdf",
+      consentScope: "job_application_attachment",
+      deletedAt: null,
+    });
+    await rejectsAddAttachment({
+      id: "asset_1",
+      originalName: "resume-final.pdf",
+      consentScope: "job_application_attachment",
+      deletedAt: "2026-08-14T00:00:00.000Z",
+    });
+    await rejectsAddAttachment({
+      id: "asset_1",
+      originalName: "resume-final.pdf",
+      consentScope: "profile_only",
+      deletedAt: null,
+    });
+
+    expect(unresolvedRepo.read()[0]?.crm).toBeNull();
+    expect(rejectingRepo.read()[0]?.crm).toBeNull();
+  });
+
+  test("add_attachment links a verified candidate asset and remove_attachment unlinks it", async () => {
+    const repo = repository();
+    const resolvedCandidateAssetIds: string[] = [];
+
+    const added = await mutateCrm(
+      repo,
+      0,
+      { type: "add_attachment", attachment: attachment() },
+      (candidateAssetId) => {
+        resolvedCandidateAssetIds.push(candidateAssetId);
+        return Promise.resolve({
+          id: candidateAssetId,
+          originalName: "resume-final.pdf",
+          consentScope: "job_application_attachment",
+          deletedAt: null,
+        });
+      },
+    );
+
+    expect(resolvedCandidateAssetIds).toEqual(["asset_1"]);
+    expect(added.crm?.revision).toBe(1);
+    expect(added.crm?.attachments).toEqual([
+      {
+        id: "attachment_1",
+        candidateAssetId: "asset_1",
+        label: "Resume v2",
+        kind: "resume",
+        addedAt: "2026-08-15T10:00:00.000Z",
+      },
+    ]);
+    expect(added.crm?.events.at(-1)).toMatchObject({
+      kind: "attachment_changed",
+      title: "Linked Resume v2",
+      detail: null,
+      source: "user",
+    });
+
+    const removed = await mutateCrm(repo, 1, {
+      type: "remove_attachment",
+      attachmentId: "attachment_1",
+    });
+
+    expect(removed.crm?.revision).toBe(2);
+    expect(removed.crm?.attachments).toEqual([]);
+    expect(removed.crm?.events.at(-1)).toMatchObject({
+      kind: "attachment_changed",
+      title: "Unlinked an attachment",
+    });
+    expect(repo.read()[0]?.crm).toMatchObject({ revision: 2 });
+    expect(repo.read()[0]?.crm?.attachments).toEqual([]);
+  });
+
+  test("serializes overlapping per-job record transitions and keeps other jobs live", async () => {
+    const repo = repository();
+    const activeJobIds = new Set<string>();
+    const overlappedJobIds = new Set<string>();
+    const order: string[] = [];
+
+    const runOne = withApplicationRecordTransition(repo, "job_1", async () => {
+      if (activeJobIds.has("job_1")) overlappedJobIds.add("job_1");
+      activeJobIds.add("job_1");
+      order.push("one:start");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      order.push("one:end");
+      activeJobIds.delete("job_1");
+    });
+    const runTwo = withApplicationRecordTransition(repo, "job_2", () =>
+      Promise.resolve(order.push("two:parallel")),
+    );
+    const runThree = withApplicationRecordTransition(repo, "job_1", () => {
+      if (activeJobIds.has("job_1")) overlappedJobIds.add("job_1");
+      activeJobIds.add("job_1");
+      order.push("three:start");
+      activeJobIds.delete("job_1");
+      return Promise.resolve();
+    });
+
+    await Promise.all([runOne, runTwo, runThree]);
+
+    expect(order).toEqual([
+      "one:start",
+      "two:parallel",
+      "one:end",
+      "three:start",
+    ]);
+    expect(overlappedJobIds).toEqual(new Set());
+  });
+
+  test("concurrent stage mutation and no-response automation keep CRM revisions continuous", async () => {
+    const repo = repository([
+      record({
+        crm: {
+          revision: 0,
+          stage: "applied",
+          stageChangedAt: "2026-08-01T10:00:00.000Z",
+          appliedAt: "2026-07-01T10:00:00.000Z",
+        },
+      }),
+    ]);
+    let releaseHeldTransition!: () => void;
+    const heldTransition = new Promise<void>((resolve) => {
+      releaseHeldTransition = resolve;
+    });
+
+    const hold = withApplicationRecordTransition(
+      repo,
+      "job_1",
+      () => heldTransition,
+    );
+    const automationPromise = runApplicationNoResponseAutomation({
+      repository: repo,
+      settings: {
+        noResponseAutomation: { enabled: true, afterDays: 7 },
+        customStages: [],
+      },
+      now: () => "2026-08-15T10:00:00.000Z",
+      createId: () => "event_automation",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    releaseHeldTransition();
+    const [automation] = await Promise.all([automationPromise, hold]);
+
+    expect(automation).toHaveLength(1);
+    expect(repo.read()[0]?.crm).toMatchObject({
+      revision: 1,
+      stage: "no_response",
+    });
+
+    // A second automation pass re-reads fresh state and must not repeat or
+    // double-bump the revision, and a later user mutation stays continuous.
+    const repeat = await runApplicationNoResponseAutomation({
+      repository: repo,
+      settings: {
+        noResponseAutomation: { enabled: true, afterDays: 7 },
+        customStages: [],
+      },
+      now: () => "2026-08-15T11:00:00.000Z",
+      createId: () => "event_repeat",
+    });
+    expect(repeat).toEqual([]);
+
+    await mutateApplicationCrm({
+      repository: repo,
+      command: {
+        applicationRecordId: "application_1",
+        expectedRevision: 1,
+        mutation: {
+          type: "set_stage",
+          stage: "recruiter_contact",
+          customStageId: null,
+          note: null,
+        },
+      },
+      now: () => "2026-08-15T12:00:00.000Z",
+      createId: () => "event_mutation",
+    });
+
+    expect(repo.read()[0]?.crm).toMatchObject({
+      revision: 2,
+      stage: "recruiter_contact",
+    });
+    expect(repo.read()[0]?.crm?.events.map((event) => event.id)).toEqual([
+      "event_automation",
+      "event_mutation",
+    ]);
   });
 });

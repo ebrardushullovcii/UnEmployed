@@ -1201,15 +1201,45 @@ export function createDeterministicInterviewCueCardProvider(
   };
 }
 
+// Desktop test API runs must never reach live Interview Helper providers
+// through ambient credentials. Live AI during a test-API run requires this
+// explicit, narrowly named opt-in; production runs with the test API absent
+// keep configured behavior unchanged. Capture and acceptance harnesses pin the
+// same literal, so keep the three copies in sync
+// (apps/desktop/scripts/capture-interview-helper.mjs and
+// apps/desktop/scripts/release-acceptance-harness.mjs).
+export const DESKTOP_TEST_API_ENV = "UNEMPLOYED_ENABLE_TEST_API";
+export const INTERVIEW_HELPER_TEST_LIVE_AI_OPT_IN_ENV =
+  "UNEMPLOYED_INTERVIEW_TEST_USE_LIVE_AI";
+
+const TEST_API_FORCE_DETERMINISTIC_REASON =
+  "Desktop test API forces deterministic Interview Helper AI providers so scripted UI flows stay stable even when interview or shared credentials exist.";
+
+function isExplicitlyEnabledEnvFlag(value: string | undefined): boolean {
+  return value === "1" || value === "true";
+}
+
 export function createInterviewHelperProvidersFromEnvironment(
   env: Partial<Record<string, string | undefined>> = process.env,
 ): InterviewHelperProviderBundle {
-  const apiKey =
-    env.UNEMPLOYED_INTERVIEW_AI_API_KEY ?? env.UNEMPLOYED_AI_API_KEY;
-  const visionApiKey =
-    env.UNEMPLOYED_INTERVIEW_VISION_API_KEY ??
-    env.UNEMPLOYED_AI_VISION_API_KEY ??
-    apiKey;
+  const desktopTestApiEnabled = isExplicitlyEnabledEnvFlag(
+    env[DESKTOP_TEST_API_ENV],
+  );
+  const testApiLiveAiOptIn = isExplicitlyEnabledEnvFlag(
+    env[INTERVIEW_HELPER_TEST_LIVE_AI_OPT_IN_ENV],
+  );
+  const liveAiAllowed = !desktopTestApiEnabled || testApiLiveAiOptIn;
+  const deterministicReason = liveAiAllowed
+    ? undefined
+    : TEST_API_FORCE_DETERMINISTIC_REASON;
+  const apiKey = liveAiAllowed
+    ? (env.UNEMPLOYED_INTERVIEW_AI_API_KEY ?? env.UNEMPLOYED_AI_API_KEY)
+    : undefined;
+  const visionApiKey = liveAiAllowed
+    ? (env.UNEMPLOYED_INTERVIEW_VISION_API_KEY ??
+      env.UNEMPLOYED_AI_VISION_API_KEY ??
+      apiKey)
+    : undefined;
   const requestTimeoutMs = parseConfiguredTimeoutMs(
     env.UNEMPLOYED_INTERVIEW_AI_TIMEOUT_MS ?? env.UNEMPLOYED_AI_TIMEOUT_MS,
   );
@@ -1240,7 +1270,7 @@ export function createInterviewHelperProvidersFromEnvironment(
         label: "AI interview screenshot vision provider",
         requestTimeoutMs,
       })
-    : createDeterministicInterviewScreenshotVisionProvider();
+    : createDeterministicInterviewScreenshotVisionProvider(deterministicReason);
   const deterministicTranscriptionProvider =
     createDeterministicInterviewTranscriptionProvider();
   const summaryProvider = createDeterministicInterviewSummaryProvider();
@@ -1261,7 +1291,9 @@ export function createInterviewHelperProvidersFromEnvironment(
 
   if (!apiKey) {
     return {
-      cueCardProvider: createDeterministicInterviewCueCardProvider(),
+      cueCardProvider: createDeterministicInterviewCueCardProvider(
+        deterministicReason,
+      ),
       screenshotVisionProvider,
       transcriptionProvider:
         localTranscriptionProvider ?? deterministicTranscriptionProvider,

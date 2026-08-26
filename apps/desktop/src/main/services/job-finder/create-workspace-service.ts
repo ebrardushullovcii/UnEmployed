@@ -7,6 +7,9 @@ import {
   createDeterministicResumeVisionProvider,
   createResumeVisionProviderFromEnvironment,
 } from "@unemployed/ai-providers";
+import { randomUUID } from "node:crypto";
+import { readFile, rename, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
 import {
   createBrowserAgentRuntime,
   createCatalogBrowserSessionRuntime,
@@ -16,17 +19,26 @@ import type {
   OpenBrowserSessionOptions,
 } from "@unemployed/browser-runtime";
 import type { BrowserSessionState } from "@unemployed/contracts";
-import { createFileJobFinderRepository } from "@unemployed/db";
+import { JobFinderStartupDatabaseRecoveryFactSchema } from "@unemployed/contracts";
+import {
+  createFileJobFinderRepository,
+  WorkspaceDatabaseRecoveryRequiredError,
+  type JobFinderRepository,
+  type WorkspaceDatabaseRecoveryRequiredDetails,
+  type WorkspaceDatabaseRestoreTelemetryEvent,
+} from "@unemployed/db";
 import { createJobFinderWorkspaceService } from "@unemployed/job-finder";
 import { createLocalJobFinderDocumentManager } from "../../adapters/job-finder-document-manager";
 import { createLocalResumeExportFileVerifier } from "../../adapters/job-finder-export-file-verifier";
 import { createEmptyJobFinderRepositoryState } from "../../adapters/job-finder-initial-state";
 import { createDesktopResumeResearchAdapter } from "../../adapters/job-finder-research-adapter";
+import { adoptPristineWorkspaceStarterSources } from "./pristine-starter-source-adoption";
 import {
   ensureJobFinderUserDataDirectory,
   getBrowserAgentProfileDirectory,
   getJobFinderDocumentsDirectory,
   getGeneratedResumeDocumentsDirectory,
+  getJobFinderUserDataDirectory,
   getJobFinderWorkspaceFilePath,
 } from "./paths";
 import {
@@ -40,8 +52,207 @@ import {
   isEnabled,
 } from "./test-api";
 import { migrateLegacyResumeSource } from "./migrate-resume-source";
+import { recoverPendingJobFinderWorkspaceReset } from "./reset-workspace";
 import { getCandidateAssetLibrary } from "./candidate-asset-library-instance";
+import type {
+  JobFinderStartupDatabaseRecoveryBlockedFact,
+  JobFinderStartupDatabaseRecoveryFact,
+  JobFinderStartupDatabaseRecoveryRestoredFact,
+} from "../../../shared/job-finder-startup-db-recovery";
 const deterministicTestTimestamp = "2026-03-20T10:00:00.000Z";
+
+/**
+ * Database-only recovery snapshots written next to the live workspace
+ * database. Graceful shutdown rotates `<workspace>.backup` (prior generation
+ * preserved as `.backup.prev`); destructive resets snapshot into the
+ * dedicated `<workspace>.reset-backup`, which close rotation can never
+ * overwrite with post-reset state.
+ *
+ * Scope limitation: these snapshots recover the SQLite database only. They
+ * do NOT include generated resume documents, candidate assets, application
+ * documents, or browser profile data, so a full-workspace restore after a
+ * destructive reset is not possible from them alone. Snapshot failures are
+ * non-fatal and never block shutdown or reset.
+ */
+export const DESKTOP_AUTOMATIC_DATABASE_BACKUP_OPTIONS = {
+  onClose: true,
+  beforeReset: true,
+} as const;
+
+const STARTUP_DATABASE_RECOVERY_FACT_VERSION = 1;
+const STARTUP_DATABASE_RECOVERY_FACT_FILE_NAME =
+  "job-finder-startup-db-recovery.json";
+
+/**
+ * Session-scoped disclosure of startup database recovery outcomes. Restored
+ * incidents are mirrored into a small app-owned JSON file next to (never
+ * inside) the recovered database so the notice survives renderer and app
+ * restarts until it is explicitly dismissed. Blocked incidents stay in
+ * memory only: they are re-derived on every launch while the retained
+ * artifacts still prevent the database from opening.
+ */
+let startupDatabaseRecoveryFact: JobFinderStartupDatabaseRecoveryFact = {
+  status: "idle",
+};
+let startupDatabaseRecoveryFactHydrated = false;
+
+function getStartupDatabaseRecoveryFactFilePath(): string {
+  return path.join(
+    getJobFinderUserDataDirectory(),
+    STARTUP_DATABASE_RECOVERY_FACT_FILE_NAME,
+  );
+}
+
+function readPersistedStartupDatabaseRecoveryFact(
+  fileContent: string,
+): JobFinderStartupDatabaseRecoveryFact | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(fileContent);
+  } catch {
+    return null;
+  }
+
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    (parsed as { version?: unknown }).version !==
+      STARTUP_DATABASE_RECOVERY_FACT_VERSION
+  ) {
+    return null;
+  }
+
+  const fact = (parsed as { fact?: unknown }).fact;
+  const parsedFact = JobFinderStartupDatabaseRecoveryFactSchema.safeParse(fact);
+  return parsedFact.success ? parsedFact.data : null;
+}
+
+async function persistStartupDatabaseRecoveryFact(
+  fact: JobFinderStartupDatabaseRecoveryRestoredFact,
+): Promise<void> {
+  const factPath = getStartupDatabaseRecoveryFactFilePath();
+  const temporaryFactPath = `${factPath}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(
+      temporaryFactPath,
+      `${JSON.stringify({
+        version: STARTUP_DATABASE_RECOVERY_FACT_VERSION,
+        fact,
+      })}\n`,
+      "utf8",
+    );
+    await rename(temporaryFactPath, factPath);
+  } catch (error) {
+    await rm(temporaryFactPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
+function recordRestoredStartupDatabaseRecoveryEvent(
+  event: WorkspaceDatabaseRestoreTelemetryEvent,
+): void {
+  const fact: JobFinderStartupDatabaseRecoveryRestoredFact = {
+    status: "restored",
+    incidentId: event.incidentId,
+    restoredFrom: event.restoredFrom,
+    lossWindow: {
+      detectedAtIso: event.lossWindow.detectedAtIso,
+      quarantinedDatabaseModifiedAtIso:
+        event.lossWindow.quarantinedDatabaseModifiedAtIso,
+      restoredSnapshotModifiedAtIso:
+        event.lossWindow.restoredSnapshotModifiedAtIso,
+    },
+    quarantinedArtifactBasenames: [...event.quarantinedArtifactBasenames],
+    restoredAtIso: new Date().toISOString(),
+    dismissedAtIso: null,
+  };
+  startupDatabaseRecoveryFact = fact;
+  startupDatabaseRecoveryFactHydrated = true;
+
+  void persistStartupDatabaseRecoveryFact(fact).catch((error) => {
+    console.warn(
+      "[Desktop] The successful workspace database restore notice could not be persisted; it may not appear after the next app start.",
+      error,
+    );
+  });
+}
+
+function recordBlockedStartupDatabaseRecoveryIncident(
+  details: WorkspaceDatabaseRecoveryRequiredDetails,
+): void {
+  const blockedFact: JobFinderStartupDatabaseRecoveryBlockedFact = {
+    status: "blocked",
+    incidentId: details.incidentId,
+    outcome: details.outcome,
+    candidates: details.candidates.map((candidate) =>
+      candidate.status === "invalid"
+        ? {
+            kind: candidate.kind,
+            status: candidate.status,
+            failedStage: candidate.failedStage,
+          }
+        : { kind: candidate.kind, status: candidate.status, failedStage: null },
+    ),
+    quarantineBasenames: [...details.quarantineBasenames],
+  };
+  startupDatabaseRecoveryFact = blockedFact;
+  startupDatabaseRecoveryFactHydrated = true;
+}
+
+function clearBlockedStartupDatabaseRecoveryIncident(): void {
+  if (startupDatabaseRecoveryFact.status === "blocked") {
+    startupDatabaseRecoveryFact = { status: "idle" };
+  }
+}
+
+export async function getJobFinderStartupDatabaseRecoveryFact(): Promise<JobFinderStartupDatabaseRecoveryFact> {
+  if (startupDatabaseRecoveryFact.status !== "idle") {
+    return startupDatabaseRecoveryFact;
+  }
+
+  if (!startupDatabaseRecoveryFactHydrated) {
+    startupDatabaseRecoveryFactHydrated = true;
+    try {
+      const persistedFact = readPersistedStartupDatabaseRecoveryFact(
+        await readFile(getStartupDatabaseRecoveryFactFilePath(), "utf8"),
+      );
+      if (persistedFact && persistedFact.status !== "idle") {
+        startupDatabaseRecoveryFact = persistedFact;
+      }
+    } catch {
+      // A missing or unreadable disclosure file leaves the fact idle.
+    }
+  }
+
+  return startupDatabaseRecoveryFact;
+}
+
+export async function dismissJobFinderStartupDatabaseRecoveryNotice(): Promise<JobFinderStartupDatabaseRecoveryFact> {
+  const currentFact = await getJobFinderStartupDatabaseRecoveryFact();
+  if (
+    currentFact.status !== "restored" ||
+    currentFact.dismissedAtIso !== null
+  ) {
+    return currentFact;
+  }
+
+  const dismissedFact: JobFinderStartupDatabaseRecoveryRestoredFact = {
+    ...currentFact,
+    dismissedAtIso: new Date().toISOString(),
+  };
+  startupDatabaseRecoveryFact = dismissedFact;
+
+  try {
+    await persistStartupDatabaseRecoveryFact(dismissedFact);
+  } catch (error) {
+    console.warn(
+      "[Desktop] The dismissed workspace database restore notice could not be persisted; it may reappear after the next app start.",
+      error,
+    );
+  }
+
+  return dismissedFact;
+}
 
 function buildCatalogSessionLabel(
   status: BrowserSessionState["status"],
@@ -257,10 +468,24 @@ export async function createJobFinderWorkspaceServiceAsync(
   };
   const desktopTestApiEnabled = isDesktopTestApiEnabled(env);
   await ensureJobFinderUserDataDirectory();
-  const jobFinderRepository = await createFileJobFinderRepository({
-    filePath: getJobFinderWorkspaceFilePath(),
-    seed: createEmptyJobFinderRepositoryState(),
-  });
+  let jobFinderRepository: JobFinderRepository;
+  try {
+    jobFinderRepository = await createFileJobFinderRepository({
+      filePath: getJobFinderWorkspaceFilePath(),
+      seed: createEmptyJobFinderRepositoryState(),
+      automaticBackup: DESKTOP_AUTOMATIC_DATABASE_BACKUP_OPTIONS,
+      recoveryTelemetry: {
+        onRestored: recordRestoredStartupDatabaseRecoveryEvent,
+      },
+    });
+  } catch (error) {
+    if (error instanceof WorkspaceDatabaseRecoveryRequiredError) {
+      recordBlockedStartupDatabaseRecoveryIncident(error.details);
+    }
+    throw error;
+  }
+  clearBlockedStartupDatabaseRecoveryIncident();
+  await recoverPendingJobFinderWorkspaceReset(jobFinderRepository);
   await migrateLegacyResumeSource({
     documentsDirectory: getJobFinderDocumentsDirectory(),
     repository: jobFinderRepository,
@@ -283,7 +508,7 @@ export async function createJobFinderWorkspaceServiceAsync(
     ? undefined
     : createDesktopResumeResearchAdapter();
 
-  return createJobFinderWorkspaceService({
+  const workspaceService = createJobFinderWorkspaceService({
     aiClient,
     visionProvider,
     documentManager,
@@ -293,4 +518,24 @@ export async function createJobFinderWorkspaceServiceAsync(
     candidateAssetResolver: getCandidateAssetLibrary(),
     ...(researchAdapter ? { researchAdapter } : {}),
   });
+
+  // One-time lossless adoption for legacy pristine targetless workspaces.
+  // Runs through the canonical save path; a failure must never block startup,
+  // so it degrades to skipping adoption (the workspace stays as persisted).
+  try {
+    await adoptPristineWorkspaceStarterSources({
+      getCampaignState: () => jobFinderRepository.getCampaignState(),
+      getProfileSetupState: () => jobFinderRepository.getProfileSetupState(),
+      getSearchPreferences: () => jobFinderRepository.getSearchPreferences(),
+      saveSearchPreferences: (next) =>
+        workspaceService.saveSearchPreferences(next),
+    });
+  } catch (error) {
+    console.warn(
+      "Skipping pristine starter source adoption after an error:",
+      error,
+    );
+  }
+
+  return workspaceService;
 }

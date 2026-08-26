@@ -444,6 +444,8 @@ export function createSeed(): JobFinderRepositorySeed {
         previewSections: [],
         generationMethod: "deterministic",
         notes: [],
+        failureMessage: null,
+        failedAt: null,
       },
       {
         id: "asset_generating",
@@ -461,6 +463,8 @@ export function createSeed(): JobFinderRepositorySeed {
         previewSections: [],
         generationMethod: "deterministic",
         notes: [],
+        failureMessage: null,
+        failedAt: null,
       },
     ],
     resumeDrafts: [],

@@ -341,7 +341,204 @@ describe("ProfileCopilotTranscript", () => {
     );
     expect(container?.textContent).toContain("Apply changes");
   });
+
+  test("does not claim applied after revision undo — transcript shows undone status", () => {
+    renderTranscript({
+      messages: [
+        {
+          id: "assistant_message_applied",
+          role: "assistant",
+          content: "I prepared this change for your review. Nothing changed yet.",
+          context: { surface: "profile", section: "basics" },
+          patchGroups: [
+            {
+              id: "patch_group_applied",
+              summary: "Update headline",
+              applyMode: "applied",
+              operations: [
+                {
+                  operation: "replace_identity_fields",
+                  value: { headline: "Senior Product Engineer" },
+                },
+              ],
+              createdAt: "2026-04-15T16:00:00.000Z",
+            },
+          ],
+          createdAt: "2026-04-15T16:00:00.000Z",
+        },
+      ],
+      revisions: [
+        {
+          id: "profile_revision_applied",
+          createdAt: "2026-04-15T16:00:10.000Z",
+          reason: "Assistant patch: Update headline",
+          trigger: "assistant_patch",
+          messageId: "assistant_message_applied",
+          patchGroupId: "patch_group_applied",
+          restoredFromRevisionId: null,
+        },
+        {
+          id: "profile_revision_undo",
+          createdAt: "2026-04-15T16:01:00.000Z",
+          reason: "Undo: Assistant patch: Update headline",
+          trigger: "undo",
+          messageId: null,
+          patchGroupId: null,
+          restoredFromRevisionId: "profile_revision_applied",
+        },
+      ] as never,
+    })
+
+    expect(container?.textContent).not.toContain("This change is applied")
+    expect(container?.textContent).not.toContain("These changes are applied")
+    expect(container?.textContent).toContain("undone")
+    expect(container?.textContent).toContain("no longer applied")
+  });
 });
+
+describe("describePatchOperation compensation clear truth", () => {
+  test.each([
+    {
+      name: "clear minimum only",
+      value: { minimum: null, interval: "year", currency: "USD", currencyStatus: "explicit" as const },
+      expected: "Clear compensation minimum",
+      notExpected: "Set compensation to range",
+    },
+    {
+      name: "clear maximum only",
+      value: { maximum: null, interval: "year", currency: "USD", currencyStatus: "explicit" as const },
+      expected: "Clear compensation maximum",
+      notExpected: "Set compensation to range",
+    },
+    {
+      name: "clear range (both bounds)",
+      value: { minimum: null, maximum: null, interval: "year", currency: "USD", currencyStatus: "explicit" as const },
+      expected: "Clear compensation range",
+      notExpected: "Set compensation to range",
+    },
+    {
+      name: "clear minimum with maximum set",
+      value: { minimum: null, maximum: 4000, interval: "month", currency: null, currencyStatus: "needs_clarification" as const },
+      expected: "Clear compensation minimum",
+      notExpected: "Set compensation to range",
+    },
+  ])("renders explicit clear wording for $name", async ({ value, expected, notExpected }) => {
+    const { describePatchOperation } = await import("./profile-copilot-rail.shared")
+    const operation = {
+      operation: "replace_compensation_preferences_fields" as const,
+      value,
+    }
+    const description = describePatchOperation(operation as never)
+    expect(description).toContain(expected)
+    expect(description).not.toContain(notExpected)
+    expect(description).toContain("Clear")
+  })
+
+  test("still renders range correctly for non-clear values", async () => {
+    const { describePatchOperation } = await import("./profile-copilot-rail.shared")
+    const description = describePatchOperation({
+      operation: "replace_compensation_preferences_fields",
+      value: { minimum: 3000, maximum: 4000, interval: "month", currency: null, currencyStatus: "needs_clarification" },
+    } as never)
+    expect(description).toContain("Set compensation to 3,000–4,000")
+  })
+})
+
+describe("getProfileCopilotDisplayContent undone truth", () => {
+  test("does not claim applied after revision undo — shows undone status", async () => {
+    const { getProfileCopilotDisplayContent } = await import("./profile-copilot-rail.shared")
+    const message = {
+      id: "assistant_message_applied",
+      role: "assistant" as const,
+      content: "I prepared this change for your review. Nothing changed yet.",
+      context: { surface: "profile" as const, section: "basics" as const },
+      patchGroups: [
+        {
+          id: "patch_group_applied",
+          summary: "Update headline",
+          applyMode: "applied" as const,
+          operations: [{ operation: "replace_identity_fields" as const, value: { headline: "Senior Product Engineer" } }],
+          createdAt: "2026-04-15T16:00:00.000Z",
+        },
+      ],
+      createdAt: "2026-04-15T16:00:00.000Z",
+    }
+    const revisions: Array<{
+      id: string
+      createdAt: string
+      reason: string | null
+      trigger: "assistant_patch" | "undo"
+      messageId: string | null
+      patchGroupId: string | null
+      restoredFromRevisionId: string | null
+    }> = [
+      {
+        id: "profile_revision_applied",
+        createdAt: "2026-04-15T16:00:10.000Z",
+        reason: "Assistant patch: Update headline",
+        trigger: "assistant_patch",
+        messageId: message.id,
+        patchGroupId: "patch_group_applied",
+        restoredFromRevisionId: null,
+      },
+      {
+        id: "profile_revision_undo",
+        createdAt: "2026-04-15T16:01:00.000Z",
+        reason: "Undo: Assistant patch: Update headline",
+        trigger: "undo",
+        messageId: null,
+        patchGroupId: null,
+        restoredFromRevisionId: "profile_revision_applied",
+      },
+    ]
+
+    const withoutRevisions = getProfileCopilotDisplayContent(message as never)
+    expect(withoutRevisions).toContain("This change is applied")
+
+    const withUndo = getProfileCopilotDisplayContent(message as never, revisions as never)
+    expect(withUndo).not.toContain("This change is applied")
+    expect(withUndo).not.toContain("These changes are applied")
+    expect(withUndo).toContain("undone")
+    expect(withUndo).toContain("no longer applied")
+  })
+
+  test("handles indirect undo via timestamp — later patches reverted when undo targets earlier snapshot", async () => {
+    const { getUndonePatchGroupIds } = await import("./profile-copilot-rail.shared")
+    const revisions = [
+      {
+        id: "rev_a",
+        createdAt: "2026-04-15T16:00:00.000Z",
+        reason: "Assistant patch A",
+        trigger: "assistant_patch" as const,
+        messageId: "msg_a",
+        patchGroupId: "patch_a",
+        restoredFromRevisionId: null,
+      },
+      {
+        id: "rev_b",
+        createdAt: "2026-04-15T16:00:10.000Z",
+        reason: "Assistant patch B",
+        trigger: "assistant_patch" as const,
+        messageId: "msg_b",
+        patchGroupId: "patch_b",
+        restoredFromRevisionId: null,
+      },
+      {
+        id: "rev_undo_to_a",
+        createdAt: "2026-04-15T16:00:20.000Z",
+        reason: "Undo to A",
+        trigger: "undo" as const,
+        messageId: null,
+        patchGroupId: null,
+        restoredFromRevisionId: "rev_a",
+      },
+    ]
+    const undone = getUndonePatchGroupIds(revisions as never)
+    // rev_a is direct target, rev_b is after rev_a but before undo, so both should be undone
+    expect(undone.has("patch_a")).toBe(true)
+    expect(undone.has("patch_b")).toBe(true)
+  })
+})
 
 describe("ProfileCopilotCollapsedBubble", () => {
   let container: HTMLDivElement | null = null;

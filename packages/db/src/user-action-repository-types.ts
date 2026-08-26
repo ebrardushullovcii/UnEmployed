@@ -9,6 +9,7 @@ export type UserActionRequestQuery = {
   id?: string;
   states?: readonly UserActionRequestState[];
   scopeType?: UserActionRequest["scope"]["type"];
+  applicationRecordId?: string;
 };
 
 export type UserActionEventQuery = {

@@ -291,11 +291,19 @@ describe("SettingsCandidateAssets", () => {
         '[role="alertdialog"] button[data-pending="true"]',
       )?.textContent,
     ).toContain("Move to Trash");
+    // Pending keeps the destructive control exposed but inert.
     expect(
       document.querySelector<HTMLButtonElement>(
         '[role="alertdialog"] button[data-pending="true"]',
-      )?.disabled,
-    ).toBe(true);
+      )?.hasAttribute("disabled"),
+    ).toBe(false);
+    expect(
+      document
+        .querySelector<HTMLButtonElement>(
+          '[role="alertdialog"] button[data-pending="true"]',
+        )
+        ?.getAttribute("aria-disabled"),
+    ).toBe("true");
 
     await act(async () => {
       resolveDelete?.({ asset: trashedAsset });

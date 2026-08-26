@@ -479,9 +479,68 @@ describe("ProfileResumePanel", () => {
     });
 
     expect(container?.querySelector('[role="alert"]')?.textContent).toContain(
-      "saved original CV cannot be verified",
+      "saved original resume cannot be verified",
     );
     expect(container?.textContent).toContain("Replace resume");
     expect(container?.textContent).toContain("Casey Rowan");
+  });
+
+  it("pins the extraction status badge beside the headline without wrap-induced dead space", () => {
+    const profile = CandidateProfileSchema.parse({
+      id: "candidate_ready_layout",
+      firstName: "Alex",
+      lastName: "Vanguard",
+      fullName: "Alex Vanguard",
+      headline: "Senior systems designer",
+      summary: "Builds resilient workflows.",
+      currentLocation: "London, UK",
+      yearsExperience: 10,
+      baseResume: {
+        id: "resume_ready_layout",
+        fileName: "alex-vanguard.txt",
+        uploadedAt: "2026-03-20T10:00:00.000Z",
+        textContent: "Alex Vanguard",
+        extractionStatus: "ready",
+      },
+    });
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(
+        <ProfileResumePanel
+          importDisabledReason={null}
+          isAnalyzeProfilePending={false}
+          isImportResumePending={false}
+          latestResumeImportReviewCandidates={[]}
+          resumeImportProgress={null}
+          latestResumeImportRun={null}
+          onAnalyzeProfileFromResume={vi.fn()}
+          onApplyTimelineRepairAction={vi.fn()}
+          onImportResume={vi.fn()}
+          profile={profile}
+        />,
+      );
+    });
+
+    const statusBadge = [
+      ...(container?.querySelectorAll("[data-slot='badge']") ?? []),
+    ].find((badge) => badge.textContent?.includes("Ready to review"));
+    expect(statusBadge).toBeDefined();
+
+    const badgeRow = statusBadge?.parentElement;
+    expect(badgeRow?.className).toContain("grid");
+    expect(badgeRow?.className).toContain("grid-cols-[minmax(0,1fr)_auto]");
+    expect(badgeRow?.className).toContain("items-start");
+    expect(badgeRow?.className).not.toContain("flex-wrap");
+
+    const columnsGrid = badgeRow?.parentElement?.parentElement;
+    expect(columnsGrid?.className).toContain("xl:items-start");
+
+    const panelSection = statusBadge?.closest("section");
+    expect(panelSection?.className).toContain("py-4 sm:py-5");
+    expect(panelSection?.className).not.toContain("px-");
   });
 });

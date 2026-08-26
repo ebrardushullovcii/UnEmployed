@@ -1,6 +1,7 @@
 import {
   ApplicationAnswerRecordSchema,
   ApplicationQuestionRecordSchema,
+  ApplicationRecordSchema,
   ApplicationReplayCheckpointSchema,
   ApplyJobResultSchema,
   ApplyRunSchema,
@@ -24,6 +25,7 @@ function createManualAnswerRequest(input: {
   id: string;
   jobId: string;
   resultId: string;
+  applicationRecordId?: string | null;
   replayCheckpointId?: string | null;
   revision?: number;
   state?: "pending" | "page_opened";
@@ -39,6 +41,10 @@ function createManualAnswerRequest(input: {
       type: "application",
       runId: "run_grouped",
       jobId: input.jobId,
+      applicationRecordId:
+        input.applicationRecordId === undefined
+          ? `application_${input.jobId}`
+          : input.applicationRecordId,
       resultId: input.resultId,
       replayCheckpointId: input.replayCheckpointId ?? null,
       source: "target_site",
@@ -70,6 +76,7 @@ function createQuestion(input: {
   id: string;
   jobId: string;
   resultId: string;
+  applicationRecordId?: string | null;
   prompt?: string;
   status?: "detected" | "answered";
   kind?: "experience" | "salary_expectation";
@@ -78,6 +85,10 @@ function createQuestion(input: {
     id: input.id,
     runId: "run_grouped",
     jobId: input.jobId,
+    applicationRecordId:
+      input.applicationRecordId === undefined
+        ? `application_${input.jobId}`
+        : input.applicationRecordId,
     resultId: input.resultId,
     prompt: input.prompt ?? "Years of experience",
     kind: input.kind ?? "experience",
@@ -106,6 +117,7 @@ function createAnswer(input: {
     id: input.id,
     runId: "run_grouped",
     jobId: input.jobId,
+    applicationRecordId: `application_${input.jobId}`,
     resultId: input.resultId,
     questionId: input.questionId,
     status: "suggested",
@@ -147,6 +159,68 @@ function seedGroupedRequests(options: {
       jobId: "job_generating",
       resultId: "result_b",
       replayCheckpointId: replayCheckpointIdB,
+    }),
+  ];
+  seed.applicationRecords = [
+    ApplicationRecordSchema.parse({
+      id: "application_job_ready",
+      jobId: "job_ready",
+      title: "Senior Product Designer",
+      company: "Signal Systems",
+      status: "ready_for_review",
+      lastActionLabel: "Manual answer needed",
+      nextActionLabel: "Review answer",
+      lastUpdatedAt: now,
+    }),
+    ApplicationRecordSchema.parse({
+      id: "application_job_generating",
+      jobId: "job_generating",
+      title: "Principal UX Engineer",
+      company: "Northwind Labs",
+      status: "ready_for_review",
+      lastActionLabel: "Manual answer needed",
+      nextActionLabel: "Review answer",
+      lastUpdatedAt: now,
+    }),
+  ];
+  seed.applyRuns = [
+    ApplyRunSchema.parse({
+      id: "run_grouped",
+      campaignId: null,
+      state: "completed",
+      jobIds: ["job_ready", "job_generating"],
+      currentJobId: null,
+      createdAt: now,
+      updatedAt: now,
+      completedAt: now,
+      summary: "Manual answers need review.",
+      detail: "Both exact application records remain reviewable.",
+      totalJobs: 2,
+      pendingJobs: 0,
+    }),
+  ];
+  seed.applyJobResults = [
+    ApplyJobResultSchema.parse({
+      id: "result_a",
+      runId: "run_grouped",
+      jobId: "job_ready",
+      applicationRecordId: "application_job_ready",
+      state: "blocked",
+      summary: "Manual answer needed.",
+      detail: "A required question needs review.",
+      startedAt: now,
+      updatedAt: now,
+    }),
+    ApplyJobResultSchema.parse({
+      id: "result_b",
+      runId: "run_grouped",
+      jobId: "job_generating",
+      applicationRecordId: "application_job_generating",
+      state: "blocked",
+      summary: "Manual answer needed.",
+      detail: "A required question needs review.",
+      startedAt: now,
+      updatedAt: now,
     }),
   ];
   seed.applicationQuestionRecords = [
@@ -237,6 +311,15 @@ describe("workspace grouped reusable manual answers", () => {
     expect(decision.lineage.map((entry) => entry.requestId).sort()).toEqual([
       "request_a",
       "request_b",
+    ]);
+    expect(
+      decision.lineage.map((entry) => [
+        entry.requestId,
+        entry.applicationRecordId,
+      ]),
+    ).toEqual([
+      ["request_a", "application_job_ready"],
+      ["request_b", "application_job_generating"],
     ]);
     for (const entry of decision.lineage) {
       expect(entry).toEqual(
@@ -422,6 +505,7 @@ describe("workspace grouped reusable manual answers", () => {
     const decisionId = storedDecision.id;
     expect(answerById.get(`grouped_answer_${decisionId}_question_a`)).toEqual(
       expect.objectContaining({
+        applicationRecordId: "application_job_ready",
         questionId: "question_a",
         revision: 1,
         supersedesAnswerId: null,
@@ -432,6 +516,7 @@ describe("workspace grouped reusable manual answers", () => {
     );
     expect(answerById.get(`grouped_answer_${decisionId}_question_b`)).toEqual(
       expect.objectContaining({
+        applicationRecordId: "application_job_generating",
         questionId: "question_b",
         revision: 2,
         supersedesAnswerId: "answer_question_b_v1",
@@ -462,6 +547,116 @@ describe("workspace grouped reusable manual answers", () => {
         (event) => event.operation === "submit_manual_answer",
       ),
     ).toHaveLength(2);
+
+    expect(
+      await harness.repository.listApplicationAnswerRecords({
+        applicationRecordId: "application_job_ready",
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        applicationRecordId: "application_job_ready",
+        questionId: "question_a",
+      }),
+    ]);
+  });
+
+  test("keeps same-job sibling answers isolated by exact application lineage", async () => {
+    const seed = createSeed();
+    seed.userActionRequests = [
+      createManualAnswerRequest({
+        id: "request_a",
+        jobId: "job_ready",
+        resultId: "result_a",
+        applicationRecordId: "application_same_job_a",
+      }),
+      createManualAnswerRequest({
+        id: "request_b",
+        jobId: "job_ready",
+        resultId: "result_b",
+        applicationRecordId: "application_same_job_b",
+      }),
+    ];
+    seed.applicationQuestionRecords = [
+      createQuestion({
+        id: "question_a",
+        jobId: "job_ready",
+        resultId: "result_a",
+        applicationRecordId: "application_same_job_a",
+      }),
+      createQuestion({
+        id: "question_b",
+        jobId: "job_ready",
+        resultId: "result_b",
+        applicationRecordId: "application_same_job_b",
+      }),
+    ];
+    const harness = createWorkspaceServiceHarness({ seed });
+
+    const decision = await projectAndReadDecision(harness);
+    await harness.workspaceService.applyGroupedManualAnswer(
+      applyCommand(decision),
+    );
+
+    const answers = await harness.repository.listApplicationAnswerRecords();
+    expect(
+      answers.map((answer) => [answer.questionId, answer.applicationRecordId]),
+    ).toEqual([
+      ["question_a", "application_same_job_a"],
+      ["question_b", "application_same_job_b"],
+    ]);
+    expect(
+      await harness.repository.listApplicationAnswerRecords({
+        applicationRecordId: "application_same_job_a",
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        questionId: "question_a",
+        applicationRecordId: "application_same_job_a",
+      }),
+    ]);
+  });
+
+  test("rejects a mixed legacy-null group without partial writes", async () => {
+    const seed = createSeed();
+    seedGroupedRequests({ seed });
+    seed.userActionRequests = seed.userActionRequests.map((request) =>
+      request.id === "request_b"
+        ? UserActionRequestSchema.parse({
+            ...request,
+            scope: { ...request.scope, applicationRecordId: null },
+          })
+        : request,
+    );
+    seed.applicationQuestionRecords = seed.applicationQuestionRecords.map(
+      (question) =>
+        question.id === "question_b"
+          ? ApplicationQuestionRecordSchema.parse({
+              ...question,
+              applicationRecordId: null,
+            })
+          : question,
+    );
+    const harness = createWorkspaceServiceHarness({ seed });
+
+    await expect(
+      harness.workspaceService.projectGroupedManualAnswer(projectCommand()),
+    ).rejects.toThrow(/no compatible manual-answer group/i);
+
+    expect(
+      (await harness.repository.getIntelligenceState()).groupedDecisions,
+    ).toEqual([]);
+    expect(await harness.repository.listApplicationAnswerRecords()).toEqual([]);
+    expect(await harness.repository.listUserActionEvents()).toEqual([]);
+    expect(
+      (await harness.repository.listUserActionRequests()).map((request) => [
+        request.id,
+        request.state,
+        request.revision,
+      ]),
+    ).toEqual([
+      ["request_a", "pending", 1],
+      ["request_b", "pending", 1],
+    ]);
   });
 
   test("a stale member aborts the whole apply with no partial state", async () => {

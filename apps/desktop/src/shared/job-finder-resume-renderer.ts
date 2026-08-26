@@ -2,86 +2,97 @@ import type {
   JobFinderSettings,
   ResumePreviewIdentityField,
   ResumeTemplateId,
-} from '@unemployed/contracts'
+} from "@unemployed/contracts";
 import {
   getResumeEntryBulletTargetId,
   getResumeEntryFieldTargetId,
   getResumeIdentityTargetId,
   getResumeSectionBulletTargetId,
   getResumeSectionTextTargetId,
-} from '@unemployed/contracts'
-import type { ResumeRenderDocument } from '@unemployed/job-finder'
+} from "@unemployed/contracts";
+import type { ResumeRenderDocument } from "@unemployed/job-finder";
 
-import {
-  getLocalResumeTemplateDefinition,
-} from './job-finder-resume-catalog'
+import { getLocalResumeTemplateDefinition } from "./job-finder-resume-catalog";
 
-type RenderSection = ResumeRenderDocument['sections'][number]
+type RenderSection = ResumeRenderDocument["sections"][number];
 
 interface ResumeRenderHtmlOptions {
-  catalogLayout?: 'thumbnail' | 'panel'
-  mode?: 'catalog' | 'export' | 'preview'
+  catalogLayout?: "thumbnail" | "panel";
+  mode?: "catalog" | "export" | "preview";
 }
 
-type RenderMode = NonNullable<ResumeRenderHtmlOptions['mode']>
+type RenderMode = NonNullable<ResumeRenderHtmlOptions["mode"]>;
 
 function withPreviewSelection(input: {
-  mode: 'catalog' | 'export' | 'preview'
-  sectionId?: string | null
-  entryId?: string | null
-  targetId?: string | null
+  mode: "catalog" | "export" | "preview";
+  sectionId?: string | null;
+  entryId?: string | null;
+  targetId?: string | null;
 }) {
   return {
     mode: input.mode,
     ...(input.sectionId !== undefined ? { sectionId: input.sectionId } : {}),
     ...(input.entryId !== undefined ? { entryId: input.entryId } : {}),
     ...(input.targetId !== undefined ? { targetId: input.targetId } : {}),
-  }
+  };
 }
 
 export function escapeHtml(value: string): string {
   return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;')
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 export function sanitizeSegment(value: string): string {
   return value
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 48)
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
 }
 
-function formatFontFamily(fontPreset: JobFinderSettings['fontPreset']): string {
-  if (fontPreset === 'space_grotesk_display') {
-    return "'Space Grotesk', 'Segoe UI', sans-serif"
+function formatFontFamily(fontPreset: JobFinderSettings["fontPreset"]): string {
+  if (fontPreset === "space_grotesk_display") {
+    return "'Space Grotesk', 'Segoe UI', sans-serif";
   }
 
-  return "'IBM Plex Sans', 'Segoe UI', sans-serif"
+  return "'IBM Plex Sans', 'Segoe UI', sans-serif";
 }
 
 function formatContactItem(value: string): string {
   return value
-    .replace(/^https?:\/\//i, '')
-    .replace(/^www\./i, '')
-    .replace(/\/$/, '')
+    .replace(/^https?:\/\//i, "")
+    .replace(/^www\./i, "")
+    .replace(/\/$/, "");
 }
 
 function formatDateSegment(value: string | null | undefined): string | null {
-  const trimmed = value?.trim() ?? ''
+  const trimmed = value?.trim() ?? "";
   if (!trimmed) {
-    return null
+    return null;
   }
 
   if (/^(present|current|now|ongoing)$/i.test(trimmed)) {
-    return 'Present'
+    return "Present";
   }
 
-  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const monthNames = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
   const monthByName: Record<string, number> = {
     jan: 1,
     january: 1,
@@ -107,330 +118,409 @@ function formatDateSegment(value: string | null | undefined): string | null {
     november: 11,
     dec: 12,
     december: 12,
-  }
+  };
   const formatMonthYear = (monthNumber: number, year: string) => {
-    const month = monthNames[monthNumber - 1]
+    const month = monthNames[monthNumber - 1];
 
-    return month ? `${month} ${year}` : null
-  }
+    return month ? `${month} ${year}` : null;
+  };
 
-  const yearMonthMatch = /^(\d{4})-(\d{1,2})(?:-\d{1,2})?$/.exec(trimmed)
+  const yearMonthMatch = /^(\d{4})-(\d{1,2})(?:-\d{1,2})?$/.exec(trimmed);
   if (yearMonthMatch) {
-    return formatMonthYear(Number(yearMonthMatch[2]), yearMonthMatch[1] ?? '')
+    return formatMonthYear(Number(yearMonthMatch[2]), yearMonthMatch[1] ?? "");
   }
 
-  const monthYearSlashMatch = /^(\d{1,2})\/(\d{4})$/.exec(trimmed)
+  const monthYearSlashMatch = /^(\d{1,2})\/(\d{4})$/.exec(trimmed);
   if (monthYearSlashMatch) {
-    return formatMonthYear(Number(monthYearSlashMatch[1]), monthYearSlashMatch[2] ?? '')
+    return formatMonthYear(
+      Number(monthYearSlashMatch[1]),
+      monthYearSlashMatch[2] ?? "",
+    );
   }
 
-  const dayMonthYearSlashMatch = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(trimmed)
+  const dayMonthYearSlashMatch = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(
+    trimmed,
+  );
   if (dayMonthYearSlashMatch) {
-    return formatMonthYear(Number(dayMonthYearSlashMatch[2]), dayMonthYearSlashMatch[3] ?? '')
+    return formatMonthYear(
+      Number(dayMonthYearSlashMatch[2]),
+      dayMonthYearSlashMatch[3] ?? "",
+    );
   }
 
-  const namedMonthMatch = /^([a-zA-Z]+)\.?\s+(\d{4})$/.exec(trimmed)
+  const namedMonthMatch = /^([a-zA-Z]+)\.?\s+(\d{4})$/.exec(trimmed);
   if (namedMonthMatch) {
-    const month = monthByName[namedMonthMatch[1]?.toLowerCase() ?? ''] ?? null
+    const month = monthByName[namedMonthMatch[1]?.toLowerCase() ?? ""] ?? null;
 
-    return month ? formatMonthYear(month, namedMonthMatch[2] ?? '') : trimmed
+    return month ? formatMonthYear(month, namedMonthMatch[2] ?? "") : trimmed;
   }
 
-  return trimmed
+  return trimmed;
 }
 
-function normalizeDisplayDateRange(value: string | null | undefined): string | null {
-  const trimmed = value?.trim() ?? ''
+function normalizeDisplayDateRange(
+  value: string | null | undefined,
+): string | null {
+  const trimmed = value?.trim() ?? "";
   if (!trimmed) {
-    return null
+    return null;
   }
 
   const parts = trimmed
     .split(/\s*[–—]\s*|\s+-\s+/)
     .map((part) => part.trim())
-    .filter(Boolean)
+    .filter(Boolean);
 
   if (parts.length >= 2) {
-    const rawStart = parts[0] ?? trimmed
-    const rawEnd = parts.at(-1) ?? trimmed
-    const start = formatDateSegment(rawStart) ?? rawStart
-    const end = formatDateSegment(rawEnd) ?? rawEnd
-    return start === end ? start : `${start} – ${end}`
+    const rawStart = parts[0] ?? trimmed;
+    const rawEnd = parts.at(-1) ?? trimmed;
+    const start = formatDateSegment(rawStart) ?? rawStart;
+    const end = formatDateSegment(rawEnd) ?? rawEnd;
+    return start === end ? start : `${start} – ${end}`;
   }
 
-  return formatDateSegment(trimmed) ?? trimmed
+  return formatDateSegment(trimmed) ?? trimmed;
 }
 
 function formatEntryDateRange(input: {
-  dateRange: string | null
-  endDate?: string | null | undefined
-  isCurrent?: boolean | undefined
-  startDate?: string | null | undefined
+  dateRange: string | null;
+  endDate?: string | null | undefined;
+  isCurrent?: boolean | undefined;
+  startDate?: string | null | undefined;
 }): string | null {
-  const displayDateRange = normalizeDisplayDateRange(input.dateRange)
+  const displayDateRange = normalizeDisplayDateRange(input.dateRange);
   if (displayDateRange) {
-    return displayDateRange
+    return displayDateRange;
   }
 
-  const start = formatDateSegment(input.startDate)
-  const end = input.isCurrent ? 'Present' : formatDateSegment(input.endDate)
+  const start = formatDateSegment(input.startDate);
+  const end = input.isCurrent ? "Present" : formatDateSegment(input.endDate);
 
   if (start && end) {
-    return start === end ? start : `${start} – ${end}`
+    return start === end ? start : `${start} – ${end}`;
   }
 
-  return start ?? end ?? null
+  return start ?? end ?? null;
 }
 
 function getEntryDateTargetField(input: {
-  dateRange: string | null
-  endDate?: string | null | undefined
-  isCurrent?: boolean | undefined
-  startDate?: string | null | undefined
+  dateRange: string | null;
+  endDate?: string | null | undefined;
+  isCurrent?: boolean | undefined;
+  startDate?: string | null | undefined;
 }) {
   if (input.startDate?.trim() || input.dateRange?.trim()) {
-    return 'startDate'
+    return "startDate";
   }
 
   if (input.endDate?.trim()) {
-    return 'endDate'
+    return "endDate";
   }
 
-  return input.isCurrent ? 'isCurrent' : 'startDate'
+  return input.isCurrent ? "isCurrent" : "startDate";
 }
 
 function renderIdentityFieldTag(input: {
-  mode: ResumeRenderHtmlOptions['mode']
-  field: ResumePreviewIdentityField
-  tagName: 'h1' | 'p' | 'span' | 'li'
-  className?: string
-  text: string
+  mode: ResumeRenderHtmlOptions["mode"];
+  field: ResumePreviewIdentityField;
+  tagName: "h1" | "p" | "span" | "li";
+  className?: string;
+  text: string;
 }): string {
-  return `<${input.tagName}${input.className ? ` class="${input.className}"` : ''}${renderPreviewAttributes({
-    ...withPreviewSelection({
-      mode: input.mode ?? 'export',
-      targetId: getResumeIdentityTargetId(input.field),
-    }),
-  })}>${escapeHtml(input.text)}</${input.tagName}>`
+  return `<${input.tagName}${input.className ? ` class="${input.className}"` : ""}${renderPreviewAttributes(
+    {
+      ...withPreviewSelection({
+        mode: input.mode ?? "export",
+        targetId: getResumeIdentityTargetId(input.field),
+      }),
+    },
+  )}>${escapeHtml(input.text)}</${input.tagName}>`;
 }
 
 function renderEntryHeading(input: {
-  title: string | null
-  subtitle: string | null
-  location: string | null
-  dateRange: string | null
-  startDate?: string | null | undefined
-  endDate?: string | null | undefined
-  isCurrent?: boolean | undefined
-  heading: string | null
-  mode: ResumeRenderHtmlOptions['mode']
-  sectionId: string
-  entryId: string
+  title: string | null;
+  subtitle: string | null;
+  location: string | null;
+  dateRange: string | null;
+  startDate?: string | null | undefined;
+  endDate?: string | null | undefined;
+  isCurrent?: boolean | undefined;
+  heading: string | null;
+  mode: ResumeRenderHtmlOptions["mode"];
+  sectionId: string;
+  entryId: string;
 }): string {
   const primaryParts = [
     input.title
       ? `<span${renderPreviewAttributes({
           ...withPreviewSelection({
-            mode: input.mode ?? 'export',
+            mode: input.mode ?? "export",
             sectionId: input.sectionId,
             entryId: input.entryId,
-            targetId: getResumeEntryFieldTargetId(input.sectionId, input.entryId, 'title'),
+            targetId: getResumeEntryFieldTargetId(
+              input.sectionId,
+              input.entryId,
+              "title",
+            ),
           }),
         })}>${escapeHtml(input.title)}</span>`
       : null,
     input.subtitle
       ? `<span${renderPreviewAttributes({
           ...withPreviewSelection({
-            mode: input.mode ?? 'export',
+            mode: input.mode ?? "export",
             sectionId: input.sectionId,
             entryId: input.entryId,
-            targetId: getResumeEntryFieldTargetId(input.sectionId, input.entryId, 'subtitle'),
+            targetId: getResumeEntryFieldTargetId(
+              input.sectionId,
+              input.entryId,
+              "subtitle",
+            ),
           }),
         })}>${escapeHtml(input.subtitle)}</span>`
       : null,
-  ].filter((value): value is string => Boolean(value))
-  const displayDateRange = formatEntryDateRange(input)
+  ].filter((value): value is string => Boolean(value));
+  const displayDateRange = formatEntryDateRange(input);
   const metaParts = [
     input.location
       ? `<span${renderPreviewAttributes({
           ...withPreviewSelection({
-            mode: input.mode ?? 'export',
+            mode: input.mode ?? "export",
             sectionId: input.sectionId,
             entryId: input.entryId,
-            targetId: getResumeEntryFieldTargetId(input.sectionId, input.entryId, 'location'),
+            targetId: getResumeEntryFieldTargetId(
+              input.sectionId,
+              input.entryId,
+              "location",
+            ),
           }),
-          })}>${escapeHtml(input.location)}</span>`
+        })}>${escapeHtml(input.location)}</span>`
       : null,
     displayDateRange
       ? `<span${renderPreviewAttributes({
           ...withPreviewSelection({
-            mode: input.mode ?? 'export',
+            mode: input.mode ?? "export",
             sectionId: input.sectionId,
             entryId: input.entryId,
-            targetId: getResumeEntryFieldTargetId(input.sectionId, input.entryId, getEntryDateTargetField(input)),
+            targetId: getResumeEntryFieldTargetId(
+              input.sectionId,
+              input.entryId,
+              getEntryDateTargetField(input),
+            ),
           }),
         })}>${escapeHtml(displayDateRange)}</span>`
       : null,
-  ].filter((value): value is string => Boolean(value))
+  ].filter((value): value is string => Boolean(value));
 
   if (primaryParts.length === 0) {
     if (!input.heading) {
-      return ''
+      return "";
     }
 
     return `<h4><span class="entry-primary"><span${renderPreviewAttributes({
       ...withPreviewSelection({
-        mode: input.mode ?? 'export',
+        mode: input.mode ?? "export",
         sectionId: input.sectionId,
         entryId: input.entryId,
-        targetId: getResumeEntryFieldTargetId(input.sectionId, input.entryId, 'title'),
+        targetId: getResumeEntryFieldTargetId(
+          input.sectionId,
+          input.entryId,
+          "title",
+        ),
       }),
-    })}>${escapeHtml(input.heading)}</span></span></h4>`
+    })}>${escapeHtml(input.heading)}</span></span></h4>`;
   }
 
-  return `<h4><span class="entry-primary">${primaryParts.join(' <span aria-hidden="true">—</span> ')}</span>${metaParts.length > 0 ? `<span class="entry-meta">${metaParts.join(' <span aria-hidden="true">|</span> ')}</span>` : ''}</h4>`
+  return `<h4><span class="entry-primary">${primaryParts.join(' <span aria-hidden="true">—</span> ')}</span>${metaParts.length > 0 ? `<span class="entry-meta">${metaParts.join(' <span aria-hidden="true">|</span> ')}</span>` : ""}</h4>`;
 }
 
 function renderPreviewAttributes(input: {
-  mode: ResumeRenderHtmlOptions['mode']
-  sectionId?: string | null
-  entryId?: string | null
-  targetId?: string | null
+  mode: ResumeRenderHtmlOptions["mode"];
+  sectionId?: string | null;
+  entryId?: string | null;
+  targetId?: string | null;
 }): string {
-  if (input.mode !== 'preview') {
-    return ''
+  if (input.mode !== "preview") {
+    return "";
   }
 
-  const attributes: string[] = []
+  const attributes: string[] = [];
 
   if (input.sectionId) {
-    attributes.push(`data-resume-section-id="${escapeHtml(input.sectionId)}"`)
+    attributes.push(`data-resume-section-id="${escapeHtml(input.sectionId)}"`);
   }
 
   if (input.entryId) {
-    attributes.push(`data-resume-entry-id="${escapeHtml(input.entryId)}"`)
+    attributes.push(`data-resume-entry-id="${escapeHtml(input.entryId)}"`);
   }
 
   if (input.targetId) {
-    attributes.push(`data-resume-target-id="${escapeHtml(input.targetId)}"`)
+    attributes.push(`data-resume-target-id="${escapeHtml(input.targetId)}"`);
   }
 
   if (attributes.length > 0) {
-    attributes.push('role="button"')
-    attributes.push('tabindex="0"')
+    attributes.push('role="button"');
+    attributes.push('tabindex="0"');
   }
 
-  return attributes.length > 0 ? ` ${attributes.join(' ')}` : ''
+  return attributes.length > 0 ? ` ${attributes.join(" ")}` : "";
 }
 
 function renderStructuredSection(input: {
-  sectionId?: string
-  title: string
-  className?: string
-  mode?: 'catalog' | 'export' | 'preview'
-  text?: string | null
-  bullets?: ReadonlyArray<{ id: string; text: string }>
+  sectionId?: string;
+  title: string;
+  className?: string;
+  mode?: "catalog" | "export" | "preview";
+  text?: string | null;
+  bullets?: ReadonlyArray<{ id: string; text: string }>;
   entries?: ReadonlyArray<{
-    id: string
-    title: string | null
-    subtitle: string | null
-    location: string | null
-    dateRange: string | null
-    startDate?: string | null
-    endDate?: string | null
-    isCurrent?: boolean
-    heading: string | null
-    summary: string | null
-    bullets: Array<{ id: string; text: string }>
-  }>
+    id: string;
+    title: string | null;
+    subtitle: string | null;
+    location: string | null;
+    dateRange: string | null;
+    startDate?: string | null;
+    endDate?: string | null;
+    isCurrent?: boolean;
+    heading: string | null;
+    summary: string | null;
+    bullets: Array<{ id: string; text: string }>;
+  }>;
 }): string {
-  const bullets = input.bullets ?? []
-  const entries = input.entries ?? []
-  const hasContent = Boolean(input.text) || bullets.length > 0 || entries.length > 0
+  const bullets = input.bullets ?? [];
+  const entries = input.entries ?? [];
+  const hasContent =
+    Boolean(input.text) || bullets.length > 0 || entries.length > 0;
 
   if (!hasContent) {
-    return ''
+    return "";
   }
 
   return `
-    <section class="section-block${input.className ? ` ${input.className}` : ''}"${renderPreviewAttributes({
-      ...withPreviewSelection({
-        mode: input.mode ?? 'export',
-        sectionId: input.sectionId ?? null,
-      }),
-    })}>
-      <h3>${escapeHtml(input.title)}</h3>
-      ${input.text ? `<p${renderPreviewAttributes({
+    <section class="section-block${input.className ? ` ${input.className}` : ""}"${renderPreviewAttributes(
+      {
         ...withPreviewSelection({
-          mode: input.mode ?? 'export',
+          mode: input.mode ?? "export",
           sectionId: input.sectionId ?? null,
-          targetId: input.sectionId ? getResumeSectionTextTargetId(input.sectionId) : null,
         }),
-      })}>${escapeHtml(input.text)}</p>` : ''}
+      },
+    )}>
+      <h3>${escapeHtml(input.title)}</h3>
+      ${
+        input.text
+          ? `<p${renderPreviewAttributes({
+              ...withPreviewSelection({
+                mode: input.mode ?? "export",
+                sectionId: input.sectionId ?? null,
+                targetId: input.sectionId
+                  ? getResumeSectionTextTargetId(input.sectionId)
+                  : null,
+              }),
+            })}>${escapeHtml(input.text)}</p>`
+          : ""
+      }
       ${entries
         .map(
           (entry) => `
             <article class="entry-block"${renderPreviewAttributes({
               ...withPreviewSelection({
-                mode: input.mode ?? 'export',
+                mode: input.mode ?? "export",
                 sectionId: input.sectionId ?? null,
                 entryId: entry.id,
               }),
             })}>
-              ${input.sectionId ? renderEntryHeading({
-                title: entry.title,
-                subtitle: entry.subtitle,
-                location: entry.location,
-                dateRange: entry.dateRange,
-                startDate: entry.startDate,
-                endDate: entry.endDate,
-                isCurrent: entry.isCurrent,
-                heading: entry.heading,
-                mode: input.mode ?? 'export',
-                sectionId: input.sectionId,
-                entryId: entry.id,
-              }) : ''}
-              ${entry.summary && input.sectionId ? `<p${renderPreviewAttributes({
-                ...withPreviewSelection({
-                  mode: input.mode ?? 'export',
-                  sectionId: input.sectionId,
-                  entryId: entry.id,
-                  targetId: getResumeEntryFieldTargetId(input.sectionId, entry.id, 'summary'),
-                }),
-              })}>${escapeHtml(entry.summary)}</p>` : ''}
-              ${entry.bullets.length > 0 ? `<ul class="resume-bullet-list">${entry.bullets.map((bullet) => `<li${renderPreviewAttributes({
-                ...withPreviewSelection({
-                  mode: input.mode ?? 'export',
-                  sectionId: input.sectionId ?? null,
-                  entryId: entry.id,
-                  targetId:
-                    input.sectionId
-                      ? getResumeEntryBulletTargetId(input.sectionId, entry.id, bullet.id)
-                      : null,
-                }),
-              })}>${escapeHtml(bullet.text)}</li>`).join('')}</ul>` : ''}
+              ${
+                input.sectionId
+                  ? renderEntryHeading({
+                      title: entry.title,
+                      subtitle: entry.subtitle,
+                      location: entry.location,
+                      dateRange: entry.dateRange,
+                      startDate: entry.startDate,
+                      endDate: entry.endDate,
+                      isCurrent: entry.isCurrent,
+                      heading: entry.heading,
+                      mode: input.mode ?? "export",
+                      sectionId: input.sectionId,
+                      entryId: entry.id,
+                    })
+                  : ""
+              }
+              ${
+                entry.summary && input.sectionId
+                  ? `<p${renderPreviewAttributes({
+                      ...withPreviewSelection({
+                        mode: input.mode ?? "export",
+                        sectionId: input.sectionId,
+                        entryId: entry.id,
+                        targetId: getResumeEntryFieldTargetId(
+                          input.sectionId,
+                          entry.id,
+                          "summary",
+                        ),
+                      }),
+                    })}>${escapeHtml(entry.summary)}</p>`
+                  : ""
+              }
+              ${
+                entry.bullets.length > 0
+                  ? `<ul class="resume-bullet-list">${entry.bullets
+                      .map(
+                        (bullet) =>
+                          `<li${renderPreviewAttributes({
+                            ...withPreviewSelection({
+                              mode: input.mode ?? "export",
+                              sectionId: input.sectionId ?? null,
+                              entryId: entry.id,
+                              targetId: input.sectionId
+                                ? getResumeEntryBulletTargetId(
+                                    input.sectionId,
+                                    entry.id,
+                                    bullet.id,
+                                  )
+                                : null,
+                            }),
+                          })}>${escapeHtml(bullet.text)}</li>`,
+                      )
+                      .join("")}</ul>`
+                  : ""
+              }
             </article>
           `,
         )
-        .join('')}
-      ${bullets.length > 0 ? `<ul class="resume-bullet-list">${bullets.map((bullet) => `<li${renderPreviewAttributes({
-        ...withPreviewSelection({
-          mode: input.mode ?? 'export',
-          sectionId: input.sectionId ?? null,
-          targetId: input.sectionId ? getResumeSectionBulletTargetId(input.sectionId, bullet.id) : null,
-        }),
-      })}>${escapeHtml(bullet.text)}</li>`).join('')}</ul>` : ''}
+        .join("")}
+      ${
+        bullets.length > 0
+          ? `<ul class="resume-bullet-list">${bullets
+              .map(
+                (bullet) =>
+                  `<li${renderPreviewAttributes({
+                    ...withPreviewSelection({
+                      mode: input.mode ?? "export",
+                      sectionId: input.sectionId ?? null,
+                      targetId: input.sectionId
+                        ? getResumeSectionBulletTargetId(
+                            input.sectionId,
+                            bullet.id,
+                          )
+                        : null,
+                    }),
+                  })}>${escapeHtml(bullet.text)}</li>`,
+              )
+              .join("")}</ul>`
+          : ""
+      }
     </section>
-  `
+  `;
 }
 
 function renderSection(
   section: RenderSection | null,
   className?: string,
-  mode: ResumeRenderHtmlOptions['mode'] = 'export',
+  mode: ResumeRenderHtmlOptions["mode"] = "export",
 ): string {
   if (!section) {
-    return ''
+    return "";
   }
 
   const payload = {
@@ -441,25 +531,25 @@ function renderSection(
     bullets: section.bullets,
     entries: section.entries,
   } satisfies {
-    sectionId: string
-    title: string
-    mode: 'catalog' | 'export' | 'preview' | undefined
-    text: string | null
-    bullets: Array<{ id: string; text: string }>
+    sectionId: string;
+    title: string;
+    mode: "catalog" | "export" | "preview" | undefined;
+    text: string | null;
+    bullets: Array<{ id: string; text: string }>;
     entries: ReadonlyArray<{
-      id: string
-      title: string | null
-      subtitle: string | null
-      location: string | null
-      dateRange: string | null
-      startDate?: string | null
-      endDate?: string | null
-      isCurrent?: boolean
-      heading: string | null
-      summary: string | null
-      bullets: Array<{ id: string; text: string }>
-    }>
-  }
+      id: string;
+      title: string | null;
+      subtitle: string | null;
+      location: string | null;
+      dateRange: string | null;
+      startDate?: string | null;
+      endDate?: string | null;
+      isCurrent?: boolean;
+      heading: string | null;
+      summary: string | null;
+      bullets: Array<{ id: string; text: string }>;
+    }>;
+  };
 
   return renderStructuredSection(
     className
@@ -468,60 +558,79 @@ function renderSection(
           className,
         }
       : payload,
-  )
+  );
 }
 
 function renderInlineSection(input: {
-  title: string
-  className?: string
-  mode?: 'catalog' | 'export' | 'preview'
-  groups: ReadonlyArray<{ label?: string; values: ReadonlyArray<{ id: string; text: string }>; sectionId?: string | null }>
+  title: string;
+  className?: string;
+  mode?: "catalog" | "export" | "preview";
+  groups: ReadonlyArray<{
+    label?: string;
+    values: ReadonlyArray<{ id: string; text: string }>;
+    sectionId?: string | null;
+  }>;
 }): string {
-  const groups = input.groups.filter((group) => group.values.length > 0)
+  const groups = input.groups.filter((group) => group.values.length > 0);
 
   if (groups.length === 0) {
-    return ''
+    return "";
   }
 
   return `
-    <section class="section-block inline-section${input.className ? ` ${input.className}` : ''}">
+    <section class="section-block inline-section${input.className ? ` ${input.className}` : ""}">
       <h3>${escapeHtml(input.title)}</h3>
       <div class="inline-lines">
         ${groups
           .map(
-            (group) => `<p${renderPreviewAttributes({
-              ...withPreviewSelection({
-                mode: input.mode ?? 'export',
-                sectionId: group.sectionId ?? null,
-              }),
-            })}>${group.label ? `<strong>${escapeHtml(group.label)}:</strong> ` : ''}${group.values.map((value, index) => `<span${renderPreviewAttributes({
-              ...withPreviewSelection({
-                mode: input.mode ?? 'export',
-                sectionId: group.sectionId ?? null,
-                targetId: group.sectionId ? getResumeSectionBulletTargetId(group.sectionId, value.id) : null,
-              }),
-            })}>${escapeHtml(value.text)}</span>${index < group.values.length - 1 ? ', ' : ''}`).join('')}</p>`,
+            (group) =>
+              `<p${renderPreviewAttributes({
+                ...withPreviewSelection({
+                  mode: input.mode ?? "export",
+                  sectionId: group.sectionId ?? null,
+                }),
+              })}>${group.label ? `<strong>${escapeHtml(group.label)}:</strong> ` : ""}${group.values
+                .map(
+                  (value, index) =>
+                    `<span${renderPreviewAttributes({
+                      ...withPreviewSelection({
+                        mode: input.mode ?? "export",
+                        sectionId: group.sectionId ?? null,
+                        targetId: group.sectionId
+                          ? getResumeSectionBulletTargetId(
+                              group.sectionId,
+                              value.id,
+                            )
+                          : null,
+                      }),
+                    })}>${escapeHtml(value.text)}</span>${index < group.values.length - 1 ? ", " : ""}`,
+                )
+                .join("")}</p>`,
           )
-          .join('')}
+          .join("")}
       </div>
     </section>
-  `
+  `;
 }
 
 function renderSkillMatrixSection(input: {
-  title: string
-  className?: string
-  mode?: 'catalog' | 'export' | 'preview'
-  groups: ReadonlyArray<{ label?: string; values: ReadonlyArray<{ id: string; text: string }>; sectionId?: string | null }>
+  title: string;
+  className?: string;
+  mode?: "catalog" | "export" | "preview";
+  groups: ReadonlyArray<{
+    label?: string;
+    values: ReadonlyArray<{ id: string; text: string }>;
+    sectionId?: string | null;
+  }>;
 }): string {
-  const groups = input.groups.filter((group) => group.values.length > 0)
+  const groups = input.groups.filter((group) => group.values.length > 0);
 
   if (groups.length === 0) {
-    return ''
+    return "";
   }
 
   return `
-    <section class="section-block skill-matrix${input.className ? ` ${input.className}` : ''}">
+    <section class="section-block skill-matrix${input.className ? ` ${input.className}` : ""}">
       <h3>${escapeHtml(input.title)}</h3>
       <div class="skill-groups">
         ${groups
@@ -529,94 +638,121 @@ function renderSkillMatrixSection(input: {
             (group) => `
               <div class="skill-group"${renderPreviewAttributes({
                 ...withPreviewSelection({
-                  mode: input.mode ?? 'export',
+                  mode: input.mode ?? "export",
                   sectionId: group.sectionId ?? null,
                 }),
               })}>
-                ${group.label ? `<p class="skill-group-label">${escapeHtml(group.label)}</p>` : ''}
-                <ul class="skill-pill-list">${group.values.map((value) => `<li${renderPreviewAttributes({
-                  ...withPreviewSelection({
-                    mode: input.mode ?? 'export',
-                    sectionId: group.sectionId ?? null,
-                    targetId: group.sectionId ? getResumeSectionBulletTargetId(group.sectionId, value.id) : null,
-                  }),
-                })}>${escapeHtml(value.text)}</li>`).join('')}</ul>
+                ${group.label ? `<p class="skill-group-label">${escapeHtml(group.label)}</p>` : ""}
+                <ul class="skill-pill-list">${group.values
+                  .map(
+                    (value) =>
+                      `<li${renderPreviewAttributes({
+                        ...withPreviewSelection({
+                          mode: input.mode ?? "export",
+                          sectionId: group.sectionId ?? null,
+                          targetId: group.sectionId
+                            ? getResumeSectionBulletTargetId(
+                                group.sectionId,
+                                value.id,
+                              )
+                            : null,
+                        }),
+                      })}>${escapeHtml(value.text)}</li>`,
+                  )
+                  .join("")}</ul>
               </div>
             `,
           )
-          .join('')}
+          .join("")}
       </div>
     </section>
-  `
+  `;
 }
 
 function renderSummaryCallout(
   section: RenderSection | null,
   className?: string,
-  mode: ResumeRenderHtmlOptions['mode'] = 'export',
+  mode: ResumeRenderHtmlOptions["mode"] = "export",
 ): string {
   if (!section) {
-    return ''
+    return "";
   }
 
   return renderStructuredSection({
     sectionId: section.id,
     title: section.label,
-    className: `section-summary-callout${className ? ` ${className}` : ''}`,
+    className: `section-summary-callout${className ? ` ${className}` : ""}`,
     mode,
     text: section.text,
     bullets: section.bullets,
     entries: section.entries,
-  })
+  });
 }
 
 function renderSkillGroups(
   coreSkillsSection: RenderSection | null,
   additionalSkillsSection: RenderSection | null,
-): Array<{ label?: string; values: ReadonlyArray<{ id: string; text: string }>; sectionId?: string | null }> {
+): Array<{
+  label?: string;
+  values: ReadonlyArray<{ id: string; text: string }>;
+  sectionId?: string | null;
+}> {
   return [
     {
-      label: 'Core',
+      label: "Core",
       values: coreSkillsSection?.bullets ?? [],
       sectionId: coreSkillsSection?.id ?? null,
     },
     {
-      label: 'Additional',
+      label: "Additional",
       values: additionalSkillsSection?.bullets ?? [],
       sectionId: additionalSkillsSection?.id ?? null,
     },
-  ]
+  ];
 }
 
 interface SectionCatalog {
-  summarySection: RenderSection | null
-  experienceSection: RenderSection | null
-  projectSection: RenderSection | null
-  educationSection: RenderSection | null
-  certificationSection: RenderSection | null
-  coreSkillsSection: RenderSection | null
-  additionalSkillsSection: RenderSection | null
-  languageSection: RenderSection | null
-  remainingSections: RenderSection[]
+  summarySection: RenderSection | null;
+  experienceSection: RenderSection | null;
+  projectSection: RenderSection | null;
+  educationSection: RenderSection | null;
+  certificationSection: RenderSection | null;
+  coreSkillsSection: RenderSection | null;
+  additionalSkillsSection: RenderSection | null;
+  languageSection: RenderSection | null;
+  remainingSections: RenderSection[];
 }
 
-function buildSectionCatalog(renderDocument: ResumeRenderDocument): SectionCatalog {
+function buildSectionCatalog(
+  renderDocument: ResumeRenderDocument,
+): SectionCatalog {
   const summarySection =
-    renderDocument.sections.find((section) => section.kind === 'summary') ?? null
+    renderDocument.sections.find((section) => section.kind === "summary") ??
+    null;
   const experienceSection =
-    renderDocument.sections.find((section) => section.kind === 'experience') ?? null
+    renderDocument.sections.find((section) => section.kind === "experience") ??
+    null;
   const projectSection =
-    renderDocument.sections.find((section) => section.kind === 'projects') ?? null
+    renderDocument.sections.find((section) => section.kind === "projects") ??
+    null;
   const educationSection =
-    renderDocument.sections.find((section) => section.kind === 'education') ?? null
+    renderDocument.sections.find((section) => section.kind === "education") ??
+    null;
   const certificationSection =
-    renderDocument.sections.find((section) => section.kind === 'certifications') ?? null
+    renderDocument.sections.find(
+      (section) => section.kind === "certifications",
+    ) ?? null;
   const coreSkillsSection =
-    renderDocument.sections.find((section) => section.label === 'Core Skills') ?? null
+    renderDocument.sections.find(
+      (section) => section.label === "Core Skills",
+    ) ?? null;
   const additionalSkillsSection =
-    renderDocument.sections.find((section) => section.label === 'Additional Skills') ?? null
+    renderDocument.sections.find(
+      (section) => section.label === "Additional Skills",
+    ) ?? null;
   const languageSection =
-    renderDocument.sections.find((section) => section.label === 'Languages') ?? null
+    renderDocument.sections.find((section) => section.label === "Languages") ??
+    null;
   const knownSectionIds = new Set(
     [
       summarySection,
@@ -630,7 +766,7 @@ function buildSectionCatalog(renderDocument: ResumeRenderDocument): SectionCatal
     ]
       .filter((section): section is RenderSection => section !== null)
       .map((section) => section.id),
-  )
+  );
 
   return {
     summarySection,
@@ -642,79 +778,93 @@ function buildSectionCatalog(renderDocument: ResumeRenderDocument): SectionCatal
     additionalSkillsSection,
     languageSection,
     remainingSections: renderDocument.sections.filter(
-      (section) => section.kind !== 'keywords' && !knownSectionIds.has(section.id),
+      (section) =>
+        section.kind !== "keywords" && !knownSectionIds.has(section.id),
     ),
-  }
+  };
 }
 
 interface TemplateLayout {
-  templateClassName: string
-  pageClassName: string
-  bodyClassName: string
-  headerMarkup: string
-  bodyContent: string
+  templateClassName: string;
+  pageClassName: string;
+  bodyClassName: string;
+  headerMarkup: string;
+  bodyContent: string;
 }
 
 type SkillGroup = {
-  label?: string
-  values: ReadonlyArray<{ id: string; text: string }>
-  sectionId?: string | null
-}
+  label?: string;
+  values: ReadonlyArray<{ id: string; text: string }>;
+  sectionId?: string | null;
+};
 
 interface TemplateRenderContext {
-  renderDocument: ResumeRenderDocument
-  catalog: SectionCatalog
-  mode: RenderMode
-  skillGroups: SkillGroup[]
-  remainingSectionContent: string[]
+  renderDocument: ResumeRenderDocument;
+  catalog: SectionCatalog;
+  mode: RenderMode;
+  skillGroups: SkillGroup[];
+  remainingSectionContent: string[];
 }
 
 function joinRenderedSections(sections: readonly string[]): string {
-  return sections.filter((section) => section.trim().length > 0).join('')
+  return sections.filter((section) => section.trim().length > 0).join("");
 }
 
-function renderSectionCluster(className: string, sections: readonly string[]): string {
-  const content = joinRenderedSections(sections)
+function renderSectionCluster(
+  className: string,
+  sections: readonly string[],
+): string {
+  const content = joinRenderedSections(sections);
 
   if (!content) {
-    return ''
+    return "";
   }
 
-  return `<div class="${className}">${content}</div>`
+  return `<div class="${className}">${content}</div>`;
 }
 
 function renderIdentityMeta(
   values: ReadonlyArray<{ field: ResumePreviewIdentityField; text: string }>,
   className: string,
   mode: RenderMode,
-  containerTag: 'div' | 'ul' = 'div',
+  containerTag: "div" | "ul" = "div",
 ): string {
   if (values.length === 0) {
-    return ''
+    return "";
   }
 
-  if (containerTag === 'ul') {
-    return `<ul class="${className}">${values.map((value) => renderIdentityFieldTag({
-      mode,
-      field: value.field,
-      tagName: 'li',
-      text: value.text,
-    })).join('')}</ul>`
+  if (containerTag === "ul") {
+    return `<ul class="${className}">${values
+      .map((value) =>
+        renderIdentityFieldTag({
+          mode,
+          field: value.field,
+          tagName: "li",
+          text: value.text,
+        }),
+      )
+      .join("")}</ul>`;
   }
 
-  return `<div class="${className}">${values.map((value) => renderIdentityFieldTag({
-    mode,
-    field: value.field,
-    tagName: 'span',
-    text: value.text,
-  })).join('')}</div>`
+  return `<div class="${className}">${values
+    .map((value) =>
+      renderIdentityFieldTag({
+        mode,
+        field: value.field,
+        tagName: "span",
+        text: value.text,
+      }),
+    )
+    .join("")}</div>`;
 }
 
-function buildHeaderIdentityValues(renderDocument: ResumeRenderDocument): Array<{ field: ResumePreviewIdentityField; text: string }> {
+function buildHeaderIdentityValues(
+  renderDocument: ResumeRenderDocument,
+): Array<{ field: ResumePreviewIdentityField; text: string }> {
   return [
     renderDocument.location
       ? {
-          field: 'location' as const,
+          field: "location" as const,
           text: renderDocument.location,
         }
       : null,
@@ -722,142 +872,166 @@ function buildHeaderIdentityValues(renderDocument: ResumeRenderDocument): Array<
       field: item.field,
       text: formatContactItem(item.text),
     })),
-  ].filter((value): value is { field: ResumePreviewIdentityField; text: string } => Boolean(value))
+  ].filter(
+    (value): value is { field: ResumePreviewIdentityField; text: string } =>
+      Boolean(value),
+  );
 }
 
-function renderClassicHeader(renderDocument: ResumeRenderDocument, mode: RenderMode): string {
-  const contactValues = buildHeaderIdentityValues(renderDocument)
+function renderClassicHeader(
+  renderDocument: ResumeRenderDocument,
+  mode: RenderMode,
+): string {
+  const contactValues = buildHeaderIdentityValues(renderDocument);
 
   return `<header class="header header-classic">
-      ${renderIdentityFieldTag({ mode, field: 'fullName', tagName: 'h1', className: 'name', text: renderDocument.fullName })}
-      ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: 'headline', tagName: 'p', className: 'headline', text: renderDocument.headline }) : ''}
-      ${renderIdentityMeta(contactValues, 'meta', mode)}
-    </header>`
+      ${renderIdentityFieldTag({ mode, field: "fullName", tagName: "h1", className: "name", text: renderDocument.fullName })}
+      ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: "headline", tagName: "p", className: "headline", text: renderDocument.headline }) : ""}
+      ${renderIdentityMeta(contactValues, "meta", mode)}
+    </header>`;
 }
 
-function renderSwissAccentHeader(renderDocument: ResumeRenderDocument, mode: RenderMode): string {
-  const contactValues = buildHeaderIdentityValues(renderDocument)
+function renderSwissAccentHeader(
+  renderDocument: ResumeRenderDocument,
+  mode: RenderMode,
+): string {
+  const contactValues = buildHeaderIdentityValues(renderDocument);
 
   return `<header class="header header-swiss-accent">
       <div class="identity-block">
-        ${renderIdentityFieldTag({ mode, field: 'fullName', tagName: 'h1', className: 'name name-left', text: renderDocument.fullName })}
-        ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: 'headline', tagName: 'p', className: 'headline headline-left', text: renderDocument.headline }) : ''}
+        ${renderIdentityFieldTag({ mode, field: "fullName", tagName: "h1", className: "name name-left", text: renderDocument.fullName })}
+        ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: "headline", tagName: "p", className: "headline headline-left", text: renderDocument.headline }) : ""}
       </div>
-      ${renderIdentityMeta(contactValues, 'meta meta-left', mode)}
-    </header>`
+      ${renderIdentityMeta(contactValues, "meta meta-left", mode)}
+    </header>`;
 }
 
 function renderExecutiveHeader(
   renderDocument: ResumeRenderDocument,
-  variant: 'credentials' | 'dense',
+  variant: "credentials" | "dense",
   mode: RenderMode,
 ): string {
-  const contactValues = buildHeaderIdentityValues(renderDocument)
+  const contactValues = buildHeaderIdentityValues(renderDocument);
 
-  return `<header class="header header-executive${variant === 'credentials' ? ' header-executive-credentials' : ''}">
+  return `<header class="header header-executive${variant === "credentials" ? " header-executive-credentials" : ""}">
       <div class="identity-block identity-block-tight">
-        ${renderIdentityFieldTag({ mode, field: 'fullName', tagName: 'h1', className: 'name', text: renderDocument.fullName })}
-        ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: 'headline', tagName: 'p', className: 'headline headline-executive', text: renderDocument.headline }) : ''}
+        ${renderIdentityFieldTag({ mode, field: "fullName", tagName: "h1", className: "name", text: renderDocument.fullName })}
+        ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: "headline", tagName: "p", className: "headline headline-executive", text: renderDocument.headline }) : ""}
       </div>
-      ${renderIdentityMeta(contactValues, 'meta-pill-list', mode, 'ul')}
-    </header>`
+      ${renderIdentityMeta(contactValues, "meta-pill-list", mode, "ul")}
+    </header>`;
 }
 
-function renderEngineeringSpecHeader(renderDocument: ResumeRenderDocument, mode: RenderMode): string {
-  const contactValues = buildHeaderIdentityValues(renderDocument)
+function renderEngineeringSpecHeader(
+  renderDocument: ResumeRenderDocument,
+  mode: RenderMode,
+): string {
+  const contactValues = buildHeaderIdentityValues(renderDocument);
 
   return `<header class="header header-spec">
       <div class="header-spec-shell">
         <div class="identity-block">
-          ${renderIdentityFieldTag({ mode, field: 'fullName', tagName: 'h1', className: 'name name-left', text: renderDocument.fullName })}
-          ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: 'headline', tagName: 'p', className: 'headline headline-left headline-spec', text: renderDocument.headline }) : ''}
+          ${renderIdentityFieldTag({ mode, field: "fullName", tagName: "h1", className: "name name-left", text: renderDocument.fullName })}
+          ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: "headline", tagName: "p", className: "headline headline-left headline-spec", text: renderDocument.headline }) : ""}
         </div>
-        ${renderIdentityMeta(contactValues, 'meta-stack', mode)}
+        ${renderIdentityMeta(contactValues, "meta-stack", mode)}
       </div>
-    </header>`
+    </header>`;
 }
 
-function renderPortfolioHeader(renderDocument: ResumeRenderDocument, mode: RenderMode): string {
-  const contactValues = buildHeaderIdentityValues(renderDocument)
+function renderPortfolioHeader(
+  renderDocument: ResumeRenderDocument,
+  mode: RenderMode,
+): string {
+  const contactValues = buildHeaderIdentityValues(renderDocument);
 
   return `<header class="header header-portfolio">
       <div class="identity-block">
-        ${renderIdentityFieldTag({ mode, field: 'fullName', tagName: 'h1', className: 'name name-left', text: renderDocument.fullName })}
-        ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: 'headline', tagName: 'p', className: 'headline headline-left headline-portfolio', text: renderDocument.headline }) : ''}
+        ${renderIdentityFieldTag({ mode, field: "fullName", tagName: "h1", className: "name name-left", text: renderDocument.fullName })}
+        ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: "headline", tagName: "p", className: "headline headline-left headline-portfolio", text: renderDocument.headline }) : ""}
       </div>
-      ${renderIdentityMeta(contactValues, 'meta-pill-list meta-pill-list-left meta-pill-list-warm', mode, 'ul')}
-    </header>`
+      ${renderIdentityMeta(contactValues, "meta-pill-list meta-pill-list-left meta-pill-list-warm", mode, "ul")}
+    </header>`;
 }
 
-function renderLongformHeader(renderDocument: ResumeRenderDocument, mode: RenderMode): string {
-  const contactValues = buildHeaderIdentityValues(renderDocument)
+function renderLongformHeader(
+  renderDocument: ResumeRenderDocument,
+  mode: RenderMode,
+): string {
+  const contactValues = buildHeaderIdentityValues(renderDocument);
 
   return `<header class="header header-longform">
       <div class="header-longform-topline header-longform-topline-contact">
-        ${renderIdentityMeta(contactValues, 'meta meta-longform', mode)}
+        ${renderIdentityMeta(contactValues, "meta meta-longform", mode)}
       </div>
       <div class="identity-block">
-        ${renderIdentityFieldTag({ mode, field: 'fullName', tagName: 'h1', className: 'name name-left name-longform', text: renderDocument.fullName })}
-        ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: 'headline', tagName: 'p', className: 'headline headline-left headline-longform', text: renderDocument.headline }) : ''}
+        ${renderIdentityFieldTag({ mode, field: "fullName", tagName: "h1", className: "name name-left name-longform", text: renderDocument.fullName })}
+        ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: "headline", tagName: "p", className: "headline headline-left headline-longform", text: renderDocument.headline }) : ""}
       </div>
-    </header>`
+    </header>`;
 }
 
-function renderCareerPivotHeader(renderDocument: ResumeRenderDocument, mode: RenderMode): string {
-  const contactValues = buildHeaderIdentityValues(renderDocument)
+function renderCareerPivotHeader(
+  renderDocument: ResumeRenderDocument,
+  mode: RenderMode,
+): string {
+  const contactValues = buildHeaderIdentityValues(renderDocument);
 
   return `<header class="header header-pivot">
       <div class="identity-block identity-block-pivot">
-        ${renderIdentityFieldTag({ mode, field: 'fullName', tagName: 'h1', className: 'name name-left name-pivot', text: renderDocument.fullName })}
-        ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: 'headline', tagName: 'p', className: 'headline headline-left headline-pivot', text: renderDocument.headline }) : ''}
+        ${renderIdentityFieldTag({ mode, field: "fullName", tagName: "h1", className: "name name-left name-pivot", text: renderDocument.fullName })}
+        ${renderDocument.headline ? renderIdentityFieldTag({ mode, field: "headline", tagName: "p", className: "headline headline-left headline-pivot", text: renderDocument.headline }) : ""}
       </div>
-      ${renderIdentityMeta(contactValues, 'meta-pill-list meta-pill-list-left meta-pill-list-pivot', mode, 'ul')}
-    </header>`
+      ${renderIdentityMeta(contactValues, "meta-pill-list meta-pill-list-left meta-pill-list-pivot", mode, "ul")}
+    </header>`;
 }
 
 function countSectionEntries(section: RenderSection | null): number {
-  return section?.entries.length ?? 0
+  return section?.entries.length ?? 0;
 }
 
 function countSectionBullets(section: RenderSection | null): number {
-  return section?.bullets.length ?? 0
+  return section?.bullets.length ?? 0;
 }
 
 function renderCareerSnapshotSection(context: TemplateRenderContext): string {
-  const formatSnapshotLabel = (singular: string, plural: string, value: number) =>
-    value === 1 ? singular : plural
+  const formatSnapshotLabel = (
+    singular: string,
+    plural: string,
+    value: number,
+  ) => (value === 1 ? singular : plural);
   const snapshotValues = [
     {
       value: countSectionEntries(context.catalog.experienceSection),
-      singularLabel: 'Role',
-      pluralLabel: 'Roles',
+      singularLabel: "Role",
+      pluralLabel: "Roles",
     },
     {
       value: countSectionEntries(context.catalog.projectSection),
-      singularLabel: 'Project',
-      pluralLabel: 'Projects',
+      singularLabel: "Project",
+      pluralLabel: "Projects",
     },
     {
       value:
         countSectionBullets(context.catalog.coreSkillsSection) +
         countSectionBullets(context.catalog.additionalSkillsSection),
-      singularLabel: 'Skill signal',
-      pluralLabel: 'Skill signals',
+      singularLabel: "Skill signal",
+      pluralLabel: "Skill signals",
     },
-  ].filter((item) => item.value > 0)
+  ].filter((item) => item.value > 0);
 
   if (snapshotValues.length === 0) {
-    return ''
+    return "";
   }
 
   return `
     <section class="section-block career-snapshot">
       <h3>Career Snapshot</h3>
       <ul class="snapshot-list">
-        ${snapshotValues.map((item) => `<li><strong>${escapeHtml(String(item.value))}</strong><span>${escapeHtml(formatSnapshotLabel(item.singularLabel, item.pluralLabel, item.value))}</span></li>`).join('')}
+        ${snapshotValues.map((item) => `<li><strong>${escapeHtml(String(item.value))}</strong><span>${escapeHtml(formatSnapshotLabel(item.singularLabel, item.pluralLabel, item.value))}</span></li>`).join("")}
       </ul>
     </section>
-  `
+  `;
 }
 
 function renderTechnicalSkillsInlineSection(
@@ -865,11 +1039,11 @@ function renderTechnicalSkillsInlineSection(
   className?: string,
 ): string {
   return renderInlineSection({
-    title: 'Skills',
+    title: "Skills",
     mode: context.mode,
     groups: context.skillGroups,
     ...(className ? { className } : {}),
-  })
+  });
 }
 
 function renderTechnicalSkillsMatrixSection(
@@ -877,11 +1051,11 @@ function renderTechnicalSkillsMatrixSection(
   className?: string,
 ): string {
   return renderSkillMatrixSection({
-    title: 'Technical Skills',
+    title: "Technical Skills",
     mode: context.mode,
     groups: context.skillGroups,
     ...(className ? { className } : {}),
-  })
+  });
 }
 
 function renderLanguagesSection(
@@ -890,328 +1064,461 @@ function renderLanguagesSection(
   className?: string,
 ): string {
   if (!section) {
-    return ''
+    return "";
   }
 
   return renderInlineSection({
-    title: 'Languages',
+    title: "Languages",
     mode,
     groups: [{ values: section.bullets, sectionId: section.id }],
     ...(className ? { className } : {}),
-  })
+  });
 }
 
 function createTemplateRenderContext(input: {
-  renderDocument: ResumeRenderDocument
-  mode: RenderMode
+  renderDocument: ResumeRenderDocument;
+  mode: RenderMode;
 }): TemplateRenderContext {
-  const catalog = buildSectionCatalog(input.renderDocument)
+  const catalog = buildSectionCatalog(input.renderDocument);
 
   return {
     renderDocument: input.renderDocument,
     catalog,
     mode: input.mode,
-    skillGroups: renderSkillGroups(catalog.coreSkillsSection, catalog.additionalSkillsSection),
+    skillGroups: renderSkillGroups(
+      catalog.coreSkillsSection,
+      catalog.additionalSkillsSection,
+    ),
     remainingSectionContent: catalog.remainingSections.map((section) =>
       renderSection(section, undefined, input.mode),
     ),
-  }
+  };
 }
 
-function buildSwissMinimalStandardLayout(context: TemplateRenderContext): TemplateLayout {
+function buildSwissMinimalStandardLayout(
+  context: TemplateRenderContext,
+): TemplateLayout {
   return {
-    templateClassName: 'theme-classic_ats',
-    pageClassName: 'page page-classic',
-    bodyClassName: 'body-grid body-grid-classic',
+    templateClassName: "theme-classic_ats",
+    pageClassName: "page page-classic",
+    bodyClassName: "body-grid body-grid-classic",
     headerMarkup: renderClassicHeader(context.renderDocument, context.mode),
     bodyContent: joinRenderedSections([
-      renderSectionCluster('section-cluster section-cluster-classic-intro', [
+      renderSectionCluster("section-cluster section-cluster-classic-intro", [
         renderSection(context.catalog.summarySection, undefined, context.mode),
         renderTechnicalSkillsInlineSection(context),
       ]),
       renderSection(context.catalog.experienceSection, undefined, context.mode),
       renderSection(context.catalog.projectSection, undefined, context.mode),
-      renderSectionCluster('section-cluster section-cluster-classic-support', [
-        renderSection(context.catalog.educationSection, 'section-subtle-card', context.mode),
-        renderSection(context.catalog.certificationSection, 'section-subtle-card', context.mode),
-        ...context.remainingSectionContent,
-        renderLanguagesSection(context.catalog.languageSection, context.mode),
-      ]),
-    ]),
-  }
-}
-
-function buildSwissMinimalAccentLayout(context: TemplateRenderContext): TemplateLayout {
-  return {
-    templateClassName: 'theme-modern_split',
-    pageClassName: 'page page-modern',
-    bodyClassName: 'body-grid body-grid-modern',
-    headerMarkup: renderSwissAccentHeader(context.renderDocument, context.mode),
-    bodyContent: joinRenderedSections([
-      renderSectionCluster('section-cluster section-intro-band', [
-        renderSummaryCallout(context.catalog.summarySection, 'section-summary-accent', context.mode),
-        renderTechnicalSkillsMatrixSection(context, 'section-surface-block'),
-      ]),
-      renderSection(context.catalog.experienceSection, 'section-timeline', context.mode),
-      renderSection(
-        context.catalog.projectSection,
-        'section-project-accent section-proof-led section-project-spotlight',
-        context.mode,
-      ),
-      renderSectionCluster('section-cluster section-cluster-supporting', [
-        renderSection(context.catalog.educationSection, 'section-subtle-card', context.mode),
-        renderSection(context.catalog.certificationSection, 'section-subtle-card', context.mode),
-        ...context.remainingSectionContent,
-        renderLanguagesSection(context.catalog.languageSection, context.mode),
-      ]),
-    ]),
-  }
-}
-
-function buildExecutiveBriefDenseLayout(context: TemplateRenderContext): TemplateLayout {
-  return {
-    templateClassName: 'theme-compact_exec',
-    pageClassName: 'page page-compact',
-    bodyClassName: 'body-grid body-grid-compact',
-    headerMarkup: renderExecutiveHeader(context.renderDocument, 'dense', context.mode),
-    bodyContent: joinRenderedSections([
-      renderSectionCluster('section-cluster section-executive-intro', [
-        renderSummaryCallout(
-          context.catalog.summarySection,
-          'section-summary-tight section-summary-elevated',
+      renderSectionCluster("section-cluster section-cluster-classic-support", [
+        renderSection(
+          context.catalog.educationSection,
+          "section-subtle-card",
           context.mode,
         ),
-        renderTechnicalSkillsInlineSection(context, 'section-executive-rundown'),
+        renderSection(
+          context.catalog.certificationSection,
+          "section-subtle-card",
+          context.mode,
+        ),
+        ...context.remainingSectionContent,
+        renderLanguagesSection(context.catalog.languageSection, context.mode),
+      ]),
+    ]),
+  };
+}
+
+function buildSwissMinimalAccentLayout(
+  context: TemplateRenderContext,
+): TemplateLayout {
+  return {
+    templateClassName: "theme-modern_split",
+    pageClassName: "page page-modern",
+    bodyClassName: "body-grid body-grid-modern",
+    headerMarkup: renderSwissAccentHeader(context.renderDocument, context.mode),
+    bodyContent: joinRenderedSections([
+      renderSectionCluster("section-cluster section-intro-band", [
+        renderSummaryCallout(
+          context.catalog.summarySection,
+          "section-summary-accent",
+          context.mode,
+        ),
+        renderTechnicalSkillsMatrixSection(context, "section-surface-block"),
       ]),
       renderSection(
         context.catalog.experienceSection,
-        'section-timeline section-dense-chronology',
+        "section-timeline",
         context.mode,
       ),
-      renderSection(context.catalog.projectSection, 'section-proof-led section-proof-compact', context.mode),
-      renderSectionCluster('section-cluster section-cluster-compact-support', [
+      renderSection(
+        context.catalog.projectSection,
+        "section-project-accent section-proof-led section-project-spotlight",
+        context.mode,
+      ),
+      renderSectionCluster("section-cluster section-cluster-supporting", [
         renderSection(
           context.catalog.educationSection,
-          'section-subtle-card section-subtle-card-tight',
+          "section-subtle-card",
           context.mode,
         ),
         renderSection(
           context.catalog.certificationSection,
-          'section-subtle-card section-subtle-card-tight',
+          "section-subtle-card",
           context.mode,
         ),
         ...context.remainingSectionContent,
         renderLanguagesSection(context.catalog.languageSection, context.mode),
       ]),
     ]),
-  }
+  };
 }
 
-function buildExecutiveBriefCredentialsLayout(context: TemplateRenderContext): TemplateLayout {
+function buildExecutiveBriefDenseLayout(
+  context: TemplateRenderContext,
+): TemplateLayout {
   return {
-    templateClassName: 'theme-credentials_focus',
-    pageClassName: 'page page-credentials',
-    bodyClassName: 'body-grid body-grid-credentials',
-    headerMarkup: renderExecutiveHeader(context.renderDocument, 'credentials', context.mode),
+    templateClassName: "theme-compact_exec",
+    pageClassName: "page page-compact",
+    bodyClassName: "body-grid body-grid-compact",
+    headerMarkup: renderExecutiveHeader(
+      context.renderDocument,
+      "dense",
+      context.mode,
+    ),
     bodyContent: joinRenderedSections([
-      renderSectionCluster('section-cluster section-credential-spotlight', [
-        renderSection(
-          context.catalog.certificationSection,
-          'section-credential-grid section-credential-spotlight-surface',
-          context.mode,
-        ),
-        renderSection(
-          context.catalog.educationSection,
-          'section-credential-grid section-credential-spotlight-surface',
-          context.mode,
-        ),
-      ]),
-      renderSectionCluster('section-cluster section-executive-intro', [
+      renderSectionCluster("section-cluster section-executive-intro", [
         renderSummaryCallout(
           context.catalog.summarySection,
-          'section-summary-tight section-summary-elevated',
+          "section-summary-tight section-summary-elevated",
           context.mode,
         ),
-        renderTechnicalSkillsInlineSection(context, 'section-executive-rundown'),
+        renderTechnicalSkillsInlineSection(
+          context,
+          "section-executive-rundown",
+        ),
       ]),
-      renderSection(context.catalog.experienceSection, 'section-timeline', context.mode),
-      renderSection(context.catalog.projectSection, 'section-proof-led', context.mode),
-      renderSectionCluster('section-cluster section-cluster-supporting', [
+      renderSection(
+        context.catalog.experienceSection,
+        "section-timeline section-dense-chronology",
+        context.mode,
+      ),
+      renderSection(
+        context.catalog.projectSection,
+        "section-proof-led section-proof-compact",
+        context.mode,
+      ),
+      renderSectionCluster("section-cluster section-cluster-compact-support", [
+        renderSection(
+          context.catalog.educationSection,
+          "section-subtle-card section-subtle-card-tight",
+          context.mode,
+        ),
+        renderSection(
+          context.catalog.certificationSection,
+          "section-subtle-card section-subtle-card-tight",
+          context.mode,
+        ),
         ...context.remainingSectionContent,
         renderLanguagesSection(context.catalog.languageSection, context.mode),
       ]),
     ]),
-  }
+  };
 }
 
-function buildEngineeringSpecLayout(context: TemplateRenderContext): TemplateLayout {
+function buildExecutiveBriefCredentialsLayout(
+  context: TemplateRenderContext,
+): TemplateLayout {
   return {
-    templateClassName: 'theme-technical_matrix',
-    pageClassName: 'page page-technical',
-    bodyClassName: 'body-grid body-grid-technical',
-    headerMarkup: renderEngineeringSpecHeader(context.renderDocument, context.mode),
+    templateClassName: "theme-credentials_focus",
+    pageClassName: "page page-credentials",
+    bodyClassName: "body-grid body-grid-credentials",
+    headerMarkup: renderExecutiveHeader(
+      context.renderDocument,
+      "credentials",
+      context.mode,
+    ),
     bodyContent: joinRenderedSections([
-      renderSectionCluster('section-cluster section-spec-lead', [
+      renderSectionCluster("section-cluster section-credential-spotlight", [
+        renderSection(
+          context.catalog.certificationSection,
+          "section-credential-grid section-credential-spotlight-surface",
+          context.mode,
+        ),
+        renderSection(
+          context.catalog.educationSection,
+          "section-credential-grid section-credential-spotlight-surface",
+          context.mode,
+        ),
+      ]),
+      renderSectionCluster("section-cluster section-executive-intro", [
+        renderSummaryCallout(
+          context.catalog.summarySection,
+          "section-summary-tight section-summary-elevated",
+          context.mode,
+        ),
+        renderTechnicalSkillsInlineSection(
+          context,
+          "section-executive-rundown",
+        ),
+      ]),
+      renderSection(
+        context.catalog.experienceSection,
+        "section-timeline",
+        context.mode,
+      ),
+      renderSection(
+        context.catalog.projectSection,
+        "section-proof-led",
+        context.mode,
+      ),
+      renderSectionCluster("section-cluster section-cluster-supporting", [
+        ...context.remainingSectionContent,
+        renderLanguagesSection(context.catalog.languageSection, context.mode),
+      ]),
+    ]),
+  };
+}
+
+function buildEngineeringSpecLayout(
+  context: TemplateRenderContext,
+): TemplateLayout {
+  return {
+    templateClassName: "theme-technical_matrix",
+    pageClassName: "page page-technical",
+    bodyClassName: "body-grid body-grid-technical",
+    headerMarkup: renderEngineeringSpecHeader(
+      context.renderDocument,
+      context.mode,
+    ),
+    bodyContent: joinRenderedSections([
+      renderSectionCluster("section-cluster section-spec-lead", [
         renderTechnicalSkillsMatrixSection(
           context,
-          'section-technical-matrix section-spec-shell',
+          "section-technical-matrix section-spec-shell",
         ),
         renderSummaryCallout(
           context.catalog.summarySection,
-          'section-summary-tight section-spec-shell',
+          "section-summary-tight section-spec-shell",
           context.mode,
         ),
       ]),
-      renderSection(context.catalog.experienceSection, 'section-timeline section-spec-chronology', context.mode),
-      renderSection(context.catalog.projectSection, 'section-proof-led section-spec-projects', context.mode),
-      renderSectionCluster('section-cluster section-spec-supporting', [
+      renderSection(
+        context.catalog.experienceSection,
+        "section-timeline section-spec-chronology",
+        context.mode,
+      ),
+      renderSection(
+        context.catalog.projectSection,
+        "section-proof-led section-spec-projects",
+        context.mode,
+      ),
+      renderSectionCluster("section-cluster section-spec-supporting", [
         renderSection(
           context.catalog.certificationSection,
-          'section-credential-grid section-spec-shell',
+          "section-credential-grid section-spec-shell",
           context.mode,
         ),
-        renderSection(context.catalog.educationSection, 'section-subtle-card section-spec-shell', context.mode),
+        renderSection(
+          context.catalog.educationSection,
+          "section-subtle-card section-spec-shell",
+          context.mode,
+        ),
         ...context.remainingSectionContent,
         renderLanguagesSection(context.catalog.languageSection, context.mode),
       ]),
     ]),
-  }
+  };
 }
 
-function buildPortfolioNarrativeLayout(context: TemplateRenderContext): TemplateLayout {
+function buildPortfolioNarrativeLayout(
+  context: TemplateRenderContext,
+): TemplateLayout {
   return {
-    templateClassName: 'theme-project_showcase',
-    pageClassName: 'page page-projects',
-    bodyClassName: 'body-grid body-grid-projects',
+    templateClassName: "theme-project_showcase",
+    pageClassName: "page page-projects",
+    bodyClassName: "body-grid body-grid-projects",
     headerMarkup: renderPortfolioHeader(context.renderDocument, context.mode),
     bodyContent: joinRenderedSections([
-      renderSectionCluster('section-cluster section-portfolio-hero', [
+      renderSectionCluster("section-cluster section-portfolio-hero", [
         renderSection(
           context.catalog.projectSection,
-          'section-project-accent section-proof-led section-project-spotlight section-portfolio-highlight',
+          "section-project-accent section-proof-led section-project-spotlight section-portfolio-highlight",
           context.mode,
         ),
-        renderSummaryCallout(context.catalog.summarySection, 'section-portfolio-narrative', context.mode),
+        renderSummaryCallout(
+          context.catalog.summarySection,
+          "section-portfolio-narrative",
+          context.mode,
+        ),
       ]),
-      renderSection(context.catalog.experienceSection, 'section-timeline section-portfolio-chronology', context.mode),
-      renderTechnicalSkillsMatrixSection(context, 'section-surface-block section-portfolio-skills'),
-      renderSectionCluster('section-cluster section-portfolio-supporting', [
-        renderSection(context.catalog.educationSection, 'section-subtle-card', context.mode),
-        renderSection(context.catalog.certificationSection, 'section-subtle-card', context.mode),
+      renderSection(
+        context.catalog.experienceSection,
+        "section-timeline section-portfolio-chronology",
+        context.mode,
+      ),
+      renderTechnicalSkillsMatrixSection(
+        context,
+        "section-surface-block section-portfolio-skills",
+      ),
+      renderSectionCluster("section-cluster section-portfolio-supporting", [
+        renderSection(
+          context.catalog.educationSection,
+          "section-subtle-card",
+          context.mode,
+        ),
+        renderSection(
+          context.catalog.certificationSection,
+          "section-subtle-card",
+          context.mode,
+        ),
         ...context.remainingSectionContent,
         renderLanguagesSection(context.catalog.languageSection, context.mode),
       ]),
     ]),
-  }
+  };
 }
 
-function buildLongformTimelineLayout(context: TemplateRenderContext): TemplateLayout {
+function buildLongformTimelineLayout(
+  context: TemplateRenderContext,
+): TemplateLayout {
   return {
-    templateClassName: 'theme-timeline_longform',
-    pageClassName: 'page page-longform',
-    bodyClassName: 'body-grid body-grid-longform',
+    templateClassName: "theme-timeline_longform",
+    pageClassName: "page page-longform",
+    bodyClassName: "body-grid body-grid-longform",
     headerMarkup: renderLongformHeader(context.renderDocument, context.mode),
     bodyContent: joinRenderedSections([
-      renderSectionCluster('section-cluster section-longform-orientation', [
+      renderSectionCluster("section-cluster section-longform-orientation", [
         renderCareerSnapshotSection(context),
         renderSummaryCallout(
           context.catalog.summarySection,
-          'section-summary-tight section-longform-summary',
+          "section-summary-tight section-longform-summary",
           context.mode,
         ),
-        renderTechnicalSkillsInlineSection(context, 'section-longform-skills'),
+        renderTechnicalSkillsInlineSection(context, "section-longform-skills"),
       ]),
       renderSection(
         context.catalog.experienceSection,
-        'section-timeline section-longform-chronology',
+        "section-timeline section-longform-chronology",
         context.mode,
       ),
-      renderSectionCluster('section-cluster section-longform-proof', [
-        renderSection(context.catalog.projectSection, 'section-proof-led section-proof-compact', context.mode),
-        renderSection(context.catalog.certificationSection, 'section-subtle-card section-subtle-card-tight', context.mode),
-        renderSection(context.catalog.educationSection, 'section-subtle-card section-subtle-card-tight', context.mode),
+      renderSectionCluster("section-cluster section-longform-proof", [
+        renderSection(
+          context.catalog.projectSection,
+          "section-proof-led section-proof-compact",
+          context.mode,
+        ),
+        renderSection(
+          context.catalog.certificationSection,
+          "section-subtle-card section-subtle-card-tight",
+          context.mode,
+        ),
+        renderSection(
+          context.catalog.educationSection,
+          "section-subtle-card section-subtle-card-tight",
+          context.mode,
+        ),
         ...context.remainingSectionContent,
         renderLanguagesSection(context.catalog.languageSection, context.mode),
       ]),
     ]),
-  }
+  };
 }
 
-function buildCareerPivotLayout(context: TemplateRenderContext): TemplateLayout {
+function buildCareerPivotLayout(
+  context: TemplateRenderContext,
+): TemplateLayout {
   return {
-    templateClassName: 'theme-career_pivot',
-    pageClassName: 'page page-pivot',
-    bodyClassName: 'body-grid body-grid-pivot',
+    templateClassName: "theme-career_pivot",
+    pageClassName: "page page-pivot",
+    bodyClassName: "body-grid body-grid-pivot",
     headerMarkup: renderCareerPivotHeader(context.renderDocument, context.mode),
     bodyContent: joinRenderedSections([
-      renderSectionCluster('section-cluster section-pivot-bridge', [
-        renderSummaryCallout(context.catalog.summarySection, 'section-pivot-summary', context.mode),
-        renderTechnicalSkillsMatrixSection(context, 'section-surface-block section-pivot-skills'),
+      renderSectionCluster("section-cluster section-pivot-bridge", [
+        renderSummaryCallout(
+          context.catalog.summarySection,
+          "section-pivot-summary",
+          context.mode,
+        ),
+        renderTechnicalSkillsMatrixSection(
+          context,
+          "section-surface-block section-pivot-skills",
+        ),
       ]),
       renderSection(
         context.catalog.projectSection,
-        'section-project-accent section-proof-led section-pivot-proof',
+        "section-project-accent section-proof-led section-pivot-proof",
         context.mode,
       ),
       renderSection(
         context.catalog.experienceSection,
-        'section-timeline section-pivot-chronology',
+        "section-timeline section-pivot-chronology",
         context.mode,
       ),
-      renderSectionCluster('section-cluster section-pivot-supporting', [
-        renderSection(context.catalog.certificationSection, 'section-subtle-card', context.mode),
-        renderSection(context.catalog.educationSection, 'section-subtle-card', context.mode),
+      renderSectionCluster("section-cluster section-pivot-supporting", [
+        renderSection(
+          context.catalog.certificationSection,
+          "section-subtle-card",
+          context.mode,
+        ),
+        renderSection(
+          context.catalog.educationSection,
+          "section-subtle-card",
+          context.mode,
+        ),
         ...context.remainingSectionContent,
         renderLanguagesSection(context.catalog.languageSection, context.mode),
       ]),
     ]),
-  }
+  };
 }
 
 function buildTemplateLayout(input: {
-  renderDocument: ResumeRenderDocument
-  templateId: ResumeTemplateId
-  mode?: 'catalog' | 'export' | 'preview'
+  renderDocument: ResumeRenderDocument;
+  templateId: ResumeTemplateId;
+  mode?: "catalog" | "export" | "preview";
 }): TemplateLayout {
   const context = createTemplateRenderContext({
     renderDocument: input.renderDocument,
-    mode: input.mode ?? 'export',
-  })
+    mode: input.mode ?? "export",
+  });
 
   switch (input.templateId) {
-    case 'compact_exec':
-      return buildExecutiveBriefDenseLayout(context)
-    case 'modern_split':
-      return buildSwissMinimalAccentLayout(context)
-    case 'technical_matrix':
-      return buildEngineeringSpecLayout(context)
-    case 'project_showcase':
-      return buildPortfolioNarrativeLayout(context)
-    case 'credentials_focus':
-      return buildExecutiveBriefCredentialsLayout(context)
-    case 'timeline_longform':
-      return buildLongformTimelineLayout(context)
-    case 'career_pivot':
-      return buildCareerPivotLayout(context)
-    case 'classic_ats':
+    case "compact_exec":
+      return buildExecutiveBriefDenseLayout(context);
+    case "modern_split":
+      return buildSwissMinimalAccentLayout(context);
+    case "technical_matrix":
+      return buildEngineeringSpecLayout(context);
+    case "project_showcase":
+      return buildPortfolioNarrativeLayout(context);
+    case "credentials_focus":
+      return buildExecutiveBriefCredentialsLayout(context);
+    case "timeline_longform":
+      return buildLongformTimelineLayout(context);
+    case "career_pivot":
+      return buildCareerPivotLayout(context);
+    case "classic_ats":
     default:
-      return buildSwissMinimalStandardLayout(context)
+      return buildSwissMinimalStandardLayout(context);
   }
 }
 
-export function renderResumeTemplateHtml(input: {
-  renderDocument: ResumeRenderDocument
-  settings: JobFinderSettings
-  templateId: ResumeTemplateId
-}, options?: ResumeRenderHtmlOptions): string {
-  const mode = options?.mode ?? 'export'
-  const catalogLayout = options?.catalogLayout ?? 'thumbnail'
-  const fontFamily = formatFontFamily(input.settings.fontPreset)
+export function renderResumeTemplateHtml(
+  input: {
+    renderDocument: ResumeRenderDocument;
+    settings: JobFinderSettings;
+    templateId: ResumeTemplateId;
+  },
+  options?: ResumeRenderHtmlOptions,
+): string {
+  const mode = options?.mode ?? "export";
+  const catalogLayout = options?.catalogLayout ?? "thumbnail";
+  const fontFamily = formatFontFamily(input.settings.fontPreset);
   const layout = buildTemplateLayout({
     ...input,
     mode,
-  })
-  const templateDefinition = getLocalResumeTemplateDefinition(input.templateId)
+  });
+  const templateDefinition = getLocalResumeTemplateDefinition(input.templateId);
   const sharedStyles = `
     @page {
       size: Letter;
@@ -1451,13 +1758,14 @@ export function renderResumeTemplateHtml(input: {
       .header, .entry-block, h3, h4, .skill-group { break-inside: avoid; page-break-inside: avoid; }
       a { color: inherit; text-decoration: none; }
     }
-    ${mode === 'preview'
-      ? `
+    ${
+      mode === "preview"
+        ? `
     html, body.preview-body {
       height: 100%;
     }
     body.preview-body {
-      --preview-scale: min(1, calc((100vw - 1.25rem) / 8.5in), calc((100% - 0.9rem) / 11in));
+      --preview-scale: 1;
       background: var(--resume-preview-canvas);
       min-height: 100%;
       padding: 0;
@@ -1483,9 +1791,11 @@ export function renderResumeTemplateHtml(input: {
     [data-resume-section-id][data-resume-selected="true"], [data-resume-entry-id][data-resume-selected="true"], [data-resume-target-id][data-resume-selected="true"] { box-shadow: 0 0 0 1px var(--resume-selected-shadow); background: var(--resume-selected-surface); }
     [data-resume-section-id]:hover, [data-resume-entry-id]:hover, [data-resume-target-id]:hover, [data-resume-section-id]:focus-visible, [data-resume-entry-id]:focus-visible, [data-resume-target-id]:focus-visible { box-shadow: 0 0 0 1px var(--resume-hover-shadow); background: var(--resume-hover-surface); outline: none; }
       `
-      : ''}
-    ${mode === 'catalog'
-      ? `
+        : ""
+    }
+    ${
+      mode === "catalog"
+        ? `
     body.catalog-body { margin: 0; overflow: hidden; }
     body.catalog-body.catalog-body-thumbnail { background: transparent; }
     .catalog-shell { overflow: hidden; }
@@ -1547,24 +1857,25 @@ export function renderResumeTemplateHtml(input: {
     .catalog-body-panel p,
     .catalog-body-panel li { line-height: 1.28; }
       `
-      : ''}
-  `
+        : ""
+    }
+  `;
 
   const articleMarkup = `<article class="${layout.pageClassName} ${layout.templateClassName}" data-ats-safe="true">
       ${layout.headerMarkup}
       <div class="${layout.bodyClassName}">
         ${layout.bodyContent}
       </div>
-    </article>`
+    </article>`;
 
   const bodyClassName = [
-    mode === 'preview' ? 'preview-body' : null,
-    mode === 'catalog' ? 'catalog-body' : null,
-    mode === 'catalog' ? `catalog-body-${catalogLayout}` : null,
+    mode === "preview" ? "preview-body" : null,
+    mode === "catalog" ? "catalog-body" : null,
+    mode === "catalog" ? `catalog-body-${catalogLayout}` : null,
   ]
     .filter(Boolean)
-    .join(' ')
-  const catalogShellClassName = `catalog-shell catalog-shell-${catalogLayout}`
+    .join(" ");
+  const catalogShellClassName = `catalog-shell catalog-shell-${catalogLayout}`;
 
   return `<!doctype html>
 <html lang="en">
@@ -1576,197 +1887,223 @@ export function renderResumeTemplateHtml(input: {
       ${sharedStyles}
     </style>
   </head>
-  <body${bodyClassName ? ` class="${bodyClassName}"` : ''}>
-    ${mode === 'catalog' ? `<div class="${catalogShellClassName}">${articleMarkup}</div>` : mode === 'preview' ? `<div class="preview-shell">${articleMarkup}</div>` : articleMarkup}
+  <body${bodyClassName ? ` class="${bodyClassName}"` : ""}>
+    ${mode === "catalog" ? `<div class="${catalogShellClassName}">${articleMarkup}</div>` : mode === "preview" ? `<div class="preview-shell">${articleMarkup}</div>` : articleMarkup}
   </body>
-</html>`
+</html>`;
 }
 
 const catalogPreviewDocument: ResumeRenderDocument = {
-  fullName: 'John Doe',
-  headline: 'Senior platform engineer',
-  location: 'Austin, TX',
-  contactItems: [{ field: 'email', text: 'john@example.com | john-doe.dev' }],
+  fullName: "John Doe",
+  headline: "Senior platform engineer",
+  location: "Austin, TX",
+  contactItems: [{ field: "email", text: "john@example.com | john-doe.dev" }],
   sections: [
     {
-      id: 'section_summary',
-      kind: 'summary',
-      label: 'Summary',
-      text:
-        'Builds reliable developer platforms and internal hiring tools that remove manual operational drag.',
+      id: "section_summary",
+      kind: "summary",
+      label: "Summary",
+      text: "Builds reliable developer platforms and internal hiring tools that remove manual operational drag.",
       bullets: [],
       entries: [],
     },
     {
-      id: 'section_core_skills',
-      kind: 'skills',
-      label: 'Core Skills',
+      id: "section_core_skills",
+      kind: "skills",
+      label: "Core Skills",
       text: null,
       bullets: [
-        { id: 'preview_skill_1', text: 'TypeScript' },
-        { id: 'preview_skill_2', text: 'Distributed Systems' },
-        { id: 'preview_skill_3', text: 'AWS' },
-        { id: 'preview_skill_4', text: 'React' },
+        { id: "preview_skill_1", text: "TypeScript" },
+        { id: "preview_skill_2", text: "Distributed Systems" },
+        { id: "preview_skill_3", text: "AWS" },
+        { id: "preview_skill_4", text: "React" },
       ],
       entries: [],
     },
     {
-      id: 'section_additional_skills',
-      kind: 'skills',
-      label: 'Additional Skills',
+      id: "section_additional_skills",
+      kind: "skills",
+      label: "Additional Skills",
       text: null,
-      bullets: [{ id: 'preview_add_skill_1', text: 'Playwright' }, { id: 'preview_add_skill_2', text: 'CI/CD' }],
+      bullets: [
+        { id: "preview_add_skill_1", text: "Playwright" },
+        { id: "preview_add_skill_2", text: "CI/CD" },
+      ],
       entries: [],
     },
     {
-      id: 'section_experience',
-      kind: 'experience',
-      label: 'Experience',
+      id: "section_experience",
+      kind: "experience",
+      label: "Experience",
       text: null,
       bullets: [],
       entries: [
         {
-          id: 'entry_preview_experience',
-          title: 'Senior platform engineer',
-          subtitle: 'Northstar',
+          id: "entry_preview_experience",
+          title: "Senior platform engineer",
+          subtitle: "Northstar",
           location: null,
-          dateRange: '2021 - Present',
-          startDate: '2021',
+          dateRange: "2021 - Present",
+          startDate: "2021",
           endDate: null,
           isCurrent: true,
-          heading: 'Senior platform engineer | Northstar | 2021 - Present',
-          summary: 'Leads platform reliability, workflow automation, and internal developer tooling.',
-          bullets: [{ id: 'preview_exp_bullet_1', text: 'Cut deployment rollback time by 43% through safer release automation.' }],
+          heading: "Senior platform engineer | Northstar | 2021 - Present",
+          summary:
+            "Leads platform reliability, workflow automation, and internal developer tooling.",
+          bullets: [
+            {
+              id: "preview_exp_bullet_1",
+              text: "Cut deployment rollback time by 43% through safer release automation.",
+            },
+          ],
         },
         {
-          id: 'entry_preview_experience_previous',
-          title: 'Software engineer',
-          subtitle: 'Beacon Labs',
+          id: "entry_preview_experience_previous",
+          title: "Software engineer",
+          subtitle: "Beacon Labs",
           location: null,
-          dateRange: '2018 - 2021',
-          startDate: '2018',
-          endDate: '2021',
+          dateRange: "2018 - 2021",
+          startDate: "2018",
+          endDate: "2021",
           isCurrent: false,
-          heading: 'Software engineer | Beacon Labs | 2018 - 2021',
-          summary: 'Shipped customer-facing product workflows and API integrations for growth teams.',
+          heading: "Software engineer | Beacon Labs | 2018 - 2021",
+          summary:
+            "Shipped customer-facing product workflows and API integrations for growth teams.",
           bullets: [],
         },
       ],
     },
     {
-      id: 'section_projects',
-      kind: 'projects',
-      label: 'Projects',
+      id: "section_projects",
+      kind: "projects",
+      label: "Projects",
       text: null,
       bullets: [],
       entries: [
         {
-          id: 'entry_preview_project',
-          title: 'Interview copilot',
-          subtitle: 'Technical lead',
+          id: "entry_preview_project",
+          title: "Interview copilot",
+          subtitle: "Technical lead",
           location: null,
           dateRange: null,
           startDate: null,
           endDate: null,
           isCurrent: false,
-          heading: 'Interview copilot | Technical lead',
-          summary: 'Built an interview prep workspace with typed prompts, scoring, and export flows.',
-          bullets: [{ id: 'preview_project_bullet_1', text: 'Increased weekly returning users by 28%.' }],
+          heading: "Interview copilot | Technical lead",
+          summary:
+            "Built an interview prep workspace with typed prompts, scoring, and export flows.",
+          bullets: [
+            {
+              id: "preview_project_bullet_1",
+              text: "Increased weekly returning users by 28%.",
+            },
+          ],
         },
         {
-          id: 'entry_preview_project_second',
-          title: 'Hiring pipeline analytics',
-          subtitle: 'Builder',
+          id: "entry_preview_project_second",
+          title: "Hiring pipeline analytics",
+          subtitle: "Builder",
           location: null,
           dateRange: null,
           startDate: null,
           endDate: null,
           isCurrent: false,
-          heading: 'Hiring pipeline analytics | Builder',
-          summary: 'Created dashboards that surfaced interview bottlenecks and approval lag.',
+          heading: "Hiring pipeline analytics | Builder",
+          summary:
+            "Created dashboards that surfaced interview bottlenecks and approval lag.",
           bullets: [],
         },
       ],
     },
     {
-      id: 'section_certifications',
-      kind: 'certifications',
-      label: 'Certifications',
+      id: "section_certifications",
+      kind: "certifications",
+      label: "Certifications",
       text: null,
       bullets: [],
       entries: [
         {
-          id: 'entry_preview_certification',
-          title: 'AWS Certified Developer',
-          subtitle: 'Amazon Web Services',
+          id: "entry_preview_certification",
+          title: "AWS Certified Developer",
+          subtitle: "Amazon Web Services",
           location: null,
-          dateRange: '2024',
-          startDate: '2024',
+          dateRange: "2024",
+          startDate: "2024",
           endDate: null,
           isCurrent: false,
-          heading: 'AWS Certified Developer | Amazon Web Services | 2024',
+          heading: "AWS Certified Developer | Amazon Web Services | 2024",
           summary: null,
-          bullets: [{ id: 'preview_cert_bullet_1', text: 'Validated cloud delivery and systems operations depth.' }],
+          bullets: [
+            {
+              id: "preview_cert_bullet_1",
+              text: "Validated cloud delivery and systems operations depth.",
+            },
+          ],
         },
       ],
     },
     {
-      id: 'section_education',
-      kind: 'education',
-      label: 'Education',
+      id: "section_education",
+      kind: "education",
+      label: "Education",
       text: null,
       bullets: [],
       entries: [
         {
-          id: 'entry_preview_education',
-          title: 'BSc Computer Science',
-          subtitle: 'University of Texas',
+          id: "entry_preview_education",
+          title: "BSc Computer Science",
+          subtitle: "University of Texas",
           location: null,
-          dateRange: '2018',
-          startDate: '2018',
+          dateRange: "2018",
+          startDate: "2018",
           endDate: null,
           isCurrent: false,
-          heading: 'BSc Computer Science | University of Texas | 2018',
+          heading: "BSc Computer Science | University of Texas | 2018",
           summary: null,
-          bullets: [{ id: 'preview_edu_bullet_1', text: 'Focused on distributed systems and human-centered tooling.' }],
+          bullets: [
+            {
+              id: "preview_edu_bullet_1",
+              text: "Focused on distributed systems and human-centered tooling.",
+            },
+          ],
         },
       ],
     },
     {
-      id: 'section_languages',
-      kind: 'skills',
-      label: 'Languages',
+      id: "section_languages",
+      kind: "skills",
+      label: "Languages",
       text: null,
       bullets: [
-        { id: 'preview_lang_1', text: 'English - Native' },
-        { id: 'preview_lang_2', text: 'Spanish - Professional' },
+        { id: "preview_lang_1", text: "English - Native" },
+        { id: "preview_lang_2", text: "Spanish - Professional" },
       ],
       entries: [],
     },
   ],
-}
+};
 
 export function renderResumeTemplateCatalogPreviewHtml(
   templateId: ResumeTemplateId,
-  options?: { layout?: 'thumbnail' | 'panel' },
+  options?: { layout?: "thumbnail" | "panel" },
 ): string {
   return renderResumeTemplateHtml(
     {
       renderDocument: catalogPreviewDocument,
       templateId,
       settings: {
-        resumeFormat: 'pdf',
+        resumeFormat: "pdf",
         resumeTemplateId: templateId,
-        fontPreset: 'inter_requisite',
-        appearanceTheme: 'system',
+        fontPreset: "inter_requisite",
+        appearanceTheme: "system",
         humanReviewRequired: true,
         allowAutoSubmitOverride: false,
         keepSessionAlive: false,
         discoveryOnly: false,
       },
     },
-    { mode: 'catalog', catalogLayout: options?.layout ?? 'thumbnail' },
-  )
+    { mode: "catalog", catalogLayout: options?.layout ?? "thumbnail" },
+  );
 }
 
-export { listLocalResumeTemplates } from './job-finder-resume-catalog'
+export { listLocalResumeTemplates } from "./job-finder-resume-catalog";

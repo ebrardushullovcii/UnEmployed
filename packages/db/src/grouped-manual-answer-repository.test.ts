@@ -48,6 +48,7 @@ function createApplicationScope(input: {
     type: "application",
     runId: input.runId,
     jobId: input.jobId,
+    applicationRecordId: null,
     resultId: input.resultId,
     replayCheckpointId: null,
     source: "target_site",

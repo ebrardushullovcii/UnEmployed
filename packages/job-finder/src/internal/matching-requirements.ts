@@ -8,6 +8,10 @@ import type {
 
 import type { MatchAssessmentPostingInput } from "./match-assessment-posting-input";
 import { buildEligibilityRequirementAssessments } from "./matching-eligibility";
+import type {
+  LocationCompatibilityState,
+  WorkModeCompatibilityState,
+} from "./matching";
 import { normalizeText, uniqueStrings } from "./shared";
 
 const technologySignals = [
@@ -722,8 +726,8 @@ function requirementId(category: string, label: string): string {
 export function buildRequirementEvidenceAssessment(input: {
   profile: CandidateProfile;
   posting: MatchAssessmentPostingInput;
-  matchesLocation: boolean;
-  matchesWorkMode: boolean;
+  locationCompatibility: LocationCompatibilityState;
+  workModeCompatibility: WorkModeCompatibilityState;
   hasLocationPreferences: boolean;
   hasWorkModePreferences: boolean;
 }): JobRequirementAssessment[] {
@@ -1123,11 +1127,22 @@ export function buildRequirementEvidenceAssessment(input: {
   );
 
   if (input.hasLocationPreferences) {
-    const locationStatus = input.matchesLocation
-      ? "supported"
-      : profile.workEligibility.willingToRelocate === false
-        ? "conflict"
-        : "unknown";
+    const locationStatus: JobRequirementAssessment["status"] =
+      input.locationCompatibility === "compatible"
+        ? "supported"
+        : input.locationCompatibility === "unknown"
+          ? "unknown"
+          : profile.workEligibility.willingToRelocate === false
+            ? "conflict"
+            : "unknown";
+    const locationExplanation =
+      input.locationCompatibility === "compatible"
+        ? "The listing location is compatible with the saved search area."
+        : input.locationCompatibility === "unknown"
+          ? "The listing does not specify enough geographic detail to verify it against the saved search areas."
+          : profile.workEligibility.willingToRelocate === false
+            ? "The listing location is outside the saved search area and the profile rules out relocation."
+            : "The listing location is outside the saved search area; relocation needs confirmation.";
     requirements.push({
       id: requirementId("location", posting.location),
       category: "location",
@@ -1135,31 +1150,32 @@ export function buildRequirementEvidenceAssessment(input: {
       importance: "required",
       status: locationStatus,
       jobEvidence: posting.location,
-      resumeEvidence: [
-        {
-          sourceKind: "profile",
-          sourceId: profile.id,
-          label: "Current location",
-          detail: profile.currentLocation,
-        },
-      ],
-      explanation: input.matchesLocation
-        ? "The listing location is compatible with the saved search area."
-        : profile.workEligibility.willingToRelocate === false
-          ? "The listing location is outside the saved search area and the profile rules out relocation."
-          : "The listing location is outside the saved search area; relocation needs confirmation.",
+      resumeEvidence: profile.currentLocation
+        ? [
+            {
+              sourceKind: "profile",
+              sourceId: profile.id,
+              label: "Current location",
+              detail: profile.currentLocation,
+            },
+          ]
+        : [],
+      explanation: locationExplanation,
     });
   }
 
   if (input.hasWorkModePreferences && posting.workMode.length > 0) {
     const isRemotePosting = posting.workMode.includes("remote");
-    const workModeStatus = !input.matchesWorkMode
-      ? "conflict"
-      : isRemotePosting && profile.workEligibility.remoteEligible === false
+    const workModeStatus =
+      input.workModeCompatibility === "conflict"
         ? "conflict"
-        : isRemotePosting && profile.workEligibility.remoteEligible === null
+        : input.workModeCompatibility === "unknown"
           ? "unknown"
-          : "supported";
+          : isRemotePosting && profile.workEligibility.remoteEligible === false
+            ? "conflict"
+            : isRemotePosting && profile.workEligibility.remoteEligible === null
+              ? "unknown"
+              : "supported";
     requirements.push({
       id: requirementId("work_mode", posting.workMode.join(" ")),
       category: "work_mode",
@@ -1182,13 +1198,16 @@ export function buildRequirementEvidenceAssessment(input: {
                 : "The profile does not confirm remote-work eligibility.",
         },
       ],
-      explanation: !input.matchesWorkMode
-        ? "The listing work mode conflicts with the saved preference."
-        : isRemotePosting && profile.workEligibility.remoteEligible === null
-          ? "The listing matches the saved remote-work preference, but remote-work eligibility is not confirmed in the profile."
-          : isRemotePosting && profile.workEligibility.remoteEligible === false
-            ? "The listing is remote, but the profile does not confirm remote-work eligibility."
-            : "The listing work mode matches the saved preference.",
+      explanation:
+        input.workModeCompatibility === "conflict"
+          ? "The listing work mode conflicts with the saved preference."
+          : input.workModeCompatibility === "unknown"
+            ? "The listing does not state a concrete work mode, so it cannot be verified against the saved preference."
+            : isRemotePosting && profile.workEligibility.remoteEligible === null
+              ? "The listing matches the saved remote-work preference, but remote-work eligibility is not confirmed in the profile."
+              : isRemotePosting && profile.workEligibility.remoteEligible === false
+                ? "The listing is remote, but the profile does not confirm remote-work eligibility."
+                : "The listing work mode matches the saved preference.",
     });
   }
 

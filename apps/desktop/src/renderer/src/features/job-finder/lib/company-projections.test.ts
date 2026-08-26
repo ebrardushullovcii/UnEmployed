@@ -1,8 +1,13 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it } from "vitest";
-import type { CompanyEntity, SavedJob } from "@unemployed/contracts";
+import type {
+  CompanyEntity,
+  DiscoveryJobView,
+  SavedJob,
+} from "@unemployed/contracts";
 import {
+  indexCompanyJobs,
   projectCompanyApplicationHistory,
   projectCompanyDuplicateJobs,
   projectCompanyOpenings,
@@ -94,21 +99,46 @@ function makeJob(id: string, overrides: Partial<SavedJob> = {}): SavedJob {
   } as SavedJob;
 }
 
+function withActivity(
+  job: SavedJob,
+  listingActivity: DiscoveryJobView["listingActivity"],
+): DiscoveryJobView {
+  return { ...job, listingActivity };
+}
+
 describe("projectCompanyOpenings", () => {
-  it("splits linked jobs into current and previous openings sorted newest first", () => {
+  it("groups by listing activity independently from workflow status", () => {
     const projection = projectCompanyOpenings({
       company: makeCompany({
         jobIds: ["job_open", "job_closed"],
       }),
       jobs: [
-        makeJob("job_open", {
-          status: "interview",
-          postedAt: "2026-08-05T00:00:00.000Z",
-        }),
-        makeJob("job_closed", {
-          status: "rejected",
-          postedAt: "2026-08-10T00:00:00.000Z",
-        }),
+        withActivity(
+          makeJob("job_open", {
+            status: "rejected",
+            postedAt: "2026-08-05T00:00:00.000Z",
+          }),
+          {
+            status: "active",
+            observedAt: "2026-08-14T00:00:00.000Z",
+            evidence: "last_seen_at",
+          },
+        ),
+        withActivity(
+          makeJob("job_closed", {
+            status: "discovered",
+            postedAt: "2026-08-10T00:00:00.000Z",
+          }),
+          {
+            status: "closed",
+            observedAt: "2026-08-15T00:00:00.000Z",
+            signalId: "signal_closed",
+            provenance: "provider",
+            explanation: "The provider marked the role closed.",
+            detail: null,
+            confidence: 1,
+          },
+        ),
         makeJob("job_unlinked", {
           status: "submitted",
           postedAt: "2026-08-01T00:00:00.000Z",
@@ -116,10 +146,123 @@ describe("projectCompanyOpenings", () => {
       ],
     });
 
-    expect(projection.current.map((job) => job.id)).toEqual(["job_open"]);
-    expect(projection.previous.map((job) => job.id)).toEqual(["job_closed"]);
+    expect(projection.lastSeenAvailable.map((job) => job.id)).toEqual([
+      "job_open",
+    ]);
+    expect(projection.reportedClosed.map((job) => job.id)).toEqual([
+      "job_closed",
+    ]);
     expect(projection.totalCount).toBe(2);
     expect(projection.lastOpenedAt).toBe("2026-08-10T00:00:00.000Z");
+  });
+
+  it("groups inactive, stale, and unknown for verification and never orders by discoveredAt", () => {
+    const projection = projectCompanyOpenings({
+      company: makeCompany({ jobIds: ["inactive", "stale", "unknown"] }),
+      jobs: [
+        withActivity(
+          makeJob("inactive", {
+            postedAt: null,
+            providerUpdatedAt: "2026-08-10T00:00:00.000Z",
+            discoveredAt: "2026-08-15T00:00:00.000Z",
+          }),
+          {
+            status: "inactive",
+            observedAt: "2026-08-15T00:00:00.000Z",
+            ledgerEntryId: "ledger_1",
+            provenance: "discovery_ledger",
+            explanation: "Missing from a complete refresh.",
+          },
+        ),
+        withActivity(
+          makeJob("stale", {
+            postedAt: "2026-08-12T00:00:00.000Z",
+            discoveredAt: "2026-08-01T00:00:00.000Z",
+          }),
+          {
+            status: "stale",
+            observedAt: "2026-08-15T00:00:00.000Z",
+            signalId: "signal_stale",
+            provenance: "browser",
+            explanation: "The page may no longer accept applications.",
+            detail: "An expiry banner was visible.",
+            confidence: 0.8,
+          },
+        ),
+        withActivity(
+          makeJob("unknown", { discoveredAt: "2026-08-20T00:00:00.000Z" }),
+          {
+            status: "unknown",
+          },
+        ),
+      ],
+    });
+
+    expect(projection.needsVerification.map((job) => job.id)).toEqual([
+      "stale",
+      "inactive",
+      "unknown",
+    ]);
+    expect(projection.lastOpenedAt).toBe("2026-08-12T00:00:00.000Z");
+  });
+
+  it("deduplicates company job ids and ignores missing jobs deterministically", () => {
+    const first = makeJob("duplicate", {
+      title: "First indexed value",
+      postedAt: "2026-08-10T00:00:00.000Z",
+    });
+    const projection = projectCompanyOpenings({
+      company: makeCompany({
+        jobIds: ["duplicate", "missing", "duplicate"],
+      }),
+      jobs: [first, makeJob("duplicate", { title: "Later duplicate" })],
+    });
+
+    expect(projection.totalCount).toBe(1);
+    expect(projection.needsVerification.map((job) => job.title)).toEqual([
+      "First indexed value",
+    ]);
+    expect(projection.lastOpenedAt).toBe("2026-08-10T00:00:00.000Z");
+  });
+
+  it("projects representative companies from a shared 10,000-job index within budget", () => {
+    const jobs = Array.from({ length: 10_000 }, (_, index) =>
+      withActivity(
+        makeJob(`job_${String(index).padStart(5, "0")}`, {
+          postedAt: `2026-08-${String((index % 20) + 1).padStart(2, "0")}T00:00:00.000Z`,
+        }),
+        index % 3 === 0
+          ? {
+              status: "active",
+              observedAt: now,
+              evidence: "last_seen_at",
+            }
+          : { status: "unknown" },
+      ),
+    );
+    const companies = Array.from({ length: 100 }, (_, companyIndex) =>
+      makeCompany({
+        id: `company_${companyIndex}`,
+        jobIds: Array.from(
+          { length: 100 },
+          (_, offset) => jobs[companyIndex * 100 + offset]!.id,
+        ),
+      }),
+    );
+
+    const startedAt = performance.now();
+    const jobById = indexCompanyJobs(jobs);
+    const projections = companies.map((company) =>
+      projectCompanyOpenings({ company, jobs, jobById }),
+    );
+    const elapsedMs = performance.now() - startedAt;
+
+    expect(projections).toHaveLength(100);
+    expect(
+      projections.every((projection) => projection.totalCount === 100),
+    ).toBe(true);
+    expect(projections[0]!.lastSeenAvailableCount).toBe(34);
+    expect(elapsedMs).toBeLessThan(2_000);
   });
 });
 

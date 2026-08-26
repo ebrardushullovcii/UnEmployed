@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type {
   ApplicationCrmStage,
   ApplicationRecord,
@@ -6,6 +6,7 @@ import type {
 import { Button } from "@renderer/components/ui/button";
 import { cn } from "@renderer/lib/utils";
 import { Badge } from "@renderer/components/ui/badge";
+import { EmptyState } from "../../components/empty-state";
 import {
   APPLICATION_CRM_PAGE_SIZE,
   CollectionPagination,
@@ -20,12 +21,13 @@ import {
 import { usePersistedCollectionView } from "../../hooks/use-persisted-collection-view";
 
 import {
-  APPLICATION_CRM_STAGE_LABELS,
+  APPLICATION_CRM_STAGE_NAMES,
   APPLICATION_CRM_STAGE_ORDER,
   applicationCrmDataForView,
+  applicationCrmStageLabelForView,
+  applicationCrmStageProvenanceForView,
   buildApplicationCrmCalendarForView,
   groupApplicationRecordsByStage,
-  inferApplicationCrmStageForView,
 } from "./applications-crm-model";
 
 export const APPLICATION_CRM_VIEW_VALUES = [
@@ -67,6 +69,43 @@ const viewLabels: Record<ApplicationCrmView, string> = {
   calendar: "Calendar",
 };
 
+function encodeVisibleRecordIdKey(recordIds: readonly string[]): string {
+  return JSON.stringify(recordIds);
+}
+
+function decodeVisibleRecordIdKey(key: string): readonly string[] {
+  try {
+    const parsed: unknown = JSON.parse(key);
+    return Array.isArray(parsed) &&
+      parsed.every((id): id is string => typeof id === "string")
+      ? parsed
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+const emptyStateCopy: Record<
+  ApplicationCrmView,
+  { description: string; title: string }
+> = {
+  table: {
+    title: "No applications yet",
+    description:
+      "Shortlist a job or prepare an application and it will appear as a row in your tracker table.",
+  },
+  kanban: {
+    title: "No applications on your board yet",
+    description:
+      "Applications you prepare will appear here grouped by hiring stage.",
+  },
+  calendar: {
+    title: "Nothing scheduled yet",
+    description:
+      "Upcoming reminders, interviews, and offer deadlines will appear on the application calendar.",
+  },
+};
+
 function RecordButton(props: {
   record: ApplicationRecord;
   selected: boolean;
@@ -95,6 +134,9 @@ function RecordButton(props: {
         {props.record.company}
       </span>
       <span className="flex flex-wrap gap-1.5">
+        <Badge variant="section">
+          {applicationCrmStageProvenanceForView(props.record)}
+        </Badge>
         {crm.tags.slice(0, 3).map((tag) => (
           <Badge key={tag} variant="section">
             {tag}
@@ -117,6 +159,7 @@ export function ApplicationsCrmViews(props: {
   view: ApplicationCrmView;
   onSelectRecord: (recordId: string) => void;
   onViewChange: (view: ApplicationCrmView) => void;
+  onVisibleRecordIdsChange?: (recordIds: readonly string[]) => void;
   onBulkStageChange?: (
     recordIds: readonly string[],
     stage: ApplicationCrmStage,
@@ -162,7 +205,15 @@ export function ApplicationsCrmViews(props: {
   );
   const [selectedIds, setSelectedIds] = useState<readonly string[]>([]);
   const [bulkPending, setBulkPending] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const selectedIdsRef = useRef(selectedIds);
+  selectedIdsRef.current = selectedIds;
   const [page, setPage] = useState(1);
+  const selectionKey = selectedIds.join("\0");
+
+  useEffect(() => {
+    setBulkError(null);
+  }, [selectionKey]);
 
   useEffect(() => {
     try {
@@ -209,6 +260,22 @@ export function ApplicationsCrmViews(props: {
       }),
     [props.records, query, savedView],
   );
+  const visibleRecordIdKey = useMemo(
+    () => encodeVisibleRecordIdKey(filteredRecords.map((record) => record.id)),
+    [filteredRecords],
+  );
+  const onVisibleRecordIdsChangeRef = useRef(props.onVisibleRecordIdsChange);
+  onVisibleRecordIdsChangeRef.current = props.onVisibleRecordIdsChange;
+  const reportedVisibleRecordIdKeyRef = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (reportedVisibleRecordIdKeyRef.current === visibleRecordIdKey) {
+      return;
+    }
+    reportedVisibleRecordIdKeyRef.current = visibleRecordIdKey;
+    onVisibleRecordIdsChangeRef.current?.(
+      decodeVisibleRecordIdKey(visibleRecordIdKey),
+    );
+  }, [visibleRecordIdKey]);
 
   useEffect(() => {
     const visibleIds = new Set(filteredRecords.map((record) => record.id));
@@ -293,12 +360,26 @@ export function ApplicationsCrmViews(props: {
 
   function submitBulkStageChange(stage: ApplicationCrmStage) {
     if (!props.onBulkStageChange || selectedIds.length === 0) return;
+    const submittedSelectionKey = selectionKey;
     setBulkPending(true);
     const operation = props.onBulkStageChange(selectedIds, stage);
     void operation
       .then(
-        () => setSelectedIds([]),
-        () => undefined,
+        () => {
+          if (selectedIdsRef.current.join("\0") !== submittedSelectionKey) {
+            return;
+          }
+          setBulkError(null);
+          setSelectedIds([]);
+        },
+        () => {
+          if (selectedIdsRef.current.join("\0") !== submittedSelectionKey) {
+            return;
+          }
+          setBulkError(
+            "The selected applications could not be updated. Keep them selected and try again.",
+          );
+        },
       )
       .finally(() => setBulkPending(false));
   }
@@ -315,7 +396,8 @@ export function ApplicationsCrmViews(props: {
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
             {filteredRecords.length} of {props.records.length} applications in
-            this view
+            this view · stages are local user-recorded facts or historical
+            workflow inferences
           </p>
         </div>
         <div aria-label="Application view" className="flex gap-1" role="group">
@@ -375,7 +457,7 @@ export function ApplicationsCrmViews(props: {
         <label className="flex items-center gap-2 text-sm font-medium text-foreground">
           Lifecycle view
           <select
-            className="h-9 rounded-(--radius-field) border border-input bg-background px-2 text-sm"
+            className="h-9 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-2 text-sm outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             onChange={(event) =>
               setSavedView(event.target.value as CrmSavedView)
             }
@@ -391,17 +473,10 @@ export function ApplicationsCrmViews(props: {
       </div>
 
       {props.records.length === 0 ? (
-        <div className="grid min-h-48 place-items-center px-6 text-center">
-          <div>
-            <h3 className="font-semibold text-foreground">
-              No applications yet
-            </h3>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Shortlist a job or prepare an application to start tracking it
-              here.
-            </p>
-          </div>
-        </div>
+        <EmptyState
+          description={emptyStateCopy[props.view].description}
+          title={emptyStateCopy[props.view].title}
+        />
       ) : filteredRecords.length === 0 && query ? (
         <CollectionNoMatches
           noun="applications"
@@ -428,7 +503,10 @@ export function ApplicationsCrmViews(props: {
       ) : null}
 
       {props.view === "table" && filteredRecords.length > 0 ? (
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div
+          className="min-h-0 flex-1 overflow-auto"
+          data-locked-pane-scroll-region
+        >
           <table
             aria-labelledby="application-tracker-heading"
             className="w-full min-w-200 border-collapse text-left text-sm"
@@ -532,11 +610,7 @@ export function ApplicationsCrmViews(props: {
                     ) : null}
                     {columnVisible("stage") ? (
                       <td className={cn("px-4", rowPadding)}>
-                        {
-                          APPLICATION_CRM_STAGE_LABELS[
-                            inferApplicationCrmStageForView(record)
-                          ]
-                        }
+                        {applicationCrmStageLabelForView(record)}
                       </td>
                     ) : null}
                     {columnVisible("reminder") ? (
@@ -581,6 +655,14 @@ export function ApplicationsCrmViews(props: {
 
       {props.view === "table" && selectedIds.length > 0 ? (
         <div className="sticky bottom-0 z-20 flex flex-wrap items-center justify-between gap-3 border-t border-primary/30 bg-(--surface-panel-solid) px-5 py-3 shadow-[0_-12px_28px_rgba(0,0,0,0.35)]">
+          {bulkError ? (
+            <p
+              className="basis-full rounded-(--radius-field) border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
+              role="alert"
+            >
+              {bulkError}
+            </p>
+          ) : null}
           <strong className="text-sm text-foreground">
             {selectedIds.length} matching application
             {selectedIds.length === 1 ? "" : "s"} selected
@@ -618,7 +700,10 @@ export function ApplicationsCrmViews(props: {
       ) : null}
 
       {props.view === "kanban" && filteredRecords.length > 0 ? (
-        <div className="min-h-0 flex-1 overflow-auto p-4">
+        <div
+          className="min-h-0 flex-1 overflow-auto p-4"
+          data-locked-pane-scroll-region
+        >
           <div className="flex min-w-max items-start gap-3">
             {APPLICATION_CRM_STAGE_ORDER.map((stage) => {
               const stageRecords = grouped.get(stage) ?? [];
@@ -629,7 +714,7 @@ export function ApplicationsCrmViews(props: {
                 >
                   <div className="flex items-center justify-between gap-2">
                     <h3 className="text-sm font-semibold text-foreground">
-                      {APPLICATION_CRM_STAGE_LABELS[stage]}
+                      {APPLICATION_CRM_STAGE_NAMES[stage]}
                     </h3>
                     <Badge variant="section">
                       {groupedTotals.get(stage)?.length ?? 0}
@@ -660,7 +745,10 @@ export function ApplicationsCrmViews(props: {
       ) : null}
 
       {props.view === "calendar" && filteredRecords.length > 0 ? (
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+        <div
+          className="min-h-0 flex-1 overflow-y-auto p-5"
+          data-locked-pane-scroll-region
+        >
           {calendar.length > 0 ? (
             <ol className="grid gap-3">
               {pagedCalendar.map((entry) => {

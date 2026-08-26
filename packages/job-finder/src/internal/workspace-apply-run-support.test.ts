@@ -19,6 +19,7 @@ describe("buildApplicationPrivacyReceipt", () => {
     };
     const generatedAt = "2026-07-30T10:00:00.000Z";
     const receipt = buildApplicationPrivacyReceipt({
+      applicationRecordId: "application-record-1",
       job,
       generatedAt,
       runId: "run-1",
@@ -110,7 +111,11 @@ describe("buildApplicationPrivacyReceipt", () => {
       submittedAt: "2026-07-30T10:01:00.000Z",
       outcome: null,
     },
-    { state: "paused" as const, submittedAt: null, outcome: "submitted" as const },
+    {
+      state: "paused" as const,
+      submittedAt: null,
+      outcome: "submitted" as const,
+    },
   ])(
     "rejects an impossible prepare-only submission signal %#",
     (unsafeSignal) => {
@@ -140,6 +145,7 @@ describe("buildApplicationPrivacyReceipt", () => {
     const job = createSeed().savedJobs[0]!;
     const detectedAt = "2026-07-30T10:00:00.000Z";
     const artifacts = buildApplyCopilotArtifacts({
+      applicationRecordId: "application-record-fallback",
       job,
       detectedAt,
       runId: "run-fallback-checkpoint",

@@ -83,21 +83,7 @@ function requireAtLeastOneField<TSchema extends z.ZodRawShape>(
 ) {
   return schema.refine(
     (value) =>
-      Object.entries(value).some(([, fieldValue]) => {
-        if (fieldValue === undefined || fieldValue === null) {
-          return false;
-        }
-
-        if (typeof fieldValue === "string") {
-          return fieldValue.trim().length > 0;
-        }
-
-        if (Array.isArray(fieldValue)) {
-          return fieldValue.length > 0;
-        }
-
-        return true;
-      }),
+      Object.values(value).some((fieldValue) => fieldValue !== undefined),
     {
       message,
     },

@@ -171,17 +171,83 @@ export function describePatchOperation(operation: ProfileCopilotPatchOperation):
     }
     case 'replace_compensation_preferences_fields': {
       const { currency, currencyStatus, interval, maximum, minimum } = operation.value
-      const range = minimum != null && maximum != null
-        ? `${formatNumber(minimum)}–${formatNumber(maximum)}`
-        : minimum != null
-          ? `from ${formatNumber(minimum)}`
-          : maximum != null
-            ? `up to ${formatNumber(maximum)}`
-            : 'range'
-      const currencyLabel = currencyStatus === 'needs_clarification'
-        ? 'currency not set — confirmation needed'
-        : currency ?? 'saved currency'
-      return `Set compensation to ${range} / ${interval ?? 'saved interval'} (${currencyLabel})`
+      const hasMinimum = Object.prototype.hasOwnProperty.call(operation.value, 'minimum')
+      const hasMaximum = Object.prototype.hasOwnProperty.call(operation.value, 'maximum')
+      const minimumIsNull = hasMinimum && minimum === null
+      const maximumIsNull = hasMaximum && maximum === null
+      const minimumIsNumber = hasMinimum && typeof minimum === 'number'
+      const maximumIsNumber = hasMaximum && typeof maximum === 'number'
+
+      const currencyLabel =
+        currencyStatus === 'needs_clarification'
+          ? 'currency not set — confirmation needed'
+          : (currency ?? 'saved currency')
+      const intervalLabel = interval ?? 'saved interval'
+
+      if (minimumIsNull && maximumIsNull) {
+        return `Clear compensation range / ${intervalLabel} (${currencyLabel})`
+      }
+
+      if (minimumIsNull && maximumIsNumber) {
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+        return `Clear compensation minimum and set maximum to ${formatNumber(maximum as number)} / ${intervalLabel} (${currencyLabel})`
+      }
+
+      if (maximumIsNull && minimumIsNumber) {
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+        return `Clear compensation maximum and set minimum to ${formatNumber(minimum as number)} / ${intervalLabel} (${currencyLabel})`
+      }
+
+      if (minimumIsNull) {
+        return `Clear compensation minimum / ${intervalLabel} (${currencyLabel})`
+      }
+
+      if (maximumIsNull) {
+        return `Clear compensation maximum / ${intervalLabel} (${currencyLabel})`
+      }
+
+      const hasInterval = Object.prototype.hasOwnProperty.call(operation.value, 'interval')
+      const hasCurrency = Object.prototype.hasOwnProperty.call(operation.value, 'currency')
+      const hasCurrencyStatus = Object.prototype.hasOwnProperty.call(
+        operation.value,
+        'currencyStatus',
+      )
+
+      if (!minimumIsNumber && !maximumIsNumber) {
+        const detailParts: string[] = []
+
+        if (hasInterval && interval != null) {
+          detailParts.push(`interval to ${intervalLabel}`)
+        }
+
+        if (hasCurrency && currency !== null && currency !== undefined) {
+          detailParts.push(`currency to ${currency}`)
+        } else if (
+          hasCurrencyStatus &&
+          currencyStatus === 'needs_clarification'
+        ) {
+          detailParts.push('currency to not set')
+        } else if (hasCurrency && currency === null) {
+          detailParts.push('currency cleared')
+        }
+
+        if (detailParts.length > 0) {
+          return `Update compensation ${detailParts.join(' and ')} (${currencyLabel})`
+        }
+      }
+
+      const range =
+        minimumIsNumber && maximumIsNumber
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+          ? `${formatNumber(minimum as number)}–${formatNumber(maximum as number)}`
+          : minimumIsNumber
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+            ? `from ${formatNumber(minimum as number)}`
+            : maximumIsNumber
+              // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+              ? `up to ${formatNumber(maximum as number)}`
+              : 'range'
+      return `Set compensation to ${range} / ${intervalLabel} (${currencyLabel})`
     }
     case 'upsert_experience_record':
       return `Add or update experience: ${operation.record.title ?? operation.record.companyName ?? 'record'}`
@@ -222,8 +288,76 @@ export function describePatchOperation(operation: ProfileCopilotPatchOperation):
   return 'Update profile data'
 }
 
+/**
+ * Derives undone patch groups from snapshot revision lineage without new IPC.
+ * - Direct: an undo revision whose restoredFromRevisionId points to the assistant_patch revision for that patchGroupId.
+ * - Indirect: an undo that restores to an earlier snapshot implicitly reverts intermediate patches (timestamp heuristic).
+ *
+ * Backend requirement for ideal truth without heuristics:
+ * On undoProfileRevision the service should either mutate the originating profileCopilotMessage patchGroup
+ * applyMode to a terminal 'undone'/'reverted' state or expose an explicit revertedPatchGroupIds set in the snapshot.
+ * That eliminates timestamp inference and covers any non-linear lineage deterministically.
+ */
+export function getUndonePatchGroupIds(
+  revisions: readonly JobFinderWorkspaceSnapshot['profileRevisions'][number][],
+): Set<string> {
+  const revisionById = new Map<string, JobFinderWorkspaceSnapshot['profileRevisions'][number]>()
+  const assistantPatchRevByPatchGroupId = new Map<
+    string,
+    JobFinderWorkspaceSnapshot['profileRevisions'][number]
+  >()
+
+  for (const revision of revisions) {
+    revisionById.set(revision.id, revision)
+
+    if (revision.trigger === 'assistant_patch' && revision.patchGroupId) {
+      assistantPatchRevByPatchGroupId.set(revision.patchGroupId, revision)
+    }
+  }
+
+  const undone = new Set<string>()
+
+  for (const revision of revisions) {
+    if (revision.trigger !== 'undo' || !revision.restoredFromRevisionId) {
+      continue
+    }
+
+    const target = revisionById.get(revision.restoredFromRevisionId)
+
+    if (!target) {
+      continue
+    }
+
+    if (target.patchGroupId && target.trigger === 'assistant_patch') {
+      undone.add(target.patchGroupId)
+    }
+
+    const targetTime = Date.parse(target.createdAt)
+    const undoTime = Date.parse(revision.createdAt)
+
+    if (Number.isNaN(targetTime) || Number.isNaN(undoTime)) {
+      continue
+    }
+
+    for (const [patchGroupId, patchRevision] of assistantPatchRevByPatchGroupId.entries()) {
+      const patchTime = Date.parse(patchRevision.createdAt)
+
+      if (Number.isNaN(patchTime)) {
+        continue
+      }
+
+      if (patchTime > targetTime && patchTime < undoTime) {
+        undone.add(patchGroupId)
+      }
+    }
+  }
+
+  return undone
+}
+
 export function getProfileCopilotDisplayContent(
   message: JobFinderWorkspaceSnapshot['profileCopilotMessages'][number],
+  revisions?: readonly JobFinderWorkspaceSnapshot['profileRevisions'][number][],
 ): string {
   if (
     message.patchGroups.length === 0 ||
@@ -232,23 +366,65 @@ export function getProfileCopilotDisplayContent(
     return message.content
   }
 
-  const appliedCount = message.patchGroups.filter(
+  const originalAppliedCount = message.patchGroups.filter(
     (patchGroup) => patchGroup.applyMode === 'applied',
   ).length
   const rejectedCount = message.patchGroups.filter(
     (patchGroup) => patchGroup.applyMode === 'rejected',
   ).length
-  const pendingCount = message.patchGroups.length - appliedCount - rejectedCount
+  const pendingCount = message.patchGroups.length - originalAppliedCount - rejectedCount
   const contentWithoutPendingStatus = message.content
     .replace(/\s*Nothing changed yet\.?/giu, '')
     .trim()
-  const currentStatus = appliedCount === message.patchGroups.length
-    ? `**Current status:** ${appliedCount === 1 ? 'This change is' : 'These changes are'} applied to your profile.`
-    : rejectedCount === message.patchGroups.length
-      ? `**Current status:** ${rejectedCount === 1 ? 'This proposal was' : 'These proposals were'} rejected. Your profile was not changed.`
-      : pendingCount === 0
-        ? `**Current status:** All proposals resolved — ${appliedCount} applied and ${rejectedCount} rejected.`
-        : `**Current status:** ${appliedCount} applied, ${pendingCount} awaiting review${rejectedCount > 0 ? `, and ${rejectedCount} rejected` : ''}.`
+
+  const undonePatchGroupIds = revisions ? getUndonePatchGroupIds(revisions) : new Set<string>()
+  const undoneCount = message.patchGroups.filter(
+    (patchGroup) => patchGroup.applyMode === 'applied' && undonePatchGroupIds.has(patchGroup.id),
+  ).length
+  const effectiveAppliedCount = originalAppliedCount - undoneCount
+
+  if (undoneCount > 0) {
+    if (effectiveAppliedCount === 0 && pendingCount === 0 && rejectedCount === 0) {
+      return `${contentWithoutPendingStatus}\n\n**Current status:** ${undoneCount === 1 ? 'This change was undone and is no longer applied to your profile.' : 'These changes were undone and are no longer applied to your profile.'}`
+    }
+
+    if (effectiveAppliedCount === 0 && pendingCount === 0) {
+      return `${contentWithoutPendingStatus}\n\n**Current status:** All proposals resolved — ${undoneCount} undone and ${rejectedCount} rejected.`
+    }
+
+    if (pendingCount === 0) {
+      const rejectedSuffix = rejectedCount > 0 ? ` and ${rejectedCount} rejected` : ''
+
+      return `${contentWithoutPendingStatus}\n\n**Current status:** All proposals resolved — ${effectiveAppliedCount} applied, ${undoneCount} undone${rejectedSuffix}.`
+    }
+
+    const parts: string[] = []
+
+    if (effectiveAppliedCount > 0) {
+      parts.push(`${effectiveAppliedCount} applied`)
+    }
+
+    if (undoneCount > 0) {
+      parts.push(`${undoneCount} undone`)
+    }
+
+    parts.push(`${pendingCount} awaiting review`)
+
+    if (rejectedCount > 0) {
+      parts.push(`${rejectedCount} rejected`)
+    }
+
+    return `${contentWithoutPendingStatus}\n\n**Current status:** ${parts.join(', ')}.`
+  }
+
+  const currentStatus =
+    originalAppliedCount === message.patchGroups.length
+      ? `**Current status:** ${originalAppliedCount === 1 ? 'This change is' : 'These changes are'} applied to your profile.`
+      : rejectedCount === message.patchGroups.length
+        ? `**Current status:** ${rejectedCount === 1 ? 'This proposal was' : 'These proposals were'} rejected. Your profile was not changed.`
+        : pendingCount === 0
+          ? `**Current status:** All proposals resolved — ${originalAppliedCount} applied and ${rejectedCount} rejected.`
+          : `**Current status:** ${originalAppliedCount} applied, ${pendingCount} awaiting review${rejectedCount > 0 ? `, and ${rejectedCount} rejected` : ''}.`
 
   return `${contentWithoutPendingStatus}\n\n${currentStatus}`
 }

@@ -12,6 +12,8 @@ import {
 } from "./setup/user-data-directory";
 import { createMainWindow } from "./setup/window-shell";
 import { runShutdownWithTimeout } from "./setup/shutdown-with-timeout";
+import { createDeferredBackgroundInitController } from "./setup/deferred-background-init";
+import { getMainWindowCloseGuard } from "./setup/main-window-close-guard";
 import type * as InterviewOverlayApi from "./setup/interview-overlay-windows";
 import type * as InterviewSessionControlsApi from "./setup/interview-session-controls";
 import type * as CandidateAssetLibraryApi from "./services/job-finder/candidate-asset-library-instance";
@@ -104,6 +106,34 @@ function loadInterviewSessionControlsModule() {
 
 let closeInterviewOverlayWindows = () => {};
 let disposeInterviewSessionControls = () => {};
+
+// The 500ms deferred service initialization owns the background eager loads.
+// It is gated on quit: `beginQuitTeardown()` latches before any confirmation
+// or shutdown work runs so a late timer can never recreate a service during
+// teardown, and in-flight chains re-check the gate between steps. An
+// explicitly cancelled quit releases the latch (re-arming the still-needed
+// run exactly once, since services were never torn down); once actual
+// shutdown commits, the latch is permanent. Feature routes also lazily load
+// their own services on demand.
+const deferredBackgroundInit = createDeferredBackgroundInitController({
+  advancedInterviewSurfacesEnabled,
+  loadJobFinderServices,
+  loadCampaignSchedulerModule,
+  loadCandidateAssetLibraryModule,
+  loadInterviewHelperModule,
+  loadInterviewOverlayModule,
+  loadInterviewSessionControlsModule,
+  startCampaignScheduler,
+  initializeInterviewSurfaces: (overlay, sessionControls) => {
+    closeInterviewOverlayWindows = overlay.closeInterviewOverlayWindows;
+    disposeInterviewSessionControls =
+      sessionControls.disposeInterviewSessionControls;
+    overlay.initializeInterviewOverlayWindows(currentDir);
+    sessionControls.initializeInterviewSessionControls();
+  },
+  onDiagnostic: recordStartupDiagnostic,
+  onError: (message, error) => console.error(message, error),
+});
 
 function loadJobFinderRoutes(): Promise<void> {
   return import("./setup/register-job-finder-routes").then(
@@ -233,62 +263,9 @@ void app
       return;
     }
     recordStartupDiagnostic("main window created");
-    const backgroundInitializationTimer = setTimeout(() => {
-      recordStartupDiagnostic("starting background services");
-      void loadJobFinderServices()
-        .then(async ({ getJobFinderWorkspaceService }) => {
-          await getJobFinderWorkspaceService();
-          const { createCampaignScheduler } =
-            await loadCampaignSchedulerModule();
-          startCampaignScheduler(createCampaignScheduler);
-        })
-        .catch((error) => {
-          console.error(
-            "[Desktop] Failed to initialize Job Finder workspace service.",
-            error,
-          );
-        });
-      void loadCandidateAssetLibraryModule()
-        .then(({ getCandidateAssetLibrary }) =>
-          getCandidateAssetLibrary().enforceLifecycle(),
-        )
-        .catch((error) => {
-          console.error(
-            "[Desktop] Failed to enforce Candidate Asset retention.",
-            error,
-          );
-        });
-      void loadInterviewHelperModule()
-        .then(({ getInterviewHelperService }) => getInterviewHelperService())
-        .catch((error) => {
-          console.error(
-            "[Desktop] Failed to initialize Interview Helper service.",
-            error,
-          );
-        });
-
-      if (advancedInterviewSurfacesEnabled) {
-        void Promise.all([
-          loadInterviewOverlayModule(),
-          loadInterviewSessionControlsModule(),
-        ])
-          .then(([overlay, sessionControls]) => {
-            closeInterviewOverlayWindows = overlay.closeInterviewOverlayWindows;
-            disposeInterviewSessionControls =
-              sessionControls.disposeInterviewSessionControls;
-            overlay.initializeInterviewOverlayWindows(currentDir);
-            sessionControls.initializeInterviewSessionControls();
-          })
-          .catch((error) => {
-            console.error(
-              "[Desktop] Failed to initialize advanced interview surfaces.",
-              error,
-            );
-          });
-      }
-    }, 500);
+    deferredBackgroundInit.schedule();
     mainWindow.on("closed", () => {
-      clearTimeout(backgroundInitializationTimer);
+      deferredBackgroundInit.cancelScheduled();
       closeInterviewOverlayWindows();
     });
 
@@ -310,6 +287,7 @@ void app
   });
 
 let jobFinderShutdownInFlight = false;
+let quitApprovedByCloseGuard = false;
 
 let campaignScheduler: CampaignScheduler | null = null;
 const onPowerSuspend = () => campaignScheduler?.suspend();
@@ -361,6 +339,41 @@ app.on("before-quit", (event) => {
     return;
   }
 
+  // Quit begins here, before any confirmation or shutdown work: latch the
+  // gate so the 500ms deferred service initialization can never fire (or
+  // continue mid-flight) and recreate a service during teardown.
+  deferredBackgroundInit.beginQuitTeardown();
+
+  // Phase zero of quitting: an app-level quit (macOS Dock quit, OS session
+  // end, internal app.quit() callers) lets the renderer confirm unsaved work
+  // BEFORE any service shutdown starts, so cancelling can never leave the app
+  // running with its services already torn down. A watchdog expiry proceeds
+  // with the quit, so a hung renderer cannot deadlock shutdown; forced
+  // process termination remains uninterceptable and stays owned by local
+  // persistence. Plain window closes are handled independently by the window
+  // close guard bound in createMainWindow.
+  const mainWindowCloseGuard = getMainWindowCloseGuard();
+  if (
+    !quitApprovedByCloseGuard &&
+    mainWindowCloseGuard.needsQuitConfirmation()
+  ) {
+    event.preventDefault();
+    void mainWindowCloseGuard.confirmQuit().then((proceed) => {
+      if (!proceed) {
+        // Explicit user cancel: services were never torn down, so release
+        // the latch and re-arm any still-needed deferred initialization.
+        deferredBackgroundInit.releaseQuitLatch();
+        return;
+      }
+      quitApprovedByCloseGuard = true;
+      app.quit();
+    });
+    return;
+  }
+
+  // Actual service shutdown begins: the deferred-init latch is permanent
+  // from here on, so no cancel or late release can resurrect it mid-teardown.
+  deferredBackgroundInit.commitQuitTeardown();
   jobFinderShutdownInFlight = true;
   event.preventDefault();
   void runShutdownWithTimeout(

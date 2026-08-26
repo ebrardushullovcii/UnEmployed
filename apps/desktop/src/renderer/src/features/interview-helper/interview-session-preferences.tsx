@@ -34,7 +34,7 @@ export function InterviewSessionPreferences(props: {
   const setup = props.workspace.setup;
 
   return (
-    <div className="grid gap-3 rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
+    <div className="grid gap-3 rounded-(--radius-small) border border-border-subtle bg-(--surface-fill-subtle) p-3">
       <div className="grid gap-2">
         <label
           className="flex items-center gap-2 text-[0.72rem] font-bold uppercase tracking-(--tracking-badge) text-muted-foreground"
@@ -52,7 +52,7 @@ export function InterviewSessionPreferences(props: {
         >
           <SelectTrigger
             aria-label="Transcript language"
-            className="h-9 rounded-(--radius-small) border-border-subtle bg-black/30 text-[0.78rem]"
+            className="h-9 rounded-(--radius-small) border-border-subtle bg-(--field) text-[0.78rem]"
             id="interview-transcription-language"
             size="sm"
           >
@@ -60,12 +60,12 @@ export function InterviewSessionPreferences(props: {
           </SelectTrigger>
           <SelectContent
             align="start"
-            className="border-border-subtle bg-[rgba(10,10,11,0.98)] text-foreground shadow-[0_18px_60px_rgba(0,0,0,0.5)]"
+            className="border-border-subtle bg-popover text-foreground shadow-[0_18px_60px_rgba(0,0,0,0.5)]"
             position="popper"
           >
             {transcriptionLanguages.map((option) => (
               <SelectItem
-                className="text-[0.78rem] focus:bg-white/10 focus:text-foreground"
+                className="text-[0.78rem] focus:bg-secondary focus:text-foreground"
                 key={option.value}
                 value={option.value}
               >
@@ -96,7 +96,7 @@ export function InterviewSessionPreferences(props: {
         >
           <SelectTrigger
             aria-label="Cue sensitivity"
-            className="h-9 rounded-(--radius-small) border-border-subtle bg-black/30 text-[0.78rem]"
+            className="h-9 rounded-(--radius-small) border-border-subtle bg-(--field) text-[0.78rem]"
             id="interview-cue-sensitivity"
             size="sm"
           >
@@ -104,12 +104,12 @@ export function InterviewSessionPreferences(props: {
           </SelectTrigger>
           <SelectContent
             align="start"
-            className="border-border-subtle bg-[rgba(10,10,11,0.98)] text-foreground shadow-[0_18px_60px_rgba(0,0,0,0.5)]"
+            className="border-border-subtle bg-popover text-foreground shadow-[0_18px_60px_rgba(0,0,0,0.5)]"
             position="popper"
           >
             {cueSensitivityOptions.map((option) => (
               <SelectItem
-                className="text-[0.78rem] focus:bg-white/10 focus:text-foreground"
+                className="text-[0.78rem] focus:bg-secondary focus:text-foreground"
                 key={option.value}
                 value={option.value}
               >

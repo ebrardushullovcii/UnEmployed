@@ -45,6 +45,7 @@ import {
   resolveActiveSourceInstructionArtifact,
 } from "./workspace-helpers";
 import { uniqueStrings } from "./shared";
+import { withApplicationRecordTransition } from "./application-crm";
 import { mergeApplicationAnswersIntoExecutionProfile } from "./workspace-application-answer-execution";
 import { resolveApplicationAttachmentsForExecution } from "./workspace-application-attachments";
 import { persistAutomaticApplicationSafeguards } from "./automatic-safeguards";
@@ -53,6 +54,7 @@ import type { WorkspaceServiceContext } from "./workspace-service-context";
 type ExactApplicationScope = {
   runId: string;
   jobId: string;
+  applicationRecordId: string;
   resultId: string;
   replayCheckpointId: string;
   source: JobSource;
@@ -80,6 +82,16 @@ type ApplicationResumptionLineage = {
   job: SavedJob;
 };
 
+async function isActivityPaused(
+  ctx: Pick<WorkspaceServiceContext, "repository">,
+): Promise<boolean> {
+  try {
+    return (await ctx.repository.getActivityControl()).paused;
+  } catch {
+    return true;
+  }
+}
+
 function getExactApplicationScope(
   request: UserActionRequest,
 ): ExactApplicationScope | null {
@@ -93,6 +105,7 @@ function getExactApplicationScope(
 
   if (
     request.scope.type !== "application" ||
+    !request.scope.applicationRecordId ||
     !request.scope.resultId ||
     !request.scope.replayCheckpointId ||
     (!isResolvedSourceAccess && !isPrepareOnlyVerification)
@@ -103,6 +116,7 @@ function getExactApplicationScope(
   return {
     runId: request.scope.runId,
     jobId: request.scope.jobId,
+    applicationRecordId: request.scope.applicationRecordId,
     resultId: request.scope.resultId,
     replayCheckpointId: request.scope.replayCheckpointId,
     source: request.scope.source,
@@ -141,7 +155,8 @@ function hasMatchingResumptionLineage(input: {
     resumption.jobId === input.scope.jobId &&
     resumption.resultId === input.scope.resultId &&
     resumption.replayCheckpointId === input.scope.replayCheckpointId &&
-    input.attempt.jobId === input.scope.jobId,
+    input.attempt.jobId === input.scope.jobId &&
+    input.attempt.applicationRecordId === input.scope.applicationRecordId,
   );
 }
 
@@ -167,6 +182,7 @@ function createResumptionAttempt(input: {
   return ApplicationAttemptSchema.parse({
     id: getResumptionAttemptId(input.request),
     jobId: input.scope.jobId,
+    applicationRecordId: input.scope.applicationRecordId,
     state: input.completed ? completedState : input.state,
     summary: input.summary,
     detail: input.detail,
@@ -413,19 +429,23 @@ async function readExactLineage(input: {
   | { status: "current"; lineage: ApplicationResumptionLineage }
   | { status: "stale"; detail: string }
 > {
-  const [runs, results, checkpoints, savedJobs] = await Promise.all([
-    input.ctx.repository.listApplyRuns({ id: input.scope.runId }),
-    input.ctx.repository.listApplyJobResults({
-      runId: input.scope.runId,
-      jobId: input.scope.jobId,
-    }),
-    input.ctx.repository.listApplicationReplayCheckpoints({
-      runId: input.scope.runId,
-      jobId: input.scope.jobId,
-      resultId: input.scope.resultId,
-    }),
-    input.ctx.repository.listSavedJobs(),
-  ]);
+  const [runs, results, checkpoints, savedJobs, applicationRecords] =
+    await Promise.all([
+      input.ctx.repository.listApplyRuns({ id: input.scope.runId }),
+      input.ctx.repository.listApplyJobResults({
+        runId: input.scope.runId,
+        jobId: input.scope.jobId,
+        applicationRecordId: input.scope.applicationRecordId,
+      }),
+      input.ctx.repository.listApplicationReplayCheckpoints({
+        runId: input.scope.runId,
+        jobId: input.scope.jobId,
+        resultId: input.scope.resultId,
+        applicationRecordId: input.scope.applicationRecordId,
+      }),
+      input.ctx.repository.listSavedJobs(),
+      input.ctx.repository.listApplicationRecords(),
+    ]);
   const run = runs.find((entry) => entry.id === input.scope.runId) ?? null;
   const result =
     results.find((entry) => entry.id === input.scope.resultId) ?? null;
@@ -433,6 +453,17 @@ async function readExactLineage(input: {
     checkpoints.find((entry) => entry.id === input.scope.replayCheckpointId) ??
     null;
   const job = savedJobs.find((entry) => entry.id === input.scope.jobId) ?? null;
+  const applicationRecord =
+    applicationRecords.find(
+      (entry) => entry.id === input.scope.applicationRecordId,
+    ) ?? null;
+
+  if (!applicationRecord || applicationRecord.jobId !== input.scope.jobId) {
+    return {
+      status: "stale",
+      detail: "The exact application record no longer owns this job.",
+    };
+  }
 
   if (!run || !run.jobIds.includes(input.scope.jobId)) {
     return {
@@ -453,6 +484,13 @@ async function readExactLineage(input: {
         "The exact apply result is no longer current for this run and job.",
     };
   }
+  if (result.applicationRecordId !== input.scope.applicationRecordId) {
+    return {
+      status: "stale",
+      detail:
+        "The exact apply result no longer belongs to this application record.",
+    };
+  }
   if (result.latestCheckpointId !== input.scope.replayCheckpointId) {
     return {
       status: "stale",
@@ -464,7 +502,8 @@ async function readExactLineage(input: {
     !checkpoint ||
     checkpoint.runId !== input.scope.runId ||
     checkpoint.jobId !== input.scope.jobId ||
-    checkpoint.resultId !== input.scope.resultId
+    checkpoint.resultId !== input.scope.resultId ||
+    checkpoint.applicationRecordId !== input.scope.applicationRecordId
   ) {
     return {
       status: "stale",
@@ -489,49 +528,63 @@ async function readExactLineage(input: {
 async function persistApplicationRecord(input: {
   ctx: WorkspaceServiceContext;
   job: SavedJob;
+  applicationRecordId: string;
   attempt: ApplicationAttempt;
   eventId: string;
   now: string;
 }): Promise<void> {
-  const records = await input.ctx.repository.listApplicationRecords();
-  const existing =
-    records.find((record) => record.jobId === input.job.id) ?? null;
-  const emphasis =
-    input.attempt.state === "failed"
-      ? "critical"
-      : input.attempt.state === "paused" ||
-          input.attempt.state === "unsupported"
-        ? "warning"
-        : "neutral";
+  await withApplicationRecordTransition(
+    input.ctx.repository,
+    input.applicationRecordId,
+    async () => {
+      const records = await input.ctx.repository.listApplicationRecords();
+      const existing =
+        records.find((record) => record.id === input.applicationRecordId) ??
+        null;
+      if (!existing || existing.jobId !== input.job.id) {
+        throw new Error(
+          `Application record '${input.applicationRecordId}' does not belong to job '${input.job.id}'.`,
+        );
+      }
+      const emphasis =
+        input.attempt.state === "failed"
+          ? "critical"
+          : input.attempt.state === "paused" ||
+              input.attempt.state === "unsupported"
+            ? "warning"
+            : "neutral";
 
-  await input.ctx.repository.upsertApplicationRecord(
-    ApplicationRecordSchema.parse({
-      id: existing?.id ?? `application_${input.job.id}`,
-      jobId: input.job.id,
-      title: input.job.title,
-      company: input.job.company,
-      status: existing?.status ?? input.job.status,
-      lastActionLabel: input.attempt.summary,
-      nextActionLabel: input.attempt.nextActionLabel,
-      lastUpdatedAt: input.now,
-      lastAttemptState: input.attempt.state,
-      questionSummary: buildQuestionSummary(input.attempt.questions),
-      latestBlocker: buildLatestBlockerSummary(input.attempt.blocker),
-      consentSummary: buildConsentSummary(input.attempt.consentDecisions),
-      replaySummary: buildReplaySummary(
-        input.attempt.replay,
-        input.attempt.visualEvidence,
-      ),
-      events: mergeEvents(existing?.events ?? [], [
-        {
-          id: input.eventId,
-          at: input.now,
-          title: input.attempt.summary,
-          detail: input.attempt.detail,
-          emphasis,
-        },
-      ]),
-    }),
+      await input.ctx.repository.upsertApplicationRecord(
+        ApplicationRecordSchema.parse({
+          id: existing.id,
+          jobId: input.job.id,
+          title: input.job.title,
+          company: input.job.company,
+          status: existing.status,
+          lastActionLabel: input.attempt.summary,
+          nextActionLabel: input.attempt.nextActionLabel,
+          lastUpdatedAt: input.now,
+          lastAttemptState: input.attempt.state,
+          questionSummary: buildQuestionSummary(input.attempt.questions),
+          latestBlocker: buildLatestBlockerSummary(input.attempt.blocker),
+          consentSummary: buildConsentSummary(input.attempt.consentDecisions),
+          replaySummary: buildReplaySummary(
+            input.attempt.replay,
+            input.attempt.visualEvidence,
+          ),
+          crm: existing.crm,
+          events: mergeEvents(existing.events, [
+            {
+              id: input.eventId,
+              at: input.now,
+              title: input.attempt.summary,
+              detail: input.attempt.detail,
+              emphasis,
+            },
+          ]),
+        }),
+      );
+    },
   );
 }
 
@@ -601,29 +654,6 @@ export function createApplicationUserActionResumer(
         "Job Finder scheduled one prepare-only retry for the exact application checkpoint. Final submission and account creation remain disabled.",
       completed: false,
     });
-    let ownsClaim = false;
-    if (!existingAttempt) {
-      ownsClaim =
-        await ctx.repository.claimApplicationAttempt(scheduledAttempt);
-      if (!ownsClaim) {
-        const claimedAttempt = (
-          await ctx.repository.listApplicationAttempts()
-        ).find((attempt) => attempt.id === attemptId);
-        if (
-          claimedAttempt &&
-          !hasMatchingResumptionLineage({
-            attempt: claimedAttempt,
-            request,
-            scope,
-          })
-        ) {
-          throw new Error(
-            `Application resumption attempt '${attemptId}' has conflicting lineage.`,
-          );
-        }
-        return;
-      }
-    }
 
     const lineageResult = await readExactLineage({ ctx, scope });
     if (lineageResult.status === "stale") {
@@ -685,7 +715,7 @@ export function createApplicationUserActionResumer(
       return;
     }
 
-    if (!ownsClaim) {
+    if (existingAttempt) {
       return;
     }
 
@@ -763,11 +793,13 @@ export function createApplicationUserActionResumer(
         runId: scope.runId,
         jobId: scope.jobId,
         resultId: scope.resultId,
+        applicationRecordId: scope.applicationRecordId,
       }),
       ctx.repository.listApplicationQuestionRecords({
         runId: scope.runId,
         jobId: scope.jobId,
         resultId: scope.resultId,
+        applicationRecordId: scope.applicationRecordId,
       }),
     ]);
     const executionProfile = mergeApplicationAnswersIntoExecutionProfile({
@@ -817,14 +849,59 @@ export function createApplicationUserActionResumer(
       }),
     ]);
 
+    let applicationAttachments: Awaited<
+      ReturnType<typeof resolveApplicationAttachmentsForExecution>
+    > = [];
+    let preparationError: Error | null = null;
+    try {
+      applicationAttachments = await resolveApplicationAttachmentsForExecution({
+        resolver: ctx.candidateAssetResolver,
+        answerRecords,
+        questionRecords,
+      });
+    } catch (error) {
+      preparationError =
+        error instanceof Error
+          ? error
+          : new Error("Application attachment preparation failed.");
+    }
+
+    // Keep the insert-once claim adjacent to browser launch. If activity was
+    // paused during any prerequisite read, the action remains unclaimed and
+    // resumable instead of leaving an in-progress receipt that later runs
+    // cannot safely adopt.
+    if (await isActivityPaused(ctx)) return;
+    const ownsClaim =
+      await ctx.repository.claimApplicationAttempt(scheduledAttempt);
+    if (!ownsClaim) {
+      const claimedAttempt = (
+        await ctx.repository.listApplicationAttempts()
+      ).find((attempt) => attempt.id === attemptId);
+      if (
+        claimedAttempt &&
+        !hasMatchingResumptionLineage({
+          attempt: claimedAttempt,
+          request,
+          scope,
+        })
+      ) {
+        throw new Error(
+          `Application resumption attempt '${attemptId}' has conflicting lineage.`,
+        );
+      }
+      return;
+    }
+
     let executionResult: ApplyExecutionResult;
     try {
-      const applicationAttachments =
-        await resolveApplicationAttachmentsForExecution({
-          resolver: ctx.candidateAssetResolver,
-          answerRecords,
-          questionRecords,
-        });
+      if (preparationError) {
+        throw preparationError;
+      }
+      await ctx.markApplicationPreparationStarted({
+        resultId: result.id,
+        runId: run.id,
+        jobId: job.id,
+      });
       const rawResult = enforcePrepareOnlyExecutionResult(
         await ctx.browserRuntime.executeApplicationFlow(scope.source, {
           job: prerequisites.job,
@@ -837,7 +914,7 @@ export function createApplicationUserActionResumer(
           mode: "prepare_only",
           idempotencyKey: attemptId,
           accountCreationAuthorized: false,
-          intermediateMutationsAuthorized: true,
+          intermediateMutationsAuthorized: false,
           submitAuthorized: false,
           recoveryContext,
           ...(instructions.length > 0 ? { instructions } : {}),
@@ -1069,12 +1146,14 @@ export function createApplicationUserActionResumer(
     await persistApplicationRecord({
       ctx,
       job,
+      applicationRecordId: scope.applicationRecordId,
       attempt: finalAttempt,
       eventId: `event_${attemptId}`,
       now: completedAt,
     });
     await persistApplicationUserAction({
       repository: ctx.repository,
+      applicationRecordId: scope.applicationRecordId,
       job,
       runId: run.id,
       resultId: nextResult.id,

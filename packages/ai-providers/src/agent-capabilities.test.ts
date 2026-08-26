@@ -42,8 +42,11 @@ describe("tool-using AI capabilities", () => {
             id: "invalid",
             type: "function",
             function: {
-              name: "add_profile_patch_group",
-              arguments: JSON.stringify({ patchGroup: { id: "bad" } }),
+              name: "propose_profile_operations",
+              arguments: JSON.stringify({
+                summary: "Update headline",
+                operations: [{ operation: "replace_identity_fields" }],
+              }),
             },
           },
         ],
@@ -64,20 +67,15 @@ describe("tool-using AI capabilities", () => {
             id: "patch",
             type: "function",
             function: {
-              name: "add_profile_patch_group",
+              name: "propose_profile_operations",
               arguments: JSON.stringify({
-                patchGroup: {
-                  id: "patch_1",
-                  summary: "Update headline",
-                  applyMode: "needs_review",
-                  operations: [
-                    {
-                      operation: "replace_identity_fields",
-                      value: { headline: "Product-focused software engineer" },
-                    },
-                  ],
-                  createdAt: "2026-08-12T12:00:00.000Z",
-                },
+                summary: "Update headline",
+                operations: [
+                  {
+                    operation: "replace_identity_fields",
+                    value: { headline: "Product-focused software engineer" },
+                  },
+                ],
               }),
             },
           },
@@ -102,8 +100,82 @@ describe("tool-using AI capabilities", () => {
     });
 
     expect(reply.patchGroups).toHaveLength(1);
+    expect(reply.patchGroups[0]?.operations).toEqual([
+      {
+        operation: "replace_identity_fields",
+        value: { headline: "Product-focused software engineer" },
+      },
+    ]);
     expect(reply.executionReceipt?.stopReason).toBe("completed");
     expect(reply.executionReceipt?.repairAttempts).toBe(1);
+  });
+
+  test("Profile Copilot strips model-supplied proposal metadata on the set_* path so id, apply mode, and timestamp stay runtime-owned", async () => {
+    const client = createToolClient([
+      {
+        toolCalls: [
+          {
+            id: "content",
+            type: "function",
+            function: {
+              name: "set_response_content",
+              arguments: JSON.stringify({
+                content: "I prepared the requested headline for review.",
+              }),
+            },
+          },
+          {
+            id: "headline",
+            type: "function",
+            function: {
+              name: "set_identity_fields",
+              arguments: JSON.stringify({
+                summary: "Update headline",
+                id: "model_group_id",
+                applyMode: "applied",
+                createdAt: "1999-01-01T00:00:00.000Z",
+                fields: {
+                  headline: "Product-minded Frontend Engineer",
+                  id: "model_field_id",
+                  applyMode: "rejected",
+                  createdAt: "1999-01-01T00:00:00.000Z",
+                },
+              }),
+            },
+          },
+          {
+            id: "finish",
+            type: "function",
+            function: { name: "finish_task", arguments: "{}" },
+          },
+        ],
+      },
+    ]);
+
+    const reply = await runProfileCopilotAgentTask({
+      client,
+      request: {
+        profile: createProfile(),
+        searchPreferences: createPreferences(),
+        context: { surface: "profile", section: "basics" },
+        relevantReviewItems: [],
+        request: "Set my headline to Product-minded Frontend Engineer.",
+      },
+    });
+
+    expect(reply.executionReceipt?.stopReason).toBe("completed");
+    expect(reply.patchGroups).toHaveLength(1);
+    const group = reply.patchGroups[0];
+    expect(group?.id).toMatch(/^profile_proposal_/);
+    expect(group?.applyMode).toBe("needs_review");
+    expect(group?.createdAt).not.toBe("1999-01-01T00:00:00.000Z");
+    expect(Number.isNaN(Date.parse(group?.createdAt ?? ""))).toBe(false);
+    expect(group?.operations).toEqual([
+      {
+        operation: "replace_identity_fields",
+        value: { headline: "Product-minded Frontend Engineer" },
+      },
+    ]);
   });
 
   test("Profile Copilot lets the model set simple fields without manufacturing contract metadata", async () => {

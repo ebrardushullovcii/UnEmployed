@@ -121,7 +121,7 @@ describe("known-job ledger repeated-source performance", () => {
           lastEnrichedAt: entry.lastEnrichedAt ?? entry.lastSeenAt,
         }),
     );
-    await repository.saveDiscoveryState(knownDiscovery);
+    await repository.commitDiscoveryStateUpdate(() => knownDiscovery);
 
     const repeatedStartedAt = performance.now();
     const repeatedCpuStartedAt = process.cpuUsage();

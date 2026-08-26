@@ -43,6 +43,7 @@ export function createWorkspaceApplyRunStoreMethods(
   async function getApplyRunDetails(
     runId: string,
     jobId: string,
+    applicationRecordId?: string | null,
   ): Promise<ApplyRunDetails> {
     const [
       runMatches,
@@ -53,6 +54,7 @@ export function createWorkspaceApplyRunStoreMethods(
       artifactRefs,
       checkpoints,
       consentRequests,
+      applicationRecords,
     ] = await Promise.all([
       ctx.repository.listApplyRuns({ id: runId }),
       ctx.repository.listApplyJobResults({ runId, jobId }),
@@ -62,6 +64,7 @@ export function createWorkspaceApplyRunStoreMethods(
       ctx.repository.listApplicationArtifactRefs({ runId, jobId }),
       ctx.repository.listApplicationReplayCheckpoints({ runId, jobId }),
       ctx.repository.listApplicationConsentRequests({ runId, jobId }),
+      ctx.repository.listApplicationRecords(),
     ]);
     const run = runMatches[0];
 
@@ -71,6 +74,75 @@ export function createWorkspaceApplyRunStoreMethods(
 
     if (!run.jobIds.includes(jobId)) {
       throw new Error(`Apply run '${runId}' does not include job '${jobId}'.`);
+    }
+
+    if (applicationRecordId) {
+      const record = applicationRecords.find(
+        (entry) => entry.id === applicationRecordId,
+      );
+      if (!record || record.jobId !== jobId) {
+        throw new Error(
+          `Application record '${applicationRecordId}' does not belong to job '${jobId}'.`,
+        );
+      }
+    }
+
+    const lineageIds = new Set(
+      results
+        .map((result) => result.applicationRecordId)
+        .filter((value): value is string => value !== null),
+    );
+    if (!applicationRecordId && lineageIds.size > 1) {
+      throw new Error(
+        `Apply run '${runId}' has ambiguous application lineage for job '${jobId}'.`,
+      );
+    }
+    const exactApplicationRecordId =
+      applicationRecordId ?? [...lineageIds][0] ?? null;
+    if (results.length > 0 && exactApplicationRecordId === null) {
+      throw new Error(
+        `Apply run '${runId}' has legacy application lineage and is non-actionable.`,
+      );
+    }
+    if (exactApplicationRecordId) {
+      const exactRecord = applicationRecords.find(
+        (record) => record.id === exactApplicationRecordId,
+      );
+      if (!exactRecord || exactRecord.jobId !== jobId) {
+        throw new Error(
+          `Application record '${exactApplicationRecordId}' does not belong to job '${jobId}'.`,
+        );
+      }
+    }
+    // Legacy v12 migration rows can legitimately persist a null result
+    // lineage. Such rows are treated as belonging to the resolved record only
+    // when the workspace has exactly one application record for this job and
+    // it is the resolved record; zero or multiple candidates fail closed.
+    // Explicit non-null lineage stays authoritative, so any non-null mismatch
+    // still rejects.
+    const scopedJobRecordIds = applicationRecords
+      .filter((record) => record.jobId === jobId)
+      .map((record) => record.id);
+    const allowsLegacyNullLineage =
+      exactApplicationRecordId !== null &&
+      scopedJobRecordIds.length === 1 &&
+      scopedJobRecordIds[0] === exactApplicationRecordId;
+    const belongsToExactLineage = (value: {
+      applicationRecordId: string | null;
+    }) =>
+      value.applicationRecordId === exactApplicationRecordId ||
+      (value.applicationRecordId === null && allowsLegacyNullLineage);
+    if (
+      results.some((value) => !belongsToExactLineage(value)) ||
+      questionRecords.some((value) => !belongsToExactLineage(value)) ||
+      answerRecords.some((value) => !belongsToExactLineage(value)) ||
+      artifactRefs.some((value) => !belongsToExactLineage(value)) ||
+      checkpoints.some((value) => !belongsToExactLineage(value)) ||
+      consentRequests.some((value) => !belongsToExactLineage(value))
+    ) {
+      throw new Error(
+        `Apply run '${runId}' contains mismatched application record lineage.`,
+      );
     }
 
     const latestResult =
@@ -120,7 +192,8 @@ export function createWorkspaceApplyRunStoreMethods(
       answerRecords: sortByTimestamp(
         answerRecords,
         (record) => record.createdAt,
-        (left, right) => left.id.localeCompare(right.id),
+        (left, right) =>
+          left.revision - right.revision || left.id.localeCompare(right.id),
       ),
       artifactRefs: sortByTimestamp(
         artifactRefs,
@@ -143,9 +216,10 @@ export function createWorkspaceApplyRunStoreMethods(
   async function buildApplicationPacket(
     runId: string,
     jobId: string,
+    applicationRecordId?: string | null,
   ): Promise<ApplicationPacket> {
     const [details, savedJobs] = await Promise.all([
-      getApplyRunDetails(runId, jobId),
+      getApplyRunDetails(runId, jobId, applicationRecordId),
       ctx.repository.listSavedJobs(),
     ]);
     const job = savedJobs.find((entry) => entry.id === jobId);
@@ -194,6 +268,7 @@ export function createWorkspaceApplyRunStoreMethods(
       },
       result: {
         id: details.result.id,
+        applicationRecordId: details.result.applicationRecordId,
         state: details.result.state,
         summary: details.result.summary,
         detail: details.result.detail,

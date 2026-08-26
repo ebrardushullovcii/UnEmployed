@@ -25,14 +25,14 @@ export function getApplySafeguardCopy(usesOriginalResume: boolean): {
 } {
   return usesOriginalResume
     ? {
-        title: "Original CV required",
+        title: "Original resume required",
         description:
-          "Apply Copilot uses the exact imported CV only while that file is still available and unchanged. It always stops before final submit.",
+          "Job Finder uses the exact imported resume only while that file is still available and unchanged. It stops before final submit and never performs it; authorized steps may fill fields or attach this resume, and the site controls its own behavior.",
       }
     : {
         title: "Approved job PDF required",
         description:
-          "Each supported application needs a fresh approved PDF for the current job. Apply Copilot always stops before final submit.",
+          "Each supported application needs a fresh approved PDF for the current job. Job Finder stops before final submit and never performs it; authorized steps may fill fields or attach the approved PDF, and the site controls its own behavior.",
       };
 }
 

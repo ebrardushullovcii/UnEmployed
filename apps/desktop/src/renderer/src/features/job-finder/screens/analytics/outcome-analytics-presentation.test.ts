@@ -342,10 +342,10 @@ describe("deriveCampaignScopedOutcomeAnalytics", () => {
   });
 
   it("exposes stable dimension labels", () => {
-    expect(outcomeDimensionLabels.campaign).toBe("Campaign");
+    expect(outcomeDimensionLabels.campaign).toBe("Search plan");
     expect(outcomeDimensionLabels.source).toBe("Source");
     expect(outcomeDimensionLabels.job_title).toBe("Job title");
     expect(outcomeDimensionLabels.company).toBe("Company");
-    expect(outcomeDimensionLabels.resume_strategy).toBe("Resume strategy");
+    expect(outcomeDimensionLabels.resume_strategy).toBe("Resume approach");
   });
 });

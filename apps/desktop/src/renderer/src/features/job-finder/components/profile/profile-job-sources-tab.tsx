@@ -1,4 +1,5 @@
 import { useDeferredValue, useId, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import type {
   EditableSourceInstructionArtifact,
   SourceAccessPrompt,
@@ -11,7 +12,12 @@ import { Button } from "@renderer/components/ui/button";
 import { Checkbox } from "@renderer/components/ui/checkbox";
 import { FieldLabel } from "@renderer/components/ui/field";
 import type { UseFormReturn } from "react-hook-form";
+import {
+  deriveEnabledSourceHealthCounts,
+  isEnabledSourceNeedingAttention,
+} from "@unemployed/job-finder/source-health";
 import type { SearchPreferencesEditorValues } from "../../lib/profile-editor";
+import { PROFILE_DEEP_LINK_SCROLL_MARGIN_CLASSES } from "./profile-deep-link-focus";
 import { ProfileDiscoveryTargetRow } from "./profile-discovery-target-row";
 import { ProfileInput } from "./profile-form-primitives";
 import { ProfileSectionHeader } from "./profile-section-header";
@@ -56,22 +62,11 @@ function getInstructionStatusLabel(target: DiscoveryTarget): string {
   }
 }
 
-function sourceNeedsAttention(
-  target: DiscoveryTarget,
-  accessPromptByTargetId: ReadonlyMap<string, SourceAccessPrompt>,
-): boolean {
-  return (
-    target.instructionStatus === "stale" ||
-    target.instructionStatus === "unsupported" ||
-    accessPromptByTargetId.has(target.id)
-  );
-}
-
 export function filterJobSources(
   targets: readonly DiscoveryTarget[],
   query: string,
   filter: SourceFilter,
-  accessPromptByTargetId: ReadonlyMap<string, SourceAccessPrompt>,
+  loginRequiredTargetIds: ReadonlySet<string>,
 ): Array<{ index: number; target: DiscoveryTarget }> {
   const normalizedQuery = query.trim().toLocaleLowerCase();
 
@@ -80,15 +75,63 @@ export function filterJobSources(
       normalizedQuery.length === 0 ||
       target.label.toLocaleLowerCase().includes(normalizedQuery) ||
       target.startingUrl.toLocaleLowerCase().includes(normalizedQuery);
+    // Same shared interpretation as the Home source-health badge: attention
+    // is scoped to enabled sources so disabled entries never inflate active
+    // health counts.
     const matchesFilter =
       filter === "all" ||
       (filter === "enabled" && target.enabled) ||
       (filter === "disabled" && !target.enabled) ||
       (filter === "needs_attention" &&
-        sourceNeedsAttention(target, accessPromptByTargetId));
+        isEnabledSourceNeedingAttention(target, {
+          loginRequiredTargetIds,
+        }));
 
     return matchesQuery && matchesFilter ? [{ index, target }] : [];
   });
+}
+
+interface SourcePagerProps {
+  "aria-label": string;
+  children: ReactNode;
+  className: string;
+  currentPage: number;
+  moveToPage: (nextPage: number) => void;
+  nextAriaLabel?: string;
+  pageCount: number;
+  previousAriaLabel?: string;
+}
+
+function SourcePager(props: SourcePagerProps) {
+  return (
+    <nav aria-label={props["aria-label"]} className={props.className}>
+      <Button
+        {...(props.previousAriaLabel
+          ? { "aria-label": props.previousAriaLabel }
+          : {})}
+        disabled={props.currentPage === 0}
+        onClick={() => props.moveToPage(Math.max(0, props.currentPage - 1))}
+        size="sm"
+        type="button"
+        variant="outline"
+      >
+        Previous
+      </Button>
+      {props.children}
+      <Button
+        {...(props.nextAriaLabel ? { "aria-label": props.nextAriaLabel } : {})}
+        disabled={props.currentPage >= props.pageCount - 1}
+        onClick={() =>
+          props.moveToPage(Math.min(props.pageCount - 1, props.currentPage + 1))
+        }
+        size="sm"
+        type="button"
+        variant="outline"
+      >
+        Next
+      </Button>
+    </nav>
+  );
 }
 
 interface ProfileJobSourcesTabProps {
@@ -132,6 +175,17 @@ export function ProfileJobSourcesTab(props: ProfileJobSourcesTabProps) {
       ),
     [props.sourceAccessPrompts],
   );
+  // Only hard sign-in blockers count as "needs attention"; optional
+  // `prompt_login_recommended` prompts stay informational.
+  const loginRequiredTargetIds = useMemo(
+    () =>
+      new Set(
+        props.sourceAccessPrompts
+          .filter((prompt) => prompt.state === "prompt_login_required")
+          .map((prompt) => prompt.targetId),
+      ),
+    [props.sourceAccessPrompts],
+  );
   const instructionArtifactById = useMemo(
     () =>
       new Map(
@@ -148,9 +202,9 @@ export function ProfileJobSourcesTab(props: ProfileJobSourcesTabProps) {
         discoveryTargets,
         deferredQuery,
         filter,
-        accessPromptByTargetId,
+        loginRequiredTargetIds,
       ),
-    [accessPromptByTargetId, deferredQuery, discoveryTargets, filter],
+    [deferredQuery, discoveryTargets, filter, loginRequiredTargetIds],
   );
   const pageCount = Math.max(
     1,
@@ -170,9 +224,11 @@ export function ProfileJobSourcesTab(props: ProfileJobSourcesTabProps) {
   const enabledCount = discoveryTargets.filter(
     (target) => target.enabled,
   ).length;
-  const needsAttentionCount = discoveryTargets.filter((target) =>
-    sourceNeedsAttention(target, accessPromptByTargetId),
-  ).length;
+  // Same projection as Home; Home also marks active-run sources because
+  // Profile intentionally has no discovery-run context.
+  const sourceHealthCounts = deriveEnabledSourceHealthCounts(discoveryTargets, {
+    loginRequiredTargetIds,
+  });
 
   const updateDiscoveryTargets = (
     nextTargets: SearchPreferencesEditorValues["discoveryTargets"],
@@ -207,7 +263,7 @@ export function ProfileJobSourcesTab(props: ProfileJobSourcesTabProps) {
         id: targetId,
         label: "",
         startingUrl: "",
-        enabled: true,
+        enabled: false,
         adapterKind: "auto",
         customInstructions: "",
         instructionStatus: "missing",
@@ -244,7 +300,7 @@ export function ProfileJobSourcesTab(props: ProfileJobSourcesTabProps) {
 
   return (
     <section
-      className="grid content-start gap-(--gap-card)"
+      className={`grid content-start gap-(--gap-card) ${PROFILE_DEEP_LINK_SCROLL_MARGIN_CLASSES.base} ${PROFILE_DEEP_LINK_SCROLL_MARGIN_CLASSES.fixedHeader} ${PROFILE_DEEP_LINK_SCROLL_MARGIN_CLASSES.internalScroller}`}
       data-job-sources-library
       id="profile-job-sources"
     >
@@ -273,7 +329,10 @@ export function ProfileJobSourcesTab(props: ProfileJobSourcesTabProps) {
           { label: "Total sources", value: discoveryTargets.length },
           { label: "Enabled for search", value: enabledCount },
           { label: "Disabled", value: discoveryTargets.length - enabledCount },
-          { label: "Needs attention", value: needsAttentionCount },
+          {
+            label: "Needs attention",
+            value: sourceHealthCounts.needsAttention,
+          },
         ].map((item) => (
           <div
             className="surface-card-tint grid gap-1 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-3"
@@ -329,22 +388,39 @@ export function ProfileJobSourcesTab(props: ProfileJobSourcesTabProps) {
 
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-(--surface-panel-border) pt-3">
           <h3
-            className="scroll-mt-4 text-[0.98rem] font-semibold text-(--text-headline) outline-none"
+            className={`${PROFILE_DEEP_LINK_SCROLL_MARGIN_CLASSES.base} text-[0.98rem] font-semibold text-(--text-headline) outline-none ${PROFILE_DEEP_LINK_SCROLL_MARGIN_CLASSES.fixedHeader} ${PROFILE_DEEP_LINK_SCROLL_MARGIN_CLASSES.internalScroller}`}
             id="profile-job-sources-list-heading"
             tabIndex={-1}
           >
             Source library
           </h3>
-          <p
-            aria-atomic="true"
-            aria-live="polite"
-            className="text-(length:--text-small) text-foreground-muted"
-            role="status"
-          >
-            {filteredSources.length === discoveryTargets.length
-              ? `${discoveryTargets.length} sources`
-              : `${filteredSources.length} of ${discoveryTargets.length} sources`}
-          </p>
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-3 gap-y-2">
+            {pageCount > 1 ? (
+              <SourcePager
+                aria-label="Job source pages (top of list)"
+                className="flex flex-wrap items-center gap-2"
+                currentPage={currentPage}
+                moveToPage={moveToPage}
+                nextAriaLabel="Next source page (top of list)"
+                pageCount={pageCount}
+                previousAriaLabel="Previous source page (top of list)"
+              >
+                <span className="text-(length:--text-small) text-foreground-muted">
+                  Page {currentPage + 1} of {pageCount}
+                </span>
+              </SourcePager>
+            ) : null}
+            <p
+              aria-atomic="true"
+              aria-live="polite"
+              className="text-(length:--text-small) text-foreground-muted"
+              role="status"
+            >
+              {filteredSources.length === discoveryTargets.length
+                ? `${discoveryTargets.length} sources`
+                : `${filteredSources.length} of ${discoveryTargets.length} sources`}
+            </p>
+          </div>
         </div>
 
         {discoveryTargets.length === 0 ? (
@@ -366,6 +442,15 @@ export function ProfileJobSourcesTab(props: ProfileJobSourcesTabProps) {
             <p className="mt-1 text-sm text-foreground-muted">
               Clear the search or choose All to return to the complete library.
             </p>
+            {deferredQuery.trim().length > 0 ? (
+              <p
+                aria-live="polite"
+                className="text-sm text-foreground-muted"
+                role="status"
+              >
+                {`No sources match "${deferredQuery.trim()}"`}
+              </p>
+            ) : null}
             <Button
               className="mt-3"
               onClick={() => setLibraryView("all", "")}
@@ -474,10 +559,9 @@ export function ProfileJobSourcesTab(props: ProfileJobSourcesTabProps) {
                           >
                             {target.enabled ? "Enabled" : "Disabled"}
                           </Badge>
-                          {sourceNeedsAttention(
-                            target,
-                            accessPromptByTargetId,
-                          ) ? (
+                          {isEnabledSourceNeedingAttention(target, {
+                            loginRequiredTargetIds,
+                          }) ? (
                             <Badge variant="destructive">Needs attention</Badge>
                           ) : null}
                         </div>
@@ -522,35 +606,18 @@ export function ProfileJobSourcesTab(props: ProfileJobSourcesTabProps) {
         ) : null}
 
         {pageCount > 1 ? (
-          <nav
+          <SourcePager
             aria-label="Job source pages"
-            className="flex items-center justify-between gap-3 border-t border-(--surface-panel-border) pt-3"
+            className="flex flex-wrap items-center justify-between gap-3 border-t border-(--surface-panel-border) pt-3"
+            currentPage={currentPage}
+            moveToPage={moveToPage}
+            pageCount={pageCount}
           >
-            <Button
-              disabled={currentPage === 0}
-              onClick={() => moveToPage(Math.max(0, currentPage - 1))}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              Previous
-            </Button>
             <span className="text-center text-(length:--text-small) text-foreground-muted">
               {firstVisibleSourceNumber}–{lastVisibleSourceNumber} of{" "}
               {filteredSources.length}
             </span>
-            <Button
-              disabled={currentPage >= pageCount - 1}
-              onClick={() =>
-                moveToPage(Math.min(pageCount - 1, currentPage + 1))
-              }
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              Next
-            </Button>
-          </nav>
+          </SourcePager>
         ) : null}
       </article>
     </section>

@@ -333,7 +333,7 @@ describe("workspace campaign rule funnel projection", () => {
       }),
     });
     const emptyCampaign = created.campaigns.find(
-      (candidate) => candidate.id === created.activeCampaignId,
+      (candidate) => candidate.name === "Empty scope",
     );
     if (!emptyCampaign) throw new Error("Expected the new empty campaign.");
     expect(emptyCampaign.jobIds).toEqual([]);

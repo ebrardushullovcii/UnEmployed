@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { useForm } from "react-hook-form";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   CandidateProfileSchema,
   JobSearchPreferencesSchema,
@@ -56,7 +56,7 @@ function createTarget(index: number): DiscoveryTargetEditorValue {
     id: `setup_target_${sourceNumber}`,
     label: `Source ${sourceNumber}`,
     startingUrl: `https://jobs-${index}.example.com/openings`,
-    enabled: index === 1 || index === 511,
+    enabled: false,
     adapterKind: "auto",
     customInstructions: "",
     instructionStatus: "missing",
@@ -68,7 +68,9 @@ function createTarget(index: number): DiscoveryTargetEditorValue {
   };
 }
 
-function SetupSourcesHarness() {
+function SetupSourcesHarness(props: {
+  targets?: DiscoveryTargetEditorValue[];
+}) {
   const profileForm = useForm<ProfileEditorValues>({
     defaultValues: createProfileEditorValues(profile),
   });
@@ -82,9 +84,9 @@ function SetupSourcesHarness() {
   const preferencesForm = useForm<SearchPreferencesEditorValues>({
     defaultValues: {
       ...createSearchPreferencesEditorValues(preferences),
-      discoveryTargets: Array.from({ length: 511 }, (_, index) =>
-        createTarget(index + 1),
-      ),
+      discoveryTargets:
+        props.targets ??
+        Array.from({ length: 511 }, (_, index) => createTarget(index + 1)),
     },
   });
 
@@ -100,11 +102,21 @@ function SetupSourcesHarness() {
 }
 
 describe("ProfileSetupTargetingStep source scale", () => {
-  afterEach(() => {
-    document.body.innerHTML = "";
+  beforeAll(() => {
+    // Deterministic pagination: the component's rAF-driven focus jump runs
+    // synchronously instead of depending on jsdom frame timing.
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
   });
 
-  it("keeps 511 sources bounded, searchable, editable, and validation-aware", async () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+    vi.restoreAllMocks();
+  });
+
+  it("keeps a 511-entry catalog bounded to one searchable 25-row page", () => {
     const { container } = render(<SetupSourcesHarness />);
 
     expect(
@@ -115,25 +127,43 @@ describe("ProfileSetupTargetingStep source scale", () => {
     expect(screen.queryByText("Source 026")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(await screen.findByText("26–50 of 511")).toBeTruthy();
+    expect(screen.getByText("26–50 of 511")).toBeTruthy();
     expect(screen.getByText("Source 026")).toBeTruthy();
     expect(screen.queryByText("Source 001")).toBeNull();
 
-    const searchInput = screen.getByRole("searchbox", {
-      name: "Find a source",
+    fireEvent.change(screen.getByRole("searchbox", { name: "Find a source" }), {
+      target: { value: "source 511" },
     });
-    fireEvent.change(searchInput, { target: { value: "source 511" } });
-    expect(await screen.findByText("1 of 511 sources")).toBeTruthy();
+    expect(screen.getByText("1 of 511 sources")).toBeTruthy();
     expect(screen.getByText("Source 511")).toBeTruthy();
+    expect(screen.queryByText("Source 001")).toBeNull();
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Find a source" }), {
+      target: { value: "" },
+    });
+    expect(screen.getByText("511 sources")).toBeTruthy();
+    expect(screen.getByText("1–25 of 511")).toBeTruthy();
+  });
+
+  it("keeps catalog editing validation-aware with one editor at a time", () => {
+    const { container } = render(
+      <SetupSourcesHarness
+        targets={[createTarget(1), createTarget(2), createTarget(511)]}
+      />,
+    );
+
+    expect(isValidProfileSetupSourceUrl("not-a-url")).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit Source 001" }));
+    expect(
+      container.querySelector("#profile-setup-source-url-setup_target_001"),
+    ).toBeTruthy();
 
     const sourceUrlInput = screen.getByLabelText("Careers or job-board URL");
-    expect(isValidProfileSetupSourceUrl("not-a-url")).toBe(false);
     fireEvent.change(sourceUrlInput, { target: { value: "not-a-url" } });
-    await waitFor(() =>
-      expect(sourceUrlInput.getAttribute("aria-invalid")).toBe("true"),
-    );
+    expect(sourceUrlInput.getAttribute("aria-invalid")).toBe("true");
     expect(sourceUrlInput.getAttribute("aria-describedby")).toBe(
-      "profile-setup-source-url-error-setup_target_511",
+      "profile-setup-source-url-error-setup_target_001",
     );
     expect(
       screen.getByText(
@@ -141,25 +171,24 @@ describe("ProfileSetupTargetingStep source scale", () => {
       ),
     ).toBeTruthy();
 
-    fireEvent.change(searchInput, { target: { value: "not-a-url" } });
-    await waitFor(() =>
-      expect(
-        screen
-          .getByLabelText("Careers or job-board URL")
-          .getAttribute("aria-invalid"),
-      ).toBe("true"),
-    );
-    fireEvent.change(screen.getByLabelText("Source name"), {
-      target: { value: "Final source" },
-    });
-    fireEvent.change(searchInput, { target: { value: "final source" } });
-    expect(await screen.findByDisplayValue("Final source")).toBeTruthy();
-    await waitFor(() =>
-      expect(
-        screen
-          .getByLabelText("Careers or job-board URL")
-          .getAttribute("aria-invalid"),
-      ).toBe("true"),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Edit Source 511" }));
+    expect(
+      container.querySelector("#profile-setup-source-url-setup_target_001"),
+    ).toBeNull();
+    expect(
+      container.querySelector("#profile-setup-source-url-setup_target_511"),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "This source needs a complete http or https URL. Choose Edit to fix it before enabling it.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen
+        .getByRole("button", {
+          name: "Enable Source 001 in searches",
+        })
+        .hasAttribute("disabled"),
+    ).toBe(true);
   });
 });

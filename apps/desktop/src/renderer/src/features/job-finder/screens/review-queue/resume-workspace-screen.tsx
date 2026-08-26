@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ResumeDraft, ResumeDraftPatch } from "@unemployed/contracts";
+import type {
+  ResumeDraft,
+  ResumeDraftPatch,
+  WorkHistoryReviewSuggestion,
+} from "@unemployed/contracts";
+import { isBlockingResumeValidationIssue } from "@unemployed/contracts";
 import {
   getResumeTemplateDeliveryLane,
   isResumeTemplateApprovalEligible,
 } from "@unemployed/contracts";
 import { EmptyState } from "../../components/empty-state";
 import { LockedScreenLayout } from "../../components/locked-screen-layout";
+import { ResumeClaimConfirmationPanel } from "./resume-claim-confirmation-panel";
 import { ResumeWorkspaceEditorPanel } from "./resume-workspace-editor-panel";
 import { ResumeWorkspaceHeader } from "./resume-workspace-header";
 import { ResumeWorkspaceContextDisclosure } from "./resume-workspace-context-disclosure";
@@ -18,7 +24,7 @@ import { ResumeWorkspaceStudioShell } from "./resume-workspace-studio-shell";
 import { getJobFinderScrollBehavior } from "../../lib/job-finder-scroll-behavior";
 import { ResumeWorkspaceTemplatePanel } from "./resume-workspace-template-panel";
 import { ResumeVersionHistoryPanel } from "./resume-version-history-panel";
-import { cloneDraft, formatDraftStatusLabel } from "./resume-workspace-utils";
+import { cloneDraft } from "./resume-workspace-utils";
 import { orderResumeEntriesNewestFirst } from "./resume-section-editor-helpers";
 import {
   buildResumeThemeRecommendationContext,
@@ -26,6 +32,10 @@ import {
   getAvailableExportToApprove,
   getSelectedTheme,
 } from "./resume-workspace-screen-helpers";
+import {
+  listUnresolvedWorkHistoryOmissionSuggestions,
+  type ResumeWorkHistoryDecisionRequest,
+} from "./resume-workspace-work-history-decisions";
 import { useResumeWorkspaceSelection } from "./use-resume-workspace-selection";
 import { useResumeWorkspacePreview } from "./use-resume-workspace-preview";
 import type { ResumeWorkspaceScreenProps } from "./resume-workspace-screen.types";
@@ -118,9 +128,24 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
             assessment.claimOrigin === "assistant_edited" ||
             assessment.claimOrigin === "deterministic_fallback")),
     ).length ?? 0;
+  const hasBlockingValidationIssues = Boolean(
+    props.workspace?.validation?.issues.some(isBlockingResumeValidationIssue),
+  );
   const exportBlockedReason =
     !hasUnsavedChanges && blockingClaimCount > 0
       ? `${blockingClaimCount} generated or unsupported claim${blockingClaimCount === 1 ? "" : "s"} must be removed, rewritten, or grounded in candidate evidence before this resume can be exported.`
+      : null;
+  const unresolvedWorkHistorySuggestions = props.workspace
+    ? listUnresolvedWorkHistoryOmissionSuggestions({
+        acknowledgments: props.workspace.draft.workHistoryReviewAcknowledgments,
+        draftId: props.workspace.draft.id,
+        suggestions: props.workspace.workHistoryReviewSuggestions,
+      })
+    : [];
+  const unresolvedWorkHistoryCount = unresolvedWorkHistorySuggestions.length;
+  const approvalBlockedReason =
+    unresolvedWorkHistoryCount > 0
+      ? `${unresolvedWorkHistoryCount} hidden work-history role${unresolvedWorkHistoryCount === 1 ? " is" : "s are"} waiting on an explicit kept-omitted decision. Approval stays disabled until every entry below has one.`
       : null;
 
   const runWithSavedDraft = useCallback(
@@ -170,11 +195,19 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
   const handleApplyPatch = useCallback(
     (patch: ResumeDraftPatch, revisionReason?: string | null) => {
       const scopedPatch = withDraftPatch(patch);
-      props.onApplyPatch(scopedPatch, revisionReason);
 
       if (scopedPatch.origin === "assistant") {
+        props.onApplyPatch(scopedPatch, revisionReason);
         return;
       }
+
+      // Any user-directed patch revises the studio draft — content patches
+      // land through the saved-workspace refresh, order patches below also
+      // mutate the local draft — so retire any exact-request retry captured
+      // before this edit. Signalling first lets this patch's own save capture
+      // its post-edit epoch and keep a truthful Retry if it fails.
+      props.onDraftEdited?.();
+      props.onApplyPatch(scopedPatch, revisionReason);
 
       if (
         scopedPatch.operation !== "move_entry" &&
@@ -238,7 +271,7 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
         };
       });
     },
-    [props.onApplyPatch, withDraftPatch],
+    [props.onApplyPatch, props.onDraftEdited, withDraftPatch],
   );
 
   const { preview, previewError, previewStatus, refreshPreview } =
@@ -258,6 +291,68 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
       setMobileStudioTab("editor");
     },
     [handlePreviewTargetSelect],
+  );
+
+  const acknowledgeWorkHistoryOmission = useCallback(
+    (suggestion: WorkHistoryReviewSuggestion) => {
+      const decision: ResumeWorkHistoryDecisionRequest = {
+        intent: "acknowledge",
+        suggestion: {
+          id: suggestion.id,
+          profileRecordId: suggestion.profileRecordId,
+          kind: suggestion.kind,
+          action: suggestion.action,
+          messageContentHash: suggestion.messageContentHash,
+        },
+      };
+
+      runWithSavedDraftAsync(
+        () => props.onSetWorkHistoryReviewAcknowledgment(props.jobId, decision),
+        "Saved your draft before recording this decision.",
+      );
+    },
+    [
+      props.jobId,
+      props.onSetWorkHistoryReviewAcknowledgment,
+      runWithSavedDraftAsync,
+    ],
+  );
+
+  const removeWorkHistoryOmissionAcknowledgment = useCallback(
+    (acknowledgmentId: string) => {
+      runWithSavedDraftAsync(
+        () =>
+          props.onSetWorkHistoryReviewAcknowledgment(props.jobId, {
+            intent: "remove",
+            acknowledgmentId,
+          }),
+        "Saved your draft before updating this decision.",
+      );
+    },
+    [
+      props.jobId,
+      props.onSetWorkHistoryReviewAcknowledgment,
+      runWithSavedDraftAsync,
+    ],
+  );
+
+  const resolveAssistantProposal = useCallback(
+    (
+      proposalId: string,
+      action: "accept" | "reject",
+      patchIds: readonly string[],
+    ) => {
+      const resolveProposal = props.onResolveAssistantProposal;
+
+      if (!resolveProposal) {
+        return;
+      }
+
+      runWithSavedDraftAsync(() => {
+        resolveProposal(props.jobId, proposalId, action, patchIds);
+      }, "Saved your draft before resolving this proposal.");
+    },
+    [props.jobId, props.onResolveAssistantProposal, runWithSavedDraftAsync],
   );
 
   if (!props.workspace || !draft) {
@@ -287,9 +382,15 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
       hasUnsavedChanges={hasUnsavedChanges}
       isWorkspacePending={props.isWorkspacePending}
       jobId={props.jobId}
-      onDraftChange={(nextDraft) => setDraft(nextDraft)}
+      onDraftChange={(nextDraft) => {
+        // Direct user edits to identity fields revise the draft.
+        props.onDraftEdited?.();
+        setDraft(nextDraft);
+      }}
       onRegenerateSection={props.onRegenerateSection}
-      onSectionChange={(nextSection) =>
+      onSectionChange={(nextSection) => {
+        // Direct user edits to a section revise the draft.
+        props.onDraftEdited?.();
         setDraft((currentDraft) =>
           currentDraft
             ? {
@@ -299,8 +400,8 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
                 ),
               }
             : currentDraft,
-        )
-      }
+        );
+      }}
       onSelectEntry={handleSelectEntry}
       onSelectSection={handleSelectSection}
       runWithSavedDraft={runWithSavedDraft}
@@ -309,8 +410,19 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
       selectedSectionId={selectedSectionId}
       selectedTargetId={selectedTargetId}
       onApplyPatch={handleApplyPatch}
+      showGeneratedLineMarkers={
+        props.workspace.strategyContext?.tailoringStrength === "aggressive" &&
+        draft.generationMethod === "ai"
+      }
+      workHistoryAcknowledgments={
+        props.workspace.draft.workHistoryReviewAcknowledgments
+      }
       workHistoryReviewSuggestions={
         props.workspace.workHistoryReviewSuggestions
+      }
+      onAcknowledgeWorkHistoryOmission={acknowledgeWorkHistoryOmission}
+      onRemoveWorkHistoryOmissionAcknowledgment={
+        removeWorkHistoryOmissionAcknowledgment
       }
     />
   );
@@ -328,14 +440,8 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
           "Saved your draft before sending this request.",
         )
       }
-      onResolveProposal={(proposalId, action, patchIds) =>
-        props.onResolveAssistantProposal?.(
-          props.jobId,
-          proposalId,
-          action,
-          patchIds,
-        )
-      }
+      onResolveProposal={resolveAssistantProposal}
+      validation={props.workspace.validation ?? null}
     />
   );
 
@@ -374,7 +480,9 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
       selectedTemplateApprovalEligible={selectedTemplateApprovalEligible}
       selectedThemeId={draft.templateId}
       themes={props.availableResumeTemplates}
-      onChange={(templateId) =>
+      onChange={(templateId) => {
+        // Picking a template revises the draft's presentation settings.
+        props.onDraftEdited?.();
         setDraft((currentDraft) =>
           currentDraft
             ? {
@@ -382,8 +490,8 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
                 templateId,
               }
             : currentDraft,
-        )
-      }
+        );
+      }}
     />
   );
   const historyPanel = (
@@ -399,7 +507,22 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
       revisions={props.workspace.revisions}
     />
   );
+  // Confirmations bind to the saved draft's exact revision, locator, and
+  // content hash, so the panel reads the committed snapshot rather than the
+  // live editing draft. The returned workspace snapshot flows back through
+  // props and refreshes every row.
+  const claimConfirmationPanel = props.onSetResumeClaimConfirmation ? (
+    <ResumeClaimConfirmationPanel
+      claimAssessments={props.workspace.validation?.claimAssessments ?? []}
+      draft={props.workspace.draft}
+      hasUnsavedChanges={hasUnsavedChanges}
+      isWorkspacePending={props.isWorkspacePending}
+      jobId={props.jobId}
+      onSetResumeClaimConfirmation={props.onSetResumeClaimConfirmation}
+    />
+  ) : null;
   const { approvalStateLabel, studioStatusMessage } = buildWorkspaceStatusCopy({
+    approvalBlockedReason,
     availableExportToApprove,
     draft,
     hasUnsavedChanges,
@@ -410,7 +533,7 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
   return (
     <LockedScreenLayout
       contentClassName="xl:overflow-hidden"
-      topClassName="grid gap-2.5 pb-1.5 pt-2"
+      topClassName="grid gap-1.5 pb-1 pt-1.5"
       topContent={
         <>
           <ResumeWorkspaceHeader
@@ -426,34 +549,36 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
                 "Saved your changes before reloading the latest version.",
               )
             }
-            selectedThemeLabel={selectedTheme?.label ?? fallbackThemeLabel}
           />
           <ResumeWorkspaceContextDisclosure
             claimCount={
               props.workspace.validation?.claimAssessments.length ?? 0
             }
-            statusLabel={formatDraftStatusLabel(draft.status)}
           >
             <ResumeWorkspaceSidebar
-              draft={draft}
               hasUnsavedChanges={hasUnsavedChanges}
               workspace={props.workspace}
             />
+            <ResumeStrategyContextPanel
+              context={props.workspace.strategyContext ?? null}
+            />
           </ResumeWorkspaceContextDisclosure>
-          <ResumeStrategyContextPanel
-            context={props.workspace.strategyContext ?? null}
-          />
         </>
       }
     >
       <section className="grid min-h-124 min-w-0 items-stretch xl:h-full xl:min-h-0">
         <ResumeWorkspaceStudioShell
+          approvalBlockedReason={approvalBlockedReason}
           approvalStateLabel={approvalStateLabel}
           assistantRail={assistantRail}
           canApproveCurrentPdf={Boolean(
-            availableExportToApprove && selectedTemplateApprovalEligible,
+            availableExportToApprove &&
+            selectedTemplateApprovalEligible &&
+            !approvalBlockedReason &&
+            !hasBlockingValidationIssues,
           )}
           canClearApproval={Boolean(draft.approvedExportId)}
+          claimConfirmationPanel={claimConfirmationPanel}
           editorPanel={editorPanel}
           exportBlockedReason={exportBlockedReason}
           hasUnsavedChanges={hasUnsavedChanges}
@@ -509,6 +634,7 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
           selectedTemplateApprovalEligible={selectedTemplateApprovalEligible}
           studioStatusMessage={studioStatusMessage}
           templatePanel={templatePanel}
+          validationIssues={props.workspace.validation?.issues ?? []}
         />
       </section>
       <ResumeGuidedEditsPopup
@@ -522,14 +648,8 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
             "Saved your draft before sending this request.",
           )
         }
-        onResolveProposal={(proposalId, action, patchIds) =>
-          props.onResolveAssistantProposal?.(
-            props.jobId,
-            proposalId,
-            action,
-            patchIds,
-          )
-        }
+        onResolveProposal={resolveAssistantProposal}
+        validation={props.workspace.validation ?? null}
       />
     </LockedScreenLayout>
   );

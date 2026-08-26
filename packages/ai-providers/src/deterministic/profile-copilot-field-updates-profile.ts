@@ -5,7 +5,7 @@ import {
   parseRequiredText,
 } from "./profile-copilot-field-updates-shared";
 
-export const profileFieldDescriptors: ReadonlyArray<FieldDescriptor<unknown>> = [
+export const profileFieldDescriptors = [
   {
     aliases: ["preferred display name", "preferred name", "display name"],
     applyMode: "applied",
@@ -55,6 +55,16 @@ export const profileFieldDescriptors: ReadonlyArray<FieldDescriptor<unknown>> = 
     readCurrentValue: (input) => input.profile.lastName,
     reviewDomain: "identity",
     title: "last name",
+  },
+  {
+    aliases: ["full name"],
+    applyMode: "applied",
+    key: "fullName",
+    operation: "replace_identity_fields",
+    parseValue: parseNullableText,
+    readCurrentValue: (input) => input.profile.fullName,
+    reviewDomain: "identity",
+    title: "full name",
   },
   {
     aliases: ["email", "main email"],
@@ -156,4 +166,4 @@ export const profileFieldDescriptors: ReadonlyArray<FieldDescriptor<unknown>> = 
     reviewDomain: null,
     title: "skills",
   },
-];
+] as const satisfies ReadonlyArray<FieldDescriptor<unknown>>;

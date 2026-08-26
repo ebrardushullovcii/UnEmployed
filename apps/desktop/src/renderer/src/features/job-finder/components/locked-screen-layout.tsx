@@ -119,6 +119,59 @@ export function getNestedPaneWheelTarget(input: {
   return Math.max(0, Math.min(maxScrollTop, input.scrollTop + pixelDelta));
 }
 
+function isNativeWheelOwnerElement(element: HTMLElement): boolean {
+  return (
+    element.isContentEditable ||
+    element.hasAttribute("contenteditable") ||
+    element.tagName === "INPUT" ||
+    element.tagName === "SELECT" ||
+    element.tagName === "TEXTAREA"
+  );
+}
+
+export function isVerticallyScrollableElement(element: HTMLElement): boolean {
+  const overflowY = window.getComputedStyle(element).overflowY;
+
+  if (overflowY !== "auto" && overflowY !== "scroll") {
+    return false;
+  }
+
+  return element.scrollHeight > element.clientHeight + SCROLL_BOUNDARY_TOLERANCE;
+}
+
+/**
+ * Walks ancestors from the wheel target up to the layout content root and
+ * collects the vertical scroll owners under the pointer, deepest first. The
+ * nearest marked pane ends the chain; everything above it stays owned by the
+ * header and outer page. Returns null when the pointer is over a text control
+ * so the browser keeps native ownership of the event, including chaining.
+ */
+export function collectLockedWheelScrollChain(input: {
+  contentRoot: Element;
+  target: Element;
+}): HTMLElement[] | null {
+  const chain: HTMLElement[] = [];
+  let node: Element | null = input.target;
+
+  while (node && node !== input.contentRoot) {
+    if (node instanceof HTMLElement) {
+      if (isNativeWheelOwnerElement(node)) {
+        return null;
+      }
+      if (node.dataset.lockedPaneScrollRegion !== undefined) {
+        chain.push(node);
+        return chain;
+      }
+      if (isVerticallyScrollableElement(node)) {
+        chain.push(node);
+      }
+    }
+    node = node.parentElement;
+  }
+
+  return chain;
+}
+
 interface LockedScreenLayoutProps {
   children: ReactNode;
   contentClassName?: string;
@@ -133,7 +186,7 @@ export function LockedScreenLayout({
   contentClassName,
   lockTopContent = true,
   reserveRightRail = false,
-  topClassName,
+  topClassName = "pb-2 pt-2",
   topContent,
 }: LockedScreenLayoutProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -186,11 +239,20 @@ export function LockedScreenLayout({
       }
 
       const eventTarget = event.target instanceof Element ? event.target : null;
-      const nestedScrollPane = eventTarget?.closest<HTMLElement>(
-        "[data-locked-pane-scroll-region]",
-      );
+      if (!eventTarget || !content.contains(eventTarget)) {
+        return;
+      }
+
+      const scrollChain = collectLockedWheelScrollChain({
+        contentRoot: content,
+        target: eventTarget,
+      });
+      if (!scrollChain) {
+        return;
+      }
+
       const pageSize =
-        (nestedScrollPane?.clientHeight ?? scrollArea.clientHeight) ||
+        (scrollChain[0]?.clientHeight ?? scrollArea.clientHeight) ||
         window.innerHeight * 0.85;
       let remainingDeltaY = normalizeWheelDeltaY(
         event.deltaY,
@@ -203,7 +265,7 @@ export function LockedScreenLayout({
 
       const initialOuterScrollTop = scrollArea.scrollTop;
       let nextOuterScrollTop = initialOuterScrollTop;
-      let nextNestedScrollTop: number | null = null;
+      const paneTargets = new Map<HTMLElement, number>();
       let didManualConsumption = false;
 
       const consumeLockedHeader = () => {
@@ -223,39 +285,38 @@ export function LockedScreenLayout({
         didManualConsumption ||= consumedDeltaY !== 0;
       };
 
-      const consumeNestedPane = () => {
-        if (!nestedScrollPane || !content.contains(nestedScrollPane)) {
-          return;
-        }
-
-        const paneStart = nestedScrollPane.scrollTop;
+      // The chain is ordered deepest first: an unmarked inner well consumes
+      // before its marked pane, and the marked pane consumes before the
+      // outer page.
+      const consumeChainScroller = (scrollable: HTMLElement) => {
+        const paneStart = scrollable.scrollTop;
         const paneTarget = getNestedPaneWheelTarget({
-          clientHeight: nestedScrollPane.clientHeight,
+          clientHeight: scrollable.clientHeight,
           deltaMode: 0,
           deltaY: remainingDeltaY,
-          scrollHeight: nestedScrollPane.scrollHeight,
+          scrollHeight: scrollable.scrollHeight,
           scrollTop: paneStart,
         });
         if (paneTarget === null) {
           return;
         }
 
-        nextNestedScrollTop = paneTarget;
+        paneTargets.set(scrollable, paneTarget);
         remainingDeltaY -= paneTarget - paneStart;
         didManualConsumption ||= paneTarget !== paneStart;
       };
 
       if (remainingDeltaY > 0) {
         consumeLockedHeader();
-        consumeNestedPane();
+        scrollChain.forEach(consumeChainScroller);
       } else {
-        consumeNestedPane();
+        scrollChain.forEach(consumeChainScroller);
         if (remainingDeltaY < 0) {
           consumeLockedHeader();
         }
       }
 
-      // If a pane or the header reached its boundary during this event, let
+      // If a scroller or the header reached its boundary during this event, let
       // any remaining delta continue through the outer scroll owner. Setting
       // scrollTop keeps the handoff deterministic while the browser still
       // clamps to the outer element's real scroll range.
@@ -264,10 +325,13 @@ export function LockedScreenLayout({
       }
 
       const outerMoved = nextOuterScrollTop !== initialOuterScrollTop;
-      const paneMoved =
-        nextNestedScrollTop !== null &&
-        nextNestedScrollTop !== nestedScrollPane?.scrollTop;
-      if (!outerMoved && !paneMoved) {
+      const movedPaneTargets: Array<[HTMLElement, number]> = [];
+      for (const [scrollable, paneTarget] of paneTargets) {
+        if (scrollable.scrollTop !== paneTarget) {
+          movedPaneTargets.push([scrollable, paneTarget]);
+        }
+      }
+      if (!outerMoved && movedPaneTargets.length === 0) {
         return;
       }
 
@@ -275,9 +339,8 @@ export function LockedScreenLayout({
       if (outerMoved) {
         scrollArea.scrollTop = nextOuterScrollTop;
       }
-      const nestedTarget = nextNestedScrollTop;
-      if (paneMoved && nestedScrollPane && nestedTarget !== null) {
-        nestedScrollPane.scrollTop = nestedTarget;
+      for (const [scrollable, paneTarget] of movedPaneTargets) {
+        scrollable.scrollTop = paneTarget;
       }
     };
 
@@ -308,18 +371,25 @@ export function LockedScreenLayout({
         return;
       }
 
+      const nestedScrollPane = eventTarget.closest<HTMLElement>(
+        "[data-locked-pane-scroll-region]",
+      );
+
+      // A focusable nested pane owns scrolling only while the pane itself has
+      // focus. Descendant controls retain their native keyboard behavior.
+      if (nestedScrollPane && eventTarget !== nestedScrollPane) {
+        return;
+      }
+
       // Leave keyboard ownership with controls and other interactive
       // descendants. In particular, Space must still activate buttons,
       // links, summaries, and custom role=button elements.
       if (
+        eventTarget !== nestedScrollPane &&
         eventTarget.closest<HTMLElement>(INTERACTIVE_KEYBOARD_TARGET_SELECTOR)
       ) {
         return;
       }
-
-      const nestedScrollPane = eventTarget.closest<HTMLElement>(
-        "[data-locked-pane-scroll-region]",
-      );
 
       const key = event.key;
       const isArrowDown = key === "ArrowDown";

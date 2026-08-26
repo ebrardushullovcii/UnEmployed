@@ -4,8 +4,13 @@ import type {
   ApplicationRecord,
   ApplyRunDetails,
   ClearApplicationAnswerCommandInput,
+  GlobalDailyApplicationPreparationCapacity,
   JobFinderWorkspaceSnapshot,
   SaveApplicationAnswerCommandInput,
+  JobFinderApplyConsentActionInput,
+  JobFinderApplyRunActionInput,
+  JobFinderApplyRunDetailsQuery,
+  JobFinderExactApplicationTarget,
 } from "@unemployed/contracts";
 import { Mic } from "lucide-react";
 import { Button } from "@renderer/components/ui";
@@ -13,6 +18,7 @@ import { StatusBadge } from "../../components/status-badge";
 import { ApplicationsDetailPanelActivitySections } from "./applications-detail-panel-activity-sections";
 import { ApplicationsApplicationDocuments } from "./applications-application-documents";
 import { ApplicationsDetailPanelEmptyState } from "./applications-detail-panel-empty-state";
+import { APPLICATION_DETAIL_FACT_LABEL_CLASS } from "./applications-detail-fact-strip";
 import { buildQueueEntries } from "./applications-detail-panel-helpers";
 import { ApplicationsDetailPanelOverviewSections } from "./applications-detail-panel-overview-sections";
 import { ApplicationsDetailPanelRecoverySections } from "./applications-detail-panel-recovery-sections";
@@ -51,6 +57,7 @@ interface ApplicationsDetailPanelProps {
   activeFilter: ApplicationsViewFilter;
   applyRunDetails: ApplyRunDetails | null;
   applyRunDetailsTarget: {
+    applicationRecordId: string;
     jobId: string;
     runId: string;
   } | null;
@@ -58,6 +65,7 @@ interface ApplicationsDetailPanelProps {
   applyRunDetailsStatus: "idle" | "loading" | "ready" | "error";
   applicationRecords: readonly ApplicationRecord[];
   applyJobResults: JobFinderWorkspaceSnapshot["applyJobResults"];
+  dailyPreparationCapacity: GlobalDailyApplicationPreparationCapacity | null;
   discoveryJobs: JobFinderWorkspaceSnapshot["discoveryJobs"];
   applyRunHistory: Array<{
     result: JobFinderWorkspaceSnapshot["applyJobResults"][number];
@@ -71,10 +79,12 @@ interface ApplicationsDetailPanelProps {
   isApplyPending: boolean;
   isApplyRequestPending: (requestId: string) => boolean;
   isApplyRunPending: (runId: string) => boolean;
-  onApproveApplyRun: (runId: string) => void;
-  onCancelApplyRun: (runId: string) => void;
+  onApproveApplyRun: (input: JobFinderApplyRunActionInput) => void;
+  onCancelApplyRun: (input: JobFinderApplyRunActionInput) => void;
   onOpenCompany?: (companyId: string) => void;
-  onExportApplicationPacket: (runId: string, jobId: string) => Promise<void>;
+  onExportApplicationPacket: (
+    input: JobFinderApplyRunDetailsQuery,
+  ) => Promise<void>;
   onSaveApplicationAnswer: (
     command: SaveApplicationAnswerCommandInput,
   ) => Promise<void>;
@@ -82,13 +92,12 @@ interface ApplicationsDetailPanelProps {
     command: ClearApplicationAnswerCommandInput,
   ) => Promise<void>;
   onResolveApplyConsentRequest: (
-    requestId: string,
-    action: "approve" | "decline",
+    input: JobFinderApplyConsentActionInput,
   ) => void;
-  onRevokeApplyRunApproval: (runId: string) => void;
+  onRevokeApplyRunApproval: (input: JobFinderApplyRunActionInput) => void;
   onSelectApplyRun: (runId: string) => void;
-  onStartApplyCopilot: (jobId: string) => void;
-  onStartAutoApply: (jobId: string) => void;
+  onStartApplyCopilot: (input: JobFinderExactApplicationTarget) => void;
+  onStartAutoApply: (input: JobFinderExactApplicationTarget) => void;
   onStartAutoApplyQueue: (jobIds: string[]) => void;
   selectedApplyRunId: string | null;
   selectedAttempt: ApplicationAttempt | null;
@@ -104,6 +113,7 @@ export function ApplicationsDetailPanel({
   applyRunDetailsStatus,
   applicationRecords,
   applyJobResults,
+  dailyPreparationCapacity,
   discoveryJobs,
   applyRunHistory,
   effectiveSelectedApplyResult,
@@ -145,6 +155,7 @@ export function ApplicationsDetailPanel({
       applyRunDetailsStatus === "ready" &&
       selectedRecord != null &&
       applyRunDetailsTarget?.jobId === selectedRecord.jobId &&
+      applyRunDetailsTarget.applicationRecordId === selectedRecord.id &&
       applyRunDetailsTarget.runId === selectedApplyRunId &&
       applyRunDetails?.run?.id === selectedApplyRunId
         ? applyRunDetails
@@ -201,10 +212,10 @@ export function ApplicationsDetailPanel({
     : false;
 
   return (
-    <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col gap-6 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) px-8 py-5 xl:h-full xl:min-h-0">
+    <section className="@container/detail surface-panel-shell relative flex min-h-124 min-w-0 flex-col gap-6 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) px-8 py-5 xl:h-full xl:min-h-0">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="grid gap-1">
-          <p className="label-mono-xs">Details</p>
+          <p className={APPLICATION_DETAIL_FACT_LABEL_CLASS}>Details</p>
           {selectedRecord ? (
             <strong className="text-(length:--text-body) text-(--text-headline)">
               {selectedRecord.company}
@@ -220,19 +231,45 @@ export function ApplicationsDetailPanel({
         </StatusBadge>
       </div>
       {selectedRecord ? (
-        <div className="grid min-h-0 min-w-0 flex-1 content-start gap-6 overflow-y-auto pr-1">
+        <div
+          className="grid min-h-0 min-w-0 flex-1 content-start gap-5 overflow-y-auto pr-1"
+          data-locked-pane-scroll-region
+        >
           {selectedRecordCompanyId && onOpenCompany ? (
-            <Button
-              className="h-10 justify-start px-3.5 text-sm font-medium normal-case tracking-normal"
-              onClick={() => onOpenCompany(selectedRecordCompanyId)}
-              size="compact"
-              type="button"
-              variant="secondary"
-            >
-              View {selectedRecord.company} in Companies
-            </Button>
-          ) : null}
-          {canPrepareInterview ? (
+            <div className="grid gap-2 @[34rem]/detail:grid-cols-2">
+              <Button
+                className="h-10 justify-start px-3.5 text-sm font-medium normal-case tracking-normal"
+                onClick={() => onOpenCompany(selectedRecordCompanyId)}
+                size="compact"
+                type="button"
+                variant="secondary"
+              >
+                View {selectedRecord.company} in Companies
+              </Button>
+              {canPrepareInterview ? (
+                <Button
+                  asChild
+                  className="h-10 justify-start px-3.5 text-sm font-medium normal-case tracking-normal"
+                  size="compact"
+                  variant="secondary"
+                >
+                  <a
+                    href={`#${buildInterviewHelperApplicationHref({
+                      record: selectedRecord,
+                      relatedJob: selectedRecordJob,
+                    })}`}
+                  >
+                    <Mic
+                      aria-hidden="true"
+                      className="size-4"
+                      focusable="false"
+                    />
+                    Prepare interview
+                  </a>
+                </Button>
+              ) : null}
+            </div>
+          ) : canPrepareInterview ? (
             <Button
               asChild
               className="h-10 justify-start px-3.5 text-sm font-medium normal-case tracking-normal"
@@ -269,12 +306,17 @@ export function ApplicationsDetailPanel({
             onApproveApplyRun={onApproveApplyRun}
             onCancelApplyRun={onCancelApplyRun}
             onRevokeApplyRunApproval={onRevokeApplyRunApproval}
+            selectedApplicationTarget={{
+              applicationRecordId: selectedRecord.id,
+              jobId: selectedRecord.jobId,
+            }}
             selectedApplyRunDetails={selectedApplyRunDetails}
           />
           <ApplicationsDetailPanelRecoverySections
             applyRunHistory={applyRunHistory}
             canRestageAutoRun={canRestageAutoRun}
             canRestageQueueRun={canRestageQueueRun}
+            dailyPreparationCapacity={dailyPreparationCapacity}
             excludedQueueRecoveryEntries={excludedQueueRecoveryEntries}
             isApplyPending={isApplyPending}
             onSelectApplyRun={onSelectApplyRun}
@@ -286,6 +328,7 @@ export function ApplicationsDetailPanel({
             selectedQueueRecoveryEntries={selectedQueueRecoveryEntries}
             selectedQueueRecoveryJobIds={selectedQueueRecoveryJobIds}
             selectedRecordJobId={selectedRecord.jobId}
+            selectedApplicationRecordId={selectedRecord.id}
             selectedRun={selectedRun}
             visibleApplyResult={visibleApplyResult}
           />

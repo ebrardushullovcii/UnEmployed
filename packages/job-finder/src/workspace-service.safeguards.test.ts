@@ -1,7 +1,12 @@
 import {
+  ApplicationConsentRequestSchema,
+  ApplyJobResultSchema,
+  ApplyRunSchema,
+  ApplySubmitApprovalSchema,
   JobFinderIntelligenceStateSchema,
   type CompanyEntity,
 } from "@unemployed/contracts";
+import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
 import {
   createInMemoryJobFinderRepository,
   type JobFinderRepositorySeed,
@@ -381,6 +386,228 @@ describe("workspace service high-volume safeguards", () => {
         "job_ready",
       ]),
     ).toEqual([]);
+  });
+
+  test("a safeguard added after staging leaves approval and the run pending", async () => {
+    const seed = seedWithCompanies();
+    seed.settings = {
+      ...seed.settings,
+      resumeApplicationMode: "original_resume",
+    };
+    const harness = createWorkspaceServiceHarness({ seed });
+    await harness.workspaceService.getWorkspaceSnapshot();
+    const staged =
+      await harness.workspaceService.startAutoApplyRun("job_ready");
+    const run = staged.applyRuns.find(
+      (candidate) => candidate.mode === "single_job_auto",
+    );
+    if (!run?.submitApprovalId) throw new Error("Expected a staged apply run.");
+
+    await harness.workspaceService.mutateSafeguards({
+      type: "record_listing_signal",
+      signalId: "signal_after_staging",
+      jobId: "job_ready",
+      signal: "closed",
+      detail: null,
+      detectedAt: now,
+      confidence: 1,
+      provenance: "provider",
+      explanation: "The listing closed after the queue was staged.",
+      recoveryGuidance: "Re-verify the listing before continuing.",
+    });
+
+    await expect(
+      harness.workspaceService.approveApplyRun(run.id),
+    ).rejects.toThrow(/Safeguards are blocking this step/);
+    const [runs, approvals] = await Promise.all([
+      harness.repository.listApplyRuns(),
+      harness.repository.listApplySubmitApprovals(),
+    ]);
+    expect(runs.find((candidate) => candidate.id === run.id)?.state).toBe(
+      "awaiting_submit_approval",
+    );
+    expect(
+      approvals.find((candidate) => candidate.id === run.submitApprovalId)
+        ?.status,
+    ).toBe("pending");
+  });
+
+  test.each(["approve", "decline"] as const)(
+    "a safeguard appearing before consent %s continuation leaves request and run coherent",
+    async (action) => {
+      const seed = seedWithCompanies();
+      seed.applyRuns = [
+        ApplyRunSchema.parse({
+          id: "run_consent_guard",
+          campaignId: null,
+          mode: "queue_auto",
+          state: "paused_for_consent",
+          jobIds: ["job_ready", "job_generating"],
+          currentJobId: "job_ready",
+          submitApprovalId: "approval_consent_guard",
+          createdAt: now,
+          updatedAt: now,
+          completedAt: null,
+          summary: "Consent needed.",
+          detail: "The run is waiting for one consent decision.",
+          totalJobs: 2,
+          pendingJobs: 2,
+          blockedJobs: 1,
+        }),
+      ];
+      seed.applyJobResults = [
+        ApplyJobResultSchema.parse({
+          id: "result_consent_guard",
+          runId: "run_consent_guard",
+          jobId: "job_ready",
+          applicationRecordId: "application_job_ready",
+          state: "blocked",
+          summary: "Consent needed.",
+          detail: "The job is waiting for consent.",
+          startedAt: now,
+          updatedAt: now,
+          pendingConsentRequestCount: 1,
+        }),
+        ApplyJobResultSchema.parse({
+          id: "result_consent_guard_remaining",
+          runId: "run_consent_guard",
+          jobId: "job_generating",
+          applicationRecordId: "application_job_generating",
+          state: "planned",
+          summary: "Planned.",
+          detail: "This job has not started.",
+          startedAt: now,
+          updatedAt: now,
+        }),
+      ];
+      seed.applySubmitApprovals = [
+        ApplySubmitApprovalSchema.parse({
+          id: "approval_consent_guard",
+          runId: "run_consent_guard",
+          mode: "queue_auto",
+          jobIds: ["job_ready", "job_generating"],
+          status: "approved",
+          createdAt: now,
+          approvedAt: now,
+          revokedAt: null,
+          expiresAt: null,
+          detail: "Preparation approval remains safe and non-submitting.",
+        }),
+      ];
+      seed.applicationConsentRequests = [
+        ApplicationConsentRequestSchema.parse({
+          id: "consent_guard",
+          runId: "run_consent_guard",
+          jobId: "job_ready",
+          applicationRecordId: "application_job_ready",
+          resultId: "result_consent_guard",
+          kind: "manual_verification",
+          linkedConsentKind: null,
+          label: "Review this consent",
+          detail: "Explicit approval is required.",
+          status: "pending",
+          requestedAt: now,
+          decidedAt: null,
+          expiresAt: null,
+        }),
+      ];
+      const harness = createWorkspaceServiceHarness({ seed });
+      await harness.workspaceService.mutateSafeguards({
+        type: "record_listing_signal",
+        signalId: "signal_before_consent",
+        jobId: "job_generating",
+        signal: "closed",
+        detail: null,
+        detectedAt: now,
+        confidence: 1,
+        provenance: "provider",
+        explanation: "The remaining listing closed before the queue continued.",
+        recoveryGuidance: "Re-verify the listing before continuing.",
+      });
+
+      await expect(
+        harness.workspaceService.resolveApplyConsentRequest(
+          "consent_guard",
+          action,
+        ),
+      ).rejects.toThrow(/Safeguards are blocking this step/);
+      const [requests, runs, results] = await Promise.all([
+        harness.repository.listApplicationConsentRequests(),
+        harness.repository.listApplyRuns(),
+        harness.repository.listApplyJobResults(),
+      ]);
+      expect(requests[0]?.status).toBe("pending");
+      expect(requests[0]?.decidedAt).toBeNull();
+      expect(runs[0]?.state).toBe("paused_for_consent");
+      expect(results[0]?.state).toBe("blocked");
+      expect(results[0]?.pendingConsentRequestCount).toBe(1);
+    },
+  );
+
+  test("a blocker appearing after job one pauses before launching job two", async () => {
+    const seed = seedWithCompanies();
+    seed.settings = {
+      ...seed.settings,
+      resumeApplicationMode: "original_resume",
+    };
+    const baseRuntime = createBrowserRuntime();
+    let addSecondJobBlocker: () => Promise<unknown> = () =>
+      Promise.reject(new Error("Safeguard test harness not initialized."));
+    const launchedJobIds: string[] = [];
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseRuntime,
+      async executeApplicationFlow(source, input, options) {
+        launchedJobIds.push(input.job.id);
+        const result = await baseRuntime.executeApplicationFlow(
+          source,
+          input,
+          options,
+        );
+        if (launchedJobIds.length === 1) {
+          await addSecondJobBlocker();
+        }
+        return result;
+      },
+    };
+    const harness = createWorkspaceServiceHarness({ seed, browserRuntime });
+    const workspaceService = harness.workspaceService;
+    addSecondJobBlocker = () =>
+      workspaceService.mutateSafeguards({
+        type: "record_listing_signal",
+        signalId: "signal_job_two_mid_run",
+        jobId: "job_generating",
+        signal: "closed",
+        detail: null,
+        detectedAt: now,
+        confidence: 1,
+        provenance: "provider",
+        explanation: "The second listing closed while job one ran.",
+        recoveryGuidance: "Re-verify the listing before continuing.",
+      });
+    await workspaceService.getWorkspaceSnapshot();
+    const staged = await workspaceService.startAutoApplyQueueRun([
+      "job_ready",
+      "job_generating",
+    ]);
+    const run = staged.applyRuns.find(
+      (candidate) => candidate.mode === "queue_auto",
+    );
+    if (!run) throw new Error("Expected a staged queue run.");
+
+    const snapshot = await workspaceService.approveApplyRun(run.id);
+    expect(launchedJobIds).toEqual(["job_ready"]);
+    expect(
+      snapshot.applyRuns.find((candidate) => candidate.id === run.id),
+    ).toMatchObject({
+      state: "paused_for_user_review",
+      currentJobId: "job_generating",
+    });
+    expect(
+      snapshot.applyJobResults.find(
+        (result) =>
+          result.runId === run.id && result.jobId === "job_generating",
+      )?.state,
+    ).toBe("planned");
   });
 
   test("contradictory answers are advisory and never block preparation", async () => {

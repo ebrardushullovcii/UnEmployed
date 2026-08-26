@@ -1,6 +1,18 @@
 // @vitest-environment jsdom
 
+import {
+  createFreshStartCandidateProfile,
+  DiscoveryJobViewSchema,
+  getDefaultCampaignConfiguration,
+  JobFinderSettingsSchema,
+  JobFinderWorkspaceDeltaSchema,
+  JobFinderWorkspaceSnapshotSchema,
+  JobSearchCampaignSchema,
+  JobSearchPreferencesSchema,
+} from "@unemployed/contracts";
 import type {
+  CandidateProfile,
+  JobFinderSetResumeClaimConfirmationInput,
   JobFinderWorkspaceDelta,
   JobFinderWorkspaceEntityMutationInput,
   JobFinderWorkspaceSnapshot,
@@ -10,6 +22,15 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useJobFinderWorkspace } from "./use-job-finder-workspace";
+
+function requireReadyWorkspace(
+  value: ReturnType<typeof useJobFinderWorkspace>,
+): Extract<ReturnType<typeof useJobFinderWorkspace>, { status: "ready" }> {
+  if (value.status !== "ready") {
+    throw new Error("Expected a ready Job Finder workspace.");
+  }
+  return value;
+}
 
 function identified<T>(id: string): T {
   return { id } as T;
@@ -29,6 +50,7 @@ function createWorkspace(
     latestResumeImportRun: null,
     discoveryJobs: [identified(jobId)],
     dismissedDiscoveryJobs: [],
+    companyJobs: [],
     recentDiscoveryRuns: [],
     reviewQueue: [],
     applyRuns: [],
@@ -68,6 +90,7 @@ function createJobReplacementDelta(input: {
       removedIds: [input.previousJobId],
     },
     dismissedDiscoveryJobs: { upserts: [], removedIds: [] },
+    companyJobs: { upserts: [], removedIds: [] },
     recentDiscoveryRuns: { upserts: [], removedIds: [] },
     reviewQueue: { upserts: [], removedIds: [] },
     applyRuns: { upserts: [], removedIds: [] },
@@ -134,6 +157,7 @@ describe("useJobFinderWorkspace entity mutations", () => {
   }
 
   afterEach(() => {
+    vi.useRealTimers();
     Reflect.deleteProperty(window, "unemployed");
   });
 
@@ -159,10 +183,9 @@ describe("useJobFinderWorkspace entity mutations", () => {
     await waitFor(() => expect(result.current.status).toBe("ready"));
 
     await act(async () => {
-      if (result.current.status !== "ready") {
-        throw new Error("Expected a ready Job Finder workspace.");
-      }
-      await result.current.actions.queueJobForReview("job-new");
+      await requireReadyWorkspace(result.current).actions.queueJobForReview(
+        "job-new",
+      );
     });
 
     expect(mutateWorkspaceEntities).toHaveBeenCalledWith({
@@ -215,10 +238,9 @@ describe("useJobFinderWorkspace entity mutations", () => {
     await waitFor(() => expect(result.current.status).toBe("ready"));
 
     await act(async () => {
-      if (result.current.status !== "ready") {
-        throw new Error("Expected a ready Job Finder workspace.");
-      }
-      await result.current.actions.removeJobFromReview("job-old");
+      await requireReadyWorkspace(result.current).actions.removeJobFromReview(
+        "job-old",
+      );
     });
 
     expect(syncWorkspace).toHaveBeenNthCalledWith(2, null);
@@ -240,12 +262,22 @@ describe("useJobFinderWorkspace entity mutations", () => {
       "job-newer",
       "2026-08-09T10:04:00.000Z",
     );
-    syncWorkspace.mockResolvedValueOnce({
-      kind: "snapshot",
-      currentRevision: 1,
-      reason: "initial",
-      snapshot: initialWorkspace,
-    });
+    syncWorkspace
+      .mockResolvedValueOnce({
+        kind: "snapshot",
+        currentRevision: 1,
+        reason: "initial",
+        snapshot: initialWorkspace,
+      })
+      // The fenced older response schedules one trailing authoritative
+      // fetch so the superseded action still converges; it must observe the
+      // already-committed newer state instead of rolling it back.
+      .mockResolvedValueOnce({
+        kind: "snapshot",
+        currentRevision: 2,
+        reason: "initial",
+        snapshot: newerWorkspace,
+      });
     const older = deferred<JobFinderWorkspaceSnapshot>();
     const newer = deferred<JobFinderWorkspaceSnapshot>();
     checkBrowserSession
@@ -276,6 +308,12 @@ describe("useJobFinderWorkspace entity mutations", () => {
     });
 
     expect(result.current.status).toBe("ready");
+    if (result.current.status === "ready") {
+      expect(result.current.workspace.selectedDiscoveryJobId).toBe("job-newer");
+    }
+    // The convergence fetch runs after the fenced response settles and its
+    // snapshot (already reflecting the newer commit) keeps the state.
+    await waitFor(() => expect(syncWorkspace).toHaveBeenCalledTimes(2));
     if (result.current.status === "ready") {
       expect(result.current.workspace.selectedDiscoveryJobId).toBe("job-newer");
     }
@@ -439,6 +477,631 @@ describe("useJobFinderWorkspace entity mutations", () => {
       expect(result.current.workspace.selectedDiscoveryJobId).toBe(
         "job-recovered",
       );
+    }
+  });
+
+  it("refreshes just after server reset and when focus or visibility finds stale capacity", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-09T10:00:00.000Z"));
+    const initialWorkspace = {
+      ...createWorkspace("job-capacity"),
+      dashboard: {
+        globalDailyApplicationPreparationCapacity: {
+          limit: 20,
+          used: 7,
+          legacyUncertain: 0,
+          remaining: 13,
+          localDate: "2026-08-09",
+          resetsAt: "2026-08-09T10:00:01.000Z",
+        },
+      },
+    } as JobFinderWorkspaceSnapshot;
+    const refreshedWorkspace = {
+      ...initialWorkspace,
+      dashboard: {
+        globalDailyApplicationPreparationCapacity: {
+          limit: 20,
+          used: 0,
+          legacyUncertain: 0,
+          remaining: 20,
+          localDate: "2026-08-10",
+          resetsAt: "2026-08-10T10:00:01.000Z",
+        },
+      },
+    } as JobFinderWorkspaceSnapshot;
+    syncWorkspace.mockResolvedValue({
+      kind: "snapshot",
+      currentRevision: 1,
+      reason: "initial",
+      snapshot: initialWorkspace,
+    });
+
+    const { result } = renderHook(() => useJobFinderWorkspace());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.status).toBe("ready");
+    syncWorkspace.mockClear();
+    syncWorkspace.mockResolvedValue({
+      kind: "snapshot",
+      currentRevision: 2,
+      reason: "initial",
+      snapshot: refreshedWorkspace,
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_100);
+    });
+    expect(syncWorkspace).toHaveBeenCalledTimes(1);
+
+    syncWorkspace.mockClear();
+    vi.setSystemTime(new Date("2026-08-10T10:00:02.000Z"));
+    window.dispatchEvent(new Event("focus"));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(syncWorkspace).toHaveBeenCalledTimes(1);
+
+    syncWorkspace.mockClear();
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(syncWorkspace).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("useJobFinderWorkspace concurrency convergence", () => {
+  function deferral<T>(): {
+    promise: Promise<T>;
+    resolve: (value: T) => void;
+    reject: (error: unknown) => void;
+  } {
+    let resolve!: (value: T) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+      resolve = resolvePromise;
+      reject = rejectPromise;
+    });
+
+    return { promise, resolve, reject };
+  }
+
+  const syncWorkspace =
+    vi.fn<
+      (baseRevision: number | null) => Promise<JobFinderWorkspaceSyncResult>
+    >();
+  const mutateWorkspaceEntities =
+    vi.fn<
+      (
+        input: JobFinderWorkspaceEntityMutationInput,
+      ) => Promise<JobFinderWorkspaceSyncResult>
+    >();
+  const getWorkspace = vi.fn<() => Promise<JobFinderWorkspaceSnapshot>>();
+  const getWorkspaceBootstrap =
+    vi.fn<() => Promise<JobFinderWorkspaceSnapshot>>();
+  const checkBrowserSession =
+    vi.fn<() => Promise<JobFinderWorkspaceSnapshot>>();
+  const saveProfile = vi.fn<
+    (profile: CandidateProfile) => Promise<JobFinderWorkspaceSnapshot>
+  >();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    Object.defineProperty(window, "unemployed", {
+      configurable: true,
+      value: {
+        ping: vi.fn(() => Promise.resolve({ platform: "win32" as const })),
+        jobFinder: {
+          syncWorkspace,
+          mutateWorkspaceEntities,
+          getWorkspace,
+          checkBrowserSession,
+          saveProfile,
+        },
+      } as unknown as Window["unemployed"],
+    });
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(window, "unemployed");
+  });
+
+  // Bootstrap-aware initial load; legacy-path tests never install this.
+  function enableBootstrapApi() {
+    Object.assign(window.unemployed.jobFinder as object, {
+      getWorkspaceBootstrap,
+    });
+  }
+
+  function createBootstrapPhaseWorkspace(
+    jobId: string,
+  ): JobFinderWorkspaceSnapshot {
+    return {
+      ...createWorkspace(jobId),
+      hydration: { phase: "bootstrap", deferredCollections: ["discovery_jobs"] },
+    } as JobFinderWorkspaceSnapshot;
+  }
+
+  function queueSyncResponses(
+    ...responses: Array<{ promise: Promise<JobFinderWorkspaceSyncResult> }>
+  ) {
+    syncWorkspace.mockImplementation(() => {
+      const next = responses.shift();
+      if (!next) {
+        throw new Error("Unexpected extra syncWorkspace call");
+      }
+      return next.promise;
+    });
+  }
+
+  function snapshotResult(
+    snapshot: JobFinderWorkspaceSnapshot,
+    currentRevision = 1,
+  ): JobFinderWorkspaceSyncResult {
+    return { kind: "snapshot", currentRevision, reason: "initial", snapshot };
+  }
+
+  function renderReadyWith(
+    firstSync: { promise: Promise<JobFinderWorkspaceSyncResult> },
+    snapshot: JobFinderWorkspaceSnapshot,
+    ...restResponses: Array<{ promise: Promise<JobFinderWorkspaceSyncResult> }>
+  ) {
+    queueSyncResponses(firstSync, ...restResponses);
+    return renderHook(() => useJobFinderWorkspace());
+  }
+
+  it("converges a committed entity mutation that lost the sequencing race to a background refresh", async () => {
+    const staleWorkspace = createWorkspace("job-old");
+    const convergedWorkspace = createWorkspace(
+      "job-new",
+      "2026-08-09T10:06:00.000Z",
+    );
+
+    const initialSync = deferral<JobFinderWorkspaceSyncResult>();
+    const backgroundRefresh = deferral<JobFinderWorkspaceSyncResult>();
+    const convergenceFetch = deferral<JobFinderWorkspaceSyncResult>();
+    const mutation = deferral<JobFinderWorkspaceSyncResult>();
+
+    mutateWorkspaceEntities.mockReturnValue(mutation.promise);
+    const { result } = renderReadyWith(
+      initialSync,
+      staleWorkspace,
+      backgroundRefresh,
+      convergenceFetch,
+    );
+    act(() => {
+      initialSync.resolve(snapshotResult(staleWorkspace));
+    });
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    expect(syncWorkspace).toHaveBeenCalledTimes(1);
+
+    let mutationPromise!: Promise<unknown>;
+    act(() => {
+      if (result.current.status !== "ready") {
+        throw new Error("Expected a ready workspace.");
+      }
+      mutationPromise = result.current.actions.queueJobForReview("job-new");
+    });
+
+    // A focus/capacity-style refresh starts after the mutation dispatched
+    // and answers first, committing the pre-mutation snapshot.
+    let refreshPromise!: Promise<unknown>;
+    act(() => {
+      if (result.current.status !== "ready") {
+        throw new Error("Expected a ready workspace.");
+      }
+      refreshPromise = result.current.actions.refreshWorkspace();
+    });
+    act(() => {
+      backgroundRefresh.resolve(snapshotResult(staleWorkspace));
+    });
+    await refreshPromise;
+
+    act(() => {
+      mutation.resolve({
+        kind: "delta",
+        delta: createJobReplacementDelta({
+          baseRevision: 1,
+          currentRevision: 2,
+          previousJobId: "job-old",
+          currentJobId: "job-new",
+        }),
+      });
+    });
+
+    // The fenced mutation response must not be dropped silently: exactly one
+    // trailing authoritative fetch is scheduled instead.
+    await waitFor(() => expect(syncWorkspace).toHaveBeenCalledTimes(3));
+
+    act(() => {
+      convergenceFetch.resolve(snapshotResult(convergedWorkspace, 2));
+    });
+
+    await waitFor(() => {
+      if (result.current.status !== "ready") {
+        throw new Error("Expected a ready workspace.");
+      }
+      expect(
+        result.current.workspace.discoveryJobs.map(({ id }) => id),
+      ).toEqual(["job-new"]);
+      expect(result.current.workspace.selectedDiscoveryJobId).toBe("job-new");
+    });
+    await mutationPromise;
+  });
+
+  it("converges a fenced user action response with one trailing fetch", async () => {
+    const staleWorkspace = createWorkspace("job-old");
+    const savedWorkspace = createWorkspace(
+      "job-old",
+      "2026-08-09T10:08:00.000Z",
+    );
+
+    const initialSync = deferral<JobFinderWorkspaceSyncResult>();
+    const backgroundRefresh = deferral<JobFinderWorkspaceSyncResult>();
+    const convergenceFetch = deferral<JobFinderWorkspaceSyncResult>();
+    const actionResponse = deferral<JobFinderWorkspaceSnapshot>();
+
+    saveProfile.mockReturnValue(actionResponse.promise);
+    const { result } = renderReadyWith(
+      initialSync,
+      staleWorkspace,
+      backgroundRefresh,
+      convergenceFetch,
+    );
+    act(() => {
+      initialSync.resolve(snapshotResult(staleWorkspace));
+    });
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    expect(syncWorkspace).toHaveBeenCalledTimes(1);
+
+    let actionPromise!: Promise<unknown>;
+    act(() => {
+      if (result.current.status !== "ready") {
+        throw new Error("Expected a ready workspace.");
+      }
+      actionPromise = result.current.actions.saveProfile({} as CandidateProfile);
+    });
+
+    // The refresh wins the race and commits while the action is in flight.
+    let refreshPromise!: Promise<unknown>;
+    act(() => {
+      if (result.current.status !== "ready") {
+        throw new Error("Expected a ready workspace.");
+      }
+      refreshPromise = result.current.actions.refreshWorkspace();
+    });
+    act(() => {
+      backgroundRefresh.resolve(snapshotResult(staleWorkspace));
+    });
+    await refreshPromise;
+
+    act(() => {
+      actionResponse.resolve(savedWorkspace);
+    });
+
+    await waitFor(() => expect(syncWorkspace).toHaveBeenCalledTimes(3));
+
+    act(() => {
+      convergenceFetch.resolve(snapshotResult(savedWorkspace, 2));
+    });
+
+    await waitFor(() => {
+      if (result.current.status !== "ready") {
+        throw new Error("Expected a ready workspace.");
+      }
+      // The fenced action's own snapshot must not be committed directly, but
+      // the visible workspace must still converge onto its committed state.
+      expect(result.current.workspace.generatedAt).toBe(
+        savedWorkspace.generatedAt,
+      );
+    });
+    await actionPromise;
+  });
+
+  it("resumes hydration when an allowDuringBootstrap action supersedes it", async () => {
+    const bootstrapSnapshot = createBootstrapPhaseWorkspace("job-old");
+    const supersedingSnapshot = createBootstrapPhaseWorkspace("job-old");
+    const hydratedSnapshot = createWorkspace("job-old");
+
+    const bootstrap = deferral<JobFinderWorkspaceSnapshot>();
+    const hydrationFetch = deferral<JobFinderWorkspaceSyncResult>();
+    const resumeFetch = deferral<JobFinderWorkspaceSyncResult>();
+    const actionResponse = deferral<JobFinderWorkspaceSnapshot>();
+
+    enableBootstrapApi();
+    getWorkspaceBootstrap.mockReturnValue(bootstrap.promise);
+    checkBrowserSession.mockReturnValue(actionResponse.promise);
+
+    // The hydration request fires immediately after the bootstrap snapshot
+    // lands, so the response queue must be installed before resolving it.
+    queueSyncResponses(hydrationFetch, resumeFetch);
+
+    const { result } = renderHook(() => useJobFinderWorkspace());
+    act(() => {
+      bootstrap.resolve(bootstrapSnapshot);
+    });
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    if (result.current.status !== "ready") {
+      throw new Error("Expected a ready workspace.");
+    }
+    expect(result.current.workspace.hydration.phase).toBe("bootstrap");
+    expect(syncWorkspace).toHaveBeenCalledTimes(1);
+
+    let actionPromise!: Promise<unknown>;
+    act(() => {
+      if (result.current.status !== "ready") {
+        throw new Error("Expected a ready workspace.");
+      }
+      actionPromise = result.current.actions.checkBrowserSession();
+    });
+
+    // The allowDuringBootstrap action wins the sequence race and commits
+    // another partial bootstrap snapshot while the backend still hydrates.
+    act(() => {
+      actionResponse.resolve(supersedingSnapshot);
+    });
+
+    // Hydration settles afterwards and loses the fence.
+    act(() => {
+      hydrationFetch.resolve(snapshotResult(hydratedSnapshot, 9));
+    });
+
+    // A superseded hydration must schedule one authoritative resume fetch
+    // instead of stranding the shell on the partial bootstrap forever.
+    await waitFor(() => expect(syncWorkspace).toHaveBeenCalledTimes(2));
+
+    act(() => {
+      resumeFetch.resolve(snapshotResult(hydratedSnapshot, 9));
+    });
+
+    await waitFor(() => {
+      if (result.current.status !== "ready") {
+        throw new Error("Expected a ready workspace.");
+      }
+      expect(result.current.workspace.hydration.phase).toBe("complete");
+      expect(result.current.workspace.generatedAt).toBe(
+        hydratedSnapshot.generatedAt,
+      );
+    });
+    await actionPromise;
+  });
+
+  it("recovers bootstrap through the resume fetch when a superseded hydration attempt fails", async () => {
+    const bootstrapSnapshot = createBootstrapPhaseWorkspace("job-old");
+    const supersedingSnapshot = createBootstrapPhaseWorkspace("job-old");
+    const hydratedSnapshot = createWorkspace("job-old");
+
+    const bootstrap = deferral<JobFinderWorkspaceSnapshot>();
+    const hydrationFetch = deferral<JobFinderWorkspaceSyncResult>();
+    const resumeFetch = deferral<JobFinderWorkspaceSyncResult>();
+    const actionResponse = deferral<JobFinderWorkspaceSnapshot>();
+
+    enableBootstrapApi();
+    getWorkspaceBootstrap.mockReturnValue(bootstrap.promise);
+    checkBrowserSession.mockReturnValue(actionResponse.promise);
+
+    queueSyncResponses(hydrationFetch, resumeFetch);
+    getWorkspace.mockRejectedValueOnce(
+      new Error("hydration full load failed"),
+    );
+
+    const { result } = renderHook(() => useJobFinderWorkspace());
+    act(() => {
+      bootstrap.resolve(bootstrapSnapshot);
+    });
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    let actionPromise!: Promise<unknown>;
+    act(() => {
+      if (result.current.status !== "ready") {
+        throw new Error("Expected a ready workspace.");
+      }
+      actionPromise = result.current.actions.checkBrowserSession();
+    });
+    act(() => {
+      actionResponse.resolve(supersedingSnapshot);
+    });
+
+    act(() => {
+      hydrationFetch.reject(new Error("hydration sync failed"));
+    });
+
+    // The failed-but-superseded hydration still converges through the resume
+    // fetch; no error state and no stranded bootstrap.
+    await waitFor(() => expect(syncWorkspace).toHaveBeenCalledTimes(2));
+
+    act(() => {
+      resumeFetch.resolve(snapshotResult(hydratedSnapshot, 4));
+    });
+
+    await waitFor(() => {
+      if (result.current.status !== "ready") {
+        throw new Error("Expected a ready workspace without an error state.");
+      }
+      expect(result.current.workspace.hydration.phase).toBe("complete");
+    });
+    await actionPromise;
+  });
+
+  it("surfaces a retryable error when even the bootstrap resume fetch fails", async () => {
+    const bootstrapSnapshot = createBootstrapPhaseWorkspace("job-old");
+    const supersedingSnapshot = createBootstrapPhaseWorkspace("job-old");
+
+    const bootstrap = deferral<JobFinderWorkspaceSnapshot>();
+    const hydrationFetch = deferral<JobFinderWorkspaceSyncResult>();
+    const resumeFetch = deferral<JobFinderWorkspaceSyncResult>();
+    const actionResponse = deferral<JobFinderWorkspaceSnapshot>();
+
+    enableBootstrapApi();
+    getWorkspaceBootstrap.mockReturnValue(bootstrap.promise);
+    checkBrowserSession.mockReturnValue(actionResponse.promise);
+
+    queueSyncResponses(hydrationFetch, resumeFetch);
+    getWorkspace.mockRejectedValue(new Error("resume fallback failed"));
+
+    const { result } = renderHook(() => useJobFinderWorkspace());
+    act(() => {
+      bootstrap.resolve(bootstrapSnapshot);
+    });
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    let actionPromise!: Promise<unknown>;
+    act(() => {
+      if (result.current.status !== "ready") {
+        throw new Error("Expected a ready workspace.");
+      }
+      actionPromise = result.current.actions.checkBrowserSession();
+    });
+    act(() => {
+      actionResponse.resolve(supersedingSnapshot);
+    });
+
+    act(() => {
+      hydrationFetch.reject(new Error("hydration sync failed"));
+    });
+
+    // The superseded hydration schedules one authoritative resume fetch.
+    await waitFor(() => expect(syncWorkspace).toHaveBeenCalledTimes(2));
+
+    // Even the resume fetch fails end to end; the shell must surface the
+    // retryable error instead of silently stranding the bootstrap phase.
+    act(() => {
+      resumeFetch.reject(new Error("resume sync failed"));
+    });
+
+    await waitFor(() => expect(result.current.status).toBe("error"));
+    if (result.current.status === "error") {
+      expect(result.current.message).toBe("resume fallback failed");
+      expect(typeof result.current.retry).toBe("function");
+    }
+    await actionPromise;
+  });
+});
+
+describe("useJobFinderWorkspace resume claim confirmation action", () => {
+  const removeCommand: JobFinderSetResumeClaimConfirmationInput = {
+    intent: "remove",
+    jobId: "job_1",
+    draftId: "resume_draft_job_1",
+    expectedDraftUpdatedAt: "2026-08-09T10:00:00.000Z",
+    confirmationId: "claim_confirmation_section_experience_abc",
+  };
+
+  const syncWorkspace =
+    vi.fn<
+      (baseRevision: number | null) => Promise<JobFinderWorkspaceSyncResult>
+    >();
+  const getWorkspace = vi.fn<() => Promise<JobFinderWorkspaceSnapshot>>();
+  const setResumeClaimConfirmation = vi.fn<
+    (
+      input: JobFinderSetResumeClaimConfirmationInput,
+    ) => Promise<JobFinderWorkspaceSnapshot>
+  >();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    Object.defineProperty(window, "unemployed", {
+      configurable: true,
+      value: {
+        ping: vi.fn(() => Promise.resolve({ platform: "win32" as const })),
+        jobFinder: {
+          syncWorkspace,
+          getWorkspace,
+          setResumeClaimConfirmation,
+        },
+      } as unknown as Window["unemployed"],
+    });
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(window, "unemployed");
+  });
+
+  function snapshotSyncResult(
+    snapshot: JobFinderWorkspaceSnapshot,
+    currentRevision = 1,
+  ): JobFinderWorkspaceSyncResult {
+    return { kind: "snapshot", currentRevision, reason: "initial", snapshot };
+  }
+
+  it("forwards the typed command and commits the returned snapshot", async () => {
+    const initial = createWorkspace("job_1");
+    const committed = createWorkspace("job_1", "2026-08-09T10:05:00.000Z");
+    syncWorkspace.mockResolvedValueOnce(snapshotSyncResult(initial));
+    setResumeClaimConfirmation.mockResolvedValueOnce(committed);
+
+    const { result } = renderHook(() => useJobFinderWorkspace());
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    await act(async () => {
+      await expect(
+        requireReadyWorkspace(
+          result.current,
+        ).actions.setResumeClaimConfirmation(removeCommand),
+      ).resolves.toBe(committed);
+    });
+
+    expect(setResumeClaimConfirmation).toHaveBeenCalledOnce();
+    expect(setResumeClaimConfirmation).toHaveBeenCalledWith(removeCommand);
+    if (result.current.status === "ready") {
+      expect(result.current.workspace).toBe(committed);
+    }
+  });
+
+  it("never lets a stale claim-confirmation response overwrite a newer commit", async () => {
+    const initial = createWorkspace("job_1");
+    const newer = createWorkspace("job_1", "2026-08-09T10:06:00.000Z");
+    const staleResponse = deferred<JobFinderWorkspaceSnapshot>();
+    syncWorkspace
+      .mockResolvedValueOnce(snapshotSyncResult(initial))
+      .mockResolvedValueOnce(snapshotSyncResult(newer, 2));
+    setResumeClaimConfirmation
+      .mockReturnValueOnce(staleResponse.promise)
+      .mockResolvedValueOnce(newer);
+
+    const { result } = renderHook(() => useJobFinderWorkspace());
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    let staleAction!: Promise<unknown>;
+    act(() => {
+      if (result.current.status !== "ready") {
+        throw new Error("Expected a ready workspace.");
+      }
+      staleAction =
+        result.current.actions.setResumeClaimConfirmation(removeCommand);
+    });
+
+    await act(async () => {
+      if (result.current.status !== "ready") {
+        throw new Error("Expected a ready workspace.");
+      }
+      await result.current.actions.setResumeClaimConfirmation(removeCommand);
+    });
+
+    if (result.current.status !== "ready") {
+      throw new Error("Expected a ready workspace.");
+    }
+    // The newest request already owns the sequence and committed its snapshot.
+    expect(result.current.workspace).toBe(newer);
+
+    act(() => {
+      staleResponse.resolve(
+        createWorkspace("job_1", "2026-08-09T10:03:00.000Z"),
+      );
+    });
+    await staleAction;
+
+    // The fenced stale response schedules one authoritative convergence fetch
+    // instead of committing over the newer workspace.
+    await waitFor(() => expect(syncWorkspace).toHaveBeenCalledTimes(2));
+    await act(async () => {});
+    if (result.current.status === "ready") {
+      expect(result.current.workspace).toBe(newer);
     }
   });
 });

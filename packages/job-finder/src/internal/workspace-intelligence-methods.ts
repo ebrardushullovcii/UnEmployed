@@ -43,6 +43,7 @@ import {
 } from "./outcome-analytics";
 import {
   applyCompanyIntelligenceMutation,
+  nextCompanyIntelligenceUpdatedAt,
   reconcileCompanies,
   reviewCompanyMerge,
   setCompanyPreference,
@@ -123,7 +124,7 @@ export function createWorkspaceIntelligenceMethods(input: {
         JobFinderIntelligenceStateSchema.parse({
           ...state,
           companies: reconciled.companies,
-          updatedAt: now,
+          updatedAt: nextCompanyIntelligenceUpdatedAt(now, state.updatedAt),
         }),
       );
     });
@@ -152,7 +153,7 @@ export function createWorkspaceIntelligenceMethods(input: {
           JobFinderIntelligenceStateSchema.parse({
             ...state,
             companies: result.companies,
-            updatedAt: now,
+            updatedAt: nextCompanyIntelligenceUpdatedAt(now, state.updatedAt),
           }),
         );
       });
@@ -176,7 +177,7 @@ export function createWorkspaceIntelligenceMethods(input: {
           JobFinderIntelligenceStateSchema.parse({
             ...state,
             companies: result.companies,
-            updatedAt: now,
+            updatedAt: nextCompanyIntelligenceUpdatedAt(now, state.updatedAt),
           }),
         );
       });
@@ -188,20 +189,36 @@ export function createWorkspaceIntelligenceMethods(input: {
     ): Promise<JobFinderWorkspaceSnapshot> {
       const command = CompanyIntelligenceMutationInputSchema.parse(rawInput);
       await input.ctx.withIntelligenceTransition(async () => {
-        const state = await input.ctx.repository.getIntelligenceState();
-        const now = new Date().toISOString();
-        const result = applyCompanyIntelligenceMutation({
-          companies: state.companies,
-          input: command,
-          now,
-        });
-        if (!result.ok) throw new Error(result.failure.message);
-        await input.ctx.repository.saveIntelligenceState(
-          JobFinderIntelligenceStateSchema.parse({
-            ...state,
-            companies: result.companies,
-            updatedAt: now,
-          }),
+        const evidence =
+          command.mutation.type === "upsert_salary_offer_evidence"
+            ? command.mutation.evidence
+            : null;
+        await input.ctx.repository.commitCompanyIntelligenceUpdate(
+          {
+            companyId: command.companyId,
+            expectedCompanyUpdatedAt: command.expectedUpdatedAt,
+            jobId: evidence?.jobId ?? null,
+            applicationRecordId: evidence?.applicationRecordId ?? null,
+          },
+          ({ intelligenceState, savedJob, applicationRecord }) => {
+            const now = new Date().toISOString();
+            const result = applyCompanyIntelligenceMutation({
+              companies: intelligenceState.companies,
+              jobs: savedJob ? [savedJob] : [],
+              applicationRecords: applicationRecord ? [applicationRecord] : [],
+              input: command,
+              now,
+            });
+            if (!result.ok) throw new Error(result.failure.message);
+            return JobFinderIntelligenceStateSchema.parse({
+              ...intelligenceState,
+              companies: result.companies,
+              updatedAt: nextCompanyIntelligenceUpdatedAt(
+                now,
+                intelligenceState.updatedAt,
+              ),
+            });
+          },
         );
       });
       return input.getWorkspaceSnapshot();
@@ -302,7 +319,7 @@ export function createWorkspaceIntelligenceMethods(input: {
           (candidate) => candidate.id === command.campaignId,
         );
         if (!campaign?.jobIds.includes(command.jobId)) {
-          throw new Error("That job is not available in this campaign.");
+          throw new Error("That job is not available in this search plan.");
         }
         const result = selectResumeStrategy({
           state,
@@ -551,7 +568,7 @@ export function createWorkspaceIntelligenceMethods(input: {
           for (const jobId of uniqueJobIds) {
             if (!campaign.jobIds.includes(jobId) || !knownJobIds.has(jobId)) {
               throw new Error(
-                `Job '${jobId}' is not available in this campaign. Refresh Rapid review and try again.`,
+                `Job '${jobId}' is not available in this search plan. Refresh Rapid review and try again.`,
               );
             }
             const current = deriveCurrentRapidReviewDecision({

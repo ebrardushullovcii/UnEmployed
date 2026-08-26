@@ -1,55 +1,1257 @@
+import path from "node:path";
 import type * as FsPromises from "node:fs/promises";
-import { describe, expect, test, vi } from "vitest";
+import type * as ContractsModule from "@unemployed/contracts";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const {
-  mockGetBrowserAgentProfileDirectory,
-  mockGetJobFinderDocumentsDirectory,
-  mockGetJobFinderWorkspaceService,
+  mockMkdir,
+  mockOpen,
+  mockReadFile,
+  mockReaddir,
+  mockRename,
   mockRm,
+  mockStat,
+  mockWriteFile,
+  mockGetApplicationDocumentsDirectory,
+  mockGetBrowserAgentProfileDirectory,
+  mockGetCandidateAssetsDirectory,
+  mockGetJobFinderDocumentsDirectory,
+  mockGetJobFinderResetIntentFilePath,
+  mockGetJobFinderResetInvalidIntentMarkerFilePath,
+  mockGetJobFinderResetTrashDirectory,
+  mockGetJobFinderResetTrashRootDirectory,
+  mockGetJobFinderUserDataDirectory,
+  mockResolveJobFinderWorkspaceRelativePath,
+  mockGetJobFinderWorkspaceService,
   mockResetWorkspace,
 } = vi.hoisted(() => ({
-  mockGetBrowserAgentProfileDirectory: vi.fn(() => "browser-profile"),
-  mockGetJobFinderDocumentsDirectory: vi.fn(() => "job-finder-documents"),
+  mockMkdir: vi.fn(),
+  mockOpen: vi.fn(),
+  mockReadFile: vi.fn(),
+  mockReaddir: vi.fn(),
+  mockRename: vi.fn(),
+  mockRm: vi.fn(),
+  mockStat: vi.fn(),
+  mockWriteFile: vi.fn(),
+  mockGetApplicationDocumentsDirectory: vi.fn(),
+  mockGetBrowserAgentProfileDirectory: vi.fn(),
+  mockGetCandidateAssetsDirectory: vi.fn(),
+  mockGetJobFinderDocumentsDirectory: vi.fn(),
+  mockGetJobFinderResetIntentFilePath: vi.fn(),
+  mockGetJobFinderResetInvalidIntentMarkerFilePath: vi.fn(),
+  mockGetJobFinderResetTrashDirectory: vi.fn(),
+  mockGetJobFinderResetTrashRootDirectory: vi.fn(),
+  mockGetJobFinderUserDataDirectory: vi.fn(),
+  mockResolveJobFinderWorkspaceRelativePath: vi.fn(),
   mockGetJobFinderWorkspaceService: vi.fn(),
   mockResetWorkspace: vi.fn(),
-  mockRm: vi.fn(),
 }));
+
+const userDataRoot = "/user-data";
+const documentsRelativePath = "documents/resumes";
+const candidateAssetsRelativePath = "documents/candidate-assets";
+const applicationDocumentsRelativePath = "documents/application-documents";
+const browserProfileRelativePath = "browser-agent/default";
+const allResetSourceRelativePaths = [
+  documentsRelativePath,
+  candidateAssetsRelativePath,
+  applicationDocumentsRelativePath,
+  browserProfileRelativePath,
+];
+const intentMarkerPath = `${userDataRoot}/job-finder-reset-intent.json`;
+const maxMarkerBytes = 64 * 1024;
+
+function trashDirectoryPath(token: string) {
+  return `${userDataRoot}/trash/job-finder-reset-${token}`;
+}
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof FsPromises>();
 
   return {
     ...actual,
+    mkdir: mockMkdir,
+    open: mockOpen,
+    readFile: mockReadFile,
+    readdir: mockReaddir,
+    rename: mockRename,
     rm: mockRm,
+    stat: mockStat,
+    writeFile: mockWriteFile,
   };
 });
 
+vi.mock("@unemployed/contracts", async (importOriginal) => ({
+  ...(await importOriginal<typeof ContractsModule>()),
+  JobFinderWorkspaceSnapshotSchema: {
+    parse: (value: unknown) => value,
+  },
+}));
+
 vi.mock("./paths", () => ({
+  getApplicationDocumentsDirectory: mockGetApplicationDocumentsDirectory,
   getBrowserAgentProfileDirectory: mockGetBrowserAgentProfileDirectory,
+  getCandidateAssetsDirectory: mockGetCandidateAssetsDirectory,
   getJobFinderDocumentsDirectory: mockGetJobFinderDocumentsDirectory,
+  getJobFinderResetIntentFilePath: mockGetJobFinderResetIntentFilePath,
+  getJobFinderResetInvalidIntentMarkerFilePath:
+    mockGetJobFinderResetInvalidIntentMarkerFilePath,
+  getJobFinderResetTrashDirectory: mockGetJobFinderResetTrashDirectory,
+  getJobFinderResetTrashRootDirectory: mockGetJobFinderResetTrashRootDirectory,
+  getJobFinderUserDataDirectory: mockGetJobFinderUserDataDirectory,
+  resolveJobFinderWorkspaceRelativePath:
+    mockResolveJobFinderWorkspaceRelativePath,
 }));
 
 vi.mock("./workspace-service", () => ({
   getJobFinderWorkspaceService: mockGetJobFinderWorkspaceService,
 }));
 
-import { resetJobFinderWorkspace } from "./reset-workspace";
+import {
+  beginJobFinderWorkspaceResetFileMoves,
+  completeJobFinderWorkspaceReset,
+  getJobFinderStartupResetRecoveryFact,
+  JobFinderResetFileMoveError,
+  recoverPendingJobFinderWorkspaceReset,
+  resetJobFinderWorkspace,
+  sweepStaleJobFinderResetArtifacts,
+} from "./reset-workspace";
+
+const defaultResetToken = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+
+function installDefaultPathMocks() {
+  mockGetJobFinderUserDataDirectory.mockReturnValue(userDataRoot);
+  mockGetJobFinderDocumentsDirectory.mockReturnValue(
+    `${userDataRoot}/${documentsRelativePath}`,
+  );
+  mockGetCandidateAssetsDirectory.mockReturnValue(
+    `${userDataRoot}/${candidateAssetsRelativePath}`,
+  );
+  mockGetApplicationDocumentsDirectory.mockReturnValue(
+    `${userDataRoot}/${applicationDocumentsRelativePath}`,
+  );
+  mockGetBrowserAgentProfileDirectory.mockReturnValue(
+    `${userDataRoot}/${browserProfileRelativePath}`,
+  );
+  mockGetJobFinderResetIntentFilePath.mockReturnValue(intentMarkerPath);
+  mockGetJobFinderResetInvalidIntentMarkerFilePath.mockImplementation(
+    (suffix: string) =>
+      `${userDataRoot}/job-finder-reset-intent.invalid-${suffix}.json`,
+  );
+  mockGetJobFinderResetTrashDirectory.mockImplementation(trashDirectoryPath);
+  mockGetJobFinderResetTrashRootDirectory.mockReturnValue(
+    `${userDataRoot}/trash`,
+  );
+  mockResolveJobFinderWorkspaceRelativePath.mockImplementation(
+    (relativePath: string) => path.resolve(userDataRoot, relativePath),
+  );
+}
+
+function buildValidMarkerRaw(input?: {
+  token?: string;
+  overrides?: Record<string, unknown>;
+}) {
+  const token = input?.token ?? defaultResetToken;
+
+  return JSON.stringify({
+    version: 1,
+    token,
+    createdAt: "2026-08-01T10:00:00.000Z",
+    entries: allResetSourceRelativePaths.map((sourcePath) => ({
+      sourcePath,
+      trashPath: `trash/job-finder-reset-${token}/${sourcePath}`,
+    })),
+    ...(input?.overrides ?? {}),
+  });
+}
+
+function enoentError() {
+  const error = new Error("no such file or directory") as NodeJS.ErrnoException;
+  error.code = "ENOENT";
+  return error;
+}
+
+function busyError(message = "device or resource busy") {
+  return Object.assign(new Error(message), { code: "EBUSY" });
+}
+
+function exdevError() {
+  return Object.assign(new Error("cross-device link not permitted"), {
+    code: "EXDEV",
+  });
+}
+
+let fileSystemEventLog: string[] = [];
+
+function installTrackingFileSystemMocks(input?: {
+  rmErrorForTokenizedTrash?: Error;
+}) {
+  fileSystemEventLog = [];
+  mockWriteFile.mockImplementation((filePath: string) => {
+    fileSystemEventLog.push(`write:${String(filePath)}`);
+    return Promise.resolve();
+  });
+  mockMkdir.mockImplementation((directoryPath: string) => {
+    fileSystemEventLog.push(`mkdir:${String(directoryPath)}`);
+    return Promise.resolve();
+  });
+  mockOpen.mockImplementation((targetPath: string) => {
+    fileSystemEventLog.push(`open:${String(targetPath)}`);
+    return Promise.resolve({
+      sync: () => {
+        fileSystemEventLog.push(`fsync:${String(targetPath)}`);
+        return Promise.resolve();
+      },
+      close: () => {
+        fileSystemEventLog.push(`close:${String(targetPath)}`);
+        return Promise.resolve();
+      },
+    });
+  });
+  mockRename.mockImplementation((from: string, to: string) => {
+    fileSystemEventLog.push(`rename:${String(from)}->${String(to)}`);
+    return Promise.resolve();
+  });
+  mockRm.mockImplementation((target: string) => {
+    if (
+      input?.rmErrorForTokenizedTrash &&
+      String(target).startsWith(`${userDataRoot}/trash/`)
+    ) {
+      return Promise.reject(input.rmErrorForTokenizedTrash);
+    }
+    fileSystemEventLog.push(`rm:${String(target)}`);
+    return Promise.resolve();
+  });
+}
+
+function installOrderedResetMoveMocks(input: {
+  failOnMoveIndex: number | null;
+  moveFailure: Error;
+  failRollback?: boolean;
+}) {
+  let moveIndex = 0;
+
+  mockRename.mockImplementation((from: string, to: string) => {
+    const fromPath = String(from);
+    const toPath = String(to);
+
+    if (toPath === intentMarkerPath) {
+      fileSystemEventLog.push(`rename:${fromPath}->${toPath}`);
+      return Promise.resolve();
+    }
+
+    if (toPath.includes("/trash/")) {
+      const shouldFail =
+        input.failOnMoveIndex !== null && moveIndex === input.failOnMoveIndex;
+      moveIndex += 1;
+      if (shouldFail) {
+        return Promise.reject(input.moveFailure);
+      }
+      fileSystemEventLog.push(`rename:${fromPath}->${toPath}`);
+      return Promise.resolve();
+    }
+
+    if (fromPath.includes("/trash/")) {
+      if (input.failRollback) {
+        return Promise.reject(input.moveFailure);
+      }
+      fileSystemEventLog.push(`rename:${fromPath}->${toPath}`);
+      return Promise.resolve();
+    }
+
+    return Promise.reject(
+      new Error(`unexpected rename ${fromPath}->${toPath}`),
+    );
+  });
+}
+
+beforeEach(() => {
+  installDefaultPathMocks();
+  installTrackingFileSystemMocks();
+  mockReadFile.mockRejectedValue(enoentError());
+  mockStat.mockRejectedValue(enoentError());
+  mockReaddir.mockRejectedValue(enoentError());
+  mockGetJobFinderWorkspaceService.mockResolvedValue({
+    resetWorkspace: mockResetWorkspace,
+  });
+  mockResetWorkspace.mockImplementation(
+    async (
+      _seed: unknown,
+      options?: { beforeStateReset?: () => Promise<void> },
+    ) => {
+      await options?.beforeStateReset?.();
+      return { snapshotMarker: "test-snapshot" };
+    },
+  );
+});
+
+afterEach(() => {
+  vi.clearAllMocks();
+});
 
 describe("resetJobFinderWorkspace", () => {
-  test("does not remove app-owned files when the workspace reset is blocked", async () => {
-    const resetError = new Error(
-      "Job Finder workspace reset is unavailable while discovery is still running.",
+  test("creates no marker, trash, or file moves when the workspace reset is blocked", async () => {
+    mockResetWorkspace.mockRejectedValueOnce(
+      new Error(
+        "Job Finder workspace reset is unavailable while discovery is still running.",
+      ),
     );
-    mockResetWorkspace.mockRejectedValueOnce(resetError);
-    mockGetJobFinderWorkspaceService.mockResolvedValueOnce({
-      resetWorkspace: mockResetWorkspace,
-    });
 
     await expect(resetJobFinderWorkspace()).rejects.toThrow(
       "workspace reset is unavailable while discovery is still running",
     );
 
     expect(mockResetWorkspace).toHaveBeenCalledTimes(1);
-    expect(mockRm).not.toHaveBeenCalled();
+    expect(fileSystemEventLog).toEqual([]);
+  });
+
+  test("keeps files set aside and reports the safe state without undoing anything when the database reset fails after the moves", async () => {
+    mockResetWorkspace.mockImplementationOnce(
+      async (
+        _seed: unknown,
+        options?: { beforeStateReset?: () => Promise<void> },
+      ) => {
+        await options?.beforeStateReset?.();
+        throw new Error("workspace database reset failed");
+      },
+    );
+
+    let caughtError: unknown;
+    try {
+      await resetJobFinderWorkspace();
+    } catch (error) {
+      caughtError = error;
+    }
+
+    expect(caughtError).toBeInstanceOf(Error);
+    const failure = caughtError as Error;
+    expect(failure.message).toContain(
+      "before the workspace database change could be confirmed",
+    );
+    expect(failure.message).toContain(
+      "will finish safely the next time the app starts",
+    );
+    expect((failure.cause as Error).message).toContain(
+      "workspace database reset failed",
+    );
+
+    const rollbackRenames = fileSystemEventLog.filter((event) => {
+      if (!event.startsWith("rename:")) {
+        return false;
+      }
+      const [, destination] = event.split("->");
+      return (
+        !destination!.includes("/trash/") &&
+        allResetSourceRelativePaths.some((sourcePath) =>
+          destination!.endsWith(sourcePath),
+        )
+      );
+    });
+    expect(rollbackRenames).toEqual([]);
+    expect(mockRm).not.toHaveBeenCalledWith(intentMarkerPath, {
+      force: true,
+    });
+
+    mockStat.mockResolvedValue({ size: 256, mtimeMs: Date.now() });
+    mockReadFile.mockResolvedValueOnce(buildValidMarkerRaw());
+    const repository = { reset: vi.fn() };
+    await expect(
+      recoverPendingJobFinderWorkspaceReset(repository),
+    ).resolves.toEqual({ status: "completed", token: defaultResetToken });
+  });
+
+  test("writes the durable intent marker before any destructive rename, then completes cleanup after the reset succeeds", async () => {
+    const snapshot = await resetJobFinderWorkspace();
+
+    expect(snapshot).toEqual({ snapshotMarker: "test-snapshot" });
+
+    const markerWriteEvents = fileSystemEventLog.filter((event) =>
+      event.startsWith("write:"),
+    );
+    expect(markerWriteEvents).toHaveLength(1);
+
+    const markerPayload = JSON.parse(
+      String(mockWriteFile.mock.calls[0]?.[1]),
+    ) as {
+      version: number;
+      token: string;
+      createdAt: string;
+      entries: { sourcePath: string; trashPath: string }[];
+    };
+
+    expect(markerPayload.version).toBe(1);
+    expect(markerPayload.token).toMatch(/^[a-zA-Z0-9-]{8,64}$/);
+    expect(markerPayload.entries).toEqual(
+      allResetSourceRelativePaths.map((sourcePath) => ({
+        sourcePath,
+        trashPath: `trash/job-finder-reset-${markerPayload.token}/${sourcePath}`,
+      })),
+    );
+
+    const markerWriteIndex = fileSystemEventLog.indexOf(markerWriteEvents[0]!);
+    const firstRenameIndex = fileSystemEventLog.findIndex((event) =>
+      event.startsWith("rename:"),
+    );
+    expect(firstRenameIndex).toBeGreaterThan(markerWriteIndex);
+
+    const renameTargets = fileSystemEventLog
+      .filter((event) => event.startsWith("rename:"))
+      .map((event) => event.split("->")[1]);
+    expect(renameTargets).toEqual([
+      intentMarkerPath,
+      ...allResetSourceRelativePaths.map(
+        (sourcePath) =>
+          `${userDataRoot}/trash/job-finder-reset-${markerPayload.token}/${sourcePath}`,
+      ),
+    ]);
+
+    const markerRemovalIndex = fileSystemEventLog.indexOf(
+      `rm:${intentMarkerPath}`,
+    );
+    const parentFlushAfterMarkerRemovalIndex = fileSystemEventLog.indexOf(
+      `fsync:${userDataRoot}`,
+      markerRemovalIndex,
+    );
+    const trashCleanupIndex = fileSystemEventLog.indexOf(
+      `rm:${trashDirectoryPath(markerPayload.token)}`,
+    );
+    expect(markerRemovalIndex).toBeGreaterThan(firstRenameIndex);
+    expect(parentFlushAfterMarkerRemovalIndex).toBeGreaterThan(
+      markerRemovalIndex,
+    );
+    expect(trashCleanupIndex).toBeGreaterThan(
+      parentFlushAfterMarkerRemovalIndex,
+    );
+  });
+
+  test("syncs the marker file before the atomic rename and best-effort flushes the parent directory", async () => {
+    await beginJobFinderWorkspaceResetFileMoves();
+
+    const temporaryMarkerPath = String(mockWriteFile.mock.calls[0]?.[0]);
+
+    expect(fileSystemEventLog.slice(0, 7)).toEqual([
+      `write:${temporaryMarkerPath}`,
+      `open:${temporaryMarkerPath}`,
+      `fsync:${temporaryMarkerPath}`,
+      `close:${temporaryMarkerPath}`,
+      `rename:${temporaryMarkerPath}->${intentMarkerPath}`,
+      `open:${userDataRoot}`,
+      `fsync:${userDataRoot}`,
+    ]);
+  });
+
+  test("tolerates an unsupported parent-directory flush without failing the marker write", async () => {
+    mockOpen.mockImplementation((targetPath: string) => {
+      if (String(targetPath) === userDataRoot) {
+        return Promise.reject(
+          Object.assign(new Error("not supported"), { code: "EPERM" }),
+        );
+      }
+      return Promise.resolve({
+        sync: () => Promise.resolve(),
+        close: () => Promise.resolve(),
+      });
+    });
+
+    const intent = await beginJobFinderWorkspaceResetFileMoves();
+
+    expect(intent.entries.map((entry) => entry.sourcePath)).toEqual(
+      allResetSourceRelativePaths,
+    );
+    expect(fileSystemEventLog).toContain(
+      `rename:${intentMarkerPath}.${intent.token}.tmp->${intentMarkerPath}`,
+    );
+  });
+
+  test("surfaces a trash cleanup warning without undoing the successful reset", async () => {
+    const warnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    installTrackingFileSystemMocks({
+      rmErrorForTokenizedTrash: new Error("trash cleanup failed"),
+    });
+
+    try {
+      const snapshot = await resetJobFinderWorkspace();
+
+      expect(snapshot).toEqual({ snapshotMarker: "test-snapshot" });
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(String(warnSpy.mock.calls[0]?.[0])).toContain(
+        "reset trash directory",
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  test("rolls back zero-rename failures, removes the marker, and leaves the next launch with nothing to reset", async () => {
+    const moveFailure = busyError();
+
+    mockRename.mockImplementation((_from: string, to: string) => {
+      if (String(to) === intentMarkerPath) {
+        fileSystemEventLog.push(`rename:${String(_from)}->${String(to)}`);
+        return Promise.resolve();
+      }
+      return Promise.reject(moveFailure);
+    });
+
+    let caughtError: unknown;
+    try {
+      await beginJobFinderWorkspaceResetFileMoves();
+    } catch (error) {
+      caughtError = error;
+    }
+
+    expect(caughtError).toBeInstanceOf(JobFinderResetFileMoveError);
+    const resetFileMoveError = caughtError as JobFinderResetFileMoveError;
+    expect(resetFileMoveError.restoredAllMovedSources).toBe(true);
+    expect(resetFileMoveError.markerRemoved).toBe(true);
+    expect(resetFileMoveError.cause).toBe(moveFailure);
+
+    expect(mockRm).toHaveBeenCalledWith(intentMarkerPath, { force: true });
+
+    const rollbackRenames = fileSystemEventLog.filter((event) => {
+      if (!event.startsWith("rename:")) {
+        return false;
+      }
+      const [, destination] = event.split("->");
+      return (
+        destination !== intentMarkerPath &&
+        (destination!.endsWith(documentsRelativePath) ||
+          destination!.endsWith(browserProfileRelativePath))
+      );
+    });
+    expect(rollbackRenames).toEqual([]);
+
+    mockResetWorkspace.mockRejectedValueOnce(
+      new Error("next launch must not reach the workspace"),
+    );
+    const repository = { reset: vi.fn() };
+    await expect(
+      recoverPendingJobFinderWorkspaceReset(repository),
+    ).resolves.toEqual({ status: "idle" });
+    expect(repository.reset).not.toHaveBeenCalled();
+  });
+
+  test("rolls back every earlier rename when a later move fails mid-reset across the expanded scope", async () => {
+    installOrderedResetMoveMocks({
+      failOnMoveIndex: 3,
+      moveFailure: busyError(),
+    });
+
+    let caughtError: unknown;
+    try {
+      await beginJobFinderWorkspaceResetFileMoves();
+    } catch (error) {
+      caughtError = error;
+    }
+
+    expect(caughtError).toBeInstanceOf(JobFinderResetFileMoveError);
+    const resetFileMoveError = caughtError as JobFinderResetFileMoveError;
+    expect(resetFileMoveError.restoredAllMovedSources).toBe(true);
+    expect(resetFileMoveError.markerRemoved).toBe(true);
+    expect(resetFileMoveError.message).toContain(
+      "the next launch will not reset anything",
+    );
+    expect(mockRm).toHaveBeenCalledWith(intentMarkerPath, { force: true });
+    const rollbackRenameDestinations = fileSystemEventLog
+      .filter((event) => /^rename:.*\/trash\/.*->/.test(event))
+      .map((event) => event.split("->")[1]);
+    expect(rollbackRenameDestinations).toEqual([
+      `${userDataRoot}/${applicationDocumentsRelativePath}`,
+      `${userDataRoot}/${candidateAssetsRelativePath}`,
+      `${userDataRoot}/${documentsRelativePath}`,
+    ]);
+  });
+
+  test("reports cross-device failures through compensation while restoring earlier renames", async () => {
+    installOrderedResetMoveMocks({
+      failOnMoveIndex: 1,
+      moveFailure: exdevError(),
+    });
+
+    await expect(beginJobFinderWorkspaceResetFileMoves()).rejects.toThrow(
+      /cross-device link not permitted/,
+    );
+
+    expect(mockRm).toHaveBeenCalledWith(intentMarkerPath, { force: true });
+    expect(
+      fileSystemEventLog.filter((event) =>
+        /^rename:.*\/trash\/.*->.*\/(documents|browser-agent)/.test(event),
+      ),
+    ).toHaveLength(1);
+  });
+
+  test("retains the marker for startup recovery when rollback cannot restore every moved file, then forward-recovers on the next start", async () => {
+    const warnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    installOrderedResetMoveMocks({
+      failOnMoveIndex: 1,
+      moveFailure: busyError(),
+      failRollback: true,
+    });
+
+    try {
+      let caughtError: unknown;
+      try {
+        await beginJobFinderWorkspaceResetFileMoves();
+      } catch (error) {
+        caughtError = error;
+      }
+
+      expect(caughtError).toBeInstanceOf(JobFinderResetFileMoveError);
+      const resetFileMoveError = caughtError as JobFinderResetFileMoveError;
+      expect(resetFileMoveError.restoredAllMovedSources).toBe(false);
+      expect(resetFileMoveError.markerRemoved).toBe(false);
+      expect(resetFileMoveError.unrestoredSourcePathCount).toBe(1);
+      expect(resetFileMoveError.message).toContain("retained");
+      expect(warnSpy).toHaveBeenCalled();
+      expect(mockRm).not.toHaveBeenCalledWith(intentMarkerPath, {
+        force: true,
+      });
+
+      const repository = { reset: vi.fn() };
+      mockStat.mockResolvedValue({ size: 128, mtimeMs: Date.now() });
+      mockReadFile.mockResolvedValue(buildValidMarkerRaw());
+
+      await expect(
+        recoverPendingJobFinderWorkspaceReset(repository),
+      ).resolves.toEqual({ status: "completed", token: defaultResetToken });
+
+      expect(repository.reset).toHaveBeenCalledTimes(1);
+      expect(mockRm).toHaveBeenCalledWith(intentMarkerPath, { force: true });
+      expect(mockRm).toHaveBeenCalledWith(
+        trashDirectoryPath(defaultResetToken),
+        {
+          recursive: true,
+          force: true,
+        },
+      );
+      expect(getJobFinderStartupResetRecoveryFact().status).toBe("completed");
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+});
+
+describe("beginJobFinderWorkspaceResetFileMoves", () => {
+  test("tolerates already-missing source directories while keeping the recorded intent", async () => {
+    mockRename.mockImplementation((_from: string, to: string) => {
+      if (!String(to).endsWith(".json")) {
+        return Promise.reject(enoentError());
+      }
+      return Promise.resolve();
+    });
+
+    const intent = await beginJobFinderWorkspaceResetFileMoves();
+
+    expect(intent.entries.map((entry) => entry.sourcePath)).toEqual(
+      allResetSourceRelativePaths,
+    );
+    expect(
+      intent.entries.every((entry) => entry.trashPath.includes(intent.token)),
+    ).toBe(true);
+  });
+});
+
+describe("completeJobFinderWorkspaceReset", () => {
+  test("removes the marker first and deletes only the tokenized trash directory", async () => {
+    await completeJobFinderWorkspaceReset({
+      token: defaultResetToken,
+      entries: [],
+    });
+
+    expect(mockRm).toHaveBeenNthCalledWith(1, intentMarkerPath, {
+      force: true,
+    });
+    expect(mockRm).toHaveBeenNthCalledWith(
+      2,
+      trashDirectoryPath(defaultResetToken),
+      { recursive: true, force: true },
+    );
+  });
+});
+
+describe("recoverPendingJobFinderWorkspaceReset", () => {
+  test("reports idle and touches nothing when no intent marker exists", async () => {
+    const repository = { reset: vi.fn() };
+
+    await expect(
+      recoverPendingJobFinderWorkspaceReset(repository),
+    ).resolves.toEqual({ status: "idle" });
+
+    expect(repository.reset).not.toHaveBeenCalled();
+    expect(fileSystemEventLog).toEqual([]);
+  });
+
+  test("completes the reset forward idempotently: remaining moves, empty seed reset, marker removal, trash cleanup", async () => {
+    mockStat.mockResolvedValue({ size: 256, mtimeMs: Date.now() });
+    mockReadFile.mockResolvedValueOnce(buildValidMarkerRaw());
+    const repository = { reset: vi.fn() };
+
+    await expect(
+      recoverPendingJobFinderWorkspaceReset(repository),
+    ).resolves.toEqual({ status: "completed", token: defaultResetToken });
+
+    const renameDestinations = fileSystemEventLog
+      .filter((event) => event.startsWith("rename:"))
+      .map((event) => event.split("->")[1]);
+    expect(renameDestinations).toEqual(
+      allResetSourceRelativePaths.map(
+        (sourcePath) =>
+          `${userDataRoot}/trash/job-finder-reset-${defaultResetToken}/${sourcePath}`,
+      ),
+    );
+    expect(repository.reset).toHaveBeenCalledTimes(1);
+    const markerRemovalIndex = fileSystemEventLog.indexOf(
+      `rm:${intentMarkerPath}`,
+    );
+    const parentFlushAfterMarkerRemovalIndex = fileSystemEventLog.indexOf(
+      `fsync:${userDataRoot}`,
+      markerRemovalIndex,
+    );
+    const trashCleanupIndex = fileSystemEventLog.indexOf(
+      `rm:${trashDirectoryPath(defaultResetToken)}`,
+    );
+    expect(parentFlushAfterMarkerRemovalIndex).toBeGreaterThan(
+      markerRemovalIndex,
+    );
+    expect(trashCleanupIndex).toBeGreaterThan(
+      parentFlushAfterMarkerRemovalIndex,
+    );
+  });
+
+  test("quarantines an oversized marker without reading or applying it", async () => {
+    const warnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    mockStat.mockResolvedValue({
+      size: maxMarkerBytes + 1,
+      mtimeMs: Date.now(),
+    });
+    const repository = { reset: vi.fn() };
+
+    try {
+      const outcome = await recoverPendingJobFinderWorkspaceReset(repository);
+
+      expect(outcome.status).toBe("quarantined");
+      if (outcome.status !== "quarantined") {
+        throw new Error("unreachable");
+      }
+      expect(outcome.reason).toBe("oversized");
+      expect(outcome.quarantinedFileName).toMatch(
+        /^job-finder-reset-intent\.invalid-.+\.json$/,
+      );
+      expect(outcome).toEqual({
+        status: "quarantined",
+        reason: "oversized",
+        quarantinedFileName: outcome.quarantinedFileName,
+      });
+
+      expect(mockReadFile).toHaveBeenCalledTimes(1);
+      expect(repository.reset).not.toHaveBeenCalled();
+
+      const quarantineCall = mockRename.mock.calls.find(
+        (call) => String(call[1]) !== intentMarkerPath,
+      );
+      expect(quarantineCall?.[0]).toBe(intentMarkerPath);
+      expect(String(quarantineCall?.[1])).toMatch(
+        /^\/user-data\/job-finder-reset-intent\.invalid-.+\.json$/,
+      );
+
+      expect(String(warnSpy.mock.calls[0]?.[0])).toContain("oversized");
+      expect(String(warnSpy.mock.calls[0]?.[0])).toContain(
+        "no data paths were modified",
+      );
+      expect(getJobFinderStartupResetRecoveryFact()).toMatchObject({
+        status: "degraded",
+        reason: "marker_quarantined_oversized",
+      });
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  test("allows markers at the exact size cap through normal validation", async () => {
+    mockStat.mockResolvedValue({ size: maxMarkerBytes, mtimeMs: Date.now() });
+    mockReadFile.mockResolvedValueOnce(buildValidMarkerRaw());
+    const repository = { reset: vi.fn() };
+
+    await expect(
+      recoverPendingJobFinderWorkspaceReset(repository),
+    ).resolves.toEqual({ status: "completed", token: defaultResetToken });
+    expect(repository.reset).toHaveBeenCalledTimes(1);
+  });
+
+  test("quarantines malformed markers, boots startup, and never deletes or moves data paths", async () => {
+    const warnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    const malformedMarkers = [
+      "{not json raw contents",
+      buildValidMarkerRaw({ overrides: { version: 2 } }),
+      buildValidMarkerRaw({
+        overrides: {
+          entries: [
+            {
+              sourcePath: "documents/unmanaged-notes",
+              trashPath: `trash/job-finder-reset-${defaultResetToken}/documents/unmanaged-notes`,
+            },
+          ],
+        },
+      }),
+      buildValidMarkerRaw({
+        overrides: {
+          entries: [
+            {
+              sourcePath: "../../etc",
+              trashPath: `trash/job-finder-reset-${defaultResetToken}/../../etc`,
+            },
+          ],
+        },
+      }),
+    ];
+    const repository = { reset: vi.fn() };
+
+    try {
+      mockStat.mockResolvedValue({ size: 32, mtimeMs: Date.now() });
+
+      for (const rawMarker of malformedMarkers) {
+        mockReadFile.mockResolvedValueOnce(rawMarker);
+
+        const outcome = await recoverPendingJobFinderWorkspaceReset(repository);
+
+        expect(outcome).toMatchObject({
+          status: "quarantined",
+          reason: "malformed",
+        });
+
+        const lastRenameCall = (mockRename.mock.calls as unknown[][]).at(-1);
+        expect(String(lastRenameCall?.[1])).toMatch(
+          /^\/user-data\/job-finder-reset-intent\.invalid-.+\.json$/,
+        );
+      }
+
+      expect(repository.reset).not.toHaveBeenCalled();
+
+      const dataRenames = fileSystemEventLog.filter(
+        (event) =>
+          event.startsWith("rename:") &&
+          !event.includes("job-finder-reset-intent"),
+      );
+      expect(dataRenames).toEqual([]);
+
+      const quarantineWarnings = warnSpy.mock.calls
+        .map((call) => String(call[0]))
+        .filter((message) => message.includes("Quarantined"));
+      expect(quarantineWarnings.length).toBe(malformedMarkers.length);
+      for (const warning of quarantineWarnings) {
+        expect(warning).not.toContain("{not json raw contents");
+      }
+
+      expect(getJobFinderStartupResetRecoveryFact()).toMatchObject({
+        status: "degraded",
+        reason: "marker_quarantined_malformed",
+      });
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  test("keeps startup running when the invalid marker cannot be quarantined", async () => {
+    const warnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    mockStat.mockResolvedValue({ size: 16, mtimeMs: Date.now() });
+    mockReadFile.mockResolvedValueOnce("{ broken");
+    mockRename.mockImplementation((from: string, to: string) => {
+      if (String(to) !== intentMarkerPath) {
+        return Promise.reject(busyError());
+      }
+      fileSystemEventLog.push(`rename:${String(from)}->${String(to)}`);
+      return Promise.resolve();
+    });
+    const repository = { reset: vi.fn() };
+
+    try {
+      await expect(
+        recoverPendingJobFinderWorkspaceReset(repository),
+      ).resolves.toEqual({
+        status: "quarantined",
+        reason: "malformed",
+        quarantinedFileName: null,
+      });
+
+      expect(repository.reset).not.toHaveBeenCalled();
+      expect(getJobFinderStartupResetRecoveryFact()).toMatchObject({
+        status: "degraded",
+        reason: "marker_quarantined_malformed",
+        quarantinedFileName: null,
+      });
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  test("pauses recovery with retained files when an invalid marker coexists with validated reset trash, recording durable evidence", async () => {
+    const warnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    mockStat.mockResolvedValue({
+      size: maxMarkerBytes + 1,
+      mtimeMs: Date.now(),
+    });
+    const pendingTrashName = "job-finder-reset-pending001";
+    mockReaddir.mockImplementation((target: string) => {
+      if (String(target) === `${userDataRoot}/trash`) {
+        return Promise.resolve([direntFor(pendingTrashName)]);
+      }
+      if (String(target) === userDataRoot) {
+        return Promise.resolve([]);
+      }
+      return Promise.reject(enoentError());
+    });
+    const repository = { reset: vi.fn() };
+
+    try {
+      const outcome = await recoverPendingJobFinderWorkspaceReset(repository);
+
+      expect(outcome.status).toBe("quarantined");
+      if (outcome.status !== "quarantined") {
+        throw new Error("unreachable");
+      }
+      expect(outcome.reason).toBe("with_pending_trash");
+      expect(outcome.quarantinedFileName).toMatch(
+        /^job-finder-reset-intent\.invalid-.+\.json$/,
+      );
+
+      expect(repository.reset).not.toHaveBeenCalled();
+
+      const sidecarWriteCall = mockWriteFile.mock.calls.find((call) =>
+        String(call[0]).includes(".pending-trash.json"),
+      );
+      expect(sidecarWriteCall).toBeTruthy();
+      const sidecarPayload = JSON.parse(String(sidecarWriteCall?.[1])) as {
+        version: number;
+        quarantinedAt: string;
+        pendingTrashDirectoryNames: string[];
+      };
+      expect(sidecarPayload.version).toBe(1);
+      expect(typeof sidecarPayload.quarantinedAt).toBe("string");
+      expect(Number.isNaN(Date.parse(sidecarPayload.quarantinedAt))).toBe(
+        false,
+      );
+      expect(sidecarPayload.pendingTrashDirectoryNames).toEqual([
+        pendingTrashName,
+      ]);
+
+      const warnings = warnSpy.mock.calls.map((call) => String(call[0]));
+      expect(
+        warnings.some(
+          (message) =>
+            message.includes("Quarantined") &&
+            message.includes("set-aside reset trash location(s)") &&
+            message.includes("nothing will be deleted automatically"),
+        ),
+      ).toBe(true);
+      expect(
+        warnings.some((message) =>
+          message.includes("no data paths were modified"),
+        ),
+      ).toBe(false);
+
+      expect(getJobFinderStartupResetRecoveryFact()).toMatchObject({
+        status: "degraded",
+        reason: "marker_quarantined_with_pending_trash",
+      });
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  function direntFor(name: string) {
+    return { name, isDirectory: () => true, isFile: () => false };
+  }
+});
+
+describe("startup recovery database reset failures", () => {
+  test("compensates moved files, removes the marker, and records a degraded fact when the database reset rejects during recovery", async () => {
+    const warnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    mockStat.mockResolvedValue({ size: 256, mtimeMs: Date.now() });
+    mockReadFile.mockResolvedValueOnce(buildValidMarkerRaw());
+    const repository = {
+      reset: vi.fn().mockRejectedValueOnce(new Error("reset boom")),
+    };
+
+    try {
+      let caughtError: unknown;
+      try {
+        await recoverPendingJobFinderWorkspaceReset(repository);
+      } catch (error) {
+        caughtError = error;
+      }
+
+      expect(caughtError).toBeInstanceOf(JobFinderResetFileMoveError);
+      const resetFileMoveError = caughtError as JobFinderResetFileMoveError;
+      expect(resetFileMoveError.message).toContain(
+        "all moved files were restored",
+      );
+      expect(resetFileMoveError.message).toContain(
+        "the next launch will not reset anything",
+      );
+      expect(resetFileMoveError.restoredAllMovedSources).toBe(true);
+      expect(resetFileMoveError.markerRemoved).toBe(true);
+
+      expect(mockRm).toHaveBeenCalledWith(intentMarkerPath, { force: true });
+      const markerRemovalIndex = fileSystemEventLog.indexOf(
+        `rm:${intentMarkerPath}`,
+      );
+      const parentFlushIndex = fileSystemEventLog.indexOf(
+        `fsync:${userDataRoot}`,
+        markerRemovalIndex,
+      );
+      expect(parentFlushIndex).toBeGreaterThan(markerRemovalIndex);
+
+      expect(getJobFinderStartupResetRecoveryFact()).toEqual({
+        status: "degraded",
+        reason: "reset_recovery_failed",
+        quarantinedFileName: null,
+      });
+
+      const laterRepository = { reset: vi.fn() };
+      mockStat.mockRejectedValue(enoentError());
+      await expect(
+        recoverPendingJobFinderWorkspaceReset(laterRepository),
+      ).resolves.toEqual({ status: "idle" });
+      expect(laterRepository.reset).not.toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  test("retains the marker and reports explicit guidance when compensation cannot restore every moved file", async () => {
+    const warnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    mockStat.mockResolvedValue({ size: 256, mtimeMs: Date.now() });
+    mockReadFile.mockResolvedValue(buildValidMarkerRaw());
+    mockRename.mockImplementation((from: string, to: string) => {
+      const toPath = String(to);
+      if (toPath === intentMarkerPath) {
+        fileSystemEventLog.push(`rename:${String(from)}->${toPath}`);
+        return Promise.resolve();
+      }
+      if (toPath.includes("/trash/")) {
+        fileSystemEventLog.push(`rename:${String(from)}->${toPath}`);
+        return Promise.resolve();
+      }
+      return Promise.reject(busyError("rollback blocked"));
+    });
+    const repository = {
+      reset: vi.fn().mockRejectedValueOnce(new Error("reset boom")),
+    };
+
+    try {
+      let caughtError: unknown;
+      try {
+        await recoverPendingJobFinderWorkspaceReset(repository);
+      } catch (error) {
+        caughtError = error;
+      }
+
+      expect(caughtError).toBeInstanceOf(JobFinderResetFileMoveError);
+      const resetFileMoveError = caughtError as JobFinderResetFileMoveError;
+      expect(resetFileMoveError.restoredAllMovedSources).toBe(false);
+      expect(resetFileMoveError.markerRemoved).toBe(false);
+      expect(resetFileMoveError.unrestoredSourcePathCount).toBe(
+        allResetSourceRelativePaths.length,
+      );
+      expect(resetFileMoveError.message).toContain(
+        "the next launch completes the reset during startup recovery",
+      );
+
+      expect(mockRm).not.toHaveBeenCalledWith(intentMarkerPath, {
+        force: true,
+      });
+      expect(getJobFinderStartupResetRecoveryFact()).toMatchObject({
+        status: "degraded",
+        reason: "reset_recovery_failed",
+      });
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+});
+
+describe("sweepStaleJobFinderResetArtifacts", () => {
+  function dirent(name: string) {
+    return { name, isDirectory: () => true, isFile: () => false };
+  }
+
+  test("removes only validated stale tokenized trash directories and marker temp files, keeping the active marker token", async () => {
+    const staleMoment = Date.now() - 2 * 60 * 60 * 1000;
+    const staleToken = "stale-token-0001";
+    const activeToken = "active-token-1";
+
+    mockReadFile.mockResolvedValue(buildValidMarkerRaw({ token: activeToken }));
+    mockReaddir.mockImplementation((target: string) => {
+      if (String(target) === `${userDataRoot}/trash`) {
+        return Promise.resolve([
+          dirent(`job-finder-reset-${staleToken}`),
+          dirent(`job-finder-reset-${activeToken}`),
+          dirent("job-finder-reset-short"),
+          dirent("unrelated-directory"),
+        ]);
+      }
+      if (String(target) === userDataRoot) {
+        return Promise.resolve([
+          dirent(`job-finder-reset-intent.json.${staleToken}.tmp`),
+          dirent("job-finder-reset-intent.json.unrelated.tmp"),
+          dirent("unrelated-file.json"),
+        ]);
+      }
+      return Promise.reject(enoentError());
+    });
+    mockStat.mockImplementation((target: string) => {
+      const targetPath = String(target);
+      if (targetPath.includes(staleToken)) {
+        return Promise.resolve({ mtimeMs: staleMoment, size: 1 });
+      }
+      return Promise.resolve({ mtimeMs: Date.now(), size: 1 });
+    });
+
+    await sweepStaleJobFinderResetArtifacts();
+
+    expect(mockRm).toHaveBeenCalledTimes(2);
+    expect(mockRm).toHaveBeenCalledWith(
+      `${userDataRoot}/trash/job-finder-reset-${staleToken}`,
+      { recursive: true, force: true },
+    );
+    expect(mockRm).toHaveBeenCalledWith(
+      `${userDataRoot}/job-finder-reset-intent.json.${staleToken}.tmp`,
+      { recursive: true, force: true },
+    );
+    expect(mockRm).not.toHaveBeenCalledWith(
+      `${userDataRoot}/trash/job-finder-reset-${activeToken}`,
+      expect.anything(),
+    );
+  });
+
+  test("keeps fresh artifacts and warns redacted when a stale artifact cannot be removed", async () => {
+    const warnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    const freshToken = "fresh-token-01";
+    const stuckToken = "stuck-token-001";
+
+    mockReadFile.mockRejectedValue(enoentError());
+    mockReaddir.mockImplementation((target: string) => {
+      if (String(target) === `${userDataRoot}/trash`) {
+        return Promise.resolve([
+          dirent(`job-finder-reset-${freshToken}`),
+          dirent(`job-finder-reset-${stuckToken}`),
+        ]);
+      }
+      return Promise.reject(enoentError());
+    });
+    mockStat.mockResolvedValue({ mtimeMs: Date.now() - 2 * 60 * 60 * 1000 });
+    mockRm.mockImplementation((target: string) => {
+      if (String(target).includes(stuckToken)) {
+        return Promise.reject(busyError());
+      }
+      return Promise.resolve();
+    });
+
+    try {
+      await sweepStaleJobFinderResetArtifacts();
+
+      expect(mockRm).toHaveBeenCalledTimes(2);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const warningMessage = String(warnSpy.mock.calls[0]?.[0]);
+      expect(warningMessage).toContain(`job-finder-reset-${stuckToken}`);
+      expect(warningMessage).toContain("left in place");
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  test("never deletes pending trash listed in quarantine evidence, even when stale and the marker is gone", async () => {
+    const heldTrashName = "job-finder-reset-held0001";
+    const staleTrashName = "job-finder-reset-stale9999";
+    const sidecarName =
+      "job-finder-reset-intent.invalid-2026-08-23T10-00-00-000Z.json.pending-trash.json";
+
+    mockReadFile.mockImplementation((target: string) => {
+      if (String(target) === `${userDataRoot}/${sidecarName}`) {
+        return Promise.resolve(
+          `${JSON.stringify({
+            version: 1,
+            quarantinedAt: "2026-08-23T10:00:00.000Z",
+            pendingTrashDirectoryNames: [heldTrashName],
+          })}\n`,
+        );
+      }
+      return Promise.reject(enoentError());
+    });
+    mockReaddir.mockImplementation((target: string) => {
+      if (String(target) === `${userDataRoot}/trash`) {
+        return Promise.resolve([dirent(heldTrashName), dirent(staleTrashName)]);
+      }
+      if (String(target) === userDataRoot) {
+        return Promise.resolve([dirent(sidecarName)]);
+      }
+      return Promise.reject(enoentError());
+    });
+    const staleMoment = Date.now() - 2 * 60 * 60 * 1000;
+    mockStat.mockResolvedValue({ mtimeMs: staleMoment, size: 1 });
+
+    await sweepStaleJobFinderResetArtifacts();
+
+    expect(mockRm).toHaveBeenCalledTimes(1);
+    expect(mockRm).toHaveBeenCalledWith(
+      `${userDataRoot}/trash/${staleTrashName}`,
+      { recursive: true, force: true },
+    );
+    expect(mockRm).not.toHaveBeenCalledWith(
+      `${userDataRoot}/trash/${heldTrashName}`,
+      expect.anything(),
+    );
+    expect(mockRm).not.toHaveBeenCalledWith(
+      `${userDataRoot}/${sidecarName}`,
+      expect.anything(),
+    );
+  });
+
+  test("cleans up abandoned quarantine evidence temp files once stale", async () => {
+    const abandonedTempName =
+      "job-finder-reset-intent.invalid-2026-08-23T10-00-00-000Z.json.pending-trash.json.tmp";
+
+    mockReadFile.mockRejectedValue(enoentError());
+    mockReaddir.mockImplementation((target: string) => {
+      if (String(target) === `${userDataRoot}/trash`) {
+        return Promise.reject(enoentError());
+      }
+      if (String(target) === userDataRoot) {
+        return Promise.resolve([dirent(abandonedTempName)]);
+      }
+      return Promise.reject(enoentError());
+    });
+    mockStat.mockResolvedValue({
+      mtimeMs: Date.now() - 2 * 60 * 60 * 1000,
+      size: 1,
+    });
+
+    await sweepStaleJobFinderResetArtifacts();
+
+    expect(mockRm).toHaveBeenCalledWith(
+      `${userDataRoot}/${abandonedTempName}`,
+      {
+        recursive: true,
+        force: true,
+      },
+    );
   });
 });

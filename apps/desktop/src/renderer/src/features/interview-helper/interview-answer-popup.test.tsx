@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { InterviewWorkspaceSnapshot } from "@unemployed/contracts";
 import { InterviewAnswerPopup } from "./interview-answer-popup";
@@ -20,7 +26,11 @@ function createWorkspace(): InterviewWorkspaceSnapshot {
         {
           id: "cue_1",
           question: "Tell me about a difficult project.",
-          answerOutline: ["Set the context", "Explain the decision", "Share the result"],
+          answerOutline: [
+            "Set the context",
+            "Explain the decision",
+            "Share the result",
+          ],
         },
       ],
       chatConversation: null,
@@ -139,12 +149,69 @@ describe("InterviewAnswerPopup", () => {
       });
     });
 
-    fireEvent.click(rendered.getByRole("button", { name: "Hide answer popup" }));
+    fireEvent.click(
+      rendered.getByRole("button", { name: "Hide answer popup" }),
+    );
     await waitFor(() => {
       expect(api.updateOverlayPreference).toHaveBeenCalledWith({
         surfaceKind: "live_answer_overlay",
         visible: false,
       });
     });
+  });
+
+  test("renders assistant answers as escaped markdown", () => {
+    const workspace = createWorkspace();
+    const sessionWithAssistantAnswer = {
+      ...workspace.activeSession!,
+      chatConversation: {
+        updatedAt: "2026-07-14T18:01:00.000Z",
+        messages: [
+          {
+            id: "msg_user_1",
+            role: "user" as const,
+            content: "How do I frame **my impact**?",
+            attachments: [],
+          },
+          {
+            id: "msg_assistant_1",
+            role: "assistant" as const,
+            content:
+              "## Framework\n\n**Lead** with *impact*.\n\n- Open with context\n- Close <script>alert(1)</script>",
+            attachments: [],
+          },
+        ],
+      },
+    };
+    const rendered = render(
+      <InterviewAnswerPopup
+        onWorkspaceChange={() => undefined}
+        workspace={
+          {
+            ...workspace,
+            activeSession: sessionWithAssistantAnswer,
+          } as unknown as InterviewWorkspaceSnapshot
+        }
+      />,
+    );
+
+    const articles = [...rendered.container.querySelectorAll("article")];
+    expect(articles).toHaveLength(2);
+
+    const userArticle = articles[0]!;
+    expect(userArticle.querySelector("[data-interview-markdown]")).toBeNull();
+    expect(userArticle.textContent).toBe("How do I frame **my impact**?");
+
+    const assistantArticle = articles[1]!;
+    const markdownRoot = assistantArticle.querySelector(
+      "[data-interview-markdown]",
+    );
+    expect(markdownRoot).not.toBeNull();
+    expect(markdownRoot?.querySelector("h4")?.textContent).toBe("Framework");
+    expect(markdownRoot?.querySelector("strong")?.textContent).toBe("Lead");
+    expect(markdownRoot?.querySelector("em")?.textContent).toBe("impact");
+    expect(markdownRoot?.querySelectorAll("ul li")).toHaveLength(2);
+    expect(markdownRoot?.querySelector("script")).toBeNull();
+    expect(markdownRoot?.textContent).toContain("<script>alert(1)</script>");
   });
 });

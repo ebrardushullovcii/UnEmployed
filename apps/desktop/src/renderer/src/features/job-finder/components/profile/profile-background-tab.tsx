@@ -12,6 +12,7 @@ import {
 import { ProfileInput, ProfileTextarea } from './profile-form-primitives'
 import { ProfileRecordCard } from './profile-record-card'
 import { ProfileSectionHeader } from './profile-section-header'
+import { useProfileAppendedRecordOpenSignal } from './use-profile-appended-record-open-signal'
 
 interface ProfileBackgroundTabProps {
   backgroundArrays: ProfileBackgroundArrays
@@ -22,6 +23,11 @@ interface ProfileBackgroundTabProps {
 export function ProfileBackgroundTab({ backgroundArrays, isProfileSetupPending = false, profileForm }: ProfileBackgroundTabProps) {
   const { certificationArray, educationArray } = backgroundArrays
   const { register, watch } = profileForm
+  const {
+    forgetAppendedRecord,
+    getAppendedRecordOpenSignal,
+    markAppendedRecord,
+  } = useProfileAppendedRecordOpenSignal()
 
   function buildEducationFieldId(recordId: string, field: string) {
     return `education-record-${recordId}-${field}`
@@ -29,6 +35,44 @@ export function ProfileBackgroundTab({ backgroundArrays, isProfileSetupPending =
 
   function buildCertificationFieldId(recordId: string, field: string) {
     return `certification-record-${recordId}-${field}`
+  }
+
+  function handleAddEducation() {
+    const recordId = `education_${crypto.randomUUID().slice(0, 8)}`
+    educationArray.append({
+      id: recordId,
+      schoolName: '',
+      degree: '',
+      fieldOfStudy: '',
+      location: '',
+      startDate: '',
+      endDate: '',
+      summary: ''
+    })
+    markAppendedRecord(recordId)
+  }
+
+  function handleAddCertification() {
+    const recordId = `certification_${crypto.randomUUID().slice(0, 8)}`
+    certificationArray.append({
+      id: recordId,
+      name: '',
+      issuer: '',
+      issueDate: '',
+      expiryDate: '',
+      credentialUrl: ''
+    })
+    markAppendedRecord(recordId)
+  }
+
+  function handleRemoveEducation(index: number) {
+    forgetAppendedRecord(educationArray.fields[index]?.id ?? '')
+    educationArray.remove(index)
+  }
+
+  function handleRemoveCertification(index: number) {
+    forgetAppendedRecord(certificationArray.fields[index]?.id ?? '')
+    certificationArray.remove(index)
   }
 
   return (
@@ -43,18 +87,7 @@ export function ProfileBackgroundTab({ backgroundArrays, isProfileSetupPending =
               <Button
                 disabled={isProfileSetupPending}
                 pending={isProfileSetupPending}
-                onClick={() =>
-                  educationArray.append({
-                    id: `education_${crypto.randomUUID().slice(0, 8)}`,
-                    schoolName: '',
-                    degree: '',
-                    fieldOfStudy: '',
-                    location: '',
-                    startDate: '',
-                    endDate: '',
-                    summary: ''
-                  })
-                }
+                onClick={handleAddEducation}
                 type="button"
                 variant="secondary"
                 className="h-11 px-4"
@@ -64,16 +97,7 @@ export function ProfileBackgroundTab({ backgroundArrays, isProfileSetupPending =
               <Button
                 disabled={isProfileSetupPending}
                 pending={isProfileSetupPending}
-                onClick={() =>
-                  certificationArray.append({
-                    id: `certification_${crypto.randomUUID().slice(0, 8)}`,
-                    name: '',
-                    issuer: '',
-                    issueDate: '',
-                    expiryDate: '',
-                    credentialUrl: ''
-                  })
-                }
+                onClick={handleAddCertification}
                 type="button"
                 variant="secondary"
                 className="h-11 px-4"
@@ -91,6 +115,7 @@ export function ProfileBackgroundTab({ backgroundArrays, isProfileSetupPending =
                 id={`education-record-${entry.id}`}
                 key={entry.fieldKey}
                 defaultOpen={index === 0}
+                forceOpenSignal={getAppendedRecordOpenSignal(entry.id)}
                 summary={joinProfileSummaryParts([
                   watch(`records.education.${index}.degree`),
                   watch(`records.education.${index}.schoolName`),
@@ -103,7 +128,7 @@ export function ProfileBackgroundTab({ backgroundArrays, isProfileSetupPending =
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Education details</p>
-                  <Button disabled={isProfileSetupPending} pending={isProfileSetupPending} onClick={() => educationArray.remove(index)} size="compact" type="button" variant="ghost">
+                  <Button disabled={isProfileSetupPending} pending={isProfileSetupPending} onClick={() => handleRemoveEducation(index)} size="compact" type="button" variant="ghost">
                     Remove
                   </Button>
                 </div>
@@ -130,6 +155,7 @@ export function ProfileBackgroundTab({ backgroundArrays, isProfileSetupPending =
               id={`certification-record-${entry.id}`}
               key={entry.fieldKey}
               defaultOpen={index === 0 && educationArray.fields.length === 0}
+              forceOpenSignal={getAppendedRecordOpenSignal(entry.id)}
               summary={joinProfileSummaryParts([
                 watch(`records.certifications.${index}.name`),
                 watch(`records.certifications.${index}.issuer`)
@@ -138,7 +164,7 @@ export function ProfileBackgroundTab({ backgroundArrays, isProfileSetupPending =
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Certification details</p>
-                <Button disabled={isProfileSetupPending} pending={isProfileSetupPending} onClick={() => certificationArray.remove(index)} size="compact" type="button" variant="ghost">
+                <Button disabled={isProfileSetupPending} pending={isProfileSetupPending} onClick={() => handleRemoveCertification(index)} size="compact" type="button" variant="ghost">
                   Remove
                 </Button>
               </div>

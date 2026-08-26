@@ -10,6 +10,8 @@ import {
   getApplySupportState,
 } from "./review-queue-mission-panel-helpers";
 
+const BANNED_OPERATION_COPY = /apply copilot|restage|submit approval/i;
+
 const readyBrowser = {
   source: "target_site",
   status: "ready",
@@ -64,7 +66,7 @@ const baseJob = {
 } as unknown as SavedJob;
 
 describe("getApplicationReadinessFacts", () => {
-  it("names the exact unchanged CV and redacts destination query data", () => {
+  it("names the exact unchanged resume and redacts destination query data", () => {
     const facts = getApplicationReadinessFacts({
       browserSession: readyBrowser,
       selectedAsset: null,
@@ -74,7 +76,7 @@ describe("getApplicationReadinessFacts", () => {
 
     expect(facts).toContainEqual(
       expect.objectContaining({
-        label: "CV file",
+        label: "Resume file",
         value: "Ebrar.pdf",
       }),
     );
@@ -87,12 +89,17 @@ describe("getApplicationReadinessFacts", () => {
       }),
     );
     expect(JSON.stringify(facts)).not.toContain("candidate_token");
+    const factsText = JSON.stringify(facts);
     expect(facts).toContainEqual(
       expect.objectContaining({
         label: "Final submit",
         value: "Disabled for this run",
       }),
     );
+    expect(factsText).toMatch(/without clicking submit/);
+    expect(factsText).toMatch(/the site controls its own behavior/i);
+    expect(factsText).toMatch(/never performs a final-submit action/i);
+    expect(factsText).not.toMatch(/No application was submitted/i);
   });
 
   it.each([
@@ -203,7 +210,7 @@ describe("getApplicationReadinessFacts", () => {
       kind: "blocked",
       label: "Prepare application",
       enabled: false,
-      recovery: { kind: "open_profile", label: "Import original CV" },
+      recovery: { kind: "open_profile", label: "Import original resume" },
     });
 
     const missingUrl = buildMissionPanelState({
@@ -245,5 +252,121 @@ describe("getApplicationReadinessFacts", () => {
         label: "Fix browser connection",
       },
     });
+  });
+
+  it("keeps the primary action label stable across every blocker and ready state", () => {
+    const states = [
+      { browserSession: readyBrowser, selectedItem: originalResumeItem },
+      {
+        browserSession: {
+          ...readyBrowser,
+          status: "blocked",
+        } as BrowserSessionState,
+        selectedItem: originalResumeItem,
+      },
+      {
+        browserSession: readyBrowser,
+        selectedItem: {
+          ...originalResumeItem,
+          assetStatus: "not_started",
+          resumeAssetId: null,
+          resumeReview: { status: "not_started" },
+        },
+      },
+    ] as const;
+
+    for (const state of states) {
+      const missionState = buildMissionPanelState({
+        browserSession: state.browserSession,
+        isApplyPending: false,
+        isJobPending: () => false,
+        queue: [],
+        queueSelection: [],
+        selectedAsset: null,
+        selectedItem: state.selectedItem,
+        selectedJob: baseJob,
+      });
+
+      expect(missionState.primaryApplicationAction.label).toBe(
+        "Prepare application",
+      );
+    }
+  });
+
+  it("describes batch selection with preparation vocabulary instead of staging jargon", () => {
+    const emptyQueueState = buildMissionPanelState({
+      browserSession: readyBrowser,
+      isApplyPending: false,
+      isJobPending: () => false,
+      queue: [],
+      queueSelection: [],
+      selectedAsset: null,
+      selectedItem: originalResumeItem,
+      selectedJob: baseJob,
+    });
+    expect(emptyQueueState.queueSummary).toMatch(/preparation run/);
+    expect(emptyQueueState.queueSummary).not.toMatch(BANNED_OPERATION_COPY);
+    expect(emptyQueueState.queueSummary).not.toMatch(/queue staging|stage/i);
+
+    const selectedQueueState = buildMissionPanelState({
+      browserSession: readyBrowser,
+      isApplyPending: false,
+      isJobPending: () => false,
+      queue: [originalResumeItem],
+      queueSelection: [originalResumeItem.jobId],
+      selectedAsset: null,
+      selectedItem: originalResumeItem,
+      selectedJob: baseJob,
+    });
+    expect(selectedQueueState.queueSummary).toBe(
+      "1 selected job will join one safe non-submitting preparation run.",
+    );
+  });
+
+  it.each(["ready", "unknown", "blocked", "login_required"] as const)(
+    "keeps %s browser guidance free of legacy operation names",
+    (status) => {
+      const missionState = buildMissionPanelState({
+        browserSession: { ...readyBrowser, status } as BrowserSessionState,
+        isApplyPending: false,
+        isJobPending: () => false,
+        queue: [originalResumeItem],
+        queueSelection: [],
+        selectedAsset: null,
+        selectedItem: originalResumeItem,
+        selectedJob: baseJob,
+      });
+
+      for (const item of missionState.checklist) {
+        expect(`${item.label} ${item.description}`).not.toMatch(
+          BANNED_OPERATION_COPY,
+        );
+      }
+      if (missionState.readinessDescription) {
+        expect(missionState.readinessDescription).not.toMatch(
+          BANNED_OPERATION_COPY,
+        );
+      }
+      for (const fact of missionState.readinessFacts) {
+        expect(`${fact.value} ${fact.detail}`).not.toMatch(
+          BANNED_OPERATION_COPY,
+        );
+      }
+    },
+  );
+
+  it("never claims a run submitted anything in readiness or safety copy", () => {
+    const facts = getApplicationReadinessFacts({
+      browserSession: readyBrowser,
+      selectedAsset: null,
+      selectedItem: originalResumeItem,
+      selectedJob: baseJob,
+    });
+    const factsText = facts
+      .map((fact) => `${fact.value} ${fact.detail}`)
+      .join(" ");
+
+    expect(factsText).toMatch(/never performs a final-submit action/i);
+    expect(factsText).not.toMatch(/will submit|submits your application/i);
   });
 });

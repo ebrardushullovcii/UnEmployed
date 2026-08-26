@@ -9,6 +9,7 @@ import {
   formatVisibleRunId,
   getCustomerFacingApplyText,
 } from "./applications-detail-panel-helpers";
+import { APPLICATION_DETAIL_FACT_LABEL_CLASS } from "./applications-detail-fact-strip";
 
 export function ApplicationsDetailPanelRunHistorySection(props: {
   applyRunHistory: Array<{
@@ -26,13 +27,9 @@ export function ApplicationsDetailPanelRunHistorySection(props: {
 
   return (
     <section className="surface-card-tint grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
-      <div className="grid gap-1">
-        <h3 className="label-mono-xs text-primary">Run history</h3>
-        <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-          Review older safe runs, blockers, consent pauses, and queue outcomes for
-          this job.
-        </p>
-      </div>
+      <h3 className={cn(APPLICATION_DETAIL_FACT_LABEL_CLASS, "text-primary")}>
+        Preparation history
+      </h3>
       <ul className="grid gap-2" role="list">
         {applyRunHistory.map(({ result, run }) => {
           const isSelected = selectedApplyRunId === result.runId;
@@ -42,7 +39,7 @@ export function ApplicationsDetailPanelRunHistorySection(props: {
               <button
                 aria-pressed={isSelected}
                 className={cn(
-                  "grid w-full gap-2 rounded-(--radius-field) border px-3 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30",
+                  "grid w-full gap-1 rounded-(--radius-field) border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30",
                   isSelected
                     ? "border-primary bg-primary/8"
                     : "border-(--surface-panel-border) bg-background/40 hover:bg-background/60",
@@ -51,9 +48,9 @@ export function ApplicationsDetailPanelRunHistorySection(props: {
                 title={result.runId}
                 type="button"
               >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <strong className="text-foreground">
-                    {run ? formatStatusLabel(run.mode) : "Apply run"}
+                <span className="flex flex-wrap items-center justify-between gap-2">
+                  <strong className="min-w-0 break-words text-(length:--text-field) text-foreground">
+                    {run ? formatStatusLabel(run.mode) : "Preparation run"}
                   </strong>
                   <StatusBadge
                     tone={
@@ -68,19 +65,17 @@ export function ApplicationsDetailPanelRunHistorySection(props: {
                   >
                     {formatStatusLabel(result.state)}
                   </StatusBadge>
-                </div>
-                <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+                </span>
+                <p className="min-w-0 break-words text-(length:--text-small) leading-5 text-foreground-soft">
                   {getCustomerFacingApplyText(result.summary)}
                 </p>
-                <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+                <p className="min-w-0 break-words text-(length:--text-small) leading-5 text-foreground-soft">
                   {formatTimestamp(result.updatedAt)}
                   {run ? ` • ${formatStatusLabel(run.state)}` : ""}
                   {result.blockerSummary
                     ? ` • ${getCustomerFacingApplyText(result.blockerSummary)}`
                     : ""}
-                </p>
-                <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                  Run {formatVisibleRunId(result.runId)}
+                  {` • Preparation ${formatVisibleRunId(result.runId)}`}
                 </p>
               </button>
             </li>

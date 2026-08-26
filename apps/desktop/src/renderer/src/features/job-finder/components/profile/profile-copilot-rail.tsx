@@ -23,6 +23,8 @@ import type {
 import { Button } from "@renderer/components/ui/button";
 import { getProfileCopilotContextKey } from "../../lib/profile-copilot-context";
 import { formatStatusLabel } from "../../lib/job-finder-utils";
+import { isImeComposingEvent } from "../../lib/job-finder-shortcuts";
+import { useJobFinderOverlayOwnership } from "../../lib/job-finder-overlay-ownership";
 import {
   getPatchGroupOperationSummary,
   getProfileCopilotContextLabel,
@@ -31,6 +33,8 @@ import {
   COPILOT_BOTTOM_OFFSET,
   COPILOT_POSITION_STORAGE_KEY,
   clampCopilotPosition,
+  getCollapsedLauncherClearance,
+  getCollapsedLauncherStackSize,
   getDefaultCopilotPosition,
   getDraggedCopilotPosition,
   getCopilotPanelDimensions,
@@ -95,6 +99,25 @@ export function ProfileCopilotRail(props: {
   } | null>(null);
   const dragCleanupRef = useRef<(() => void) | null>(null);
   const suppressNextBubbleClickRef = useRef(false);
+  // The floating copilot dialog joins the app-wide LIFO overlay stack so
+  // stacked surfaces close one per Escape and shell aliases stay blocked.
+  const { isTopmost: isCopilotTopmost } = useJobFinderOverlayOwnership({
+    active: isOpen,
+    close: () => {
+      dragStateRef.current = null;
+      dragCleanupRef.current?.();
+      setPosition(
+        clampCopilotPosition({
+          ...collapsedPositionRef.current,
+          isOpen: false,
+          minBottomOffset: collapsedMinBottomOffset,
+          minTopOffset: safeTopOffset,
+        }),
+      );
+      setIsMaximized(false);
+      setIsOpen(false);
+    },
+  });
   const contextKey = getProfileCopilotContextKey(props.context);
   const isPendingHere = props.pendingContextKey === contextKey;
   const minBottomOffset = Math.max(
@@ -141,6 +164,11 @@ export function ProfileCopilotRail(props: {
       };
     });
   }, [props.messages, recentRevisions]);
+  const showsProactiveSuggestion =
+    !isOpen &&
+    showProactivePrompt &&
+    props.messages.length === 0 &&
+    Boolean(props.starterQuestion);
 
   useLayoutEffect(() => {
     const shellHeader = document.querySelector<HTMLElement>(
@@ -172,39 +200,55 @@ export function ProfileCopilotRail(props: {
   }, []);
 
   useLayoutEffect(() => {
-    const workspaceActions = document.querySelector<HTMLElement>(
-      "[data-profile-workspace-actions]",
+    const clearanceTargets = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        "[data-profile-workspace-actions], [data-profile-section-tabs]",
+      ),
     );
 
-    if (!workspaceActions) {
+    if (clearanceTargets.length === 0) {
       setWorkspaceActionClearance(COPILOT_BOTTOM_OFFSET);
       return;
     }
 
     const updateWorkspaceActionClearance = () => {
-      const rect = workspaceActions.getBoundingClientRect();
-      const isVisible = rect.bottom > 0 && rect.top < window.innerHeight;
-      setWorkspaceActionClearance(
-        isVisible
-          ? Math.max(
-              COPILOT_BOTTOM_OFFSET,
-              Math.ceil(window.innerHeight - rect.top + 16),
-            )
-          : COPILOT_BOTTOM_OFFSET,
-      );
+      const launcherStack = getCollapsedLauncherStackSize({
+        showSuggestionPill: showsProactiveSuggestion,
+      });
+      const clearance = getCollapsedLauncherClearance({
+        launcherHeight: launcherStack.height,
+        launcherWidth: launcherStack.width,
+        minTopOffset: safeTopOffset,
+        targets: clearanceTargets.map((target) =>
+          target.getBoundingClientRect(),
+        ),
+        viewportHeight: window.innerHeight,
+        viewportWidth: window.innerWidth,
+      });
+
+      setWorkspaceActionClearance(clearance);
     };
     const observer =
       typeof ResizeObserver === "undefined"
         ? undefined
         : new ResizeObserver(updateWorkspaceActionClearance);
+    const reflowObserver =
+      typeof MutationObserver === "undefined"
+        ? undefined
+        : new MutationObserver(updateWorkspaceActionClearance);
 
     updateWorkspaceActionClearance();
-    observer?.observe(workspaceActions);
+    clearanceTargets.forEach((target) => observer?.observe(target));
+    reflowObserver?.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+    });
     document.addEventListener("scroll", updateWorkspaceActionClearance, true);
     window.addEventListener("resize", updateWorkspaceActionClearance);
 
     return () => {
       observer?.disconnect();
+      reflowObserver?.disconnect();
       document.removeEventListener(
         "scroll",
         updateWorkspaceActionClearance,
@@ -212,7 +256,7 @@ export function ProfileCopilotRail(props: {
       );
       window.removeEventListener("resize", updateWorkspaceActionClearance);
     };
-  }, [contextKey]);
+  }, [contextKey, safeTopOffset, showsProactiveSuggestion]);
 
   useEffect(() => {
     const wasPendingHere = wasPendingHereRef.current;
@@ -247,11 +291,7 @@ export function ProfileCopilotRail(props: {
       return;
     }
 
-    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.defaultPrevented || event.key !== "Escape") {
-        return;
-      }
-
+    const closePanelFromKeyboard = () => {
       dragStateRef.current = null;
       dragCleanupRef.current?.();
       setPosition(
@@ -266,9 +306,22 @@ export function ProfileCopilotRail(props: {
       setIsOpen(false);
     };
 
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      // Surfaces opened above the copilot keep first claim on Escape.
+      if (event.defaultPrevented || isImeComposingEvent(event)) {
+        return;
+      }
+      if (event.key !== "Escape" || !isCopilotTopmost()) {
+        return;
+      }
+
+      event.preventDefault();
+      closePanelFromKeyboard();
+    };
+
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [collapsedMinBottomOffset, isOpen, safeTopOffset]);
+  }, [collapsedMinBottomOffset, isCopilotTopmost, isOpen, safeTopOffset]);
 
   useEffect(() => {
     return () => {
@@ -711,6 +764,7 @@ export function ProfileCopilotRail(props: {
               suggestedPrompts={suggestedPrompts}
               starterQuestion={props.starterQuestion}
               transcriptRef={transcriptRef}
+              revisions={props.revisions}
             />
 
             <div className="border-t border-(--surface-panel-border) bg-(--surface-fill-soft) p-4">
@@ -744,10 +798,7 @@ export function ProfileCopilotRail(props: {
         </aside>
       ) : null}
 
-      {!isOpen &&
-      showProactivePrompt &&
-      props.messages.length === 0 &&
-      props.starterQuestion ? (
+      {showsProactiveSuggestion ? (
         <div className="pointer-events-auto flex max-w-sm items-center gap-2 rounded-full border border-border/40 bg-card/95 p-1.5 pl-4 shadow-[0_12px_32px_rgba(0,0,0,0.32)] backdrop-blur max-sm:hidden">
           <button
             className="min-w-0 flex-1 truncate text-left text-xs text-foreground-soft hover:text-foreground"

@@ -9,6 +9,7 @@ import type {
   ResumeDraftPatch,
   ResumeAssistantMessage,
   ResumeTemplateDefinition,
+  WorkHistoryReviewAcknowledgment,
 } from "@unemployed/contracts";
 import {
   getResumeIdentityTargetId,
@@ -26,7 +27,13 @@ import {
   vi,
 } from "vitest";
 import { createApplyQueueDemoState } from "../../../../../../main/adapters/job-finder-demo-state";
+import {
+  createJobFinderSaveCoordinator,
+  JOB_FINDER_STALE_RETRY_GUIDANCE,
+  type JobFinderSaveState,
+} from "@renderer/pages/job-finder-save-state";
 import { ResumeWorkspaceScreen } from "./resume-workspace-screen";
+import type { ResumeWorkHistoryDecisionRequest } from "./resume-workspace-work-history-decisions";
 
 const availableResumeTemplates: readonly ResumeTemplateDefinition[] = [
   {
@@ -176,6 +183,7 @@ function buildWorkspace(): JobFinderResumeWorkspace {
         severity: "info",
         message:
           "Hidden by default for review: this role has a weaker career-family fit for the target job.",
+        messageContentHash: "fnv1a32:465fc3f2",
       },
     ],
   });
@@ -250,6 +258,47 @@ function buildAssistantMessage(
   };
 }
 
+function buildPendingProposalWorkspaceAndMessage(): {
+  workspace: JobFinderResumeWorkspace;
+  message: ResumeAssistantMessage;
+} {
+  const workspace = buildWorkspace();
+  const section = workspace.draft.sections.find((entry) => entry.text);
+
+  if (!section) {
+    throw new Error("Expected a text section for proposal coverage.");
+  }
+
+  return {
+    workspace,
+    message: buildAssistantMessage({
+      id: "proposal_1",
+      proposalStatus: "pending",
+      baseDraftUpdatedAt: workspace.draft.updatedAt,
+      patches: [
+        {
+          id: "proposal_patch_1",
+          draftId: workspace.draft.id,
+          operation: "replace_section_text",
+          targetSectionId: section.id,
+          targetEntryId: null,
+          anchorEntryId: null,
+          targetBulletId: null,
+          anchorBulletId: null,
+          position: null,
+          newText: "A clearer proposed summary.",
+          newIncluded: null,
+          newLocked: null,
+          newBullets: null,
+          appliedAt: "2026-04-27T00:01:00.000Z",
+          origin: "assistant",
+          conflictReason: null,
+        },
+      ],
+    }),
+  };
+}
+
 function renderScreen(options?: {
   assistantMessages?: ResumeAssistantMessage[];
   assistantPending?: boolean;
@@ -257,6 +306,7 @@ function renderScreen(options?: {
     patch: ResumeDraftPatch,
     revisionReason?: string | null,
   ) => void;
+  onDraftEdited?: () => void;
   onPreviewDraft?: (draft: ResumeDraft) => Promise<JobFinderResumePreview>;
   onRegenerateDraft?: (jobId: string) => void;
   onResolveAssistantProposal?: (
@@ -270,6 +320,10 @@ function renderScreen(options?: {
     draft: ResumeDraft,
     next: () => void | Promise<void>,
     successMessage?: string | null,
+  ) => void;
+  onSetWorkHistoryReviewAcknowledgment?: (
+    jobId: string,
+    decision: ResumeWorkHistoryDecisionRequest,
   ) => void;
   workspace?: JobFinderResumeWorkspace | null;
 }) {
@@ -290,6 +344,7 @@ function renderScreen(options?: {
       onBack={vi.fn()}
       onClearResumeApproval={vi.fn()}
       onDirtyChange={vi.fn()}
+      {...(options?.onDraftEdited ? { onDraftEdited: options.onDraftEdited } : {})}
       onExportPdf={vi.fn()}
       onPreviewDraft={onPreviewDraft}
       onRefresh={vi.fn()}
@@ -302,6 +357,9 @@ function renderScreen(options?: {
       onSaveDraft={vi.fn()}
       onSaveDraftAndThen={options?.onSaveDraftAndThen ?? vi.fn()}
       onSendAssistantMessage={vi.fn()}
+      onSetWorkHistoryReviewAcknowledgment={
+        options?.onSetWorkHistoryReviewAcknowledgment ?? vi.fn()
+      }
       workspace={
         options && "workspace" in options ? options.workspace : buildWorkspace()
       }
@@ -380,6 +438,33 @@ describe("ResumeWorkspaceScreen", () => {
         "Loading the saved draft, validation, and version history.",
       ),
     ).toBeTruthy();
+  });
+
+  it("consolidates header status and date metadata while retaining lifecycle actions", async () => {
+    renderScreen();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    expect(screen.getAllByText(/Updated /).length).toBe(1);
+    expect(screen.queryByText(/^Template: /)).toBeNull();
+    expect(screen.queryByText("Preview-led review")).toBeNull();
+    expect(
+      screen.getAllByRole("button", { name: /save draft/i }).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByRole("button", { name: /refresh draft/i }).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByRole("button", { name: /export pdf/i }).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByRole("button", { name: /reload workspace/i }).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByRole("button", { name: /back to shortlisted/i }).length,
+    ).toBeGreaterThan(0);
   });
   it("makes the resume-to-application handoff explicit", () => {
     renderScreen();
@@ -496,7 +581,7 @@ describe("ResumeWorkspaceScreen", () => {
       await vi.advanceTimersByTimeAsync(100);
     });
 
-    expect(screen.getAllByText("Template strategy").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Template").length).toBeGreaterThan(0);
     expect(
       screen.getAllByText("Engineering Spec · Skills First").length,
     ).toBeGreaterThan(0);
@@ -600,6 +685,7 @@ describe("ResumeWorkspaceScreen", () => {
         onSaveDraft={vi.fn()}
         onSaveDraftAndThen={vi.fn()}
         onSendAssistantMessage={vi.fn()}
+        onSetWorkHistoryReviewAcknowledgment={vi.fn()}
         workspace={buildWorkspace()}
       />,
     );
@@ -641,6 +727,7 @@ describe("ResumeWorkspaceScreen", () => {
           onSaveDraft={vi.fn()}
           onSaveDraftAndThen={vi.fn()}
           onSendAssistantMessage={vi.fn()}
+          onSetWorkHistoryReviewAcknowledgment={vi.fn()}
           workspace={buildWorkspace()}
         />,
       );
@@ -660,6 +747,31 @@ describe("ResumeWorkspaceScreen", () => {
     if (!section) {
       throw new Error("Expected a text section for proposal preview coverage.");
     }
+    workspace.validation = {
+      id: "validation_demo",
+      draftId: workspace.draft.id,
+      issues: [],
+      draftContentHash: null,
+      claimAssessments: [
+        {
+          id: "claim_demo_section",
+          field: "section_text",
+          sectionId: section.id,
+          entryId: null,
+          bulletId: null,
+          claimText: section.text!,
+          claimOrigin: "ai_generated",
+          contentHash: "fnv1a32:00000000",
+          status: "exact",
+          evidenceRefs: [],
+          verifier: "deterministic_candidate_evidence_v1",
+          assessedAt: "2026-04-27T00:00:00.000Z",
+        },
+      ],
+      coverageComparison: null,
+      pageCount: null,
+      validatedAt: "2026-04-27T00:00:00.000Z",
+    };
     const onResolveAssistantProposal = vi.fn();
     renderScreen({
       assistantMessages: [
@@ -696,12 +808,31 @@ describe("ResumeWorkspaceScreen", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(100);
     });
+
+    // Mount the secondary rail transcript by activating the assistant tab so
+    // both assistant surfaces can be compared side by side.
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Assistant" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Assistant" }));
     fireEvent.click(screen.getByRole("button", { name: /^Open guided edits/ }));
 
     expect(screen.getAllByText(section.text!).length).toBeGreaterThan(0);
     expect(
       screen.getAllByText("A clearer proposed summary.").length,
     ).toBeGreaterThan(0);
+
+    // Both assistant surfaces (secondary rail and guided edits popup) receive
+    // the saved validation and render the same grounding disclosure.
+    const groundingSummaries = screen.getAllByText("Why this edit is grounded");
+    expect(groundingSummaries.length).toBe(2);
+    fireEvent.click(groundingSummaries[0]!);
+    expect(
+      screen.getAllByText("Current saved text: Exact evidence.").length,
+    ).toBe(2);
+    fireEvent.click(screen.getAllByText("Why this edit is grounded")[1]!);
+    expect(
+      screen.getAllByText("Current saved text: Exact evidence.").length,
+    ).toBe(2);
+
     fireEvent.click(
       screen.getAllByRole("button", { name: "Accept selected (1)" }).at(-1)!,
     );
@@ -988,6 +1119,7 @@ describe("ResumeWorkspaceScreen", () => {
         onSaveDraft={vi.fn()}
         onSaveDraftAndThen={vi.fn()}
         onSendAssistantMessage={vi.fn()}
+        onSetWorkHistoryReviewAcknowledgment={vi.fn()}
         workspace={manualWorkspace}
       />,
     );
@@ -1031,5 +1163,724 @@ describe("ResumeWorkspaceScreen", () => {
     expect(currentRoleIndex).toBeGreaterThanOrEqual(0);
     expect(olderRoleIndex).toBeGreaterThanOrEqual(0);
     expect(currentRoleIndex).toBeLessThan(olderRoleIndex);
+  });
+
+  const hiddenRoleMessage =
+    "Hidden by default for review: this role has a weaker career-family fit for the target job.";
+
+  it("lists omitted-entry decisions near the top of the structured editor with exact guidance", async () => {
+    renderScreen();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    const scrollRegion = document.querySelector(
+      "[data-resume-editor-scroll-region]",
+    );
+    expect(scrollRegion?.textContent).toContain("Work-history decisions");
+    expect(scrollRegion?.textContent).toContain(hiddenRoleMessage);
+    expect(screen.getAllByText("Needs decision").length).toBeGreaterThan(0);
+
+    const decisionsSection = document.querySelector(
+      "[data-resume-work-history-decisions]",
+    );
+    const identityHeading = Array.from(
+      scrollRegion?.querySelectorAll("h3") ?? [],
+    ).find((heading) => heading.textContent === "Resume identity");
+
+    if (!decisionsSection || !identityHeading) {
+      throw new Error("Expected structured editor sections to render.");
+    }
+
+    expect(
+      decisionsSection.compareDocumentPosition(identityHeading) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+
+    const keepButtons = screen.getAllByRole("button", {
+      name: `Keep omitted · Weak fit: ${hiddenRoleMessage}`,
+    });
+    expect(keepButtons.length).toBeGreaterThan(0);
+    for (const button of keepButtons) {
+      expect(button.getAttribute("aria-pressed")).toBe("false");
+      expect(button.hasAttribute("disabled")).toBe(false);
+    }
+  });
+
+  it("sends the exact typed acknowledgment command with server suggestion fields", async () => {
+    const onSetWorkHistoryReviewAcknowledgment = vi.fn();
+    renderScreen({ onSetWorkHistoryReviewAcknowledgment });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    fireEvent.click(
+      screen.getAllByRole("button", {
+        name: `Keep omitted · Weak fit: ${hiddenRoleMessage}`,
+      })[0]!,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(onSetWorkHistoryReviewAcknowledgment).toHaveBeenCalledOnce();
+    expect(onSetWorkHistoryReviewAcknowledgment).toHaveBeenCalledWith(
+      "job_ready",
+      {
+        intent: "acknowledge",
+        suggestion: {
+          id: "work_history_review_demo_hidden",
+          profileRecordId: "experience_demo_hidden",
+          kind: "weak_fit",
+          action: "consider_showing",
+          messageContentHash: "fnv1a32:465fc3f2",
+        },
+      },
+    );
+  });
+
+  it("shows acknowledged omissions as kept and sends the removal command by acknowledgment id", async () => {
+    const workspace = buildWorkspace();
+    const acknowledgedWorkspace = JobFinderResumeWorkspaceSchema.parse({
+      ...workspace,
+      draft: {
+        ...workspace.draft,
+        workHistoryReviewAcknowledgments: [
+          {
+            id: "work_history_ack_demo_hidden_1",
+            draftId: workspace.draft.id,
+            profileRecordId: "experience_demo_hidden",
+            kind: "weak_fit",
+            action: "consider_showing",
+            messageContentHash: "fnv1a32:465fc3f2",
+            reason: "intentional_omission",
+            acknowledgedAt: "2026-04-27T00:00:00.000Z",
+          } satisfies WorkHistoryReviewAcknowledgment,
+        ],
+      },
+    });
+    const onSetWorkHistoryReviewAcknowledgment = vi.fn();
+
+    renderScreen({
+      onSetWorkHistoryReviewAcknowledgment,
+      workspace: acknowledgedWorkspace,
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    expect(screen.getAllByText("Kept omitted").length).toBeGreaterThan(0);
+
+    const undoButtons = screen.getAllByRole("button", {
+      name: `Undo keep omitted · Weak fit: ${hiddenRoleMessage}`,
+    });
+    expect(undoButtons.length).toBeGreaterThan(0);
+    expect(undoButtons[0]!.getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(undoButtons[0]!);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(onSetWorkHistoryReviewAcknowledgment).toHaveBeenCalledOnce();
+    expect(onSetWorkHistoryReviewAcknowledgment).toHaveBeenCalledWith(
+      "job_ready",
+      {
+        intent: "remove",
+        acknowledgmentId: "work_history_ack_demo_hidden_1",
+      },
+    );
+  });
+
+  it("keeps stale acknowledgments unresolved when the projected hash no longer matches", async () => {
+    const workspace = buildWorkspace();
+    const staleAckWorkspace = JobFinderResumeWorkspaceSchema.parse({
+      ...workspace,
+      draft: {
+        ...workspace.draft,
+        workHistoryReviewAcknowledgments: [
+          {
+            id: "work_history_ack_stale_hash",
+            draftId: workspace.draft.id,
+            profileRecordId: "experience_demo_hidden",
+            kind: "weak_fit",
+            action: "consider_showing",
+            messageContentHash: "fnv1a32:00000000",
+            reason: "intentional_omission",
+            acknowledgedAt: "2026-04-27T00:00:00.000Z",
+          } satisfies WorkHistoryReviewAcknowledgment,
+        ],
+      },
+    });
+
+    renderScreen({ workspace: staleAckWorkspace });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    expect(screen.getAllByText("Needs decision").length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/waiting on an explicit kept-omitted decision/)
+        .length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("disables decision buttons while workspace work is pending", async () => {
+    const workspace = buildWorkspace();
+    const onSetWorkHistoryReviewAcknowledgment = vi.fn();
+
+    render(
+      <ResumeWorkspaceScreen
+        actionMessage={null}
+        assistantMessages={[]}
+        assistantPending={false}
+        availableResumeTemplates={availableResumeTemplates}
+        isWorkspacePending
+        jobId="job_ready"
+        onApplyPatch={vi.fn()}
+        onApproveResume={vi.fn()}
+        onBack={vi.fn()}
+        onClearResumeApproval={vi.fn()}
+        onDirtyChange={vi.fn()}
+        onExportPdf={vi.fn()}
+        onPreviewDraft={() =>
+          Promise.resolve(buildPreview("preview_ready", "ready-preview"))
+        }
+        onRefresh={vi.fn()}
+        onRegenerateDraft={vi.fn()}
+        onRegenerateSection={vi.fn()}
+        onRestoreRevision={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onSaveDraftAndThen={vi.fn()}
+        onSendAssistantMessage={vi.fn()}
+        onSetWorkHistoryReviewAcknowledgment={
+          onSetWorkHistoryReviewAcknowledgment
+        }
+        workspace={workspace}
+      />,
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    const keepButtons = screen.getAllByRole("button", {
+      name: `Keep omitted · Weak fit: ${hiddenRoleMessage}`,
+    });
+    expect(keepButtons.length).toBeGreaterThan(0);
+    for (const button of keepButtons) {
+      expect(button.getAttribute("aria-disabled")).toBe("true");
+      expect(button.hasAttribute("disabled")).toBe(false);
+      expect(button.hasAttribute("data-pending")).toBe(true);
+    }
+
+    fireEvent.click(keepButtons[0]!);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(onSetWorkHistoryReviewAcknowledgment).not.toHaveBeenCalled();
+  });
+
+  it("blocks approval with explanatory copy until every omission has a decision and focuses the list", async () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+
+    const workspace = buildWorkspace();
+    const unapprovedWorkspace = JobFinderResumeWorkspaceSchema.parse({
+      ...workspace,
+      draft: {
+        ...workspace.draft,
+        approvedAt: null,
+        approvedExportId: null,
+      },
+    });
+
+    renderScreen({ workspace: unapprovedWorkspace });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    expect(
+      screen.getAllByText(/waiting on an explicit kept-omitted decision/)
+        .length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.queryByRole("button", { name: /Approve current PDF/i }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", {
+        name: "Approve this PDF",
+      }),
+    ).toBeNull();
+
+    const reviewDecisionButtons = screen.getAllByRole("button", {
+      name: "Review work-history decisions",
+    });
+    expect(reviewDecisionButtons.length).toBeGreaterThanOrEqual(2);
+
+    fireEvent.click(reviewDecisionButtons[0]!);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      behavior: "smooth",
+      block: "start",
+    });
+    expect(
+      document.activeElement?.hasAttribute(
+        "data-resume-work-history-decisions",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not block approval or show the decisions list for compact-only suggestions", async () => {
+    const workspace = buildWorkspace();
+    const compactOnlyWorkspace = JobFinderResumeWorkspaceSchema.parse({
+      ...workspace,
+      workHistoryReviewSuggestions: [
+        {
+          id: "work_history_review_compact_only",
+          profileRecordId: "experience_demo_previous",
+          sectionId: null,
+          entryId: null,
+          kind: "compact_recommended",
+          action: "keep_compact",
+          severity: "info",
+          message:
+            "This resume is compact enough to keep every included entry as-is.",
+          messageContentHash: "fnv1a32:32a7b731",
+        },
+      ],
+    });
+
+    renderScreen({ workspace: compactOnlyWorkspace });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    expect(screen.queryByText("Work-history decisions")).toBeNull();
+    expect(
+      screen.queryByText(/waiting on an explicit kept-omitted decision/),
+    ).toBeNull();
+  });
+
+  it("saves unsaved edits before recording a kept-omitted decision", () => {
+    const onSaveDraftAndThen = vi.fn();
+    renderScreen({ onSaveDraftAndThen });
+
+    fireEvent.change(screen.getAllByLabelText("Section text")[0]!, {
+      target: { value: "Dirty summary before a work-history decision." },
+    });
+
+    fireEvent.click(
+      screen.getAllByRole("button", {
+        name: `Keep omitted · Weak fit: ${hiddenRoleMessage}`,
+      })[0]!,
+    );
+
+    expect(onSaveDraftAndThen).toHaveBeenCalledTimes(1);
+    expect(onSaveDraftAndThen.mock.calls[0]?.[2]).toBe(
+      "Saved your draft before recording this decision.",
+    );
+  });
+
+  it("saves unsaved edits once before accepting a guided edits proposal and resolves only after the save", async () => {
+    const { workspace, message } = buildPendingProposalWorkspaceAndMessage();
+    const onSaveDraftAndThen = vi.fn();
+    const onResolveAssistantProposal = vi.fn();
+
+    renderScreen({
+      assistantMessages: [message],
+      onResolveAssistantProposal,
+      onSaveDraftAndThen,
+      workspace,
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /^Open guided edits/ }));
+
+    fireEvent.change(screen.getAllByLabelText("Section text")[0]!, {
+      target: {
+        value: "Unsaved summary kept while accepting this proposal.",
+      },
+    });
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Accept selected (1)" }).at(-1)!,
+    );
+
+    expect(onSaveDraftAndThen).toHaveBeenCalledTimes(1);
+    expect(onResolveAssistantProposal).not.toHaveBeenCalled();
+
+    const savedDraft = onSaveDraftAndThen.mock.calls[0]?.[0] as ResumeDraft;
+    expect(
+      savedDraft.sections.some(
+        (section) =>
+          section.text ===
+          "Unsaved summary kept while accepting this proposal.",
+      ),
+    ).toBe(true);
+
+    const followUp = onSaveDraftAndThen.mock.calls[0]?.[1] as
+      | (() => void | Promise<void>)
+      | undefined;
+    expect(followUp).toBeTypeOf("function");
+
+    await act(async () => {
+      await followUp?.();
+    });
+
+    expect(onResolveAssistantProposal).toHaveBeenCalledTimes(1);
+    expect(onResolveAssistantProposal).toHaveBeenCalledWith(
+      "job_ready",
+      "proposal_1",
+      "accept",
+      ["proposal_patch_1"],
+    );
+  });
+
+  it("saves unsaved edits before rejecting a guided edits proposal and resolves only after the save", async () => {
+    const { workspace, message } = buildPendingProposalWorkspaceAndMessage();
+    const onSaveDraftAndThen = vi.fn();
+    const onResolveAssistantProposal = vi.fn();
+
+    renderScreen({
+      assistantMessages: [message],
+      onResolveAssistantProposal,
+      onSaveDraftAndThen,
+      workspace,
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /^Open guided edits/ }));
+
+    fireEvent.change(screen.getAllByLabelText("Section text")[0]!, {
+      target: {
+        value: "Unsaved summary kept while rejecting this proposal.",
+      },
+    });
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Reject proposal" }).at(-1)!,
+    );
+
+    expect(onSaveDraftAndThen).toHaveBeenCalledTimes(1);
+    expect(onSaveDraftAndThen.mock.calls[0]?.[2]).toBe(
+      "Saved your draft before resolving this proposal.",
+    );
+    expect(onResolveAssistantProposal).not.toHaveBeenCalled();
+
+    const savedDraft = onSaveDraftAndThen.mock.calls[0]?.[0] as ResumeDraft;
+    expect(
+      savedDraft.sections.some(
+        (section) =>
+          section.text ===
+          "Unsaved summary kept while rejecting this proposal.",
+      ),
+    ).toBe(true);
+
+    const followUp = onSaveDraftAndThen.mock.calls[0]?.[1] as
+      | (() => void | Promise<void>)
+      | undefined;
+    expect(followUp).toBeTypeOf("function");
+
+    await act(async () => {
+      await followUp?.();
+    });
+
+    expect(onResolveAssistantProposal).toHaveBeenCalledTimes(1);
+    expect(onResolveAssistantProposal).toHaveBeenCalledWith(
+      "job_ready",
+      "proposal_1",
+      "reject",
+      [],
+    );
+  });
+
+  it("keeps unsaved edits and never resolves a guided edits proposal when the pre-action save fails or is stale", async () => {
+    const { workspace, message } = buildPendingProposalWorkspaceAndMessage();
+    // Mirrors the real save-and-then pipeline on failure/stale/conflict:
+    // the follow-up action is suppressed and an actionable error is shown.
+    const onSaveDraftAndThen = vi.fn();
+    const onResolveAssistantProposal = vi.fn();
+
+    renderScreen({
+      assistantMessages: [message],
+      onResolveAssistantProposal,
+      onSaveDraftAndThen,
+      workspace,
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /^Open guided edits/ }));
+
+    fireEvent.change(screen.getAllByLabelText("Section text")[0]!, {
+      target: { value: "Local edit that must survive a failed save." },
+    });
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Accept selected (1)" }).at(-1)!,
+    );
+
+    expect(onSaveDraftAndThen).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+
+    expect(onSaveDraftAndThen).toHaveBeenCalledTimes(1);
+    expect(onResolveAssistantProposal).not.toHaveBeenCalled();
+    expect(
+      (onSaveDraftAndThen.mock.calls[0]?.[0] as ResumeDraft).sections.some(
+        (section) =>
+          section.text === "Local edit that must survive a failed save.",
+      ),
+    ).toBe(true);
+  });
+
+  it("resolves a guided edits proposal exactly once without saving when there are no dirty edits", async () => {
+    const { workspace, message } = buildPendingProposalWorkspaceAndMessage();
+    const onSaveDraftAndThen = vi.fn();
+    const onResolveAssistantProposal = vi.fn();
+
+    renderScreen({
+      assistantMessages: [message],
+      onResolveAssistantProposal,
+      onSaveDraftAndThen,
+      workspace,
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /^Open guided edits/ }));
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Accept selected (1)" }).at(-1)!,
+    );
+
+    expect(onSaveDraftAndThen).not.toHaveBeenCalled();
+    expect(onResolveAssistantProposal).toHaveBeenCalledTimes(1);
+    expect(onResolveAssistantProposal).toHaveBeenCalledWith(
+      "job_ready",
+      "proposal_1",
+      "accept",
+      ["proposal_patch_1"],
+    );
+  });
+
+  describe("draft-edit revision signals", () => {
+    it("signals each user-authored mutation path: section, identity, reorder patch, and template", async () => {
+      const onApplyPatch = vi.fn();
+      const onDraftEdited = vi.fn();
+
+      renderScreen({ onApplyPatch, onDraftEdited });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+      });
+      expect(onDraftEdited).not.toHaveBeenCalled();
+
+      // A user-directed reorder patch both mutates local order and dispatches
+      // its saved patch request; run it before local edits would require the
+      // separate save-before-action continuation.
+      await act(async () => {
+        fireEvent.click(
+          screen.getByRole("button", {
+            name: "Move Senior systems designer up",
+          }),
+        );
+        await Promise.resolve();
+      });
+      expect(onApplyPatch).toHaveBeenCalledTimes(1);
+      expect(onDraftEdited).toHaveBeenCalledTimes(1);
+
+      // Section editor keystrokes revise the local draft.
+      fireEvent.change(screen.getAllByLabelText("Section text")[0]!, {
+        target: { value: "Locally edited summary." },
+      });
+      expect(onDraftEdited).toHaveBeenCalledTimes(2);
+
+      // Identity header edits go through the same draft-change contract.
+      fireEvent.change(screen.getAllByLabelText("Full name")[0]!, {
+        target: { value: "Renamed Candidate" },
+      });
+      expect(onDraftEdited).toHaveBeenCalledTimes(3);
+
+      // Switching templates revises the draft's presentation settings.
+      fireEvent.click(
+        screen.getAllByRole("button", { name: "Change template" })[0]!,
+      );
+      fireEvent.click(
+        screen
+          .getAllByRole("button", { name: /^Use template: Engineering Spec/ })
+          .at(-1)!,
+      );
+      expect(onDraftEdited).toHaveBeenCalledTimes(4);
+    });
+
+    it("stays silent while canonical revisions refresh and assistant proposals resolve", async () => {
+      const onDraftEdited = vi.fn();
+      const onResolveAssistantProposal = vi.fn();
+      const { workspace, message } = buildPendingProposalWorkspaceAndMessage();
+
+      const buildElement = (currentWorkspace: JobFinderResumeWorkspace) => (
+        <ResumeWorkspaceScreen
+          actionMessage={null}
+          assistantMessages={[message]}
+          assistantPending={false}
+          availableResumeTemplates={availableResumeTemplates}
+          isWorkspacePending={false}
+          jobId="job_ready"
+          onApplyPatch={vi.fn()}
+          onApproveResume={vi.fn()}
+          onBack={vi.fn()}
+          onClearResumeApproval={vi.fn()}
+          onDirtyChange={vi.fn()}
+          onDraftEdited={onDraftEdited}
+          onExportPdf={vi.fn()}
+          onPreviewDraft={() =>
+            Promise.resolve(buildPreview("preview_ready", "ready-preview"))
+          }
+          onRefresh={vi.fn()}
+          onRegenerateDraft={vi.fn()}
+          onRegenerateSection={vi.fn()}
+          onResolveAssistantProposal={onResolveAssistantProposal}
+          onRestoreRevision={vi.fn()}
+          onSaveDraft={vi.fn()}
+          onSaveDraftAndThen={vi.fn()}
+          onSendAssistantMessage={vi.fn()}
+          onSetWorkHistoryReviewAcknowledgment={vi.fn()}
+          workspace={currentWorkspace}
+        />
+      );
+
+      const view = render(buildElement(workspace));
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+      });
+
+      // Mount-time canonical hydration and preview refreshes never signal.
+      expect(onDraftEdited).not.toHaveBeenCalled();
+
+      // Assistant-authored proposal resolution flows through saved actions,
+      // not local draft mutation, so accepting one must not signal.
+      fireEvent.click(screen.getByRole("button", { name: /^Open guided edits/ }));
+      fireEvent.click(
+        screen.getAllByRole("button", { name: "Accept selected (1)" }).at(-1)!,
+      );
+      expect(onResolveAssistantProposal).toHaveBeenCalledTimes(1);
+      expect(onDraftEdited).not.toHaveBeenCalled();
+
+      // A later canonical revision re-clones the saved draft silently even
+      // though the whole draft payload changed underneath the screen.
+      const refreshedWorkspace = JobFinderResumeWorkspaceSchema.parse({
+        ...workspace,
+        draft: {
+          ...workspace.draft,
+          updatedAt: "2026-04-27T00:06:00.000Z",
+          sections: workspace.draft.sections.map((section) =>
+            section.text ? { ...section, text: "Canonical refresh text." } : section,
+          ),
+        },
+      });
+
+      await act(async () => {
+        view.rerender(buildElement(refreshedWorkspace));
+        await vi.advanceTimersByTimeAsync(100);
+      });
+
+      expect(
+        (screen.getAllByLabelText("Section text")[0] as HTMLTextAreaElement)
+          .value,
+      ).toBe("Canonical refresh text.");
+      expect(onDraftEdited).not.toHaveBeenCalled();
+    });
+
+    it("propagates draft edits to the save coordinator so an edit after a failed save retires Retry with guidance", async () => {
+      const states: JobFinderSaveState[] = [];
+      const coordinator = createJobFinderSaveCoordinator({
+        onStateChange: (state) => states.push(state),
+      });
+
+      renderScreen({ onDraftEdited: () => coordinator.markSurfaceRevised("resume") });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+      });
+
+      // First genuine edit: the studio becomes dirty and the revision epoch
+      // advances BEFORE the failing save below captures its retry request.
+      fireEvent.change(screen.getAllByLabelText("Section text")[0]!, {
+        target: { value: "Dirty before the failed save." },
+      });
+
+      await act(async () => {
+        const outcome = await coordinator.run({
+          dedupeKey: "resume:integration-failure",
+          execute: () => Promise.reject(new Error("save unavailable")),
+          failedMessage: () => "Resume draft was not saved.",
+          label: "Resume draft",
+          savedMessage: "Changes saved.",
+          surface: "resume",
+        });
+        expect(outcome.status).toBe("failed");
+      });
+
+      // No edit happened after the failure, so the exact-request retry stays.
+      const failedState = states.at(-1);
+      if (!failedState || failedState.state !== "failed") {
+        throw new Error("Expected the failed save state.");
+      }
+      expect(failedState.canRetry).toBe(true);
+      expect(failedState.retryBlockedReason).toBeUndefined();
+
+      // A further user edit while already dirty retires the pre-edit retry:
+      // Retry disappears and the stale-retry guidance takes its place.
+      fireEvent.change(screen.getAllByLabelText("Section text")[0]!, {
+        target: { value: "Edited again after the failed save." },
+      });
+
+      const retiredState = states.at(-1);
+      if (!retiredState || retiredState.state !== "failed") {
+        throw new Error("Expected the failed state to persist.");
+      }
+      expect(retiredState.canRetry).toBe(false);
+      expect(retiredState.retryBlockedReason).toBe(
+        JOB_FINDER_STALE_RETRY_GUIDANCE,
+      );
+
+      // Defense in depth at the seam: retry refuses instead of resubmitting.
+      let retryOutcome: unknown = "unset";
+      await act(async () => {
+        retryOutcome = await coordinator.retry();
+      });
+      expect(retryOutcome).toBeNull();
+    });
   });
 });

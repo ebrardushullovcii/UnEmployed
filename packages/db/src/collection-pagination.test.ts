@@ -250,7 +250,7 @@ describe("repository collection pagination and persistence", () => {
         }),
       ).resolves.toEqual({
         status: "applied",
-        committedRecordIds: [first.id, last.id],
+        committedRecords: [first, last],
       });
       await expect(
         inMemoryRepository.commitApplicationRecordBatch({
@@ -259,7 +259,7 @@ describe("repository collection pagination and persistence", () => {
         }),
       ).resolves.toEqual({
         status: "applied",
-        committedRecordIds: [first.id, last.id],
+        committedRecords: [first, last],
       });
 
       const fileRecords = await fileRepository.listApplicationRecords();
@@ -267,11 +267,9 @@ describe("repository collection pagination and persistence", () => {
       expect(fileRecords).toHaveLength(1_001);
       expect(memoryRecords).toEqual(fileRecords);
       expect(fileRecords.find((record) => record.id === first.id)).toEqual(
-        nextFirst,
+        first,
       );
-      expect(fileRecords.find((record) => record.id === last.id)).toEqual(
-        nextLast,
-      );
+      expect(fileRecords.find((record) => record.id === last.id)).toEqual(last);
       expect(
         fileRecords.filter(
           (record) => record.id !== first.id && record.id !== last.id,
@@ -286,10 +284,10 @@ describe("repository collection pagination and persistence", () => {
       const reopenedRecords = await fileRepository.listApplicationRecords();
       expect(reopenedRecords).toHaveLength(1_001);
       expect(reopenedRecords.find((record) => record.id === first.id)).toEqual(
-        nextFirst,
+        first,
       );
       expect(reopenedRecords.find((record) => record.id === last.id)).toEqual(
-        nextLast,
+        last,
       );
       expect(
         reopenedRecords.filter(

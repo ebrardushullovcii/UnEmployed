@@ -1,10 +1,10 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import { cva, type VariantProps } from "class-variance-authority"
-import { Tabs as TabsPrimitive } from "radix-ui"
+import * as React from "react";
+import { cva, type VariantProps } from "class-variance-authority";
+import { Tabs as TabsPrimitive } from "radix-ui";
 
-import { cn } from "@renderer/lib/utils"
+import { cn } from "@renderer/lib/utils";
 
 function Tabs({
   className,
@@ -18,11 +18,11 @@ function Tabs({
       orientation={orientation}
       className={cn(
         "group/tabs flex gap-2 data-[orientation=horizontal]:flex-col",
-        className
+        className,
       )}
       {...props}
     />
-  )
+  );
 }
 
 const tabsListVariants = cva(
@@ -31,14 +31,14 @@ const tabsListVariants = cva(
     variants: {
       variant: {
         default: "bg-muted",
-        line: "gap-0 bg-transparent",
+        line: "gap-0 bg-transparent border-b border-(--surface-panel-border)",
       },
     },
     defaultVariants: {
       variant: "default",
     },
-  }
-)
+  },
+);
 
 function TabsList({
   className,
@@ -53,7 +53,7 @@ function TabsList({
       className={cn(tabsListVariants({ variant }), className)}
       {...props}
     />
-  )
+  );
 }
 
 function TabsTrigger({
@@ -66,18 +66,18 @@ function TabsTrigger({
       className={cn(
         "relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 border border-transparent px-2 py-1 whitespace-nowrap transition-all focus-visible:ring-[3px] focus-visible:ring-ring/30 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         "group-data-[orientation=vertical]/tabs:w-full group-data-[orientation=vertical]/tabs:justify-start",
-        "rounded-none px-4 py-3 text-[11px] font-medium uppercase tracking-(--tracking-normal) text-muted-foreground hover:bg-secondary hover:text-foreground",
+        "rounded-none px-4 py-2.5 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground",
         "group-data-[orientation=horizontal]/tabs:px-4 group-data-[orientation=horizontal]/tabs:py-3 group-data-[orientation=horizontal]/tabs:text-center",
-        "group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-[state=active]:bg-secondary group-data-[variant=line]/tabs-list:data-[state=active]:text-foreground",
+        "group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-[state=active]:text-foreground",
         "group-data-[orientation=vertical]/tabs:data-[state=active]:border-l-2 group-data-[orientation=vertical]/tabs:data-[state=active]:border-primary group-data-[orientation=vertical]/tabs:data-[state=active]:bg-secondary",
-        "group-data-[orientation=horizontal]/tabs:data-[state=active]:border-b-2 group-data-[orientation=horizontal]/tabs:data-[state=active]:border-primary group-data-[orientation=horizontal]/tabs:data-[state=active]:bg-transparent",
+        "group-data-[variant=default]/tabs-list:group-data-[orientation=horizontal]/tabs:data-[state=active]:border-b-2 group-data-[variant=default]/tabs-list:group-data-[orientation=horizontal]/tabs:data-[state=active]:border-primary",
         "data-[state=active]:text-foreground",
         "after:absolute after:opacity-0 after:transition-opacity group-data-[orientation=horizontal]/tabs:after:inset-x-0 group-data-[orientation=horizontal]/tabs:after:bottom-0 group-data-[orientation=horizontal]/tabs:after:h-px group-data-[orientation=vertical]/tabs:after:hidden group-data-[variant=line]/tabs-list:data-[state=active]:after:bg-primary group-data-[variant=line]/tabs-list:data-[state=active]:after:opacity-100",
-        className
+        className,
       )}
       {...props}
     />
-  )
+  );
 }
 
 function TabsContent({
@@ -90,7 +90,7 @@ function TabsContent({
       className={cn("flex-1 outline-none", className)}
       {...props}
     />
-  )
+  );
 }
 
-export { Tabs, TabsList, TabsTrigger, TabsContent, tabsListVariants }
+export { Tabs, TabsList, TabsTrigger, TabsContent, tabsListVariants };

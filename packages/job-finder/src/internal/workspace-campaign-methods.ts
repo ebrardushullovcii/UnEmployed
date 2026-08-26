@@ -4,6 +4,7 @@ import {
   CampaignRuleFunnelProjectionSchema,
   CampaignRuleSchema,
   DeleteCampaignRuleInputSchema,
+  DeleteJobSearchCampaignInputSchema,
   JobSearchCampaignCollectionSchema,
   JobSearchCampaignSchema,
   MarkAllCampaignNotificationsReadInputSchema,
@@ -16,7 +17,13 @@ import {
   type CampaignRule,
   type CampaignRuleEffect,
   type CampaignRuleFunnelProjection,
+  type ApplicationAttempt,
+  type ApplicationRecord,
+  type ApplicationStatus,
+  type ApplyJobResult,
+  type ApplyRun,
   type DeleteCampaignRuleInput,
+  type DeleteJobSearchCampaignInput,
   type DiscoveryRunRecord,
   type JobFinderWorkspaceSnapshot,
   type JobSearchCampaign,
@@ -25,8 +32,11 @@ import {
   type MarkCampaignNotificationReadInput,
   type ProjectCampaignRuleFunnelInput,
   type RunCampaignNowInput,
+  type ResumeDraft,
+  type SavedJob,
   type SaveCampaignRuleRouteInput,
   type SaveJobSearchCampaignInput,
+  type TailoredAsset,
   type ToggleCampaignRuleInput,
 } from "@unemployed/contracts";
 
@@ -57,6 +67,69 @@ import type { CampaignRunContext } from "./workspace-service-contracts";
 
 const ACTIVITY_PAUSED_MESSAGE =
   "Browser and application activity is paused. Resume it from the Job Finder command center before starting new work.";
+
+const IN_FLIGHT_JOB_STATUSES = new Set<ApplicationStatus>([
+  "shortlisted",
+  "drafting",
+  "ready_for_review",
+  "approved",
+  "submitted",
+  "assessment",
+  "interview",
+  "offer",
+]);
+
+function compareRetentionPriority(left: SavedJob, right: SavedJob): number {
+  return (
+    right.matchAssessment.score - left.matchAssessment.score ||
+    left.id.localeCompare(right.id)
+  );
+}
+
+function collectInFlightProtectedJobIds(input: {
+  campaignId: string;
+  candidateJobs: readonly SavedJob[];
+  resumeDrafts: readonly ResumeDraft[];
+  tailoredAssets: readonly TailoredAsset[];
+  applyRuns: readonly ApplyRun[];
+  applyJobResults: readonly ApplyJobResult[];
+  applicationRecords: readonly ApplicationRecord[];
+  applicationAttempts: readonly ApplicationAttempt[];
+}): Set<string> {
+  const candidateJobIds = new Set(input.candidateJobs.map((job) => job.id));
+  const protectedJobIds = new Set<string>();
+  const protect = (jobId: string): void => {
+    if (candidateJobIds.has(jobId)) protectedJobIds.add(jobId);
+  };
+
+  for (const job of input.candidateJobs) {
+    if (IN_FLIGHT_JOB_STATUSES.has(job.status)) protect(job.id);
+  }
+  for (const jobId of new Set(input.resumeDrafts.map((draft) => draft.jobId))) {
+    protect(jobId);
+  }
+  for (const jobId of new Set(
+    input.tailoredAssets.map((asset) => asset.jobId),
+  )) {
+    protect(jobId);
+  }
+
+  const protectedRunIds = new Set<string>();
+  for (const run of input.applyRuns) {
+    if (run.campaignId !== null && run.campaignId !== input.campaignId) {
+      continue;
+    }
+    protectedRunIds.add(run.id);
+    for (const jobId of run.jobIds) protect(jobId);
+  }
+  for (const result of input.applyJobResults) {
+    if (protectedRunIds.has(result.runId)) protect(result.jobId);
+  }
+  for (const record of input.applicationRecords) protect(record.jobId);
+  for (const attempt of input.applicationAttempts) protect(attempt.jobId);
+
+  return protectedJobIds;
+}
 
 function describeCampaignRunSummary(run: DiscoveryRunRecord): string {
   return `Discovery ${run.state}: ${run.summary.validJobsFound} jobs found.`;
@@ -131,10 +204,26 @@ export async function commitCampaignRunTerminal(input: {
 }): Promise<void> {
   let committedCampaign: JobSearchCampaign | null = null;
   await input.ctx.withCampaignTransition(async () => {
-    const [state, savedJobs, discovery] = await Promise.all([
+    const [
+      state,
+      savedJobs,
+      discovery,
+      resumeDrafts,
+      tailoredAssets,
+      applyRuns,
+      applyJobResults,
+      applicationRecords,
+      applicationAttempts,
+    ] = await Promise.all([
       input.ctx.repository.getCampaignState(),
       input.ctx.repository.listSavedJobs(),
       input.ctx.repository.getDiscoveryState(),
+      input.ctx.repository.listResumeDrafts(),
+      input.ctx.repository.listTailoredAssets(),
+      input.ctx.repository.listApplyRuns(),
+      input.ctx.repository.listApplyJobResults(),
+      input.ctx.repository.listApplicationRecords(),
+      input.ctx.repository.listApplicationAttempts(),
     ]);
     if (!state) return;
     const latestRun =
@@ -180,19 +269,32 @@ export async function commitCampaignRunTerminal(input: {
       measuredAt,
     });
     const allowedByRules = new Set(funnel.rankedJobIds);
-    const retainedJobIds = candidateJobs
+    const rankedRetainedJobIds = candidateJobs
       .filter(
         (job) =>
           allowedByRules.has(job.id) &&
           (campaign.minimumFitScore === null ||
             job.matchAssessment.score >= campaign.minimumFitScore),
       )
-      .sort((left, right) =>
-        right.matchAssessment.score === left.matchAssessment.score
-          ? left.id.localeCompare(right.id)
-          : right.matchAssessment.score - left.matchAssessment.score,
-      )
+      .sort(compareRetentionPriority)
       .slice(0, campaign.limits.retainedJobTarget)
+      .map((job) => job.id);
+    const retainedJobIdSet = new Set([
+      ...rankedRetainedJobIds,
+      ...collectInFlightProtectedJobIds({
+        campaignId: campaign.id,
+        candidateJobs,
+        resumeDrafts,
+        tailoredAssets,
+        applyRuns,
+        applyJobResults,
+        applicationRecords,
+        applicationAttempts,
+      }),
+    ]);
+    const retainedJobIds = candidateJobs
+      .filter((job) => retainedJobIdSet.has(job.id))
+      .sort(compareRetentionPriority)
       .map((job) => job.id);
 
     const runSummary = describeCampaignRunSummary(latestRun);
@@ -352,10 +454,18 @@ function initializeNextRunAt(input: {
   });
 }
 
+/**
+ * Initializes a missing `runFacts.nextRunAt` inside the campaign transition.
+ * The due instant is computed from the freshly read campaign state so a
+ * concurrent schedule/rule/history/pointer edit survives; the outer snapshot
+ * only nominates the campaign id. Writes nothing when the campaign vanished,
+ * left the active status, or its schedule cannot produce a due time
+ * (disabled, manual, or already initialized by another tick).
+ */
 async function persistInitializedNextRun(input: {
   ctx: WorkspaceServiceContext;
   campaignId: string;
-  initialized: JobSearchCampaign;
+  now: string;
 }): Promise<void> {
   await input.ctx.withCampaignTransition(async () => {
     const state = await input.ctx.repository.getCampaignState();
@@ -363,14 +473,17 @@ async function persistInitializedNextRun(input: {
     const current = state.campaigns.find(
       (candidate) => candidate.id === input.campaignId,
     );
-    if (!current) return;
-    // Another tick may have initialized the schedule already.
-    if (current.schedule.runFacts.nextRunAt !== null) return;
+    if (!current || current.status !== "active") return;
+    const initialized = initializeNextRunAt({
+      campaign: current,
+      now: input.now,
+    });
+    if (!initialized) return;
     await input.ctx.repository.saveCampaignState(
       JobSearchCampaignCollectionSchema.parse({
         ...state,
         campaigns: state.campaigns.map((candidate) =>
-          candidate.id === input.campaignId ? input.initialized : candidate,
+          candidate.id === input.campaignId ? initialized : candidate,
         ),
       }),
     );
@@ -381,6 +494,108 @@ function isDiscoveryInProgressError(error: unknown): boolean {
   return (
     error instanceof Error && error.message.includes("already in progress")
   );
+}
+
+/**
+ * Deterministically claims one due schedule slot inside the campaign
+ * transition. The claim is a compare-and-set on the persisted `nextRunAt`:
+ * only the tick that observed this exact due instant may clear it, so two
+ * overlapping ticks can never execute the same slot and a save/select that
+ * serialized in between cannot resurrect a consumed slot. Clearing
+ * `nextRunAt` doubles as the restart marker: a claimed slot whose run never
+ * commits (crash) is re-initialized truthfully by a later tick without
+ * immediate work.
+ *
+ * The freshly validated claimed campaign is returned so the run executes with
+ * the budget, preferences, and status current at claim time instead of the
+ * ticker's stale outer snapshot (campaign-scoped preferences ride on the
+ * snapshot; no separate global read is needed). `null` means this tick does
+ * not own the slot.
+ */
+async function claimDueScheduledSlot(input: {
+  ctx: WorkspaceServiceContext;
+  campaignId: string;
+  dueNextRunAt: string;
+  now: string;
+}): Promise<JobSearchCampaign | null> {
+  return input.ctx.withCampaignTransition(async () => {
+    const state = await input.ctx.repository.getCampaignState();
+    if (!state) return null;
+    const campaign = state.campaigns.find(
+      (candidate) => candidate.id === input.campaignId,
+    );
+    if (!campaign || campaign.status !== "active") return null;
+    const schedule = campaign.schedule;
+    if (!schedule.enabled || schedule.mode === "manual") return null;
+    if (schedule.runFacts.nextRunAt !== input.dueNextRunAt) return null;
+    const nextRunAtMs = Date.parse(input.dueNextRunAt);
+    if (!Number.isFinite(nextRunAtMs) || nextRunAtMs > Date.parse(input.now)) {
+      return null;
+    }
+    if (
+      isCampaignPauseWindowActive({
+        windows: schedule.pauseWindows,
+        at: input.now,
+      })
+    ) {
+      return null;
+    }
+    const claimed = JobSearchCampaignSchema.parse({
+      ...campaign,
+      schedule: {
+        ...schedule,
+        runFacts: { ...schedule.runFacts, nextRunAt: null },
+      },
+    });
+    await input.ctx.repository.saveCampaignState(
+      JobSearchCampaignCollectionSchema.parse({
+        ...state,
+        campaigns: state.campaigns.map((candidate) =>
+          candidate.id === campaign.id ? claimed : candidate,
+        ),
+      }),
+    );
+    return claimed;
+  });
+}
+
+/**
+ * Puts a claimed-but-unstarted slot back when a concurrent discovery owns the
+ * pipeline, keeping the slot due so the next tick retries it. No-op when the
+ * slot already advanced or another writer changed it.
+ */
+async function restoreClaimedScheduledSlot(input: {
+  ctx: WorkspaceServiceContext;
+  campaignId: string;
+  dueNextRunAt: string;
+}): Promise<void> {
+  await input.ctx.withCampaignTransition(async () => {
+    const state = await input.ctx.repository.getCampaignState();
+    if (!state) return;
+    const campaign = state.campaigns.find(
+      (candidate) => candidate.id === input.campaignId,
+    );
+    if (!campaign || campaign.schedule.runFacts.nextRunAt !== null) return;
+    await input.ctx.repository.saveCampaignState(
+      JobSearchCampaignCollectionSchema.parse({
+        ...state,
+        campaigns: state.campaigns.map((candidate) =>
+          candidate.id === campaign.id
+            ? JobSearchCampaignSchema.parse({
+                ...candidate,
+                schedule: {
+                  ...candidate.schedule,
+                  runFacts: {
+                    ...candidate.schedule.runFacts,
+                    nextRunAt: input.dueNextRunAt,
+                  },
+                },
+              })
+            : candidate,
+        ),
+      }),
+    );
+  });
 }
 
 /**
@@ -405,6 +620,7 @@ async function executeCampaignRun(input: {
     await input.runCampaignDiscovery({
       campaignId: input.campaign.id,
       searchPreferences: input.campaign.searchPreferences,
+      runJobBudget: input.campaign.limits.discoveryRunJobBudget ?? null,
     });
   } catch (error) {
     if (!isDiscoveryInProgressError(error)) {
@@ -429,26 +645,31 @@ async function resolveCampaignForRun(input: {
   ctx: WorkspaceServiceContext;
   campaignId: string | null;
 }): Promise<JobSearchCampaign> {
-  let state = await input.ctx.repository.getCampaignState();
-  if (!state) {
-    state = await ensureCampaignState({
-      repository: input.ctx.repository,
-      searchPreferences: await input.ctx.repository.getSearchPreferences(),
-    });
-  }
-  const campaign = state.campaigns.find(
-    (candidate) =>
-      candidate.id === (input.campaignId ?? state.activeCampaignId),
-  );
-  if (!campaign) {
-    throw new Error("The requested job search campaign is unavailable.");
-  }
-  if (campaign.status !== "active") {
-    throw new Error(
-      `The campaign is ${campaign.status}. Set it to active before running it.`,
+  // Creating/reconciling campaign state writes the whole collection, so it
+  // must hold the campaign transition like every other mutating campaign
+  // operation; the resolved snapshot is then truthful for this run.
+  return input.ctx.withCampaignTransition(async () => {
+    let state = await input.ctx.repository.getCampaignState();
+    if (!state) {
+      state = await ensureCampaignState({
+        repository: input.ctx.repository,
+        searchPreferences: await input.ctx.repository.getSearchPreferences(),
+      });
+    }
+    const campaign = state.campaigns.find(
+      (candidate) =>
+        candidate.id === (input.campaignId ?? state.activeCampaignId),
     );
-  }
-  return campaign;
+    if (!campaign) {
+      throw new Error("The requested job search campaign is unavailable.");
+    }
+    if (campaign.status !== "active") {
+      throw new Error(
+        `The campaign is ${campaign.status}. Set it to active before running it.`,
+      );
+    }
+    return campaign;
+  });
 }
 
 export function createWorkspaceCampaignMethods(input: {
@@ -471,135 +692,226 @@ export function createWorkspaceCampaignMethods(input: {
       rawCampaign: SaveJobSearchCampaignInput,
     ): Promise<JobFinderWorkspaceSnapshot> {
       const campaignInput = SaveJobSearchCampaignInputSchema.parse(rawCampaign);
-      const state = await getState();
-      const now = new Date().toISOString();
-      const existing = campaignInput.id
-        ? state.campaigns.find((campaign) => campaign.id === campaignInput.id)
-        : null;
-      const normalizedSourceTargetIds =
-        campaignInput.searchPreferences.discovery.targets
-          .filter((target) => target.enabled)
-          .map((target) => target.id);
-      if (campaignInput.id && !existing) {
-        throw new Error("The requested job search campaign no longer exists.");
-      }
-      if (!existing && !["active", "paused"].includes(campaignInput.status)) {
-        throw new Error("New campaigns must start active or paused.");
-      }
-      if (
-        existing?.id === state.activeCampaignId &&
-        campaignInput.status === "archived"
-      ) {
-        throw new Error(
-          "Select another campaign before archiving the active campaign.",
-        );
-      }
+      // The whole collection is rewritten from the state read here, so the
+      // read-modify-write must hold the campaign transition or a concurrent
+      // scheduled-run commit (run facts, rule effects, notifications, active
+      // pointer) would be silently overwritten by this stale snapshot.
+      await input.ctx.withCampaignTransition(async () => {
+        await getState();
+        const now = new Date().toISOString();
+        const newCampaignId = `campaign_${randomUUID()}`;
+        await input.ctx.repository.commitCampaignPreferencesUpdate(
+          (current) => {
+            const state = current.campaignState;
+            if (!state) throw new Error("Campaign state is unavailable.");
+            const existing = campaignInput.id
+              ? state.campaigns.find(
+                  (campaign) => campaign.id === campaignInput.id,
+                )
+              : null;
+            const normalizedSourceTargetIds =
+              campaignInput.searchPreferences.discovery.targets
+                .filter((target) => target.enabled)
+                .map((target) => target.id);
+            if (campaignInput.id && !existing) {
+              throw new Error(
+                "The requested job search campaign no longer exists.",
+              );
+            }
+            if (
+              !existing &&
+              !["active", "paused"].includes(campaignInput.status)
+            ) {
+              throw new Error("New campaigns must start active or paused.");
+            }
+            if (
+              existing?.id === state.activeCampaignId &&
+              campaignInput.status === "archived"
+            ) {
+              throw new Error(
+                "Select another campaign before archiving the active campaign.",
+              );
+            }
 
-      const newCampaignId = `campaign_${randomUUID()}`;
-      const campaign = existing
-        ? {
-            ...existing,
-            ...campaignInput,
-            sourceTargetIds: normalizedSourceTargetIds,
-            id: existing.id,
-            createdAt: existing.createdAt,
-            updatedAt: now,
-            progress: existing.progress,
-            history: [
-              {
-                id: `campaign_history_${randomUUID()}`,
-                campaignId: existing.id,
-                kind:
-                  existing.status !== campaignInput.status
-                    ? campaignInput.status === "paused"
-                      ? ("paused" as const)
-                      : campaignInput.status === "completed"
-                        ? ("completed" as const)
-                        : campaignInput.status === "active"
-                          ? ("resumed" as const)
-                          : ("updated" as const)
-                    : ("updated" as const),
-                occurredAt: now,
-                summary: `${campaignInput.name} updated.`,
-                discoveryRunId: null,
-              },
-              ...existing.history,
-            ].slice(0, 100),
-          }
-        : {
-            ...createCampaign({
-              id: newCampaignId,
-              name: campaignInput.name,
-              description: campaignInput.description,
-              mode: campaignInput.mode,
-              searchPreferences: campaignInput.searchPreferences,
-              now,
-            }),
-            ...campaignInput,
-            sourceTargetIds: normalizedSourceTargetIds,
-            id: newCampaignId,
-            createdAt: now,
-            updatedAt: now,
-            jobIds: [],
-            progress: { lastUpdatedAt: now },
-          };
-      const nextState = JobSearchCampaignCollectionSchema.parse({
-        notifications: state.notifications,
-        activeCampaignId: existing ? state.activeCampaignId : campaign.id,
-        campaigns: existing
-          ? state.campaigns.map((candidate) =>
-              candidate.id === campaign.id ? campaign : candidate,
-            )
-          : [...state.campaigns, campaign],
-      });
-      await input.ctx.repository.saveCampaignState(nextState);
-      if (nextState.activeCampaignId === campaign.id) {
-        await input.ctx.repository.saveSearchPreferences(
-          campaign.searchPreferences,
+            const campaign = existing
+              ? {
+                  ...existing,
+                  ...campaignInput,
+                  sourceTargetIds: normalizedSourceTargetIds,
+                  id: existing.id,
+                  createdAt: existing.createdAt,
+                  updatedAt: now,
+                  progress: existing.progress,
+                  history: [
+                    {
+                      id: `campaign_history_${randomUUID()}`,
+                      campaignId: existing.id,
+                      kind:
+                        existing.status !== campaignInput.status
+                          ? campaignInput.status === "paused"
+                            ? ("paused" as const)
+                            : campaignInput.status === "completed"
+                              ? ("completed" as const)
+                              : campaignInput.status === "active"
+                                ? ("resumed" as const)
+                                : ("updated" as const)
+                          : ("updated" as const),
+                      occurredAt: now,
+                      summary: `${campaignInput.name} updated.`,
+                      discoveryRunId: null,
+                    },
+                    ...existing.history,
+                  ].slice(0, 100),
+                }
+              : {
+                  ...createCampaign({
+                    id: newCampaignId,
+                    name: campaignInput.name,
+                    description: campaignInput.description,
+                    mode: campaignInput.mode,
+                    searchPreferences: campaignInput.searchPreferences,
+                    now,
+                  }),
+                  ...campaignInput,
+                  sourceTargetIds: normalizedSourceTargetIds,
+                  id: newCampaignId,
+                  createdAt: now,
+                  updatedAt: now,
+                  jobIds: [],
+                  progress: { lastUpdatedAt: now },
+                };
+            const currentActiveCampaign = state.campaigns.find(
+              (candidate) =>
+                candidate.id === state.activeCampaignId &&
+                candidate.status !== "archived",
+            );
+            const nextState = JobSearchCampaignCollectionSchema.parse({
+              notifications: state.notifications,
+              activeCampaignId:
+                existing || currentActiveCampaign
+                  ? state.activeCampaignId
+                  : campaign.id,
+              campaigns: existing
+                ? state.campaigns.map((candidate) =>
+                    candidate.id === campaign.id ? campaign : candidate,
+                  )
+                : [...state.campaigns, campaign],
+            });
+            return {
+              result: null,
+              campaignState: nextState,
+              searchPreferences:
+                nextState.activeCampaignId === campaign.id
+                  ? campaign.searchPreferences
+                  : current.searchPreferences,
+            };
+          },
         );
-      }
+      });
       return input.getWorkspaceSnapshot();
     },
 
     async selectCampaign(
       campaignId: string,
     ): Promise<JobFinderWorkspaceSnapshot> {
-      const state = await getState();
-      const selected = state.campaigns.find(
-        (campaign) => campaign.id === campaignId,
-      );
-      if (!selected || selected.status === "archived") {
-        throw new Error("The selected campaign is unavailable.");
-      }
-      const now = new Date().toISOString();
-      const nextState = JobSearchCampaignCollectionSchema.parse({
-        notifications: state.notifications,
-        activeCampaignId: selected.id,
-        campaigns: state.campaigns.map((campaign) =>
-          campaign.id === selected.id
-            ? {
-                ...campaign,
-                updatedAt: now,
-                history: [
-                  {
-                    id: `campaign_history_${randomUUID()}`,
-                    campaignId: campaign.id,
-                    kind: "activated",
-                    occurredAt: now,
-                    summary: `${campaign.name} selected as the active campaign.`,
-                    discoveryRunId: null,
-                  },
-                  ...campaign.history,
-                ].slice(0, 100),
-              }
-            : campaign,
-        ),
+      // The active pointer and the per-campaign history entry are written as
+      // one collection save derived from the state read here; holding the
+      // campaign transition keeps a concurrent scheduled-run commit or rule
+      // mutation from being clobbered by this snapshot.
+      await input.ctx.withCampaignTransition(async () => {
+        await getState();
+        const now = new Date().toISOString();
+        await input.ctx.repository.commitCampaignPreferencesUpdate(
+          (current) => {
+            const state = current.campaignState;
+            if (!state) throw new Error("Campaign state is unavailable.");
+            const selected = state.campaigns.find(
+              (campaign) => campaign.id === campaignId,
+            );
+            if (!selected || selected.status === "archived") {
+              throw new Error("The selected campaign is unavailable.");
+            }
+            const nextState = JobSearchCampaignCollectionSchema.parse({
+              notifications: state.notifications,
+              activeCampaignId: selected.id,
+              campaigns: state.campaigns.map((campaign) =>
+                campaign.id === selected.id
+                  ? {
+                      ...campaign,
+                      updatedAt: now,
+                      history: [
+                        {
+                          id: `campaign_history_${randomUUID()}`,
+                          campaignId: campaign.id,
+                          kind: "activated",
+                          occurredAt: now,
+                          summary: `${campaign.name} selected as the active campaign.`,
+                          discoveryRunId: null,
+                        },
+                        ...campaign.history,
+                      ].slice(0, 100),
+                    }
+                  : campaign,
+              ),
+            });
+            return {
+              result: null,
+              campaignState: nextState,
+              searchPreferences: selected.searchPreferences,
+            };
+          },
+        );
       });
-      await input.ctx.repository.saveCampaignState(nextState);
-      await input.ctx.repository.saveSearchPreferences(
-        selected.searchPreferences,
-      );
       return input.getWorkspaceSnapshot();
+    },
+
+    /**
+     * Deletes one whole search plan. Unknown ids resolve to `false` without
+     * mutating anything, and the sole remaining plan is never deleted so the
+     * workspace always keeps a valid active pointer. Deleting the active plan
+     * hands the pointer to the first remaining non-archived plan and adopts
+     * that plan's stored search preferences; deleting any other plan leaves
+     * the pointer and preferences untouched. Campaign-scoped facts persisted
+     * outside the campaign collection (append-only rapid review logs in
+     * intelligence state, discovery run records) are preserved.
+     */
+    async deleteCampaign(
+      rawInput: DeleteJobSearchCampaignInput,
+    ): Promise<boolean> {
+      const request = DeleteJobSearchCampaignInputSchema.parse(rawInput);
+      return input.ctx.withCampaignTransition(async () => {
+        const state = await getState();
+        const campaign = state.campaigns.find(
+          (candidate) => candidate.id === request.campaignId,
+        );
+        if (!campaign) return false;
+        const remaining = state.campaigns.filter(
+          (candidate) => candidate.id !== campaign.id,
+        );
+        if (remaining.length === 0) return false;
+        const successor =
+          campaign.id === state.activeCampaignId
+            ? (remaining.find((candidate) => candidate.status !== "archived") ??
+              null)
+            : null;
+        if (campaign.id === state.activeCampaignId && !successor) {
+          // Refuse rather than leave the active pointer on an archived plan.
+          return false;
+        }
+        await input.ctx.repository.saveCampaignState(
+          JobSearchCampaignCollectionSchema.parse({
+            notifications: state.notifications,
+            activeCampaignId: successor ? successor.id : state.activeCampaignId,
+            campaigns: remaining,
+          }),
+        );
+        if (successor) {
+          await input.ctx.repository.saveSearchPreferences(
+            successor.searchPreferences,
+          );
+        }
+        return true;
+      });
     },
 
     /**
@@ -630,10 +942,17 @@ export function createWorkspaceCampaignMethods(input: {
     /**
      * Scheduled campaign ticker. For every active campaign with an enabled,
      * non-manual schedule it runs once when the persisted `nextRunAt` is due
-     * (`<= now`, including overdue catch-up). A missing `nextRunAt` is
-     * initialized truthfully without immediate work. Pause windows and the
-     * global activity pause suppress runs; a concurrent discovery run is
-     * skipped and retried on the next tick.
+     * (`<= now`, including overdue catch-up). The due slot is claimed with a
+     * compare-and-set inside the campaign transition before any work starts,
+     * so only one scheduled run can ever execute a due slot even when ticks
+     * overlap or an edit/select/save serializes in between, and the claim
+     * returns the freshly validated campaign so execution uses the budget and
+     * preferences current at claim time rather than this tick's outer
+     * snapshot. A missing
+     * `nextRunAt` (including a claimed slot whose run never committed, e.g.
+     * after a crash) is initialized truthfully without immediate work. Pause
+     * windows and the global activity pause suppress runs; a concurrent
+     * discovery run releases its claimed slot and is retried next tick.
      */
     async runDueScheduledCampaigns(
       rawNow?: string,
@@ -655,18 +974,18 @@ export function createWorkspaceCampaignMethods(input: {
         if (!schedule.enabled || schedule.mode === "manual") continue;
 
         if (schedule.runFacts.nextRunAt === null) {
-          const initialized = initializeNextRunAt({ campaign, now });
-          if (initialized) {
-            await persistInitializedNextRun({
-              ctx: input.ctx,
-              campaignId: campaign.id,
-              initialized,
-            });
-          }
+          // Initialization reconciles against freshly read state inside the
+          // transition; the stale outer snapshot only nominates the id.
+          await persistInitializedNextRun({
+            ctx: input.ctx,
+            campaignId: campaign.id,
+            now,
+          });
           continue;
         }
 
-        const nextRunAtMs = Date.parse(schedule.runFacts.nextRunAt);
+        const dueNextRunAt = schedule.runFacts.nextRunAt;
+        const nextRunAtMs = Date.parse(dueNextRunAt);
         if (!Number.isFinite(nextRunAtMs) || nextRunAtMs > Date.parse(now)) {
           continue;
         }
@@ -680,14 +999,28 @@ export function createWorkspaceCampaignMethods(input: {
           continue;
         }
 
+        const claimed = await claimDueScheduledSlot({
+          ctx: input.ctx,
+          campaignId: campaign.id,
+          dueNextRunAt,
+          now,
+        });
+        if (!claimed) continue;
+
         await executeCampaignRun({
           ctx: input.ctx,
-          campaign,
+          campaign: claimed,
           runCampaignDiscovery: input.runCampaignDiscovery,
           now,
-        }).catch((error: unknown) => {
+        }).catch(async (error: unknown) => {
           if (isDiscoveryInProgressError(error)) {
-            // A manual or scheduled discovery owns the pipeline; retry next tick.
+            // A manual or scheduled discovery owns the pipeline; put the
+            // claimed slot back so the next tick retries it.
+            await restoreClaimedScheduledSlot({
+              ctx: input.ctx,
+              campaignId: claimed.id,
+              dueNextRunAt,
+            });
             return;
           }
           // The failed terminal state was already committed by

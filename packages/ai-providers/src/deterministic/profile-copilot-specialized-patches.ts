@@ -4,9 +4,7 @@ import type { ReviseCandidateProfileInput } from "../shared";
 import {
   createUniqueId,
   deriveRequestedDetail,
-  detectRequestedMinimumSalary,
   detectRequestedRemoteEligibility,
-  detectRequestedTargetSalary,
   detectRequestedVisaSponsorship,
   detectRequestedWorkMode,
   detectRequestedYearsExperience,
@@ -21,6 +19,27 @@ import {
   requestLooksLikeWorkModePreferenceEdit,
   trimNonEmptyString,
 } from "./profile-copilot-helpers";
+import {
+  buildSalaryCommandOutcome,
+  type SalaryCommandOutcome,
+} from "./profile-copilot-salary";
+import { fieldDescriptors } from "./profile-copilot-field-updates";
+import {
+  segmentCommandClauses,
+  type ForeignCommandFamily,
+} from "./profile-copilot-field-updates-shared";
+
+function extractSpecialistClauseText(
+  input: ReviseCandidateProfileInput,
+  family: ForeignCommandFamily,
+): string | null {
+  const clause = segmentCommandClauses(input.request, fieldDescriptors).find(
+    (candidate) =>
+      candidate.family === family && candidate.isAcceptedCommand,
+  );
+
+  return clause?.text ?? null;
+}
 
 function buildYearsExperiencePatchGroup(
   input: ReviseCandidateProfileInput,
@@ -76,82 +95,8 @@ function buildYearsExperiencePatchGroup(
 
 function buildTargetSalaryPatchGroup(
   input: ReviseCandidateProfileInput,
-): ProfileCopilotPatchGroup | null {
-  const requestedMinimumSalary = detectRequestedMinimumSalary(input.request);
-  const requestedTargetSalary = detectRequestedTargetSalary(input.request);
-  const value: {
-    minimum?: number | null;
-    maximum?: number | null;
-  } = {};
-  const changesMinimum =
-    requestedMinimumSalary !== null &&
-    requestedMinimumSalary !== input.searchPreferences.compensation.minimum;
-  const changesMaximum =
-    requestedTargetSalary !== null &&
-    requestedTargetSalary !== requestedMinimumSalary &&
-    requestedTargetSalary !== input.searchPreferences.compensation.maximum;
-
-  if (changesMinimum) {
-    value.minimum = requestedMinimumSalary;
-  }
-
-  if (changesMaximum) {
-    value.maximum = requestedTargetSalary;
-  }
-
-  if (
-    changesMaximum &&
-    requestedTargetSalary !== null &&
-    requestedMinimumSalary === null &&
-    input.searchPreferences.compensation.minimum !== null &&
-    requestedTargetSalary < input.searchPreferences.compensation.minimum
-  ) {
-    value.minimum = null;
-  }
-  if (
-    changesMinimum &&
-    requestedMinimumSalary !== null &&
-    requestedTargetSalary === null &&
-    input.searchPreferences.compensation.maximum !== null &&
-    requestedMinimumSalary > input.searchPreferences.compensation.maximum
-  ) {
-    value.maximum = null;
-  }
-
-  if (Object.keys(value).length === 0) {
-    return null;
-  }
-
-  const savedCurrencyIsKnown =
-    input.searchPreferences.compensation.currencyStatus !== "needs_clarification" &&
-    input.searchPreferences.compensation.currency !== null;
-
-  return {
-    id: createUniqueId("profile_patch_group"),
-    summary:
-      changesMinimum && changesMaximum
-        ? "Update minimum and expected salary"
-        : changesMinimum
-          ? "Update minimum salary"
-          : "Update expected salary",
-    applyMode: savedCurrencyIsKnown ? "applied" : "needs_review",
-    operations: [
-      {
-        operation: "replace_compensation_preferences_fields",
-        value: {
-          ...value,
-          interval: input.searchPreferences.compensation.interval,
-          currency: savedCurrencyIsKnown
-            ? input.searchPreferences.compensation.currency
-            : null,
-          currencyStatus: savedCurrencyIsKnown
-            ? "inherited"
-            : "needs_clarification",
-        },
-      },
-    ],
-    createdAt: new Date().toISOString(),
-  };
+): SalaryCommandOutcome {
+  return buildSalaryCommandOutcome(input);
 }
 
 function buildExperienceWorkModePatchGroup(
@@ -204,18 +149,24 @@ function buildCurrentLocationPatchGroup(
   const normalizedRequest = input.request.toLowerCase();
 
   if (
-    !/location/.test(normalizedRequest) ||
-    /preferred locations|excluded locations|relocation locations|relocation regions/.test(
+    !/\blocation\b/.test(normalizedRequest) ||
+    /preferred locations|excluded locations|relocation locations|relocation regions|relocation answer/.test(
       normalizedRequest,
     )
   ) {
     return null;
   }
 
-  const detail =
-    deriveRequestedDetail(input.request) ?? trimNonEmptyString(input.request);
+  const locationClause = extractSpecialistClauseText(input, "current_location");
 
-  if (!detail || !looksLikeExplicitAnswer(input.request)) {
+  if (!locationClause) {
+    return null;
+  }
+
+  const detail =
+    deriveRequestedDetail(locationClause) ?? trimNonEmptyString(locationClause);
+
+  if (!detail || !looksLikeExplicitAnswer(locationClause)) {
     return null;
   }
 
@@ -260,10 +211,16 @@ function buildTargetRolesPatchGroup(
     return null;
   }
 
-  const detail =
-    deriveRequestedDetail(input.request) ?? trimNonEmptyString(input.request);
+  const rolesClause = extractSpecialistClauseText(input, "target_roles");
 
-  if (!detail || !looksLikeExplicitAnswer(input.request)) {
+  if (!rolesClause) {
+    return null;
+  }
+
+  const detail =
+    deriveRequestedDetail(rolesClause) ?? trimNonEmptyString(rolesClause);
+
+  if (!detail || !looksLikeExplicitAnswer(rolesClause)) {
     return null;
   }
 
@@ -302,6 +259,10 @@ function buildTargetRolesPatchGroup(
 function buildWorkEligibilityPatchGroup(
   input: ReviseCandidateProfileInput,
 ): ProfileCopilotPatchGroup | null {
+  if (/\bvisa sponsorship answer\b/i.test(input.request)) {
+    return null;
+  }
+
   const requestedVisaSponsorship = detectRequestedVisaSponsorship(
     input.request,
   );
@@ -442,18 +403,31 @@ function buildPreferredWorkModePatchGroup(
   };
 }
 
-export function buildSpecializedPatchGroups(
+export interface SpecializedPatchResult {
+  groups: ProfileCopilotPatchGroup[];
+  clarificationQuestion: string | null;
+}
+
+export function buildSpecializedPatchResults(
   input: ReviseCandidateProfileInput,
-): ProfileCopilotPatchGroup[] | null {
+): SpecializedPatchResult | null {
+  const salaryOutcome = buildTargetSalaryPatchGroup(input);
   const groups = [
     buildExperienceWorkModePatchGroup(input),
     buildYearsExperiencePatchGroup(input),
     buildCurrentLocationPatchGroup(input),
     buildTargetRolesPatchGroup(input),
-    buildTargetSalaryPatchGroup(input),
+    salaryOutcome.kind === "group" ? salaryOutcome.group : null,
     buildWorkEligibilityPatchGroup(input),
     buildPreferredWorkModePatchGroup(input),
   ].filter((group): group is ProfileCopilotPatchGroup => group !== null);
 
-  return groups.length > 0 ? groups : null;
+  const clarificationQuestion =
+    salaryOutcome.kind === "clarification" ? salaryOutcome.question : null;
+
+  if (groups.length === 0 && clarificationQuestion === null) {
+    return null;
+  }
+
+  return { groups, clarificationQuestion };
 }

@@ -44,6 +44,7 @@ import {
   reconcileCandidates,
 } from "./resume-import-reconciliation";
 import { createUniqueId, uniqueStrings } from "./shared";
+import { commitMergedProfileUpdateWithStaleRetry } from "./profile-commit-stale-conflict";
 import { deriveResumeTimelineRepairProposals } from "./resume-timeline-repair";
 import {
   buildResumeAnalysisCacheIdentity,
@@ -685,8 +686,21 @@ async function completeDeferredVisionBranch(input: {
       analysisProviderLabel: run.analysisProviderLabel,
       analysisWarnings: stageNotes,
     });
+    const committedImportProfile =
+      await commitMergedProfileUpdateWithStaleRetry(
+        ctx.repository,
+        () => (current: CandidateProfile) =>
+          applyResolvedResumeImportCandidatesToWorkspace({
+            profile: { ...current, baseResume: latestProfile.baseResume },
+            searchPreferences: latestSearchPreferences,
+            candidates: reconciledCandidates,
+            analysisProviderKind: run.analysisProviderKind,
+            analysisProviderLabel: run.analysisProviderLabel,
+            analysisWarnings: stageNotes,
+          }).profile,
+      );
     await ctx.repository.finalizeResumeImportRun({
-      profile: merged.profile,
+      profile: committedImportProfile.profile,
       searchPreferences: merged.searchPreferences,
       run,
       documentBundles: [bundle],
@@ -950,6 +964,19 @@ export async function runResumeImportWorkflow(
       analysisProviderLabel: cachedAnalysis.run.analysisProviderLabel,
       analysisWarnings,
     });
+    const committedImportProfile =
+      await commitMergedProfileUpdateWithStaleRetry(
+        ctx.repository,
+        () => (current: CandidateProfile) =>
+          applyResolvedResumeImportCandidatesToWorkspace({
+            profile: { ...current, baseResume: input.profile.baseResume },
+            searchPreferences: input.searchPreferences,
+            candidates: cachedArtifacts.candidates,
+            analysisProviderKind: cachedAnalysis.run.analysisProviderKind,
+            analysisProviderLabel: cachedAnalysis.run.analysisProviderLabel,
+            analysisWarnings,
+          }).profile,
+      );
     const candidateCounts = countResumeImportCandidates(
       cachedArtifacts.candidates,
     );
@@ -993,7 +1020,7 @@ export async function runResumeImportWorkflow(
       candidateCounts,
     });
     await ctx.repository.finalizeResumeImportRun({
-      profile: merged.profile,
+      profile: committedImportProfile.profile,
       searchPreferences: merged.searchPreferences,
       run: cachedRun,
       documentBundles: [cachedArtifacts.bundle],
@@ -1515,6 +1542,19 @@ export async function runResumeImportWorkflow(
       analysisProviderLabel: run.analysisProviderLabel,
       analysisWarnings,
     });
+    const committedImportProfile =
+      await commitMergedProfileUpdateWithStaleRetry(
+        ctx.repository,
+        () => (current: CandidateProfile) =>
+          applyResolvedResumeImportCandidatesToWorkspace({
+            profile: { ...current, baseResume: input.profile.baseResume },
+            searchPreferences: input.searchPreferences,
+            candidates: reconciledCandidates,
+            analysisProviderKind: run.analysisProviderKind,
+            analysisProviderLabel: run.analysisProviderLabel,
+            analysisWarnings,
+          }).profile,
+      );
     const candidateCounts = countResumeImportCandidates(reconciledCandidates);
     const hasBlockingReviewCandidates =
       hasBlockingResumeImportCandidates(reconciledCandidates);
@@ -1549,7 +1589,7 @@ export async function runResumeImportWorkflow(
 
     const atomicallyFinalizedRun = run;
     await ctx.repository.finalizeResumeImportRun({
-      profile: merged.profile,
+      profile: committedImportProfile.profile,
       searchPreferences: merged.searchPreferences,
       run: atomicallyFinalizedRun,
       documentBundles: [bundle],

@@ -81,14 +81,32 @@ export function getNextMainWindowZoomFactor(
 export function bindMainWindowZoomShortcuts(
   webContents: Pick<WebContents, "getZoomFactor" | "on" | "setZoomFactor">,
   platform: NodeJS.Platform = process.platform,
+  options: { initialZoomFactor?: number } = {},
 ) {
-  // Chromium can retain the last zoom used for an origin for the lifetime of
-  // the Electron session. Product QA intentionally exercises 125%-200% zoom,
-  // so normalize each fresh main window before accepting user zoom input.
-  // Users can still change zoom for the current window and reset with Ctrl/Cmd+0.
-  let desiredZoomFactor = MAIN_WINDOW_DEFAULT_ZOOM_FACTOR;
+  // Chromium retains the last zoom used for an origin for the lifetime of the
+  // Electron session AND persists it into the user-data root, restoring it at
+  // navigation-commit time (after this binding runs). Product QA intentionally
+  // exercises 125% zoom, so normalize each fresh main window before accepting
+  // user zoom input and re-assert the owned factor after every completed
+  // main-frame load. Users can still change zoom for the current window and
+  // reset with Ctrl/Cmd+0; their choice survives reloads the same way.
+  // An explicit tester startup request (initialZoomFactor) becomes the owned
+  // factor so this binder never fights the startup zoom binder.
+  let desiredZoomFactor =
+    options.initialZoomFactor ?? MAIN_WINDOW_DEFAULT_ZOOM_FACTOR;
 
   webContents.setZoomFactor(desiredZoomFactor);
+
+  const applyOwnedZoomFactor = () => {
+    if (webContents.getZoomFactor() !== desiredZoomFactor) {
+      webContents.setZoomFactor(desiredZoomFactor);
+    }
+  };
+
+  // Commit-time host zoom restoration (fresh load, reload, recovery reload)
+  // lands after the pre-load normalization above; re-assert post-load so a
+  // reused user-data root can never decide the launch zoom.
+  webContents.on("did-finish-load", applyOwnedZoomFactor);
 
   webContents.on("did-start-navigation", (details) => {
     if (!details.isMainFrame || !details.isSameDocument) {
@@ -102,7 +120,7 @@ export function bindMainWindowZoomShortcuts(
   });
 
   webContents.on("did-navigate-in-page", (_event, _url, isMainFrame) => {
-    if (!isMainFrame || webContents.getZoomFactor() === desiredZoomFactor) {
+    if (!isMainFrame) {
       return;
     }
 
@@ -110,7 +128,7 @@ export function bindMainWindowZoomShortcuts(
     // Without restoring the pre-navigation factor, moving between Job Finder routes
     // can unexpectedly swap to an old route-specific zoom and make shell controls
     // unreachable. Keep one user-owned zoom factor for the whole desktop window.
-    webContents.setZoomFactor(desiredZoomFactor);
+    applyOwnedZoomFactor();
   });
 
   webContents.on("before-input-event", (event: Event, input: Input) => {

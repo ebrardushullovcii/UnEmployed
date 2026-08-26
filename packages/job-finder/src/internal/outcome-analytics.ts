@@ -608,7 +608,7 @@ function suggestForBucket(input: {
         enabled: true,
         kind: "increase_volume",
         label: `Increase volume for ${input.key}`,
-        reason: `Interview rate ${formatPercent(input.interviewRate)} meets or exceeds the 20% target — increase volume for this campaign.`,
+        reason: `Interview rate ${formatPercent(input.interviewRate)} meets or exceeds the 20% target — increase volume for this search plan.`,
       };
     }
     return null;

@@ -1,0 +1,620 @@
+import { describe, expect, it, vi } from "vitest";
+import type { SetStateAction } from "react";
+import {
+  DiscoveryActivityEventSchema,
+  type DiscoveryActivityEvent,
+  type JobFinderAgentDiscoveryResult,
+  type JobFinderWorkspaceSnapshot,
+  type ResumeAssistantMessage,
+} from "@unemployed/contracts";
+import type {
+  ActionState,
+  JobFinderShellActions,
+} from "@renderer/features/job-finder/lib/job-finder-types";
+import type { DiscoveryRunFeedback } from "@renderer/features/job-finder/screens/discovery/discovery-run-feedback";
+import {
+  createActionRunners,
+  createPrimaryPageActions,
+} from "./use-job-finder-page-controller-actions";
+
+type PrimaryPageActionArgs = Parameters<typeof createPrimaryPageActions>[0];
+
+const workspace = {
+  searchPreferences: {
+    discovery: {
+      targets: [
+        {
+          id: "source_1",
+          label: "Stripe Careers",
+          enabled: true,
+          startingUrl: "https://jobs.example.com",
+        },
+      ],
+    },
+  },
+} as unknown as JobFinderWorkspaceSnapshot;
+
+function createAgentDiscoveryResult(
+  outcome: JobFinderAgentDiscoveryResult["outcome"],
+  snapshot: Record<string, unknown> = {},
+): JobFinderAgentDiscoveryResult {
+  return {
+    outcome,
+    snapshot: snapshot as JobFinderWorkspaceSnapshot,
+  };
+}
+
+function cancelledRunSnapshot(validJobsFound: number | null) {
+  return {
+    recentDiscoveryRuns:
+      validJobsFound === null
+        ? []
+        : [
+            {
+              state: "cancelled",
+              summary: { validJobsFound },
+            },
+          ],
+  };
+}
+
+function createDiscoveryFeedbackHarness(input: {
+  runAgentDiscovery: JobFinderShellActions["runAgentDiscovery"];
+  workspace?: JobFinderWorkspaceSnapshot;
+  runActionOverride?: PrimaryPageActionArgs["runAction"];
+  actions?: Partial<JobFinderShellActions>;
+}) {
+  let actionState: ActionState = { message: null };
+  const feedbackUpdates: DiscoveryRunFeedback[] = [];
+  let liveEvents: DiscoveryActivityEvent[] = [];
+
+  const applyActionState = (next: SetStateAction<ActionState>) => {
+    actionState = typeof next === "function" ? next(actionState) : next;
+  };
+  const setDiscoveryRunFeedback = (
+    next: SetStateAction<DiscoveryRunFeedback | null>,
+  ) => {
+    const resolved =
+      typeof next === "function" ? next(feedbackUpdates.at(-1) ?? null) : next;
+    if (resolved !== null) {
+      feedbackUpdates.push(resolved);
+    }
+  };
+
+  const { runAction, runResumeWorkspaceAction, withPendingScope } =
+    createActionRunners({
+      setActionState: applyActionState,
+      setPendingActionState: vi.fn(),
+    });
+  const pageActions = createPrimaryPageActions({
+    actions: {
+      refreshWorkspace: vi
+        .fn<JobFinderShellActions["refreshWorkspace"]>()
+        .mockResolvedValue({} as JobFinderWorkspaceSnapshot),
+      runAgentDiscovery: input.runAgentDiscovery,
+      ...input.actions,
+    } as unknown as JobFinderShellActions,
+    runAction: input.runActionOverride ?? runAction,
+    refreshResumeWorkspace: vi.fn().mockResolvedValue(true),
+    runResumeWorkspaceAction,
+    setActionState: applyActionState,
+    setDiscoveryRunFeedback,
+    setLiveDiscoveryEvents: (
+      next: SetStateAction<DiscoveryActivityEvent[]>,
+    ) => {
+      liveEvents = typeof next === "function" ? next(liveEvents) : next;
+    },
+    withPendingScope,
+    workspace: input.workspace ?? workspace,
+  } as unknown as PrimaryPageActionArgs);
+
+  return {
+    get actionState() {
+      return actionState;
+    },
+    feedbackUpdates,
+    pageActions,
+  };
+}
+
+describe("shared discovery run feedback handler", () => {
+  it("shows pending then a browser recovery error when the runtime is closed", async () => {
+    const runAgentDiscovery = vi
+      .fn<JobFinderShellActions["runAgentDiscovery"]>()
+      .mockRejectedValue(
+        new Error(
+          "Error invoking remote method 'job-finder:run-agent-discovery': Error: The dedicated browser profile could not start because Chrome is closed.",
+        ),
+      );
+    const harness = createDiscoveryFeedbackHarness({ runAgentDiscovery });
+
+    harness.pageActions.onRunAgentDiscovery();
+
+    await vi.waitFor(() => {
+      expect(harness.feedbackUpdates.at(-1)?.status).toBe("failed");
+    });
+
+    expect(runAgentDiscovery).toHaveBeenCalledTimes(1);
+    expect(harness.feedbackUpdates[0]?.status).toBe("started");
+    expect(harness.feedbackUpdates[0]?.recovery).toBeNull();
+    expect(harness.feedbackUpdates[1]?.recovery?.kind).toBe("browser_session");
+    expect(harness.actionState.message).toContain("dedicated browser");
+    expect(harness.actionState.message).not.toContain("remote method");
+  });
+
+  it("classifies provider and network transport failures as connection issues", async () => {
+    const runAgentDiscovery = vi
+      .fn<JobFinderShellActions["runAgentDiscovery"]>()
+      .mockRejectedValue(new Error("fetch failed"));
+    const harness = createDiscoveryFeedbackHarness({ runAgentDiscovery });
+
+    harness.pageActions.onRunAgentDiscovery();
+
+    await vi.waitFor(() => {
+      expect(harness.feedbackUpdates.at(-1)?.status).toBe("failed");
+    });
+    expect(harness.feedbackUpdates.at(-1)?.recovery?.kind).toBe("connection");
+    expect(harness.feedbackUpdates.at(-1)?.detail).toBe("fetch failed");
+  });
+
+  it("deep-links a missing single source to the exact source setup owner", async () => {
+    const runAgentDiscovery = vi
+      .fn<JobFinderShellActions["runAgentDiscovery"]>()
+      .mockRejectedValue(
+        new Error("single_target: target not found or unavailable"),
+      );
+    const harness = createDiscoveryFeedbackHarness({ runAgentDiscovery });
+
+    harness.pageActions.onRunDiscoveryForTarget("removed_source");
+
+    await vi.waitFor(() => {
+      expect(harness.feedbackUpdates.at(-1)?.status).toBe("failed");
+    });
+    expect(harness.feedbackUpdates.at(-1)?.recovery?.kind).toBe("source_setup");
+  });
+
+  it("rejects an all-source search locally when no source is enabled", () => {
+    const runAgentDiscovery =
+      vi.fn<JobFinderShellActions["runAgentDiscovery"]>();
+    const harness = createDiscoveryFeedbackHarness({
+      runAgentDiscovery,
+      workspace: {
+        ...workspace,
+        searchPreferences: {
+          ...workspace.searchPreferences,
+          discovery: {
+            ...workspace.searchPreferences.discovery,
+            targets: [],
+          },
+        },
+      } as unknown as JobFinderWorkspaceSnapshot,
+    });
+
+    harness.pageActions.onRunAgentDiscovery();
+
+    expect(runAgentDiscovery).not.toHaveBeenCalled();
+    expect(harness.feedbackUpdates.at(-1)?.status).toBe("failed");
+    expect(harness.feedbackUpdates.at(-1)?.recovery?.kind).toBe("source_setup");
+  });
+
+  it("resolves to truthful success feedback after a completed search", async () => {
+    const runAgentDiscovery = vi
+      .fn<JobFinderShellActions["runAgentDiscovery"]>()
+      .mockResolvedValue(createAgentDiscoveryResult("completed"));
+    const harness = createDiscoveryFeedbackHarness({ runAgentDiscovery });
+
+    harness.pageActions.onRunAgentDiscovery();
+
+    await vi.waitFor(() => {
+      expect(harness.feedbackUpdates.at(-1)?.status).toBe("succeeded");
+    });
+    expect(harness.feedbackUpdates.at(-1)?.headline).toBe(
+      "Search finished and results were saved on this device.",
+    );
+    expect(harness.actionState.message).toBe(
+      "Search finished and results were saved on this device.",
+    );
+  });
+
+  it("names the configured source in single-source outcome feedback", async () => {
+    const runAgentDiscovery = vi
+      .fn<JobFinderShellActions["runAgentDiscovery"]>()
+      .mockResolvedValue(createAgentDiscoveryResult("completed"));
+    const harness = createDiscoveryFeedbackHarness({ runAgentDiscovery });
+
+    harness.pageActions.onRunDiscoveryForTarget("source_1");
+
+    await vi.waitFor(() => {
+      expect(harness.feedbackUpdates.at(-1)?.status).toBe("succeeded");
+    });
+    expect(harness.feedbackUpdates.at(-1)?.targetLabel).toBe("Stripe Careers");
+    expect(harness.feedbackUpdates.at(-1)?.headline).toContain(
+      "Stripe Careers",
+    );
+  });
+
+  it("prevents a duplicate click while the first search is pending", async () => {
+    let releaseFirstRun!: (result: JobFinderAgentDiscoveryResult) => void;
+    const runAgentDiscovery = vi
+      .fn<JobFinderShellActions["runAgentDiscovery"]>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<JobFinderAgentDiscoveryResult>((resolve) => {
+            releaseFirstRun = resolve;
+          }),
+      );
+    const harness = createDiscoveryFeedbackHarness({ runAgentDiscovery });
+
+    harness.pageActions.onRunAgentDiscovery();
+    harness.pageActions.onRunAgentDiscovery();
+
+    expect(runAgentDiscovery).toHaveBeenCalledTimes(1);
+    expect(harness.feedbackUpdates.at(-1)?.status).toBe("started");
+
+    releaseFirstRun(createAgentDiscoveryResult("completed"));
+    await vi.waitFor(() => {
+      expect(harness.feedbackUpdates.at(-1)?.status).toBe("succeeded");
+    });
+  });
+
+  it("launches exactly one run across an action-factory rebuild", async () => {
+    let releaseFirstRun!: (result: JobFinderAgentDiscoveryResult) => void;
+    const firstRunAgentDiscovery = vi
+      .fn<JobFinderShellActions["runAgentDiscovery"]>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<JobFinderAgentDiscoveryResult>((resolve) => {
+            releaseFirstRun = resolve;
+          }),
+      );
+    const beforeRebuild = createDiscoveryFeedbackHarness({
+      runAgentDiscovery: firstRunAgentDiscovery,
+    });
+
+    beforeRebuild.pageActions.onRunAgentDiscovery();
+    expect(firstRunAgentDiscovery).toHaveBeenCalledTimes(1);
+
+    // A live-event or workspace update rebuilds buildJobFinderPageContext,
+    // which re-runs createPrimaryPageActions. The rebuilt actions must not
+    // launch a second discovery while the first is still active.
+    const afterRebuild = createDiscoveryFeedbackHarness({
+      runAgentDiscovery: vi.fn<JobFinderShellActions["runAgentDiscovery"]>(),
+    });
+    afterRebuild.pageActions.onRunAgentDiscovery();
+
+    expect(afterRebuild.feedbackUpdates).toHaveLength(0);
+
+    releaseFirstRun(createAgentDiscoveryResult("completed"));
+    await vi.waitFor(() => {
+      expect(beforeRebuild.feedbackUpdates.at(-1)?.status).toBe("succeeded");
+    });
+
+    afterRebuild.pageActions.onRunAgentDiscovery();
+    await vi.waitFor(() => {
+      expect(afterRebuild.feedbackUpdates.at(-1)?.status).toBe("succeeded");
+    });
+  });
+
+  it("replaces started feedback when the post-run refresh fails after completion", async () => {
+    const harness = createDiscoveryFeedbackHarness({
+      // runAction resolving false models a handled refresh error on a
+      // terminal path; the search itself finished.
+      runAgentDiscovery: vi.fn<JobFinderShellActions["runAgentDiscovery"]>(),
+      runActionOverride: () => Promise.resolve(false),
+    });
+
+    harness.pageActions.onRunAgentDiscovery();
+
+    await vi.waitFor(() => {
+      expect(harness.feedbackUpdates.at(-1)?.headline).toContain(
+        "could not refresh automatically",
+      );
+    });
+    expect(harness.feedbackUpdates[0]?.status).toBe("started");
+    expect(harness.feedbackUpdates.at(-1)?.status).toBe("succeeded");
+    expect(harness.actionState.message).toContain(
+      "could not refresh automatically",
+    );
+  });
+
+  it("reports cancelled feedback — never success — after stopping a run that had committed jobs", async () => {
+    const runAgentDiscovery = vi
+      .fn<JobFinderShellActions["runAgentDiscovery"]>()
+      .mockResolvedValue(
+        createAgentDiscoveryResult("cancelled", cancelledRunSnapshot(3)),
+      );
+    const harness = createDiscoveryFeedbackHarness({ runAgentDiscovery });
+
+    harness.pageActions.onRunAgentDiscovery();
+
+    await vi.waitFor(() => {
+      expect(harness.feedbackUpdates.at(-1)?.status).toBe("cancelled");
+    });
+    expect(harness.feedbackUpdates.at(-1)?.headline).toBe(
+      "Search stopped. Jobs found so far were kept on this device.",
+    );
+    expect(harness.feedbackUpdates.at(-1)?.recovery).toBeNull();
+    // The finished/saved status copy never appears, not even transiently as
+    // the terminal message; the stopped wording is the final truth.
+    expect(harness.actionState.message).toBe(
+      "Search stopped. Jobs found so far were kept on this device.",
+    );
+    expect(harness.actionState.message).not.toContain("finished");
+    expect(harness.actionState.message).not.toContain("saved");
+  });
+
+  it("keeps stop-before-finish wording for a cancel with no committed jobs", async () => {
+    const runAgentDiscovery = vi
+      .fn<JobFinderShellActions["runAgentDiscovery"]>()
+      .mockResolvedValue(
+        createAgentDiscoveryResult("cancelled", cancelledRunSnapshot(null)),
+      );
+    const harness = createDiscoveryFeedbackHarness({ runAgentDiscovery });
+
+    harness.pageActions.onRunAgentDiscovery();
+
+    await vi.waitFor(() => {
+      expect(harness.feedbackUpdates.at(-1)?.status).toBe("cancelled");
+    });
+    expect(harness.feedbackUpdates.at(-1)?.headline).toBe(
+      "The search stopped before it could finish.",
+    );
+  });
+
+  it("names the stopped source in single-source cancelled feedback", async () => {
+    const runAgentDiscovery = vi
+      .fn<JobFinderShellActions["runAgentDiscovery"]>()
+      .mockResolvedValue(
+        createAgentDiscoveryResult("cancelled", cancelledRunSnapshot(2)),
+      );
+    const harness = createDiscoveryFeedbackHarness({ runAgentDiscovery });
+
+    harness.pageActions.onRunDiscoveryForTarget("source_1");
+
+    await vi.waitFor(() => {
+      expect(harness.feedbackUpdates.at(-1)?.status).toBe("cancelled");
+    });
+    expect(harness.feedbackUpdates.at(-1)?.targetLabel).toBe("Stripe Careers");
+    expect(harness.feedbackUpdates.at(-1)?.headline).toBe(
+      "Search stopped for Stripe Careers. Jobs found so far were kept on this device.",
+    );
+  });
+
+  it("stays cancelled instead of claiming a refresh problem when the post-cancel refresh fails", async () => {
+    const harness = createDiscoveryFeedbackHarness({
+      runAgentDiscovery: vi
+        .fn<JobFinderShellActions["runAgentDiscovery"]>()
+        .mockResolvedValue(
+          createAgentDiscoveryResult("cancelled", cancelledRunSnapshot(0)),
+        ),
+      // The search itself finished (the runner awaited it); only the final
+      // view refresh was handled as failed.
+      runActionOverride: async (action: () => Promise<unknown>) => {
+        await action();
+        return false;
+      },
+    });
+
+    harness.pageActions.onRunAgentDiscovery();
+
+    await vi.waitFor(() => {
+      expect(harness.feedbackUpdates.at(-1)?.status).toBe("cancelled");
+    });
+    expect(harness.feedbackUpdates.at(-1)?.status).not.toBe("succeeded");
+    expect(harness.actionState.message).not.toContain(
+      "could not refresh automatically",
+    );
+  });
+
+  it("keeps could-not-start wording only for a rejection before any progress", async () => {
+    const runAgentDiscovery = vi
+      .fn<JobFinderShellActions["runAgentDiscovery"]>()
+      .mockRejectedValue(new Error("single_target: target not found"));
+    const harness = createDiscoveryFeedbackHarness({ runAgentDiscovery });
+
+    harness.pageActions.onRunDiscoveryForTarget("removed_source");
+
+    await vi.waitFor(() => {
+      expect(harness.feedbackUpdates.at(-1)?.status).toBe("failed");
+    });
+    expect(harness.feedbackUpdates.at(-1)?.headline).toBe(
+      "Search could not start.",
+    );
+    expect(harness.feedbackUpdates.at(-1)?.recovery?.kind).toBe("source_setup");
+  });
+
+  it("reports a mid-run failure after progress instead of claiming the start failed", async () => {
+    const progressEvent = DiscoveryActivityEventSchema.parse({
+      id: "event_progress_1",
+      runId: "run_progress_1",
+      timestamp: "2026-08-23T10:00:00.000Z",
+      kind: "progress",
+      stage: "navigation",
+      targetId: null,
+      message: "Loading job list",
+    });
+    const runAgentDiscovery = vi
+      .fn<JobFinderShellActions["runAgentDiscovery"]>()
+      .mockImplementation((onEvent) => {
+        onEvent?.(progressEvent);
+        return Promise.reject(new Error("fetch failed"));
+      });
+    const harness = createDiscoveryFeedbackHarness({ runAgentDiscovery });
+
+    harness.pageActions.onRunAgentDiscovery();
+
+    await vi.waitFor(() => {
+      expect(harness.feedbackUpdates.at(-1)?.status).toBe("failed");
+    });
+    expect(harness.feedbackUpdates.at(-1)?.headline).toBe(
+      "The search stopped before it could finish.",
+    );
+    expect(harness.feedbackUpdates.at(-1)?.detail).toBe("fetch failed");
+    expect(harness.feedbackUpdates.at(-1)?.recovery?.kind).toBe("connection");
+  });
+});
+
+describe("onQueueJob request-local shortlist outcome", () => {
+  function createShortlistHarness(
+    queueJobForReview: JobFinderShellActions["queueJobForReview"],
+  ) {
+    return createDiscoveryFeedbackHarness({
+      runAgentDiscovery: vi.fn<JobFinderShellActions["runAgentDiscovery"]>(),
+      actions: { queueJobForReview },
+    });
+  }
+
+  it("resolves an awaited typed success while keeping the shared route message", async () => {
+    const queueJobForReview = vi
+      .fn<JobFinderShellActions["queueJobForReview"]>()
+      .mockResolvedValue({} as JobFinderWorkspaceSnapshot);
+    const harness = createShortlistHarness(queueJobForReview);
+
+    await expect(harness.pageActions.onQueueJob("job_1")).resolves.toEqual({
+      message: "Job added to Shortlisted.",
+      status: "success",
+    });
+
+    expect(queueJobForReview).toHaveBeenCalledWith("job_1");
+    expect(harness.actionState.message).toBe("Job added to Shortlisted.");
+  });
+
+  it("resolves a typed failure carrying the same surfaced error copy", async () => {
+    const queueJobForReview = vi
+      .fn<JobFinderShellActions["queueJobForReview"]>()
+      .mockRejectedValue(new Error("offline"));
+    const harness = createShortlistHarness(queueJobForReview);
+
+    await expect(harness.pageActions.onQueueJob("job_1")).resolves.toEqual({
+      message: "offline",
+      status: "failure",
+    });
+
+    expect(harness.actionState.message).toBe("offline");
+  });
+});
+
+describe("onRegenerateResumeSection proposal-only truth", () => {
+  function createAssistantMessage(input: {
+    createdAt: string;
+    id: string;
+    proposalStatus: ResumeAssistantMessage["proposalStatus"];
+  }): ResumeAssistantMessage {
+    return {
+      id: input.id,
+      jobId: "job_ready",
+      role: "assistant",
+      content: "assistant reply",
+      patches: [],
+      proposalStatus: input.proposalStatus,
+      baseDraftUpdatedAt: null,
+      resolvedPatchIds: [],
+      resolvedAt: null,
+      proposalError: null,
+      createdAt: input.createdAt,
+    };
+  }
+
+  function createRegenerationHarness(input: {
+    regenerateResumeSection: JobFinderShellActions["regenerateResumeSection"];
+    getResumeAssistantMessages: JobFinderShellActions["getResumeAssistantMessages"];
+  }) {
+    return createDiscoveryFeedbackHarness({
+      runAgentDiscovery: vi.fn<JobFinderShellActions["runAgentDiscovery"]>(),
+      actions: {
+        getResumeAssistantMessages: input.getResumeAssistantMessages,
+        regenerateResumeSection: input.regenerateResumeSection,
+      },
+    });
+  }
+
+  it("reports a pending proposal without claiming the section changed", async () => {
+    const regenerateResumeSection = vi
+      .fn<JobFinderShellActions["regenerateResumeSection"]>()
+      .mockResolvedValue({} as JobFinderWorkspaceSnapshot);
+    const getResumeAssistantMessages = vi
+      .fn<JobFinderShellActions["getResumeAssistantMessages"]>()
+      .mockResolvedValue([
+        createAssistantMessage({
+          createdAt: "2026-08-24T10:00:00.000Z",
+          id: "message_old",
+          proposalStatus: "none",
+        }),
+        createAssistantMessage({
+          createdAt: "2026-08-24T10:01:00.000Z",
+          id: "message_pending",
+          proposalStatus: "pending",
+        }),
+      ]);
+    const harness = createRegenerationHarness({
+      getResumeAssistantMessages,
+      regenerateResumeSection,
+    });
+
+    harness.pageActions.onRegenerateResumeSection("job_ready", "section_summary");
+
+    await vi.waitFor(() => {
+      expect(harness.actionState.message).toBe(
+        "Rewrite proposed for review. Nothing changed yet.",
+      );
+    });
+    expect(regenerateResumeSection).toHaveBeenCalledWith(
+      "job_ready",
+      "section_summary",
+    );
+    expect(getResumeAssistantMessages).toHaveBeenCalledWith("job_ready");
+    expect(harness.actionState.message).not.toBe("Section refreshed.");
+  });
+
+  it("reports when no changes were proposed instead of claiming a refresh", async () => {
+    const regenerateResumeSection = vi
+      .fn<JobFinderShellActions["regenerateResumeSection"]>()
+      .mockResolvedValue({} as JobFinderWorkspaceSnapshot);
+    const getResumeAssistantMessages = vi
+      .fn<JobFinderShellActions["getResumeAssistantMessages"]>()
+      .mockResolvedValue([
+        createAssistantMessage({
+          createdAt: "2026-08-24T10:01:00.000Z",
+          id: "message_no_change",
+          proposalStatus: "none",
+        }),
+      ]);
+    const harness = createRegenerationHarness({
+      getResumeAssistantMessages,
+      regenerateResumeSection,
+    });
+
+    harness.pageActions.onRegenerateResumeSection("job_ready", "section_summary");
+
+    await vi.waitFor(() => {
+      expect(harness.actionState.message).toBe(
+        "No changes were proposed for this section.",
+      );
+    });
+    expect(harness.actionState.message).not.toBe("Section refreshed.");
+  });
+
+  it("keeps the existing regeneration action errors untouched", async () => {
+    const regenerateResumeSection = vi
+      .fn<JobFinderShellActions["regenerateResumeSection"]>()
+      .mockRejectedValue(
+        new Error("Unlock the 'Summary' section before regenerating it."),
+      );
+    const getResumeAssistantMessages =
+      vi.fn<JobFinderShellActions["getResumeAssistantMessages"]>();
+    const harness = createRegenerationHarness({
+      getResumeAssistantMessages,
+      regenerateResumeSection,
+    });
+
+    harness.pageActions.onRegenerateResumeSection("job_ready", "section_locked");
+
+    await vi.waitFor(() => {
+      expect(harness.actionState.message).toBe(
+        "Unlock the 'Summary' section before regenerating it.",
+      );
+    });
+    // The outcome read never runs for a rejected action.
+    expect(getResumeAssistantMessages).not.toHaveBeenCalled();
+  });
+});

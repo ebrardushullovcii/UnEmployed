@@ -12,7 +12,10 @@ import { EmptyState } from "../../components/empty-state";
 import { ResumeBulletListEditor } from "./resume-section-editor-bullet-list";
 import { ResumeEntryEditorCard } from "./resume-section-editor-entry-card";
 import { ResumeSectionHeaderActions } from "./resume-section-editor-header";
-import { normalizeNullableText } from "./resume-section-editor-helpers";
+import {
+  normalizeNullableText,
+  updateSectionText,
+} from "./resume-section-editor-helpers";
 import { useResumeEditorSelectionFocus } from "./use-resume-editor-selection-focus";
 
 export function ResumeSectionEditor(props: {
@@ -22,6 +25,7 @@ export function ResumeSectionEditor(props: {
   selectionScrollKey?: number;
   selectedEntryId: string | null;
   selectedTargetId: string | null;
+  showGeneratedMarkers: boolean;
   onChange: (nextSection: ResumeDraftSection) => void;
   onSelectEntry: (sectionId: string, entryId: string) => void;
   onSelectSection: (sectionId: string) => void;
@@ -47,13 +51,13 @@ export function ResumeSectionEditor(props: {
         },
   );
   const handleSectionFocusCapture = (event: FocusEvent<HTMLElement>) => {
-    const target = event.target as HTMLElement | null
+    const target = event.target as HTMLElement | null;
     if (target?.dataset.resumeEditorTarget === props.selectedTargetId) {
-      return
+      return;
     }
 
-    props.onSelectSection(props.section.id)
-  }
+    props.onSelectSection(props.section.id);
+  };
 
   return (
     <article
@@ -61,9 +65,11 @@ export function ResumeSectionEditor(props: {
         "surface-card-tint grid min-w-0 gap-2.5 rounded-(--radius-field) border border-(--surface-panel-border) p-2.5 transition-colors",
         props.isSelected && "border-primary/35 bg-primary/5",
       )}
+      data-resume-editor-section={props.section.id}
       onFocusCapture={handleSectionFocusCapture}
       onMouseDownCapture={() => props.onSelectSection(props.section.id)}
       ref={sectionRef}
+      tabIndex={-1}
     >
       <ResumeSectionHeaderActions
         disabled={props.disabled}
@@ -76,23 +82,21 @@ export function ResumeSectionEditor(props: {
         <Field>
           <FieldLabel htmlFor={textId}>Section text</FieldLabel>
           <Textarea
-            className={
-              props.section.kind === "summary"
-                ? "min-h-(--textarea-compact)"
-                : "min-h-(--textarea-tall)"
-            }
+            className="[field-sizing:content]"
             data-resume-editor-target={getResumeSectionTextTargetId(
               props.section.id,
             )}
             id={textId}
             disabled={props.disabled || props.section.locked}
-            rows={props.section.kind === "summary" ? 5 : 7}
+            rows={props.section.kind === "summary" ? 3 : 4}
             value={props.section.text ?? ""}
             onChange={(event) =>
-              props.onChange({
-                ...props.section,
-                text: normalizeNullableText(event.currentTarget.value),
-              })
+              props.onChange(
+                updateSectionText(
+                  props.section,
+                  normalizeNullableText(event.currentTarget.value),
+                ),
+              )
             }
           />
         </Field>
@@ -100,9 +104,6 @@ export function ResumeSectionEditor(props: {
 
       {hasEntries ? (
         <div className="grid gap-2.5">
-          <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
-            Structured entries
-          </p>
           {props.section.entries.map((entry, entryIndex) => (
             <ResumeEntryEditorCard
               key={entry.id}
@@ -112,13 +113,12 @@ export function ResumeSectionEditor(props: {
               entryIndex={entryIndex}
               isSelected={props.selectedEntryId === entry.id}
               section={props.section}
+              showGeneratedMarkers={props.showGeneratedMarkers}
               workHistoryReviewSuggestions={props.workHistoryReviewSuggestions.filter(
                 (suggestion) =>
                   suggestion.entryId === entry.id ||
-                  (
-                    suggestion.entryId === null &&
-                    suggestion.profileRecordId === entry.profileRecordId
-                  ),
+                  (suggestion.entryId === null &&
+                    suggestion.profileRecordId === entry.profileRecordId),
               )}
               onChange={props.onChange}
               onPatch={props.onPatch}
@@ -133,9 +133,6 @@ export function ResumeSectionEditor(props: {
 
       {!hasEntries || props.section.bullets.length > 0 ? (
         <div className="grid gap-2.5">
-          <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
-            Bullet points
-          </p>
           {props.section.bullets.length === 0 ? (
             <EmptyState
               title="No bullets yet"
@@ -147,8 +144,7 @@ export function ResumeSectionEditor(props: {
               controlIdPrefix={controlIdPrefix}
               disabled={props.disabled}
               section={props.section}
-              textareaClassName="min-h-(--textarea-default)"
-              textareaRows={6}
+              showGeneratedMarkers={props.showGeneratedMarkers}
               onChange={props.onChange}
               onPatch={props.onPatch}
             />

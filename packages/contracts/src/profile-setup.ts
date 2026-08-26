@@ -5,7 +5,7 @@ import {
   isRunnableJobDiscoveryTarget,
   type JobSearchPreferences,
 } from "./discovery";
-import type { CandidateProfile } from "./profile";
+import { CandidateProfileSchema, type CandidateProfile } from "./profile";
 
 export const profileSetupStepValues = [
   "import",
@@ -137,9 +137,90 @@ export interface ProfileSetupReadiness {
   hasNarrative: boolean;
   hasResumeText: boolean;
   hasTargeting: boolean;
+  hasWorkModePreference: boolean;
   materiallyComplete: boolean;
   recommendedStep: ProfileSetupStep;
   started: boolean;
+}
+
+/** Canonical setup blockers, ordered by the step that resolves them. */
+export const profileSetupReadinessBlockerValues = [
+  "identity_contact",
+  "background",
+  "eligibility_preferences",
+  "work_mode_preference",
+  "discovery_source",
+] as const;
+export type ProfileSetupReadinessBlockerId =
+  (typeof profileSetupReadinessBlockerValues)[number];
+
+export interface ProfileSetupReadinessBlocker {
+  id: ProfileSetupReadinessBlockerId;
+  step: ProfileSetupStep;
+}
+
+const PROFILE_SETUP_READINESS_BLOCKER_STEPS: Record<
+  ProfileSetupReadinessBlockerId,
+  ProfileSetupStep
+> = {
+  background: "background",
+  discovery_source: "targeting",
+  eligibility_preferences: "targeting",
+  identity_contact: "essentials",
+  work_mode_preference: "targeting",
+};
+
+/**
+ * The single canonical blocker list for first-run readiness. Every readiness
+ * surface (setup summary cards, ready check, and derived setup state) must
+ * derive its "ready" claim from this list so no surface can report ready
+ * while a blocker remains.
+ */
+export function getProfileSetupReadinessBlockers(
+  readiness: Pick<
+    ProfileSetupReadiness,
+    | "hasCoreIdentity"
+    | "hasContactPath"
+    | "hasMeaningfulBackground"
+    | "hasEligibilityPreferences"
+    | "hasWorkModePreference"
+    | "hasDiscoverySource"
+  >,
+): ProfileSetupReadinessBlocker[] {
+  const blockers: ProfileSetupReadinessBlocker[] = [];
+
+  if (!readiness.hasCoreIdentity || !readiness.hasContactPath) {
+    blockers.push({
+      id: "identity_contact",
+      step: PROFILE_SETUP_READINESS_BLOCKER_STEPS.identity_contact,
+    });
+  }
+  if (!readiness.hasMeaningfulBackground) {
+    blockers.push({
+      id: "background",
+      step: PROFILE_SETUP_READINESS_BLOCKER_STEPS.background,
+    });
+  }
+  if (!readiness.hasEligibilityPreferences) {
+    blockers.push({
+      id: "eligibility_preferences",
+      step: PROFILE_SETUP_READINESS_BLOCKER_STEPS.eligibility_preferences,
+    });
+  }
+  if (!readiness.hasWorkModePreference) {
+    blockers.push({
+      id: "work_mode_preference",
+      step: PROFILE_SETUP_READINESS_BLOCKER_STEPS.work_mode_preference,
+    });
+  }
+  if (!readiness.hasDiscoverySource) {
+    blockers.push({
+      id: "discovery_source",
+      step: PROFILE_SETUP_READINESS_BLOCKER_STEPS.discovery_source,
+    });
+  }
+
+  return blockers;
 }
 
 export interface DeriveProfileSetupStateOptions {
@@ -151,20 +232,70 @@ const FRESH_START_DISPLAY_NAME = "new candidate";
 const FRESH_START_FIRST_NAME = "new";
 export const PROFILE_SETUP_PLACEHOLDER_HEADLINE = "Import your resume to begin";
 export const PROFILE_SETUP_PLACEHOLDER_LOCATION = "Set your preferred location";
+export const PROFILE_SETUP_PLACEHOLDER_SUMMARY =
+  "Import a resume or paste resume text to build your profile, targeting, and tailored documents.";
 const FRESH_START_HEADLINE = PROFILE_SETUP_PLACEHOLDER_HEADLINE.toLowerCase();
 const FRESH_START_LAST_NAME = "candidate";
 const FRESH_START_LOCATION = PROFILE_SETUP_PLACEHOLDER_LOCATION.toLowerCase();
+const FRESH_START_SUMMARY = PROFILE_SETUP_PLACEHOLDER_SUMMARY.toLowerCase();
 
+export type ProfileSetupPlaceholderField =
+  | "fullName"
+  | "headline"
+  | "currentLocation"
+  | "summary";
+
+export const FRESH_START_CANDIDATE_PROFILE_ID = "candidate_fresh_start";
+const FRESH_START_RESUME_ID = "resume_fresh_start";
+
+/**
+ * Canonical first-run profile seed. Factual identity fields stay null so no
+ * instructional placeholder string is ever persisted as a candidate fact;
+ * surfaces render their own placeholders for the missing values.
+ */
+export function createFreshStartCandidateProfile(): CandidateProfile {
+  return CandidateProfileSchema.parse({
+    id: FRESH_START_CANDIDATE_PROFILE_ID,
+    baseResume: {
+      id: FRESH_START_RESUME_ID,
+      fileName: "No resume imported yet",
+      uploadedAt: new Date(0).toISOString(),
+      extractionStatus: "needs_text",
+    },
+    // No experience has been recorded yet; the schema requires a number, so
+    // the seed supplies the neutral zero rather than omitting the field and
+    // failing the entire first-run bootstrap.
+    yearsExperience: 0,
+  });
+}
+
+function normalizeProfileSetupPlaceholderValue(
+  value: string | null | undefined,
+): string {
+  return value?.trim().toLowerCase() ?? "";
+}
+
+/**
+ * True only when a stored identity string is one of the instructional
+ * first-run placeholder strings. Legacy workspaces that already persisted
+ * these strings keep parsing, but no readiness signal treats them as facts.
+ */
 export function hasProfileSetupPlaceholderValue(
-  field: "headline" | "currentLocation",
+  field: ProfileSetupPlaceholderField,
   value: string | null | undefined,
 ): boolean {
-  const normalized = value?.trim().toLowerCase() ?? "";
-  if (field === "headline") {
-    return normalized === PROFILE_SETUP_PLACEHOLDER_HEADLINE.toLowerCase();
-  }
+  const normalized = normalizeProfileSetupPlaceholderValue(value);
 
-  return normalized === PROFILE_SETUP_PLACEHOLDER_LOCATION.toLowerCase();
+  switch (field) {
+    case "fullName":
+      return normalized === FRESH_START_DISPLAY_NAME;
+    case "headline":
+      return normalized === FRESH_START_HEADLINE;
+    case "currentLocation":
+      return normalized === FRESH_START_LOCATION;
+    case "summary":
+      return normalized === FRESH_START_SUMMARY;
+  }
 }
 
 function getHighestPriorityPendingStep(
@@ -266,20 +397,28 @@ function hasMeaningfulAnswerBank(profile: CandidateProfile): boolean {
   );
 }
 
-function isFreshStartProfile(profile: CandidateProfile): boolean {
-  const normalizedFullName = profile.fullName.trim().toLowerCase();
-  const normalizedFirstName = profile.firstName.trim().toLowerCase();
-  const normalizedLastName = profile.lastName.trim().toLowerCase();
-  const normalizedHeadline = profile.headline.trim().toLowerCase();
-  const normalizedLocation = profile.currentLocation.trim().toLowerCase();
+/**
+ * True when this profile is still the untouched first-run seed, detected by
+ * the reserved fresh-start id or by the exact legacy placeholder identity
+ * values that older seeds persisted.
+ */
+export function isFreshStartCandidateProfile(
+  profile: CandidateProfile,
+): boolean {
+  if (profile.id === FRESH_START_CANDIDATE_PROFILE_ID) {
+    return true;
+  }
+
+  const normalizedFullName = profile.fullName?.trim().toLowerCase() ?? "";
+  const normalizedFirstName = profile.firstName?.trim().toLowerCase() ?? "";
+  const normalizedLastName = profile.lastName?.trim().toLowerCase() ?? "";
 
   return (
-    profile.id === "candidate_fresh_start" ||
-    (normalizedFullName === FRESH_START_DISPLAY_NAME &&
-      normalizedFirstName === FRESH_START_FIRST_NAME &&
-      normalizedLastName === FRESH_START_LAST_NAME &&
-      normalizedHeadline === FRESH_START_HEADLINE &&
-      normalizedLocation === FRESH_START_LOCATION)
+    normalizedFullName === FRESH_START_DISPLAY_NAME &&
+    normalizedFirstName === FRESH_START_FIRST_NAME &&
+    normalizedLastName === FRESH_START_LAST_NAME &&
+    hasProfileSetupPlaceholderValue("headline", profile.headline) &&
+    hasProfileSetupPlaceholderValue("currentLocation", profile.currentLocation)
   );
 }
 
@@ -287,17 +426,30 @@ export function evaluateProfileSetupReadiness(
   profile: CandidateProfile,
   searchPreferences: JobSearchPreferences,
 ): ProfileSetupReadiness {
-  const freshStart = isFreshStartProfile(profile);
+  const freshStart = isFreshStartCandidateProfile(profile);
   const hasResumeText = hasMeaningfulText(profile.baseResume.textContent);
-  const hasCoreIdentity = Boolean(
+  const hasRealIdentityText =
     hasMeaningfulText(profile.fullName) &&
     hasMeaningfulText(profile.headline) &&
-    hasMeaningfulText(profile.currentLocation) &&
-    (!freshStart || profile.yearsExperience > 0) &&
-    (!freshStart ||
-      profile.headline.trim().toLowerCase() !== FRESH_START_HEADLINE ||
-      profile.currentLocation.trim().toLowerCase() !== FRESH_START_LOCATION),
+    hasMeaningfulText(profile.currentLocation);
+  // Placeholder strings left over from legacy first-run seeds are not facts.
+  const hasPlaceholderOnlyIdentity = Boolean(
+    (profile.fullName === null ||
+      hasProfileSetupPlaceholderValue("fullName", profile.fullName)) &&
+    (profile.headline === null ||
+      hasProfileSetupPlaceholderValue("headline", profile.headline)) &&
+    (profile.currentLocation === null ||
+      hasProfileSetupPlaceholderValue(
+        "currentLocation",
+        profile.currentLocation,
+      )),
   );
+  const hasCoreIdentity = Boolean(
+    hasRealIdentityText &&
+    (!freshStart || profile.yearsExperience > 0) &&
+    (!freshStart || !hasPlaceholderOnlyIdentity),
+  );
+
   const hasContactPath = Boolean(
     hasMeaningfulText(profile.email) || hasMeaningfulText(profile.phone),
   );
@@ -327,6 +479,9 @@ export function evaluateProfileSetupReadiness(
     hasMeaningfulStringList(searchPreferences.locations) ||
     hasMeaningfulStringList(searchPreferences.workModes),
   );
+  const hasWorkModePreference = hasMeaningfulStringList(
+    searchPreferences.workModes,
+  );
   const hasNarrative = hasMeaningfulNarrative(profile);
   const hasAnswerBank = hasMeaningfulAnswerBank(profile);
   const materiallyComplete =
@@ -335,6 +490,7 @@ export function evaluateProfileSetupReadiness(
     hasMeaningfulBackground &&
     hasTargeting &&
     hasEligibilityPreferences &&
+    hasWorkModePreference &&
     hasDiscoverySource;
   const started = Boolean(
     hasResumeText ||
@@ -354,7 +510,11 @@ export function evaluateProfileSetupReadiness(
     recommendedStep = "essentials";
   } else if (!hasMeaningfulBackground) {
     recommendedStep = "background";
-  } else if (!hasEligibilityPreferences || !hasDiscoverySource) {
+  } else if (
+    !hasEligibilityPreferences ||
+    !hasWorkModePreference ||
+    !hasDiscoverySource
+  ) {
     recommendedStep = "targeting";
   } else if (!hasNarrative) {
     recommendedStep = "narrative";
@@ -373,6 +533,7 @@ export function evaluateProfileSetupReadiness(
     hasNarrative,
     hasResumeText,
     hasTargeting,
+    hasWorkModePreference,
     materiallyComplete,
     recommendedStep,
     started,

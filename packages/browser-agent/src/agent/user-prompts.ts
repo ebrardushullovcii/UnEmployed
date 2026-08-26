@@ -146,7 +146,7 @@ ${
 3. Click into job details to get full descriptions when needed
 4. Extract structured job data using the extract_jobs tool
 5. Navigate back to continue searching
-6. Continue until you've found ${config.targetJobCount} relevant jobs or exhausted options`
+6. Call finish once you have found ${config.targetJobCount} relevant jobs OR once you have proven this source is exhausted; if scrolling and pagination have no further result pages to load, report that no further result pages were reachable instead of repeating them`
 }
 
 Focus on recent postings that match the target roles and locations.`;

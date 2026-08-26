@@ -22,7 +22,9 @@ import { ProfileOptionalSection } from "./profile-optional-section";
 import type { ProfileFieldArrayKeyName } from "./profile-field-array-types";
 import { ProfileRecordCard } from "./profile-record-card";
 import { ProfileSectionHeader } from "./profile-section-header";
+import { PROFILE_DEEP_LINK_SCROLL_MARGIN_CLASSES } from "./profile-deep-link-focus";
 import { PreferredApplicationLinksField } from "./preferred-application-links-field";
+import { useProfileAppendedRecordOpenSignal } from "./use-profile-appended-record-open-signal";
 
 const booleanSelectOptions = [
   { label: "Not set", value: "" },
@@ -81,6 +83,11 @@ export function ProfilePreferencesEligibilitySection(props: {
     register,
     watch,
   } = props.profileForm;
+  const {
+    forgetAppendedRecord,
+    getAppendedRecordOpenSignal,
+    markAppendedRecord,
+  } = useProfileAppendedRecordOpenSignal();
   const authorizedWorkCountriesId =
     "profile-setup-field-eligibility-authorized-work-countries";
   const preferredRelocationRegionsId =
@@ -108,6 +115,25 @@ export function ProfilePreferencesEligibilitySection(props: {
     "profile-setup-field-answer-bank-self-introduction";
   const careerTransitionAnswerId =
     "profile-setup-field-answer-bank-career-transition";
+
+  function handleAddCustomAnswer() {
+    const recordId = `answer_${crypto.randomUUID().slice(0, 8)}`;
+    props.customAnswerArray.append({
+      id: recordId,
+      label: "",
+      question: "",
+      answer: "",
+      kind: "other",
+      roleFamilies: "",
+      proofEntryIds: "",
+    });
+    markAppendedRecord(recordId);
+  }
+
+  function handleRemoveCustomAnswer(index: number) {
+    forgetAppendedRecord(props.customAnswerArray.fields[index]?.id ?? "");
+    props.customAnswerArray.remove(index);
+  }
 
   return (
     <section className="grid content-start gap-(--gap-card)">
@@ -330,7 +356,7 @@ export function ProfilePreferencesEligibilitySection(props: {
             />
           </div>
           <div
-            className="grid min-w-0 scroll-mt-4 content-start gap-(--gap-field) h-full"
+            className={`grid min-w-0 content-start gap-(--gap-field) h-full ${PROFILE_DEEP_LINK_SCROLL_MARGIN_CLASSES.base} ${PROFILE_DEEP_LINK_SCROLL_MARGIN_CLASSES.fixedHeader} ${PROFILE_DEEP_LINK_SCROLL_MARGIN_CLASSES.internalScroller}`}
             id="profile-expected-salary-answer-field"
           >
             <FieldLabel htmlFor={salaryExpectationAnswerId}>
@@ -386,17 +412,7 @@ export function ProfilePreferencesEligibilitySection(props: {
           <div className="flex justify-end">
             <Button
               disabled={props.busy}
-              onClick={() =>
-                props.customAnswerArray.append({
-                  id: `answer_${crypto.randomUUID().slice(0, 8)}`,
-                  label: "",
-                  question: "",
-                  answer: "",
-                  kind: "other",
-                  roleFamilies: "",
-                  proofEntryIds: "",
-                })
-              }
+              onClick={handleAddCustomAnswer}
               type="button"
               variant="secondary"
             >
@@ -415,6 +431,7 @@ export function ProfilePreferencesEligibilitySection(props: {
                   id={`answer-record-${entry.id}`}
                   key={entry.fieldKey}
                   defaultOpen={index === 0}
+                  forceOpenSignal={getAppendedRecordOpenSignal(entry.id)}
                   summary={
                     watch(`answerBank.customAnswers.${index}.label`) ||
                     watch(`answerBank.customAnswers.${index}.question`) ||
@@ -431,7 +448,7 @@ export function ProfilePreferencesEligibilitySection(props: {
                     </p>
                     <Button
                       disabled={props.busy}
-                      onClick={() => props.customAnswerArray.remove(index)}
+                      onClick={() => handleRemoveCustomAnswer(index)}
                       size="compact"
                       type="button"
                       variant="ghost"

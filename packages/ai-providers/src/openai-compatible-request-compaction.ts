@@ -2,6 +2,38 @@ const DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS = 196_000;
 const APPROX_CHARS_PER_TOKEN = 3;
 const INPUT_BUDGET_RATIO = 0.72;
 const MIN_USER_PAYLOAD_CHARS = 8_000;
+const MAX_OMITTED_EVIDENCE_ID_PREVIEW = 12;
+const MAX_OMITTED_EVIDENCE_ID_CHARS = 96;
+
+// Candidate-critical grounding scopes are kept ahead of generic profile
+// evidence when request compaction must drop items to fit the model budget.
+const GROUNDING_EVIDENCE_SCOPE_PRIORITY: Record<string, number> = {
+  experience: 0,
+  project: 1,
+  proof: 2,
+  import_evidence: 3,
+  profile: 4,
+};
+
+// Reserved anchors survive request compaction ahead of every other evidence
+// item. The original resume text ranks first, followed by the authoritative
+// skill anchors that ground stack- and domain-aware wording.
+const RESERVED_GROUNDING_ANCHOR_IDS = new Set([
+  "baseResume:text",
+  "profile:skills",
+]);
+const FIRST_RESERVED_GROUNDING_ANCHOR_ID = "baseResume:text";
+const RESERVED_GROUNDING_ANCHOR_ID_PREFIX = "profile:skillGroup:";
+// One representative per candidate-critical non-experience scope is reserved
+// so heavy work-history catalogs cannot fully crowd out project, proof, and
+// imported-resume context.
+const REPRESENTATIVE_GROUNDING_SCOPES = [
+  "project",
+  "proof",
+  "import_evidence",
+];
+// Redundant per-record facets are the first in-scope items to drop.
+const REDUNDANT_EVIDENCE_ID_SUFFIXES = [":domainTags"];
 
 import {
   ResumeImportJsonValueSchema,
@@ -18,6 +50,23 @@ export type OpenAiCompatibleJsonOperation =
   | "tailorResume"
   | "assessJobFit"
   | "extractJobsFromPage";
+
+// Declared as a type alias (not an interface) so the shape carries an
+// implicit index signature and satisfies ResumeImportJsonValue's record
+// member when embedded into compacted payloads, without any/casts.
+type GroundingEvidenceCompactionMetadata = {
+  applied: true;
+  note: string;
+  originalItemCount: number;
+  includedItemCount: number;
+  omittedItemCount: number;
+  omittedScopeCounts: Record<string, number>;
+  omittedIdsPreview: string[];
+};
+
+interface CompactionAttemptContext {
+  groundingEvidenceCompaction: GroundingEvidenceCompactionMetadata | null;
+}
 
 function estimateSerializedLength(value: unknown): number {
   try {
@@ -87,7 +136,12 @@ function stringLimitForPath(path: readonly string[], level: number): number {
     return pickLevelValue(level, [16_000, 10_000, 6_000]);
   }
 
-  if (key === "resumeText" || key === "textContent" || key === "fullText") {
+  if (
+    key === "resumeText" ||
+    key === "baseResumeText" ||
+    key === "textContent" ||
+    key === "fullText"
+  ) {
     return pickLevelValue(level, [28_000, 16_000, 9_000]);
   }
 
@@ -232,18 +286,229 @@ function shouldDropKey(path: readonly string[], level: number): boolean {
   return false;
 }
 
+function groundingEvidenceField(
+  item: ResumeImportJsonValue,
+  field: string,
+): ResumeImportJsonValue | null {
+  if (!item || typeof item !== "object" || Array.isArray(item)) {
+    return null;
+  }
+
+  return (item as Record<string, ResumeImportJsonValue>)[field] ?? null;
+}
+
+function isReservedGroundingAnchorId(id: string | null): boolean {
+  if (id === null) {
+    return false;
+  }
+
+  return (
+    RESERVED_GROUNDING_ANCHOR_IDS.has(id) ||
+    id.startsWith(RESERVED_GROUNDING_ANCHOR_ID_PREFIX)
+  );
+}
+
+function groundingEvidenceAnchorRank(id: string | null): number | null {
+  if (!isReservedGroundingAnchorId(id)) {
+    return null;
+  }
+
+  return id === FIRST_RESERVED_GROUNDING_ANCHOR_ID ? -3 : -2;
+}
+
+function groundingEvidenceSortKey(
+  item: ResumeImportJsonValue,
+  index: number,
+  representativeIndexes: ReadonlySet<number>,
+): { primary: number; secondary: number; index: number } {
+  const id = groundingEvidenceField(item, "id");
+  const scope = groundingEvidenceField(item, "scope");
+  const scopePriority =
+    typeof scope === "string"
+      ? (GROUNDING_EVIDENCE_SCOPE_PRIORITY[scope] ?? Number.MAX_SAFE_INTEGER)
+      : Number.MAX_SAFE_INTEGER;
+
+  const anchorRank = groundingEvidenceAnchorRank(
+    typeof id === "string" ? id : null,
+  );
+  const primary =
+    anchorRank ?? (representativeIndexes.has(index) ? -1 : scopePriority);
+
+  const secondary =
+    typeof id === "string" &&
+    REDUNDANT_EVIDENCE_ID_SUFFIXES.some((suffix) => id.endsWith(suffix))
+      ? 1
+      : 0;
+
+  return { primary, secondary, index };
+}
+
+function prioritizeGroundingEvidenceEntries(
+  items: readonly ResumeImportJsonValue[],
+): Array<{ item: ResumeImportJsonValue; index: number }> {
+  const representativeIndexes = new Set<number>();
+
+  for (const scope of REPRESENTATIVE_GROUNDING_SCOPES) {
+    const index = items.findIndex(
+      (item) => groundingEvidenceField(item, "scope") === scope,
+    );
+
+    if (index >= 0) {
+      representativeIndexes.add(index);
+    }
+  }
+
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((left, right) => {
+      const leftKey = groundingEvidenceSortKey(
+        left.item,
+        left.index,
+        representativeIndexes,
+      );
+      const rightKey = groundingEvidenceSortKey(
+        right.item,
+        right.index,
+        representativeIndexes,
+      );
+
+      return (
+        leftKey.primary - rightKey.primary ||
+        leftKey.secondary - rightKey.secondary ||
+        leftKey.index - rightKey.index
+      );
+    });
+}
+
+function countOmittedItemsByScope(
+  items: readonly ResumeImportJsonValue[],
+): Record<string, number> {
+  const counts: Record<string, number> = {};
+
+  for (const item of items) {
+    const scope = groundingEvidenceField(item, "scope");
+    const key = typeof scope === "string" ? scope : "unknown";
+    counts[key] = (counts[key] ?? 0) + 1;
+  }
+
+  return Object.fromEntries(
+    Object.entries(counts).sort(([leftKey], [rightKey]) =>
+      leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0,
+    ),
+  );
+}
+
+function boundOmittedEvidenceId(id: string): string {
+  return id.length <= MAX_OMITTED_EVIDENCE_ID_CHARS
+    ? id
+    : `${id.slice(0, MAX_OMITTED_EVIDENCE_ID_CHARS - 1)}…`;
+}
+
+function buildGroundingCompactionNote(input: {
+  includedItemCount: number;
+  omittedItemCount: number;
+  omittedScopeCounts: Record<string, number>;
+  omittedIdsPreview: string[];
+}): string {
+  const scopeSummary =
+    Object.entries(input.omittedScopeCounts)
+      .map(([scope, count]) => `${scope}=${count}`)
+      .join(", ") || "none";
+  const idPreview =
+    input.omittedIdsPreview.length > 0
+      ? ` First omitted evidence ids: ${input.omittedIdsPreview.join(", ")}.`
+      : "";
+
+  return (
+    `Request compaction kept ${input.includedItemCount} of ${
+      input.includedItemCount + input.omittedItemCount
+    } grounding evidence items to fit the model input budget. ` +
+    "Original-resume and authoritative skill anchors were reserved first, " +
+    "followed by representative work history, project, and proof evidence. " +
+    `Omitted ${input.omittedItemCount} items by scope: ${scopeSummary}.${idPreview}`
+  );
+}
+
+function buildGroundingEvidenceCompactionMetadata(input: {
+  originalItemCount: number;
+  includedItemCount: number;
+  omittedItems: readonly ResumeImportJsonValue[];
+}): GroundingEvidenceCompactionMetadata {
+  const omittedItemCount = input.originalItemCount - input.includedItemCount;
+  const omittedScopeCounts = countOmittedItemsByScope(input.omittedItems);
+  const omittedIdsPreview = input.omittedItems
+    .map((item) => groundingEvidenceField(item, "id"))
+    .filter((id): id is string => typeof id === "string")
+    .map(boundOmittedEvidenceId)
+    .slice(0, MAX_OMITTED_EVIDENCE_ID_PREVIEW);
+
+  return {
+    applied: true,
+    note: buildGroundingCompactionNote({
+      includedItemCount: input.includedItemCount,
+      omittedItemCount,
+      omittedScopeCounts,
+      omittedIdsPreview,
+    }),
+    originalItemCount: input.originalItemCount,
+    includedItemCount: input.includedItemCount,
+    omittedItemCount,
+    omittedScopeCounts,
+    omittedIdsPreview,
+  };
+}
+
+function compactGroundingEvidenceItems(
+  items: readonly ResumeImportJsonValue[],
+  path: readonly string[],
+  level: number,
+  context: CompactionAttemptContext,
+): ResumeImportJsonValue[] {
+  const limit = Math.min(arrayLimitForPath(path, level, items), items.length);
+
+  // Within the cap there is no omission pressure: evidence keeps its
+  // original catalog order so level-one normalization stays a structural
+  // no-op for already-lean payloads.
+  if (limit >= items.length) {
+    return items.map((item) => compactValue(item, path, level, context));
+  }
+
+  const prioritizedEntries = prioritizeGroundingEvidenceEntries(items);
+  const keptEntries = prioritizedEntries.slice(0, limit);
+  const keptIndexes = new Set(keptEntries.map((entry) => entry.index));
+  const omittedItems = items.filter((_item, index) => !keptIndexes.has(index));
+
+  if (omittedItems.length > 0) {
+    context.groundingEvidenceCompaction =
+      buildGroundingEvidenceCompactionMetadata({
+        originalItemCount: items.length,
+        includedItemCount: keptEntries.length,
+        omittedItems,
+      });
+  }
+
+  return keptEntries.map((entry) =>
+    compactValue(entry.item, path, level, context),
+  );
+}
+
 function compactValue(
   value: ResumeImportJsonValue,
   path: readonly string[],
   level: number,
+  context: CompactionAttemptContext,
 ): ResumeImportJsonValue {
   if (typeof value === "string") {
     return truncateMiddle(value, stringLimitForPath(path, level));
   }
 
   if (Array.isArray(value)) {
+    if (matchesPathSuffix(path, ["groundingEvidence", "items"])) {
+      return compactGroundingEvidenceItems(value, path, level, context);
+    }
+
     const limited = value.slice(0, arrayLimitForPath(path, level, value));
-    return limited.map((entry) => compactValue(entry, path, level));
+    return limited.map((entry) => compactValue(entry, path, level, context));
   }
 
   if (!value || typeof value !== "object") {
@@ -260,7 +525,7 @@ function compactValue(
       continue;
     }
 
-    nextRecord[key] = compactValue(nestedValue, nextPath, level);
+    nextRecord[key] = compactValue(nestedValue, nextPath, level, context);
   }
 
   return nextRecord;
@@ -306,6 +571,42 @@ function computeUserPayloadCharBudget(input: {
   return availableInputTokens * APPROX_CHARS_PER_TOKEN;
 }
 
+function withGroundingEvidenceCompactionMetadata(
+  payload: ResumeImportJsonValue,
+  context: CompactionAttemptContext,
+): ResumeImportJsonValue {
+  const metadata = context.groundingEvidenceCompaction;
+
+  if (
+    !metadata ||
+    !payload ||
+    typeof payload !== "object" ||
+    Array.isArray(payload)
+  ) {
+    return payload;
+  }
+
+  const groundingEvidence = (
+    payload as Record<string, ResumeImportJsonValue>
+  ).groundingEvidence;
+
+  if (
+    !groundingEvidence ||
+    typeof groundingEvidence !== "object" ||
+    Array.isArray(groundingEvidence)
+  ) {
+    return payload;
+  }
+
+  return {
+    ...(payload as Record<string, ResumeImportJsonValue>),
+    groundingEvidence: {
+      ...(groundingEvidence as Record<string, ResumeImportJsonValue>),
+      compaction: metadata,
+    },
+  };
+}
+
 export function compactOpenAiCompatibleUserPayload(input: {
   operation: OpenAiCompatibleJsonOperation;
   modelContextWindowTokens: number | null;
@@ -323,19 +624,28 @@ export function compactOpenAiCompatibleUserPayload(input: {
   const charBudget = computeUserPayloadCharBudget(input);
   const originalSize = estimateSerializedLength(parsedPayload.data);
 
-  if (input.operation === "extractJobsFromPage" && originalSize <= charBudget) {
+  // Only extractJobsFromPage skips normalization entirely while within
+  // budget. Grounded resume generation requests always normalize through
+  // the level-one field bounds so oversized individual fields (for example
+  // a long targetJob description) stay lean even when the total payload
+  // fits; candidate-safe evidence anchoring engages only under omission
+  // pressure, and payloads already within every level-one bound pass
+  // through unchanged.
+  if (
+    input.operation === "extractJobsFromPage" &&
+    originalSize <= charBudget
+  ) {
     return parsedPayload.data;
   }
 
-  const levelOneCompacted = compactValue(parsedPayload.data, [], 1);
-  const levelOneSize = estimateSerializedLength(levelOneCompacted);
-
-  if (levelOneSize <= charBudget) {
-    return levelOneCompacted;
-  }
-
-  for (const level of [2, 3]) {
-    const compacted = compactValue(parsedPayload.data, [], level);
+  for (const level of [1, 2, 3]) {
+    const context: CompactionAttemptContext = {
+      groundingEvidenceCompaction: null,
+    };
+    const compacted = withGroundingEvidenceCompactionMetadata(
+      compactValue(parsedPayload.data, [], level, context),
+      context,
+    );
 
     if (estimateSerializedLength(compacted) <= charBudget) {
       return compacted;

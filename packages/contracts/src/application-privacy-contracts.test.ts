@@ -19,9 +19,9 @@ const baseApplyJobResult = {
 
 describe("application privacy receipt contracts", () => {
   test("keeps older apply results backward compatible", () => {
-    expect(ApplyJobResultSchema.parse(baseApplyJobResult).privacyReceipt).toBe(
-      null,
-    );
+    const legacyResult = ApplyJobResultSchema.parse(baseApplyJobResult);
+    expect(legacyResult.privacyReceipt).toBe(null);
+    expect(legacyResult.applicationRecordId).toBeNull();
     expect(
       ApplyJobResultSchema.parse({
         ...baseApplyJobResult,
@@ -37,6 +37,7 @@ describe("application privacy receipt contracts", () => {
         runId: "apply_run_1",
         jobId: "job_1",
         resultId: "apply_result_1",
+        applicationRecordId: "application_record_1",
       },
       destination: {
         origin: "https://boards.example.com",
@@ -77,6 +78,7 @@ describe("application privacy receipt contracts", () => {
       finalSubmitOccurred: false,
     });
     expect(receipt.resume.exportArtifactId).toBeNull();
+    expect(receipt.lineage.applicationRecordId).toBe("application_record_1");
   });
 
   test.each([

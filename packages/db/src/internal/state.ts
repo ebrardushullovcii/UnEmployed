@@ -39,6 +39,7 @@ import {
 } from "@unemployed/contracts";
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import {
+  APPLICATION_ATTEMPT_INDEXED_COLLECTION_CONFIG,
   APPLY_COLLECTION_ORDER_BY_SQL,
   APPLY_INDEXED_COLLECTION_CONFIGS,
 } from "../apply-collection-support";
@@ -135,21 +136,76 @@ function buildPaginationSql(options?: { limit?: number; offset?: number }): {
     : { sql: " LIMIT ? OFFSET ?", params: [limit, offset] };
 }
 
-function parseJsonValue<TValue>(
-  rawValue: string,
-  schema: SchemaParser<TValue>,
-): TValue {
-  return schema.parse(JSON.parse(rawValue) as unknown);
+interface PersistedRowValidationIssueLike {
+  readonly code?: unknown;
+  readonly path?: unknown;
 }
 
-function tryParseJsonValue<TValue>(
-  rawValue: string,
-  schema: SchemaParser<TValue>,
-): TValue | null {
+/**
+ * Summarizes why a persisted row failed validation without ever emitting raw
+ * row payloads, which can carry candidate secrets.
+ */
+function describePersistedRowFailure(error: unknown): string {
+  if (error instanceof SyntaxError) {
+    return "the persisted value is not valid JSON";
+  }
+
+  const issues =
+    typeof error === "object" && error !== null && "issues" in error
+      ? (error as { issues?: unknown }).issues
+      : null;
+
+  if (Array.isArray(issues)) {
+    const issueSummaries = issues.flatMap((issue) => {
+      if (typeof issue !== "object" || issue === null) {
+        return [];
+      }
+      const candidate = issue as PersistedRowValidationIssueLike;
+      if (typeof candidate.code !== "string") {
+        return [];
+      }
+      const path = Array.isArray(candidate.path)
+        ? candidate.path.filter(
+            (segment): segment is string | number =>
+              typeof segment === "string" || typeof segment === "number",
+          )
+        : [];
+      return [
+        path.length > 0
+          ? `${path.join(".")}: ${candidate.code}`
+          : candidate.code,
+      ];
+    });
+
+    if (issueSummaries.length > 0) {
+      return `schema validation failed (${issueSummaries.slice(0, 5).join("; ")})`;
+    }
+  }
+
+  return "schema validation failed";
+}
+
+function parsePersistedRowValue<TValue>(input: {
+  tableName: string;
+  rowId: string;
+  rawValue: string;
+  schema: SchemaParser<TValue>;
+}): TValue {
+  let parsedValue: unknown;
   try {
-    return parseJsonValue(rawValue, schema);
+    parsedValue = JSON.parse(input.rawValue) as unknown;
   } catch {
-    return null;
+    throw new Error(
+      `Corrupted persisted row in table "${input.tableName}" (row "${input.rowId}"): the persisted value is not valid JSON. Repair or remove the corrupted row before using this repository.`,
+    );
+  }
+
+  try {
+    return input.schema.parse(parsedValue);
+  } catch (error) {
+    throw new Error(
+      `Corrupted persisted row in table "${input.tableName}" (row "${input.rowId}"): ${describePersistedRowFailure(error)}. Repair or remove the corrupted row before using this repository.`,
+    );
   }
 }
 
@@ -164,13 +220,17 @@ export function listValues<TValue>(
 ): TValue[] {
   const pagination = buildPaginationSql(options);
   const statement = database.prepare(
-    `SELECT value FROM ${stateTableNames[tableName]} ORDER BY id${pagination.sql}`,
+    `SELECT id, value FROM ${stateTableNames[tableName]} ORDER BY id${pagination.sql}`,
   );
   const rows = statement.all(...pagination.params);
-  return rows.flatMap((row) => {
-    const parsedValue = tryParseJsonValue(String(row.value), schema);
-    return parsedValue ? [parsedValue] : [];
-  });
+  return rows.map((row) =>
+    parsePersistedRowValue({
+      tableName,
+      rowId: String(row.id),
+      rawValue: String(row.value),
+      schema,
+    }),
+  );
 }
 
 export function listCollectionValues<TValue>(
@@ -190,13 +250,17 @@ export function listCollectionValues<TValue>(
   const baseParams = [...(options.params ?? [])] as SQLInputValue[];
   return database
     .prepare(
-      `SELECT value FROM ${stateTableNames[tableName]}${whereClause} ORDER BY ${options.orderBySql}${pagination.sql}`,
+      `SELECT id, value FROM ${stateTableNames[tableName]}${whereClause} ORDER BY ${options.orderBySql}${pagination.sql}`,
     )
     .all(...baseParams, ...pagination.params)
-    .flatMap((row) => {
-      const parsedValue = tryParseJsonValue(String(row.value), schema);
-      return parsedValue ? [parsedValue] : [];
-    });
+    .map((row) =>
+      parsePersistedRowValue({
+        tableName,
+        rowId: String(row.id),
+        rawValue: String(row.value),
+        schema,
+      }),
+    );
 }
 
 export function getSingletonValue<TValue>(
@@ -214,9 +278,50 @@ export function getSingletonValue<TValue>(
     return null;
   }
 
-  return tryParseJsonValue(String(row.value), schema);
+  return parsePersistedRowValue({
+    tableName: stateTableNames.singleton_state,
+    rowId: key,
+    rawValue: String(row.value),
+    schema,
+  });
 }
 
+export interface SingletonValueWithRevision<TValue> {
+  value: TValue | null;
+  revision: number;
+}
+
+export function getSingletonValueWithRevision<TValue>(
+  database: DatabaseSync,
+  key: StateTableKey,
+  schema: SchemaParser<TValue>,
+): SingletonValueWithRevision<TValue> {
+  const row = database
+    .prepare(
+      `SELECT value, revision FROM ${stateTableNames.singleton_state} WHERE key = ?`,
+    )
+    .get(key) as { value?: unknown; revision?: unknown } | undefined;
+
+  if (!row || typeof row.value !== "string") {
+    return { value: null, revision: Number(row?.revision ?? 0) };
+  }
+
+  return {
+    value: parsePersistedRowValue({
+      tableName: stateTableNames.singleton_state,
+      rowId: key,
+      rawValue: row.value,
+      schema,
+    }),
+    revision: Number(row.revision ?? 0),
+  };
+}
+
+/**
+ * Unconditional singleton save. The monotonic per-row revision increments
+ * atomically inside the same statement so concurrent writers can never share
+ * one revision value.
+ */
 export function saveSingletonValue(
   database: DatabaseSync,
   key: StateTableKey,
@@ -224,9 +329,50 @@ export function saveSingletonValue(
 ): void {
   database
     .prepare(
-      `INSERT OR REPLACE INTO ${stateTableNames.singleton_state} (key, value) VALUES (?, ?)`,
+      `INSERT INTO ${stateTableNames.singleton_state} (key, value, revision)
+       VALUES (?, ?, 1)
+       ON CONFLICT(key) DO UPDATE SET
+         value = excluded.value,
+         revision = ${stateTableNames.singleton_state}.revision + 1`,
     )
     .run(key, JSON.stringify(value));
+}
+
+/**
+ * Bootstrap/reset write. Unlike saveSingletonValue this reinitializes the
+ * revision deterministically instead of incrementing, because the whole state
+ * is being replaced from an authoritative seed.
+ */
+export function initSingletonValue(
+  database: DatabaseSync,
+  key: StateTableKey,
+  value: unknown,
+): void {
+  database
+    .prepare(
+      `INSERT OR REPLACE INTO ${stateTableNames.singleton_state} (key, value, revision) VALUES (?, ?, 1)`,
+    )
+    .run(key, JSON.stringify(value));
+}
+
+/**
+ * Advances a singleton row's monotonic revision without changing its value.
+ * The profile row's revision is the shared compare-and-swap epoch for the
+ * profile, search-preferences, and profile-setup-state singletons: copilot
+ * commits snapshot all three, so preference-only or setup-state-only writes
+ * must advance it too or the captured token would miss their changes.
+ */
+export function incrementSingletonRevision(
+  database: DatabaseSync,
+  key: StateTableKey,
+): void {
+  database
+    .prepare(
+      `UPDATE ${stateTableNames.singleton_state}
+       SET revision = revision + 1
+       WHERE key = ?`,
+    )
+    .run(key);
 }
 
 export function replaceCollection(
@@ -307,31 +453,63 @@ export function upsertCollectionValue(
     .run(value.id, JSON.stringify(value));
 }
 
+/**
+ * Campaign persistence is all-or-nothing: a state that carries campaigns
+ * without a matching active pointer must never reach the delete-or-write
+ * branch, because it would silently wipe the persisted campaign collection.
+ */
+function assertPersistableCampaignPointer(
+  state: JobFinderRepositoryState,
+): void {
+  if (state.campaigns.length === 0) {
+    if (state.activeCampaignId !== null) {
+      throw new Error(
+        "Refusing to persist workspace state: the seed has no campaigns but references an active campaign.",
+      );
+    }
+    return;
+  }
+
+  if (
+    state.activeCampaignId === null ||
+    !state.campaigns.some((campaign) => campaign.id === state.activeCampaignId)
+  ) {
+    throw new Error(
+      "Refusing to persist workspace state: campaigns without a matching active campaign id would silently delete persisted campaigns.",
+    );
+  }
+}
+
 export function writeState(
   database: DatabaseSync,
   state: JobFinderRepositoryState,
 ): void {
+  assertPersistableCampaignPointer(state);
   database.exec("BEGIN IMMEDIATE");
 
   try {
-    saveSingletonValue(database, "profile", state.profile);
-    saveSingletonValue(database, "search_preferences", state.searchPreferences);
-    saveSingletonValue(
+    initSingletonValue(database, "profile", state.profile);
+    initSingletonValue(database, "search_preferences", state.searchPreferences);
+    initSingletonValue(
       database,
       "profile_setup_state",
       state.profileSetupState,
     );
-    saveSingletonValue(database, "settings", state.settings);
-    saveSingletonValue(database, "discovery_state", state.discovery);
+    initSingletonValue(database, "settings", state.settings);
+    initSingletonValue(database, "discovery_state", state.discovery);
     if (state.campaigns.length > 0 && state.activeCampaignId) {
-      saveSingletonValue(database, "campaign_state", {
+      initSingletonValue(database, "campaign_state", {
         campaigns: state.campaigns,
         activeCampaignId: state.activeCampaignId,
         notifications: state.campaignNotifications,
       });
+    } else {
+      database
+        .prepare(`DELETE FROM ${stateTableNames.singleton_state} WHERE key = ?`)
+        .run("campaign_state");
     }
-    saveSingletonValue(database, "activity_control", state.activityControl);
-    saveSingletonValue(database, "intelligence_state", state.intelligence);
+    initSingletonValue(database, "activity_control", state.activityControl);
+    initSingletonValue(database, "intelligence_state", state.intelligence);
     replaceCollection(database, "saved_jobs", state.savedJobs);
     replaceCollection(database, "tailored_assets", state.tailoredAssets);
     replaceIndexedCollection(
@@ -537,10 +715,11 @@ export function writeState(
       "application_records",
       state.applicationRecords,
     );
-    replaceCollection(
+    replaceIndexedCollection(
       database,
       "application_attempts",
       state.applicationAttempts,
+      APPLICATION_ATTEMPT_INDEXED_COLLECTION_CONFIG,
     );
     replaceCollection(database, "source_debug_runs", state.sourceDebugRuns);
     replaceCollection(

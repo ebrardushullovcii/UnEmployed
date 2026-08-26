@@ -12,6 +12,10 @@ import {
 import { Button } from "@renderer/components/ui/button";
 import { Input } from "@renderer/components/ui/input";
 import { useEffect, useMemo, useState } from "react";
+import { collectionSearchFieldClass } from "../../components/collection-search-toolbar";
+import { isImeComposingEvent } from "../../lib/job-finder-shortcuts";
+import { useJobFinderOverlayOwnership } from "../../lib/job-finder-overlay-ownership";
+import { CampaignConfirmDialog } from "./campaign-confirm-dialog";
 
 const kindLabels: Record<CampaignRuleKind, string> = {
   must_have: "Must have",
@@ -124,6 +128,7 @@ function RuleRow(props: {
           )}
           <label className="flex items-center gap-1.5 text-xs text-foreground-soft">
             <input
+              aria-label={`Toggle rule: ${describeRule(rule)}`}
               checked={rule.enabled}
               onChange={(event) => props.onToggle(event.target.checked)}
               type="checkbox"
@@ -188,16 +193,31 @@ export function CampaignRuleBuilder(props: {
   const [draftValue, setDraftValue] = useState("");
   const [draftCurrency, setDraftCurrency] = useState("USD");
   const [searchQuery, setSearchQuery] = useState("");
+  const [ruleRemovalCandidateId, setRuleRemovalCandidateId] = useState<
+    string | null
+  >(null);
+  // The rule editor is a screen-level Escape owner; joining the overlay stack
+  // keeps a stacked search/modal from closing it in the same keypress and
+  // blocks shell aliases while editing.
+  const { isTopmost: isBuilderTopmost } = useJobFinderOverlayOwnership({
+    active: true,
+    close: () => props.onClose(),
+  });
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        props.onClose();
+      if (event.defaultPrevented || isImeComposingEvent(event)) {
+        return;
       }
+      if (event.key !== "Escape" || !isBuilderTopmost()) {
+        return;
+      }
+      event.preventDefault();
+      props.onClose();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [props.onClose]);
+  }, [isBuilderTopmost, props.onClose]);
 
   const availableOperators = campaignRuleOperatorsByField[draftField];
   const needsNumeric = draftField === "compensation" || draftField === "travel";
@@ -264,6 +284,17 @@ export function CampaignRuleBuilder(props: {
     return map;
   }, [props.projection]);
 
+  const requestRemoveRule = (ruleId: string) => {
+    setRuleRemovalCandidateId(ruleId);
+  };
+
+  const ruleRemovalCandidate =
+    ruleRemovalCandidateId === null
+      ? null
+      : (props.campaign.rules.find(
+          (candidate) => candidate.id === ruleRemovalCandidateId,
+        ) ?? null);
+
   const rulesByKind = useMemo(() => {
     const grouped: Record<CampaignRuleKind, CampaignRule[]> = {
       must_have: [],
@@ -327,7 +358,7 @@ export function CampaignRuleBuilder(props: {
         </h3>
         {!funnel ? (
           <p className="text-sm text-foreground-soft">
-            Loading the current funnel… counts appear only after this campaign
+            Loading the current funnel… counts appear only after this search plan
             retains real jobs.
           </p>
         ) : !hasSample ? (
@@ -386,7 +417,7 @@ export function CampaignRuleBuilder(props: {
           <label className="grid gap-1 text-sm">
             <span>Kind</span>
             <select
-              className="h-11 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
+              className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
               onChange={(event) =>
                 setDraftKind(event.target.value as CampaignRuleKind)
               }
@@ -400,7 +431,7 @@ export function CampaignRuleBuilder(props: {
           <label className="grid gap-1 text-sm">
             <span>Job field</span>
             <select
-              className="h-11 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
+              className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
               onChange={(event) =>
                 changeField(event.target.value as CampaignRuleField)
               }
@@ -416,7 +447,7 @@ export function CampaignRuleBuilder(props: {
           <label className="grid gap-1 text-sm">
             <span>Operator</span>
             <select
-              className="h-11 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
+              className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
               onChange={(event) =>
                 setDraftOperator(event.target.value as CampaignRuleOperator)
               }
@@ -505,6 +536,7 @@ export function CampaignRuleBuilder(props: {
             <span className="sr-only">Search rules</span>
             <Input
               aria-label="Search rules"
+              className={collectionSearchFieldClass}
               onChange={(event) => setSearchQuery(event.target.value)}
               placeholder="Search field, value, or kind"
               type="search"
@@ -524,7 +556,7 @@ export function CampaignRuleBuilder(props: {
               <RuleGroup
                 key={kind}
                 kind={kind}
-                onDelete={props.onDeleteRule}
+                onDelete={requestRemoveRule}
                 onToggle={props.onToggleRule}
                 rules={rulesByKind[kind] ?? []}
               />
@@ -532,6 +564,29 @@ export function CampaignRuleBuilder(props: {
           </div>
         )}
       </section>
+
+      <CampaignConfirmDialog
+        confirmLabel="Remove rule"
+        detail={
+          ruleRemovalCandidate === null
+            ? ""
+            : `“${describeRule(ruleRemovalCandidate)}” will be permanently removed from ${props.campaign.name}. Jobs it excluded or downgraded will no longer be affected. This cannot be undone.`
+        }
+        eyebrow="Campaign rule"
+        onCancel={() => setRuleRemovalCandidateId(null)}
+        onConfirm={() => {
+          if (ruleRemovalCandidate === null) {
+            return;
+          }
+          const ruleId = ruleRemovalCandidate.id;
+          // Close first so a re-render can never confirm twice; the callback
+          // then runs exactly once for this explicit confirmation.
+          setRuleRemovalCandidateId(null);
+          props.onDeleteRule(ruleId);
+        }}
+        open={ruleRemovalCandidate !== null}
+        title="Remove this rule?"
+      />
     </section>
   );
 }

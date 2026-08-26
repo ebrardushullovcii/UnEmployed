@@ -126,6 +126,17 @@ function renderProbe(input?: {
 }
 
 describe("InterviewMediaStreamProbes capture lifecycle", () => {
+  test("labels microphone and system audio probe statuses distinctly before any check", () => {
+    const rendered = renderProbe();
+
+    const statusLines = Array.from(
+      rendered.container.querySelectorAll("p"),
+    ).map((line) => line.textContent ?? "");
+
+    expect(statusLines).toContain("Microphone: Not checked yet.");
+    expect(statusLines).toContain("System audio: Not checked yet.");
+  });
+
   test("allows system audio while microphone capture remains disabled", () => {
     const rendered = renderProbe({
       microphoneCaptureAllowed: false,

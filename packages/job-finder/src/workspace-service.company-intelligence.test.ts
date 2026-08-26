@@ -1,4 +1,5 @@
-import { describe, expect, test } from "vitest";
+import { ApplicationRecordSchema } from "@unemployed/contracts";
+import { describe, expect, test, vi } from "vitest";
 
 import { createWorkspaceServiceHarness } from "./workspace-service.test-harness";
 
@@ -98,13 +99,13 @@ describe("workspace company intelligence end to end", () => {
         type: "upsert_salary_offer_evidence",
         evidence: {
           id: "evidence_1",
-          kind: "offer",
-          summary: "Verbal offer 190k",
+          kind: "listed_salary",
+          summary: "Listed range 190k",
           currency: "USD",
           minimum: 190000,
           maximum: 190000,
           period: "year",
-          offerStatus: "active",
+          offerStatus: null,
           jobId: "job_ready",
           applicationRecordId: null,
           source: "manual",
@@ -118,9 +119,7 @@ describe("workspace company intelligence end to end", () => {
       (entry) => entry.id === company.id,
     )!;
     expect(withEvidenceCompany.salaryOfferEvidence).toHaveLength(1);
-    expect(withEvidenceCompany.salaryOfferEvidence[0]!.offerStatus).toBe(
-      "active",
-    );
+    expect(withEvidenceCompany.salaryOfferEvidence[0]!.jobId).toBe("job_ready");
 
     // A stale compare-and-swap is rejected so a concurrent merge/edit is never
     // overwritten.
@@ -140,6 +139,48 @@ describe("workspace company intelligence end to end", () => {
     expect(refreshedCompany.contacts).toHaveLength(1);
     expect(refreshedCompany.notes).toHaveLength(1);
     expect(refreshedCompany.salaryOfferEvidence).toHaveLength(1);
+  });
+
+  test("rejects the second same-millisecond mutation using the first command's stale timestamp", async () => {
+    const harness = createWorkspaceServiceHarness();
+    const initial = await withReconciledCompanies(harness);
+    const company = initial.intelligence.companies.find((entry) =>
+      entry.jobIds.includes("job_ready"),
+    )!;
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(company.updatedAt));
+    try {
+      const first = await harness.workspaceService.mutateCompanyIntelligence({
+        companyId: company.id,
+        expectedUpdatedAt: company.updatedAt,
+        mutation: {
+          type: "add_note",
+          note: {
+            id: "same_millisecond_note",
+            body: "First edit",
+            createdAt: company.updatedAt,
+            updatedAt: company.updatedAt,
+          },
+        },
+      });
+      const updated = first.intelligence.companies.find(
+        (entry) => entry.id === company.id,
+      )!;
+      expect(Date.parse(updated.updatedAt)).toBeGreaterThan(
+        Date.parse(company.updatedAt),
+      );
+
+      await expect(
+        harness.workspaceService.mutateCompanyIntelligence({
+          companyId: company.id,
+          expectedUpdatedAt: company.updatedAt,
+          mutation: { type: "remove_note", noteId: "same_millisecond_note" },
+        }),
+      ).rejects.toThrow(/changed since you opened/i);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("company preference and merge review never affect final-submit authority", async () => {
@@ -195,5 +236,69 @@ describe("workspace company intelligence end to end", () => {
         (entry) => entry.preference === "prefer",
       ),
     ).toBe(true);
+  });
+
+  test("persists an explicitly selected sibling application and does not write for a missing record", async () => {
+    const harness = createWorkspaceServiceHarness();
+    for (const id of ["application_first", "application_selected"]) {
+      await harness.repository.upsertApplicationRecord(
+        ApplicationRecordSchema.parse({
+          id,
+          jobId: "job_ready",
+          title: "Senior Software Engineer",
+          company: "Signal Systems",
+          status: "submitted",
+          lastActionLabel: "Submitted",
+          nextActionLabel: null,
+          lastUpdatedAt: "2026-08-15T10:00:00.000Z",
+        }),
+      );
+    }
+    const initial = await withReconciledCompanies(harness);
+    const company = initial.intelligence.companies.find((entry) =>
+      entry.jobIds.includes("job_ready"),
+    )!;
+    const evidence = {
+      id: "evidence_exact_offer",
+      kind: "offer" as const,
+      summary: "Exact application offer",
+      currency: "USD",
+      minimum: 200000,
+      maximum: 200000,
+      period: "year" as const,
+      offerStatus: "active" as const,
+      jobId: "job_ready",
+      applicationRecordId: "application_selected",
+      source: "manual",
+      recordedAt: "2026-08-15T10:10:00.000Z",
+      createdAt: "2026-08-15T10:10:00.000Z",
+      updatedAt: "2026-08-15T10:10:00.000Z",
+    };
+    const saved = await harness.workspaceService.mutateCompanyIntelligence({
+      companyId: company.id,
+      expectedUpdatedAt: company.updatedAt,
+      mutation: { type: "upsert_salary_offer_evidence", evidence },
+    });
+    const savedCompany = saved.intelligence.companies.find(
+      (entry) => entry.id === company.id,
+    )!;
+    expect(savedCompany.salaryOfferEvidence[0]?.applicationRecordId).toBe(
+      "application_selected",
+    );
+
+    const stateBeforeFailure = await harness.repository.getIntelligenceState();
+    await expect(
+      harness.workspaceService.mutateCompanyIntelligence({
+        companyId: company.id,
+        expectedUpdatedAt: savedCompany.updatedAt,
+        mutation: {
+          type: "upsert_salary_offer_evidence",
+          evidence: { ...evidence, applicationRecordId: "application_deleted" },
+        },
+      }),
+    ).rejects.toThrow(/does not exist/i);
+    expect(await harness.repository.getIntelligenceState()).toEqual(
+      stateBeforeFailure,
+    );
   });
 });

@@ -1,19 +1,32 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type {
   BrowserSessionState,
   JobSearchPreferences,
   SavedJob,
 } from "@unemployed/contracts";
 import type { ReactNode } from "react";
+// The real screen header renders a router Link for visible source recovery,
+// so every full-screen render needs router context (same as the other
+// DiscoveryScreen suites).
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock(
   "@renderer/features/job-finder/components/locked-screen-layout",
   () => ({
-    LockedScreenLayout: ({ children }: { children: ReactNode }) => (
-      <main>{children}</main>
+    LockedScreenLayout: ({
+      children,
+      topContent,
+    }: {
+      children: ReactNode;
+      topContent: ReactNode;
+    }) => (
+      <main>
+        {topContent}
+        {children}
+      </main>
     ),
   }),
 );
@@ -91,32 +104,34 @@ function renderEstablishedResults() {
   const selectedJob = createJob("strong", "strong_fit");
   const hiddenMismatch = createJob("mismatch", "skip");
 
-  render(
-    <DiscoveryScreen
-      actionState={{ message: null }}
-      activeRun={null}
-      browserSession={browserSession}
-      discoverySessions={[]}
-      isBrowserSessionPending={false}
-      isBrowserSessionPendingForTarget={() => false}
-      isDiscoveryAllPending={false}
-      isJobPending={() => false}
-      isTargetPending={() => false}
-      jobs={[selectedJob, hiddenMismatch]}
-      dismissedJobs={[]}
-      liveEvents={[]}
-      onDismissJob={vi.fn()}
-      onRestoreDismissedJob={vi.fn()}
-      onOpenBrowserSession={vi.fn()}
-      onOpenBrowserSessionForTarget={vi.fn()}
-      onQueueJob={vi.fn()}
-      onRunAgentDiscovery={vi.fn()}
-      onSelectJob={vi.fn()}
-      recentRuns={[]}
-      searchPreferences={searchPreferences}
-      selectedJob={selectedJob}
-      sourceAccessPrompts={[]}
-    />,
+  return render(
+    <MemoryRouter>
+      <DiscoveryScreen
+        actionState={{ message: null }}
+        activeRun={null}
+        browserSession={browserSession}
+        discoverySessions={[]}
+        isBrowserSessionPending={false}
+        isBrowserSessionPendingForTarget={() => false}
+        isDiscoveryAllPending={false}
+        isJobPending={() => false}
+        isTargetPending={() => false}
+        jobs={[selectedJob, hiddenMismatch]}
+        dismissedJobs={[]}
+        liveEvents={[]}
+        onDismissJob={vi.fn()}
+        onRestoreDismissedJob={vi.fn()}
+        onOpenBrowserSession={vi.fn()}
+        onOpenBrowserSessionForTarget={vi.fn()}
+        onQueueJob={vi.fn()}
+        onRunAgentDiscovery={vi.fn()}
+        onSelectJob={vi.fn()}
+        recentRuns={[]}
+        searchPreferences={searchPreferences}
+        selectedJob={selectedJob}
+        sourceAccessPrompts={[]}
+      />
+    </MemoryRouter>,
   );
 }
 
@@ -125,35 +140,91 @@ afterEach(() => {
 });
 
 describe("DiscoveryScreen established-results layout", () => {
-  it("keeps the search controls in the first desktop column before and after results load", () => {
+  it("offers exact employer reversal separately from restoring a hidden job", () => {
+    const onRemoveEmployerExclusion = vi.fn();
+    const onRestoreDismissedJob = vi.fn();
+    const hiddenJob = {
+      ...createJob("hidden", "skip"),
+      title: "Hidden role",
+      discoveryFeedback: {
+        version: 1,
+        revision: 1,
+        reasons: ["company"],
+        recordedAt: "2026-08-23T10:00:00.000Z",
+        priorStatus: "discovered",
+        employerExclusion: {
+          normalizedCompanyName: "example co",
+          displayCompanyName: "Example Co",
+          addedByThisFeedback: true,
+        },
+      },
+    } as SavedJob;
+    render(
+      <MemoryRouter>
+        <DiscoveryScreen
+          actionState={{ message: null }}
+          activeRun={null}
+          browserSession={browserSession}
+          discoverySessions={[]}
+          isBrowserSessionPending={false}
+          isBrowserSessionPendingForTarget={() => false}
+          isDiscoveryAllPending={false}
+          isJobPending={() => false}
+          isTargetPending={() => false}
+          jobs={[createJob("visible", "strong_fit")]}
+          dismissedJobs={[hiddenJob]}
+          liveEvents={[]}
+          onDismissJob={vi.fn()}
+          onRestoreDismissedJob={onRestoreDismissedJob}
+          onRemoveEmployerExclusion={onRemoveEmployerExclusion}
+          onOpenBrowserSession={vi.fn()}
+          onOpenBrowserSessionForTarget={vi.fn()}
+          onQueueJob={vi.fn()}
+          onRunAgentDiscovery={vi.fn()}
+          onSelectJob={vi.fn()}
+          recentRuns={[]}
+          searchPreferences={searchPreferences}
+          selectedJob={null}
+          sourceAccessPrompts={[]}
+        />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByText(/Hidden by you/iu));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Allow this employer in future searches",
+      }),
+    );
+    expect(onRemoveEmployerExclusion).toHaveBeenCalledWith({
+      jobId: "hidden",
+      normalizedCompanyName: "example co",
+    });
+    expect(onRestoreDismissedJob).not.toHaveBeenCalled();
+  });
+
+  it("defaults to a two-pane results workspace and opens search setup as a separate mode", () => {
     renderEstablishedResults();
 
     const resultsPane = screen.getByRole("region", {
       name: "Job results",
     }).parentElement;
-    const searchPane = screen.getByRole("region", {
-      name: "Current search",
-    }).parentElement;
     const detailsPane = screen.getByRole("region", {
       name: "Job details",
     }).parentElement;
 
-    if (!resultsPane || !searchPane || !detailsPane) {
-      throw new Error("Expected all three established discovery panes.");
+    if (!resultsPane || !detailsPane) {
+      throw new Error("Expected the results and details panes.");
     }
     const layout = resultsPane.parentElement;
     if (!layout) {
       throw new Error("Expected the established discovery grid.");
     }
 
-    expect(Array.from(layout.children)).toEqual([
-      searchPane,
-      resultsPane,
-      detailsPane,
-    ]);
+    expect(Array.from(layout.children)).toEqual([resultsPane, detailsPane]);
+    expect(screen.queryByRole("region", { name: "Current search" })).toBeNull();
     expect(layout.className).toContain("grid-cols-1");
     expect(layout.className).toContain(
-      "xl:grid-cols-[minmax(22rem,24rem)_minmax(24rem,1fr)_23rem]",
+      "xl:grid-cols-[minmax(30rem,1.35fr)_minmax(25rem,0.9fr)]",
     );
     expect(layout.className).not.toContain("lg:grid-cols-");
     expect(layout.className).not.toContain("2xl:grid-cols-");
@@ -162,8 +233,55 @@ describe("DiscoveryScreen established-results layout", () => {
     expect(layout.className).toContain("xl:h-full");
     expect(layout.className).toContain("xl:min-h-0");
     expect(layout.className).toContain("xl:overflow-hidden");
-    for (const pane of [resultsPane, searchPane, detailsPane]) {
+    for (const pane of [resultsPane, detailsPane]) {
       expect(pane.className).not.toMatch(/(?:^|\s)(?:\w+:)?order-/u);
     }
+
+    fireEvent.click(screen.getByRole("button", { name: "Search setup" }));
+    expect(screen.getByRole("region", { name: "Current search" })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Job results" })).toBeNull();
+  });
+
+  it("renders the shared header grammar: stack, one divider, subnav, single search control", () => {
+    const view = renderEstablishedResults();
+
+    const main = view.container.querySelector("main");
+    if (!main) {
+      throw new Error("Expected the mocked layout main.");
+    }
+    const stack = main.querySelector("[data-page-header-stack]");
+    const subnav = main.querySelector("[data-page-header-subnav]");
+    const dividers = main.querySelectorAll("[data-page-header-divider]");
+    const workspace = document.getElementById("discovery-workspace-content");
+
+    expect(stack).toBeTruthy();
+    expect(dividers).toHaveLength(1);
+    expect(subnav?.className).toContain("mt-(--gap-page-header-aux)");
+    expect(stack?.className).toContain("mb-(--gap-page-header-body)");
+    expect(main.children[0]).toBe(stack);
+    expect(main.children[1]).toBe(workspace);
+
+    expect(
+      screen.getByRole("group", { name: "Find jobs workspace" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Results" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Edit search" })).toBeNull();
+
+    const searchButtons = screen.getAllByRole("button", {
+      name: "Search now",
+    });
+    expect(searchButtons).toHaveLength(1);
+
+    for (const mode of ["Results", "Search setup"]) {
+      expect(
+        screen
+          .getByRole("button", { name: mode })
+          .getAttribute("aria-controls"),
+      ).toBe("discovery-workspace-content");
+    }
+    expect(workspace?.getAttribute("id")).toBe("discovery-workspace-content");
+    expect(
+      workspace?.contains(screen.getByRole("region", { name: "Job results" })),
+    ).toBe(true);
   });
 });

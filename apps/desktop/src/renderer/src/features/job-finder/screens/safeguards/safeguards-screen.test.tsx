@@ -15,6 +15,44 @@ function emptySafeguards() {
   return JobFinderIntelligenceSafeguardsSchema.parse({});
 }
 
+function signalSafeguards() {
+  return JobFinderIntelligenceSafeguardsSchema.parse({
+    listingSignals: [
+      {
+        id: "signal_1",
+        jobId: "job_ready",
+        signal: "suspicious",
+        detail: null,
+        detectedAt: now,
+        confidence: 0.95,
+        provenance: "browser",
+        explanation: "Listing shows unusual signs.",
+        recoveryGuidance: "Inspect the listing before applying.",
+      },
+    ],
+  });
+}
+
+function contradictionSafeguards() {
+  return JobFinderIntelligenceSafeguardsSchema.parse({
+    contradictoryAnswerDetections: [
+      {
+        id: "detection_1",
+        questionA: "How many years?",
+        questionB: "Experience years?",
+        answerA: "5",
+        answerB: "2",
+        contradictionScore: 0.9,
+        status: "detected",
+        detectedAt: now,
+        resolvedAt: null,
+        explanation: "Answers conflict.",
+        recoveryGuidance: "Ask the user to confirm the correct answer.",
+      },
+    ],
+  });
+}
+
 function workspaceWith(
   safeguards: ReturnType<typeof emptySafeguards> = emptySafeguards(),
 ): JobFinderWorkspaceSnapshot {
@@ -78,8 +116,28 @@ describe("SafeguardsScreen", () => {
     expect(screen.getByText(/No active safeguard blockers/i)).toBeTruthy();
   });
 
-  it("keeps the search field and category tabs in a responsive non-clipping toolbar", () => {
+  it("hides the search and category filters when there is nothing to filter", () => {
     renderScreen({});
+
+    expect(document.querySelector("[data-safeguard-toolbar]")).toBeNull();
+    expect(screen.queryByRole("searchbox")).toBeNull();
+    expect(
+      screen.queryByRole("group", { name: "Safeguard categories" }),
+    ).toBeNull();
+  });
+
+  it("keeps the zero-row empty panel compact instead of viewport-tall", () => {
+    renderScreen({});
+
+    const emptyPanel = document.querySelector<HTMLElement>(
+      "[data-safeguard-empty]",
+    );
+    expect(emptyPanel).toBeTruthy();
+    expect(emptyPanel?.firstElementChild?.className).toContain("min-h-40");
+  });
+
+  it("keeps the search field and category filters in a responsive non-clipping toolbar", () => {
+    renderScreen({ workspace: workspaceWith(signalSafeguards()) });
 
     const toolbar = document.querySelector<HTMLElement>(
       "[data-safeguard-toolbar]",
@@ -95,7 +153,10 @@ describe("SafeguardsScreen", () => {
     expect(categories?.className).toContain("min-w-0");
     expect(categories?.className).toContain("w-full");
     expect(categories?.className).toContain("flex-wrap");
-    expect(screen.getAllByRole("tab")).toHaveLength(8);
+    expect(
+      screen.getByRole("group", { name: "Safeguard categories" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("tablist")).toBeNull();
   });
 
   it("shows signals with a dismiss control that calls the typed mutation", async () => {
@@ -133,6 +194,17 @@ describe("SafeguardsScreen", () => {
         note: "Re-verified the listing.",
       });
     });
+  });
+
+  it("keeps contradictory answers visible as advisory with no blockers", () => {
+    renderScreen({ workspace: workspaceWith(contradictionSafeguards()) });
+
+    const advisory = document.querySelector(
+      '[data-safeguard-kind="contradictions"]',
+    );
+    expect(advisory?.getAttribute("data-safeguard-blocked")).toBe("false");
+    expect(screen.getByText("Advisory")).toBeTruthy();
+    expect(screen.getByText(/No active safeguard blockers/i)).toBeTruthy();
   });
 
   it("shows a conflict row and resolves it through the typed mutation", async () => {
@@ -190,41 +262,47 @@ describe("SafeguardsScreen", () => {
     expect(screen.getByText(/Try a different term/)).toBeTruthy();
   });
 
-  it("navigates tabs with arrow keys (keyboard accessibility)", () => {
-    renderScreen({});
+  it("announces the active filter and preserves filtering and counts", () => {
+    renderScreen({ workspace: workspaceWith(signalSafeguards()) });
 
-    const tabs = screen.getAllByRole("tab");
-    const signalsTab = tabs.find((tab) =>
-      tab.textContent?.includes("Listing signals"),
-    );
-    expect(signalsTab).toBeTruthy();
+    const allFilter = screen.getByRole("button", { name: /^All 1$/ });
+    const capsFilter = screen.getByRole("button", {
+      name: /^Application limits 0$/,
+    });
+    const signalsFilter = screen.getByRole("button", {
+      name: /^Listing signals 1$/,
+    });
 
-    signalsTab!.focus();
-    fireEvent.keyDown(signalsTab!, { key: "ArrowRight" });
-    const pausesTab = screen.getByRole("tab", { name: /Automatic pauses/ });
-    expect(screen.getByRole("tab", { selected: true })).toBe(pausesTab);
-    expect(document.activeElement).toBe(pausesTab);
+    expect(allFilter.getAttribute("aria-pressed")).toBe("true");
+    expect(signalsFilter.getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByText("Listing suspicious")).toBeTruthy();
 
-    fireEvent.keyDown(pausesTab, { key: "ArrowLeft" });
-    expect(screen.getByRole("tab", { selected: true })).toBe(signalsTab);
-    expect(document.activeElement).toBe(signalsTab);
+    fireEvent.click(capsFilter);
+    expect(capsFilter.getAttribute("aria-pressed")).toBe("true");
+    expect(allFilter.getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByText("No matching safeguards")).toBeTruthy();
+
+    fireEvent.click(signalsFilter);
+    expect(signalsFilter.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText("Listing suspicious")).toBeTruthy();
   });
 
-  it("moves focus to the selected edge tab for Home and End", () => {
-    renderScreen({});
+  it("keeps every native filter button in the normal focus order", () => {
+    renderScreen({ workspace: workspaceWith(signalSafeguards()) });
 
-    const signalsTab = screen.getByRole("tab", { name: /Listing signals/ });
-    const allTab = screen.getByRole("tab", { name: /^All/ });
-    const dismissalsTab = screen.getByRole("tab", { name: /Dismissals/ });
+    const group = screen.getByRole("group", { name: "Safeguard categories" });
+    const filters = Array.from(group.querySelectorAll("button"));
 
-    signalsTab.focus();
-    fireEvent.keyDown(signalsTab, { key: "Home" });
-    expect(screen.getByRole("tab", { selected: true })).toBe(allTab);
-    expect(document.activeElement).toBe(allTab);
+    expect(filters).toHaveLength(8);
+    expect(filters.every((filter) => filter.tabIndex === 0)).toBe(true);
 
-    fireEvent.keyDown(allTab, { key: "End" });
-    expect(screen.getByRole("tab", { selected: true })).toBe(dismissalsTab);
-    expect(document.activeElement).toBe(dismissalsTab);
+    filters[3]!.focus();
+    expect(document.activeElement).toBe(filters[3]);
+    expect(filters[3]!.getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(filters[3]!);
+    expect(document.activeElement).toBe(filters[3]);
+    expect(filters[3]!.getAttribute("aria-pressed")).toBe("true");
   });
 
   it("surfaces a mutation failure as an inline error on the row", async () => {
@@ -257,5 +335,65 @@ describe("SafeguardsScreen", () => {
         /could not be saved/,
       );
     });
+  });
+
+  it("does not claim preparation is clear while the daily preparation limit is reached", () => {
+    const workspace = workspaceWith();
+    (
+      workspace as {
+        dashboard?: {
+          globalDailyApplicationPreparationCapacity: Record<string, unknown>;
+        };
+      }
+    ).dashboard = {
+      globalDailyApplicationPreparationCapacity: {
+        limit: 20,
+        used: 20,
+        legacyUncertain: 0,
+        remaining: 0,
+        localDate: "2026-08-25",
+        resetsAt: "2026-08-26T04:00:00.000Z",
+      },
+    };
+
+    renderScreen({ workspace });
+
+    const status = screen.getByTestId("safeguards-daily-capacity-status");
+    expect(status.textContent).toMatch(/20 of 20 used today/i);
+    expect(status.textContent).toMatch(/reset at local midnight \(/i);
+    expect(status.textContent).not.toMatch(/preparation are clear/i);
+    // The positive clear banner is replaced, never shown beside the limit.
+    expect(
+      screen.queryByText(/Discovery and preparation are clear\./i),
+    ).toBeNull();
+  });
+
+  it("keeps the clear status when daily capacity remains", () => {
+    const workspace = workspaceWith();
+    (
+      workspace as {
+        dashboard?: {
+          globalDailyApplicationPreparationCapacity: Record<string, unknown>;
+        };
+      }
+    ).dashboard = {
+      globalDailyApplicationPreparationCapacity: {
+        limit: 20,
+        used: 3,
+        legacyUncertain: 0,
+        remaining: 17,
+        localDate: "2026-08-25",
+        resetsAt: "2026-08-26T04:00:00.000Z",
+      },
+    };
+
+    renderScreen({ workspace });
+
+    expect(
+      screen.getByText(/No active safeguard blockers\. Discovery and preparation are clear\./i),
+    ).toBeTruthy();
+    expect(
+      screen.queryByTestId("safeguards-daily-capacity-status"),
+    ).toBeNull();
   });
 });

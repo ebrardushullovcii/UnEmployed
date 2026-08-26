@@ -330,6 +330,34 @@ function maybeInvokeExecFileCallback(args: unknown[]) {
   }
 }
 
+function stubDebuggerEndpointFetch(input: {
+  debugPort: number;
+  failFirstCheck?: boolean;
+}) {
+  let debuggerReadyChecks = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => {
+      debuggerReadyChecks += 1;
+      if (input.failFirstCheck && debuggerReadyChecks === 1) {
+        return Promise.reject(new Error("debugger not ready yet"));
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve(
+            input.failFirstCheck
+              ? {
+                  webSocketDebuggerUrl: `ws://127.0.0.1:${input.debugPort}/devtools/browser/test`,
+                }
+              : {},
+          ),
+      } as Response);
+    }),
+  );
+}
+
 async function reserveFreePort(): Promise<number> {
   const server = net.createServer();
 
@@ -849,6 +877,7 @@ describe("playwright browser runtime", () => {
       };
       const fakeContext = {
         pages: () => [fakePage, staleAutomationPage],
+        serviceWorkers: () => [],
       };
       const fakeBrowser = {
         close: vi.fn().mockResolvedValue(undefined),
@@ -1952,6 +1981,906 @@ describe("playwright browser runtime", () => {
           status: "blocked",
           label: "Browser navigation failed",
         }),
+      );
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+});
+describe("managed context service worker blocking", () => {
+  afterEach(() => {
+    vi.resetModules();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    spawnMock.mockReset();
+    execFileMock.mockReset();
+    connectOverCDPMock.mockReset();
+
+    if (originalPlatformDescriptor) {
+      Object.defineProperty(process, "platform", originalPlatformDescriptor);
+    }
+  });
+
+  function createRecordingContext(input: {
+    pages: unknown[];
+    onInstallScript?: (script: string) => void;
+    serviceWorkers?: () => Array<{ url: () => string }>;
+  }) {
+    const installedInitScripts: string[] = [];
+    const fakeContext = {
+      addInitScript: vi.fn((script: string | (() => void)) => {
+        const serialized =
+          typeof script === "function" ? String(script) : script;
+        installedInitScripts.push(serialized);
+        input.onInstallScript?.(serialized);
+        return Promise.resolve();
+      }),
+      pages: () => input.pages,
+      ...(input.serviceWorkers ? { serviceWorkers: input.serviceWorkers } : {}),
+    };
+    return { fakeContext, installedInitScripts };
+  }
+
+  test("installs the service-worker block once on the persistent CDP context across managed flows", async () => {
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-sw-block-persistent-"),
+    );
+
+    try {
+      const chromeExecutablePath = join(userDataDir, "chrome.exe");
+      await writeFile(chromeExecutablePath, "", "utf8");
+      const debugPort = await reserveFreePort();
+      const launchedChromeProcess = createMockChildProcess({ pid: 61616 });
+      const fakePage = {
+        bringToFront: vi.fn().mockResolvedValue(undefined),
+        isClosed: () => false,
+        url: () => "https://example.com/jobs",
+      };
+      const { fakeContext, installedInitScripts } = createRecordingContext({
+        pages: [fakePage],
+      });
+      const fakeBrowser = {
+        close: vi.fn().mockResolvedValue(undefined),
+        contexts: () => [fakeContext],
+        isConnected: () => true,
+        once: vi.fn(() => fakeBrowser),
+      };
+
+      stubDebuggerEndpointFetch({ debugPort, failFirstCheck: true });
+      execFileMock.mockImplementation((...args: unknown[]) => {
+        maybeInvokeExecFileCallback(args);
+      });
+      spawnMock.mockReturnValue(launchedChromeProcess);
+      connectOverCDPMock.mockResolvedValue(fakeBrowser);
+
+      const { createBrowserAgentRuntime } =
+        await import("./playwright-browser-runtime");
+      const runtime = createBrowserAgentRuntime({
+        userDataDir,
+        chromeExecutablePath,
+        debugPort,
+      });
+
+      await runtime.openSession("target_site");
+      await runtime.openSession("target_site");
+
+      expect(spawnMock).toHaveBeenCalledTimes(1);
+      expect(spawnMock.mock.calls[0]?.[1]).toContain(
+        `--user-data-dir=${userDataDir}`,
+      );
+      expect(connectOverCDPMock).toHaveBeenCalledTimes(1);
+      expect(installedInitScripts).toHaveLength(1);
+      expect(installedInitScripts[0]).toContain(
+        "navigator.serviceWorker.register",
+      );
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  test("prepare-only application flow blocks service workers before navigating the managed page", async () => {
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-sw-block-prepare-"),
+    );
+
+    try {
+      const chromeExecutablePath = join(userDataDir, "chrome.exe");
+      await writeFile(chromeExecutablePath, "", "utf8");
+      const approvedResumePath = join(userDataDir, "alex-vanguard.pdf");
+      await writeFile(approvedResumePath, "approved resume", "utf8");
+      const debugPort = await reserveFreePort();
+      const launchedChromeProcess = createMockChildProcess({ pid: 62626 });
+      const eventOrder: string[] = [];
+      const applyUrl = "https://example.com/apply/job_visual_runtime";
+      let pageUrl = "about:blank";
+      const fakePage = {
+        bringToFront: vi.fn().mockResolvedValue(undefined),
+        goto: vi.fn((url: string) => {
+          pageUrl = url;
+          eventOrder.push("goto");
+          return Promise.resolve(undefined);
+        }),
+        isClosed: () => false,
+        url: () => pageUrl,
+      };
+      const { fakeContext } = createRecordingContext({
+        pages: [fakePage],
+        onInstallScript: () => {
+          eventOrder.push("service_worker_block");
+        },
+        serviceWorkers: () => [],
+      });
+      const fakeBrowser = {
+        close: vi.fn().mockResolvedValue(undefined),
+        contexts: () => [fakeContext],
+        isConnected: () => true,
+        once: vi.fn(() => fakeBrowser),
+      };
+
+      stubDebuggerEndpointFetch({ debugPort, failFirstCheck: true });
+      execFileMock.mockImplementation((...args: unknown[]) => {
+        maybeInvokeExecFileCallback(args);
+      });
+      spawnMock.mockReturnValue(launchedChromeProcess);
+      connectOverCDPMock.mockResolvedValue(fakeBrowser);
+
+      const { createBrowserAgentRuntime } =
+        await import("./playwright-browser-runtime");
+      const runtime = createBrowserAgentRuntime({
+        userDataDir,
+        chromeExecutablePath,
+        debugPort,
+      });
+
+      const result = await runtime.executeApplicationFlow("target_site", {
+        job: createTestJob(),
+        resumeArtifact: {
+          ...createTestResumeArtifact(),
+          filePath: approvedResumePath,
+        },
+        profile: createTestProfile(),
+        settings: createTestSettings(),
+        mode: "prepare_only",
+        submitAuthorized: false,
+      });
+
+      expect(eventOrder).toEqual(["service_worker_block", "goto"]);
+      expect(fakePage.goto).toHaveBeenCalledWith(
+        applyUrl,
+        expect.objectContaining({ waitUntil: "domcontentloaded" }),
+      );
+      expect(result.executionTimings.map((entry) => entry.stage)).toContain(
+        "form_preparation",
+      );
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  test("a failed application navigation reports a failed technical result instead of a Needs-you pause", async () => {
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-goto-unreachable-"),
+    );
+
+    try {
+      const chromeExecutablePath = join(userDataDir, "chrome.exe");
+      await writeFile(chromeExecutablePath, "", "utf8");
+      const approvedResumePath = join(userDataDir, "alex-vanguard.pdf");
+      await writeFile(approvedResumePath, "approved resume", "utf8");
+      const debugPort = await reserveFreePort();
+      const launchedChromeProcess = createMockChildProcess({ pid: 63636 });
+      const applyUrl = "https://example.com/apply/job_visual_runtime";
+      const fakePage = {
+        bringToFront: vi.fn().mockResolvedValue(undefined),
+        goto: vi.fn(() =>
+          Promise.reject(
+            new Error(`net::ERR_NAME_NOT_RESOLVED at ${applyUrl}`),
+          ),
+        ),
+        isClosed: () => false,
+        url: () => "about:blank",
+      };
+      const { fakeContext } = createRecordingContext({
+        pages: [fakePage],
+        serviceWorkers: () => [],
+      });
+      const fakeBrowser = {
+        close: vi.fn().mockResolvedValue(undefined),
+        contexts: () => [fakeContext],
+        isConnected: () => true,
+        once: vi.fn(() => fakeBrowser),
+      };
+
+      stubDebuggerEndpointFetch({ debugPort });
+      execFileMock.mockImplementation((...args: unknown[]) => {
+        maybeInvokeExecFileCallback(args);
+      });
+      spawnMock.mockReturnValue(launchedChromeProcess);
+      connectOverCDPMock.mockResolvedValue(fakeBrowser);
+
+      const { createBrowserAgentRuntime } =
+        await import("./playwright-browser-runtime");
+      const runtime = createBrowserAgentRuntime({
+        userDataDir,
+        chromeExecutablePath,
+        debugPort,
+      });
+
+      const result = await runtime.executeApplicationFlow("target_site", {
+        job: createTestJob(),
+        resumeArtifact: {
+          ...createTestResumeArtifact(),
+          filePath: approvedResumePath,
+        },
+        profile: createTestProfile(),
+        settings: createTestSettings(),
+        mode: "prepare_only",
+        submitAuthorized: false,
+      });
+
+      expect(result.state).toBe("failed");
+      expect(result.blocker?.code).toBe("application_page_unreachable");
+      expect(result.summary).toBe(
+        "Job Finder could not open the application page",
+      );
+      expect(result.detail).toContain(
+        "Nothing was filled, attached, or submitted",
+      );
+      expect(result.nextActionLabel).toBe("Retry preparation");
+      // Raw transport jargon stays out of every user-visible field...
+      const userVisibleText = [
+        result.summary,
+        result.detail,
+        result.blocker?.summary ?? "",
+        result.blocker?.detail ?? "",
+        result.checkpoints.map((checkpoint) => checkpoint.detail).join(" "),
+      ].join("\n");
+      expect(userVisibleText).not.toMatch(/net::|ERR_|chromium|playwright/i);
+      // ...and lands only in the browser session diagnostics.
+      const sessionState = await runtime.getSessionState("target_site");
+      expect(sessionState).toMatchObject({
+        status: "blocked",
+        label: "Application navigation failed",
+      });
+      expect(sessionState.detail).toContain("net::ERR_NAME_NOT_RESOLVED");
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  test("warm reconnect to an already-running debugger endpoint blocks service workers without relaunching Chrome", async () => {
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-sw-block-warm-attach-"),
+    );
+
+    try {
+      const debugPort = await reserveFreePort();
+      const fakePage = {
+        bringToFront: vi.fn().mockResolvedValue(undefined),
+        isClosed: () => false,
+        url: () => "https://example.com/jobs",
+      };
+      const { fakeContext, installedInitScripts } = createRecordingContext({
+        pages: [fakePage],
+      });
+      const fakeBrowser = {
+        close: vi.fn().mockResolvedValue(undefined),
+        contexts: () => [fakeContext],
+        isConnected: () => true,
+        once: vi.fn(() => fakeBrowser),
+      };
+
+      stubDebuggerEndpointFetch({ debugPort });
+      execFileMock.mockImplementation((...args: unknown[]) => {
+        maybeInvokeExecFileCallback(args);
+      });
+      connectOverCDPMock.mockResolvedValue(fakeBrowser);
+
+      const { createBrowserAgentRuntime } =
+        await import("./playwright-browser-runtime");
+      const runtime = createBrowserAgentRuntime({
+        userDataDir,
+        chromeExecutablePath: join(userDataDir, "missing-chrome.exe"),
+        debugPort,
+      });
+
+      await runtime.openSession("target_site");
+
+      expect(spawnMock).not.toHaveBeenCalled();
+      expect(connectOverCDPMock).toHaveBeenCalledWith(
+        `http://127.0.0.1:${debugPort}`,
+        { timeout: 5_000 },
+      );
+      expect(installedInitScripts).toHaveLength(1);
+      expect(installedInitScripts[0]).toContain(
+        "navigator.serviceWorker.register",
+      );
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  test("agent discovery shares the same service-worker-blocked managed context", async () => {
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-sw-block-discovery-"),
+    );
+
+    try {
+      const chromeExecutablePath = join(userDataDir, "chrome.exe");
+      await writeFile(chromeExecutablePath, "", "utf8");
+      const debugPort = await reserveFreePort();
+      const launchedChromeProcess = createMockChildProcess({ pid: 63636 });
+      const fakePage = {
+        bringToFront: vi.fn().mockResolvedValue(undefined),
+        goto: vi.fn().mockResolvedValue(undefined),
+        isClosed: () => false,
+        url: () => "https://example.com/jobs",
+      };
+      const { fakeContext, installedInitScripts } = createRecordingContext({
+        pages: [fakePage],
+      });
+      const fakeBrowser = {
+        close: vi.fn().mockResolvedValue(undefined),
+        contexts: () => [fakeContext],
+        isConnected: () => true,
+        once: vi.fn(() => fakeBrowser),
+      };
+
+      stubDebuggerEndpointFetch({ debugPort, failFirstCheck: true });
+      execFileMock.mockImplementation((...args: unknown[]) => {
+        maybeInvokeExecFileCallback(args);
+      });
+      spawnMock.mockReturnValue(launchedChromeProcess);
+      connectOverCDPMock.mockResolvedValue(fakeBrowser);
+
+      const { createBrowserAgentRuntime } =
+        await import("./playwright-browser-runtime");
+      const mockAiClient = {
+        chatWithTools: vi
+          .fn()
+          .mockResolvedValue({ content: "done", toolCalls: [] }),
+        getStatus: () => ({
+          kind: "deterministic",
+          role: "chat",
+          ready: true,
+          label: "Test AI client ready",
+          model: null,
+          baseUrl: null,
+          modelContextWindowTokens: null,
+          reservedHeadroomTokens: null,
+          requestTimeoutMs: null,
+          detail: null,
+        }),
+      } satisfies Pick<JobFinderAiClient, "chatWithTools" | "getStatus">;
+      const runtime = createBrowserAgentRuntime({
+        userDataDir,
+        chromeExecutablePath,
+        debugPort,
+        aiClient: mockAiClient as unknown as JobFinderAiClient,
+        jobExtractor: vi.fn().mockResolvedValue([]),
+      });
+
+      await runtime.openSession("target_site");
+      await runtime.runAgentDiscovery!("target_site", {
+        maxSteps: 1,
+        targetJobCount: 1,
+        userProfile: createTestProfile(),
+        searchPreferences: { targetRoles: [], locations: [] },
+        startingUrls: ["https://example.com/jobs"],
+        navigationHostnames: ["example.com"],
+        siteLabel: "Example Jobs",
+      });
+
+      expect(installedInitScripts).toHaveLength(1);
+      expect(installedInitScripts[0]).toContain(
+        "navigator.serviceWorker.register",
+      );
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  test("fails the managed flow loudly when the service-worker block cannot be installed", async () => {
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-sw-block-failure-"),
+    );
+
+    try {
+      const chromeExecutablePath = join(userDataDir, "chrome.exe");
+      await writeFile(chromeExecutablePath, "", "utf8");
+      const debugPort = await reserveFreePort();
+      const launchedChromeProcess = createMockChildProcess({ pid: 64646 });
+      const fakePage = {
+        bringToFront: vi.fn().mockResolvedValue(undefined),
+        isClosed: () => false,
+        url: () => "https://example.com/jobs",
+      };
+      const fakeContext = {
+        addInitScript: vi
+          .fn()
+          .mockRejectedValue(new Error("cdp init script install failed")),
+        pages: () => [fakePage],
+      };
+      const fakeBrowser = {
+        close: vi.fn().mockResolvedValue(undefined),
+        contexts: () => [fakeContext],
+        isConnected: () => true,
+        once: vi.fn(() => fakeBrowser),
+      };
+
+      stubDebuggerEndpointFetch({ debugPort, failFirstCheck: true });
+      execFileMock.mockImplementation((...args: unknown[]) => {
+        maybeInvokeExecFileCallback(args);
+      });
+      spawnMock.mockReturnValue(launchedChromeProcess);
+      connectOverCDPMock.mockResolvedValue(fakeBrowser);
+
+      const { createBrowserAgentRuntime } =
+        await import("./playwright-browser-runtime");
+      const runtime = createBrowserAgentRuntime({
+        userDataDir,
+        chromeExecutablePath,
+        debugPort,
+      });
+
+      await expect(runtime.openSession("target_site")).rejects.toThrow(
+        "cdp init script install failed",
+      );
+      expect(fakeContext.addInitScript).toHaveBeenCalledTimes(1);
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  test("exposes typed reason, target, and worker urls for orchestration surfacing", async () => {
+    const { ActiveServiceWorkerBlockError } =
+      await import("./playwright-browser-runtime");
+    const error = new ActiveServiceWorkerBlockError({
+      reason: "active_service_worker_controlling_application_origin",
+      targetUrl: "https://example.com/apply/job_visual_runtime",
+      detail: "Active service worker can control the application origin.",
+      serviceWorkerUrls: ["https://example.com/service-worker.js"],
+    });
+
+    expect(error.name).toBe("ActiveServiceWorkerBlockError");
+    expect(error.code).toBe("active_service_worker_block");
+    expect(error.reason).toBe(
+      "active_service_worker_controlling_application_origin",
+    );
+    expect(error.targetUrl).toBe(
+      "https://example.com/apply/job_visual_runtime",
+    );
+    expect(error.serviceWorkerUrls).toEqual([
+      "https://example.com/service-worker.js",
+    ]);
+  });
+});
+
+describe("managed context active service worker gate", () => {
+  afterEach(() => {
+    vi.resetModules();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    spawnMock.mockReset();
+    execFileMock.mockReset();
+    connectOverCDPMock.mockReset();
+
+    if (originalPlatformDescriptor) {
+      Object.defineProperty(process, "platform", originalPlatformDescriptor);
+    }
+  });
+
+  function createGateHarness(input: {
+    activeServiceWorkers?: () => Array<{ url: () => string }>;
+  }) {
+    const launchedChromeProcess = createMockChildProcess({ pid: 65656 });
+    const eventOrder: string[] = [];
+    const applyUrl = "https://example.com/apply/job_visual_runtime";
+    let pageUrl = "about:blank";
+    const fakePage = {
+      bringToFront: vi.fn().mockResolvedValue(undefined),
+      goto: vi.fn((url: string) => {
+        pageUrl = url;
+        eventOrder.push("goto");
+        return Promise.resolve(undefined);
+      }),
+      isClosed: () => false,
+      url: () => pageUrl,
+    };
+    const installedInitScripts: string[] = [];
+    const fakeContext = {
+      addInitScript: vi.fn((script: string | (() => void)) => {
+        const serialized =
+          typeof script === "function" ? String(script) : script;
+        installedInitScripts.push(serialized);
+        eventOrder.push("service_worker_block");
+        return Promise.resolve();
+      }),
+      pages: () => [fakePage],
+      ...(input.activeServiceWorkers
+        ? { serviceWorkers: input.activeServiceWorkers }
+        : {}),
+    };
+    const fakeBrowser = {
+      close: vi.fn().mockResolvedValue(undefined),
+      contexts: () => [fakeContext],
+      isConnected: () => true,
+      once: vi.fn(() => fakeBrowser),
+    };
+
+    return {
+      applyUrl,
+      eventOrder,
+      fakeBrowser,
+      fakePage,
+      installedInitScripts,
+      launchedChromeProcess,
+    };
+  }
+
+  async function createGatedRuntime(input: {
+    userDataDir: string;
+    debugPort: number;
+    warmAttach?: boolean;
+    browser: unknown;
+  }) {
+    stubDebuggerEndpointFetch({
+      debugPort: input.debugPort,
+      failFirstCheck: !input.warmAttach,
+    });
+    execFileMock.mockImplementation((...args: unknown[]) => {
+      maybeInvokeExecFileCallback(args);
+    });
+    spawnMock.mockReturnValue(createMockChildProcess({ pid: 66666 }));
+    connectOverCDPMock.mockResolvedValue(input.browser);
+
+    const { createBrowserAgentRuntime } =
+      await import("./playwright-browser-runtime");
+    return createBrowserAgentRuntime({
+      userDataDir: input.userDataDir,
+      chromeExecutablePath: join(input.userDataDir, "chrome.exe"),
+      debugPort: input.debugPort,
+    });
+  }
+
+  function createPrepareInput(input: { userDataDir: string }) {
+    const approvedResumePath = join(input.userDataDir, "alex-vanguard.pdf");
+    return {
+      approvedResumePath,
+      prepareInput: {
+        job: createTestJob(),
+        resumeArtifact: {
+          ...createTestResumeArtifact(),
+          filePath: approvedResumePath,
+        },
+        profile: createTestProfile(),
+        settings: createTestSettings(),
+        mode: "prepare_only" as const,
+        submitAuthorized: false,
+      },
+    };
+  }
+
+  test("prepare-only flow fails closed without navigating when an application-origin service worker is active", async () => {
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-sw-gate-controlling-"),
+    );
+
+    try {
+      const debugPort = await reserveFreePort();
+      const harness = createGateHarness({
+        activeServiceWorkers: () => [
+          { url: () => "https://example.com/service-worker.js" },
+        ],
+      });
+      const runtime = await createGatedRuntime({
+        userDataDir,
+        debugPort,
+        browser: harness.fakeBrowser,
+      });
+      const { approvedResumePath, prepareInput } = createPrepareInput({
+        userDataDir,
+      });
+      await writeFile(approvedResumePath, "approved resume", "utf8");
+
+      const result = await runtime.executeApplicationFlow(
+        "target_site",
+        prepareInput,
+      );
+
+      expect(result.state).toBe("paused");
+      expect(result.blocker?.code).toBe("requires_manual_review");
+      expect(result.blocker?.detail).toContain(
+        "can control the application origin https://example.com",
+      );
+      expect(harness.fakePage.goto).not.toHaveBeenCalled();
+      expect(harness.eventOrder).toEqual(["service_worker_block"]);
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  test("prepare-only flow continues when active workers cannot control the application origin", async () => {
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-sw-gate-cross-origin-"),
+    );
+
+    try {
+      const debugPort = await reserveFreePort();
+      const harness = createGateHarness({
+        activeServiceWorkers: () => [
+          { url: () => "https://tracker.example.net/service-worker.js" },
+        ],
+      });
+      const runtime = await createGatedRuntime({
+        userDataDir,
+        debugPort,
+        browser: harness.fakeBrowser,
+      });
+      const { approvedResumePath, prepareInput } = createPrepareInput({
+        userDataDir,
+      });
+      await writeFile(approvedResumePath, "approved resume", "utf8");
+
+      const result = await runtime.executeApplicationFlow(
+        "target_site",
+        prepareInput,
+      );
+
+      expect(harness.eventOrder).toEqual(["service_worker_block", "goto"]);
+      expect(harness.fakePage.goto).toHaveBeenCalledWith(
+        harness.applyUrl,
+        expect.objectContaining({ waitUntil: "domcontentloaded" }),
+      );
+      expect(result.executionTimings.map((entry) => entry.stage)).toContain(
+        "form_preparation",
+      );
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  test("prepare-only flow fails closed when a worker origin cannot be safely determined", async () => {
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-sw-gate-unresolved-"),
+    );
+
+    try {
+      const debugPort = await reserveFreePort();
+      const harness = createGateHarness({
+        activeServiceWorkers: () => [
+          { url: () => "chrome-extension://abcdef/background.js" },
+        ],
+      });
+      const runtime = await createGatedRuntime({
+        userDataDir,
+        debugPort,
+        browser: harness.fakeBrowser,
+      });
+      const { approvedResumePath, prepareInput } = createPrepareInput({
+        userDataDir,
+      });
+      await writeFile(approvedResumePath, "approved resume", "utf8");
+
+      const result = await runtime.executeApplicationFlow(
+        "target_site",
+        prepareInput,
+      );
+
+      expect(result.state).toBe("paused");
+      expect(result.blocker?.code).toBe("requires_manual_review");
+      expect(result.blocker?.detail).toContain("cannot be safely determined");
+      expect(harness.fakePage.goto).not.toHaveBeenCalled();
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  test("warm reconnect with a pre-existing application-origin service worker fails closed without relaunching or navigating", async () => {
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-sw-gate-warm-active-"),
+    );
+
+    try {
+      const debugPort = await reserveFreePort();
+      const harness = createGateHarness({
+        activeServiceWorkers: () => [
+          { url: () => "https://example.com/service-worker.js" },
+        ],
+      });
+      const runtime = await createGatedRuntime({
+        userDataDir,
+        debugPort,
+        warmAttach: true,
+        browser: harness.fakeBrowser,
+      });
+      const { approvedResumePath, prepareInput } = createPrepareInput({
+        userDataDir,
+      });
+      await writeFile(approvedResumePath, "approved resume", "utf8");
+
+      const result = await runtime.executeApplicationFlow(
+        "target_site",
+        prepareInput,
+      );
+
+      expect(spawnMock).not.toHaveBeenCalled();
+      expect(connectOverCDPMock).toHaveBeenCalledWith(
+        `http://127.0.0.1:${debugPort}`,
+        { timeout: 5_000 },
+      );
+      expect(result.state).toBe("paused");
+      expect(result.blocker?.detail).toContain(
+        "can control the application origin",
+      );
+      expect(harness.fakePage.goto).not.toHaveBeenCalled();
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  test("warm reconnect with zero active service workers continues preparation", async () => {
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-sw-gate-warm-clear-"),
+    );
+
+    try {
+      const debugPort = await reserveFreePort();
+      const harness = createGateHarness({ activeServiceWorkers: () => [] });
+      const runtime = await createGatedRuntime({
+        userDataDir,
+        debugPort,
+        warmAttach: true,
+        browser: harness.fakeBrowser,
+      });
+      const { approvedResumePath, prepareInput } = createPrepareInput({
+        userDataDir,
+      });
+      await writeFile(approvedResumePath, "approved resume", "utf8");
+
+      const result = await runtime.executeApplicationFlow(
+        "target_site",
+        prepareInput,
+      );
+
+      expect(spawnMock).not.toHaveBeenCalled();
+      expect(harness.eventOrder).toEqual(["service_worker_block", "goto"]);
+      expect(result.executionTimings.map((entry) => entry.stage)).toContain(
+        "form_preparation",
+      );
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  test("fails closed when service worker inspection is unavailable instead of assuming no workers", async () => {
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-sw-gate-unavailable-"),
+    );
+
+    try {
+      const debugPort = await reserveFreePort();
+      const harness = createGateHarness({});
+      const runtime = await createGatedRuntime({
+        userDataDir,
+        debugPort,
+        browser: harness.fakeBrowser,
+      });
+      const { approvedResumePath, prepareInput } = createPrepareInput({
+        userDataDir,
+      });
+      await writeFile(approvedResumePath, "approved resume", "utf8");
+
+      const result = await runtime.executeApplicationFlow(
+        "target_site",
+        prepareInput,
+      );
+
+      expect(result.state).toBe("paused");
+      expect(result.blocker?.detail).toContain("could not be inspected");
+      expect(harness.fakePage.goto).not.toHaveBeenCalled();
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  test("fails closed when service worker inspection throws instead of assuming no workers", async () => {
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-sw-gate-inspect-throws-"),
+    );
+
+    try {
+      const debugPort = await reserveFreePort();
+      const harness = createGateHarness({
+        activeServiceWorkers: () => {
+          throw new Error("cdp service worker enumeration failed");
+        },
+      });
+      const runtime = await createGatedRuntime({
+        userDataDir,
+        debugPort,
+        browser: harness.fakeBrowser,
+      });
+      const { approvedResumePath, prepareInput } = createPrepareInput({
+        userDataDir,
+      });
+      await writeFile(approvedResumePath, "approved resume", "utf8");
+
+      const result = await runtime.executeApplicationFlow(
+        "target_site",
+        prepareInput,
+      );
+
+      expect(result.state).toBe("paused");
+      expect(result.blocker?.detail).toContain("could not be inspected");
+      expect(harness.fakePage.goto).not.toHaveBeenCalled();
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  test("agent discovery is not gated by active service workers on the shared context", async () => {
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-sw-gate-discovery-"),
+    );
+
+    try {
+      const debugPort = await reserveFreePort();
+      const harness = createGateHarness({
+        activeServiceWorkers: () => [
+          { url: () => "https://example.com/service-worker.js" },
+        ],
+      });
+      const mockAiClient = {
+        chatWithTools: vi
+          .fn()
+          .mockResolvedValue({ content: "done", toolCalls: [] }),
+        getStatus: () => ({
+          kind: "deterministic",
+          role: "chat",
+          ready: true,
+          label: "Test AI client ready",
+          model: null,
+          baseUrl: null,
+          modelContextWindowTokens: null,
+          reservedHeadroomTokens: null,
+          requestTimeoutMs: null,
+          detail: null,
+        }),
+      } satisfies Pick<JobFinderAiClient, "chatWithTools" | "getStatus">;
+
+      stubDebuggerEndpointFetch({ debugPort, failFirstCheck: true });
+      execFileMock.mockImplementation((...args: unknown[]) => {
+        maybeInvokeExecFileCallback(args);
+      });
+      spawnMock.mockReturnValue(harness.launchedChromeProcess);
+      connectOverCDPMock.mockResolvedValue(harness.fakeBrowser);
+
+      const { createBrowserAgentRuntime } =
+        await import("./playwright-browser-runtime");
+      const runtime = createBrowserAgentRuntime({
+        userDataDir,
+        chromeExecutablePath: join(userDataDir, "chrome.exe"),
+        debugPort,
+        aiClient: mockAiClient as unknown as JobFinderAiClient,
+        jobExtractor: vi.fn().mockResolvedValue([]),
+      });
+
+      const discoveryResult = await runtime.runAgentDiscovery!("target_site", {
+        maxSteps: 1,
+        targetJobCount: 1,
+        userProfile: createTestProfile(),
+        searchPreferences: { targetRoles: [], locations: [] },
+        startingUrls: ["https://example.com/jobs"],
+        navigationHostnames: ["example.com"],
+        siteLabel: "Example Jobs",
+      });
+
+      expect(discoveryResult.agentMetadata?.steps).toBeGreaterThan(0);
+      expect(mockAiClient.chatWithTools).toHaveBeenCalled();
+      expect(harness.installedInitScripts).toHaveLength(1);
+      expect(harness.installedInitScripts[0]).toContain(
+        "navigator.serviceWorker.register",
       );
     } finally {
       await rm(userDataDir, { recursive: true, force: true });

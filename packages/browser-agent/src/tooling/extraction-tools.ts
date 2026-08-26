@@ -2,13 +2,14 @@ import type { ToolDefinition } from "../types";
 import { z } from "zod";
 import { ExtractJobsSchema } from "./shared";
 import {
-  isSearchResultsSurfaceRoute,
+  isSharedLearnedSurfaceUrl,
+  observeLearnedSearchSurfaceRoutes,
   scoreSearchResultCardForPreferences,
   scoreSearchResultCardTitleForPreferences,
   shouldCanonicalizeSearchSurfaceDetailRoute,
+  type LearnedSearchSurfaceRouteEvidence,
   type ExtractionSearchPreferences,
 } from "../agent/job-extraction";
-import { SEARCH_SURFACE_ROUTE_RULES } from "../agent/search-surface-routes";
 
 interface StructuredDataJobCandidate {
   canonicalUrl?: string | null;
@@ -276,15 +277,27 @@ function buildExtractedCardFingerprint(
 export function buildExtractedCardCandidateMergeKey(
   pageUrl: string,
   candidate: SearchResultCardCandidate,
+  evidence?: LearnedSearchSurfaceRouteEvidence,
 ): string {
   const canonicalUrl = cleanCardText(candidate.canonicalUrl);
   if (!canonicalUrl) {
     return buildExtractedCardFingerprint(candidate);
   }
 
+  const resolvedEvidence =
+    evidence ??
+    observeLearnedSearchSurfaceRoutes({
+      pageUrl,
+      observedUrls: [canonicalUrl],
+    });
+
   if (
-    isSearchResultsSurfaceRoute(canonicalUrl, pageUrl) &&
-    !shouldCanonicalizeSearchSurfaceDetailRoute({ pageUrl, candidate })
+    isSharedLearnedSurfaceUrl(canonicalUrl, resolvedEvidence) &&
+    !shouldCanonicalizeSearchSurfaceDetailRoute({
+      pageUrl,
+      candidate,
+      evidence: resolvedEvidence,
+    })
   ) {
     return `${canonicalUrl}::card:${buildExtractedCardFingerprint(candidate)}`;
   }
@@ -456,11 +469,22 @@ function mergeRawCardCandidate(
 export function dedupeExtractedCardCandidates(
   pageUrl: string,
   candidates: readonly RawSearchResultCardCandidate[],
+  evidence?: LearnedSearchSurfaceRouteEvidence,
 ): RawSearchResultCardCandidate[] {
+  const resolvedEvidence =
+    evidence ??
+    observeLearnedSearchSurfaceRoutes({
+      pageUrl,
+      observedUrls: candidates.map((candidate) => candidate.canonicalUrl),
+    });
   const candidatesByKey = new Map<string, RawSearchResultCardCandidate>();
 
   for (const candidate of candidates) {
-    const mergeKey = buildExtractedCardCandidateMergeKey(pageUrl, candidate);
+    const mergeKey = buildExtractedCardCandidateMergeKey(
+      pageUrl,
+      candidate,
+      resolvedEvidence,
+    );
     candidatesByKey.set(
       mergeKey,
       mergeRawCardCandidate(candidatesByKey.get(mergeKey), candidate),
@@ -468,12 +492,6 @@ export function dedupeExtractedCardCandidates(
   }
 
   return [...candidatesByKey.values()];
-}
-
-export function shouldUseSearchSurfaceJobViewCardCapture(
-  pageUrl: string,
-): boolean {
-  return isSearchResultsSurfaceRoute(pageUrl, pageUrl);
 }
 
 function includesClassHint(
@@ -507,11 +525,19 @@ export function prioritizeExtractedCardCandidates(
   candidates: readonly SearchResultCardCandidate[],
   searchPreferences?: ExtractionSearchPreferences,
 ): SearchResultCardCandidate[] {
-  const dedupedCandidates = dedupeExtractedCardCandidates(pageUrl, candidates);
+  const learnedEvidence = observeLearnedSearchSurfaceRoutes({
+    pageUrl,
+    observedUrls: candidates.map((candidate) => candidate.canonicalUrl),
+  });
+  const dedupedCandidates = dedupeExtractedCardCandidates(
+    pageUrl,
+    candidates,
+    learnedEvidence,
+  );
   const preferenceScoreCache = new Map<string, number>();
   const titleScoreCache = new Map<string, number>();
   const getCandidateKey = (candidate: SearchResultCardCandidate): string =>
-    buildExtractedCardCandidateMergeKey(pageUrl, candidate);
+    buildExtractedCardCandidateMergeKey(pageUrl, candidate, learnedEvidence);
   const getPreferenceScore = (candidate: SearchResultCardCandidate): number => {
     const cacheKey = getCandidateKey(candidate);
     const cached = preferenceScoreCache.get(cacheKey);
@@ -543,7 +569,7 @@ export function prioritizeExtractedCardCandidates(
     return nextScore;
   };
 
-  if (!shouldUseSearchSurfaceJobViewCardCapture(pageUrl)) {
+  if (learnedEvidence.sharedSurfaceUrls.size === 0) {
     return [...dedupedCandidates]
       .sort(
         (left, right) =>
@@ -803,16 +829,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
               allowedHostnames: string[];
               relevantUrlSubstrings: string[];
               allowSubdomains: boolean;
-              preferSearchSurfaceJobViewCardCapture: boolean;
               maxInPageCardCandidates: number;
-              searchSurfaceRouteRules: Array<{
-                hostSuffixes: string[];
-                resultExactPaths: string[];
-                resultPathPrefixes: string[];
-                detailPathPrefix: string;
-                detailPathTemplate: string;
-                embeddedJobIdParams: string[];
-              }>;
             }) => {
               const toText = (value: unknown): string =>
                 typeof value === "string"
@@ -835,66 +852,189 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                   return [normalized];
                 });
               };
-              const findSearchSurfaceRouteRuleForHostname = (
-                hostname: string,
-              ) =>
-                input.searchSurfaceRouteRules.find((rule) => {
-                  const normalizedHostname = hostname.toLowerCase();
-                  return rule.hostSuffixes.some(
-                    (hostSuffix) =>
-                      normalizedHostname === hostSuffix ||
-                      normalizedHostname.endsWith(`.${hostSuffix}`),
-                  );
-                }) ?? null;
+              const LEARNED_DETAIL_TEMPLATE_PLACEHOLDER = "{sourceJobId}";
+              const DETAIL_ROUTE_ID_SEGMENT_PATTERN = /\d{4,}|[0-9a-f]{8,}/i;
+              const REWRITABLE_DETAIL_ID_SEGMENT_PATTERN =
+                /^(?:\d{4,}|[0-9a-f]{8,})$/i;
+              const normalizeParamKeyLocal = (key: string): string =>
+                key.toLowerCase().replace(/[^a-z0-9]/g, "");
+              const isJobIdShapedParamKeyLocal = (key: string): boolean => {
+                const normalized = normalizeParamKeyLocal(key);
+                return (
+                  normalized.includes("jobid") || normalized.endsWith("jid")
+                );
+              };
+              const safeDecodeUriComponentLocal = (value: string): string => {
+                try {
+                  return decodeURIComponent(value);
+                } catch {
+                  return value;
+                }
+              };
+              const findDetailIdSegment = (pathname: string): string | null => {
+                const segments = pathname.split("/").filter(Boolean);
+                const lastSegment = segments.at(-1);
+                if (!lastSegment) {
+                  return null;
+                }
 
-              const isSearchSurfaceResultPath = (
-                rule: NonNullable<
-                  ReturnType<typeof findSearchSurfaceRouteRuleForHostname>
-                >,
-                pathname: string,
-              ): boolean =>
-                rule.resultExactPaths.includes(pathname) ||
-                rule.resultPathPrefixes.some((prefix) =>
-                  pathname.startsWith(prefix),
-                );
-              const readEmbeddedSearchSurfaceJobId = (
+                const decoded = safeDecodeUriComponentLocal(lastSegment);
+                return DETAIL_ROUTE_ID_SEGMENT_PATTERN.test(decoded)
+                  ? decoded
+                  : null;
+              };
+              const parseAbsoluteUrl = (
+                value: string | null | undefined,
+              ): URL | null => {
+                const normalized = toText(value);
+                if (!normalized) {
+                  return null;
+                }
+
+                try {
+                  const parsed = new URL(normalized, window.location.href);
+                  return parsed.protocol === "http:" ||
+                    parsed.protocol === "https:"
+                    ? parsed
+                    : null;
+                } catch {
+                  return null;
+                }
+              };
+              const readFirstEmbeddedNumericParamValue = (
                 url: URL,
-                rule: NonNullable<
-                  ReturnType<typeof findSearchSurfaceRouteRuleForHostname>
-                >,
-              ): string =>
-                toText(
-                  rule.embeddedJobIdParams
-                    .map((paramName) => url.searchParams.get(paramName))
-                    .find((value) => toText(value)) ?? null,
-                );
-              const buildSearchSurfaceDetailUrl = (
-                rule: NonNullable<
-                  ReturnType<typeof findSearchSurfaceRouteRuleForHostname>
-                >,
-                sourceJobId: string,
-              ): string =>
-                `${window.location.origin}${rule.detailPathTemplate.replace("{sourceJobId}", sourceJobId)}`;
-              const buildSearchSurfaceAnchorSelector = (): string =>
-                uniqueStrings(
-                  input.searchSurfaceRouteRules.flatMap((rule) => [
-                    `a[href*="${rule.detailPathPrefix}"]`,
-                    ...rule.embeddedJobIdParams.map(
-                      (paramName) => `a[href*="${paramName}="]`,
-                    ),
-                  ]),
-                ).join(", ");
+              ): string | null => {
+                for (const value of url.searchParams.values()) {
+                  const normalizedValue = toText(value);
+                  if (/^\d{3,}$/.test(normalizedValue)) {
+                    return normalizedValue;
+                  }
+                }
+                return null;
+              };
+              const looksLikeJobLinkUrl = (url: URL): boolean =>
+                findDetailIdSegment(url.pathname) !== null ||
+                [...url.searchParams.keys()].some(isJobIdShapedParamKeyLocal);
+
+              interface ObservedDetailRoute {
+                prefixSegments: string[];
+                id: string;
+                endsWithSlash: boolean;
+              }
+
+              const observedDetailRoutesByOrigin = new Map<
+                string,
+                ObservedDetailRoute[]
+              >();
+              const seenObservedDetailRoutes = new Set<string>();
+              const observeDetailRoute = (value: string | null) => {
+                const parsed = parseAbsoluteUrl(value);
+                if (!parsed) {
+                  return;
+                }
+
+                const segments = parsed.pathname.split("/").filter(Boolean);
+                const lastSegment = segments.at(-1);
+                if (!lastSegment) {
+                  return;
+                }
+
+                const decodedId = safeDecodeUriComponentLocal(lastSegment);
+                if (!REWRITABLE_DETAIL_ID_SEGMENT_PATTERN.test(decodedId)) {
+                  return;
+                }
+
+                const routeKey = `${parsed.origin}${parsed.pathname}#${decodedId}`;
+                if (seenObservedDetailRoutes.has(routeKey)) {
+                  return;
+                }
+                seenObservedDetailRoutes.add(routeKey);
+
+                const bucket =
+                  observedDetailRoutesByOrigin.get(parsed.origin) ?? [];
+                bucket.push({
+                  prefixSegments: segments
+                    .slice(0, -1)
+                    .map(safeDecodeUriComponentLocal),
+                  id: decodedId,
+                  endsWithSlash: parsed.pathname.endsWith("/"),
+                });
+                observedDetailRoutesByOrigin.set(parsed.origin, bucket);
+              };
+
+              for (const anchor of Array.from(
+                document.querySelectorAll<HTMLAnchorElement>("a[href]"),
+              )) {
+                observeDetailRoute(anchor.getAttribute("href"));
+              }
+              observeDetailRoute(window.location.href);
+
+              const learnedDetailTemplatesByOrigin = new Map<
+                string,
+                { template: string; jobIds: Set<string> }
+              >();
+              for (const [
+                origin,
+                observations,
+              ] of observedDetailRoutesByOrigin) {
+                const firstObservation = observations[0];
+                if (!firstObservation) {
+                  continue;
+                }
+
+                let commonPrefix = firstObservation.prefixSegments;
+                let allEndsWithSlash = true;
+                for (const observation of observations) {
+                  if (!observation.endsWithSlash) {
+                    allEndsWithSlash = false;
+                  }
+
+                  const nextPrefix: string[] = [];
+                  const sharedLength = Math.min(
+                    commonPrefix.length,
+                    observation.prefixSegments.length,
+                  );
+                  for (
+                    let index = 0;
+                    index < sharedLength &&
+                    commonPrefix[index] === observation.prefixSegments[index];
+                    index += 1
+                  ) {
+                    const segment = commonPrefix[index];
+                    if (segment === undefined) break;
+                    nextPrefix.push(segment);
+                  }
+                  commonPrefix = nextPrefix;
+                }
+
+                if (commonPrefix.length === 0) {
+                  continue;
+                }
+
+                learnedDetailTemplatesByOrigin.set(origin, {
+                  template: `/${[
+                    ...commonPrefix,
+                    LEARNED_DETAIL_TEMPLATE_PLACEHOLDER,
+                  ].join("/")}${allEndsWithSlash ? "/" : ""}`,
+                  jobIds: new Set(
+                    observations.map((observation) => observation.id),
+                  ),
+                });
+              }
+              const buildLearnedDetailUrl = (
+                origin: string,
+                jobId: string,
+              ): string | null => {
+                const learned = learnedDetailTemplatesByOrigin.get(origin);
+                if (!learned) {
+                  return null;
+                }
+
+                return `${origin}${learned.template.replace(LEARNED_DETAIL_TEMPLATE_PLACEHOLDER, encodeURIComponent(jobId))}`;
+              };
               const collectAccessibleCardLabels = (
                 element: HTMLElement,
               ): string[] => {
-                if (
-                  !findSearchSurfaceRouteRuleForHostname(
-                    window.location.hostname,
-                  )
-                ) {
-                  return [];
-                }
-
                 const candidates = [
                   element,
                   ...Array.from(
@@ -955,11 +1095,10 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                   }
 
                   for (const key of [...absolute.searchParams.keys()]) {
-                    const lowered = key.toLowerCase();
+                    const normalizedParamKey = normalizeParamKeyLocal(key);
                     if (
-                      lowered.startsWith("utm_") ||
-                      lowered === "trk" ||
-                      lowered === "trackingid"
+                      normalizedParamKey.startsWith("utm") ||
+                      normalizedParamKey.includes("track")
                     ) {
                       absolute.searchParams.delete(key);
                     }
@@ -1123,10 +1262,6 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                 element: HTMLElement,
                 anchor: HTMLAnchorElement | null,
               ) => {
-                const searchSurfaceRouteRule =
-                  findSearchSurfaceRouteRuleForHostname(
-                    window.location.hostname,
-                  );
                 const readJobIdHint = (
                   candidate: HTMLElement | null,
                 ): string => {
@@ -1179,9 +1314,10 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                 const sourceJobIdHint = findScopedJobIdHint();
                 const scopedSearchSurfaceJobViewUrl =
                   /^(?:\d+)$/.test(sourceJobIdHint ?? "") &&
-                  searchSurfaceRouteRule
-                    ? buildSearchSurfaceDetailUrl(
-                        searchSurfaceRouteRule,
+                  Boolean(sourceJobIdHint)
+                    ? buildLearnedDetailUrl(
+                        parseAbsoluteUrl(anchor?.getAttribute("href"))
+                          ?.origin ?? window.location.origin,
                         sourceJobIdHint ?? "",
                       )
                     : null;
@@ -1191,10 +1327,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                 const anchorLabel = getSearchSurfaceAnchorLabel(anchor);
                 const shouldPreferScopedSearchSurfaceJobViewUrl = (() => {
                   if (!scopedSearchSurfaceJobViewUrl || !anchorCanonicalUrl) {
-                    return (
-                      Boolean(scopedSearchSurfaceJobViewUrl) &&
-                      !anchorCanonicalUrl
-                    );
+                    return false;
                   }
 
                   try {
@@ -1202,25 +1335,9 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                       anchorCanonicalUrl,
                       window.location.href,
                     );
-                    const anchorRouteRule =
-                      findSearchSurfaceRouteRuleForHostname(
-                        parsedAnchorUrl.hostname,
-                      );
-                    if (!anchorRouteRule) {
-                      return false;
-                    }
-
-                    const pathname = parsedAnchorUrl.pathname.toLowerCase();
-                    const detailPathPattern = new RegExp(
-                      `^${anchorRouteRule.detailPathPrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\d+)(?:[/?#]|$)`,
+                    const anchorJobViewId = findDetailIdSegment(
+                      parsedAnchorUrl.pathname,
                     );
-                    const anchorJobViewId =
-                      pathname.match(detailPathPattern)?.[1] ?? null;
-                    const anchorCurrentJobId = readEmbeddedSearchSurfaceJobId(
-                      parsedAnchorUrl,
-                      anchorRouteRule,
-                    );
-
                     if (
                       anchorJobViewId &&
                       anchorJobViewId === sourceJobIdHint
@@ -1228,20 +1345,15 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                       return false;
                     }
 
-                    if (isSearchSurfaceResultPath(anchorRouteRule, pathname)) {
+                    if (!anchorJobViewId) {
                       return true;
                     }
 
+                    const anchorEmbeddedJobId =
+                      readFirstEmbeddedNumericParamValue(parsedAnchorUrl);
                     if (
-                      anchorJobViewId &&
-                      anchorJobViewId !== sourceJobIdHint
-                    ) {
-                      return true;
-                    }
-
-                    if (
-                      anchorCurrentJobId &&
-                      anchorCurrentJobId !== sourceJobIdHint
+                      anchorEmbeddedJobId &&
+                      anchorEmbeddedJobId !== sourceJobIdHint
                     ) {
                       return true;
                     }
@@ -1322,8 +1434,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                     : null) ??
                   anchorCanonicalUrl ??
                   scopedSearchSurfaceJobViewUrl ??
-                  (searchSurfaceRouteRule &&
-                  looksLikeSearchSurfaceResultCard(element) &&
+                  (looksLikeSearchSurfaceResultCard(element) &&
                   (hasDismissLabel || lines.length >= 3)
                     ? isAllowedInScopeUrl(window.location.href)
                     : null);
@@ -1335,11 +1446,14 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                 }
 
                 const rootClassName = toText(element.getAttribute("class"));
-                const searchSurfaceAnchorSelector =
-                  buildSearchSurfaceAnchorSelector();
-                const jobLinkCount = searchSurfaceAnchorSelector
-                  ? element.querySelectorAll(searchSurfaceAnchorSelector).length
-                  : 0;
+                const jobLinkCount = Array.from(
+                  element.querySelectorAll<HTMLAnchorElement>("a[href]"),
+                ).filter((descendantAnchor) => {
+                  const parsedHref = parseAbsoluteUrl(
+                    descendantAnchor.getAttribute("href"),
+                  );
+                  return parsedHref !== null && looksLikeJobLinkUrl(parsedHref);
+                }).length;
                 const anchorElement = anchor;
 
                 const nextCandidate = {
@@ -1398,7 +1512,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                 cardCandidates.push(nextCandidate);
               };
 
-              if (input.preferSearchSurfaceJobViewCardCapture) {
+              if (learnedDetailTemplatesByOrigin.size > 0) {
                 const scannedRoots = new WeakSet<HTMLElement>();
                 const selectPreferredSearchSurfaceCardRoot = (
                   anchor: HTMLAnchorElement,
@@ -1429,22 +1543,13 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
 
                   try {
                     const parsedHref = new URL(href, window.location.href);
-                    const routeRule = findSearchSurfaceRouteRuleForHostname(
-                      parsedHref.hostname,
-                    );
-                    if (
-                      routeRule &&
-                      parsedHref.pathname
-                        .toLowerCase()
-                        .startsWith(routeRule.detailPathPrefix)
-                    ) {
+                    if (findDetailIdSegment(parsedHref.pathname)) {
                       score += 40;
                     }
 
                     if (
-                      routeRule &&
-                      routeRule.embeddedJobIdParams.some((paramName) =>
-                        parsedHref.searchParams.has(paramName),
+                      [...parsedHref.searchParams.keys()].some(
+                        isJobIdShapedParamKeyLocal,
                       )
                     ) {
                       score += 20;
@@ -1524,15 +1629,14 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
 
                   return bestScore > 0 ? bestAnchor : null;
                 };
-                const searchSurfaceAnchorSelector =
-                  buildSearchSurfaceAnchorSelector();
-                const jobAnchors = searchSurfaceAnchorSelector
-                  ? Array.from(
-                      document.querySelectorAll<HTMLAnchorElement>(
-                        searchSurfaceAnchorSelector,
-                      ),
-                    )
-                  : [];
+                const jobAnchors = Array.from(
+                  document.querySelectorAll<HTMLAnchorElement>("a[href]"),
+                ).filter((anchor) => {
+                  const parsedHref = parseAbsoluteUrl(
+                    anchor.getAttribute("href"),
+                  );
+                  return parsedHref !== null && looksLikeJobLinkUrl(parsedHref);
+                });
                 const preferredAnchorByRoot = new Map<
                   HTMLElement,
                   { anchor: HTMLAnchorElement; score: number }
@@ -1685,19 +1789,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
               relevantUrlSubstrings,
               allowSubdomains:
                 context.config.navigationPolicy.allowSubdomains === true,
-              preferSearchSurfaceJobViewCardCapture:
-                shouldUseSearchSurfaceJobViewCardCapture(pageUrl),
               maxInPageCardCandidates: MAX_IN_PAGE_CARD_CANDIDATES,
-              searchSurfaceRouteRules: SEARCH_SURFACE_ROUTE_RULES.map(
-                (rule) => ({
-                  hostSuffixes: [...rule.hostSuffixes],
-                  resultExactPaths: [...rule.resultExactPaths],
-                  resultPathPrefixes: [...rule.resultPathPrefixes],
-                  detailPathPrefix: rule.detailPathPrefix,
-                  detailPathTemplate: rule.detailPathTemplate,
-                  embeddedJobIdParams: [...rule.embeddedJobIdParams],
-                }),
-              ),
             },
           ),
         );

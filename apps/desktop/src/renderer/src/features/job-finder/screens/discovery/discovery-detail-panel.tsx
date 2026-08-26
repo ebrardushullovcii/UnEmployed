@@ -1,5 +1,7 @@
 import type {
   DiscoveryFeedbackReason,
+  DiscoveryJobView,
+  EmployerExclusionPreview,
   JobDiscoveryTarget,
   MatchAssessmentChangeAudit,
   SavedJob,
@@ -11,19 +13,25 @@ import { PreferenceList } from "../../components/preference-list";
 import { StatusBadge } from "../../components/status-badge";
 import { MatchEvidenceMatrix } from "../../components/match-evidence-matrix";
 import { jobDescriptionToText } from "../../lib/job-description-text";
+import { Link } from "react-router-dom";
+import { buildJobFinderContextRoute } from "../../lib/job-finder-context-navigation";
 import { buildIntelligenceSummaries } from "../../lib/source-intelligence-utils";
 import type { LearnedInstructionIntelligenceSummary } from "../../lib/source-intelligence-utils";
 import {
   formatOptionalDateOnly,
   formatStatusLabel,
   getApplicationTone,
+  getPostedDateLabel,
 } from "../../lib/job-finder-utils";
 import { fitRecommendationCopy } from "../../lib/match-assessment-presentation";
+import { presentListingActivity } from "../../lib/listing-activity-presentation";
 import { formatNormalizedCompensation } from "../../lib/normalized-compensation";
+import type { JobFinderQueuedJobOutcome } from "../../lib/job-finder-types";
 import {
   DISCOVERY_DETAIL_HEADING_ID,
   DISCOVERY_DETAIL_REGION_ID,
 } from "./discovery-accessibility";
+import { getDiscoverySourceLabels } from "./discovery-source-attribution";
 
 const discoveryFeedbackOptions: ReadonlyArray<{
   value: DiscoveryFeedbackReason;
@@ -45,10 +53,25 @@ interface DiscoveryDetailPanelProps {
   onDismissJob: (
     jobId: string,
     reasons: readonly DiscoveryFeedbackReason[],
-  ) => void;
+    action?: "hide_job" | "hide_and_exclude_employer",
+    expectedNormalizedCompanyName?: string | null,
+  ) => void | Promise<void>;
+  onPreviewEmployerExclusion?: (
+    jobId: string,
+  ) => Promise<EmployerExclusionPreview>;
   onOpenCompany?: (companyId: string) => void;
   onQueueJob: (jobId: string) => void;
-  selectedJob: SavedJob | null;
+  /**
+   * Request-local outcome of this job's own Shortlist decision, correlated by
+   * DiscoveryScreen; null while pending or when the inspected row has no
+   * resolved request. Rendered as one accessible line so success and failure
+   * are never silent in Results mode and never duplicate Search-setup
+   * feedback.
+   */
+  queueFeedback?: JobFinderQueuedJobOutcome | null;
+  selectedJob:
+    | (SavedJob & Partial<Pick<DiscoveryJobView, "listingActivity">>)
+    | null;
   selectedJobCompanyId?: string | null;
 }
 
@@ -153,17 +176,57 @@ export function MatchAssessmentChangeDisclosure(props: {
   );
 }
 
+export function SourceChronologyDisclosure(props: {
+  firstSeenAt: string | null;
+  lastSeenAt: string | null;
+  lastVerifiedActiveAt: string | null;
+}) {
+  if (!props.firstSeenAt && !props.lastSeenAt && !props.lastVerifiedActiveAt) {
+    return null;
+  }
+
+  return (
+    <details className="rounded-(--radius-field) border border-(--surface-panel-border) p-4">
+      <summary className="cursor-pointer text-(length:--text-small) font-medium text-foreground-soft">
+        Source timeline
+      </summary>
+      <dl className="mt-3 grid gap-2 text-(length:--text-small) leading-6 text-foreground-soft md:grid-cols-3">
+        <div className="grid gap-0.5">
+          <dt className="font-medium text-foreground">First seen</dt>
+          <dd>{formatOptionalDateOnly(props.firstSeenAt, "Unknown")}</dd>
+        </div>
+        <div className="grid gap-0.5">
+          <dt className="font-medium text-foreground">Last seen</dt>
+          <dd>{formatOptionalDateOnly(props.lastSeenAt, "Unknown")}</dd>
+        </div>
+        <div className="grid gap-0.5">
+          <dt className="font-medium text-foreground">Last verified active</dt>
+          <dd>
+            {formatOptionalDateOnly(props.lastVerifiedActiveAt, "Unknown")}
+          </dd>
+        </div>
+      </dl>
+    </details>
+  );
+}
+
 export function DiscoveryDetailPanel({
   discoveryTargets,
   isJobPending,
   onDismissJob,
+  onPreviewEmployerExclusion,
   onOpenCompany,
   onQueueJob,
+  queueFeedback,
   selectedJob,
   selectedJobCompanyId,
 }: DiscoveryDetailPanelProps) {
   const detailScrollAreaRef = useRef<HTMLDivElement>(null);
   const previousSelectedJobIdRef = useRef<string | null>(null);
+  const selectedJobIdRef = useRef<string | null>(selectedJob?.id ?? null);
+  const employerExclusionPreviewRequestRef = useRef(0);
+  const dismissRequestRef = useRef(0);
+  const isDismissPendingRef = useRef(false);
   const [copiedListingJobId, setCopiedListingJobId] = useState<string | null>(
     null,
   );
@@ -174,8 +237,23 @@ export function DiscoveryDetailPanel({
   const [feedbackReasons, setFeedbackReasons] = useState<
     DiscoveryFeedbackReason[]
   >([]);
-  const discoveryTargetLabels = new Map(
-    discoveryTargets.map((target) => [target.id, target.label]),
+  const [feedbackAction, setFeedbackAction] = useState<
+    "hide_job" | "hide_and_exclude_employer"
+  >("hide_job");
+  const [employerExclusionPreview, setEmployerExclusionPreview] =
+    useState<EmployerExclusionPreview | null>(null);
+  const [
+    isEmployerExclusionPreviewPending,
+    setEmployerExclusionPreviewPending,
+  ] = useState(false);
+  const [employerExclusionPreviewError, setEmployerExclusionPreviewError] =
+    useState<string | null>(null);
+  const [isDismissPending, setDismissPending] = useState(false);
+  const [dismissError, setDismissError] = useState<string | null>(null);
+  selectedJobIdRef.current = selectedJob?.id ?? null;
+  const sourceLabels = getDiscoverySourceLabels(
+    selectedJob?.provenance ?? [],
+    discoveryTargets,
   );
   const normalizedCompensation = formatNormalizedCompensation(
     selectedJob?.normalizedCompensation,
@@ -186,33 +264,174 @@ export function DiscoveryDetailPanel({
   const isSelectedJobPending = selectedJob
     ? isJobPending(selectedJob.id)
     : false;
+  const isFeedbackPending = isSelectedJobPending || isDismissPending;
+  const selectedJobEmployerExclusionPreview =
+    employerExclusionPreview?.jobId === selectedJob?.id
+      ? employerExclusionPreview
+      : null;
   const isAlreadyShortlisted = selectedJob?.status !== "discovered";
   const recommendation = selectedJob
     ? fitRecommendationCopy[
         selectedJob.matchAssessment.recommendation ?? "review_before_applying"
       ]
     : null;
+  const listingDate = selectedJob ? getPostedDateLabel(selectedJob) : null;
+  const listingActivity = presentListingActivity(
+    selectedJob?.listingActivity ?? { status: "unknown" },
+  );
+  const needsSourceVerification =
+    selectedJob?.listingActivity?.status === "inactive" ||
+    selectedJob?.listingActivity?.status === "stale";
+  const isReportedClosed = selectedJob?.listingActivity?.status === "closed";
 
   useLayoutEffect(() => {
     const selectedJobId = selectedJob?.id ?? null;
-    if (
-      previousSelectedJobIdRef.current !== selectedJobId &&
-      detailScrollAreaRef.current
-    ) {
-      detailScrollAreaRef.current.scrollTop = 0;
+    if (previousSelectedJobIdRef.current !== selectedJobId) {
+      employerExclusionPreviewRequestRef.current += 1;
+      dismissRequestRef.current += 1;
+      isDismissPendingRef.current = false;
+      setFeedbackJobId(null);
+      setFeedbackReasons([]);
+      setFeedbackAction("hide_job");
+      setEmployerExclusionPreview(null);
+      setEmployerExclusionPreviewPending(false);
+      setEmployerExclusionPreviewError(null);
+      setDismissPending(false);
+      setDismissError(null);
+      if (detailScrollAreaRef.current) {
+        detailScrollAreaRef.current.scrollTop = 0;
+      }
     }
     previousSelectedJobIdRef.current = selectedJobId;
+
+    return () => {
+      employerExclusionPreviewRequestRef.current += 1;
+      dismissRequestRef.current += 1;
+      isDismissPendingRef.current = false;
+    };
   }, [selectedJob?.id]);
+
+  const closeFeedback = () => {
+    employerExclusionPreviewRequestRef.current += 1;
+    dismissRequestRef.current += 1;
+    isDismissPendingRef.current = false;
+    setFeedbackJobId(null);
+    setFeedbackReasons([]);
+    setFeedbackAction("hide_job");
+    setEmployerExclusionPreview(null);
+    setEmployerExclusionPreviewPending(false);
+    setEmployerExclusionPreviewError(null);
+    setDismissPending(false);
+    setDismissError(null);
+  };
+
+  const previewEmployerExclusion = (jobId: string) => {
+    const requestId = employerExclusionPreviewRequestRef.current + 1;
+    employerExclusionPreviewRequestRef.current = requestId;
+    setEmployerExclusionPreview(null);
+    setEmployerExclusionPreviewPending(true);
+    setEmployerExclusionPreviewError(null);
+    if (!onPreviewEmployerExclusion) {
+      setEmployerExclusionPreviewPending(false);
+      setEmployerExclusionPreviewError(
+        "Employer exclusion could not be checked. You can still hide only this job.",
+      );
+      return;
+    }
+    void onPreviewEmployerExclusion(jobId)
+      .then((preview) => {
+        if (
+          employerExclusionPreviewRequestRef.current !== requestId ||
+          selectedJobIdRef.current !== jobId
+        ) {
+          return;
+        }
+        if (preview.jobId !== jobId) {
+          setEmployerExclusionPreviewError(
+            "Employer exclusion could not be checked. You can still hide only this job.",
+          );
+          return;
+        }
+        setEmployerExclusionPreview(preview);
+      })
+      .catch(() => {
+        if (
+          employerExclusionPreviewRequestRef.current !== requestId ||
+          selectedJobIdRef.current !== jobId
+        ) {
+          return;
+        }
+        setEmployerExclusionPreview(null);
+        setEmployerExclusionPreviewError(
+          "Employer exclusion could not be checked. You can still hide only this job.",
+        );
+      })
+      .finally(() => {
+        if (
+          employerExclusionPreviewRequestRef.current === requestId &&
+          selectedJobIdRef.current === jobId
+        ) {
+          setEmployerExclusionPreviewPending(false);
+        }
+      });
+  };
+
+  const dismissSelectedJob = async (jobId: string) => {
+    if (isDismissPendingRef.current) {
+      return;
+    }
+    const reasons = [...feedbackReasons];
+    const action = feedbackAction;
+    const expectedNormalizedCompanyName =
+      action === "hide_and_exclude_employer" &&
+      selectedJobEmployerExclusionPreview?.status === "available"
+        ? selectedJobEmployerExclusionPreview.normalizedCompanyName
+        : null;
+    if (
+      action === "hide_and_exclude_employer" &&
+      expectedNormalizedCompanyName === null
+    ) {
+      setDismissError(
+        "The employer identity is no longer current. Check it again before retrying.",
+      );
+      return;
+    }
+    const requestId = dismissRequestRef.current + 1;
+    dismissRequestRef.current = requestId;
+    isDismissPendingRef.current = true;
+    setDismissPending(true);
+    setDismissError(null);
+    try {
+      await onDismissJob(jobId, reasons, action, expectedNormalizedCompanyName);
+      if (
+        dismissRequestRef.current === requestId &&
+        selectedJobIdRef.current === jobId
+      ) {
+        closeFeedback();
+      }
+    } catch {
+      if (
+        dismissRequestRef.current === requestId &&
+        selectedJobIdRef.current === jobId
+      ) {
+        isDismissPendingRef.current = false;
+        setDismissPending(false);
+        setDismissError(
+          "The job could not be hidden. Your choices were kept. Try again.",
+        );
+      }
+    }
+  };
 
   return (
     <section
       aria-label="Job details"
-      className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0"
+      className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-panel) border border-(--surface-panel-border) scroll-mt-4 sm:scroll-mt-[8.25rem] min-[1440px]:scroll-mt-[4.5rem] xl:h-full xl:min-h-0"
       id={DISCOVERY_DETAIL_REGION_ID}
     >
-      <div className="flex flex-wrap items-start justify-between gap-3 px-6 pb-2 pt-6">
-        <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-          Job details
+      <div className="flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-(--surface-panel-border) px-4 py-3">
+        <p className="text-base font-semibold text-(--text-headline)">
+          Job inspector
         </p>
         {selectedJob ? (
           <StatusBadge tone={getApplicationTone(selectedJob.status)}>
@@ -224,14 +443,14 @@ export function DiscoveryDetailPanel({
       {selectedJob ? (
         <>
           <div
-            aria-label="Selected job action"
+            aria-label="Selected job summary"
             className="grid shrink-0 gap-3 border-b border-(--surface-panel-border) px-6 pb-4 pt-2"
             data-testid="discovery-detail-primary-action"
             role="group"
           >
             <div className="grid min-w-0 gap-2">
               <h2
-                className="min-w-0 break-words rounded-sm text-(length:--text-section-title) font-semibold tracking-[-0.03em] text-(--text-headline) outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+                className="min-w-0 break-words rounded-sm text-(length:--text-section-title) font-semibold tracking-[-0.03em] text-(--text-headline) outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 scroll-mt-4 sm:scroll-mt-[8.25rem] min-[1440px]:scroll-mt-[4.5rem]"
                 id={DISCOVERY_DETAIL_HEADING_ID}
                 tabIndex={-1}
               >
@@ -252,32 +471,19 @@ export function DiscoveryDetailPanel({
                 </Button>
               ) : null}
             </div>
-            <Button
-              aria-describedby={DISCOVERY_DETAIL_HEADING_ID}
-              aria-label={
-                isAlreadyShortlisted
-                  ? `${selectedJob.title} is already shortlisted`
-                  : `Shortlist ${selectedJob.title}`
-              }
-              className="w-full"
-              disabled={isSelectedJobPending || isAlreadyShortlisted}
-              onClick={() => onQueueJob(selectedJob.id)}
-              size="compact"
-              type="button"
-              variant="primary"
-            >
-              {isAlreadyShortlisted ? "Already shortlisted" : "Shortlist job"}
-            </Button>
           </div>
 
           <div
+            aria-label="Job detail content"
             className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pb-5 pt-5"
             data-locked-pane-scroll-region
             data-testid="discovery-detail-scroll-area"
             ref={detailScrollAreaRef}
+            role="region"
+            tabIndex={0}
           >
-            <div className="grid min-h-full content-start gap-6">
-              <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid min-h-full content-start gap-5">
+              <div className="grid sm:grid-cols-2" data-job-fact-grid>
                 <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) p-4 sm:col-span-2">
                   <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
                     Overall assessment
@@ -298,15 +504,23 @@ export function DiscoveryDetailPanel({
                     approved profile. Unknown details do not count as evidence.
                   </p>
                 </div>
+                <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) p-4 sm:col-span-2">
+                  <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
+                    Listing activity
+                  </span>
+                  <StatusBadge className="mt-2" tone={listingActivity.tone}>
+                    {listingActivity.label}
+                  </StatusBadge>
+                  <p className="mt-2 break-words text-(length:--text-small) leading-5 text-foreground-soft">
+                    {listingActivity.description}
+                  </p>
+                </div>
                 <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4">
                   <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-                    Posted
+                    {listingDate?.label}
                   </span>
                   <strong className="mt-2 block text-(length:--text-section-title) text-(--text-headline)">
-                    {formatOptionalDateOnly(
-                      selectedJob.postedAt,
-                      selectedJob.postedAtText,
-                    )}
+                    {listingDate?.value}
                   </strong>
                 </div>
                 <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4">
@@ -321,7 +535,7 @@ export function DiscoveryDetailPanel({
                 </div>
                 <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4">
                   <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-                    Apply
+                    Application method
                   </span>
                   <strong className="mt-2 block text-(length:--text-body) text-(--text-headline)">
                     {selectedJob.applyPath === "easy_apply"
@@ -357,7 +571,8 @@ export function DiscoveryDetailPanel({
                     </strong>
                   </div>
                 ) : null}
-                {selectedJob.applicationUrl ? (
+                {selectedJob.applicationUrl &&
+                selectedJob.applicationUrl !== selectedJob.canonicalUrl ? (
                   <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4 sm:col-span-2">
                     <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
                       Application route
@@ -398,14 +613,7 @@ export function DiscoveryDetailPanel({
                 )}
               </p>
 
-              <PreferenceList
-                compact
-                label="Found on"
-                values={selectedJob.provenance.map(
-                  (entry) =>
-                    discoveryTargetLabels.get(entry.targetId) ?? "Saved source",
-                )}
-              />
+              <PreferenceList compact label="Found on" values={sourceLabels} />
               <SourceDiagnostics summaries={intelligenceSummaries} />
               {selectedJob.keySkills.length > 0 ? (
                 <PreferenceList
@@ -472,45 +680,11 @@ export function DiscoveryDetailPanel({
                   </p>
                 </div>
               ) : null}
-              {selectedJob.firstSeenAt ||
-              selectedJob.lastSeenAt ||
-              selectedJob.lastVerifiedActiveAt ? (
-                <div className="grid gap-2 md:grid-cols-3">
-                  <div>
-                    <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-                      First seen
-                    </p>
-                    <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                      {formatOptionalDateOnly(
-                        selectedJob.firstSeenAt,
-                        "Unknown",
-                      )}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-                      Last seen
-                    </p>
-                    <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                      {formatOptionalDateOnly(
-                        selectedJob.lastSeenAt,
-                        "Unknown",
-                      )}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-                      Last verified active
-                    </p>
-                    <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                      {formatOptionalDateOnly(
-                        selectedJob.lastVerifiedActiveAt,
-                        "Unknown",
-                      )}
-                    </p>
-                  </div>
-                </div>
-              ) : null}
+              <SourceChronologyDisclosure
+                firstSeenAt={selectedJob.firstSeenAt}
+                lastSeenAt={selectedJob.lastSeenAt}
+                lastVerifiedActiveAt={selectedJob.lastVerifiedActiveAt}
+              />
               {selectedJob.employerWebsiteUrl ? (
                 <div className="grid gap-2">
                   <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
@@ -529,15 +703,65 @@ export function DiscoveryDetailPanel({
             className="grid min-w-0 shrink-0 gap-2 border-t border-(--surface-panel-border) bg-(--surface-panel) px-6 py-3"
             data-testid="discovery-detail-actions"
           >
-            <Button
-              className="h-10 w-full"
-              disabled={isSelectedJobPending || isAlreadyShortlisted}
-              onClick={() => onQueueJob(selectedJob.id)}
-              type="button"
-              variant="primary"
-            >
-              {isAlreadyShortlisted ? "Already shortlisted" : "Shortlist job"}
-            </Button>
+            {isAlreadyShortlisted ? (
+              <Button asChild className="h-10 w-full" variant="primary">
+                <Link
+                  aria-describedby={DISCOVERY_DETAIL_HEADING_ID}
+                  data-testid="discovery-detail-open-shortlisted"
+                  to={buildJobFinderContextRoute("/job-finder/review-queue", {
+                    jobId: selectedJob.id,
+                  })}
+                >
+                  Open in Shortlisted
+                </Link>
+              </Button>
+            ) : (
+              <Button
+                aria-describedby={DISCOVERY_DETAIL_HEADING_ID}
+                className="h-10 w-full"
+                disabled={isSelectedJobPending || isReportedClosed}
+                onClick={() => onQueueJob(selectedJob.id)}
+                type="button"
+                variant="primary"
+              >
+                {isReportedClosed
+                  ? "Reported closed"
+                  : needsSourceVerification
+                    ? "Shortlist anyway"
+                    : "Shortlist job"}
+              </Button>
+            )}
+            {!isAlreadyShortlisted && needsSourceVerification ? (
+              <p
+                className="break-words text-(length:--text-tiny) leading-5 text-foreground-muted"
+                role="note"
+              >
+                Verify availability on the original source before relying on
+                this listing.
+              </p>
+            ) : null}
+            {!isAlreadyShortlisted && isReportedClosed ? (
+              <p
+                className="break-words text-(length:--text-tiny) leading-5 text-foreground-muted"
+                role="note"
+              >
+                Shortlisting is unavailable because this listing was reported
+                closed. The original listing link remains available above.
+              </p>
+            ) : null}
+            {queueFeedback ? (
+              <p
+                className={
+                  queueFeedback.status === "failure"
+                    ? "break-words text-(length:--text-small) leading-5 text-destructive"
+                    : "break-words text-(length:--text-small) leading-5 text-foreground-muted"
+                }
+                data-testid="discovery-detail-queue-feedback"
+                role={queueFeedback.status === "failure" ? "alert" : "status"}
+              >
+                {queueFeedback.message}
+              </p>
+            ) : null}
             {feedbackJobId === selectedJob.id ? (
               <fieldset className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) p-3">
                 <legend className="px-1 text-(length:--text-small) font-medium text-foreground">
@@ -553,16 +777,28 @@ export function DiscoveryDetailPanel({
                     return (
                       <Button
                         aria-pressed={selected}
+                        disabled={isFeedbackPending}
                         key={option.value}
-                        onClick={() =>
+                        onClick={() => {
                           setFeedbackReasons((current) =>
                             selected
                               ? current.filter(
                                   (reason) => reason !== option.value,
                                 )
                               : [...current, option.value],
-                          )
-                        }
+                          );
+                          if (option.value !== "company" || selected) {
+                            if (option.value === "company") {
+                              employerExclusionPreviewRequestRef.current += 1;
+                              setFeedbackAction("hide_job");
+                              setEmployerExclusionPreview(null);
+                              setEmployerExclusionPreviewPending(false);
+                              setEmployerExclusionPreviewError(null);
+                            }
+                            return;
+                          }
+                          previewEmployerExclusion(selectedJob.id);
+                        }}
                         size="sm"
                         type="button"
                         variant={selected ? "secondary" : "ghost"}
@@ -572,27 +808,104 @@ export function DiscoveryDetailPanel({
                     );
                   })}
                 </div>
+                {feedbackReasons.includes("company") ? (
+                  <fieldset className="grid gap-2 border-t border-(--surface-panel-border) pt-3">
+                    <legend className="text-(length:--text-small) font-medium text-foreground">
+                      Company feedback scope
+                    </legend>
+                    <label className="flex items-start gap-2 text-(length:--text-small) text-foreground-soft">
+                      <input
+                        checked={feedbackAction === "hide_job"}
+                        disabled={isFeedbackPending}
+                        name={`company-feedback-scope-${selectedJob.id}`}
+                        onChange={() => setFeedbackAction("hide_job")}
+                        type="radio"
+                        value="hide_job"
+                      />
+                      <span>Hide this job only</span>
+                    </label>
+                    <label className="flex items-start gap-2 text-(length:--text-small) text-foreground-soft">
+                      <input
+                        checked={feedbackAction === "hide_and_exclude_employer"}
+                        disabled={
+                          isFeedbackPending ||
+                          isEmployerExclusionPreviewPending ||
+                          selectedJobEmployerExclusionPreview?.status !==
+                            "available"
+                        }
+                        name={`company-feedback-scope-${selectedJob.id}`}
+                        onChange={() =>
+                          setFeedbackAction("hide_and_exclude_employer")
+                        }
+                        type="radio"
+                        value="hide_and_exclude_employer"
+                      />
+                      <span>Hide and exclude employer</span>
+                    </label>
+                    {isEmployerExclusionPreviewPending ? (
+                      <p
+                        className="text-(length:--text-tiny) text-foreground-muted"
+                        role="status"
+                      >
+                        Checking the exact employer identity…
+                      </p>
+                    ) : selectedJobEmployerExclusionPreview?.status ===
+                      "available" ? (
+                      <div className="grid gap-1 text-(length:--text-tiny) leading-5 text-foreground-muted">
+                        <p>
+                          Future searches will exclude the exact normalized
+                          company name “
+                          {
+                            selectedJobEmployerExclusionPreview.normalizedCompanyName
+                          }
+                          ”. This does not widen to aliases, parents, suffix
+                          variants, or domains.
+                        </p>
+                        {selectedJobEmployerExclusionPreview.employerDomain ? (
+                          <p>
+                            Domain evidence only:{" "}
+                            {selectedJobEmployerExclusionPreview.employerDomain}
+                            . It is not an exclusion key.
+                          </p>
+                        ) : null}
+                        <p>Fit scoring is unchanged.</p>
+                      </div>
+                    ) : selectedJobEmployerExclusionPreview?.status ===
+                      "unavailable" ? (
+                      <p className="text-(length:--text-tiny) leading-5 text-foreground-muted">
+                        Reusable employer exclusion is unavailable because this
+                        identity is not safe and exact. You can still hide only
+                        this job.
+                      </p>
+                    ) : employerExclusionPreviewError ? (
+                      <p
+                        className="text-(length:--text-tiny) leading-5 text-foreground-muted"
+                        role="status"
+                      >
+                        {employerExclusionPreviewError}
+                      </p>
+                    ) : null}
+                  </fieldset>
+                ) : null}
                 <div className="flex flex-wrap gap-2">
                   <Button
-                    disabled={
-                      isSelectedJobPending || feedbackReasons.length === 0
-                    }
+                    disabled={isFeedbackPending || feedbackReasons.length === 0}
                     onClick={() => {
-                      onDismissJob(selectedJob.id, feedbackReasons);
-                      setFeedbackJobId(null);
-                      setFeedbackReasons([]);
+                      void dismissSelectedJob(selectedJob.id);
                     }}
                     size="sm"
                     type="button"
                     variant="secondary"
                   >
-                    Hide with feedback
+                    {isDismissPending
+                      ? "Hiding job…"
+                      : feedbackAction === "hide_and_exclude_employer"
+                        ? "Hide and exclude employer"
+                        : "Hide this job only"}
                   </Button>
                   <Button
-                    onClick={() => {
-                      setFeedbackJobId(null);
-                      setFeedbackReasons([]);
-                    }}
+                    disabled={isFeedbackPending}
+                    onClick={closeFeedback}
                     size="sm"
                     type="button"
                     variant="ghost"
@@ -600,14 +913,28 @@ export function DiscoveryDetailPanel({
                     Cancel
                   </Button>
                 </div>
+                {dismissError ? (
+                  <p
+                    className="text-(length:--text-tiny) leading-5 text-destructive"
+                    role="alert"
+                  >
+                    {dismissError}
+                  </p>
+                ) : null}
               </fieldset>
             ) : (
               <Button
                 className="h-10 w-full"
                 disabled={isSelectedJobPending}
                 onClick={() => {
+                  employerExclusionPreviewRequestRef.current += 1;
                   setFeedbackJobId(selectedJob.id);
                   setFeedbackReasons([]);
+                  setFeedbackAction("hide_job");
+                  setEmployerExclusionPreview(null);
+                  setEmployerExclusionPreviewPending(false);
+                  setEmployerExclusionPreviewError(null);
+                  setDismissError(null);
                 }}
                 type="button"
                 variant="secondary"

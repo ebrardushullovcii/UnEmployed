@@ -1,114 +1,326 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ReviewQueuePreviewPanel } from './review-queue-preview-panel'
+import { cleanup, render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ReviewQueuePreviewPanel } from "./review-queue-preview-panel";
 
-describe('ReviewQueuePreviewPanel', () => {
+describe("ReviewQueuePreviewPanel", () => {
   afterEach(() => {
-    cleanup()
-    vi.clearAllMocks()
-  })
+    cleanup();
+    vi.clearAllMocks();
+  });
 
-  it('routes first-run users back to Find jobs from the empty shortlist state', () => {
+  it("routes first-run users back to Find jobs from the empty shortlist state", () => {
     render(
-      <ReviewQueuePreviewPanel
-        displayedProgress={0}
-        onEditResumeWorkspace={vi.fn()}
-        onGenerateResume={vi.fn()}
-        previewState={null}
-        queue={[]}
-        selectedAsset={null}
-        selectedItem={null}
-        selectedJob={null}
-      />
-    )
+      <MemoryRouter>
+        <ReviewQueuePreviewPanel
+          displayedProgress={0}
+          onEditResumeWorkspace={vi.fn()}
+          onGenerateResume={vi.fn()}
+          previewState={null}
+          queue={[]}
+          selectedAsset={null}
+          selectedItem={null}
+          selectedJob={null}
+        />
+      </MemoryRouter>,
+    );
 
-    expect(screen.getByText('No shortlisted jobs yet')).toBeTruthy()
-    expect(screen.getByText('Find jobs first, then shortlist the strongest matches to start building tailored resumes.')).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Go to Find jobs' }).getAttribute('href')).toBe('#/job-finder/discovery')
-  })
+    expect(screen.getByText("No shortlisted jobs yet")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Find jobs first, then shortlist the strongest matches to start building tailored resumes.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen
+        .getByRole("link", { name: "Go to Find jobs" })
+        .getAttribute("href"),
+    ).toBe("/job-finder/discovery");
+  });
 
-  it('shows the imported CV and makes the unchanged-file behavior explicit', () => {
+  it("shows the imported resume and makes the unchanged-file behavior explicit", () => {
     const selectedItem = {
-      jobId: 'job_1',
-      title: 'Product Designer',
-      company: 'Signal Systems',
-      location: 'Remote',
+      jobId: "job_1",
+      title: "Product Designer",
+      company: "Signal Systems",
+      location: "Remote",
       matchScore: 92,
-      applicationStatus: 'ready_for_review' as const,
-      resumeApplicationMode: 'original_resume' as const,
-      assetStatus: 'ready' as const,
+      applicationStatus: "ready_for_review" as const,
+      resumeApplicationMode: "original_resume" as const,
+      assetStatus: "ready" as const,
       progressPercent: 100,
-      resumeAssetId: 'resume_1',
+      resumeAssetId: "resume_1",
       resumeReview: {
-        status: 'original_resume' as const,
-        sourceDocumentId: 'resume_1',
-        fileName: 'alex-original.pdf',
-        filePath: '/tmp/alex-original.pdf'
+        status: "original_resume" as const,
+        sourceDocumentId: "resume_1",
+        fileName: "alex-original.pdf",
+        filePath: "/tmp/alex-original.pdf",
       },
-      updatedAt: '2026-07-14T10:00:00.000Z'
-    }
+      updatedAt: "2026-07-14T10:00:00.000Z",
+    };
 
     render(
+      <MemoryRouter>
+        <ReviewQueuePreviewPanel
+          displayedProgress={100}
+          onEditResumeWorkspace={vi.fn()}
+          onGenerateResume={vi.fn()}
+          originalResume={{
+            id: "resume_1",
+            fileName: "alex-original.pdf",
+            uploadedAt: "2026-07-14T10:00:00.000Z",
+            storagePath: "/tmp/alex-original.pdf",
+            textContent: "Alex Example\nProduct designer\nFull work history",
+            textUpdatedAt: "2026-07-14T10:00:00.000Z",
+            extractionStatus: "ready",
+            lastAnalyzedAt: "2026-07-14T10:00:00.000Z",
+            analysisProviderKind: null,
+            analysisProviderLabel: null,
+            analysisWarnings: [],
+          }}
+          previewState={null}
+          queue={[selectedItem]}
+          selectedAsset={null}
+          selectedItem={selectedItem}
+          selectedJob={null}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Original resume · unchanged")).toBeTruthy();
+    expect(screen.getAllByText("alex-original.pdf")).toHaveLength(2);
+    expect(screen.getByText(/will not rewrite it, remove roles/i)).toBeTruthy();
+    expect(screen.getByText("File selected for attachment")).toBeTruthy();
+    expect(screen.getByText("Read-only extracted text preview")).toBeTruthy();
+    expect(
+      screen.getByText(/attachment remains the original imported file/i),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/Check sensitive personal details before attaching/i),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/home address, date of birth, nationality/i),
+    ).toBeTruthy();
+    expect(screen.getByText(/Full work history/)).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /create tailored resume/i }),
+    ).toBeNull();
+  });
+
+  it("keeps the estimated percentage readable outside the progress fill", () => {
+    const selectedItem = {
+      jobId: "job_generating",
+      title: "Senior Frontend Engineer",
+      company: "Mercury",
+      location: "Remote",
+      matchScore: 86,
+      applicationStatus: "shortlisted",
+      resumeApplicationMode: "tailored_per_job",
+      assetStatus: "generating",
+      progressPercent: 69,
+      resumeAssetId: null,
+      resumeReview: {
+        status: "not_started",
+      },
+      updatedAt: "2026-07-31T12:00:00.000Z",
+    } as never;
+
+    render(
+      <MemoryRouter>
+        <ReviewQueuePreviewPanel
+          displayedProgress={69}
+          isGenerating
+          onEditResumeWorkspace={vi.fn()}
+          onGenerateResume={vi.fn()}
+          previewState={null}
+          queue={[selectedItem]}
+          selectedAsset={null}
+          selectedItem={selectedItem}
+          selectedJob={null}
+        />
+      </MemoryRouter>,
+    );
+
+    const progress = screen.getByRole("progressbar", {
+      name: "Estimated resume preparation progress",
+    });
+
+    expect(progress.getAttribute("aria-valuenow")).toBe("69");
+    expect(progress.getAttribute("aria-valuetext")).toBe("69% estimated");
+    expect(screen.getByText("69% estimated").className).toContain(
+      "text-(--text-headline)",
+    );
+    expect(screen.getByText(/Progress keeps its place/i)).toBeTruthy();
+  });
+});
+
+describe("ReviewQueuePreviewPanel locked pane scroll regions", () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  function expectLeafRegions(scope: ParentNode): HTMLElement[] {
+    const regions = Array.from(
+      scope.querySelectorAll<HTMLElement>("[data-locked-pane-scroll-region]"),
+    );
+    for (const region of regions) {
+      // A marked pane must own scrolling without nesting another marker.
+      expect(
+        region.querySelectorAll("[data-locked-pane-scroll-region]"),
+      ).toHaveLength(0);
+    }
+    return regions;
+  }
+
+  it("marks only the imported resume card scroller and leaves the raw-text box nested and unmarked", () => {
+    const selectedItem = {
+      jobId: "job_1",
+      title: "Product Designer",
+      company: "Signal Systems",
+      location: "Remote",
+      matchScore: 92,
+      applicationStatus: "ready_for_review" as const,
+      resumeApplicationMode: "original_resume" as const,
+      assetStatus: "ready" as const,
+      progressPercent: 100,
+      resumeAssetId: "resume_1",
+      resumeReview: {
+        status: "original_resume" as const,
+        sourceDocumentId: "resume_1",
+        fileName: "alex-original.pdf",
+        filePath: "/tmp/alex-original.pdf",
+      },
+      updatedAt: "2026-07-14T10:00:00.000Z",
+    };
+
+    const { container } = render(
       <ReviewQueuePreviewPanel
         displayedProgress={100}
         onEditResumeWorkspace={vi.fn()}
         onGenerateResume={vi.fn()}
         originalResume={{
-          id: 'resume_1',
-          fileName: 'alex-original.pdf',
-          uploadedAt: '2026-07-14T10:00:00.000Z',
-          storagePath: '/tmp/alex-original.pdf',
-          textContent: 'Alex Example\nProduct designer\nFull work history',
-          textUpdatedAt: '2026-07-14T10:00:00.000Z',
-          extractionStatus: 'ready',
-          lastAnalyzedAt: '2026-07-14T10:00:00.000Z',
+          id: "resume_1",
+          fileName: "alex-original.pdf",
+          uploadedAt: "2026-07-14T10:00:00.000Z",
+          storagePath: "/tmp/alex-original.pdf",
+          textContent: "Alex Example\nProduct designer\nFull work history",
+          textUpdatedAt: "2026-07-14T10:00:00.000Z",
+          extractionStatus: "ready",
+          lastAnalyzedAt: "2026-07-14T10:00:00.000Z",
           analysisProviderKind: null,
           analysisProviderLabel: null,
-          analysisWarnings: []
+          analysisWarnings: [],
         }}
         previewState={null}
         queue={[selectedItem]}
         selectedAsset={null}
         selectedItem={selectedItem}
         selectedJob={null}
-      />
-    )
+      />,
+    );
 
-    expect(screen.getByText('Original CV · unchanged')).toBeTruthy()
-    expect(screen.getAllByText('alex-original.pdf')).toHaveLength(2)
-    expect(screen.getByText(/will not rewrite it, remove roles/i)).toBeTruthy()
-    expect(screen.getByText('File selected for attachment')).toBeTruthy()
-    expect(screen.getByText('Read-only extracted text preview')).toBeTruthy()
-    expect(screen.getByText(/attachment remains the original imported file/i)).toBeTruthy()
-    expect(screen.getByText(/Check sensitive personal details before attaching/i)).toBeTruthy()
-    expect(screen.getByText(/home address, date of birth, nationality/i)).toBeTruthy()
-    expect(screen.getByText(/Full work history/)).toBeTruthy()
-    expect(screen.queryByRole('button', { name: /create tailored resume/i })).toBeNull()
-  })
+    const regions = expectLeafRegions(container);
+    expect(regions).toHaveLength(1);
+    const resumeScroller = screen
+      .getByText("Original resume · unchanged")
+      .closest<HTMLElement>("[data-locked-pane-scroll-region]");
+    expect(resumeScroller).toBeTruthy();
+    expect(resumeScroller?.className).toContain(
+      "min-h-0 flex-1 overflow-y-auto px-5 pb-5",
+    );
+    // The extracted raw-text preview scrolls natively inside the card; it must
+    // not carry a second nested locked-pane marker.
+    const rawTextBox = screen.getByText(/Full work history/);
+    expect(rawTextBox.hasAttribute("data-locked-pane-scroll-region")).toBe(
+      false,
+    );
+    expect(resumeScroller?.contains(rawTextBox)).toBe(true);
+  });
 
-  it('keeps the estimated percentage readable outside the progress fill', () => {
+  it("marks only the tailored resume preview scroller for a ready asset", () => {
     const selectedItem = {
-      jobId: 'job_generating',
-      title: 'Senior Frontend Engineer',
-      company: 'Mercury',
-      location: 'Remote',
+      jobId: "job_preview",
+      title: "Senior Frontend Engineer",
+      company: "Mercury",
+      location: "Remote",
       matchScore: 86,
-      applicationStatus: 'shortlisted',
-      resumeApplicationMode: 'tailored_per_job',
-      assetStatus: 'generating',
-      progressPercent: 69,
-      resumeAssetId: null,
-      resumeReview: {
-        status: 'not_started'
-      },
-      updatedAt: '2026-07-31T12:00:00.000Z'
-    } as never
+      applicationStatus: "shortlisted" as const,
+      resumeApplicationMode: "tailored_per_job" as const,
+      assetStatus: "ready" as const,
+      progressPercent: 100,
+      resumeAssetId: "asset_preview",
+      resumeReview: { status: "needs_review" as const },
+      updatedAt: "2026-07-31T12:00:00.000Z",
+    } as never;
 
-    render(
+    const { container } = render(
       <ReviewQueuePreviewPanel
-        displayedProgress={69}
+        displayedProgress={100}
+        onEditResumeWorkspace={vi.fn()}
+        onGenerateResume={vi.fn()}
+        previewState={null}
+        queue={[selectedItem]}
+        selectedAsset={
+          {
+            id: "asset_preview",
+            jobId: "job_preview",
+            kind: "resume",
+            status: "ready",
+            label: "Tailored resume v1",
+            version: "v1",
+            templateName: "standard",
+            compatibilityScore: 92,
+            progressPercent: 100,
+            updatedAt: "2026-07-31T12:00:00.000Z",
+            storagePath: null,
+            contentText: null,
+            previewSections: [
+              { heading: "Summary", lines: ["Dependable product engineer."] },
+            ],
+            generationMethod: "deterministic",
+            notes: [],
+            failureMessage: null,
+            failedAt: null,
+          } as never
+        }
+        selectedItem={selectedItem}
+        selectedJob={null}
+      />,
+    );
+
+    const regions = expectLeafRegions(container);
+    expect(regions).toHaveLength(1);
+    const previewScroller = screen
+      .getByText("Tailored resume v1")
+      .closest<HTMLElement>("[data-locked-pane-scroll-region]");
+    expect(previewScroller).toBeTruthy();
+    expect(previewScroller?.className).toContain(
+      "min-h-0 flex-1 overflow-y-auto px-5 pb-5",
+    );
+  });
+
+  it("leaves the centered generation-state wrapper unmarked", () => {
+    const selectedItem = {
+      jobId: "job_generating",
+      title: "Senior Frontend Engineer",
+      company: "Mercury",
+      location: "Remote",
+      matchScore: 86,
+      applicationStatus: "shortlisted" as const,
+      resumeApplicationMode: "tailored_per_job" as const,
+      assetStatus: "generating" as const,
+      progressPercent: 40,
+      resumeAssetId: null,
+      resumeReview: { status: "not_started" as const },
+      updatedAt: "2026-07-31T12:00:00.000Z",
+    } as never;
+
+    const { container } = render(
+      <ReviewQueuePreviewPanel
+        displayedProgress={40}
         isGenerating
         onEditResumeWorkspace={vi.fn()}
         onGenerateResume={vi.fn()}
@@ -117,16 +329,14 @@ describe('ReviewQueuePreviewPanel', () => {
         selectedAsset={null}
         selectedItem={selectedItem}
         selectedJob={null}
-      />
-    )
+      />,
+    );
 
-    const progress = screen.getByRole('progressbar', {
-      name: 'Estimated resume preparation progress'
-    })
-
-    expect(progress.getAttribute('aria-valuenow')).toBe('69')
-    expect(progress.getAttribute('aria-valuetext')).toBe('69% estimated')
-    expect(screen.getByText('69% estimated').className).toContain('text-(--text-headline)')
-    expect(screen.getByText(/Progress keeps its place/i)).toBeTruthy()
-  })
-})
+    expect(
+      screen.getByRole("progressbar", {
+        name: "Estimated resume preparation progress",
+      }),
+    ).toBeTruthy();
+    expect(expectLeafRegions(container)).toHaveLength(0);
+  });
+});

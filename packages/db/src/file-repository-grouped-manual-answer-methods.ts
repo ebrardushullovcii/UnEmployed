@@ -117,14 +117,16 @@ function upsertUserActionRequest(
     .prepare(
       `
       INSERT INTO user_action_requests (
-        id, dedupe_key, revision, kind, state, scope_type, updated_at, value
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        id, dedupe_key, revision, kind, state, scope_type,
+        application_record_id, updated_at, value
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         dedupe_key = excluded.dedupe_key,
         revision = excluded.revision,
         kind = excluded.kind,
         state = excluded.state,
         scope_type = excluded.scope_type,
+        application_record_id = excluded.application_record_id,
         updated_at = excluded.updated_at,
         value = excluded.value
     `,
@@ -158,8 +160,9 @@ function upsertApplicationAnswerRecord(
     .prepare(
       `
       INSERT OR REPLACE INTO application_answer_records (
-        id, run_id, job_id, result_id, question_id, created_at, value
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        id, run_id, job_id, application_record_id, result_id, question_id,
+        created_at, value
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `,
     )
     .run(record.id, ...columns.getColumns(record), JSON.stringify(record));
@@ -174,8 +177,8 @@ function upsertApplicationQuestionRecord(
     .prepare(
       `
       INSERT OR REPLACE INTO application_question_records (
-        id, run_id, job_id, result_id, detected_at, value
-      ) VALUES (?, ?, ?, ?, ?, ?)
+        id, run_id, job_id, application_record_id, result_id, detected_at, value
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
     `,
     )
     .run(record.id, ...columns.getColumns(record), JSON.stringify(record));

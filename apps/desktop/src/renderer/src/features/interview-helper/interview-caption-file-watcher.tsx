@@ -129,7 +129,7 @@ export function InterviewCaptionFileWatcher(props: {
   }, [enabled, filePath, props.onWorkspaceChange]);
 
   return (
-    <div className="grid gap-2 rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
+    <div className="grid gap-2 rounded-(--radius-small) border border-border-subtle bg-(--surface-fill-subtle) p-3">
       <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] xl:grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_auto]">
         <div>
           <p className="text-[0.82rem]">Caption file</p>

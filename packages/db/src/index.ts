@@ -1,8 +1,19 @@
 export type {
   ApplicationAnswerMutationResult,
   ApplicationRecordBatchCommitResult,
+  CampaignPreferencesCommitCurrent,
+  CampaignPreferencesCommitNext,
+  CompanyIntelligenceCommitCurrent,
+  CompanyIntelligenceCommitExpected,
+  DiscoveryFeedbackCommitCurrent,
+  DiscoveryFeedbackCommitNext,
   JobFinderRepository,
   JobFinderRepositorySeed,
+  ProfileCommitOutcome,
+  ProfileCopilotMessagePatchFlag,
+  WorkspaceDatabaseRecoveryRequiredDetails,
+  WorkspaceDatabaseRestoreTelemetryEvent,
+  WorkspaceRotationReconciliationEvent,
 } from "./repository-types";
 export type {
   CreateUserActionRequestResult,
@@ -17,7 +28,10 @@ export type {
   GroupedManualAnswerCommitFailure,
 } from "./grouped-manual-answer-types";
 export { createInMemoryJobFinderRepository } from "./in-memory-repository";
-export { createFileJobFinderRepository } from "./file-repository";
+export {
+  createFileJobFinderRepository,
+  WorkspaceDatabaseRecoveryRequiredError,
+} from "./file-repository";
 export {
   createFileInterviewHelperRepository,
   type InterviewHelperRepository,

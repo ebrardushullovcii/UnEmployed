@@ -35,7 +35,12 @@ export function ProfileSourceDebugReviewModal(props: {
       null,
     [props.recentRuns, props.selectedRunId],
   );
-  useModalFocusTrap(props.open, dialogRef, props.onClose);
+  // Initial focus stays on the labelled container so screen readers announce
+  // the dialog heading and description; focusing "Check again" first would
+  // skip that context entirely. Trap, Escape, and focus restore are unchanged.
+  useModalFocusTrap(props.open, dialogRef, props.onClose, {
+    initialFocus: "dialog",
+  });
 
   if (!props.open) {
     return null;

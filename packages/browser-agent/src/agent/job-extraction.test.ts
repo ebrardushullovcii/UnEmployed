@@ -2,7 +2,9 @@ import { describe, expect, test } from "vitest";
 import {
   buildStructuredCandidateJobs,
   isJobPreferenceAligned,
+  observeLearnedSearchSurfaceRoutes,
   shouldCanonicalizeSearchSurfaceDetailRoute,
+  type SearchResultCardCandidate,
 } from "./job-extraction";
 
 describe("buildStructuredCandidateJobs", () => {
@@ -251,14 +253,147 @@ describe("buildStructuredCandidateJobs", () => {
     ]);
   });
 
-  test("normalizes LinkedIn currentJobId routes into stable job view urls when the card proves the id", () => {
+  test("normalizes selected-job query routes into stable detail urls learned from observed links", () => {
     const jobs = buildStructuredCandidateJobs({
-      pageUrl: "https://www.linkedin.com/jobs/collections/recommended/",
+      pageUrl:
+        "https://jobs.example.com/search?q=frontend&selected_job_id=4399165260",
       maxJobs: 5,
       cardCandidates: [
         {
           canonicalUrl:
-            "https://www.linkedin.com/jobs/search/?currentJobId=4404057151&geoId=104640522&keywords=Senior%20Full-Stack%20Software%20Engineer",
+            "https://jobs.example.com/search?q=frontend&selected_job_id=4399165260",
+          sourceJobIdHint: "4404057151",
+          anchorText: "Full Stack Developer (AI-First)",
+          headingText: "Full Stack Developer (AI-First)",
+          lines: [
+            "Full Stack Developer (AI-First)",
+            "Full Circle Agency",
+            "Pristina (Remote)",
+          ],
+        },
+        {
+          canonicalUrl: "https://jobs.example.com/jobs/4386674431/",
+          anchorText: "Senior Backend Engineer",
+          headingText: "Senior Backend Engineer",
+          lines: ["Senior Backend Engineer", "Odiin", "Prishtina, Kosovo"],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          canonicalUrl: "https://jobs.example.com/jobs/4404057151/",
+          sourceJobId: "4404057151",
+          title: "Full Stack Developer (AI-First)",
+          company: "Full Circle Agency",
+          location: "Pristina (Remote)",
+        }),
+      ]),
+    );
+  });
+
+  test("prefers a card-level job id hint over the shared selected-job route on the same page", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://jobs.example.com/search?selected_job_id=4404057151&q=frontend",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl:
+            "https://jobs.example.com/search?selected_job_id=4404057151&q=frontend",
+          sourceJobIdHint: "4404542575",
+          anchorText: "Full Stack Developer (AI-First)",
+          headingText: "Full Stack Developer (AI-First)",
+          lines: [
+            "Full Stack Developer (AI-First)",
+            "Full Circle Agency",
+            "Pristina (Remote)",
+          ],
+        },
+        {
+          canonicalUrl: "https://jobs.example.com/jobs/4386674431/",
+          anchorText: "Senior Backend Engineer",
+          headingText: "Senior Backend Engineer",
+          lines: ["Senior Backend Engineer", "Odiin", "Prishtina, Kosovo"],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          canonicalUrl: "https://jobs.example.com/jobs/4404542575/",
+          sourceJobId: "4404542575",
+          title: "Full Stack Developer (AI-First)",
+          company: "Full Circle Agency",
+        }),
+      ]),
+    );
+  });
+
+  test("learns distinct detail-route shapes per host across two boards in one batch", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
+      maxJobs: 8,
+      cardCandidates: [
+        {
+          canonicalUrl:
+            "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
+          sourceJobIdHint: "4404057151",
+          anchorText: "Frontend Engineer",
+          headingText: "Frontend Engineer",
+          lines: ["Frontend Engineer", "Odiin", "Remote"],
+        },
+        {
+          canonicalUrl: "https://jobs.example.com/openings/4386674431",
+          anchorText: "Platform Engineer",
+          headingText: "Platform Engineer",
+          lines: ["Platform Engineer", "Acme", "Hybrid"],
+        },
+        {
+          canonicalUrl:
+            "https://careers.acme.io/careers/search?q=platform&selected_job_id=4400784689",
+          sourceJobIdHint: "4404592001",
+          anchorText: "QA Automation Engineer",
+          headingText: "QA Automation Engineer",
+          lines: ["QA Automation Engineer", "Acme Labs", "Pristina"],
+        },
+        {
+          canonicalUrl: "https://careers.acme.io/careers/openings/4386851676/",
+          anchorText: "Backend Engineer",
+          headingText: "Backend Engineer",
+          lines: ["Backend Engineer", "Crossing Hurdles", "EMEA (Remote)"],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          canonicalUrl: "https://jobs.example.com/openings/4404057151",
+          sourceJobId: "4404057151",
+          title: "Frontend Engineer",
+        }),
+        expect.objectContaining({
+          canonicalUrl: "https://careers.acme.io/careers/openings/4404592001/",
+          sourceJobId: "4404592001",
+          title: "QA Automation Engineer",
+        }),
+      ]),
+    );
+  });
+
+  test("keeps partial seeded-search cards when no detail-route shape was observed for the host", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl:
+            "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
           sourceJobIdHint: "4404057151",
           anchorText: "Full Stack Developer (AI-First)",
           headingText: "Full Stack Developer (AI-First)",
@@ -273,55 +408,90 @@ describe("buildStructuredCandidateJobs", () => {
 
     expect(jobs).toEqual([
       expect.objectContaining({
-        canonicalUrl: "https://www.linkedin.com/jobs/view/4404057151/",
-        sourceJobId: "4404057151",
+        canonicalUrl: "https://jobs.example.com/search?q=frontend",
         title: "Full Stack Developer (AI-First)",
         company: "Full Circle Agency",
-        location: "Pristina (Remote)",
       }),
     ]);
+    expect(jobs[0]?.sourceJobId).toContain("full_stack_developer_ai_first");
+    expect(jobs[0]?.sourceJobId).not.toBe("4404057151");
   });
 
-  test("prefers a card-level LinkedIn job id hint over the shared selected currentJobId route", () => {
+  test("does not build detail urls from malformed or non-numeric id hints", () => {
     const jobs = buildStructuredCandidateJobs({
       pageUrl:
-        "https://www.linkedin.com/jobs/search/?currentJobId=4404057151&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo",
+        "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
       maxJobs: 5,
       cardCandidates: [
         {
           canonicalUrl:
-            "https://www.linkedin.com/jobs/search/?currentJobId=4404057151&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo",
-          sourceJobIdHint: "4404542575",
-          anchorText: "Full Stack Developer (AI-First)",
-          headingText: "Full Stack Developer (AI-First)",
-          lines: [
-            "Full Stack Developer (AI-First)",
-            "Full Circle Agency",
-            "Pristina (Remote)",
-          ],
+            "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
+          sourceJobIdHint: "role_backend_crossing_hurdles",
+          anchorText: "Back-End Engineer",
+          headingText: "Back-End Engineer",
+          lines: ["Back-End Engineer", "Crossing Hurdles", "Prishtina, Kosovo"],
+        },
+        {
+          canonicalUrl: "https://jobs.example.com/jobs/4386674431/",
+          anchorText: "Platform Engineer",
+          headingText: "Platform Engineer",
+          lines: ["Platform Engineer", "Acme", "Hybrid"],
         },
       ],
     });
 
-    expect(jobs).toEqual([
-      expect.objectContaining({
-        canonicalUrl: "https://www.linkedin.com/jobs/view/4404542575/",
-        sourceJobId: "4404542575",
-        title: "Full Stack Developer (AI-First)",
-        company: "Full Circle Agency",
-      }),
-    ]);
+    expect(jobs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          canonicalUrl: "https://jobs.example.com/search?q=frontend",
+          title: "Back-End Engineer",
+        }),
+      ]),
+    );
   });
 
-  test("does not canonicalize a seeded LinkedIn currentJobId search route when the card does not prove that id", () => {
+  test("refuses cross-origin detail templates when canonicalizing hinted cards", () => {
     const jobs = buildStructuredCandidateJobs({
       pageUrl:
-        "https://www.linkedin.com/jobs/search/?currentJobId=4399165260&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo",
+        "https://careers.acme.io/careers/search?q=platform&selected_job_id=4400784689",
       maxJobs: 5,
       cardCandidates: [
         {
           canonicalUrl:
-            "https://www.linkedin.com/jobs/search/?currentJobId=4399165260&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo",
+            "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
+          sourceJobIdHint: "4404057151",
+          anchorText: "Frontend Engineer",
+          headingText: "Frontend Engineer",
+          lines: ["Frontend Engineer", "Odiin", "Remote"],
+        },
+        {
+          canonicalUrl: "https://careers.acme.io/careers/openings/4386851676/",
+          anchorText: "Backend Engineer",
+          headingText: "Backend Engineer",
+          lines: ["Backend Engineer", "Crossing Hurdles", "EMEA (Remote)"],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          canonicalUrl: "https://jobs.example.com/search?q=frontend",
+          title: "Frontend Engineer",
+        }),
+      ]),
+    );
+  });
+
+  test("does not canonicalize a seeded selected-job search route when the card does not prove that id", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://jobs.example.com/search?selected_job_id=4399165260&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl:
+            "https://jobs.example.com/search?selected_job_id=4399165260&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo",
           anchorText: "Full Stack Developer (AI-First)",
           headingText: "Full Stack Developer (AI-First)",
           lines: [
@@ -336,7 +506,7 @@ describe("buildStructuredCandidateJobs", () => {
     expect(jobs).toEqual([
       expect.objectContaining({
         canonicalUrl:
-          "https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo",
+          "https://jobs.example.com/search?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo",
         title: "Full Stack Developer (AI-First)",
         company: "Full Circle Agency",
       }),
@@ -344,22 +514,22 @@ describe("buildStructuredCandidateJobs", () => {
     expect(jobs[0]?.sourceJobId).toContain("full_stack_developer_ai_first");
   });
 
-  test("does not collapse multiple visible LinkedIn cards onto the shared seeded search currentJobId route", () => {
+  test("does not collapse multiple visible cards onto the shared seeded search route", () => {
     const jobs = buildStructuredCandidateJobs({
       pageUrl:
-        "https://www.linkedin.com/jobs/search/?currentJobId=4399165260&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo",
+        "https://jobs.example.com/search?selected_job_id=4399165260&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo",
       maxJobs: 5,
       cardCandidates: [
         {
           canonicalUrl:
-            "https://www.linkedin.com/jobs/search/?currentJobId=4399165260&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo",
+            "https://jobs.example.com/search?selected_job_id=4399165260&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo",
           anchorText: "Frontend Engineer",
           headingText: "Frontend Engineer",
           lines: ["Frontend Engineer", "Odiin", "Prishtina, Kosovo"],
         },
         {
           canonicalUrl:
-            "https://www.linkedin.com/jobs/search/?currentJobId=4399165260&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo",
+            "https://jobs.example.com/search?selected_job_id=4399165260&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo",
           anchorText: "Full Stack Developer (AI-First)",
           headingText: "Full Stack Developer (AI-First)",
           lines: [
@@ -380,22 +550,22 @@ describe("buildStructuredCandidateJobs", () => {
     );
   });
 
-  test("does not collapse multiple visible LinkedIn cards onto the shared seeded search route when fallback capture has no card-level id proof", () => {
+  test("does not collapse multiple visible cards onto the shared seeded search route when fallback capture has no card-level id proof", () => {
     const jobs = buildStructuredCandidateJobs({
       pageUrl:
-        "https://www.linkedin.com/jobs/search/?keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo",
+        "https://careers.acme.io/careers/search?keywords=Senior%20Frontend%20Engineer&location=Prishtina",
       maxJobs: 5,
       cardCandidates: [
         {
           canonicalUrl:
-            "https://www.linkedin.com/jobs/search/?keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo",
+            "https://careers.acme.io/careers/search?keywords=Senior%20Frontend%20Engineer&location=Prishtina",
           anchorText: "Senior Frontend Engineer",
           headingText: "Senior Frontend Engineer",
           lines: ["Senior Frontend Engineer", "Odiin", "Prishtina, Kosovo"],
         },
         {
           canonicalUrl:
-            "https://www.linkedin.com/jobs/search/?keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo",
+            "https://careers.acme.io/careers/search?keywords=Senior%20Frontend%20Engineer&location=Prishtina",
           anchorText: "Full Stack Developer (AI-First)",
           headingText: "Full Stack Developer (AI-First)",
           lines: [
@@ -1753,44 +1923,64 @@ describe("isJobPreferenceAligned", () => {
 });
 
 describe("shouldCanonicalizeSearchSurfaceDetailRoute", () => {
-  test("returns false for seeded LinkedIn search cards without a card-level id proof", () => {
+  const learnedEvidence = observeLearnedSearchSurfaceRoutes({
+    pageUrl:
+      "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
+    observedUrls: [
+      "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
+      "https://jobs.example.com/jobs/4386674431/",
+    ],
+  });
+  const seededCard: SearchResultCardCandidate = {
+    canonicalUrl:
+      "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
+    anchorText: "Full Stack Developer (AI-First)",
+    headingText: "Full Stack Developer (AI-First)",
+    lines: [
+      "Full Stack Developer (AI-First)",
+      "Full Circle Agency",
+      "Pristina (Remote)",
+    ],
+  };
+
+  test("returns false for seeded search cards without a card-level id proof", () => {
     expect(
       shouldCanonicalizeSearchSurfaceDetailRoute({
         pageUrl:
-          "https://www.linkedin.com/jobs/search/?currentJobId=4399165260&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo",
-        candidate: {
-          canonicalUrl:
-            "https://www.linkedin.com/jobs/search/?currentJobId=4399165260&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo",
-          anchorText: "Full Stack Developer (AI-First)",
-          headingText: "Full Stack Developer (AI-First)",
-          lines: [
-            "Full Stack Developer (AI-First)",
-            "Full Circle Agency",
-            "Pristina (Remote)",
-          ],
-        },
+          "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
+        candidate: { ...seededCard },
+        evidence: learnedEvidence,
       }),
     ).toBe(false);
   });
 
-  test("returns true when the card has its own LinkedIn job id hint", () => {
+  test("returns true when the card has its own id hint and the host detail shape was learned", () => {
     expect(
       shouldCanonicalizeSearchSurfaceDetailRoute({
         pageUrl:
-          "https://www.linkedin.com/jobs/search/?currentJobId=4399165260&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo",
-        candidate: {
-          canonicalUrl:
-            "https://www.linkedin.com/jobs/search/?currentJobId=4399165260&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo",
-          sourceJobIdHint: "4404542575",
-          anchorText: "Full Stack Developer (AI-First)",
-          headingText: "Full Stack Developer (AI-First)",
-          lines: [
-            "Full Stack Developer (AI-First)",
-            "Full Circle Agency",
-            "Pristina (Remote)",
-          ],
-        },
+          "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
+        candidate: { ...seededCard, sourceJobIdHint: "4404542575" },
+        evidence: learnedEvidence,
       }),
     ).toBe(true);
+  });
+
+  test("returns false when the host has no learned detail-route shape", () => {
+    const unrelatedEvidence = observeLearnedSearchSurfaceRoutes({
+      pageUrl:
+        "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
+      observedUrls: [
+        "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
+      ],
+    });
+
+    expect(
+      shouldCanonicalizeSearchSurfaceDetailRoute({
+        pageUrl:
+          "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
+        candidate: { ...seededCard, sourceJobIdHint: "4404542575" },
+        evidence: unrelatedEvidence,
+      }),
+    ).toBe(false);
   });
 });

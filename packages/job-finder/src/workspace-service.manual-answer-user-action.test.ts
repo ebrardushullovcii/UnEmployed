@@ -1,6 +1,9 @@
 import {
   ApplicationAnswerRecordSchema,
   ApplicationQuestionRecordSchema,
+  ApplicationRecordSchema,
+  ApplyJobResultSchema,
+  ApplyRunSchema,
   UserActionEventSchema,
   UserActionRequestSchema,
   type ApplicationAnswerRecord,
@@ -31,6 +34,7 @@ function createManualAnswerRequest(
       type: "application",
       runId: "run_manual",
       jobId: "job_ready",
+      applicationRecordId: "application_a",
       resultId: "result_a",
       replayCheckpointId: null,
       source: "target_site",
@@ -64,6 +68,7 @@ function createQuestion(): ApplicationQuestionRecord {
     id: "question_a",
     runId: "run_manual",
     jobId: "job_ready",
+    applicationRecordId: "application_a",
     resultId: "result_a",
     prompt: "Years of experience",
     kind: "experience",
@@ -87,11 +92,13 @@ function createAnswer(input: {
   supersedesAnswerId?: string | null;
   text?: string;
   createdAt?: string;
+  applicationRecordId?: string | null;
 }): ApplicationAnswerRecord {
   return ApplicationAnswerRecordSchema.parse({
     id: input.id,
     runId: "run_manual",
     jobId: "job_ready",
+    applicationRecordId: input.applicationRecordId ?? "application_a",
     resultId: "result_a",
     questionId: input.questionId ?? "question_a",
     status: "suggested",
@@ -126,6 +133,47 @@ function submitManualAnswerCommand(commandId = "command_submit") {
 describe("workspace manual-answer persistence races", () => {
   test("creates a monotonic revision-1 manual answer with no superseded record", async () => {
     const seed = createSeed();
+    seed.applicationRecords = [
+      ApplicationRecordSchema.parse({
+        id: "application_a",
+        jobId: "job_ready",
+        title: "Senior Product Designer",
+        company: "Signal Systems",
+        status: "ready_for_review",
+        lastActionLabel: "Manual answer needed",
+        nextActionLabel: "Review answer",
+        lastUpdatedAt: now,
+      }),
+    ];
+    seed.applyRuns = [
+      ApplyRunSchema.parse({
+        id: "run_manual",
+        campaignId: null,
+        state: "completed",
+        jobIds: ["job_ready"],
+        currentJobId: null,
+        createdAt: now,
+        updatedAt: now,
+        completedAt: now,
+        summary: "Manual answer needed.",
+        detail: "The exact application remains reviewable.",
+        totalJobs: 1,
+        pendingJobs: 0,
+      }),
+    ];
+    seed.applyJobResults = [
+      ApplyJobResultSchema.parse({
+        id: "result_a",
+        runId: "run_manual",
+        jobId: "job_ready",
+        applicationRecordId: "application_a",
+        state: "blocked",
+        summary: "Manual answer needed.",
+        detail: "A required question needs review.",
+        startedAt: now,
+        updatedAt: now,
+      }),
+    ];
     seed.userActionRequests = [createManualAnswerRequest()];
     seed.applicationQuestionRecords = [createQuestion()];
     const harness = createWorkspaceServiceHarness({ seed });
@@ -142,6 +190,7 @@ describe("workspace manual-answer persistence races", () => {
     expect(answers[0]).toEqual(
       expect.objectContaining({
         id: "manual_answer_request_a_2",
+        applicationRecordId: "application_a",
         questionId: "question_a",
         revision: 1,
         supersedesAnswerId: null,
@@ -188,6 +237,51 @@ describe("workspace manual-answer persistence races", () => {
     );
     expect(byId.get("answer_existing")).toEqual(
       expect.objectContaining({ revision: 1, supersedesAnswerId: null }),
+    );
+  });
+
+  test("does not read or supersede an answer from a sibling application record", async () => {
+    const seed = createSeed();
+    seed.userActionRequests = [createManualAnswerRequest()];
+    seed.applicationQuestionRecords = [
+      createQuestion(),
+      ApplicationQuestionRecordSchema.parse({
+        ...createQuestion(),
+        id: "question_b",
+        applicationRecordId: "application_b",
+      }),
+    ];
+    seed.applicationAnswerRecords = [
+      createAnswer({
+        id: "grouped_answer_sibling_question_b",
+        questionId: "question_b",
+        revision: 7,
+        applicationRecordId: "application_b",
+      }),
+    ];
+    const harness = createWorkspaceServiceHarness({ seed });
+
+    await harness.workspaceService.performUserAction(
+      submitManualAnswerCommand(),
+    );
+
+    const answers = await harness.repository.listApplicationAnswerRecords();
+    expect(answers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "manual_answer_request_a_2",
+          applicationRecordId: "application_a",
+          questionId: "question_a",
+          revision: 1,
+          supersedesAnswerId: null,
+        }),
+        expect.objectContaining({
+          id: "grouped_answer_sibling_question_b",
+          applicationRecordId: "application_b",
+          questionId: "question_b",
+          revision: 7,
+        }),
+      ]),
     );
   });
 
@@ -307,5 +401,40 @@ describe("workspace manual-answer persistence races", () => {
       requestId: "request_a",
     });
     expect(events.some((event) => event.id === "command_submit")).toBe(false);
+  });
+
+  test("legacy null application lineage fails closed before answer or profile mutation", async () => {
+    const seed = createSeed();
+    seed.userActionRequests = [
+      createManualAnswerRequest({
+        scope: {
+          type: "application",
+          runId: "run_manual",
+          jobId: "job_ready",
+          applicationRecordId: null,
+          resultId: "result_a",
+          replayCheckpointId: null,
+          source: "target_site",
+        },
+      }),
+    ];
+    seed.applicationQuestionRecords = [
+      ApplicationQuestionRecordSchema.parse({
+        ...createQuestion(),
+        applicationRecordId: null,
+      }),
+    ];
+    const harness = createWorkspaceServiceHarness({ seed });
+    const profileBefore = await harness.repository.getProfile();
+
+    await expect(
+      harness.workspaceService.performUserAction({
+        ...submitManualAnswerCommand(),
+        saveForFuture: true,
+      }),
+    ).rejects.toThrow(/missing its exact application record scope/i);
+
+    expect(await harness.repository.listApplicationAnswerRecords()).toEqual([]);
+    expect(await harness.repository.getProfile()).toEqual(profileBefore);
   });
 });

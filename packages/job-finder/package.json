@@ -5,7 +5,9 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./discovery-ordering": "./src/discovery-ordering.ts",
     "./resume-record-identity": "./src/resume-record-identity.ts",
+    "./source-health": "./src/source-health.ts",
     "./source-instruction-review": "./src/source-instruction-review.ts"
   },
   "scripts": {
@@ -18,6 +20,7 @@
     "@unemployed/ai-providers": "workspace:*",
     "@unemployed/browser-runtime": "workspace:*",
     "@unemployed/contracts": "workspace:*",
+    "@unemployed/core": "workspace:*",
     "@unemployed/db": "workspace:*",
     "@unemployed/knowledge-base": "workspace:*"
   }

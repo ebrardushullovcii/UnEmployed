@@ -1,4 +1,7 @@
+import { Button } from "@renderer/components/ui/button";
 import { EmptyState } from "../../components/empty-state";
+import { Link } from "react-router-dom";
+import { JOB_FINDER_ROUTE_PATHS } from "../../lib/job-finder-route-hrefs";
 import {
   APPLICATION_FILTER_LABELS,
   type ApplicationsViewFilter,
@@ -14,10 +17,15 @@ export function ApplicationsDetailPanelEmptyState(props: {
   return (
     <div className="flex min-h-0 flex-1 items-start justify-center pt-12">
       {!hasAnyApplications ? (
-        <EmptyState
-          title="Application details will appear here"
-          description="Start an application from the list on the left."
-        />
+        <div className="grid max-w-96 gap-3 justify-items-center text-center">
+          <p className="text-(length:--text-description) leading-6 text-foreground-soft break-words [overflow-wrap:anywhere]">
+            Preparation details will appear here once you start an application
+            from Shortlisted.
+          </p>
+          <Button asChild size="sm" type="button" variant="primary">
+            <Link to={JOB_FINDER_ROUTE_PATHS.reviewQueue}>Go to Shortlisted</Link>
+          </Button>
+        </div>
       ) : (
         <EmptyState
           title={

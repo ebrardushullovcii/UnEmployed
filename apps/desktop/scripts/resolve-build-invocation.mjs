@@ -1,7 +1,11 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 
-export const DESKTOP_BUILD_ARGS = Object.freeze(["--filter", "@unemployed/desktop", "build"]);
+export const DESKTOP_BUILD_ARGS = Object.freeze([
+  "--filter",
+  "@unemployed/desktop",
+  "build",
+]);
 
 /**
  * Resolve the package-manager executable without asking Corepack to fetch or

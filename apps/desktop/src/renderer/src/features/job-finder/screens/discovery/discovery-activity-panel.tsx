@@ -17,8 +17,11 @@ import {
   CollectionSearchToolbar,
   matchesCollectionSearch,
 } from "../../components/collection-search-toolbar";
+import { isImeComposingEvent } from "../../lib/job-finder-shortcuts";
+import { useJobFinderOverlayOwnership } from "../../lib/job-finder-overlay-ownership";
 import { usePersistedCollectionView } from "../../hooks/use-persisted-collection-view";
 import { formatDuration } from "@renderer/features/job-finder/lib/job-finder-utils";
+import { formatDiscoveryRunCountLabel } from "../../lib/discovery-run-count-label";
 import {
   buildLiveRunRecord,
   formatOutcomeLabel,
@@ -117,9 +120,15 @@ export function DiscoveryHistoryModal(props: {
   const dialogTitleId = useId();
   const dialogDescriptionId = useId();
   const dialogRef = useRef<HTMLDivElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  // The activity dialog joins the app-wide LIFO overlay stack so stacked
+  // surfaces close one per Escape and shell aliases stay blocked while open.
+  const { isTopmost: isDialogTopmost } = useJobFinderOverlayOwnership({
+    active: props.open,
+    close: () => props.onClose(),
+  });
   const eventStreamRef = useRef<HTMLDivElement | null>(null);
   const eventStreamEndRef = useRef<HTMLDivElement | null>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
   const wasOpenRef = useRef(false);
   const liveRun = useMemo(
     () => buildLiveRunRecord(props.liveEvents, props.targets),
@@ -219,7 +228,15 @@ export function DiscoveryHistoryModal(props: {
     }
 
     const onKeyDown = (event: KeyboardEvent) => {
+      // Overlays opened above this dialog keep first claim on Escape.
+      if (event.defaultPrevented || isImeComposingEvent(event)) {
+        return;
+      }
       if (event.key === "Escape") {
+        if (!isDialogTopmost()) {
+          return;
+        }
+        event.preventDefault();
         props.onClose();
         return;
       }
@@ -256,7 +273,7 @@ export function DiscoveryHistoryModal(props: {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [props.open, props.onClose]);
+  }, [isDialogTopmost, props.open, props.onClose]);
 
   const selectedRun =
     runOptions.find((run) => run.id === selectedRunId) ?? runOptions[0] ?? null;
@@ -435,7 +452,13 @@ export function DiscoveryHistoryModal(props: {
                         {formatRunLabel(run.startedAt)}
                       </span>
                       <span className="text-[0.8rem] text-foreground-muted">
-                        {`${run.summary.targetsCompleted}/${run.summary.targetsPlanned} sources completed · ${run.summary.validJobsFound} jobs found${durationSummary}`}
+                        {`${run.summary.targetsCompleted}/${run.summary.targetsPlanned} sources completed · ${formatDiscoveryRunCountLabel(
+                          {
+                            distinctJobsRetained:
+                              run.summary.validJobsFound ?? 0,
+                            duplicatesMerged: run.summary.duplicatesMerged ?? 0,
+                          },
+                        )}${durationSummary}`}
                       </span>
                     </button>
                   );
@@ -487,6 +510,11 @@ export function DiscoveryHistoryModal(props: {
                   </p>
                   <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">
                     {selectedRun.summary.validJobsFound}
+                    {selectedRun.summary.duplicatesMerged > 0 ? (
+                      <span className="ml-2 text-[0.78rem] font-normal text-foreground-muted">
+                        {`${selectedRun.summary.duplicatesMerged} already known`}
+                      </span>
+                    ) : null}
                   </p>
                 </div>
                 <div>

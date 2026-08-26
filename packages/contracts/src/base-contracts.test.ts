@@ -135,6 +135,7 @@ describe("contracts base schemas", () => {
 
     expect(preferences.companyBlacklist).toEqual([]);
     expect(preferences.workModes).toEqual([]);
+    expect(preferences.discovery.collectOnlyHardCriteriaMatches).toBe(false);
   });
 
   test("migrates legacy annual USD preferences and preserves typed monthly ranges", () => {

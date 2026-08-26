@@ -63,7 +63,7 @@ export const outcomeRecordingOptions: ReadonlyArray<{
 ];
 
 const fieldClassName =
-  "h-10 w-full rounded-(--radius-field) border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40";
+  "h-10 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 text-sm text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]";
 
 /**
  * User-controlled outcome recording for one application. It only ever emits a

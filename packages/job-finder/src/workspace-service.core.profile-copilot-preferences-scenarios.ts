@@ -287,7 +287,7 @@ describe("createJobFinderWorkspaceService – profile copilot preferences and ex
     });
 
     const snapshot = await workspaceService.sendProfileCopilotMessage(
-      "make my experience 7 years and my prefered work mode to be remote and make my expected salary to be 2000 and add linkedin, wellfound and kosovajob",
+      "make my experience 7 years and my prefered work mode to be remote and make my expected salary to be 200000 and add linkedin, wellfound and kosovajob",
       {
         surface: "profile",
         section: "preferences",
@@ -297,13 +297,16 @@ describe("createJobFinderWorkspaceService – profile copilot preferences and ex
     const patchGroups = assistantMessage?.patchGroups ?? [];
 
     expect(snapshot.profile.yearsExperience).toBe(7);
-    expect(snapshot.searchPreferences.targetSalaryUsd).toBe(2000);
+    // The seeded workspace never recorded an explicit compensation currency,
+    // so the salary command stages for review with needs_clarification instead
+    // of silently assuming USD.
+    expect(snapshot.searchPreferences.targetSalaryUsd).toBeNull();
     expect(snapshot.searchPreferences.workModes).toEqual(["hybrid"]);
     expect(snapshot.searchPreferences.discovery.targets).toEqual([]);
     expect(patchGroups).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ summary: "Update years of experience", applyMode: "applied" }),
-        expect.objectContaining({ summary: "Update expected salary", applyMode: "applied" }),
+        expect.objectContaining({ summary: "Update expected salary", applyMode: "needs_review" }),
         expect.objectContaining({ summary: "Prefer remote work mode", applyMode: "needs_review" }),
         expect.objectContaining({
           summary: "Add LinkedIn Jobs, Wellfound, and KosovaJob job sources",
@@ -312,6 +315,10 @@ describe("createJobFinderWorkspaceService – profile copilot preferences and ex
       ]),
     );
 
+    const salaryPatchGroup = patchGroups.find(
+      (patchGroup) => patchGroup.summary === "Update expected salary",
+    );
+    expect(salaryPatchGroup).toBeTruthy();
     const workModePatchGroup = patchGroups.find((patchGroup) => patchGroup.summary === "Prefer remote work mode");
     const jobSourcesPatchGroup = patchGroups.find(
       (patchGroup) => patchGroup.summary === "Add LinkedIn Jobs, Wellfound, and KosovaJob job sources",
@@ -322,6 +329,11 @@ describe("createJobFinderWorkspaceService – profile copilot preferences and ex
     const afterWorkModeApply = await workspaceService.applyProfileCopilotPatchGroup(workModePatchGroup!.id);
     expect(afterWorkModeApply.searchPreferences.workModes).toEqual(["remote"]);
     expect(afterWorkModeApply.profile.workEligibility.remoteEligible).toBe(true);
+
+    const afterSalaryApply = await workspaceService.applyProfileCopilotPatchGroup(salaryPatchGroup!.id);
+    expect(afterSalaryApply.searchPreferences.compensation.maximum).toBe(200000);
+    expect(afterSalaryApply.searchPreferences.compensation.currency).toBeNull();
+    expect(afterSalaryApply.searchPreferences.compensation.currencyStatus).toBe("needs_clarification");
 
     const afterJobSourcesApply = await workspaceService.applyProfileCopilotPatchGroup(jobSourcesPatchGroup!.id);
     expect(afterJobSourcesApply.searchPreferences.discovery.targets).toEqual(

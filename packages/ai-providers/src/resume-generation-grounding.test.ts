@@ -1,6 +1,10 @@
 import { describe, expect, test } from "vitest";
 
-import { selectResumeRewrite } from "./resume-generation-grounding";
+import {
+  classifyResumeClaimGrounding,
+  RESUME_CLAIM_SUPPORT_EVIDENCE_CAP,
+  selectResumeRewrite,
+} from "./resume-generation-grounding";
 
 describe("resume generation grounding", () => {
   test("rejects a new leadership claim even when most words overlap role evidence", () => {
@@ -303,5 +307,728 @@ describe("resume generation grounding", () => {
       kind: "grounded_rewrite",
       inferred: true,
     });
+  });
+
+  test("rejects unevidenced lowercase technology names regardless of casing rules", () => {
+    const input = {
+      generated: {
+        text: "Streamlined deployments with redis caching and docker images for the platform team.",
+        evidenceRefs: ["experience:role_1:achievement:0"],
+      },
+      canonicalCandidates: [],
+      evidenceCatalog: [
+        {
+          id: "experience:role_1:achievement:0",
+          text: "Streamlined deployments for the platform team.",
+          scope: "experience" as const,
+          profileRecordId: "role_1",
+        },
+      ],
+      allowedScope: {
+        scope: "experience" as const,
+        profileRecordId: "role_1",
+      },
+      jobCompany: "ExampleCo",
+      jobSkills: [],
+    };
+
+    expect(selectResumeRewrite(input)).toBeNull();
+    expect(
+      selectResumeRewrite({ ...input, allowReasonableInference: true }),
+    ).toBeNull();
+  });
+
+  test("rejects unevidenced sentence-initial technology names", () => {
+    const input = {
+      generated: {
+        text: "Redis caching cut checkout wait times for holiday shoppers.",
+        evidenceRefs: ["experience:role_1:achievement:0"],
+      },
+      canonicalCandidates: [],
+      evidenceCatalog: [
+        {
+          id: "experience:role_1:achievement:0",
+          text: "Improved checkout flows for holiday shoppers.",
+          scope: "experience" as const,
+          profileRecordId: "role_1",
+        },
+      ],
+      allowedScope: {
+        scope: "experience" as const,
+        profileRecordId: "role_1",
+      },
+      jobCompany: "ExampleCo",
+      jobSkills: [],
+    };
+
+    expect(
+      selectResumeRewrite({ ...input, allowReasonableInference: true }),
+    ).toBeNull();
+  });
+
+  test("rejects mixed-case spellings of unevidenced technology names", () => {
+    const input = {
+      generated: {
+        text: "Rebuilt session storage on ReDis for active account holders.",
+        evidenceRefs: ["experience:role_1:achievement:0"],
+      },
+      canonicalCandidates: [],
+      evidenceCatalog: [
+        {
+          id: "experience:role_1:achievement:0",
+          text: "Rebuilt session storage for active account holders.",
+          scope: "experience" as const,
+          profileRecordId: "role_1",
+        },
+      ],
+      allowedScope: {
+        scope: "experience" as const,
+        profileRecordId: "role_1",
+      },
+      jobCompany: "ExampleCo",
+      jobSkills: [],
+    };
+
+    expect(
+      selectResumeRewrite({ ...input, allowReasonableInference: true }),
+    ).toBeNull();
+  });
+
+  test("accepts technology names grounded by candidate skills evidence while preserving prose elaboration", () => {
+    const input = {
+      generated: {
+        text: "Cut checkout latency further by moving sessions into Redis and archiving history in PostgreSQL.",
+        evidenceRefs: ["experience:role_1:achievement:0", "profile:skills"],
+      },
+      canonicalCandidates: [],
+      evidenceCatalog: [
+        {
+          id: "experience:role_1:achievement:0",
+          text: "Cut checkout latency by moving sessions into Redis.",
+          scope: "experience" as const,
+          profileRecordId: "role_1",
+        },
+        {
+          id: "profile:skills",
+          text: "PostgreSQL, Redis, Docker",
+          scope: "profile" as const,
+          profileRecordId: null,
+        },
+      ],
+      allowedScope: {
+        scope: "experience" as const,
+        profileRecordId: "role_1",
+      },
+      jobCompany: "ExampleCo",
+      jobSkills: [],
+    };
+
+    expect(selectResumeRewrite(input)).toBeNull();
+    expect(
+      selectResumeRewrite({ ...input, allowReasonableInference: true }),
+    ).toMatchObject({
+      kind: "grounded_rewrite",
+      text: input.generated.text,
+    });
+  });
+
+  test("job-only technology names never become candidate facts", () => {
+    const input = {
+      generated: {
+        text: "Cut checkout latency by moving sessions into Redis for shoppers.",
+        evidenceRefs: ["experience:role_1:achievement:0"],
+      },
+      canonicalCandidates: [],
+      evidenceCatalog: [
+        {
+          id: "experience:role_1:achievement:0",
+          text: "Cut checkout latency for shoppers.",
+          scope: "experience" as const,
+          profileRecordId: "role_1",
+        },
+      ],
+      allowedScope: {
+        scope: "experience" as const,
+        profileRecordId: "role_1",
+      },
+      jobCompany: "ExampleCo",
+      jobSkills: ["Redis"],
+    };
+
+    expect(
+      selectResumeRewrite({ ...input, allowReasonableInference: true }),
+    ).toBeNull();
+  });
+
+  test("does not flag ordinary prose elaboration as unevidenced technology", () => {
+    const input = {
+      generated: {
+        text: "Distributed teams adopted weekly planning rituals, and roadmap delivery became predictable across the organization.",
+        evidenceRefs: ["experience:role_1:summary"],
+      },
+      canonicalCandidates: [],
+      evidenceCatalog: [
+        {
+          id: "experience:role_1:summary",
+          text: "Owned roadmap delivery and planning cadence for platform teams.",
+          scope: "experience" as const,
+          profileRecordId: "role_1",
+        },
+      ],
+      allowedScope: {
+        scope: "experience" as const,
+        profileRecordId: "role_1",
+      },
+      jobCompany: "ExampleCo",
+      jobSkills: ["TypeScript"],
+    };
+
+    expect(
+      selectResumeRewrite({ ...input, allowReasonableInference: true }),
+    ).toMatchObject({
+      kind: "grounded_rewrite",
+      text: input.generated.text,
+    });
+  });
+
+  test("fails closed on unknown brand tokens regardless of casing or position", () => {
+    const base = {
+      canonicalCandidates: [],
+      evidenceCatalog: [
+        {
+          id: "experience:role_1:achievement:0",
+          text: "Improved weekly reporting for finance teams.",
+          scope: "experience" as const,
+          profileRecordId: "role_1",
+        },
+      ],
+      allowedScope: {
+        scope: "experience" as const,
+        profileRecordId: "role_1",
+      },
+      jobCompany: "ExampleCo",
+      jobSkills: [],
+    };
+
+    const lowercase = {
+      ...base,
+      generated: {
+        text: "Improved weekly reporting with fictionaldb for finance teams.",
+        evidenceRefs: ["experience:role_1:achievement:0"],
+      },
+    };
+    expect(selectResumeRewrite(lowercase)).toBeNull();
+    expect(
+      selectResumeRewrite({ ...lowercase, allowReasonableInference: true }),
+    ).toBeNull();
+
+    expect(
+      selectResumeRewrite({
+        ...base,
+        allowReasonableInference: true,
+        generated: {
+          text: "zenithly built weekly reporting for finance teams.",
+          evidenceRefs: ["experience:role_1:achievement:0"],
+        },
+      }),
+    ).toBeNull();
+
+    expect(
+      selectResumeRewrite({
+        ...base,
+        allowReasonableInference: true,
+        generated: {
+          text: "Improved weekly Zenithly reporting for finance teams.",
+          evidenceRefs: ["experience:role_1:achievement:0"],
+        },
+      }),
+    ).toBeNull();
+  });
+
+  test("requires cited evidence for every audited technology spelling", () => {
+    const auditedSpellings = [
+      "sql",
+      "html",
+      "css",
+      "json",
+      "xml",
+      "yaml",
+      "csv",
+      "pdf",
+      "http",
+      "scala",
+      "sentry",
+      "zod",
+      "trpc",
+      ".net",
+      "dotnet",
+      "asp.net",
+      "c++",
+      "SQL Server",
+      "Amazon Web Services",
+    ];
+
+    for (const spelling of auditedSpellings) {
+      expect(
+        selectResumeRewrite({
+          generated: {
+            text: `Migrated reporting workflows to ${spelling} for the finance team.`,
+            evidenceRefs: ["experience:role_1:summary"],
+          },
+          canonicalCandidates: [],
+          evidenceCatalog: [
+            {
+              id: "experience:role_1:summary",
+              text: "Migrated reporting workflows for the finance team.",
+              scope: "experience" as const,
+              profileRecordId: "role_1",
+            },
+          ],
+          allowedScope: {
+            scope: "experience" as const,
+            profileRecordId: "role_1",
+          },
+          jobCompany: "ExampleCo",
+          jobSkills: [],
+          allowReasonableInference: true,
+        }),
+        `expected "${spelling}" to require cited evidence`,
+      ).toBeNull();
+    }
+  });
+
+  test("requires evidence for ambiguous technology homographs", () => {
+    const homographs = [
+      "go",
+      "swift",
+      "rails",
+      "express",
+      "spring",
+      "flask",
+      "bun",
+      "temporal",
+    ];
+
+    for (const homograph of homographs) {
+      expect(
+        selectResumeRewrite({
+          generated: {
+            text: `Built ${homograph} ingestion pipelines for the finance team.`,
+            evidenceRefs: ["experience:role_1:summary"],
+          },
+          canonicalCandidates: [],
+          evidenceCatalog: [
+            {
+              id: "experience:role_1:summary",
+              text: "Built ingestion pipelines for the finance team.",
+              scope: "experience" as const,
+              profileRecordId: "role_1",
+            },
+          ],
+          allowedScope: {
+            scope: "experience" as const,
+            profileRecordId: "role_1",
+          },
+          jobCompany: "ExampleCo",
+          jobSkills: [],
+          allowReasonableInference: true,
+        }),
+        `expected "${homograph}" to require cited evidence`,
+      ).toBeNull();
+    }
+  });
+
+  test("accepts ambiguous technology names when the cited evidence uses them", () => {
+    const cases = [
+      {
+        evidenceText: "Built go pipelines for ingestion.",
+        generatedText: "Designed go pipelines for ingestion.",
+      },
+      {
+        evidenceText: "Built temporal workflows for nightly reconciliation.",
+        generatedText: "Designed temporal workflows for nightly reconciliation.",
+      },
+    ];
+
+    for (const testCase of cases) {
+      expect(
+        selectResumeRewrite({
+          generated: {
+            text: testCase.generatedText,
+            evidenceRefs: ["experience:role_1:summary"],
+          },
+          canonicalCandidates: [],
+          evidenceCatalog: [
+            {
+              id: "experience:role_1:summary",
+              text: testCase.evidenceText,
+              scope: "experience" as const,
+              profileRecordId: "role_1",
+            },
+          ],
+          allowedScope: {
+            scope: "experience" as const,
+            profileRecordId: "role_1",
+          },
+          jobCompany: "ExampleCo",
+          jobSkills: [],
+          allowReasonableInference: true,
+        }),
+      ).toMatchObject({
+        kind: "grounded_rewrite",
+        text: testCase.generatedText,
+      });
+    }
+  });
+
+  test("matches evidence at token boundaries rather than substrings", () => {
+    const input = {
+      generated: {
+        text: "Modernized the restaurant menu platform and shipped REST ordering flows.",
+        evidenceRefs: ["experience:role_1:summary"],
+      },
+      canonicalCandidates: [],
+      allowedScope: {
+        scope: "experience" as const,
+        profileRecordId: "role_1",
+      },
+      jobCompany: "ExampleCo",
+      jobSkills: [],
+      allowReasonableInference: true,
+    };
+
+    expect(
+      selectResumeRewrite({
+        ...input,
+        evidenceCatalog: [
+          {
+            id: "experience:role_1:summary",
+            text: "Scaled the restaurant menu platform with documented contracts.",
+            scope: "experience" as const,
+            profileRecordId: "role_1",
+          },
+        ],
+      }),
+    ).toBeNull();
+
+    expect(
+      selectResumeRewrite({
+        ...input,
+        evidenceCatalog: [
+          {
+            id: "experience:role_1:summary",
+            text: "Scaled the restaurant menu platform with documented REST contracts.",
+            scope: "experience" as const,
+            profileRecordId: "role_1",
+          },
+        ],
+      }),
+    ).toMatchObject({ kind: "grounded_rewrite" });
+  });
+
+  test("authorizes hyphenated evidence compounds component-wise", () => {
+    const input = {
+      generated: {
+        text: "Redis-backed session stores cut login times.",
+        evidenceRefs: ["experience:role_1:achievement:0"],
+      },
+      canonicalCandidates: [],
+      evidenceCatalog: [
+        {
+          id: "experience:role_1:achievement:0",
+          text: "Maintained Redis-based session stores and cached profiles.",
+          scope: "experience" as const,
+          profileRecordId: "role_1",
+        },
+      ],
+      allowedScope: {
+        scope: "experience" as const,
+        profileRecordId: "role_1",
+      },
+      jobCompany: "ExampleCo",
+      jobSkills: [],
+    };
+
+    expect(selectResumeRewrite(input)).toBeNull();
+    expect(
+      selectResumeRewrite({ ...input, allowReasonableInference: true }),
+    ).toMatchObject({
+      kind: "grounded_rewrite",
+      text: input.generated.text,
+    });
+  });
+});
+
+describe("classifyResumeClaimGrounding", () => {
+  const makeEvidence = (
+    id: string,
+    text: string,
+    overrides?: {
+      scope: "profile" | "experience" | "project" | "proof" | "import_evidence";
+      profileRecordId: string | null;
+    },
+  ) => ({
+    id,
+    text,
+    scope: overrides?.scope ?? ("experience" as const),
+    profileRecordId: overrides?.profileRecordId ?? "role_1",
+  });
+
+  const classify = (
+    text: string,
+    evidence: ReturnType<typeof makeEvidence>[],
+    overrides?: Partial<Parameters<typeof classifyResumeClaimGrounding>[0]>,
+  ) =>
+    classifyResumeClaimGrounding({
+      text,
+      evidence,
+      jobCompany: "ExampleCo",
+      jobSkills: [],
+      ...overrides,
+    });
+
+  test("classifies verbatim evidence text as exact", () => {
+    const evidenceText = "Built reliable TypeScript workflow tools for operations teams.";
+    const result = classify(evidenceText, [
+      makeEvidence("experience:role_1:achievement:0", evidenceText),
+    ]);
+
+    expect(result.verdict).toBe("exact");
+    expect(result.supportEvidenceIds).toEqual([
+      "experience:role_1:achievement:0",
+    ]);
+    expect(result.anchorRatio).toBe(1);
+    expect(result.gaps).toEqual([]);
+  });
+
+  test("covers a claim assembled from a two-item evidence union", () => {
+    const result = classify(
+      "Grew annual recurring revenue 40% by shipping the Atlas billing platform.",
+      [
+        makeEvidence(
+          "experience:role_1:heroMetric",
+          "Grew annual recurring revenue by 40% year over year.",
+        ),
+        makeEvidence(
+          "experience:role_1:projectAtlas",
+          "Shipped the Atlas billing platform for enterprise customers.",
+        ),
+      ],
+      { jobSkills: ["SQL"] },
+    );
+
+    expect(result.verdict).toBe("covered");
+    expect(result.supportEvidenceIds).toEqual([
+      "experience:role_1:heroMetric",
+      "experience:role_1:projectAtlas",
+    ]);
+    expect(result.anchorRatio).toBe(1);
+    expect(result.gaps).toEqual([]);
+  });
+
+  test("matches formatted metrics across the union without a fabricated-metric gap", () => {
+    const result = classify("Cut infrastructure spend by €1200k annually.", [
+      makeEvidence(
+        "proof:p1:heroMetric",
+        "Cut infrastructure spend by €1,200k annually without outages.",
+        { scope: "proof", profileRecordId: "p1" },
+      ),
+    ]);
+
+    expect(result.verdict).toBe("covered");
+    expect(result.anchorRatio).toBe(1);
+    expect(
+      result.gaps.filter((gap) => gap.type === "fabricated_metric"),
+    ).toEqual([]);
+    expect(result.gaps).toEqual([]);
+  });
+
+  test("flags lowercase unknown technology as unsupported in every mode", () => {
+    const text =
+      "Streamlined deployments with fictionaldb for the platform team.";
+    const evidence = [
+      makeEvidence(
+        "experience:role_1:achievement:0",
+        "Streamlined deployments for the platform team.",
+      ),
+    ];
+
+    const conservative = classify(text, evidence);
+    expect(conservative.verdict).toBe("unsupported");
+    expect(conservative.gaps).toEqual([
+      { type: "inference_not_allowed", values: ["fictionaldb"] },
+    ]);
+
+    const aggressive = classify(text, evidence, {
+      allowReasonableInference: true,
+    });
+    expect(aggressive.verdict).toBe("unsupported");
+    expect(aggressive.gaps).toEqual([
+      { type: "unsafe_elaboration", values: ["fictionaldb"] },
+    ]);
+  });
+
+  test("classifies safe elaboration only when inference is allowed", () => {
+    const text =
+      "Designed table reservation flows and ordering modules for the restaurant platform.";
+    const evidence = [
+      makeEvidence(
+        "experience:role_1:summary",
+        "Built and maintained a restaurant management SaaS platform.",
+      ),
+    ];
+
+    const conservative = classify(text, evidence);
+    expect(conservative.verdict).toBe("unsupported");
+    expect(conservative.gaps).toEqual([
+      {
+        type: "inference_not_allowed",
+        values: ["group_1", "table", "reservation", "flow", "order", "modul"],
+      },
+    ]);
+
+    const aggressive = classify(text, evidence, {
+      allowReasonableInference: true,
+    });
+    expect(aggressive.verdict).toBe("elaborated");
+    expect(aggressive.supportEvidenceIds).toEqual([
+      "experience:role_1:summary",
+    ]);
+    expect(aggressive.anchorRatio).toBe(0.25);
+    expect(aggressive.gaps).toEqual([]);
+  });
+
+  test("allows a generic technologies label only when the listed skills are evidenced", () => {
+    const evidence = [
+      makeEvidence(
+        "project:project_1:summary",
+        "Scaled an internal design system. Reduced release churn. Figma React.",
+        { scope: "project", profileRecordId: "project_1" },
+      ),
+    ];
+
+    const grounded = classify(
+      "Scaled an internal design system. Reduced release churn. Technologies: Figma, React.",
+      evidence,
+      { allowReasonableInference: true },
+    );
+    expect(grounded.verdict).toBe("elaborated");
+    expect(grounded.gaps).toEqual([]);
+
+    const unknownSkill = classify(
+      "Scaled an internal design system. Technologies: FictionalDB.",
+      evidence,
+      { allowReasonableInference: true },
+    );
+    expect(unknownSkill.verdict).toBe("unsupported");
+    expect(unknownSkill.gaps).toEqual([
+      { type: "unsafe_elaboration", values: ["fictionaldb"] },
+    ]);
+  });
+
+  test("reports hard gaps for unevidenced leadership and credential claims", () => {
+    const leadership = classify("Led a team of engineers on workflow tooling.", [
+      makeEvidence(
+        "experience:role_1:achievement:0",
+        "Built reliable TypeScript workflow tools for operations teams.",
+      ),
+    ]);
+    expect(leadership.verdict).toBe("unsupported");
+    expect(leadership.gaps).toEqual([
+      { type: "unevidenced_leadership_claim", values: [] },
+    ]);
+
+    const credential = classify(
+      "Certified in analytics and fluent with dashboards.",
+      [
+        makeEvidence(
+          "experience:role_1:summary",
+          "Built analytics dashboards for finance teams.",
+        ),
+      ],
+    );
+    expect(credential.verdict).toBe("unsupported");
+    expect(credential.anchorRatio).toBe(0.5);
+    expect(credential.gaps).toEqual([
+      { type: "unevidenced_credential_claim", values: [] },
+    ]);
+  });
+
+  test("separates weak support from hard failure and never auto-accepts it", () => {
+    const text = "Orchestrated quarterly forecasting reviews.";
+    const evidence = [
+      makeEvidence(
+        "experience:role_1:summary",
+        "Forecast accuracy improvements.",
+      ),
+    ];
+
+    for (const allowReasonableInference of [false, true]) {
+      const result = classify(text, evidence, { allowReasonableInference });
+      expect(result.verdict).toBe("weakly_supported");
+      expect(result.anchorRatio).toBe(0.25);
+      expect(result.gaps).toEqual([]);
+    }
+
+    expect(
+      selectResumeRewrite({
+        generated: { text, evidenceRefs: ["experience:role_1:summary"] },
+        canonicalCandidates: [],
+        evidenceCatalog: evidence,
+        allowedScope: { scope: "experience", profileRecordId: "role_1" },
+        jobCompany: "ExampleCo",
+        jobSkills: [],
+        allowReasonableInference: true,
+      }),
+    ).toBeNull();
+  });
+
+  test("keeps every cited item in the support union when the pool fits the cap", () => {
+    const result = classify("Built scaled checkout pipelines.", [
+      makeEvidence("experience:r:a", "Built checkout pipelines."),
+      makeEvidence("experience:r:b", "Scaled checkout pipelines globally."),
+      makeEvidence("experience:r:c", "Unrelated operations note."),
+    ]);
+
+    expect(result.verdict).toBe("covered");
+    expect(result.supportEvidenceIds).toEqual([
+      "experience:r:a",
+      "experience:r:b",
+      "experience:r:c",
+    ]);
+    expect(result.anchorRatio).toBe(1);
+    expect(result.gaps).toEqual([]);
+  });
+
+  test("caps oversized pools with deterministic greedy coverage ties", () => {
+    const greekWords = [
+      "alpha",
+      "beta",
+      "gamma",
+      "delta",
+      "epsilon",
+      "zeta",
+      "eta",
+      "theta",
+      "iota",
+      "kappa",
+    ];
+    const text = `Tracking ${greekWords.join(" ")} programs.`;
+    const pool = greekWords.map((word, index) =>
+      makeEvidence(`experience:bulk:${index}`, `${word} telemetry systems.`),
+    );
+
+    const first = classify(text, pool);
+    const second = classify(text, pool);
+
+    expect(first.supportEvidenceIds.length).toBe(
+      RESUME_CLAIM_SUPPORT_EVIDENCE_CAP,
+    );
+    expect(first.supportEvidenceIds).toEqual(
+      greekWords
+        .slice(0, RESUME_CLAIM_SUPPORT_EVIDENCE_CAP)
+        .map((_, index) => `experience:bulk:${index}`),
+    );
+    expect(second).toEqual(first);
   });
 });

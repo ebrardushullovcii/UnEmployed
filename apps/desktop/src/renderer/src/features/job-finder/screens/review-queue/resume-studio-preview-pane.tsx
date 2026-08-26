@@ -64,6 +64,8 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
   const [previewHeight, setPreviewHeight] = useState("72rem");
   const hasReadyPreview =
     props.previewStatus === "ready" && Boolean(props.preview);
+  const retryPreviewDisabled =
+    props.isPending || props.previewStatus === "loading";
   const warningCount = props.preview?.warnings.length ?? 0;
 
   useEffect(() => {
@@ -73,18 +75,23 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
       return;
     }
 
-      const measurePreviewHeight = () => {
-        const document = frame.contentDocument;
-        if (!document) {
-          return;
-        }
+    const measurePreviewHeight = () => {
+      const document = frame.contentDocument;
+      if (!document) {
+        return;
+      }
 
-        document.documentElement.style.overflow = "hidden";
-        document.body.style.overflow = "hidden";
+      document.documentElement.style.overflow = "hidden";
+      document.body.style.overflow = "hidden";
+      const naturalPreviewWidth = 8.5 * 96 + 12;
+      const availableWidth = Math.max(1, frame.clientWidth - 8);
+      const previewScale = Math.min(1, availableWidth / naturalPreviewWidth);
+      document.body.style.setProperty("--preview-scale", String(previewScale));
 
-        const page = document.querySelector<HTMLElement>(".page");
+      const page = document.querySelector<HTMLElement>(".page");
       const body = document.body;
-      const rawHeight = page?.getBoundingClientRect().height ?? body?.scrollHeight ?? 0;
+      const rawHeight =
+        page?.getBoundingClientRect().height ?? body?.scrollHeight ?? 0;
 
       if (rawHeight > 0) {
         const nextHeight = Math.ceil(rawHeight + 8);
@@ -186,14 +193,21 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
           const iframeRect = frame.getBoundingClientRect();
           const regionRect = scrollRegion.getBoundingClientRect();
           const targetTop =
-            scrollRegion.scrollTop + iframeRect.top + targetRect.top - regionRect.top;
+            scrollRegion.scrollTop +
+            iframeRect.top +
+            targetRect.top -
+            regionRect.top;
           const targetBottom =
-            scrollRegion.scrollTop + iframeRect.top + targetRect.bottom - regionRect.top;
+            scrollRegion.scrollTop +
+            iframeRect.top +
+            targetRect.bottom -
+            regionRect.top;
 
           if (targetTop < scrollRegion.scrollTop + 24) {
             scrollRegion.scrollTop = Math.max(0, targetTop - 24);
           } else if (
-            targetBottom > scrollRegion.scrollTop + scrollRegion.clientHeight - 24
+            targetBottom >
+            scrollRegion.scrollTop + scrollRegion.clientHeight - 24
           ) {
             scrollRegion.scrollTop =
               targetBottom - scrollRegion.clientHeight + 24;
@@ -285,76 +299,99 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
             Refresh preview
           </Button>
         </div>
-
       </header>
 
       <div
+        aria-label="Live resume preview"
         className={cn(
-          "relative min-h-0 flex-1 overflow-y-auto bg-[linear-gradient(180deg,var(--surface-gradient-start),var(--surface-gradient-end))] p-0.5",
+          "relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-[linear-gradient(180deg,var(--surface-gradient-start),var(--surface-gradient-end))] p-0.5",
           hasReadyPreview ? "min-h-168 xl:min-h-0" : "min-h-80 xl:min-h-0",
         )}
+        data-locked-pane-scroll-region
         data-resume-preview-scroll-region
         ref={scrollRegionRef}
+        role="region"
+        tabIndex={0}
       >
-        <div className="grid min-h-full justify-items-center pb-4">
-        {props.isPending ? (
-          <div
-            aria-live="polite"
-            className="grid h-full min-h-80 place-items-center rounded-(--radius-field) border border-dashed border-(--surface-panel-border) bg-background/70 p-6 text-center"
-            role="status"
-          >
-            <div className="grid max-w-md gap-3">
-              <LoaderCircle className="mx-auto size-6 animate-spin text-primary" />
-              <h3 className="font-display text-base text-foreground">
-                Updating your resume
-              </h3>
-              <p className="text-sm leading-6 text-foreground-soft">
-                The refreshed preview will appear here when it is ready.
-              </p>
-            </div>
-          </div>
-        ) : props.previewStatus === "error" ? (
-          <div aria-atomic="true" className="grid h-full place-items-center rounded-(--radius-field) border border-dashed border-critical/35 bg-critical/10 p-6 text-center" role="alert">
-            <div className="grid max-w-md gap-3">
-              <div className="mx-auto flex size-11 items-center justify-center rounded-full border border-critical/25 bg-critical/10 text-critical">
-                <AlertTriangle className="size-5" />
+        <div className="grid min-h-full min-w-0 justify-items-center pb-4">
+          {props.isPending ? (
+            <div
+              aria-live="polite"
+              className="grid h-full min-h-80 place-items-center rounded-(--radius-field) border border-dashed border-(--surface-panel-border) bg-background/70 p-6 text-center"
+              role="status"
+            >
+              <div className="grid max-w-md gap-3">
+                <LoaderCircle className="mx-auto size-6 animate-spin text-primary" />
+                <h3 className="font-display text-base text-foreground">
+                  Updating your resume
+                </h3>
+                <p className="text-sm leading-6 text-foreground-soft">
+                  The refreshed preview will appear here when it is ready.
+                </p>
               </div>
-              <h3 className="font-display text-base text-foreground">
-                Preview unavailable
-              </h3>
-              <p className="text-sm leading-6 text-foreground-soft">
-                {props.previewError ??
-                  "The current draft could not be rendered. Editing still works, and you can retry preview after the next change."}
-              </p>
             </div>
-          </div>
-        ) : props.preview ? (
-          <div className="relative w-fit max-w-full overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--resume-preview-frame) p-1.5 shadow-(--resume-preview-shell-shadow)">
-            <iframe
-              className="block max-w-full rounded-(--radius-field) border-0 bg-card"
-              ref={frameRef}
-              sandbox="allow-same-origin"
-              srcDoc={props.preview.html}
-              style={{
-                height: previewHeight,
-                width: "8.95in",
-                maxWidth: "100%",
-              }}
-              title="Live resume preview"
-            />
-          </div>
-        ) : (
-          <div className="grid h-full place-items-center rounded-(--radius-field) border border-dashed border-(--surface-panel-border) bg-background/70 p-6 text-center">
-            <div className="grid max-w-md gap-3">
-              <h3 className="font-display text-base text-foreground">
-                Preview pending
-              </h3>
-              <p className="text-sm leading-6 text-foreground-soft">
-                The studio is preparing a live preview from your current draft.
-              </p>
+          ) : props.previewStatus === "error" ? (
+            <div
+              aria-atomic="true"
+              className="grid h-full place-items-center rounded-(--radius-field) border border-dashed border-critical/35 bg-critical/10 p-6 text-center"
+              role="alert"
+            >
+              <div className="grid max-w-md gap-3">
+                <div className="mx-auto flex size-11 items-center justify-center rounded-full border border-critical/25 bg-critical/10 text-critical">
+                  <AlertTriangle className="size-5" />
+                </div>
+                <h3 className="font-display text-base text-foreground">
+                  Preview unavailable
+                </h3>
+                <p className="text-sm leading-6 text-foreground-soft">
+                  {props.previewError ??
+                    "The current draft could not be rendered."}
+                </p>
+                <p className="text-sm leading-6 text-foreground-soft">
+                  Your edits are still in the studio and nothing was discarded.
+                  You can retry the preview at any time.
+                </p>
+                <Button
+                  className="justify-self-center"
+                  disabled={retryPreviewDisabled}
+                  onClick={props.onRetry}
+                  size="compact"
+                  type="button"
+                  variant="secondary"
+                >
+                  <RefreshCcw className="size-4" />
+                  Retry preview
+                </Button>
+              </div>
             </div>
-          </div>
-        )}
+          ) : props.preview ? (
+            <div className="relative mx-auto w-full min-w-0 max-w-full overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--resume-preview-frame) p-1.5 shadow-(--resume-preview-shell-shadow)">
+              <iframe
+                className="mx-auto block max-w-full rounded-(--radius-field) border-0 bg-card"
+                ref={frameRef}
+                sandbox="allow-same-origin"
+                srcDoc={props.preview.html}
+                style={{
+                  height: previewHeight,
+                  width: "8.95in",
+                  maxWidth: "100%",
+                }}
+                title="Live resume preview"
+              />
+            </div>
+          ) : (
+            <div className="grid h-full place-items-center rounded-(--radius-field) border border-dashed border-(--surface-panel-border) bg-background/70 p-6 text-center">
+              <div className="grid max-w-md gap-3">
+                <h3 className="font-display text-base text-foreground">
+                  Preview pending
+                </h3>
+                <p className="text-sm leading-6 text-foreground-soft">
+                  The studio is preparing a live preview from your current
+                  draft.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </section>

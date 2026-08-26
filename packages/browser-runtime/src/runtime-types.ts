@@ -71,11 +71,14 @@ export interface ExecuteApplicationFlowInput extends ExecuteEasyApplyInput {
    */
   accountCreationAuthorized?: boolean;
   /**
-   * Explicit customer permission for non-final ATS writes such as attaching
-   * the selected resume, draft creation, autosave, or a verified non-final
-   * continuation step. This does not authorize DOM form submission or
-   * clicking a final apply control; those remain independently blocked.
-   * Omitted values are false.
+   * Explicit customer permission for external, site-side persistence during
+   * preparation, such as draft creation, autosave requests, or another
+   * verified non-final transmission to the employer's server. Selecting a
+   * file into a local DOM file input is a local page edit the runtime
+   * performs without this flag; only the site's attempt to transmit or
+   * persist that selection externally is gated here. This never authorizes
+   * DOM form submission or clicking a final apply control; those remain
+   * independently blocked. Omitted values are false.
    */
   intermediateMutationsAuthorized?: boolean;
   /**

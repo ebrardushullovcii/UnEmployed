@@ -11,12 +11,10 @@ import type {
   TailoredAsset,
 } from "@unemployed/contracts";
 
-import {
-  compareMatchRecommendationPriority,
-  compareMatchRoleSuitabilityPriority,
-  compareMatchScores,
-} from "./match-assessment-ranking";
+import { compareDiscoveryJobs } from "../discovery-ordering";
 import { resolveJobResumeApplicationMode } from "./job-resume-application-mode";
+
+export { compareDiscoveryJobs };
 
 const reviewableStatuses = new Set<ApplicationStatus>([
   "drafting",
@@ -39,68 +37,6 @@ const assetStatusPriority: Record<AssetStatus, number> = {
   failed: 3,
   not_started: 4,
 };
-
-function toSortableTime(value: string | null | undefined): number {
-  if (!value) {
-    return Number.NEGATIVE_INFINITY;
-  }
-
-  const parsed = new Date(value).getTime();
-  return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
-}
-
-export function compareDiscoveryJobs(left: SavedJob, right: SavedJob): number {
-  const hardMismatchDelta =
-    Number(left.matchAssessment.recommendation === "skip") -
-    Number(right.matchAssessment.recommendation === "skip");
-  if (hardMismatchDelta !== 0) {
-    return hardMismatchDelta;
-  }
-
-  const roleSuitabilityDelta = compareMatchRoleSuitabilityPriority(
-    left.matchAssessment,
-    right.matchAssessment,
-  );
-  if (roleSuitabilityDelta !== 0) {
-    return roleSuitabilityDelta;
-  }
-
-  const scoreDelta = compareMatchScores(
-    left.matchAssessment,
-    right.matchAssessment,
-  );
-  if (scoreDelta !== 0) {
-    return scoreDelta;
-  }
-
-  const recommendationDelta = compareMatchRecommendationPriority(
-    left.matchAssessment,
-    right.matchAssessment,
-  );
-  if (recommendationDelta !== 0) {
-    return recommendationDelta;
-  }
-
-  const detailDelta =
-    Number(right.detailQuality === "detail_enriched") -
-    Number(left.detailQuality === "detail_enriched");
-  if (detailDelta !== 0) {
-    return detailDelta;
-  }
-
-  const recencyDelta =
-    toSortableTime(right.postedAt ?? right.firstSeenAt ?? right.discoveredAt) -
-    toSortableTime(left.postedAt ?? left.firstSeenAt ?? left.discoveredAt);
-  if (recencyDelta !== 0) {
-    return recencyDelta;
-  }
-
-  return (
-    left.title.localeCompare(right.title) ||
-    left.company.localeCompare(right.company) ||
-    left.id.localeCompare(right.id)
-  );
-}
 
 function getLatestApprovedExport(
   current: ResumeExportArtifact | null,

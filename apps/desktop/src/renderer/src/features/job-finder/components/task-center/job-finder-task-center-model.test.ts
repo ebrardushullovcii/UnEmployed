@@ -7,6 +7,7 @@ import type {
 } from "@unemployed/contracts";
 import { describe, expect, test } from "vitest";
 import { buildJobFinderTaskCenterModel } from "./job-finder-task-center-model";
+import type { TailoredDraftPreparationViewState } from "../../screens/review-queue/review-queue-status";
 
 function createWorkspace(
   overrides: Partial<JobFinderWorkspaceSnapshot> = {},
@@ -73,11 +74,26 @@ function createApplyRun(
 
 function findTask(
   model: ReturnType<typeof buildJobFinderTaskCenterModel>,
-  kind: "discovery" | "resume_import" | "apply",
+  kind: "discovery" | "resume_import" | "apply" | "tailored_drafts",
 ) {
   const task = model.items.find((item) => item.kind === kind);
   expect(task).toBeDefined();
   return task!;
+}
+
+function createTailoredDraftPreparation(
+  overrides: Partial<TailoredDraftPreparationViewState> = {},
+): TailoredDraftPreparationViewState {
+  return {
+    attemptedCount: 2,
+    completedCount: 1,
+    currentIndex: 2,
+    eligibleRemainingCount: 0,
+    failedCount: 0,
+    status: "running",
+    totalCount: 3,
+    ...overrides,
+  };
 }
 
 describe("buildJobFinderTaskCenterModel", () => {
@@ -119,12 +135,236 @@ describe("buildJobFinderTaskCenterModel", () => {
     expect(task.status).toBe("active");
     expect(task.stageLabel).toBe("Scoring matches");
     expect(task.sourceLabel).toBe("Mercury careers and Aircall careers");
-    expect(task.countLabel).toBe("1 of 2 sources finished · 7 jobs found");
+    // Scoring-stage candidates are not merged yet, so they never drive the
+    // count; the label keeps reporting persisted run evidence.
+    expect(task.countLabel).toBe("1 of 2 sources finished · 3 new jobs kept");
     expect(task.canCancel).toBe(true);
     expect(task.historyEstimateLabel).toBe(
       "about 10s from 1 similar completed search",
     );
     expect(task.historyEstimateLabel).not.toContain("remaining");
+  });
+
+  test("keeps unmerged scoring-stage candidates out of the settled count", () => {
+    // Prior source merged with every listing already known. The next source
+    // just published its scoring-stage candidate total while its merge has
+    // not run yet.
+    const currentRun = createDiscoveryRun({
+      summary: {
+        targetsPlanned: 2,
+        targetsCompleted: 1,
+        validJobsFound: 6,
+        duplicatesMerged: 6,
+        durationMs: 0,
+      },
+    });
+    const liveEvent = {
+      id: "event_scoring",
+      runId: currentRun.id,
+      timestamp: "2026-07-31T10:00:05.000Z",
+      kind: "progress",
+      stage: "scoring",
+      targetId: "source_b",
+      jobsFound: 50,
+      duplicatesMerged: 6,
+    } as DiscoveryActivityEvent;
+
+    const task = findTask(
+      buildJobFinderTaskCenterModel({
+        workspace: createWorkspace({ activeDiscoveryRun: currentRun }),
+        isDiscoveryPending: true,
+        isResumeImportPending: false,
+        liveDiscoveryEvents: [liveEvent],
+      }),
+      "discovery",
+    );
+
+    // The unmerged candidate total (50) never reaches the label, and the
+    // summary's distinct total is shown as-is instead of losing duplicates.
+    expect(task.countLabel).toBe(
+      "1 of 2 sources finished · 6 new jobs kept · 6 duplicates merged",
+    );
+    expect(task.countLabel).not.toContain("50");
+    expect(task.countLabel).not.toMatch(/\bfound\b/i);
+  });
+
+  test("derives live counts from persistence-stage review volume before the summary catches up", () => {
+    // First source just merged and published its per-target persistence
+    // event while the workspace snapshot still reports an empty summary.
+    const currentRun = createDiscoveryRun({
+      summary: {
+        targetsPlanned: 2,
+        targetsCompleted: 0,
+        validJobsFound: 0,
+        durationMs: 0,
+      },
+    });
+    const liveEvent = {
+      id: "event_persistence",
+      runId: currentRun.id,
+      timestamp: "2026-07-31T10:00:06.000Z",
+      kind: "progress",
+      stage: "persistence",
+      targetId: "source_b",
+      jobsFound: 100,
+      duplicatesMerged: 33,
+    } as DiscoveryActivityEvent;
+
+    const task = findTask(
+      buildJobFinderTaskCenterModel({
+        workspace: createWorkspace({ activeDiscoveryRun: currentRun }),
+        isDiscoveryPending: true,
+        isResumeImportPending: false,
+        liveDiscoveryEvents: [liveEvent],
+      }),
+      "discovery",
+    );
+
+    // The event's jobsFound is review volume, so its own duplicate counter
+    // turns 100 reviewed listings into 67 distinct retained.
+    expect(task.countLabel).toBe(
+      "0 of 2 sources finished · 67 new jobs kept · 33 duplicates merged",
+    );
+  });
+
+  test("prefers settled summary volume over fresher events without mixing bases", () => {
+    const currentRun = createDiscoveryRun({
+      summary: {
+        targetsPlanned: 2,
+        targetsCompleted: 1,
+        validJobsFound: 6,
+        duplicatesMerged: 6,
+        durationMs: 0,
+      },
+    });
+    const liveEvent = {
+      id: "event_persistence",
+      runId: currentRun.id,
+      timestamp: "2026-07-31T10:00:06.000Z",
+      kind: "progress",
+      stage: "persistence",
+      targetId: "source_b",
+      jobsFound: 50,
+      duplicatesMerged: 40,
+    } as DiscoveryActivityEvent;
+
+    const task = findTask(
+      buildJobFinderTaskCenterModel({
+        workspace: createWorkspace({ activeDiscoveryRun: currentRun }),
+        isDiscoveryPending: true,
+        isResumeImportPending: false,
+        liveDiscoveryEvents: [liveEvent],
+      }),
+      "discovery",
+    );
+
+    // The per-target event must never be maxed into the cumulative summary:
+    // no "56 found", no "44 unique", only the settled distinct total.
+    expect(task.countLabel).toBe(
+      "1 of 2 sources finished · 6 new jobs kept · 6 duplicates merged",
+    );
+    expect(task.countLabel).not.toMatch(/\bfound\b/i);
+    expect(task.countLabel).not.toContain("44");
+  });
+
+  test("shows a completed run's distinct total directly instead of re-subtracting duplicates", () => {
+    const completedRun = createDiscoveryRun({
+      id: "discovery_completed",
+      state: "completed",
+      startedAt: "2026-07-31T09:00:00.000Z",
+      completedAt: "2026-07-31T09:01:00.000Z",
+      summary: {
+        targetsPlanned: 2,
+        targetsCompleted: 2,
+        validJobsFound: 20,
+        duplicatesMerged: 5,
+        durationMs: 60_000,
+      },
+    });
+
+    const task = findTask(
+      buildJobFinderTaskCenterModel({
+        workspace: createWorkspace({
+          recentDiscoveryRuns: [completedRun],
+        }),
+        isDiscoveryPending: false,
+        isResumeImportPending: false,
+      }),
+      "discovery",
+    );
+
+    expect(task.status).toBe("completed");
+    // 67-style regression guard: the distinct total displays as-is; the old
+    // label subtracted duplicates again and claimed a smaller unique count.
+    expect(task.countLabel).toBe(
+      "2 of 2 sources finished · 20 new jobs kept · 5 duplicates merged",
+    );
+    expect(task.countLabel).not.toContain("15");
+    expect(task.countLabel).not.toMatch(/\bfound\b/i);
+  });
+
+  test("never claims duplicates without duplicate evidence and keeps plain kept counts", () => {
+    const completedRun = createDiscoveryRun({
+      id: "discovery_completed_no_duplicates",
+      state: "completed",
+      startedAt: "2026-07-31T09:00:00.000Z",
+      completedAt: "2026-07-31T09:01:00.000Z",
+      summary: {
+        targetsPlanned: 1,
+        targetsCompleted: 1,
+        validJobsFound: 20,
+        durationMs: 60_000,
+      },
+    });
+
+    const task = findTask(
+      buildJobFinderTaskCenterModel({
+        workspace: createWorkspace({
+          activeDiscoveryRun: null,
+          recentDiscoveryRuns: [completedRun],
+        }),
+        isDiscoveryPending: false,
+        isResumeImportPending: false,
+      }),
+      "discovery",
+    );
+
+    expect(task.countLabel).toBe("1 of 1 sources finished · 20 new jobs kept");
+    expect(task.countLabel).not.toContain("duplicates");
+    expect(task.countLabel).not.toContain("unique retained");
+  });
+
+  test("explains a fully repeated search where every reviewed listing was already known", () => {
+    const repeatedRun = createDiscoveryRun({
+      id: "discovery_completed_repeat",
+      state: "completed",
+      startedAt: "2026-07-31T11:00:00.000Z",
+      completedAt: "2026-07-31T11:01:00.000Z",
+      summary: {
+        targetsPlanned: 2,
+        targetsCompleted: 2,
+        validJobsFound: 0,
+        duplicatesMerged: 15,
+        durationMs: 60_000,
+      },
+    });
+
+    const task = findTask(
+      buildJobFinderTaskCenterModel({
+        workspace: createWorkspace({
+          activeDiscoveryRun: null,
+          recentDiscoveryRuns: [repeatedRun],
+        }),
+        isDiscoveryPending: false,
+        isResumeImportPending: false,
+      }),
+      "discovery",
+    );
+
+    expect(task.countLabel).toBe(
+      "2 of 2 sources finished · 0 new jobs kept · 15 duplicates merged",
+    );
+    expect(task.countLabel).not.toMatch(/\bfound\b/i);
   });
 
   test("compares 511 configured targets without repeated sorting", () => {
@@ -208,7 +448,7 @@ describe("buildJobFinderTaskCenterModel", () => {
       targetCount: targetIds.length,
     });
 
-    expect(task.countLabel).toBe("0 of 511 sources finished · 0 jobs found");
+    expect(task.countLabel).toBe("0 of 511 sources finished · 0 new jobs kept");
     expect(task.sourceLabel).toBe("Source 0 and 510 more sources");
     expect(task.historyEstimateLabel).toBe(
       "about 12s from 32 similar completed searches",
@@ -305,11 +545,81 @@ describe("buildJobFinderTaskCenterModel", () => {
     );
 
     expect(task.status).toBe("paused");
-    expect(task.stageLabel).toBe("Paused for consent");
-    expect(task.countLabel).toBe("1 of 3 jobs finished · 1 blocked · 0 failed");
+    expect(task.stageLabel).toBe("Waiting for your consent");
+    expect(task.countLabel).toBe(
+      "1 of 3 application tasks finished · 1 blocked · 0 need attention",
+    );
     expect(task.canCancel).toBe(true);
     expect(task.resumeRoute).toBe("/job-finder/applications");
+    expect(task.resumeActionLabel).toBe("Continue application");
     expect(task.historyEstimateLabel).toBeNull();
+  });
+
+  test.each([
+    ["draft", "active", "Ready to start"],
+    ["awaiting_submit_approval", "active", "Waiting for your approval"],
+    ["running", "active", "Opening application"],
+    ["paused_for_user_review", "paused", "Waiting for your review"],
+    ["paused_for_consent", "paused", "Waiting for your consent"],
+    ["completed", "completed", "Ready for final review"],
+    ["cancelled", "cancelled", "Application stopped"],
+    ["failed", "failed", "Application needs attention"],
+  ] as const)(
+    "presents apply state %s as a user goal without changing its technical status",
+    (state, status, stageLabel) => {
+      const task = findTask(
+        buildJobFinderTaskCenterModel({
+          workspace: createWorkspace({
+            applyRuns: [createApplyRun({ state })],
+          }),
+          isDiscoveryPending: false,
+          isResumeImportPending: false,
+        }),
+        "apply",
+      );
+
+      expect(task).toMatchObject({
+        id: "apply_current",
+        title: "Applications",
+        status,
+        stageLabel,
+      });
+    },
+  );
+
+  test("uses Applications as the queue-mode goal and fallback source without submission claims", () => {
+    const task = findTask(
+      buildJobFinderTaskCenterModel({
+        workspace: createWorkspace({
+          applyRuns: [
+            createApplyRun({
+              mode: "queue_auto",
+              currentJobId: null,
+              jobIds: [],
+            }),
+          ],
+        }),
+        isDiscoveryPending: false,
+        isResumeImportPending: false,
+      }),
+      "apply",
+    );
+    const presentation = [
+      task.title,
+      task.stageLabel,
+      task.sourceLabel,
+      task.countLabel,
+      task.historyEstimateLabel,
+      task.resumeActionLabel,
+    ]
+      .filter((label): label is string => label !== null)
+      .join(" ");
+
+    expect(task.title).toBe("Applications");
+    expect(task.sourceLabel).toBe("Applications");
+    expect(presentation).not.toMatch(
+      /application queue|application preparation|preparing employer form|preparation completed|\brun\b|submit|submitted|verified/i,
+    );
   });
 
   test("retains cancelled runs as history with no stale cancel action", () => {
@@ -357,5 +667,55 @@ describe("buildJobFinderTaskCenterModel", () => {
 
     expect(task.status).toBe("active");
     expect(task.historyEstimateLabel).toBeNull();
+  });
+
+  test("shows the tailored-drafts task only while a batch run is active", () => {
+    const buildModel = (
+      preparation: TailoredDraftPreparationViewState | null,
+    ) =>
+      buildJobFinderTaskCenterModel({
+        workspace: createWorkspace(),
+        isDiscoveryPending: false,
+        isResumeImportPending: false,
+        tailoredDraftPreparation: preparation,
+      });
+
+    expect(
+      buildModel(null).items.some((item) => item.kind === "tailored_drafts"),
+    ).toBe(false);
+    for (const status of ["idle", "completed", "stopped", "failed"] as const) {
+      expect(
+        buildModel(createTailoredDraftPreparation({ status })).items.some(
+          (item) => item.kind === "tailored_drafts",
+        ),
+      ).toBe(false);
+    }
+
+    const model = buildModel(createTailoredDraftPreparation());
+    const task = findTask(model, "tailored_drafts");
+    expect(task.status).toBe("active");
+    expect(task.title).toBe("Tailored drafts");
+    expect(task.countLabel).toBe("1 of 3 prepared");
+    expect(task.canCancel).toBe(true);
+    expect(task.cancelKind).toBe("tailored_drafts");
+    expect(model.activeCount).toBe(1);
+  });
+
+  test("reports tailored-draft failures in progress without claiming durability", () => {
+    const model = buildJobFinderTaskCenterModel({
+      workspace: createWorkspace(),
+      isDiscoveryPending: false,
+      isResumeImportPending: false,
+      tailoredDraftPreparation: createTailoredDraftPreparation({
+        completedCount: 2,
+        failedCount: 1,
+        totalCount: 5,
+      }),
+    });
+    const task = findTask(model, "tailored_drafts");
+
+    expect(task.countLabel).toBe("2 of 5 prepared · 1 failed");
+    expect(task.stageLabel).not.toMatch(/complete|finished/i);
+    expect(task.resumeRoute).toBe("/job-finder/review-queue");
   });
 });

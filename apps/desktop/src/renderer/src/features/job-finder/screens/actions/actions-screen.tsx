@@ -20,6 +20,10 @@ import {
 
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
+import {
+  CollectionPagination,
+  COLLECTION_PAGE_SIZE,
+} from "../../components/collection-pagination";
 import { formatDateOnly } from "../../lib/job-finder-utils";
 import { buildJobFinderContextRoute } from "../../lib/job-finder-context-navigation";
 import {
@@ -27,13 +31,13 @@ import {
   CollectionSearchToolbar,
   matchesCollectionSearch,
 } from "../../components/collection-search-toolbar";
-import { PageHeader } from "../../components/page-header";
+import { PageHeaderStack } from "../../components/page-header";
 import { usePersistedCollectionView } from "../../hooks/use-persisted-collection-view";
 import {
   AnswerMemoryEditor,
   deriveGroupedAnswerGroupKey,
 } from "./answer-memory-editor";
-import { useDeferredValue, useMemo } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 
 const terminalStates = new Set<UserActionRequest["state"]>([
   "resolved",
@@ -42,6 +46,8 @@ const terminalStates = new Set<UserActionRequest["state"]>([
   "expired",
   "superseded",
 ]);
+
+type DiscoveryJob = JobFinderWorkspaceSnapshot["discoveryJobs"][number];
 
 export function getUserActionContextRoute(
   request: Pick<UserActionRequest, "scope">,
@@ -53,12 +59,15 @@ export function getUserActionContextRoute(
     });
   }
 
-  if (!applicationRecords) {
-    return "/job-finder/applications";
+  const applicationScope = request.scope;
+  if (applicationScope.applicationRecordId) {
+    return buildJobFinderContextRoute("/job-finder/applications", {
+      applicationRecordId: applicationScope.applicationRecordId,
+      jobId: applicationScope.jobId,
+    });
   }
 
-  const applicationScope = request.scope;
-  const matchingRecords = applicationRecords.filter(
+  const matchingRecords = (applicationRecords ?? []).filter(
     (record) => record.jobId === applicationScope.jobId,
   );
   const applicationRecordId =
@@ -67,7 +76,7 @@ export function getUserActionContextRoute(
   return buildJobFinderContextRoute(
     "/job-finder/applications",
     applicationRecordId
-      ? { applicationRecordId }
+      ? { applicationRecordId, jobId: applicationScope.jobId }
       : { jobId: applicationScope.jobId },
   );
 }
@@ -148,6 +157,16 @@ export function listUnresolvedUserActions(
   requests: readonly UserActionRequest[],
 ): readonly UserActionRequest[] {
   return requests.filter((request) => !terminalStates.has(request.state));
+}
+
+/**
+ * Indexes the discovery jobs by id once per snapshot so scope lookups stay
+ * one-pass instead of scanning the job array for every action card.
+ */
+export function buildJobIndexById(
+  jobs: readonly DiscoveryJob[],
+): Map<string, DiscoveryJob> {
+  return new Map(jobs.map((job) => [job.id, job]));
 }
 
 function createCommand(
@@ -408,15 +427,14 @@ function buildGroupedSnoozeInput(
 function GroupedDecisionCard(props: {
   compact?: boolean;
   decision: GroupedManualAnswerDecision;
-  discoveryJobs: JobFinderWorkspaceSnapshot["discoveryJobs"];
   isApplyPending: boolean;
   isSnoozePending: boolean;
+  jobsById: ReadonlyMap<string, DiscoveryJob>;
   onApply: (input: ApplyGroupedManualAnswerInput) => void;
   onSnooze: (input: SnoozeGroupedDecisionInput) => void;
 }) {
-  const { compact = false, decision, discoveryJobs } = props;
+  const { compact = false, decision, jobsById } = props;
   const hasConflict = decision.conflict.status === "detected";
-  const jobsById = new Map(discoveryJobs.map((job) => [job.id, job]));
   const uniqueJobCount = new Set(decision.lineage.map((entry) => entry.jobId))
     .size;
   const jobLabel = (jobId: string) => {
@@ -505,9 +523,8 @@ function GroupedDecisionCard(props: {
       {!compact ? (
         <p className="rounded-md border border-border/60 bg-background/35 px-3 py-2 text-xs leading-5 text-muted-foreground">
           Approving fills only these pending application questions with the
-          exact answer above. Final submission and account creation remain
-          disabled, and nothing is submitted without your later explicit
-          confirmation.
+          exact answer above. Job Finder cannot create an account or submit an
+          application. Review and submit on the employer site yourself.
         </p>
       ) : null}
 
@@ -620,15 +637,17 @@ export function ActionsScreen(props: {
   );
   const view = usePersistedCollectionView("needs-you", "comfortable");
   const deferredQuery = useDeferredValue(view.query);
+  const jobsById = useMemo(
+    () => buildJobIndexById(props.discoveryJobs),
+    [props.discoveryJobs],
+  );
   const visibleRequests = useMemo(
     () =>
       unresolved.filter((request) => {
         const applicationScope =
           request.scope.type === "application" ? request.scope : null;
         const job = applicationScope
-          ? props.discoveryJobs.find(
-              (candidate) => candidate.id === applicationScope.jobId,
-            )
+          ? (jobsById.get(applicationScope.jobId) ?? null)
           : null;
         return matchesCollectionSearch(deferredQuery, [
           request.title,
@@ -639,33 +658,53 @@ export function ActionsScreen(props: {
           ...request.instructions,
         ]);
       }),
-    [deferredQuery, props.discoveryJobs, unresolved],
+    [deferredQuery, jobsById, unresolved],
   );
+  const [page, setPage] = useState(1);
+  const pageCount = Math.max(
+    1,
+    Math.ceil(visibleRequests.length / COLLECTION_PAGE_SIZE),
+  );
+  const currentPage = Math.min(page, pageCount);
+  const pagedRequests = useMemo(
+    () =>
+      visibleRequests.slice(
+        (currentPage - 1) * COLLECTION_PAGE_SIZE,
+        currentPage * COLLECTION_PAGE_SIZE,
+      ),
+    [currentPage, visibleRequests],
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [view.query]);
+  useEffect(() => {
+    setPage((current) => Math.min(current, pageCount));
+  }, [pageCount]);
   const groups = [
     {
-      id: "application",
+      id: "application" as const,
       title: "Applications",
-      requests: visibleRequests.filter(
+      totalCount: visibleRequests.filter(
         (request) => request.scope.type === "application",
-      ),
+      ).length,
     },
     {
-      id: "discovery_source",
+      id: "discovery_source" as const,
       title: "Job sources",
-      requests: visibleRequests.filter(
+      totalCount: visibleRequests.filter(
         (request) => request.scope.type === "discovery_source",
-      ),
+      ).length,
     },
-  ] as const;
+  ];
 
   const hasPendingDecisionCards = pendingDecisions.length > 0;
 
   return (
-    <section className="grid gap-8 pb-8">
-      <PageHeader
-        description="Finish browser-owned steps, then tell Job Finder when to verify. The app never receives passwords, security codes, or final-submit authority."
-        eyebrow="Needs you"
-        title="Action inbox"
+    <section className="grid gap-5 pb-8">
+      <PageHeaderStack
+        description="Complete browser steps, then ask Job Finder to verify. Passwords, security codes, and final submit stay with you."
+        title="Needs you"
       />
 
       {unresolved.length > 0 ? (
@@ -673,6 +712,7 @@ export function ActionsScreen(props: {
           label="Find an action"
           onQueryChange={view.setQuery}
           placeholder="Search jobs, companies, sources, or action type"
+          placement="page"
           query={view.query}
           totalCount={unresolved.length}
           visibleCount={visibleRequests.length}
@@ -697,13 +737,13 @@ export function ActionsScreen(props: {
             {activeDecisions.map((decision) => (
               <GroupedDecisionCard
                 decision={decision}
-                discoveryJobs={props.discoveryJobs}
                 isApplyPending={
                   props.isGroupedApplyPending?.(decision.id) ?? false
                 }
                 isSnoozePending={
                   props.isGroupedSnoozePending?.(decision.id) ?? false
                 }
+                jobsById={jobsById}
                 key={decision.id}
                 onApply={(input) => props.onApplyGroupedManualAnswer?.(input)}
                 onSnooze={(input) => props.onSnoozeGroupedDecision?.(input)}
@@ -729,13 +769,13 @@ export function ActionsScreen(props: {
               <GroupedDecisionCard
                 compact
                 decision={decision}
-                discoveryJobs={props.discoveryJobs}
                 isApplyPending={
                   props.isGroupedApplyPending?.(decision.id) ?? false
                 }
                 isSnoozePending={
                   props.isGroupedSnoozePending?.(decision.id) ?? false
                 }
+                jobsById={jobsById}
                 key={decision.id}
                 onApply={(input) => props.onApplyGroupedManualAnswer?.(input)}
                 onSnooze={(input) => props.onSnoozeGroupedDecision?.(input)}
@@ -746,17 +786,25 @@ export function ActionsScreen(props: {
       ) : null}
 
       {unresolved.length === 0 && !hasPendingDecisionCards ? (
-        <div
-          className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-6"
-          role="status"
-        >
-          <h2 className="text-lg font-semibold text-(--text-headline)">
-            Nothing needs you right now
-          </h2>
-          <p className="text-sm text-foreground-soft">
-            Blocked sources and applications will appear here when a
-            browser-only step needs your attention.
-          </p>
+        <div className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-5">
+          <div className="grid gap-2" role="status">
+            <h2 className="text-lg font-semibold text-(--text-headline)">
+              Nothing needs you right now
+            </h2>
+            <p className="text-sm text-foreground-soft">
+              Blocked sources and applications will appear here when a
+              browser-only step needs your attention.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              onClick={() => props.onNavigate("/job-finder/discovery")}
+              size="compact"
+              type="button"
+            >
+              <ArrowUpRight aria-hidden="true" /> Find jobs
+            </Button>
+          </div>
         </div>
       ) : unresolved.length > 0 && visibleRequests.length === 0 ? (
         <CollectionNoMatches
@@ -765,79 +813,116 @@ export function ActionsScreen(props: {
           query={view.query}
         />
       ) : (
-        groups.map((group) =>
-          group.requests.length > 0 ? (
-            <section
-              className="grid gap-3"
-              key={group.id}
-              aria-labelledby={`action-group-${group.id}`}
-            >
-              <div className="flex items-center gap-2">
-                <h2
-                  className="text-xl font-semibold text-(--text-headline)"
-                  id={`action-group-${group.id}`}
-                >
-                  {group.title}
-                </h2>
-                <Badge variant="section">{group.requests.length}</Badge>
-              </div>
-              <div className="grid gap-3">
-                {group.requests.map((request) => {
-                  const applicationScope =
-                    request.scope.type === "application" ? request.scope : null;
-                  const job = applicationScope
-                    ? (props.discoveryJobs.find(
-                        (candidate) => candidate.id === applicationScope.jobId,
-                      ) ?? null)
-                    : null;
-                  const matchingAttempt = applicationScope
-                    ? ([...(props.applicationAttempts ?? [])]
-                        .filter(
-                          (attempt) =>
-                            attempt.jobId === applicationScope.jobId &&
-                            attempt.blocker?.code ===
-                              "missing_candidate_answer",
-                        )
-                        .sort((left, right) =>
-                          right.updatedAt.localeCompare(left.updatedAt),
-                        )[0] ?? null)
-                    : null;
-                  const questions =
-                    matchingAttempt?.questions.filter(
-                      (question) => question.status === "detected",
-                    ) ?? [];
-                  const question =
-                    questions.length === 1 ? (questions[0] ?? null) : null;
-                  return (
-                    <ActionCard
-                      isGroupedProjectPending={
-                        props.isGroupedProjectPending ?? (() => false)
-                      }
-                      isPending={props.isPending(request.id)}
-                      jobLabel={job ? `${job.title} at ${job.company}` : null}
-                      key={request.id}
-                      onCommand={props.onCommand}
-                      onProjectGroupedManualAnswer={
-                        props.onProjectGroupedManualAnswer ?? (() => undefined)
-                      }
-                      profile={props.profile ?? null}
-                      question={question}
-                      onOpenScope={() =>
-                        props.onNavigate(
-                          getUserActionContextRoute(
-                            request,
-                            props.applicationRecords,
-                          ),
-                        )
-                      }
-                      request={request}
-                    />
-                  );
-                })}
-              </div>
-            </section>
-          ) : null,
-        )
+        <>
+          {groups.map((group) => {
+            const totalCount = group.totalCount;
+            if (totalCount === 0) {
+              return null;
+            }
+            const pageRequests = pagedRequests.filter(
+              (request) => request.scope.type === group.id,
+            );
+            return (
+              <section
+                className="grid gap-3"
+                key={group.id}
+                aria-labelledby={`action-group-${group.id}`}
+              >
+                <div className="flex items-center gap-2">
+                  <h2
+                    className="text-xl font-semibold text-(--text-headline)"
+                    id={`action-group-${group.id}`}
+                  >
+                    {group.title}
+                  </h2>
+                  {/* Canonical count across every matching action, independent
+                  of the mounted page window. */}
+                  <Badge variant="section">{totalCount}</Badge>
+                </div>
+                {pageRequests.length === 0 ? (
+                  <p className="text-sm leading-6 text-foreground-soft">
+                    All {totalCount} on another page.
+                  </p>
+                ) : (
+                  <>
+                    {pageRequests.length < totalCount ? (
+                      <p className="text-sm leading-6 text-foreground-soft">
+                        Showing {pageRequests.length} of {totalCount} on this
+                        page.
+                      </p>
+                    ) : null}
+                    <div className="grid gap-3">
+                      {pageRequests.map((request) => {
+                        const applicationScope =
+                          request.scope.type === "application"
+                            ? request.scope
+                            : null;
+                        const job = applicationScope
+                          ? (jobsById.get(applicationScope.jobId) ?? null)
+                          : null;
+                        const matchingAttempt = applicationScope
+                          ? ([...(props.applicationAttempts ?? [])]
+                              .filter(
+                                (attempt) =>
+                                  attempt.jobId === applicationScope.jobId &&
+                                  attempt.blocker?.code ===
+                                    "missing_candidate_answer",
+                              )
+                              .sort((left, right) =>
+                                right.updatedAt.localeCompare(left.updatedAt),
+                              )[0] ?? null)
+                          : null;
+                        const questions =
+                          matchingAttempt?.questions.filter(
+                            (question) => question.status === "detected",
+                          ) ?? [];
+                        const question =
+                          questions.length === 1
+                            ? (questions[0] ?? null)
+                            : null;
+                        return (
+                          <ActionCard
+                            isGroupedProjectPending={
+                              props.isGroupedProjectPending ?? (() => false)
+                            }
+                            isPending={props.isPending(request.id)}
+                            jobLabel={
+                              job ? `${job.title} at ${job.company}` : null
+                            }
+                            key={request.id}
+                            onCommand={props.onCommand}
+                            onProjectGroupedManualAnswer={
+                              props.onProjectGroupedManualAnswer ??
+                              (() => undefined)
+                            }
+                            profile={props.profile ?? null}
+                            question={question}
+                            onOpenScope={() =>
+                              props.onNavigate(
+                                getUserActionContextRoute(
+                                  request,
+                                  props.applicationRecords,
+                                ),
+                              )
+                            }
+                            request={request}
+                          />
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </section>
+            );
+          })}
+          <CollectionPagination
+            itemLabel="actions"
+            onPageChange={setPage}
+            page={currentPage}
+            pageSize={COLLECTION_PAGE_SIZE}
+            totalCount={visibleRequests.length}
+          />
+        </>
       )}
     </section>
   );

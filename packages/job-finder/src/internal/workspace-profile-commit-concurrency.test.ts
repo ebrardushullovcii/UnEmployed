@@ -1,0 +1,473 @@
+import {
+  createInMemoryJobFinderRepository,
+  type JobFinderRepository,
+} from "@unemployed/db";
+import { describe, expect, test } from "vitest";
+
+import { createJobFinderWorkspaceService } from "../index";
+import { ProfileCommitStaleError } from "./profile-commit-stale-conflict";
+import { createSeed } from "../workspace-service.test-fixtures";
+import {
+  createAiClient,
+  createBrowserRuntime,
+  createDocumentManager,
+  createResearchAdapter,
+} from "../workspace-service.test-runtimes";
+
+const REUSABLE_ANSWER = {
+  id: "answer_concurrent_1",
+  kind: "other" as const,
+  label: "Notice period",
+  question: "What is your notice period?",
+  answer: "Two weeks",
+  roleFamilies: [],
+  proofEntryIds: [],
+};
+
+function addReusableAnswer(
+  current: Awaited<ReturnType<JobFinderRepository["getProfile"]>>,
+) {
+  return {
+    ...current,
+    answerBank: {
+      ...current.answerBank,
+      customAnswers: [...current.answerBank.customAnswers, REUSABLE_ANSWER],
+    },
+  };
+}
+
+function createTestHarness(repository: JobFinderRepository) {
+  const workspaceService = createJobFinderWorkspaceService({
+    repository,
+    browserRuntime: createBrowserRuntime(),
+    aiClient: createAiClient(),
+    documentManager: createDocumentManager(),
+    exportFileVerifier: { exists: () => Promise.resolve(true) },
+    researchAdapter: createResearchAdapter(),
+  });
+  return workspaceService;
+}
+
+function createCopilotPatchGroupMessage() {
+  return {
+    id: "profile_copilot_assistant_message_patch_1",
+    role: "assistant" as const,
+    content: "I prepared this change for your review.",
+    context: { surface: "general" } as const,
+    patchGroups: [
+      {
+        id: "patch_headline_1",
+        summary: "Set the headline",
+        applyMode: "needs_review" as const,
+        operations: [
+          {
+            operation: "replace_identity_fields" as const,
+            value: { headline: "Copilot Headline" },
+          },
+        ],
+        createdAt: "2026-05-01T10:00:00.000Z",
+      },
+    ],
+    createdAt: "2026-05-01T10:00:00.000Z",
+  };
+}
+
+describe("profile copilot commit concurrency", () => {
+  test("a reusable answer landing during copilot compute survives the patch commit", async () => {
+    const base = createInMemoryJobFinderRepository(createSeed());
+    let racedOnce = false;
+    const repository: JobFinderRepository = {
+      ...base,
+      commitProfileCopilotState: async (input) => {
+        if (!racedOnce) {
+          racedOnce = true;
+          await base.commitProfileUpdate(addReusableAnswer);
+        }
+        return base.commitProfileCopilotState(input);
+      },
+    };
+    await repository.upsertProfileCopilotMessage(
+      createCopilotPatchGroupMessage(),
+    );
+    const service = createTestHarness(repository);
+
+    await service.applyProfileCopilotPatchGroup("patch_headline_1");
+
+    const profile = await repository.getProfile();
+    expect(profile.headline).toBe("Copilot Headline");
+    expect(profile.answerBank.customAnswers).toEqual([REUSABLE_ANSWER]);
+    expect(racedOnce).toBe(true);
+  });
+
+  test("a reusable answer committed after the copilot patch survives", async () => {
+    const base = createInMemoryJobFinderRepository(createSeed());
+    await base.upsertProfileCopilotMessage(createCopilotPatchGroupMessage());
+    const service = createTestHarness(base);
+
+    await service.applyProfileCopilotPatchGroup("patch_headline_1");
+    await base.commitProfileUpdate(addReusableAnswer);
+
+    const profile = await base.getProfile();
+    expect(profile.headline).toBe("Copilot Headline");
+    expect(profile.answerBank.customAnswers).toEqual([REUSABLE_ANSWER]);
+  });
+
+  test("a second stale copilot commit raises a typed stale error without overwriting", async () => {
+    const base = createInMemoryJobFinderRepository(createSeed());
+    await base.commitProfileUpdate(addReusableAnswer);
+    const repository: JobFinderRepository = {
+      ...base,
+      commitProfileCopilotState: async (input) => {
+        const current = await base.getProfile();
+        await base.saveProfile({ ...current });
+        return base.commitProfileCopilotState(input);
+      },
+    };
+    await repository.upsertProfileCopilotMessage(
+      createCopilotPatchGroupMessage(),
+    );
+    const service = createTestHarness(repository);
+
+    await expect(
+      service.applyProfileCopilotPatchGroup("patch_headline_1"),
+    ).rejects.toThrow(ProfileCommitStaleError);
+
+    const profile = await repository.getProfile();
+    expect(profile.headline).toBe(createSeed().profile.headline);
+    expect(profile.answerBank.customAnswers).toEqual([REUSABLE_ANSWER]);
+
+    const messages = await repository.listProfileCopilotMessages();
+    expect(messages[0]?.patchGroups[0]?.applyMode).toBe("needs_review");
+  });
+
+  test("undo retries once past a concurrent edit and restores the revision snapshot", async () => {
+    const base = createInMemoryJobFinderRepository(createSeed());
+    const seed = createSeed();
+    const undoTarget = {
+      id: "profile_revision_target_1",
+      createdAt: "2026-05-01T09:00:00.000Z",
+      reason: null,
+      trigger: "assistant_patch" as const,
+      messageId: null,
+      patchGroupId: null,
+      restoredFromRevisionId: null,
+      snapshotProfile: seed.profile,
+      snapshotSearchPreferences: seed.searchPreferences,
+      snapshotProfileSetupState: seed.profileSetupState,
+    };
+    await base.upsertProfileRevision(undoTarget);
+    await base.saveProfile({
+      ...seed.profile,
+      headline: "Edited after the revision",
+    });
+
+    let racedOnce = false;
+    const repository: JobFinderRepository = {
+      ...base,
+      commitProfileCopilotState: async (input) => {
+        if (!racedOnce) {
+          racedOnce = true;
+          const current = await base.getProfile();
+          await base.saveProfile({
+            ...current,
+            summary: "Concurrent edit during undo",
+          });
+        }
+        return base.commitProfileCopilotState(input);
+      },
+    };
+    const service = createTestHarness(repository);
+
+    await service.undoProfileRevision(undoTarget.id);
+
+    const profile = await repository.getProfile();
+    expect(profile.headline).toBe(seed.profile.headline);
+    expect(profile.summary).toBe(seed.profile.summary);
+    const revisions = await repository.listProfileRevisions();
+    expect(revisions.some((revision) => revision.trigger === "undo")).toBe(
+      true,
+    );
+  });
+});
+
+describe("resume import finalize concurrency", () => {
+  function createImportSeed() {
+    const seed = createSeed();
+    return {
+      ...seed,
+      profile: {
+        ...seed.profile,
+        fullName: "Candidate",
+        email: null,
+        baseResume: {
+          ...seed.profile.baseResume,
+          extractionStatus: "not_started" as const,
+          lastAnalyzedAt: null,
+          textContent: [
+            "Jamie Rivers",
+            "Staff Frontend Engineer",
+            "Berlin, Germany",
+            "jamie@example.com",
+            "",
+            "12 years of experience building React, TypeScript, and design systems.",
+          ].join("\n"),
+        },
+      },
+    };
+  }
+
+  test("a reusable answer landing during import compute survives finalization", async () => {
+    const base = createInMemoryJobFinderRepository(createImportSeed());
+    let racedOnce = false;
+    const repository: JobFinderRepository = {
+      ...base,
+      commitProfileUpdate: async (updateProfile, options) => {
+        if (!racedOnce) {
+          racedOnce = true;
+          await base.commitProfileUpdate(addReusableAnswer);
+        }
+        return base.commitProfileUpdate(updateProfile, options);
+      },
+    };
+    const service = createTestHarness(repository);
+
+    await service.analyzeProfileFromResume();
+
+    const profile = await repository.getProfile();
+    expect(profile.fullName).toBe("Jamie Rivers");
+    expect(profile.email).toBe("jamie@example.com");
+    expect(profile.answerBank.customAnswers).toEqual([REUSABLE_ANSWER]);
+  });
+
+  test("a reusable answer committed after import finalization survives", async () => {
+    const base = createInMemoryJobFinderRepository(createImportSeed());
+    const service = createTestHarness(base);
+
+    await service.analyzeProfileFromResume();
+    await base.commitProfileUpdate(addReusableAnswer);
+
+    const profile = await base.getProfile();
+    expect(profile.fullName).toBe("Jamie Rivers");
+    expect(profile.answerBank.customAnswers).toEqual([REUSABLE_ANSWER]);
+  });
+});
+
+describe("profile copilot preference and sibling-flag races", () => {
+  function createTwoGroupCopilotMessage() {
+    return {
+      id: "profile_copilot_assistant_message_patch_2",
+      role: "assistant" as const,
+      content: "I prepared these changes for your review.",
+      context: { surface: "general" } as const,
+      patchGroups: [
+        {
+          id: "patch_headline_sibling",
+          summary: "Set the headline",
+          applyMode: "needs_review" as const,
+          operations: [
+            {
+              operation: "replace_identity_fields" as const,
+              value: { headline: "Copilot Headline" },
+            },
+          ],
+          createdAt: "2026-05-01T10:00:00.000Z",
+        },
+        {
+          id: "patch_location_sibling",
+          summary: "Set the location",
+          applyMode: "needs_review" as const,
+          operations: [
+            {
+              operation: "replace_identity_fields" as const,
+              value: { currentLocation: "Copilot Location" },
+            },
+          ],
+          createdAt: "2026-05-01T10:00:00.000Z",
+        },
+      ],
+      createdAt: "2026-05-01T10:00:00.000Z",
+    };
+  }
+
+  async function readPatchGroupModes(
+    repository: JobFinderRepository,
+  ): Promise<Record<string, string>> {
+    const [message] = await repository.listProfileCopilotMessages();
+    return Object.fromEntries(
+      (message?.patchGroups ?? []).map((group) => [group.id, group.applyMode]),
+    );
+  }
+
+  test("a preference save landing during the copilot commit survives beside the patch", async () => {
+    const base = createInMemoryJobFinderRepository(createSeed());
+    let racedOnce = false;
+    const repository: JobFinderRepository = {
+      ...base,
+      commitProfileCopilotState: async (input) => {
+        if (!racedOnce) {
+          racedOnce = true;
+          const currentPreferences = await base.getSearchPreferences();
+          await base.saveSearchPreferences({
+            ...currentPreferences,
+            minimumSalaryUsd: 185000,
+            compensation: {
+              ...currentPreferences.compensation,
+              minimum: 185000,
+            },
+          });
+        }
+        return base.commitProfileCopilotState(input);
+      },
+    };
+    await repository.upsertProfileCopilotMessage(
+      createCopilotPatchGroupMessage(),
+    );
+    const service = createTestHarness(repository);
+
+    await service.applyProfileCopilotPatchGroup("patch_headline_1");
+
+    const [profile, preferences, messages] = await Promise.all([
+      repository.getProfile(),
+      repository.getSearchPreferences(),
+      repository.listProfileCopilotMessages(),
+    ]);
+    expect(racedOnce).toBe(true);
+    // The patch reapplies over a fresh capture instead of reverting the save.
+    expect(profile.headline).toBe("Copilot Headline");
+    expect(preferences.minimumSalaryUsd).toBe(185000);
+    expect(messages[0]?.patchGroups[0]?.applyMode).toBe("applied");
+  });
+
+  test("undo retries past a concurrent preference save and restores its snapshots", async () => {
+    const base = createInMemoryJobFinderRepository(createSeed());
+    const seed = createSeed();
+    const undoTarget = {
+      id: "profile_revision_target_prefs",
+      createdAt: "2026-05-01T09:00:00.000Z",
+      reason: null,
+      trigger: "assistant_patch" as const,
+      messageId: null,
+      patchGroupId: null,
+      restoredFromRevisionId: null,
+      snapshotProfile: seed.profile,
+      snapshotSearchPreferences: seed.searchPreferences,
+      snapshotProfileSetupState: seed.profileSetupState,
+    };
+    await base.upsertProfileRevision(undoTarget);
+
+    let racedOnce = false;
+    const repository: JobFinderRepository = {
+      ...base,
+      commitProfileCopilotState: async (input) => {
+        if (!racedOnce) {
+          racedOnce = true;
+          const currentPreferences = await base.getSearchPreferences();
+          await base.saveSearchPreferences({
+            ...currentPreferences,
+            minimumSalaryUsd: 195000,
+            compensation: {
+              ...currentPreferences.compensation,
+              minimum: 195000,
+            },
+          });
+        }
+        return base.commitProfileCopilotState(input);
+      },
+    };
+    const service = createTestHarness(repository);
+
+    await service.undoProfileRevision(undoTarget.id);
+
+    expect(racedOnce).toBe(true);
+    // Undo deliberately restores the revision snapshot after the deterministic
+    // retry re-checks the epoch; nothing from the stale attempt is applied.
+    expect((await repository.getSearchPreferences()).minimumSalaryUsd).toBe(
+      seed.searchPreferences.minimumSalaryUsd,
+    );
+    const revisions = await repository.listProfileRevisions();
+    expect(revisions.some((revision) => revision.trigger === "undo")).toBe(
+      true,
+    );
+  });
+
+  test("a sibling rejection landing during an apply keeps its status", async () => {
+    const base = createInMemoryJobFinderRepository(createSeed());
+    let racedOnce = false;
+    const repository: JobFinderRepository = {
+      ...base,
+      commitProfileCopilotState: async (input) => {
+        if (!racedOnce) {
+          racedOnce = true;
+          // Simulates the user rejecting the sibling group while the apply
+          // commit is in flight; a whole-message snapshot here would revert
+          // this rejection back to needs_review.
+          await base.commitProfileCopilotPatchFlagUpdate({
+            patchGroupId: "patch_location_sibling",
+            applyMode: "rejected",
+          });
+        }
+        return base.commitProfileCopilotState(input);
+      },
+    };
+    await repository.upsertProfileCopilotMessage(
+      createTwoGroupCopilotMessage(),
+    );
+    const service = createTestHarness(repository);
+
+    await service.applyProfileCopilotPatchGroup("patch_headline_sibling");
+
+    const modes = await readPatchGroupModes(repository);
+    expect(modes).toEqual({
+      patch_headline_sibling: "applied",
+      patch_location_sibling: "rejected",
+    });
+    const profile = await repository.getProfile();
+    expect(profile.headline).toBe("Copilot Headline");
+    expect(profile.currentLocation).not.toBe("Copilot Location");
+  });
+
+  test("a sibling apply landing during a rejection keeps its status", async () => {
+    const base = createInMemoryJobFinderRepository(createSeed());
+    let racedOnce = false;
+    const repository: JobFinderRepository = {
+      ...base,
+      commitProfileCopilotPatchFlagUpdate: async (input) => {
+        if (!racedOnce) {
+          racedOnce = true;
+          // Simulates the sibling group being applied while the rejection is
+          // in flight; the atomic flip must not revert it to needs_review.
+          await base.commitProfileCopilotPatchFlagUpdate({
+            patchGroupId: "patch_location_sibling",
+            applyMode: "applied",
+          });
+        }
+        return base.commitProfileCopilotPatchFlagUpdate(input);
+      },
+    };
+    await repository.upsertProfileCopilotMessage(
+      createTwoGroupCopilotMessage(),
+    );
+    const service = createTestHarness(repository);
+
+    await service.rejectProfileCopilotPatchGroup("patch_headline_sibling");
+
+    const modes = await readPatchGroupModes(repository);
+    expect(modes).toEqual({
+      patch_headline_sibling: "rejected",
+      patch_location_sibling: "applied",
+    });
+  });
+
+  test("rejecting an unknown patch group fails without writing", async () => {
+    const base = createInMemoryJobFinderRepository(createSeed());
+    await base.upsertProfileCopilotMessage(createCopilotPatchGroupMessage());
+    const service = createTestHarness(base);
+
+    await expect(
+      service.rejectProfileCopilotPatchGroup("patch_does_not_exist"),
+    ).rejects.toThrow("Unknown profile copilot patch group");
+
+    const modes = await readPatchGroupModes(base);
+    expect(modes).toEqual({ patch_headline_1: "needs_review" });
+  });
+});

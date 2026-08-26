@@ -1,5 +1,6 @@
 import type { JobFinderResumeWorkspaceStrategyContext } from "@unemployed/contracts";
 import {
+  formatPersistedStrategyReason,
   resumeCoveragePolicyLabels,
   resumeHeadlinePolicyLabels,
   resumeSkillsPolicyLabels,
@@ -21,20 +22,7 @@ export function ResumeStrategyContextPanel(props: {
   const { context } = props;
 
   if (!context) {
-    return (
-      <details className="group min-w-0">
-        <summary className="surface-panel-shell flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-3 outline-none [&::-webkit-details-marker]:hidden focus-visible:ring-[3px] focus-visible:ring-ring/40">
-          <span className="grid min-w-0 gap-1">
-            <span className="font-display text-(length:--text-label) font-bold uppercase tracking-(--tracking-caps) text-primary">
-              Resume strategy
-            </span>
-            <span className="text-(length:--text-small) leading-5 text-foreground-soft">
-              No resume strategy context for this job.
-            </span>
-          </span>
-        </summary>
-      </details>
-    );
+    return null;
   }
 
   const hasRecommendation = Boolean(context.recommendedStrategyId);
@@ -42,15 +30,15 @@ export function ResumeStrategyContextPanel(props: {
 
   return (
     <details className="group min-w-0">
-      <summary className="surface-panel-shell flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-3 outline-none [&::-webkit-details-marker]:hidden focus-visible:ring-[3px] focus-visible:ring-ring/40">
-        <span className="grid min-w-0 gap-1">
+      <summary className="surface-panel-shell flex min-h-12 cursor-pointer list-none items-center justify-between gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-2 outline-none [&::-webkit-details-marker]:hidden focus-visible:ring-[3px] focus-visible:ring-ring/40">
+        <span className="grid min-w-0 gap-0.5">
           <span className="font-display text-(length:--text-label) font-bold uppercase tracking-(--tracking-caps) text-primary">
-            Resume strategy
+            Resume approach
           </span>
           <span className="text-(length:--text-small) leading-5 text-foreground-soft">
             {hasRecommendation
-              ? `Recommended: ${context.recommendedStrategyName ?? "a strategy"}. Advisory only — it never approves this résumé.`
-              : "No strategy recommended for this job. Advisory only — it never approves this résumé."}
+              ? `Recommended: ${context.recommendedStrategyName ?? "an approach"}. Advisory only — it never approves this resume.`
+              : "No resume approach recommended for this job. Advisory only — it never approves this resume."}
           </span>
         </span>
       </summary>
@@ -66,12 +54,14 @@ export function ResumeStrategyContextPanel(props: {
                   {context.recommendationSource === "role_family"
                     ? "Role-family match"
                     : context.recommendationSource === "campaign_default"
-                      ? "Campaign default"
+                      ? "Search plan default"
                       : "No match"}
                 </SourceBadge>
               </div>
               <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                {context.recommendationReason}
+                {context.recommendationReason
+                  ? formatPersistedStrategyReason(context.recommendationReason)
+                  : null}
               </p>
               {context.roleFamily ? (
                 <p className="text-(length:--text-small) leading-5 text-foreground-soft">
@@ -86,7 +76,7 @@ export function ResumeStrategyContextPanel(props: {
               </span>
               <p className="text-(length:--text-small) leading-6 text-foreground-soft">
                 {context.recommendationReason ??
-                  "No enabled strategy matches this job's role family and no campaign default is set."}
+                  "No enabled approach matches this job's role family and no search plan default is set."}
               </p>
             </div>
           )}
@@ -101,7 +91,7 @@ export function ResumeStrategyContextPanel(props: {
                   {context.selectionSource === "user"
                     ? "Manual"
                     : context.selectionSource === "campaign_default"
-                      ? "Campaign default"
+                      ? "Search plan default"
                       : context.selectionSource === "rule_match"
                         ? "Role-family match"
                         : "Selection"}
@@ -111,7 +101,9 @@ export function ResumeStrategyContextPanel(props: {
                 {context.selectedStrategyName ?? context.selectedStrategyId}
               </p>
               <p className="text-(length:--text-small) leading-5 text-foreground-soft">
-                {context.selectionReason}
+                {context.selectionReason
+                  ? formatPersistedStrategyReason(context.selectionReason)
+                  : null}
               </p>
               {context.selectedAt ? (
                 <p className="text-(length:--text-tiny) leading-5 text-foreground-muted">
@@ -121,8 +113,8 @@ export function ResumeStrategyContextPanel(props: {
             </div>
           ) : (
             <p className="text-(length:--text-small) leading-5 text-foreground-soft">
-              No strategy is selected for this job yet. You can choose one on
-              the Shortlisted job panel.
+              No resume approach is selected for this job yet. You can choose
+              one on the Shortlisted job panel.
             </p>
           )}
 
@@ -133,7 +125,7 @@ export function ResumeStrategyContextPanel(props: {
               {context.templateId ? (
                 <div>
                   <dt className="text-(length:--text-tiny) uppercase tracking-(--tracking-badge) text-foreground-muted">
-                    Template default
+                    Template
                   </dt>
                   <dd className="text-foreground-soft">
                     {resumeTemplateLabels[context.templateId] ??
@@ -206,10 +198,8 @@ export function ResumeStrategyContextPanel(props: {
           ) : null}
 
           <p className="text-(length:--text-tiny) leading-5 text-foreground-muted">
-            Reusing a strategy never approves this résumé, never makes an
-            artifact application-ready, and never marks a document current. The
-            per-job approval, digest, and staleness checks shown elsewhere on
-            this screen remain authoritative.
+            Reusing an approach never approves this resume. Approval happens
+            when you review this job&apos;s resume on this screen.
           </p>
         </div>
       </div>

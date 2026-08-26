@@ -85,14 +85,48 @@ export function isRunnableJobDiscoveryTarget(
   }
 }
 
-export const JobDiscoveryPreferencesSchema = z.object({
+/**
+ * Hard cap for an explicitly configured discovery run budget. The interactive
+ * default stays at the precision budget (100 jobs per run); explicit budgets
+ * exist so scale campaigns can request high-volume runs without weakening fit
+ * scoring or per-source fairness.
+ */
+export const DISCOVERY_RUN_JOB_BUDGET_MAX = 2_000;
+
+const JobDiscoveryPreferencesObjectSchema = z.object({
   targets: z.array(JobDiscoveryTargetSchema).default([]),
   historyLimit: z.number().int().min(1).max(10).default(5),
-  collectOnlyHardCriteriaMatches: z.boolean().optional(),
+  collectOnlyHardCriteriaMatches: z.boolean().default(false),
+  /**
+   * Explicit total valid-job budget for one discovery run across all enabled
+   * targets. `null`/`undefined` keeps the interactive precision default; when
+   * set, the budget is split deterministically across targets and raises the
+   * bounded crawl step/time ceilings proportionally.
+   */
+  runJobBudget: z
+    .number()
+    .int()
+    .min(1)
+    .max(DISCOVERY_RUN_JOB_BUDGET_MAX)
+    .nullish(),
 });
-export type JobDiscoveryPreferences = z.infer<
-  typeof JobDiscoveryPreferencesSchema
+type JobDiscoveryPreferencesInput = z.input<
+  typeof JobDiscoveryPreferencesObjectSchema
 >;
+// Parsing normalizes the hard-criteria flag to its false default, while the
+// public output type keeps it optional so preference literals that omit the
+// flag stay assignable.
+export type JobDiscoveryPreferences = Omit<
+  z.infer<typeof JobDiscoveryPreferencesObjectSchema>,
+  "collectOnlyHardCriteriaMatches"
+> & {
+  collectOnlyHardCriteriaMatches?: boolean | undefined;
+};
+export const JobDiscoveryPreferencesSchema: z.ZodType<
+  JobDiscoveryPreferences,
+  z.ZodTypeDef,
+  JobDiscoveryPreferencesInput
+> = JobDiscoveryPreferencesObjectSchema;
 
 export const compensationIntervalValues = [
   "hour",
@@ -858,13 +892,42 @@ export type DiscoveryFeedbackReason = z.infer<
   typeof DiscoveryFeedbackReasonSchema
 >;
 
-export const DiscoveryFeedbackSchema = z.object({
+export const EmployerExclusionReferenceSchema = z
+  .object({
+    normalizedCompanyName: NonEmptyStringSchema,
+    displayCompanyName: NonEmptyStringSchema,
+    addedByThisFeedback: z.boolean(),
+    campaignId: NonEmptyStringSchema.nullable().default(null),
+  })
+  .strict();
+export type EmployerExclusionReference = z.infer<
+  typeof EmployerExclusionReferenceSchema
+>;
+
+const DiscoveryFeedbackObjectSchema = z.object({
   version: z.literal(1),
   revision: z.number().int().positive(),
   reasons: z.array(DiscoveryFeedbackReasonSchema).min(1).max(9),
   recordedAt: IsoDateTimeSchema,
+  // Status the job held when it was hidden, so "Show again" can undo the
+  // dismissal exactly instead of downgrading every hidden job to discovered.
+  // Null for pending jobs and feedback recorded before this field existed.
+  priorStatus: ApplicationStatusSchema.nullable().default(null),
+  employerExclusion: EmployerExclusionReferenceSchema.nullable().default(null),
 });
-export type DiscoveryFeedback = z.infer<typeof DiscoveryFeedbackSchema>;
+type DiscoveryFeedbackParsed = z.infer<typeof DiscoveryFeedbackObjectSchema>;
+type DiscoveryFeedbackInput = z.input<typeof DiscoveryFeedbackObjectSchema>;
+export type DiscoveryFeedback = Omit<
+  DiscoveryFeedbackParsed,
+  "employerExclusion"
+> & {
+  employerExclusion?: DiscoveryFeedbackParsed["employerExclusion"];
+};
+export const DiscoveryFeedbackSchema: z.ZodType<
+  DiscoveryFeedback,
+  z.ZodTypeDef,
+  DiscoveryFeedbackInput
+> = DiscoveryFeedbackObjectSchema;
 
 export const discoveryLedgerEntryStatusValues = [
   "seen",
@@ -961,6 +1024,62 @@ export const SavedJobSchema: z.ZodType<SavedJob, z.ZodTypeDef, SavedJobInput> =
       MatchAssessmentChangeAuditSchema.nullable().default(null),
   });
 
+export const ListingActivitySchema = z.discriminatedUnion("status", [
+  z
+    .object({
+      status: z.literal("unknown"),
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("active"),
+      observedAt: IsoDateTimeSchema,
+      evidence: z.enum(["last_verified_active_at", "last_seen_at"]),
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("inactive"),
+      observedAt: IsoDateTimeSchema,
+      ledgerEntryId: NonEmptyStringSchema,
+      provenance: z.literal("discovery_ledger"),
+      explanation: NonEmptyStringSchema,
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("stale"),
+      observedAt: IsoDateTimeSchema,
+      signalId: NonEmptyStringSchema,
+      provenance: z.enum(["provider", "browser", "user", "system"]),
+      explanation: NonEmptyStringSchema,
+      detail: NonEmptyStringSchema.nullable(),
+      confidence: z.number().min(0).max(1),
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("closed"),
+      observedAt: IsoDateTimeSchema,
+      signalId: NonEmptyStringSchema,
+      provenance: z.enum(["provider", "browser", "user", "system"]),
+      explanation: NonEmptyStringSchema,
+      detail: NonEmptyStringSchema.nullable(),
+      confidence: z.number().min(0).max(1),
+    })
+    .strict(),
+]);
+export type ListingActivity = z.infer<typeof ListingActivitySchema>;
+
+export const DiscoveryJobViewSchema = SavedJobSchema.and(
+  z.object({
+    // Snapshot compatibility only. Persisted SavedJob rows deliberately do not
+    // carry this derived projection, while newly built snapshots always set it.
+    listingActivity: ListingActivitySchema.default({ status: "unknown" }),
+  }),
+);
+export type DiscoveryJobView = z.infer<typeof DiscoveryJobViewSchema>;
+
 export const TailoredAssetPreviewSectionSchema = z.object({
   heading: NonEmptyStringSchema,
   lines: z.array(NonEmptyStringSchema).default([]),
@@ -985,6 +1104,8 @@ export const TailoredAssetSchema = z.object({
   previewSections: z.array(TailoredAssetPreviewSectionSchema).default([]),
   generationMethod: AssetGenerationMethodSchema.default("deterministic"),
   notes: z.array(NonEmptyStringSchema).default([]),
+  failureMessage: NonEmptyStringSchema.nullable().default(null),
+  failedAt: IsoDateTimeSchema.nullable().default(null),
 });
 export type TailoredAsset = z.infer<typeof TailoredAssetSchema>;
 
@@ -1127,6 +1248,9 @@ export const applicationBlockerCodeValues = [
   "missing_consent",
   "external_redirect",
   "site_login_required",
+  // Technical failure raised only at the application goto boundary: the
+  // dedicated browser never opened the employer page, so nothing was prepared.
+  "application_page_unreachable",
   "unknown",
 ] as const;
 export const ApplicationBlockerCodeSchema = z.enum(
@@ -1357,6 +1481,7 @@ export type ApplicationUserActionResumption = z.infer<
 export const ApplicationAttemptSchema = z.object({
   id: NonEmptyStringSchema,
   jobId: NonEmptyStringSchema,
+  applicationRecordId: NonEmptyStringSchema.nullable().default(null),
   state: ApplicationAttemptStateSchema,
   summary: NonEmptyStringSchema,
   detail: NonEmptyStringSchema,
@@ -1438,12 +1563,23 @@ export type DiscoveryAgentMetadata = z.infer<
   typeof DiscoveryAgentMetadataSchema
 >;
 
+export const DiscoveryInventoryCompletenessSchema = z.enum([
+  "complete",
+  "partial",
+  "unknown",
+]);
+export type DiscoveryInventoryCompleteness = z.infer<
+  typeof DiscoveryInventoryCompletenessSchema
+>;
+
 export const DiscoveryRunResultSchema = z.object({
   source: JobSourceSchema,
   startedAt: IsoDateTimeSchema,
   completedAt: IsoDateTimeSchema,
   querySummary: NonEmptyStringSchema,
   warning: NonEmptyStringSchema.nullable(),
+  inventoryCompleteness:
+    DiscoveryInventoryCompletenessSchema.default("unknown"),
   jobs: z.array(JobPostingSchema).default([]),
   agentMetadata: DiscoveryAgentMetadataSchema.nullable().default(null),
 });
@@ -1671,9 +1807,8 @@ export function appendDiscoveryLiveActivityEvent(
         candidate.targetId !== null &&
         getDiscoveryActivitySourceKey(candidate) === sourceKey,
     );
-    const previousTerminal = findLastTerminalOrErrorDiscoveryActivityEvent(
-      sourceEvents,
-    );
+    const previousTerminal =
+      findLastTerminalOrErrorDiscoveryActivityEvent(sourceEvents);
     const nextSourceEvents = isTerminalOrErrorDiscoveryActivityEvent(event)
       ? [event]
       : previousTerminal
@@ -1770,6 +1905,316 @@ export const JobFinderInterviewFollowUpInputSchema = z.object({
 });
 export type JobFinderInterviewFollowUpInput = z.infer<
   typeof JobFinderInterviewFollowUpInputSchema
+>;
+
+// ---------------------------------------------------------------------------
+// Compact-snapshot discovery observations (ADR 0013)
+//
+// Discovery is API-first, deterministic compact-browser observation second,
+// and model-escalated third. A browser adapter returns exactly one
+// schema-validated observation per capture: either a supported observation
+// with bounded page summaries, typed posting candidates, and snapshot-scoped
+// pagination/action references, or an explicit unsupported outcome. These
+// shapes are transient (never persisted), strictly parsed, and deliberately
+// generic: no DOM handles, Playwright types, selectors as policy, raw HTML,
+// or site-specific fields cross this boundary, and nothing here assumes a
+// listing line shape or a minimum content-length readiness gate.
+// ---------------------------------------------------------------------------
+
+/** Conservative character cap for one bounded visible-text sample. */
+export const DISCOVERY_OBSERVATION_TEXT_SAMPLE_MAX = 4_000;
+
+/** Conservative character cap for one bounded accessibility-tree summary. */
+export const DISCOVERY_OBSERVATION_ACCESSIBILITY_SUMMARY_MAX = 16_000;
+
+/** Maximum posting candidates carried by one supported observation. */
+export const DISCOVERY_OBSERVATION_POSTING_CANDIDATES_MAX = 100;
+
+/** Maximum pagination candidates carried by one supported observation. */
+export const DISCOVERY_OBSERVATION_PAGINATION_CANDIDATES_MAX = 32;
+
+/** Maximum action candidates carried by one supported observation. */
+export const DISCOVERY_OBSERVATION_ACTION_CANDIDATES_MAX = 32;
+
+/** Maximum bounded uncertainty notes carried by one supported observation. */
+export const DISCOVERY_OBSERVATION_UNCERTAINTY_NOTES_MAX = 16;
+
+/** Character cap for control labels (accessible names), never selectors. */
+export const DISCOVERY_OBSERVATION_LABEL_MAX = 200;
+
+/** Character cap for free-text details and unsupported-outcome explanations. */
+export const DISCOVERY_OBSERVATION_DETAIL_MAX = 600;
+
+const DiscoveryObservationLabelSchema = NonEmptyStringSchema.max(
+  DISCOVERY_OBSERVATION_LABEL_MAX,
+);
+const DiscoveryObservationDetailSchema = NonEmptyStringSchema.max(
+  DISCOVERY_OBSERVATION_DETAIL_MAX,
+);
+
+/**
+ * Evidence channel summarized by one observation. Values stay source-generic;
+ * the adapter declares what it read instead of embedding site structure.
+ */
+export const discoveryCompactObservationSourceKindValues = [
+  "accessibility_snapshot",
+  "visible_text",
+] as const;
+export const DiscoveryCompactObservationSourceKindSchema = z.enum(
+  discoveryCompactObservationSourceKindValues,
+);
+export type DiscoveryCompactObservationSourceKind = z.infer<
+  typeof DiscoveryCompactObservationSourceKindSchema
+>;
+
+/** Explicit reasons a deterministic observation cannot proceed. */
+export const discoveryCompactObservationUnsupportedReasonValues = [
+  "unsupported_layout",
+  "auth_required",
+  "site_protection",
+  "manual_step_required",
+  "navigation_failed",
+] as const;
+export const DiscoveryCompactObservationUnsupportedReasonSchema = z.enum(
+  discoveryCompactObservationUnsupportedReasonValues,
+);
+export type DiscoveryCompactObservationUnsupportedReason = z.infer<
+  typeof DiscoveryCompactObservationUnsupportedReasonSchema
+>;
+
+/**
+ * Shared observation identity. `observationId` uniquely identifies one
+ * capture; `revision` is the adapter's monotonic per-target sequence starting
+ * at 1. Both travel with every snapshot-scoped reference, so a consumer can
+ * detect a stale reference by comparing it against the current observation
+ * identity alone.
+ */
+const DiscoveryCompactObservationIdentitySchema = z.object({
+  observationId: NonEmptyStringSchema,
+  revision: z.number().int().positive(),
+  targetId: NonEmptyStringSchema,
+  observedAt: IsoDateTimeSchema,
+  pageUrl: UrlStringSchema,
+  pageTitle: DiscoveryObservationLabelSchema.nullable().default(null),
+});
+
+/**
+ * Bounded page summaries. Truncation flags are mandatory honesty signals: an
+ * adapter that clips its samples must set the flags and report omitted rows
+ * instead of letting downstream steps assume completeness.
+ */
+export const DiscoveryCompactObservationContentSchema = z
+  .object({
+    textSample: NonEmptyStringSchema.max(
+      DISCOVERY_OBSERVATION_TEXT_SAMPLE_MAX,
+    )
+      .nullable()
+      .default(null),
+    accessibilitySummary: NonEmptyStringSchema
+      .max(DISCOVERY_OBSERVATION_ACCESSIBILITY_SUMMARY_MAX)
+      .nullable()
+      .default(null),
+    textTruncated: z.boolean().default(false),
+    accessibilitySummaryTruncated: z.boolean().default(false),
+  })
+  .strict();
+export type DiscoveryCompactObservationContent = z.infer<
+  typeof DiscoveryCompactObservationContentSchema
+>;
+
+export const discoveryCompactObservationPaginationKindValues = [
+  "next_page",
+  "previous_page",
+  "numbered_page",
+  "load_more",
+] as const;
+export const DiscoveryCompactObservationPaginationKindSchema = z.enum(
+  discoveryCompactObservationPaginationKindValues,
+);
+export type DiscoveryCompactObservationPaginationKind = z.infer<
+  typeof DiscoveryCompactObservationPaginationKindSchema
+>;
+
+/**
+ * Name-based pagination candidate. `label` is the control's accessible name;
+ * pagination stays name-based because selectors are not policy and never
+ * cross this boundary.
+ */
+export const DiscoveryCompactObservationPaginationCandidateSchema = z
+  .object({
+    refId: NonEmptyStringSchema,
+    kind: DiscoveryCompactObservationPaginationKindSchema,
+    label: DiscoveryObservationLabelSchema,
+    pageNumber: z.number().int().positive().nullable().default(null),
+  })
+  .strict();
+export type DiscoveryCompactObservationPaginationCandidate = z.infer<
+  typeof DiscoveryCompactObservationPaginationCandidateSchema
+>;
+
+/**
+ * Generic action kinds a deterministic handler or a bounded model proposal
+ * may target. Proposing an action grants no authority (ADR 0013): any
+ * execution must recheck observation identity first.
+ */
+export const discoveryCompactObservationActionKindValues = [
+  "open_posting",
+  "close_overlay",
+] as const;
+export const DiscoveryCompactObservationActionKindSchema = z.enum(
+  discoveryCompactObservationActionKindValues,
+);
+export type DiscoveryCompactObservationActionKind = z.infer<
+  typeof DiscoveryCompactObservationActionKindSchema
+>;
+
+export const DiscoveryCompactObservationActionCandidateSchema = z
+  .object({
+    refId: NonEmptyStringSchema,
+    kind: DiscoveryCompactObservationActionKindSchema,
+    label: DiscoveryObservationLabelSchema,
+  })
+  .strict();
+export type DiscoveryCompactObservationActionCandidate = z.infer<
+  typeof DiscoveryCompactObservationActionCandidateSchema
+>;
+
+/**
+ * Detached, snapshot-scoped reference to one pagination/action candidate.
+ * The reference is current only while the live observation has the same
+ * `observationId` and `observationRevision`; any mismatch is stale and must
+ * fail closed instead of being replayed against the page.
+ */
+export const DiscoveryCompactObservationControlRefSchema = z
+  .object({
+    observationId: NonEmptyStringSchema,
+    observationRevision: z.number().int().positive(),
+    refId: NonEmptyStringSchema,
+  })
+  .strict();
+export type DiscoveryCompactObservationControlRef = z.infer<
+  typeof DiscoveryCompactObservationControlRefSchema
+>;
+
+/** Binds a candidate ref id to the observation identity that scoped it. */
+export function getDiscoveryCompactObservationControlRef(
+  observation: Pick<
+    DiscoveryCompactObservation,
+    "observationId" | "revision"
+  >,
+  refId: string,
+): DiscoveryCompactObservationControlRef {
+  return {
+    observationId: observation.observationId,
+    observationRevision: observation.revision,
+    refId,
+  };
+}
+
+/** True only when the reference belongs to the exact current observation. */
+export function isCurrentDiscoveryCompactObservationRef(
+  ref: DiscoveryCompactObservationControlRef,
+  observation: Pick<
+    DiscoveryCompactObservation,
+    "observationId" | "revision"
+  >,
+): boolean {
+  return (
+    ref.observationId === observation.observationId &&
+    ref.observationRevision === observation.revision
+  );
+}
+
+/**
+ * Supported observation: bounded summaries plus typed candidates. Posting
+ * candidates reuse the existing source-generic `JobPostingSchema` so
+ * canonicalization, merge-key dedupe, and ledger identity downstream stay
+ * unchanged.
+ */
+export const DiscoverySupportedCompactObservationSchema =
+  DiscoveryCompactObservationIdentitySchema.extend({
+    kind: z.literal("supported"),
+    sourceKind: DiscoveryCompactObservationSourceKindSchema,
+    content: DiscoveryCompactObservationContentSchema.default({}),
+    postingCandidates: z
+      .array(JobPostingSchema)
+      .max(DISCOVERY_OBSERVATION_POSTING_CANDIDATES_MAX)
+      .default([]),
+    paginationCandidates: z
+      .array(DiscoveryCompactObservationPaginationCandidateSchema)
+      .max(DISCOVERY_OBSERVATION_PAGINATION_CANDIDATES_MAX)
+      .default([]),
+    actionCandidates: z
+      .array(DiscoveryCompactObservationActionCandidateSchema)
+      .max(DISCOVERY_OBSERVATION_ACTION_CANDIDATES_MAX)
+      .default([]),
+    uncertaintyNotes: z
+      .array(DiscoveryObservationDetailSchema)
+      .max(DISCOVERY_OBSERVATION_UNCERTAINTY_NOTES_MAX)
+      .default([]),
+    /**
+     * Rows the adapter saw but excluded from `postingCandidates` because of
+     * bounds, so consumers know the observed inventory may be incomplete.
+     */
+    omittedPostingCandidateCount: z.number().int().nonnegative().default(0),
+  }).strict();
+export type DiscoverySupportedCompactObservation = z.infer<
+  typeof DiscoverySupportedCompactObservationSchema
+>;
+
+/**
+ * Unsupported observation: an explicit terminal outcome for the deterministic
+ * tier. It keeps the shared identity for logging and may retain bounded
+ * summaries as context for later bounded model escalation.
+ */
+export const DiscoveryUnsupportedCompactObservationSchema =
+  DiscoveryCompactObservationIdentitySchema.extend({
+    kind: z.literal("unsupported"),
+    reason: DiscoveryCompactObservationUnsupportedReasonSchema,
+    detail: DiscoveryObservationDetailSchema.nullable().default(null),
+    content: DiscoveryCompactObservationContentSchema.default({}),
+  }).strict();
+export type DiscoveryUnsupportedCompactObservation = z.infer<
+  typeof DiscoveryUnsupportedCompactObservationSchema
+>;
+
+const DiscoveryCompactObservationUnionSchema = z.discriminatedUnion("kind", [
+  DiscoverySupportedCompactObservationSchema,
+  DiscoveryUnsupportedCompactObservationSchema,
+]);
+
+/**
+ * One schema-validated result of a deterministic compact-snapshot capture.
+ * Reference ids must stay unique within an observation so snapshot-scoped
+ * references remain resolvable; violations fail closed.
+ */
+export const DiscoveryCompactObservationSchema =
+  DiscoveryCompactObservationUnionSchema.superRefine((value, ctx) => {
+    if (value.kind !== "supported") {
+      return;
+    }
+    const seenRefIds = new Set<string>();
+    const candidateGroups = [
+      ["paginationCandidates", value.paginationCandidates],
+      ["actionCandidates", value.actionCandidates],
+    ] as const;
+    for (const [field, candidates] of candidateGroups) {
+      for (const [index, candidate] of candidates.entries()) {
+        if (seenRefIds.has(candidate.refId)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              "Snapshot-scoped reference ids must be unique within one observation.",
+            path: [field, index, "refId"],
+          });
+          continue;
+        }
+        seenRefIds.add(candidate.refId);
+      }
+    }
+  });
+export type DiscoveryCompactObservation = z.infer<
+  typeof DiscoveryCompactObservationSchema
 >;
 
 export const SourceDebugPersistenceSchemas = {

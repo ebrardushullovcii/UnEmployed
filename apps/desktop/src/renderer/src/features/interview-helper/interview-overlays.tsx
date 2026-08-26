@@ -11,19 +11,26 @@ export const interviewPopupNoDragStyle = {
 } as CSSProperties;
 
 export const interviewPopupThemeStyle = {
-  "--foreground": "#f4f1e8",
-  "--foreground-soft": "#d2cec5",
-  "--muted-foreground": "#aaa69e",
-  "--border-subtle": "rgba(255, 255, 255, 0.13)",
-  "--surface-panel-border-warm": "rgba(227, 202, 127, 0.38)",
-  "--warning-border": "rgba(227, 202, 127, 0.34)",
-  "--warning-surface": "rgba(227, 202, 127, 0.12)",
-  "--warning-text": "#f0cf70",
-  "--success-border": "rgba(86, 184, 120, 0.34)",
-  "--success-surface": "rgba(86, 184, 120, 0.12)",
-  "--success-text": "#98e5b2",
-  "--info-border": "rgba(86, 164, 255, 0.4)",
-  "--info-text": "#83c0ff",
+  "--foreground": "#f1f2f3",
+  "--foreground-soft": "#b8bdc3",
+  "--muted-foreground": "#a4abb3",
+  "--border-subtle": "#30353a",
+  "--surface-panel-border-warm": "#48515a",
+  "--warning-border": "rgba(190, 155, 99, 0.4)",
+  "--warning-surface": "rgba(190, 155, 99, 0.12)",
+  "--warning-text": "#d6bb8f",
+  /*
+   * Overlays render outside the app theme on near-black scrims, so these
+   * scoped values mirror the dark-theme semantic families instead of
+   * referencing theme tokens: success is the sage family, info stays
+   * steel-blue. Never collapse them back into one shared family.
+   */
+  "--success-border": "rgba(150, 196, 160, 0.42)",
+  "--success-surface": "rgba(150, 196, 160, 0.12)",
+  "--success-text": "#96c4a0",
+  "--info-border": "rgba(125, 145, 173, 0.42)",
+  "--info-surface": "rgba(125, 145, 173, 0.12)",
+  "--info-text": "#a6b9d1",
   "--surface-panel-raised": "rgba(255, 255, 255, 0.055)",
   "--surface-fill-soft": "rgba(255, 255, 255, 0.035)",
   "--critical": "#ff8d86",
@@ -129,7 +136,7 @@ export function AnswerCueOverlay(props: {
     <section
       className={cn(
         "overflow-hidden border border-(--surface-panel-border-warm) bg-[rgba(8,8,9,0.82)] text-foreground shadow-[0_24px_90px_rgba(0,0,0,0.48)] backdrop-blur-2xl",
-        props.framed ? "rounded-(--radius-panel)" : "h-screen",
+        props.framed ? "rounded-(--radius-panel)" : "flex h-screen flex-col",
       )}
       style={
         props.framed
@@ -160,7 +167,7 @@ export function AnswerCueOverlay(props: {
           className="flex items-center gap-2"
           style={interviewPopupNoDragStyle}
         >
-          <span className="rounded-sm border border-border-subtle bg-black/20 px-2 py-1 text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">
+          <span className="rounded-sm border border-border-subtle bg-(--surface-fill-subtle) px-2 py-1 text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">
             {compact ? "Compact" : "Expanded"}
           </span>
           <ProtectionBadge state={props.snapshot.protectionState} />
@@ -170,9 +177,10 @@ export function AnswerCueOverlay(props: {
       <div
         className={cn(
           "grid gap-4 p-4",
-          compact && !props.framed
-            ? "max-h-[calc(100vh-3.5rem)] overflow-hidden"
-            : "",
+          !props.framed &&
+            (compact
+              ? "min-h-0 flex-1 overflow-hidden"
+              : "min-h-0 flex-1 overflow-y-auto"),
         )}
       >
         {cue ? (
@@ -234,13 +242,15 @@ export function AnswerCueOverlay(props: {
             </footer>
           </>
         ) : (
-          <div className="grid min-h-56 place-items-center text-center">
-            <div className="grid gap-2">
-              <Sparkles className="mx-auto size-6 text-(--warning-text)" />
-              <p className="text-[0.9rem] text-muted-foreground">
-                No cue card yet.
-              </p>
-            </div>
+          <div className="grid place-items-center gap-1.5 px-4 py-8 text-center">
+            <Sparkles className="mx-auto size-5 text-(--warning-text)" />
+            <p className="text-[0.88rem] text-muted-foreground">
+              No cue card yet.
+            </p>
+            <p className="max-w-xs text-[0.74rem] leading-5 text-muted-foreground">
+              Ask a question or let audio detect one and the answer outline will
+              appear here.
+            </p>
           </div>
         )}
       </div>
@@ -261,7 +271,7 @@ export function TranscriptOverlay(props: {
     <section
       className={cn(
         "overflow-hidden border border-(--info-border) bg-[rgba(8,8,9,0.84)] text-foreground shadow-[0_24px_90px_rgba(0,0,0,0.48)] backdrop-blur-2xl",
-        props.framed ? "rounded-(--radius-panel)" : "h-screen",
+        props.framed ? "rounded-(--radius-panel)" : "flex h-screen flex-col",
       )}
       style={
         props.framed
@@ -292,7 +302,7 @@ export function TranscriptOverlay(props: {
           className="flex items-center gap-2"
           style={interviewPopupNoDragStyle}
         >
-          <span className="rounded-sm border border-border-subtle bg-black/20 px-2 py-1 text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">
+          <span className="rounded-sm border border-border-subtle bg-(--surface-fill-subtle) px-2 py-1 text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">
             {compact ? "Compact" : "Expanded"}
           </span>
           <ProtectionBadge state={props.snapshot.protectionState} />
@@ -313,7 +323,11 @@ export function TranscriptOverlay(props: {
       <div
         className={cn(
           "grid gap-4 overflow-y-auto p-4",
-          compact ? "max-h-[18rem]" : "max-h-[28rem]",
+          props.framed
+            ? compact
+              ? "max-h-[18rem]"
+              : "max-h-[28rem]"
+            : "min-h-0 flex-1",
         )}
       >
         {props.snapshot.transcriptSegments.length > 0 ? (
@@ -346,13 +360,14 @@ export function TranscriptOverlay(props: {
             </article>
           ))
         ) : (
-          <div className="grid min-h-32 place-items-center text-center">
-            <div className="grid gap-2">
-              <Mic className="mx-auto size-5 text-(--info-text)" />
-              <p className="text-[0.86rem] text-muted-foreground">
-                No transcript segments yet.
-              </p>
-            </div>
+          <div className="grid place-items-center gap-1.5 px-4 py-8 text-center">
+            <Mic className="mx-auto size-5 text-(--info-text)" />
+            <p className="text-[0.86rem] text-muted-foreground">
+              No transcript segments yet.
+            </p>
+            <p className="max-w-xs text-[0.74rem] leading-5 text-muted-foreground">
+              Start mic or system audio and captured speech will stream in here.
+            </p>
           </div>
         )}
       </div>
@@ -364,7 +379,7 @@ export function TranscriptOverlay(props: {
         </span>
         {!props.framed && props.onCopy ? (
           <button
-            className="inline-flex items-center gap-2 rounded-md px-2 py-1 transition hover:bg-white/[0.06] hover:text-foreground"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border-subtle bg-white/[0.05] px-2.5 py-1.5 text-[0.72rem] font-semibold text-foreground transition hover:bg-white/[0.09]"
             onClick={props.onCopy}
             type="button"
           >

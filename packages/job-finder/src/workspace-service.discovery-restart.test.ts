@@ -72,7 +72,7 @@ describe("discovery restart recovery", () => {
 
     const interruptedRun = createInterruptedDiscoveryRun();
     const persistedBeforeCrash = await repository.getDiscoveryState();
-    await repository.saveDiscoveryState(
+    await repository.commitDiscoveryStateUpdate(() =>
       JobFinderDiscoveryStateSchema.parse({
         ...persistedBeforeCrash,
         runState: "running",
@@ -155,5 +155,82 @@ describe("discovery restart recovery", () => {
     expect(
       resumedSnapshot.discoveryJobs.some((job) => job.id === "job_ready"),
     ).toBe(true);
+  });
+
+  test("interrupted-run recovery yields when a newer owner replaced the observed run", async () => {
+    const baseRepository = createInMemoryJobFinderRepository(createSeed());
+    const staleRun = createInterruptedDiscoveryRun();
+    await baseRepository.commitDiscoveryStateUpdate((current) => ({
+      ...current,
+      runState: "running",
+      activeRun: staleRun,
+    }));
+
+    const newerOwnerRun = DiscoveryRunRecordSchema.parse({
+      ...staleRun,
+      id: "discovery_run_newer_owner",
+      startedAt: "2026-03-20T11:00:00.000Z",
+    });
+    let interceptedFirstCommit = false;
+    const repository: Parameters<typeof createService>[0] = {
+      ...baseRepository,
+      commitDiscoveryStateUpdate: async (update) => {
+        if (!interceptedFirstCommit) {
+          interceptedFirstCommit = true;
+          await baseRepository.commitDiscoveryStateUpdate((current) => ({
+            ...current,
+            runState: "running",
+            activeRun: newerOwnerRun,
+          }));
+        }
+        return baseRepository.commitDiscoveryStateUpdate(update);
+      },
+    };
+    const reopenedService = createService(repository);
+
+    await reopenedService.getWorkspaceSnapshot();
+
+    const persisted = await baseRepository.getDiscoveryState();
+    expect(persisted.runState).toBe("running");
+    expect(persisted.activeRun?.id).toBe("discovery_run_newer_owner");
+    expect(persisted.recentRuns.some((run) => run.id === staleRun.id)).toBe(
+      false,
+    );
+  });
+
+  test("interrupted-run recovery leaves a state a newer owner already cleared untouched", async () => {
+    const baseRepository = createInMemoryJobFinderRepository(createSeed());
+    const staleRun = createInterruptedDiscoveryRun();
+    await baseRepository.commitDiscoveryStateUpdate((current) => ({
+      ...current,
+      runState: "running",
+      activeRun: staleRun,
+    }));
+
+    let interceptedFirstCommit = false;
+    const repository: Parameters<typeof createService>[0] = {
+      ...baseRepository,
+      commitDiscoveryStateUpdate: async (update) => {
+        if (!interceptedFirstCommit) {
+          interceptedFirstCommit = true;
+          await baseRepository.commitDiscoveryStateUpdate((current) => ({
+            ...current,
+            runState: "idle",
+            activeRun: null,
+          }));
+        }
+        return baseRepository.commitDiscoveryStateUpdate(update);
+      },
+    };
+    const reopenedService = createService(repository);
+
+    await reopenedService.getWorkspaceSnapshot();
+
+    const persisted = await baseRepository.getDiscoveryState();
+    expect(persisted.runState).toBe("idle");
+    expect(persisted.activeRun).toBeNull();
+    expect(persisted.recentRuns.some((run) => run.id === staleRun.id)).toBe(
+      false,
+    );
   });
 });

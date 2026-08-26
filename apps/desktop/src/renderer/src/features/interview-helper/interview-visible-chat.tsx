@@ -20,8 +20,10 @@ import {
 } from "lucide-react";
 import { Button } from "@renderer/components/ui/button";
 import { cn } from "@renderer/lib/cn";
+import { getJobFinderScrollBehavior } from "../job-finder/lib/job-finder-scroll-behavior";
 import { InterviewMediaStreamProbes } from "./interview-media-stream-probes";
 import { formatInterviewTranscriptSource } from "./interview-transcript-source-label";
+import { InterviewMarkdownContent } from "./interview-markdown-content";
 
 interface PendingImage {
   id: string;
@@ -86,7 +88,12 @@ export function InterviewVisibleChat(props: InterviewVisibleChatProps) {
   useEffect(() => {
     const container = conversationScrollRef.current;
     if (container) {
-      container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+      // Shared Job Finder motion policy: instant under prefers-reduced-motion,
+      // smooth otherwise. Never hardcode a behavior here.
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: getJobFinderScrollBehavior(),
+      });
     }
   }, [session?.chatConversation?.updatedAt, session?.cueCards.length]);
 
@@ -208,12 +215,12 @@ export function InterviewVisibleChat(props: InterviewVisibleChatProps) {
 
   if (!session || session.status === "ended") {
     return (
-      <section className="surface-panel-shell grid min-h-[32rem] place-items-center rounded-(--radius-panel) border p-8 text-center">
-        <div className="grid max-w-lg gap-4">
-          <div className="mx-auto grid size-12 place-items-center rounded-2xl border border-(--info-border) bg-(--info-surface)">
+      <section className="surface-panel-shell grid min-h-[18rem] place-items-center rounded-(--radius-panel) border p-6 text-center">
+        <div className="grid max-w-md gap-3">
+          <div className="mx-auto grid size-10 place-items-center rounded-xl border border-(--info-border) bg-(--info-surface)">
             <Headphones className="size-5 text-(--info-text)" />
           </div>
-          <h2 className="text-[1.15rem] font-semibold">
+          <h2 className="text-[1.05rem] font-semibold">
             No interview is active
           </h2>
           <p className="text-[0.84rem] leading-6 text-muted-foreground">
@@ -241,7 +248,7 @@ export function InterviewVisibleChat(props: InterviewVisibleChatProps) {
 
   return (
     <div className="grid h-[calc(100vh-10rem)] min-h-[40rem] gap-4 xl:grid-cols-[minmax(0,1fr)_23rem]">
-      <section className="surface-panel-shell flex min-h-0 flex-col overflow-hidden rounded-(--radius-panel) border shadow-[0_24px_90px_rgba(0,0,0,0.2)]">
+      <section className="surface-panel-shell flex min-h-0 flex-col overflow-hidden rounded-(--radius-panel) border border-(--surface-panel-border)">
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border-subtle px-5 py-4">
           <div>
             <p className="text-[0.68rem] font-semibold uppercase tracking-(--tracking-badge) text-muted-foreground">
@@ -337,8 +344,8 @@ export function InterviewVisibleChat(props: InterviewVisibleChatProps) {
                 <p className="mb-2 text-[0.66rem] font-semibold uppercase tracking-(--tracking-badge) text-(--warning-text)">
                   Interview Helper
                 </p>
-                <div className="whitespace-pre-wrap text-[0.86rem] leading-6 text-foreground-soft">
-                  {message.content}
+                <div className="text-[0.86rem] leading-6 text-foreground-soft">
+                  <InterviewMarkdownContent content={message.content} />
                 </div>
               </article>
             ),

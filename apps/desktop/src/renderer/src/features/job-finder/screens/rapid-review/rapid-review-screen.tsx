@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
@@ -24,9 +25,23 @@ import {
 } from "../../components/collection-search-toolbar";
 import { usePersistedCollectionView } from "../../hooks/use-persisted-collection-view";
 import {
-  focusCollectionItem,
   getAdjacentCollectionItemId,
 } from "../../lib/collection-keyboard-navigation";
+import { getPostedDateLabel } from "../../lib/job-finder-utils";
+import {
+  hasOpenJobFinderOverlays,
+} from "../../lib/job-finder-overlay-ownership";
+
+const RAPID_REVIEW_DETAIL_ID = "rapid-review-job-detail";
+const RAPID_REVIEW_DETAIL_TITLE_ID = "rapid-review-detail-title";
+
+const RAPID_REVIEW_SHORTCUTS: ReadonlyArray<readonly [string, string]> = [
+  ["J / K", "move"],
+  ["S", "shortlist"],
+  ["X", "reject"],
+  ["I", "inspect"],
+  ["U", "undo"],
+];
 
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -69,6 +84,23 @@ export function buildLatestDecisionIndex(
   return index;
 }
 
+// The canonical undo target: the newest append-order entry that has not been
+// undone. Binding U and the undo button to this entry keeps undo working
+// after the decided job leaves the visible list (a reject archives the job),
+// instead of falling back to whichever unrelated row is active.
+export function findLatestUndoableDecision(
+  log: RapidReviewDecisionLog | null,
+): RapidReviewDecision | null {
+  if (!log) return null;
+
+  for (let index = log.entries.length - 1; index >= 0; index -= 1) {
+    const entry = log.entries[index];
+    if (entry && entry.undo === null) return entry;
+  }
+
+  return null;
+}
+
 function formatRecommendation(value: string): string {
   return value.replaceAll("_", " ");
 }
@@ -84,6 +116,10 @@ export function RapidReviewScreen(props: {
   pending: boolean;
 }) {
   const view = usePersistedCollectionView("rapid-review", "comfortable");
+  // Route remounts deliberately restart review at the first row of page 1:
+  // the route passes no active-job state and the decision log — not
+  // localStorage — is the only durable record of review progress. Do not
+  // invent persistence for this anchor.
   const [activeJobId, setActiveJobId] = useState<string | null>(
     props.jobs[0]?.id ?? null,
   );
@@ -91,9 +127,21 @@ export function RapidReviewScreen(props: {
   const [pendingFocusId, setPendingFocusId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [localError, setLocalError] = useState<string | null>(null);
+  const screenRegionRef = useRef<HTMLElement | null>(null);
   const latestDecisions = useMemo(
     () => buildLatestDecisionIndex(props.log),
     [props.log],
+  );
+  const latestUndoable = useMemo(
+    () => findLatestUndoableDecision(props.log),
+    [props.log],
+  );
+  const latestUndoableJob = useMemo(
+    () =>
+      latestUndoable
+        ? (props.jobs.find((job) => job.id === latestUndoable.jobId) ?? null)
+        : null,
+    [latestUndoable, props.jobs],
   );
 
   const visibleJobs = useMemo(
@@ -116,6 +164,7 @@ export function RapidReviewScreen(props: {
     visibleJobs.findIndex((job) => job.id === activeJobId),
   );
   const activeJob = visibleJobs[activeIndex] ?? null;
+  const activeJobDate = activeJob ? getPostedDateLabel(activeJob) : null;
   const pageCount = Math.max(
     1,
     Math.ceil(visibleJobs.length / COLLECTION_PAGE_SIZE),
@@ -155,9 +204,40 @@ export function RapidReviewScreen(props: {
 
   useEffect(() => {
     if (!pendingFocusId) return;
-    focusCollectionItem(pendingFocusId);
-    setPendingFocusId(null);
+    // Scoped to this screen's region and cancelled on cleanup/re-request so
+    // a stale frame can never focus rows belonging to another surface.
+    const frame = window.requestAnimationFrame(() => {
+      const region = screenRegionRef.current;
+      const target = region
+        ? Array.from(
+            region.querySelectorAll<HTMLElement>("[data-collection-item-id]"),
+          ).find((item) => item.dataset.collectionItemId === pendingFocusId)
+        : undefined;
+      target?.focus();
+      setPendingFocusId(null);
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [currentPage, pendingFocusId]);
+  // The workspace owns a focus scope: the shell route focus lands on <main>
+  // first, then this section claims focus with preventScroll so S/X/I/U/J/K
+  // have an unambiguous home. Claims never steal from a focused child or from
+  // any interactive control elsewhere, and never run while an overlay owns
+  // interaction. A rAF re-claim covers focus that settles after this commit.
+  const hasReviewJobs = props.jobs.length > 0;
+  useEffect(() => {
+    if (!hasReviewJobs) return undefined;
+    const claimWorkspaceFocus = () => {
+      const region = screenRegionRef.current;
+      if (!region || hasOpenJobFinderOverlays()) return;
+      const current = document.activeElement;
+      if (current && region.contains(current)) return;
+      if (isInteractiveTarget(current)) return;
+      region.focus({ preventScroll: true });
+    };
+    claimWorkspaceFocus();
+    const frame = window.requestAnimationFrame(claimWorkspaceFocus);
+    return () => window.cancelAnimationFrame(frame);
+  }, [hasReviewJobs]);
 
   const move = useCallback(
     (offset: number) => {
@@ -195,6 +275,28 @@ export function RapidReviewScreen(props: {
       setPendingFocusId(nextId);
     },
     [currentPage, visibleJobs],
+  );
+
+  // Pointer pagination keeps the shared CollectionPagination contract: the
+  // Next/Previous control retains focus across the page turn, so this handler
+  // never schedules row focus. What it restores is the page↔active-row
+  // invariant the raw setter broke (page 6 of 500 rendered rows with no
+  // aria-current while the detail still described a page-1 job): every
+  // rendered page contains its active row, so exactly one visible row is
+  // aria-current and the detail pane always describes it.
+  const goToPage = useCallback(
+    (requestedPage: number) => {
+      const nextPage = Math.min(Math.max(requestedPage, 1), pageCount);
+      const startIndex = (nextPage - 1) * COLLECTION_PAGE_SIZE;
+      const endIndex = nextPage * COLLECTION_PAGE_SIZE;
+      const nextActiveId =
+        activeJob && activeIndex >= startIndex && activeIndex < endIndex
+          ? activeJob.id
+          : (visibleJobs[startIndex]?.id ?? null);
+      setPage(nextPage);
+      if (nextActiveId) setActiveJobId(nextActiveId);
+    },
+    [activeIndex, activeJob, pageCount, visibleJobs],
   );
 
   const decide = useCallback(
@@ -248,8 +350,14 @@ export function RapidReviewScreen(props: {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      // Focus-scope contract: the shortcuts live only while the review
+      // workspace (or a descendant) holds focus. Body, shell main, and any
+      // other surface keep them dead, and while an overlay owns interaction —
+      // consulted at keypress time via the shared LIFO stack — they never fire.
       if (
         event.defaultPrevented ||
+        hasOpenJobFinderOverlays() ||
+        !screenRegionRef.current?.contains(document.activeElement) ||
         isInteractiveTarget(event.target) ||
         event.altKey ||
         event.ctrlKey ||
@@ -264,13 +372,13 @@ export function RapidReviewScreen(props: {
         void decide([activeJob.id], "shortlist");
       else if (activeJob && key === "x") void decide([activeJob.id], "reject");
       else if (activeJob && key === "i") props.onInspectJob(activeJob.id);
-      else if (activeJob && key === "u") void undo(activeJob.id);
+      else if (latestUndoable && key === "u") void undo(latestUndoable.jobId);
       else return;
       event.preventDefault();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeJob, decide, move, props, undo]);
+  }, [activeJob, decide, latestUndoable, move, props, undo]);
 
   if (props.jobs.length === 0) {
     return (
@@ -287,7 +395,12 @@ export function RapidReviewScreen(props: {
   }
 
   return (
-    <section className="grid gap-4 p-4" aria-busy={props.pending}>
+    <section
+      aria-busy={props.pending}
+      className="grid gap-4 p-4 outline-none"
+      ref={screenRegionRef}
+      tabIndex={-1}
+    >
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-widest text-foreground-muted">
@@ -299,14 +412,28 @@ export function RapidReviewScreen(props: {
             starts an application.
           </p>
         </div>
-        <p className="text-xs text-foreground-muted">
-          J/K move · S shortlist · X reject · I inspect · U undo
-        </p>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <span className="sr-only">
+            Keyboard shortcuts, while the review workspace has focus:
+          </span>
+          {RAPID_REVIEW_SHORTCUTS.map(([keys, label]) => (
+            <span
+              className="flex items-center gap-1.5 text-xs text-foreground-soft"
+              key={label}
+            >
+              <kbd className="rounded-(--radius-chip) border border-border-subtle bg-(--field) px-1.5 py-0.5 font-mono text-[0.68rem] leading-4 text-foreground">
+                {keys}
+              </kbd>
+              <span>{label}</span>
+            </span>
+          ))}
+        </div>
       </header>
 
       <CollectionSearchToolbar
+        className="px-0"
         density={view.density}
-        label="Search this campaign"
+        label="Search these results"
         onDensityChange={view.setDensity}
         onQueryChange={view.setQuery}
         placeholder="Search roles, companies, locations, or evidence"
@@ -321,6 +448,25 @@ export function RapidReviewScreen(props: {
         </p>
       ) : null}
 
+      {latestUndoable ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <Button
+            pending={props.pending}
+            onClick={() => void undo(latestUndoable.jobId)}
+            type="button"
+            variant="ghost"
+          >
+            {latestUndoableJob
+              ? `Undo ${formatRecommendation(latestUndoable.kind)}: ${latestUndoableJob.title}`
+              : "Undo last review decision"}
+          </Button>
+          <p className="text-xs text-foreground-muted">
+            Reverts the most recent review decision — press U while the review
+            workspace has focus.
+          </p>
+        </div>
+      ) : null}
+
       {visibleJobs.length === 0 ? (
         <CollectionNoMatches
           noun="jobs"
@@ -329,6 +475,11 @@ export function RapidReviewScreen(props: {
         />
       ) : (
         <div className="grid gap-4 xl:grid-cols-[minmax(20rem,0.8fr)_minmax(0,1.4fr)]">
+          <p className="sr-only" role="status">
+            {activeJob
+              ? `Reviewing ${activeJob.title} at ${activeJob.company}`
+              : ""}
+          </p>
           <div className="grid content-start gap-2">
             <ul
               className="grid content-start gap-2"
@@ -338,11 +489,19 @@ export function RapidReviewScreen(props: {
                 const current = latestDecisions.get(job.id);
                 const active = activeJob?.id === job.id;
                 return (
-                  <li key={job.id} className="relative">
+                  <li
+                    key={job.id}
+                    className={`grid grid-cols-[minmax(0,1fr)_auto] border ${
+                      active ? "border-primary bg-secondary" : "border-border"
+                    }`}
+                  >
                     <button
+                      aria-controls={
+                        activeJob ? RAPID_REVIEW_DETAIL_ID : undefined
+                      }
                       aria-current={active ? "true" : undefined}
                       aria-keyshortcuts="ArrowUp ArrowDown Home End"
-                      className={`w-full border p-3 text-left ${active ? "border-primary bg-secondary" : "border-border"}`}
+                      className="w-full p-3 text-left"
                       data-collection-item-id={job.id}
                       onClick={() => setActiveJobId(job.id)}
                       onKeyDown={(event) => handleListKeyDown(event, job.id)}
@@ -359,7 +518,9 @@ export function RapidReviewScreen(props: {
                           : " · not reviewed"}
                       </span>
                     </button>
-                    <label className="absolute right-3 top-3 flex items-center gap-1 text-xs">
+                    {/* Own grid column: the padded label is a distinct >=24px
+                        target that never overlaps the row button target. */}
+                    <label className="flex items-center gap-1 justify-self-end self-start p-2 text-xs">
                       <input
                         aria-label={`Select ${job.title} at ${job.company}`}
                         checked={selectedIds.has(job.id)}
@@ -381,7 +542,7 @@ export function RapidReviewScreen(props: {
             </ul>
             <CollectionPagination
               itemLabel="jobs"
-              onPageChange={setPage}
+              onPageChange={goToPage}
               page={currentPage}
               pageSize={COLLECTION_PAGE_SIZE}
               totalCount={visibleJobs.length}
@@ -389,21 +550,32 @@ export function RapidReviewScreen(props: {
           </div>
 
           {activeJob ? (
-            <article className="grid content-start gap-4 border border-border p-4">
+            // At xl the detail pins beside the 40-row page so walking a long
+            // page never strands it above the viewport (the blank bordered
+            // column next to the paginator). Below xl it stays in normal
+            // stacked flow — no sticky trap on narrow or 125% layouts.
+            <article
+              aria-labelledby={RAPID_REVIEW_DETAIL_TITLE_ID}
+              className="grid content-start gap-4 border border-border p-4 xl:sticky xl:top-4 xl:max-h-[calc(100vh-10rem)] xl:self-start xl:overflow-y-auto"
+              id={RAPID_REVIEW_DETAIL_ID}
+            >
               <div>
                 <p className="text-xs uppercase tracking-widest text-foreground-muted">
                   Listing facts
                 </p>
-                <h2 className="text-2xl font-semibold">{activeJob.title}</h2>
+                <h2
+                  className="text-2xl font-semibold"
+                  id={RAPID_REVIEW_DETAIL_TITLE_ID}
+                >
+                  {activeJob.title}
+                </h2>
                 <p>
                   {activeJob.company} · {activeJob.location} ·{" "}
                   {activeJob.workMode}
                 </p>
                 <p className="text-sm text-foreground-soft">
                   {activeJob.salaryText ?? "Compensation not listed"} ·{" "}
-                  {activeJob.postedAtText ??
-                    activeJob.postedAt ??
-                    "Freshness unknown"}
+                  {activeJobDate?.label} {activeJobDate?.value}
                 </p>
               </div>
               <div className="grid gap-2 border-t border-border pt-3">
@@ -461,16 +633,6 @@ export function RapidReviewScreen(props: {
                 >
                   Inspect details
                 </Button>
-                {latestDecisions.has(activeJob.id) ? (
-                  <Button
-                    pending={props.pending}
-                    onClick={() => void undo(activeJob.id)}
-                    type="button"
-                    variant="ghost"
-                  >
-                    Undo last decision
-                  </Button>
-                ) : null}
               </div>
             </article>
           ) : null}

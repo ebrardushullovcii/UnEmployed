@@ -5,6 +5,7 @@ export * from "./browser-visual-analysis";
 export * from "./interview-helper";
 export * from "./resume-import-helpers";
 export * from "./resume-import-fixtures";
+export * from "./resume-generation-grounding";
 export * from "./deterministic/resume-parser";
 export * from "./deterministic";
 export * from "./openai-compatible";

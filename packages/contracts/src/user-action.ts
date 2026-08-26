@@ -212,6 +212,7 @@ const UserActionApplicationScopeSchema = z
     type: z.literal("application"),
     runId: UserActionIdentifierSchema,
     jobId: UserActionIdentifierSchema,
+    applicationRecordId: UserActionIdentifierSchema.nullable().default(null),
     resultId: UserActionIdentifierSchema.nullable().default(null),
     replayCheckpointId: UserActionIdentifierSchema.nullable().default(null),
     source: JobSourceSchema,

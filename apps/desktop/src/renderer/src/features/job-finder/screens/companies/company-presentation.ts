@@ -4,16 +4,16 @@ import type {
   CompanySalaryOfferEvidence,
 } from "@unemployed/contracts";
 
-export const companyPreferenceLabels: Record<
-  CompanyPreference,
-  string
-> = {
-  neutral: "Neutral",
-  follow: "Follow",
-  prefer: "Prefer",
-  review: "Require review",
-  exclude: "Exclude",
+export const companyPreferenceLabels: Record<CompanyPreference, string> = {
+  neutral: "Company tracking: neutral",
+  follow: "Company tracking: follow",
+  prefer: "Company tracking: prefer",
+  review: "Company tracking: review required",
+  exclude: "Company tracking: exclude",
 };
+
+export const companyPreferenceScopeDescription =
+  "Local company tracking only. This does not change job search or matching.";
 
 export const companyPreferenceTones: Record<
   CompanyPreference,
@@ -57,7 +57,14 @@ function formatMoney(
     new Intl.NumberFormat("en-US", {
       maximumFractionDigits: 0,
     }).format(amount);
-  const periodLabel = period === "hour" ? "/hr" : period === "month" ? "/mo" : "/yr";
+  const periodLabel =
+    period === "hour"
+      ? "/hr"
+      : period === "month"
+        ? "/mo"
+        : period === "year"
+          ? "/yr"
+          : " · Period unknown";
   const range =
     minimum !== null && maximum !== null && minimum !== maximum
       ? `${currencySymbol}${formatAmount(minimum)}–${formatAmount(maximum)}${periodLabel}`
@@ -91,7 +98,9 @@ export function companySearchTokens(company: CompanyEntity): string[] {
     ...company.aliases.map((alias) => alias.alias),
     ...company.domains.map((domain) => domain.domain),
     companyPreferenceLabels[company.preference],
-    ...company.contacts.map((contact) => `${contact.name} ${contact.role ?? ""}`),
+    ...company.contacts.map(
+      (contact) => `${contact.name} ${contact.role ?? ""}`,
+    ),
     ...company.notes.map((note) => note.body),
     ...company.sourceHistory.map((ref) => ref.sourceId),
   ];

@@ -441,6 +441,13 @@ export function shouldSkipPostingFromLedger(input: {
   ledgerEntry: DiscoveryLedgerEntry | null;
   posting: DiscoveryFingerprintPosting;
   triageOutcome: DiscoveryTitleTriageOutcome;
+  /**
+   * True when this identity is already persisted as a kept saved or staged
+   * job. Retained identities can never become new distinct results, so an
+   * unchanged re-observation is skipped instead of competing for budget;
+   * changed content still reaches the merge as a detail upgrade.
+   */
+  hasRetainedJob?: boolean;
 }): {
   skip: boolean;
   reason: string | null;
@@ -469,6 +476,23 @@ export function shouldSkipPostingFromLedger(input: {
         input.ledgerEntry.skipReason ?? "Previously skipped intentionally.",
       outcome: "skip_handled",
     };
+  }
+
+  if (
+    input.hasRetainedJob &&
+    input.ledgerEntry.latestStatus !== "inactive"
+  ) {
+    const classification = classifyDiscoveryPostingFreshness({
+      ledgerEntry: input.ledgerEntry,
+      posting: input.posting,
+    }).classification;
+    if (classification === "unchanged") {
+      return {
+        skip: true,
+        reason: "Already retained from an earlier unchanged run.",
+        outcome: "skip_existing",
+      };
+    }
   }
 
   if (

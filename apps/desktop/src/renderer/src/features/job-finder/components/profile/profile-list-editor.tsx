@@ -1,69 +1,91 @@
-import { useId, useState } from 'react'
-import { Button } from '@renderer/components/ui/button'
-import { FieldLabel } from '@renderer/components/ui/field'
-import { Input } from '@renderer/components/ui/input'
-import { cn } from '@renderer/lib/cn'
-import { profileInputClassName } from './profile-form-primitives'
+import { useId, useState } from "react";
+import { Button } from "@renderer/components/ui/button";
+import { FieldLabel } from "@renderer/components/ui/field";
+import { Input } from "@renderer/components/ui/input";
+import { cn } from "@renderer/lib/cn";
+import { profileInputClassName } from "./profile-form-primitives";
 
 interface ProfileListEditorProps {
-  className?: string
-  displayMode?: 'chips' | 'rows'
-  emptyMessage?: string
-  inputId?: string
-  label: string
-  onChange: (values: string[]) => void
-  placeholder: string
-  values: readonly string[]
+  className?: string;
+  displayMode?: "chips" | "rows";
+  emptyMessage?: string;
+  inputId?: string;
+  label: string;
+  onChange: (values: string[]) => void;
+  placeholder: string;
+  values: readonly string[];
 }
 
 export function ProfileListEditor({
   className,
-  displayMode = 'chips',
-  emptyMessage = 'No items added yet.',
+  displayMode = "chips",
+  emptyMessage = "No items added yet.",
   inputId,
   label,
   onChange,
   placeholder,
-  values
+  values,
 }: ProfileListEditorProps) {
-  const generatedInputId = useId()
-  const resolvedInputId = inputId ?? generatedInputId
-  const [draft, setDraft] = useState('')
+  const generatedInputId = useId();
+  const resolvedInputId = inputId ?? generatedInputId;
+  const [draft, setDraft] = useState("");
 
   const updateValues = (nextValues: readonly string[]) => {
-    const normalizedCurrentValues = [...new Set(values.map((value) => value.trim()).filter(Boolean))]
-    const normalizedNextValues = [...new Set(nextValues.map((value) => value.trim()).filter(Boolean))]
+    const normalizedCurrentValues = [
+      ...new Set(values.map((value) => value.trim()).filter(Boolean)),
+    ];
+    const normalizedNextValues = [
+      ...new Set(nextValues.map((value) => value.trim()).filter(Boolean)),
+    ];
     const isUnchanged =
       normalizedCurrentValues.length === normalizedNextValues.length &&
-      normalizedCurrentValues.every((value, index) => value === normalizedNextValues[index])
+      normalizedCurrentValues.every(
+        (value, index) => value === normalizedNextValues[index],
+      );
 
     if (!isUnchanged) {
-      onChange(normalizedNextValues)
+      onChange(normalizedNextValues);
     }
-  }
+  };
 
   const addValue = () => {
-    const trimmed = draft.trim()
+    const trimmed = draft.trim();
 
     if (!trimmed) {
-      return
+      return;
     }
 
-    updateValues([...values, trimmed])
+    updateValues([...values, trimmed]);
 
-    setDraft('')
-  }
+    setDraft("");
+  };
+
+  const isPopulated = values.length > 0;
+  // Empty trays stay mounted (so adding items cannot shift the layout) but
+  // collapse to roughly one control height instead of reserving full list space.
+  const traySizingClassName = isPopulated
+    ? displayMode === "chips"
+      ? "max-h-[8.6rem] min-h-[8.6rem]"
+      : "max-h-46 min-h-46"
+    : "min-h-14";
 
   return (
     <section
       className={cn(
-        'grid min-w-0 gap-3 rounded-(--radius-field) border border-(--field-border) bg-(--field) p-4',
-        className
+        "grid min-w-0 gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4 shadow-[inset_0_1px_0_var(--surface-inset-highlight)]",
+        className,
       )}
     >
       <div className="flex items-baseline justify-between gap-3">
-        <FieldLabel className="text-(length:--text-tiny) font-medium tracking-(--tracking-label) text-foreground-muted" htmlFor={resolvedInputId}>{label}</FieldLabel>
-        <span className="text-(length:--text-count) uppercase tracking-(--tracking-label) text-foreground-muted">{values.length}</span>
+        <FieldLabel
+          className="text-(length:--text-tiny) font-medium tracking-(--tracking-label) text-foreground-soft"
+          htmlFor={resolvedInputId}
+        >
+          {label}
+        </FieldLabel>
+        <span className="text-(length:--text-count) uppercase tracking-(--tracking-label) text-foreground-muted">
+          {values.length}
+        </span>
       </div>
 
       <div className="grid grid-cols-[minmax(0,1fr)_5rem] gap-3">
@@ -72,9 +94,9 @@ export function ProfileListEditor({
           id={resolvedInputId}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault()
-              addValue()
+            if (event.key === "Enter") {
+              event.preventDefault();
+              addValue();
             }
           }}
           placeholder={placeholder}
@@ -91,55 +113,64 @@ export function ProfileListEditor({
         </Button>
       </div>
 
-      {values.length > 0 ? (
-        <div
-          className={cn(
-              'rounded-(--radius-field) border border-border/70 bg-(--surface-overlay-list) p-3',
-            displayMode === 'chips'
-              ? 'flex max-h-[8.6rem] min-h-[8.6rem] flex-wrap content-start items-start gap-2 overflow-auto'
-              : 'grid max-h-46 min-h-46 content-start gap-2 overflow-auto'
-          )}
-        >
-          {values.map((value) => (
-            displayMode === 'chips' ? (
-              <div
-                key={`${label}_${value}`}
-                className="inline-flex max-w-full items-center gap-2 rounded-full border border-(--border) bg-(--surface-fill-chip) px-3 py-2 text-(length:--text-item) text-foreground-soft"
-                title={value}
+      <div
+        className={cn(
+          "rounded-(--radius-field) border border-border/70 bg-(--surface-overlay-list) p-3",
+          displayMode === "chips"
+            ? "flex flex-wrap content-start items-start gap-2 overflow-auto"
+            : "grid content-start gap-2 overflow-auto",
+          traySizingClassName,
+        )}
+      >
+        {values.map((value) =>
+          displayMode === "chips" ? (
+            <div
+              key={`${label}_${value}`}
+              className="inline-flex max-w-full items-center gap-2 rounded-full border border-(--border) bg-(--surface-fill-chip) px-3 py-2 text-(length:--text-item) text-foreground-soft"
+              title={value}
+            >
+              <span className="truncate whitespace-nowrap">{value}</span>
+              <button
+                aria-label={`Remove ${value}`}
+                className="inline-flex h-4 w-4 items-center justify-center rounded-full text-(length:--text-icon-small) leading-none text-muted-foreground transition-colors hover:bg-(--surface-panel) hover:text-foreground"
+                onClick={() =>
+                  updateValues(values.filter((entry) => entry !== value))
+                }
+                type="button"
               >
-                <span className="truncate whitespace-nowrap">{value}</span>
+                x
+              </button>
+            </div>
+          ) : (
+            <div
+              key={`${label}_${value}`}
+              className="grid gap-2 rounded-(--radius-field) border border-border/60 bg-(--surface-fill-soft) px-3 py-2.5 text-(length:--text-item) leading-6 text-foreground-soft"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <span className="min-w-0 whitespace-pre-wrap break-words">
+                  {value}
+                </span>
                 <button
                   aria-label={`Remove ${value}`}
-                  className="inline-flex h-4 w-4 items-center justify-center rounded-full text-(length:--text-icon-small) leading-none text-muted-foreground transition-colors hover:bg-(--surface-panel) hover:text-foreground"
-                  onClick={() => updateValues(values.filter((entry) => entry !== value))}
+                  className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-(length:--text-icon-small) leading-none text-muted-foreground transition-colors hover:bg-(--surface-panel) hover:text-foreground"
+                  onClick={() =>
+                    updateValues(values.filter((entry) => entry !== value))
+                  }
                   type="button"
                 >
                   x
                 </button>
               </div>
-            ) : (
-              <div
-                key={`${label}_${value}`}
-                className="grid gap-2 rounded-(--radius-field) border border-border/60 bg-(--surface-fill-soft) px-3 py-2.5 text-(length:--text-item) leading-6 text-foreground-soft"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <span className="min-w-0 whitespace-pre-wrap break-words">{value}</span>
-                  <button
-                    aria-label={`Remove ${value}`}
-                    className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-(length:--text-icon-small) leading-none text-muted-foreground transition-colors hover:bg-(--surface-panel) hover:text-foreground"
-                    onClick={() => updateValues(values.filter((entry) => entry !== value))}
-                    type="button"
-                  >
-                    x
-                  </button>
-                </div>
-              </div>
-            )
-          ))}
-        </div>
-      ) : (
-        <p className="text-(length:--text-description) leading-6 text-foreground-muted">{emptyMessage}</p>
-      )}
+            </div>
+          ),
+        )}
+
+        {values.length === 0 ? (
+          <p className="m-auto px-4 py-2 text-center text-(length:--text-description) leading-6 text-foreground-muted">
+            {emptyMessage}
+          </p>
+        ) : null}
+      </div>
     </section>
-  )
+  );
 }

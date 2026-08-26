@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   DiscoveryActivityEvent,
   JobFinderWorkspaceSnapshot,
@@ -7,6 +7,9 @@ import type {
 import { ListChecks, X } from "lucide-react";
 import { Button } from "@renderer/components/ui/button";
 import { StatusBadge } from "../status-badge";
+import { isImeComposingEvent } from "../../lib/job-finder-shortcuts";
+import { useJobFinderOverlayOwnership } from "../../lib/job-finder-overlay-ownership";
+import type { TailoredDraftPreparationViewState } from "../../screens/review-queue/review-queue-status";
 import {
   buildJobFinderTaskCenterModel,
   type JobFinderTaskCenterItem,
@@ -18,12 +21,17 @@ interface JobFinderTaskCenterProps {
   isResumeImportPending: boolean;
   liveDiscoveryEvents?: readonly DiscoveryActivityEvent[] | undefined;
   resumeImportProgress?: ResumeImportProgressEvent | null | undefined;
+  tailoredDraftPreparation?:
+    | TailoredDraftPreparationViewState
+    | null
+    | undefined;
   onCancelApplyRun?:
     | ((runId: string) => boolean | void | Promise<boolean | void>)
     | undefined;
   onCancelDiscovery?:
     | (() => boolean | void | Promise<boolean | void>)
     | undefined;
+  onStopTailoredDraftPreparation?: (() => void) | undefined;
   onNavigate?: ((path: string) => void | Promise<void>) | undefined;
 }
 
@@ -57,6 +65,10 @@ function statusLabel(status: JobFinderTaskCenterItem["status"]): string {
 export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
   const detailsRef = useRef<HTMLDetailsElement>(null);
   const summaryRef = useRef<HTMLElement>(null);
+  // The panel is React-controlled so the overlay ownership stack always knows
+  // whether the Task Center is open, regardless of how the last toggle
+  // happened (summary click, Escape, outside press, or task navigation).
+  const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [cancelRequestedTaskIds, setCancelRequestedTaskIds] = useState<
     ReadonlySet<string>
   >(() => new Set());
@@ -71,12 +83,14 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
         isResumeImportPending: props.isResumeImportPending,
         liveDiscoveryEvents: props.liveDiscoveryEvents,
         resumeImportProgress: props.resumeImportProgress,
+        tailoredDraftPreparation: props.tailoredDraftPreparation,
       }),
     [
       props.isDiscoveryPending,
       props.isResumeImportPending,
       props.liveDiscoveryEvents,
       props.resumeImportProgress,
+      props.tailoredDraftPreparation,
       props.workspace,
     ],
   );
@@ -93,35 +107,40 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
     });
   }, [model.items]);
 
+  const closePanel = useCallback((restoreFocus: boolean) => {
+    setIsPanelOpen(false);
+    if (restoreFocus) {
+      summaryRef.current?.focus();
+    }
+  }, []);
+
+  const { isTopmost: isPanelTopmost } = useJobFinderOverlayOwnership({
+    active: isPanelOpen,
+    close: () => closePanel(true),
+  });
+
   useEffect(() => {
-    const details = detailsRef.current;
-    if (!details) {
-      return;
+    if (!isPanelOpen) {
+      return undefined;
     }
 
-    const close = (restoreFocus: boolean) => {
-      if (!details.open) {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Inner controls and higher overlays keep first claim on Escape.
+      if (event.defaultPrevented || isImeComposingEvent(event)) {
         return;
       }
-      details.open = false;
-      if (restoreFocus) {
-        summaryRef.current?.focus();
-      }
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || !details.open) {
+      if (event.key !== "Escape" || !isPanelTopmost()) {
         return;
       }
       event.preventDefault();
-      close(true);
+      closePanel(true);
     };
     const handlePointerDown = (event: PointerEvent) => {
       if (
-        details.open &&
         event.target instanceof Node &&
-        !details.contains(event.target)
+        !detailsRef.current?.contains(event.target)
       ) {
-        close(false);
+        closePanel(false);
       }
     };
 
@@ -131,7 +150,7 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
       document.removeEventListener("keydown", handleKeyDown);
       document.removeEventListener("pointerdown", handlePointerDown);
     };
-  }, []);
+  }, [closePanel, isPanelOpen, isPanelTopmost]);
 
   async function cancelTask(item: JobFinderTaskCenterItem) {
     if (
@@ -152,9 +171,13 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
       const cancelOperation =
         item.cancelKind === "discovery"
           ? props.onCancelDiscovery
-          : props.onCancelApplyRun
-            ? () => props.onCancelApplyRun?.(item.id)
-            : undefined;
+          : item.cancelKind === "tailored_drafts"
+            ? props.onStopTailoredDraftPreparation
+              ? () => props.onStopTailoredDraftPreparation?.()
+              : undefined
+            : props.onCancelApplyRun
+              ? () => props.onCancelApplyRun?.(item.id)
+              : undefined;
       const result = cancelOperation ? await cancelOperation() : false;
       if (result !== false) {
         return;
@@ -191,9 +214,7 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
         throw new Error("Task navigation is unavailable");
       }
       await props.onNavigate(item.resumeRoute);
-      if (detailsRef.current) {
-        detailsRef.current.open = false;
-      }
+      setIsPanelOpen(false);
     } catch {
       setTaskFeedback((current) => ({
         ...current,
@@ -203,14 +224,24 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
   }
 
   return (
-    <details className="group relative z-40 shrink-0" ref={detailsRef}>
+    <details
+      className="group relative z-40 shrink-0"
+      open={isPanelOpen}
+      ref={detailsRef}
+    >
       <summary
         aria-label={`Task center: ${model.activeCount} active`}
-        className="inline-flex h-[3.125rem] min-h-[3.125rem] min-w-10 cursor-pointer list-none items-center justify-center gap-2 rounded-full border border-(--surface-panel-border) bg-(--surface-panel) px-3 py-2 text-[0.72rem] font-medium text-muted-foreground outline-none transition-colors hover:border-primary/30 hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:text-[0.76rem] xl:px-4 xl:text-(length:--text-small) [&::-webkit-details-marker]:hidden"
+        className="inline-flex h-10 min-h-10 min-w-10 cursor-pointer list-none items-center justify-center gap-2 rounded-(--radius-button) border border-(--surface-panel-border) bg-(--surface-panel) px-3 py-2 text-[0.72rem] font-medium text-muted-foreground outline-none transition-colors hover:border-primary/50 hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:text-[0.76rem] xl:px-4 xl:text-(length:--text-small) [&::-webkit-details-marker]:hidden"
+        onClick={(event) => {
+          // The panel state owns openness so overlay ownership and shell
+          // shortcut blocking stay truthful; cancel the native summary toggle.
+          event.preventDefault();
+          setIsPanelOpen((open) => !open);
+        }}
         ref={summaryRef}
       >
         <ListChecks aria-hidden="true" className="size-4 shrink-0" />
-        <span className="hidden whitespace-nowrap min-[900px]:inline min-[1024px]:hidden min-[1440px]:inline">
+        <span className="hidden whitespace-nowrap min-[900px]:inline min-[1024px]:hidden min-[1120px]:inline">
           Task center
         </span>
         <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-(--input) px-1.5 text-[0.65rem] text-foreground tabular-nums">
@@ -228,19 +259,14 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
               Task center
             </h2>
             <p className="text-(length:--text-small) leading-5 text-foreground-soft">
-              Current and latest job-search, résumé, and application work.
+              Current and latest job-search, resume, and application work.
               Estimates appear only when completed history exists.
             </p>
           </div>
           <Button
             aria-label="Close Task center"
             className="shrink-0"
-            onClick={() => {
-              if (detailsRef.current) {
-                detailsRef.current.open = false;
-              }
-              summaryRef.current?.focus();
-            }}
+            onClick={() => closePanel(true)}
             size="icon-sm"
             type="button"
             variant="ghost"
@@ -315,9 +341,11 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
                           type="button"
                           variant="outline"
                         >
-                          {cancellationRequested
-                            ? "Cancellation requested"
-                            : "Cancel task"}
+                          {item.cancelKind === "tailored_drafts"
+                            ? "Stop"
+                            : cancellationRequested
+                              ? "Cancellation requested"
+                              : "Cancel task"}
                         </Button>
                       ) : null}
                     </div>

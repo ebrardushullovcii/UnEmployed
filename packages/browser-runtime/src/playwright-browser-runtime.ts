@@ -40,9 +40,13 @@ import type {
   ExecuteApplicationFlowInput,
   ExecuteEasyApplyInput,
 } from "./runtime-types";
+import { ApplicationNavigationError } from "./application-navigation-error";
 import {
   buildPreparationResult,
+  createApplicationRunServiceWorkerSentinel,
+  installServiceWorkerRegisterGuardInPage,
   runGenericApplicationPreparation,
+  type ServiceWorkerSafetyFinding,
 } from "./playwright-application-flow";
 import {
   createInconclusiveSourceAccessProbeResult,
@@ -77,6 +81,173 @@ export type JobPageExtractor = (
 
 function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// connectOverCDP attaches the persistent default context without accepting
+// Playwright's serviceWorkers:"block" context option, so the same hardened
+// registration guard Playwright would install for that option is applied
+// explicitly before managed flows navigate. The installer hardens both the
+// ServiceWorkerContainer prototype and instance non-configurably before site
+// scripts run in every document and frame.
+const SERVICE_WORKER_BLOCK_INIT_SCRIPT =
+  installServiceWorkerRegisterGuardInPage;
+
+const serviceWorkerBlockedContexts = new WeakSet<BrowserContext>();
+
+async function blockServiceWorkersOnManagedContext(
+  context: BrowserContext,
+): Promise<void> {
+  if (serviceWorkerBlockedContexts.has(context)) {
+    return;
+  }
+
+  serviceWorkerBlockedContexts.add(context);
+
+  // Hosts that do not expose init scripts cannot carry the block; installation
+  // failures on capable hosts remain fatal.
+  if (typeof context.addInitScript !== "function") {
+    return;
+  }
+
+  try {
+    await context.addInitScript(SERVICE_WORKER_BLOCK_INIT_SCRIPT);
+  } catch (error) {
+    serviceWorkerBlockedContexts.delete(context);
+    throw error;
+  }
+}
+
+export type ActiveServiceWorkerBlockReason =
+  | "active_service_worker_controlling_application_origin"
+  | "service_worker_origin_unresolved"
+  | "service_worker_inspection_unavailable";
+
+export class ActiveServiceWorkerBlockError extends Error {
+  readonly code = "active_service_worker_block" as const;
+  readonly reason: ActiveServiceWorkerBlockReason;
+  readonly targetUrl: string;
+  readonly serviceWorkerUrls: string[];
+
+  constructor(input: {
+    reason: ActiveServiceWorkerBlockReason;
+    targetUrl: string;
+    detail: string;
+    serviceWorkerUrls?: string[];
+  }) {
+    super(input.detail);
+    this.name = "ActiveServiceWorkerBlockError";
+    this.reason = input.reason;
+    this.targetUrl = input.targetUrl;
+    this.serviceWorkerUrls = input.serviceWorkerUrls ?? [];
+  }
+}
+
+function parseHttpOrigin(urlString: string): string | null {
+  try {
+    const url = new URL(urlString);
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.origin
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function assertNoActiveServiceWorkerControlsApplicationOrigin(input: {
+  context: BrowserContext;
+  targetUrl: string;
+}): void {
+  if (typeof input.context.serviceWorkers !== "function") {
+    throw new ActiveServiceWorkerBlockError({
+      reason: "service_worker_inspection_unavailable",
+      targetUrl: input.targetUrl,
+      detail: `Active service workers could not be inspected on the managed browser context before opening ${input.targetUrl}. Reset the dedicated browser profile from Safeguards, then finish this application manually.`,
+    });
+  }
+
+  let activeWorkers;
+  try {
+    activeWorkers = input.context.serviceWorkers();
+  } catch (error) {
+    throw new ActiveServiceWorkerBlockError({
+      reason: "service_worker_inspection_unavailable",
+      targetUrl: input.targetUrl,
+      detail: `Active service workers could not be inspected on the managed browser context before opening ${input.targetUrl}: ${
+        error instanceof Error ? error.message : "unknown inspection error"
+      }. Reset the dedicated browser profile from Safeguards, then finish this application manually.`,
+    });
+  }
+
+  const targetOrigin = parseHttpOrigin(input.targetUrl);
+  if (!targetOrigin) {
+    throw new ActiveServiceWorkerBlockError({
+      reason: "service_worker_origin_unresolved",
+      targetUrl: input.targetUrl,
+      detail: `The application origin for ${input.targetUrl} could not be safely determined while active browser service workers exist. Reset the dedicated browser profile from Safeguards, then finish this application manually.`,
+    });
+  }
+
+  const controllingWorkerUrls: string[] = [];
+  const unresolvedWorkerUrls: string[] = [];
+  for (const worker of activeWorkers) {
+    const workerUrl = worker.url();
+    const workerOrigin = parseHttpOrigin(workerUrl);
+    if (!workerOrigin) {
+      unresolvedWorkerUrls.push(workerUrl);
+    } else if (workerOrigin === targetOrigin) {
+      controllingWorkerUrls.push(workerUrl);
+    }
+  }
+
+  if (controllingWorkerUrls.length > 0) {
+    throw new ActiveServiceWorkerBlockError({
+      reason: "active_service_worker_controlling_application_origin",
+      targetUrl: input.targetUrl,
+      detail: `An active service worker (${controllingWorkerUrls.join(", ")}) can control the application origin ${targetOrigin}. Close or reset the dedicated browser profile so the worker stops, then finish this application manually; automated preparation stays stopped.`,
+      serviceWorkerUrls: controllingWorkerUrls,
+    });
+  }
+
+  if (unresolvedWorkerUrls.length > 0) {
+    throw new ActiveServiceWorkerBlockError({
+      reason: "service_worker_origin_unresolved",
+      targetUrl: input.targetUrl,
+      detail: `An active service worker (${unresolvedWorkerUrls.join(", ")}) has an origin that cannot be safely determined relative to ${targetOrigin}. Reset the dedicated browser profile from Safeguards, then finish this application manually.`,
+      serviceWorkerUrls: unresolvedWorkerUrls,
+    });
+  }
+}
+
+function buildServiceWorkerSafetyStopResult(input: {
+  executionInput: ExecuteApplicationFlowInput;
+  finding: ServiceWorkerSafetyFinding;
+}): ApplyExecutionResult {
+  const targetUrl =
+    input.executionInput.job.applicationUrl ??
+    input.executionInput.job.canonicalUrl;
+  const detail = `${input.finding.detail} The runtime stopped before any further field or click action and left every service-worker registration untouched. Reset the dedicated browser profile from Safeguards, then finish this application manually.`;
+  return buildPreparationResult({
+    executionInput: input.executionInput,
+    summary: "A service worker can influence this application origin",
+    detail,
+    questions: [],
+    blocker: {
+      code: "requires_manual_review",
+      summary: "A service worker can influence this application origin.",
+      detail,
+      questionIds: [],
+      sourceDebugEvidenceRefIds: [],
+      url: isHttpUrlLike(targetUrl) ? targetUrl : null,
+    },
+    checkpoints: [],
+    checkpointLabel: "Paused for an application-origin service worker",
+    checkpointDetail: detail,
+    checkpointUrls: isHttpUrlLike(targetUrl) ? [targetUrl] : [],
+    lastUrl: isHttpUrlLike(targetUrl) ? targetUrl : null,
+    now: new Date().toISOString(),
+    nextActionLabel:
+      "Reset the browser profile, then finish this application manually",
+  });
 }
 
 async function markManagedChromeProfileExitedCleanly(
@@ -779,7 +950,13 @@ async function prepareAutomationPageForTarget(
             ? error.message
             : `The dedicated browser profile could not open ${options.targetUrl}.`;
         options.setBlockedState(detail);
-        throw error;
+        // Classify once at the goto boundary so consumers can separate
+        // "the employer page never opened" from every other failure mode.
+        throw new ApplicationNavigationError({
+          targetUrl: options.targetUrl,
+          diagnosticDetail: detail,
+          ...(error instanceof Error ? { cause: error } : {}),
+        });
       }
     }
   }
@@ -1179,6 +1356,8 @@ export function createBrowserAgentRuntime(
       );
     }
 
+    await blockServiceWorkersOnManagedContext(context);
+
     return context;
   }
 
@@ -1446,6 +1625,7 @@ export function createBrowserAgentRuntime(
           ),
           warning:
             "Direct live discovery is not available for generic target flows. Use the agent discovery path instead.",
+          inventoryCompleteness: "unknown",
           jobs: [],
         }),
       );
@@ -1541,48 +1721,89 @@ export function createBrowserAgentRuntime(
         });
         try {
           const context = await getContext();
-          const prepared = await prepareAutomationPageForTarget(context, {
-            targetUrl,
-            bringToFront: true,
-            closeOtherPages: true,
-            ...(options?.signal ? { signal: options.signal } : {}),
-            onPageResolved: (page) => {
-              workingPage = page;
-              if (options?.signal?.aborted) {
-                closeWorkingPageOnAbort();
-              }
-            },
-            setBlockedState: (detail) => {
-              setSessionState(
-                source,
-                "blocked",
-                "Application navigation failed",
-                detail,
-              );
-            },
-          });
-          options?.signal?.throwIfAborted();
-          applicationPageOpened = true;
-          recordExecutionTiming(
-            "browser_preparation",
-            browserPreparationStartedAtMs,
-          );
-          setSessionState(
-            source,
-            "ready",
-            "Application preparation paused safely",
-            "The dedicated browser profile is open at the current application checkpoint. Final submission remains disabled.",
-          );
-          formPreparationStartedAtMs = Date.now();
-          executionResult = await runGenericApplicationPreparation({
+          assertNoActiveServiceWorkerControlsApplicationOrigin({
             context,
-            page: prepared.page,
-            executionInput: input,
-            startedAt,
-            ...(options?.signal ? { signal: options.signal } : {}),
+            targetUrl,
           });
-          options?.signal?.throwIfAborted();
-          recordExecutionTiming("form_preparation", formPreparationStartedAtMs);
+          const runSentinel = createApplicationRunServiceWorkerSentinel({
+            context,
+            targetUrl,
+          });
+          try {
+            const preNavigationFinding = await runSentinel.check(
+              "browser_preparation",
+            );
+            if (preNavigationFinding) {
+              executionResult = buildServiceWorkerSafetyStopResult({
+                executionInput: input,
+                finding: preNavigationFinding,
+              });
+            } else {
+              const prepared = await prepareAutomationPageForTarget(context, {
+                targetUrl,
+                bringToFront: true,
+                closeOtherPages: true,
+                ...(options?.signal ? { signal: options.signal } : {}),
+                onPageResolved: (page) => {
+                  workingPage = page;
+                  runSentinel.attachPage(page);
+                  if (options?.signal?.aborted) {
+                    closeWorkingPageOnAbort();
+                  }
+                },
+                setBlockedState: (detail) => {
+                  setSessionState(
+                    source,
+                    "blocked",
+                    "Application navigation failed",
+                    detail,
+                  );
+                },
+              });
+              options?.signal?.throwIfAborted();
+              const postNavigationFinding =
+                await runSentinel.check("post_navigation");
+              if (postNavigationFinding) {
+                applicationPageOpened = true;
+                recordExecutionTiming(
+                  "browser_preparation",
+                  browserPreparationStartedAtMs,
+                );
+                executionResult = buildServiceWorkerSafetyStopResult({
+                  executionInput: input,
+                  finding: postNavigationFinding,
+                });
+              } else {
+                applicationPageOpened = true;
+                recordExecutionTiming(
+                  "browser_preparation",
+                  browserPreparationStartedAtMs,
+                );
+                setSessionState(
+                  source,
+                  "ready",
+                  "Application preparation paused safely",
+                  "The dedicated browser profile is open at the current application checkpoint. Final submission remains disabled.",
+                );
+                formPreparationStartedAtMs = Date.now();
+                executionResult = await runGenericApplicationPreparation({
+                  context,
+                  page: prepared.page,
+                  executionInput: input,
+                  startedAt,
+                  ...(options?.signal ? { signal: options.signal } : {}),
+                  sentinel: runSentinel,
+                });
+                options?.signal?.throwIfAborted();
+                recordExecutionTiming(
+                  "form_preparation",
+                  formPreparationStartedAtMs,
+                );
+              }
+            }
+          } finally {
+            runSentinel.detach();
+          }
         } catch (error) {
           if (options?.signal?.aborted) {
             throw error;
@@ -1602,28 +1823,57 @@ export function createBrowserAgentRuntime(
             error instanceof Error
               ? error.message
               : "The application page could not be inspected safely.";
-          const detail = `The runtime stopped without submitting after browser preparation failed: ${errorDetail}`;
-          executionResult = buildPreparationResult({
-            executionInput: input,
-            summary: "Application preparation stopped safely",
-            detail,
-            questions: [],
-            blocker: {
-              code: "requires_manual_review",
-              summary: "The live application page needs manual review.",
+          if (error instanceof ApplicationNavigationError) {
+            // The employer page never opened, so this is a technical failure,
+            // not a Needs-you step: report it failed with causal-free copy.
+            // Raw transport detail stays in session diagnostics only.
+            const unreachableDetail = `${error.userDetail}`;
+            executionResult = buildPreparationResult({
+              executionInput: input,
+              state: "failed",
+              summary: error.userSummary,
+              detail: unreachableDetail,
+              questions: [],
+              blocker: {
+                code: "application_page_unreachable",
+                summary: `${error.userSummary}.`,
+                detail: unreachableDetail,
+                questionIds: [],
+                sourceDebugEvidenceRefIds: [],
+                url: isHttpUrlLike(targetUrl) ? targetUrl : null,
+              },
+              checkpoints: [],
+              checkpointLabel: "Failed before the application page opened",
+              checkpointDetail: unreachableDetail,
+              checkpointUrls: isHttpUrlLike(targetUrl) ? [targetUrl] : [],
+              lastUrl: isHttpUrlLike(targetUrl) ? targetUrl : null,
+              now: new Date().toISOString(),
+              nextActionLabel: "Retry preparation",
+            });
+          } else {
+            const detail = `The runtime stopped without submitting after browser preparation failed: ${errorDetail}`;
+            executionResult = buildPreparationResult({
+              executionInput: input,
+              summary: "Application preparation stopped safely",
               detail,
-              questionIds: [],
-              sourceDebugEvidenceRefIds: [],
-              url: targetUrl,
-            },
-            checkpoints: [],
-            checkpointLabel: "Stopped after a safe browser failure",
-            checkpointDetail: detail,
-            checkpointUrls: [targetUrl],
-            lastUrl: targetUrl,
-            now: new Date().toISOString(),
-            nextActionLabel: "Inspect the application page manually",
-          });
+              questions: [],
+              blocker: {
+                code: "requires_manual_review",
+                summary: "The live application page needs manual review.",
+                detail,
+                questionIds: [],
+                sourceDebugEvidenceRefIds: [],
+                url: targetUrl,
+              },
+              checkpoints: [],
+              checkpointLabel: "Stopped after a safe browser failure",
+              checkpointDetail: detail,
+              checkpointUrls: [targetUrl],
+              lastUrl: targetUrl,
+              now: new Date().toISOString(),
+              nextActionLabel: "Inspect the application page manually",
+            });
+          }
         } finally {
           options?.signal?.removeEventListener(
             "abort",
@@ -1705,6 +1955,7 @@ export function createBrowserAgentRuntime(
           ),
           warning:
             "AI client does not support tool calling. Cannot run agent discovery.",
+          inventoryCompleteness: "unknown",
           jobs: [],
         });
       }
@@ -1720,6 +1971,7 @@ export function createBrowserAgentRuntime(
             agentOptions.siteLabel,
           ),
           warning: "No job extractor configured. Cannot run agent discovery.",
+          inventoryCompleteness: "unknown",
           jobs: [],
         });
       }
@@ -1946,6 +2198,7 @@ export function createBrowserAgentRuntime(
             ]
               .filter(Boolean)
               .join(" ") || null,
+          inventoryCompleteness: "partial",
           jobs: result.jobs,
           agentMetadata: {
             steps: result.steps,
@@ -1984,6 +2237,7 @@ export function createBrowserAgentRuntime(
             agentOptions.siteLabel,
           ),
           warning: `Agent discovery failed: ${detail}`,
+          inventoryCompleteness: "unknown",
           jobs: [],
           agentMetadata: null,
         });

@@ -1,5 +1,6 @@
 import type {
   ApplicationRecord,
+  ApplicationPrivacyReceipt,
   ApplyRunDetails,
   ApplySubmitApproval,
   JobFinderWorkspaceSnapshot,
@@ -15,8 +16,38 @@ export type QueueEntry = {
 const APPLY_TRANSPORT_LANGUAGE =
   /\b(?:post|xhr|xmlhttprequest|fetch|network request|mutating page action|prepare-only (?:safety )?guard)\b/i;
 
+const EXTERNAL_WRITE_CATEGORY_LABELS: Record<
+  ApplicationPrivacyReceipt["externalWrites"][number]["category"],
+  string
+> = {
+  resume_attachment: "a resume attachment",
+  profile_field: "profile fields",
+  application_answer: "application answers",
+  consent_control: "consent choices",
+  other: "other prepared fields",
+};
+
+export function getVerifiedExternalWriteRecoveryText(
+  receipt: ApplicationPrivacyReceipt | null | undefined,
+): string {
+  const verifiedCategories = [
+    ...new Set(
+      (receipt?.externalWrites ?? [])
+        .filter((write) => write.verified)
+        .map((write) => EXTERNAL_WRITE_CATEGORY_LABELS[write.category]),
+    ),
+  ];
+
+  if (verifiedCategories.length === 0) {
+    return "No verified site writes are recorded for this run. Review what remains on the employer page before retrying.";
+  }
+
+  return `The receipt verifies writes to the employer page for ${verifiedCategories.join(", ")}. It does not confirm how the site stored them or what remains; review the employer page before retrying.`;
+}
+
 export function getCustomerFacingApplyText(
   value: string | null | undefined,
+  receipt?: ApplicationPrivacyReceipt | null,
 ): string | null {
   const text = value?.trim() ?? "";
   if (!text) {
@@ -26,29 +57,41 @@ export function getCustomerFacingApplyText(
     return text;
   }
 
+  const externalWriteText = getVerifiedExternalWriteRecoveryText(receipt);
   if (/\b(?:resume|cv|attachment|upload)\b/i.test(text)) {
-    return "The selected CV could not be attached. Your other confirmed fields remain in the open application. Approve and retry the CV attachment; Job Finder will still stop before final submit.";
+    return `The selected resume could not be attached. ${externalWriteText} Approve and retry the attachment. Job Finder stopped without a submit click. Verify the outcome on the site, and treat an unexpected completed state as site behavior to report.`;
   }
 
-  return "The application page could not safely save this prepared step. Review the open application and retry; Job Finder will still stop before final submit.";
+  return `The application page could not safely save this prepared step. ${externalWriteText} Job Finder stopped without a submit click. Verify the outcome on the site, and treat an unexpected completed state as site behavior to report.`;
 }
 
 export function applyResultNeedsResumeAttachment(
   result: JobFinderWorkspaceSnapshot["applyJobResults"][number] | null,
 ): boolean {
-  if (!result || (result.state !== "blocked" && result.state !== "failed")) {
+  if (!result) {
     return false;
   }
 
-  const text = [result.summary, result.detail, result.blockerSummary]
-    .filter(Boolean)
-    .join(" ");
-  return (
-    /\b(?:resume|cv)\b/i.test(text) &&
-    /\b(?:not attached|attach(?:ment)? needs|could not be attached|retry.*attach|upload.*failed)\b/i.test(
-      text,
-    )
-  );
+  if (
+    result.state === "blocked" ||
+    result.state === "failed" ||
+    // The real-CV guard can stop at review with a required human decision;
+    // those results must still offer the CV-specific approve/retry CTA.
+    (result.state === "awaiting_review" &&
+      result.blockerReason === "required_human_input")
+  ) {
+    const text = [result.summary, result.detail, result.blockerSummary]
+      .filter(Boolean)
+      .join(" ");
+    return (
+      /\b(?:resume|cv)\b/i.test(text) &&
+      /\b(?:not attached|attach(?:ment)? needs|could not be attached|retry.*attach|upload.*failed)\b/i.test(
+        text,
+      )
+    );
+  }
+
+  return false;
 }
 
 export function buildQueueEntries(input: {
@@ -64,24 +107,27 @@ export function buildQueueEntries(input: {
     return [];
   }
 
-  const applyResultsByJobId = new Map(
-    applyJobResults
-      .filter((result) => result.runId === selectedRun.id)
-      .map((result) => [result.jobId, result] as const),
-  );
-  const applicationRecordsByJobId = new Map(
-    applicationRecords.map((record) => [record.jobId, record] as const),
+  const selectedRunResults = applyJobResults.filter(
+    (result) => result.runId === selectedRun.id,
   );
   const discoveryJobsById = new Map(
     discoveryJobs.map((job) => [job.id, job] as const),
   );
 
   return selectedRun.jobIds.map((jobId) => {
-    const runResult = applyResultsByJobId.get(jobId) ?? null;
-    const relatedRecord = applicationRecordsByJobId.get(jobId) ?? null;
+    const matchingResults = selectedRunResults.filter(
+      (result) => result.jobId === jobId,
+    );
+    const runResult = matchingResults.length === 1 ? matchingResults[0]! : null;
+    const relatedRecord = runResult?.applicationRecordId
+      ? (applicationRecords.find(
+          (record) => record.id === runResult.applicationRecordId,
+        ) ?? null)
+      : null;
     const relatedSavedJob = discoveryJobsById.get(jobId) ?? null;
     const includeInRecovery =
       !runResult ||
+      runResult.applicationRecordId === null ||
       runResult.state === "planned" ||
       runResult.state === "blocked" ||
       runResult.state === "failed" ||
@@ -148,30 +194,36 @@ export function getQueueStateExplanation(
   }
 
   if (input.runState === "paused_for_consent") {
-    return "This queue is paused on a live consent decision. Resolve the consent request to continue, or restage only the blocked jobs into a fresh safe queue.";
+    return "This run is paused on a live consent decision. Resolve the consent request to continue, or start a fresh safe run with only the blocked jobs.";
+  }
+
+  // A stop-rule pause holds no pending decision to resolve, so the run can
+  // never resume; finishing the remaining jobs requires a fresh recovery run.
+  if (input.runState === "paused_for_user_review") {
+    return "Job Finder paused this run on one of its stop rules. It will not continue on its own and no consent decision is holding it here. Use Queue remaining jobs to finish the unfinished jobs in a fresh safe recovery run.";
   }
 
   if (input.runState === "awaiting_submit_approval") {
-    return "This queue is staged but has not started yet. Approve safe preparation to let the fill-only queue begin, or restage a narrower queue if the job list changed. Final submission remains disabled.";
+    return "This run is waiting for Preparation approval and has not started yet. Approve safe preparation to let the fill-only pass begin, or stage a narrower selection if the job list changed. Final submission remains disabled.";
   }
 
   if (input.runState === "cancelled") {
-    return "This historical queue was cancelled before it finished. Remaining planned, blocked, failed, or skipped jobs can be restaged into a fresh safe queue.";
+    return "This historical run was cancelled before it finished. Remaining planned, blocked, failed, or skipped jobs can be prepared again in a fresh safe run.";
   }
 
   if (input.failedJobCount > 0) {
-    return "Some jobs in this queue failed before the flow could reach a stable review-safe state. Review the per-job outcomes below before restaging only the unfinished jobs.";
+    return "Some jobs in this run failed before the flow could reach a stable review-safe state. Review the per-job outcomes below before preparing only the unfinished jobs.";
   }
 
   if (input.blockedJobCount > 0 || input.skippedJobCount > 0) {
-    return "This historical queue hit blocked or skipped jobs. Applications keeps those outcomes and can restage only the unfinished jobs without re-adding completed work.";
+    return "This historical run hit blocked or skipped jobs. Applications keeps those outcomes and can prepare only the unfinished jobs without repeating completed work.";
   }
 
   if (input.completedJobCount === input.selectedJobCount) {
-    return "Every job in this historical queue already reached a review-ready or terminal outcome. Recovery is available only if you want to start a completely fresh run another way.";
+    return "Every job in this historical run already reached a review-ready or terminal outcome. Recovery is available only if you want to start a completely fresh run another way.";
   }
 
-  return "This queue still has unfinished jobs. Review the per-job outcomes below before deciding whether to restage the remaining work.";
+  return "This run still has unfinished jobs. Review the per-job outcomes below before deciding whether to prepare the remaining work.";
 }
 
 export function formatVisibleRunId(runId: string): string {

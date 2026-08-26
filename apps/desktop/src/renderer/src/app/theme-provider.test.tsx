@@ -2,7 +2,7 @@
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { ThemeProvider } from "./theme-provider";
 import { SYSTEM_THEME_CHANGE_EVENT } from "@renderer/lib/theme";
 
@@ -14,19 +14,6 @@ describe("ThemeProvider", () => {
   (
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
-
-  beforeEach(() => {
-    const storage = new Map<string, string>();
-    Object.defineProperty(window, "localStorage", {
-      configurable: true,
-      value: {
-        clear: vi.fn(() => storage.clear()),
-        getItem: vi.fn((key: string) => storage.get(key) ?? null),
-        removeItem: vi.fn((key: string) => storage.delete(key)),
-        setItem: vi.fn((key: string, value: string) => storage.set(key, value)),
-      },
-    });
-  });
 
   afterEach(() => {
     if (root) {

@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { SubmissionOutcomeRecordSchema } from "./application-authority";
 import {
   IsoDateTimeSchema,
   JobSourceSchema,
@@ -104,6 +105,15 @@ export const applyBlockerReasonValues = [
   "provider_submit_auth_unavailable",
   "submit_confirmation_missing",
   "unexpected_navigation",
+  // Technical failure: the employer page never opened, so the application
+  // never began and this reason is excluded from begun daily capacity.
+  // Token intentionally mirrors the blocker code one-to-one.
+  "application_page_unreachable",
+  // ADR 0013 terminal uncertainty: the final-submission attempt could not be
+  // externally proven as submitted or not_submitted. Automatic retry is
+  // permanently blocked for the bound idempotency key; a human must verify
+  // employer-site state before anything else happens.
+  "submission_outcome_uncertain",
 ] as const;
 export const ApplyBlockerReasonSchema = z.enum(applyBlockerReasonValues);
 export type ApplyBlockerReason = z.infer<typeof ApplyBlockerReasonSchema>;
@@ -389,25 +399,73 @@ export type ApplicationPrivacyExternalWriteEvidence = z.infer<
   typeof ApplicationPrivacyExternalWriteEvidenceSchema
 >;
 
-export const ApplicationPrivacyReceiptSchema = z.object({
-  schemaVersion: z.literal(1).default(1),
-  generatedAt: IsoDateTimeSchema,
-  lineage: z.object({
-    runId: NonEmptyStringSchema,
-    jobId: NonEmptyStringSchema,
-    resultId: NonEmptyStringSchema,
-  }),
-  destination: ApplicationPrivacyDestinationSchema,
-  resume: ApplicationPrivacyResumeIdentitySchema,
-  stayedLocal: z.array(ApplicationPrivacyLocalDataCategorySchema).default([]),
-  modelUse: z.array(ApplicationPrivacyModelUseEntrySchema).default([]),
-  externalWrites: z
-    .array(ApplicationPrivacyExternalWriteEvidenceSchema)
-    .default([]),
-  accountCreationAuthorized: z.boolean().default(false),
-  finalSubmitAuthorized: z.boolean().default(false),
-  finalSubmitOccurred: z.boolean().default(false),
-});
+export const ApplicationPrivacyReceiptSchema = z
+  .object({
+    schemaVersion: z.literal(1).default(1),
+    generatedAt: IsoDateTimeSchema,
+    lineage: z.object({
+      runId: NonEmptyStringSchema,
+      jobId: NonEmptyStringSchema,
+      resultId: NonEmptyStringSchema,
+      applicationRecordId: NonEmptyStringSchema.nullable().default(null),
+    }),
+    destination: ApplicationPrivacyDestinationSchema,
+    resume: ApplicationPrivacyResumeIdentitySchema,
+    stayedLocal: z.array(ApplicationPrivacyLocalDataCategorySchema).default([]),
+    modelUse: z.array(ApplicationPrivacyModelUseEntrySchema).default([]),
+    externalWrites: z
+      .array(ApplicationPrivacyExternalWriteEvidenceSchema)
+      .default([]),
+    accountCreationAuthorized: z.boolean().default(false),
+    finalSubmitAuthorized: z.boolean().default(false),
+    finalSubmitOccurred: z.boolean().default(false),
+    // ADR 0013 tri-state submission outcome. Null/absent keeps every legacy
+    // persisted receipt parsing unchanged; presence adds externally verified
+    // submission truth on top of the legacy attestations above, which stay
+    // authoritative for older records.
+    submissionOutcome: SubmissionOutcomeRecordSchema.nullable().default(null),
+  })
+  .superRefine((value, ctx) => {
+    const outcome = value.submissionOutcome;
+    if (!outcome) {
+      return;
+    }
+
+    if (
+      outcome.runId !== value.lineage.runId ||
+      outcome.jobId !== value.lineage.jobId ||
+      outcome.resultId !== value.lineage.resultId ||
+      outcome.applicationRecordId !== value.lineage.applicationRecordId
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Submission outcome lineage must exactly match the receipt lineage.",
+        path: ["submissionOutcome"],
+      });
+    }
+
+    if (outcome.outcome === "submitted" && value.finalSubmitOccurred !== true) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "An externally submitted outcome requires the matching finalSubmitOccurred attestation.",
+        path: ["finalSubmitOccurred"],
+      });
+    }
+
+    if (
+      outcome.outcome === "outcome_uncertain" &&
+      value.finalSubmitOccurred !== false
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "An uncertain submission outcome forbids claiming finalSubmitOccurred.",
+        path: ["finalSubmitOccurred"],
+      });
+    }
+  });
 export type ApplicationPrivacyReceipt = z.infer<
   typeof ApplicationPrivacyReceiptSchema
 >;
@@ -460,6 +518,7 @@ export const ApplicationPacketSchema = z
     }),
     result: z.object({
       id: NonEmptyStringSchema,
+      applicationRecordId: NonEmptyStringSchema.nullable().default(null),
       state: ApplyJobStateSchema,
       summary: NonEmptyStringSchema,
       detail: NonEmptyStringSchema,
@@ -503,13 +562,51 @@ export const ApplicationPacketSchema = z
       receiptLineage &&
       (receiptLineage.runId !== value.run.id ||
         receiptLineage.jobId !== value.job.id ||
-        receiptLineage.resultId !== value.result.id)
+        receiptLineage.resultId !== value.result.id ||
+        receiptLineage.applicationRecordId !== value.result.applicationRecordId)
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          "Packet privacy receipt lineage must match its run, job, and result.",
+          "Packet privacy receipt lineage must match its run, job, result, and application record.",
         path: ["privacyReceipt", "lineage"],
+      });
+    }
+
+    const submissionOutcome =
+      value.privacyReceipt?.submissionOutcome ?? null;
+    if (
+      submissionOutcome?.outcome === "outcome_uncertain" &&
+      value.submissionOccurred
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "An uncertain submission outcome forbids claiming submissionOccurred.",
+        path: ["submissionOccurred"],
+      });
+    }
+    if (
+      submissionOutcome?.outcome === "submitted" &&
+      !value.submissionOccurred
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "An externally submitted outcome must keep the packet submission claim.",
+        path: ["submissionOccurred"],
+      });
+    }
+    if (
+      submissionOutcome !== null &&
+      submissionOutcome.outcome !== "submitted" &&
+      value.result.state === "submitted"
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Only an externally submitted outcome may accompany a submitted result state.",
+        path: ["result", "state"],
       });
     }
   });
@@ -556,6 +653,7 @@ export const ApplicationQuestionRecordSchema = z.object({
   id: NonEmptyStringSchema,
   runId: NonEmptyStringSchema,
   jobId: NonEmptyStringSchema,
+  applicationRecordId: NonEmptyStringSchema.nullable().default(null),
   resultId: NonEmptyStringSchema.nullable().default(null),
   prompt: NonEmptyStringSchema,
   kind: ApplicationQuestionKindSchema.default("other"),
@@ -583,6 +681,7 @@ export const ApplicationAnswerRecordSchema = z.object({
   id: NonEmptyStringSchema,
   runId: NonEmptyStringSchema,
   jobId: NonEmptyStringSchema,
+  applicationRecordId: NonEmptyStringSchema.nullable().default(null),
   resultId: NonEmptyStringSchema.nullable().default(null),
   questionId: NonEmptyStringSchema,
   status: ApplicationAnswerRecordStatusSchema.default("suggested"),
@@ -649,6 +748,7 @@ export const ApplicationArtifactRefSchema = z.object({
   id: NonEmptyStringSchema,
   runId: NonEmptyStringSchema,
   jobId: NonEmptyStringSchema,
+  applicationRecordId: NonEmptyStringSchema.nullable().default(null),
   resultId: NonEmptyStringSchema.nullable().default(null),
   questionId: NonEmptyStringSchema.nullable().default(null),
   kind: ApplicationArtifactKindSchema.default("other"),
@@ -670,6 +770,7 @@ export const ApplicationReplayCheckpointSchema = z.object({
   id: NonEmptyStringSchema,
   runId: NonEmptyStringSchema,
   jobId: NonEmptyStringSchema,
+  applicationRecordId: NonEmptyStringSchema.nullable().default(null),
   resultId: NonEmptyStringSchema.nullable().default(null),
   createdAt: IsoDateTimeSchema,
   label: NonEmptyStringSchema,
@@ -691,6 +792,7 @@ export const ApplicationConsentRequestSchema = z.object({
   id: NonEmptyStringSchema,
   runId: NonEmptyStringSchema,
   jobId: NonEmptyStringSchema,
+  applicationRecordId: NonEmptyStringSchema.nullable().default(null),
   resultId: NonEmptyStringSchema.nullable().default(null),
   kind: ApplyConsentRequestKindSchema.default("manual_verification"),
   linkedConsentKind: ApplicationConsentKindSchema.nullable().default(null),
@@ -705,31 +807,69 @@ export type ApplicationConsentRequest = z.infer<
   typeof ApplicationConsentRequestSchema
 >;
 
-export const ApplyJobResultSchema = z.object({
-  id: NonEmptyStringSchema,
-  runId: NonEmptyStringSchema,
-  jobId: NonEmptyStringSchema,
-  queuePosition: z.number().int().nonnegative().default(0),
-  state: ApplyJobStateSchema.default("planned"),
-  summary: NonEmptyStringSchema,
-  detail: NonEmptyStringSchema,
-  startedAt: IsoDateTimeSchema,
-  updatedAt: IsoDateTimeSchema,
-  completedAt: IsoDateTimeSchema.nullable().default(null),
-  blockerReason: ApplyBlockerReasonSchema.nullable().default(null),
-  blockerSummary: NonEmptyStringSchema.nullable().default(null),
-  listingSignalEvidence:
-    ApplicationListingSignalEvidenceSchema.nullable().default(null),
-  visualObservationSets: z.array(BrowserVisualObservationSetSchema).default([]),
-  visualCheckpoints: z.array(ApplyVisualCheckpointSchema).default([]),
-  latestQuestionCount: z.number().int().nonnegative().default(0),
-  latestAnswerCount: z.number().int().nonnegative().default(0),
-  pendingConsentRequestCount: z.number().int().nonnegative().default(0),
-  artifactCount: z.number().int().nonnegative().default(0),
-  latestCheckpointId: NonEmptyStringSchema.nullable().default(null),
-  lastUserActionResumptionId: NonEmptyStringSchema.optional(),
-  privacyReceipt: ApplicationPrivacyReceiptSchema.nullable().default(null),
-});
+const ApplicationPreparationStartedLocalDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Preparation local date must use YYYY-MM-DD.")
+  .refine((value) => {
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    return (
+      Number.isFinite(parsed.getTime()) &&
+      parsed.toISOString().slice(0, 10) === value
+    );
+  }, "Preparation local date must be a real calendar date.");
+
+export const ApplyJobResultSchema = z
+  .object({
+    id: NonEmptyStringSchema,
+    runId: NonEmptyStringSchema,
+    jobId: NonEmptyStringSchema,
+    applicationRecordId: NonEmptyStringSchema.nullable().default(null),
+    queuePosition: z.number().int().nonnegative().default(0),
+    state: ApplyJobStateSchema.default("planned"),
+    summary: NonEmptyStringSchema,
+    detail: NonEmptyStringSchema,
+    startedAt: IsoDateTimeSchema,
+    updatedAt: IsoDateTimeSchema,
+    completedAt: IsoDateTimeSchema.nullable().default(null),
+    applicationPreparationStartedAt: IsoDateTimeSchema.nullable().optional(),
+    applicationPreparationStartedLocalDate:
+      ApplicationPreparationStartedLocalDateSchema.nullable().optional(),
+    blockerReason: ApplyBlockerReasonSchema.nullable().default(null),
+    blockerSummary: NonEmptyStringSchema.nullable().default(null),
+    listingSignalEvidence:
+      ApplicationListingSignalEvidenceSchema.nullable().default(null),
+    visualObservationSets: z
+      .array(BrowserVisualObservationSetSchema)
+      .default([]),
+    visualCheckpoints: z.array(ApplyVisualCheckpointSchema).default([]),
+    latestQuestionCount: z.number().int().nonnegative().default(0),
+    latestAnswerCount: z.number().int().nonnegative().default(0),
+    pendingConsentRequestCount: z.number().int().nonnegative().default(0),
+    artifactCount: z.number().int().nonnegative().default(0),
+    latestCheckpointId: NonEmptyStringSchema.nullable().default(null),
+    lastUserActionResumptionId: NonEmptyStringSchema.optional(),
+    privacyReceipt: ApplicationPrivacyReceiptSchema.nullable().default(null),
+  })
+  .superRefine((value, ctx) => {
+    const hasStartedAt = value.applicationPreparationStartedAt !== undefined;
+    const hasStartedLocalDate =
+      value.applicationPreparationStartedLocalDate !== undefined;
+    const bothNull =
+      value.applicationPreparationStartedAt === null &&
+      value.applicationPreparationStartedLocalDate === null;
+    const bothSet =
+      typeof value.applicationPreparationStartedAt === "string" &&
+      typeof value.applicationPreparationStartedLocalDate === "string";
+
+    if ((hasStartedAt || hasStartedLocalDate) && !bothNull && !bothSet) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Preparation start timestamp and local date must both be null or both be set.",
+        path: ["applicationPreparationStartedAt"],
+      });
+    }
+  });
 export type ApplyJobResult = z.infer<typeof ApplyJobResultSchema>;
 export type ApplyJobResultInput = z.input<typeof ApplyJobResultSchema>;
 

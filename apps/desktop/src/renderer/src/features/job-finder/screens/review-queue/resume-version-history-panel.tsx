@@ -161,6 +161,7 @@ export function ResumeVersionHistoryPanel(props: {
       {sortedRevisions.length > 0 ? (
         <CollectionSearchToolbar
           className="px-3"
+          compact
           label="Find a version"
           onQueryChange={(query) => {
             view.setQuery(query);
@@ -180,7 +181,7 @@ export function ResumeVersionHistoryPanel(props: {
 
             return (
               <article
-                className="grid gap-2 rounded-(--radius-field) border border-(--field-border) bg-(--field) p-3"
+                className="grid gap-2 rounded-(--radius-field) border border-(--surface-well-border) bg-(--surface-well) p-3"
                 data-resume-revision-row
                 key={revision.id}
               >

@@ -16,7 +16,73 @@ import {
   profileSelectTriggerClassName,
 } from "./profile-form-primitives";
 import { ProfileListEditor } from "./profile-list-editor";
+import {
+  PROFILE_SECTION_SCROLL_AREA_ID,
+  computeProfileDeepLinkScrollTop,
+  resolveProfileDeepLinkClearancePx,
+  resolveProfileScrollChromeMode,
+} from "./profile-deep-link-focus";
 import { ProfileSectionHeader } from "./profile-section-header";
+
+const EXPECTED_SALARY_ANSWER_FIELD_ID = "profile-expected-salary-answer";
+const EXPECTED_SALARY_ANSWER_FIELD_WRAPPER_ID =
+  "profile-expected-salary-answer-field";
+
+function setElementScrollTop(element: HTMLElement, top: number) {
+  if (typeof element.scrollTo === "function") {
+    element.scrollTo({ behavior: "auto", left: 0, top });
+    return;
+  }
+
+  element.scrollTop = top;
+}
+
+function revealExpectedSalaryAnswerField(documentRef: Document = document) {
+  const answerFieldWrapper = documentRef.getElementById(
+    EXPECTED_SALARY_ANSWER_FIELD_WRAPPER_ID,
+  );
+  const answerField = documentRef.getElementById(
+    EXPECTED_SALARY_ANSWER_FIELD_ID,
+  );
+
+  if (
+    !(answerFieldWrapper instanceof HTMLElement) ||
+    !(answerField instanceof HTMLElement)
+  ) {
+    return;
+  }
+
+  const view = documentRef.defaultView;
+
+  if (
+    !view ||
+    resolveProfileScrollChromeMode(view.innerWidth) !== "internal-scroller"
+  ) {
+    answerFieldWrapper.scrollIntoView({ behavior: "auto", block: "center" });
+    answerField.focus({ preventScroll: true });
+    return;
+  }
+
+  const sectionScroller = documentRef.getElementById(
+    PROFILE_SECTION_SCROLL_AREA_ID,
+  );
+
+  if (!(sectionScroller instanceof HTMLElement)) {
+    return;
+  }
+
+  setElementScrollTop(
+    sectionScroller,
+    computeProfileDeepLinkScrollTop({
+      anchorViewportTopPx: sectionScroller.getBoundingClientRect().top,
+      clearanceBelowAnchorPx:
+        resolveProfileDeepLinkClearancePx("internal-scroller"),
+      scrollerScrollTopPx: sectionScroller.scrollTop,
+      targetViewportTopPx: answerFieldWrapper.getBoundingClientRect().top,
+    }),
+  );
+  answerField.focus({ preventScroll: true });
+}
 
 export function ProfilePreferencesTargetingSection(props: {
   preferencesForm: UseFormReturn<SearchPreferencesEditorValues>;
@@ -195,16 +261,19 @@ export function ProfilePreferencesTargetingSection(props: {
               className="font-medium text-foreground underline decoration-foreground/35 underline-offset-4 hover:decoration-foreground"
               href="#profile-expected-salary-answer-field"
               onClick={(event) => {
-                const salaryAnswerField = document.getElementById(
-                  "profile-expected-salary-answer",
-                );
-                if (!salaryAnswerField) {
+                const isUnmodifiedPrimaryActivation =
+                  event.button === 0 &&
+                  !event.altKey &&
+                  !event.ctrlKey &&
+                  !event.metaKey &&
+                  !event.shiftKey;
+
+                if (!isUnmodifiedPrimaryActivation) {
                   return;
                 }
 
                 event.preventDefault();
-                salaryAnswerField.scrollIntoView({ block: "center" });
-                salaryAnswerField.focus({ preventScroll: true });
+                revealExpectedSalaryAnswerField();
               }}
             >
               Reusable screener answers

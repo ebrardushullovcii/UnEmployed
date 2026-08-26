@@ -7,8 +7,8 @@ import type {
  * Client-side mirror of the deterministic safeguard gate used for badges and
  * the task center. The renderer cannot import the job-finder package, so this
  * counts active (non-dismissed) blockers with the same semantics: only the
- * latest signal per job counts, contradictions stay advisory but are still
- * surfaced, and dismissals suppress entries. Counts are presentation-only;
+ * latest signal per job counts, contradictions stay advisory and do not count
+ * as blockers, and dismissals suppress entries. Counts are presentation-only;
  * the authoritative gate lives in the workspace service.
  */
 export function countActiveSafeguardBlockers(
@@ -66,15 +66,6 @@ export function countActiveSafeguardBlockers(
     if (
       !review.reviewCompleted &&
       !dismissed("batch_sample_review_pending", review.id)
-    ) {
-      count += 1;
-    }
-  }
-
-  for (const detection of safeguards.contradictoryAnswerDetections) {
-    if (
-      detection.status === "detected" &&
-      !dismissed("contradictory_answer", detection.id)
     ) {
       count += 1;
     }

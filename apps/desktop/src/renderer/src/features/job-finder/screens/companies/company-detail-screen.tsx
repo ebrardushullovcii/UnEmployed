@@ -7,8 +7,13 @@ import type {
   CompanyNote,
   CompanyPreference,
   CompanySalaryOfferEvidence,
+  DiscoveryJobView,
   ReviewCompanyMergeInput,
   SavedJob,
+} from "@unemployed/contracts";
+import {
+  isGenericCompanyName,
+  normalizeCompanyName,
 } from "@unemployed/contracts";
 import {
   projectCompanyApplicationHistory,
@@ -20,9 +25,14 @@ import { Button } from "@renderer/components/ui/button";
 import { Input } from "@renderer/components/ui/input";
 import { EmptyState } from "../../components/empty-state";
 import { StatusBadge } from "../../components/status-badge";
-import { formatStatusLabel } from "../../lib/job-finder-utils";
+import {
+  formatStatusLabel,
+  getPostedDateLabel,
+} from "../../lib/job-finder-utils";
+import { presentListingActivity } from "../../lib/listing-activity-presentation";
 import {
   companyPreferenceLabels,
+  companyPreferenceScopeDescription,
   companySalaryOfferEvidenceKindLabels,
   describeCompanySalaryOfferEvidence,
 } from "./company-presentation";
@@ -59,11 +69,11 @@ function SectionCard(props: {
   title: string;
 }) {
   return (
-    <section className="surface-card-tint grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
-      <div>
+    <section className="surface-card-tint grid content-start gap-2 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-3">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
         <h2 className="font-semibold text-(--text-headline)">{props.title}</h2>
         {props.description ? (
-          <p className="mt-1 text-(length:--text-small) leading-5 text-foreground-soft">
+          <p className="text-(length:--text-tiny) leading-4 text-foreground-muted">
             {props.description}
           </p>
         ) : null}
@@ -73,7 +83,18 @@ function SectionCard(props: {
   );
 }
 
-function JobRow(props: { job: SavedJob; onOpen: (jobId: string) => void }) {
+type CompanyDetailJob = SavedJob &
+  Partial<Pick<DiscoveryJobView, "listingActivity">>;
+
+function JobRow(props: {
+  job: CompanyDetailJob;
+  onOpen: (jobId: string) => void;
+}) {
+  const listingDate = getPostedDateLabel(props.job);
+  const activity = presentListingActivity(
+    props.job.listingActivity ?? { status: "unknown" },
+  );
+
   return (
     <li className="flex flex-wrap items-center justify-between gap-2 rounded-(--radius-field) border border-border-subtle px-3 py-2">
       <div className="grid min-w-0 flex-1 gap-0.5">
@@ -81,11 +102,19 @@ function JobRow(props: { job: SavedJob; onOpen: (jobId: string) => void }) {
           {props.job.title}
         </p>
         <p className="text-(length:--text-tiny) text-foreground-muted">
-          {props.job.location} · {formatStatusLabel(props.job.status)}
-          {props.job.postedAt
-            ? ` · Posted ${props.job.postedAt.slice(0, 10)}`
+          {props.job.location} · Workflow: {formatStatusLabel(props.job.status)}
+          {props.job.postedAt ||
+          props.job.postedAtText ||
+          props.job.providerUpdatedAt
+            ? ` · ${listingDate.label} ${listingDate.value}`
             : ""}
         </p>
+        <div className="mt-1 flex min-w-0 flex-wrap items-start gap-2">
+          <StatusBadge tone={activity.tone}>{activity.label}</StatusBadge>
+          <p className="min-w-0 flex-1 break-words text-(length:--text-tiny) leading-5 text-foreground-muted">
+            {activity.description}
+          </p>
+        </div>
       </div>
       <Button
         onClick={() => props.onOpen(props.job.id)}
@@ -93,7 +122,7 @@ function JobRow(props: { job: SavedJob; onOpen: (jobId: string) => void }) {
         type="button"
         variant="ghost"
       >
-        Open
+        Open job
       </Button>
     </li>
   );
@@ -120,7 +149,7 @@ function ApplicationRow(props: {
         type="button"
         variant="ghost"
       >
-        Open
+        Open application
       </Button>
     </li>
   );
@@ -162,12 +191,13 @@ function ContactsSection(props: {
         expectedUpdatedAt: props.company.updatedAt,
         mutation: { type: "upsert_contact", contact },
       })
-      .then(reset);
+      .then(reset)
+      .catch(() => {});
   };
 
   return (
     <SectionCard
-      description="People you have spoken with or plan to contact at this employer. These are local tracking facts only."
+      description="People you have contacted or plan to contact."
       title="Contacts"
     >
       {props.company.contacts.length > 0 ? (
@@ -204,14 +234,16 @@ function ContactsSection(props: {
                 <Button
                   aria-label={`Remove contact ${contact.name}`}
                   onClick={() =>
-                    void props.onMutate({
-                      companyId: props.company.id,
-                      expectedUpdatedAt: props.company.updatedAt,
-                      mutation: {
-                        type: "remove_contact",
-                        contactId: contact.id,
-                      },
-                    })
+                    void props
+                      .onMutate({
+                        companyId: props.company.id,
+                        expectedUpdatedAt: props.company.updatedAt,
+                        mutation: {
+                          type: "remove_contact",
+                          contactId: contact.id,
+                        },
+                      })
+                      .catch(() => {})
                   }
                   size="sm"
                   type="button"
@@ -324,14 +356,12 @@ function NotesSection(props: {
         expectedUpdatedAt: props.company.updatedAt,
         mutation: { type: "add_note", note },
       })
-      .then(() => setBody(""));
+      .then(() => setBody(""))
+      .catch(() => {});
   };
 
   return (
-    <SectionCard
-      description="Private notes about this employer and your activity with them."
-      title="Notes"
-    >
+    <SectionCard description="Private notes about this employer." title="Notes">
       {props.company.notes.length > 0 ? (
         <ul className="grid gap-2">
           {props.company.notes.map((note) => (
@@ -346,11 +376,13 @@ function NotesSection(props: {
                 aria-label="Remove note"
                 className="shrink-0"
                 onClick={() =>
-                  void props.onMutate({
-                    companyId: props.company.id,
-                    expectedUpdatedAt: props.company.updatedAt,
-                    mutation: { type: "remove_note", noteId: note.id },
-                  })
+                  void props
+                    .onMutate({
+                      companyId: props.company.id,
+                      expectedUpdatedAt: props.company.updatedAt,
+                      mutation: { type: "remove_note", noteId: note.id },
+                    })
+                    .catch(() => {})
                 }
                 size="sm"
                 type="button"
@@ -392,13 +424,78 @@ function NotesSection(props: {
   );
 }
 
+function normalizeCompanyDomain(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/\.+$/u, "")
+    .replace(/^www\./u, "");
+}
+
+function resolveCurrentCompanyId(
+  companies: readonly CompanyEntity[],
+  job: SavedJob,
+): string | null {
+  const name = normalizeCompanyName(job.company);
+  if (!name || isGenericCompanyName(name)) {
+    return null;
+  }
+
+  const nameMatches = companies.filter(
+    (company) =>
+      normalizeCompanyName(company.canonicalName) === name ||
+      company.aliases.some(
+        (alias) =>
+          alias.identityAuthority === "user_approved_merge" &&
+          alias.normalized === name,
+      ),
+  );
+  if (nameMatches.length !== 1) {
+    return null;
+  }
+
+  const domainMatches = job.employerDomain?.trim()
+    ? companies.filter((company) =>
+        company.domains.some(
+          (candidate) =>
+            normalizeCompanyDomain(candidate.domain) ===
+            normalizeCompanyDomain(job.employerDomain!),
+        ),
+      )
+    : [];
+
+  if (
+    domainMatches.length === 1 &&
+    domainMatches[0]!.id !== nameMatches[0]!.id
+  ) {
+    return null;
+  }
+  return nameMatches[0]!.id;
+}
+
 function EvidenceSection(props: {
+  applicationRecords: readonly ApplicationRecord[];
+  companies: readonly CompanyEntity[];
   company: CompanyEntity;
+  jobs: readonly SavedJob[];
   isPending: boolean;
   onMutate: (command: CompanyIntelligenceMutationInput) => Promise<void>;
 }) {
   const [draft, setDraft] = useState<Partial<CompanySalaryOfferEvidence>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
+  const companyJobs = props.jobs.filter(
+    (job) =>
+      props.company.jobIds.includes(job.id) &&
+      resolveCurrentCompanyId(props.companies, job) === props.company.id,
+  );
+  const selectedJobId = draft.jobId ?? "";
+  const applicationRecords = props.applicationRecords.filter(
+    (record) =>
+      record.jobId === selectedJobId &&
+      props.company.applicationRecordIds.includes(record.id),
+  );
+  const requiresJob = draft.kind === "listed_salary" || draft.kind === "offer";
+  const requiresApplication = draft.kind === "offer";
   const reset = () => {
     setDraft({});
     setEditingId(null);
@@ -406,6 +503,10 @@ function EvidenceSection(props: {
   const startEdit = (evidence: CompanySalaryOfferEvidence) => {
     setEditingId(evidence.id);
     setDraft({ ...evidence });
+  };
+  const actionContext = (evidence: CompanySalaryOfferEvidence) => {
+    const job = props.jobs.find((entry) => entry.id === evidence.jobId);
+    return `${companySalaryOfferEvidenceKindLabels[evidence.kind]} "${evidence.summary}" for ${props.company.canonicalName}${job ? `, ${job.title}` : ""}; ${describeCompanySalaryOfferEvidence(evidence)}; recorded ${evidence.recordedAt.slice(0, 10)}`;
   };
 
   const save = () => {
@@ -433,12 +534,13 @@ function EvidenceSection(props: {
         expectedUpdatedAt: props.company.updatedAt,
         mutation: { type: "upsert_salary_offer_evidence", evidence },
       })
-      .then(reset);
+      .then(reset)
+      .catch(() => {});
   };
 
   return (
     <SectionCard
-      description="Salary ranges, offers, and benefits you have seen or received. Amounts require an explicit currency; unknown currency stays neutral and is never inferred."
+      description="Ranges, offers, and benefits you have seen or received."
       title="Salary / offer evidence"
     >
       {props.company.salaryOfferEvidence.length > 0 ? (
@@ -471,6 +573,7 @@ function EvidenceSection(props: {
               </div>
               <div className="flex shrink-0 gap-1">
                 <Button
+                  aria-label={`Edit ${actionContext(evidence)}`}
                   onClick={() => startEdit(evidence)}
                   size="sm"
                   type="button"
@@ -479,16 +582,18 @@ function EvidenceSection(props: {
                   Edit
                 </Button>
                 <Button
-                  aria-label="Remove salary or offer evidence"
+                  aria-label={`Remove ${actionContext(evidence)}`}
                   onClick={() =>
-                    void props.onMutate({
-                      companyId: props.company.id,
-                      expectedUpdatedAt: props.company.updatedAt,
-                      mutation: {
-                        type: "remove_salary_offer_evidence",
-                        evidenceId: evidence.id,
-                      },
-                    })
+                    void props
+                      .onMutate({
+                        companyId: props.company.id,
+                        expectedUpdatedAt: props.company.updatedAt,
+                        mutation: {
+                          type: "remove_salary_offer_evidence",
+                          evidenceId: evidence.id,
+                        },
+                      })
+                      .catch(() => {})
                   }
                   size="sm"
                   type="button"
@@ -502,8 +607,8 @@ function EvidenceSection(props: {
         </ul>
       ) : (
         <p className="text-(length:--text-small) text-foreground-soft">
-          No salary or offer evidence recorded yet. Offers here are local
-          tracking facts and never affect submission authority.
+          No salary or offer evidence recorded yet. Offers are local facts and
+          never grant submission authority.
         </p>
       )}
 
@@ -524,7 +629,7 @@ function EvidenceSection(props: {
         <label className="grid gap-1 text-sm">
           <span>Kind</span>
           <select
-            className="h-10 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
+            className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             onChange={(event) =>
               setDraft((current) => ({
                 ...current,
@@ -593,7 +698,7 @@ function EvidenceSection(props: {
         <label className="grid gap-1 text-sm">
           <span>Period</span>
           <select
-            className="h-10 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
+            className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             onChange={(event) =>
               setDraft((current) => ({
                 ...current,
@@ -615,7 +720,7 @@ function EvidenceSection(props: {
         <label className="grid gap-1 text-sm">
           <span>Offer status</span>
           <select
-            className="h-10 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
+            className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             onChange={(event) =>
               setDraft((current) => ({
                 ...current,
@@ -637,19 +742,57 @@ function EvidenceSection(props: {
           </select>
         </label>
         <label className="grid gap-1 text-sm sm:col-span-2">
-          <span>Job or application link (optional)</span>
-          <Input
+          <span>Job{requiresJob ? " (required)" : " (optional)"}</span>
+          <select
+            aria-label="Evidence job"
+            className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             onChange={(event) =>
               setDraft((current) => ({
                 ...current,
-                jobId: event.target.value,
+                jobId: event.target.value || null,
                 applicationRecordId: null,
               }))
             }
-            placeholder="job_ready"
-            value={draft.jobId ?? ""}
-          />
+            value={selectedJobId}
+          >
+            <option value="">No job selected</option>
+            {companyJobs.map((job) => (
+              <option key={job.id} value={job.id}>
+                {job.title} ({job.id})
+              </option>
+            ))}
+          </select>
         </label>
+        {selectedJobId ? (
+          <label className="grid gap-1 text-sm sm:col-span-2">
+            <span>
+              Application record
+              {requiresApplication ? " (required for offers)" : " (optional)"}
+            </span>
+            <select
+              aria-label="Evidence application record"
+              className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  applicationRecordId: event.target.value || null,
+                }))
+              }
+              value={draft.applicationRecordId ?? ""}
+            >
+              <option value="">
+                {applicationRecords.length === 0
+                  ? "No application records for this job"
+                  : "Job only (not application-derived)"}
+              </option>
+              {applicationRecords.map((record) => (
+                <option key={record.id} value={record.id}>
+                  {record.title} · {record.status} ({record.id})
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         <div className="flex justify-end gap-2 sm:col-span-2">
           {editingId ? (
             <Button onClick={reset} size="sm" type="button" variant="ghost">
@@ -657,7 +800,12 @@ function EvidenceSection(props: {
             </Button>
           ) : null}
           <Button
-            disabled={!draft.summary?.trim() || props.isPending}
+            disabled={
+              !draft.summary?.trim() ||
+              props.isPending ||
+              (requiresJob && !selectedJobId) ||
+              (requiresApplication && !draft.applicationRecordId)
+            }
             onClick={save}
             pending={props.isPending}
             size="sm"
@@ -682,17 +830,12 @@ function MergeReviewSection(props: {
   );
 
   if (pending.length === 0) {
-    return (
-      <SectionCard
-        description="No ambiguous identities are waiting for this employer."
-        title="Duplicate employer review"
-      />
-    );
+    return null;
   }
 
   return (
     <SectionCard
-      description="These companies may be the same employer. Merge only when you are certain; merging preserves every alias, job, application, contact, note, and evidence record."
+      description="Merge only when certain; every alias, job, application, contact, note, and evidence record is preserved."
       title="Duplicate employer review"
     >
       <ul className="grid gap-2">
@@ -796,6 +939,7 @@ export function CompanyDetailScreen(props: CompanyDetailScreenProps) {
             ? error.message
             : "The company change could not be saved. Refresh and try again.",
         );
+        throw error;
       });
   };
 
@@ -809,12 +953,22 @@ export function CompanyDetailScreen(props: CompanyDetailScreenProps) {
   }
 
   return (
-    <section className="grid gap-5 pb-8">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <section className="grid content-start gap-4 pb-8">
+      <header className="surface-panel-shell flex flex-wrap items-center gap-x-4 gap-y-2 rounded-(--radius-panel) border border-(--surface-panel-border) px-4 py-3">
         <Button onClick={props.onBack} size="sm" type="button" variant="ghost">
-          <ArrowLeft aria-hidden="true" className="mr-1 size-4" />
+          <ArrowLeft aria-hidden="true" className="size-4" />
           All companies
         </Button>
+        <div className="grid min-w-0 flex-1 gap-0.5">
+          <h1 className="min-w-0 break-words text-lg font-semibold tracking-[-0.03em] text-(--text-headline)">
+            {company.canonicalName}
+          </h1>
+          {company.domains.length > 0 ? (
+            <p className="min-w-0 break-all text-(length:--text-tiny) text-foreground-muted">
+              {company.domains.map((domain) => domain.domain).join(", ")}
+            </p>
+          ) : null}
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           {props.activeCapLimitReached ? (
             <StatusBadge tone="critical">Application cap reached</StatusBadge>
@@ -822,10 +976,6 @@ export function CompanyDetailScreen(props: CompanyDetailScreenProps) {
           <StatusBadge tone="neutral">
             {company.aliases.length} alias
             {company.aliases.length === 1 ? "" : "es"}
-          </StatusBadge>
-          <StatusBadge tone="neutral">
-            {company.sourceHistory.length} source
-            {company.sourceHistory.length === 1 ? "" : "s"}
           </StatusBadge>
           {props.activeCapLimitReached && props.onOpenSafeguards ? (
             <Button
@@ -838,7 +988,41 @@ export function CompanyDetailScreen(props: CompanyDetailScreenProps) {
             </Button>
           ) : null}
         </div>
-      </div>
+        <div className="grid shrink-0 gap-1">
+          <label className="flex items-center gap-2 text-sm">
+            <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-badge) text-foreground-muted">
+              Company tracking
+            </span>
+            <select
+              aria-describedby="company-preference-scope"
+              aria-label={`Company tracking preference for ${company.canonicalName}`}
+              className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-2 text-sm outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+              disabled={props.isPreferencePending(company.id)}
+              onChange={(event) =>
+                void props.onSetCompanyPreference({
+                  companyId: company.id,
+                  preference: event.target.value as CompanyPreference,
+                })
+              }
+              value={company.preference}
+            >
+              {(
+                Object.keys(companyPreferenceLabels) as CompanyPreference[]
+              ).map((preference) => (
+                <option key={preference} value={preference}>
+                  {companyPreferenceLabels[preference]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p
+            className="max-w-80 text-(length:--text-tiny) leading-4 text-foreground-muted"
+            id="company-preference-scope"
+          >
+            {companyPreferenceScopeDescription}
+          </p>
+        </div>
+      </header>
 
       {props.actionMessage ? (
         <p
@@ -862,52 +1046,6 @@ export function CompanyDetailScreen(props: CompanyDetailScreenProps) {
         </p>
       ) : null}
 
-      <header className="surface-panel-shell grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-5">
-        <div className="grid gap-1">
-          <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-            Company
-          </p>
-          <h1 className="min-w-0 break-words text-2xl font-semibold tracking-[-0.03em] text-(--text-headline)">
-            {company.canonicalName}
-          </h1>
-          {company.domains.length > 0 ? (
-            <p className="min-w-0 break-all text-(length:--text-small) text-foreground-soft">
-              {company.domains.map((domain) => domain.domain).join(", ")}
-            </p>
-          ) : null}
-        </div>
-        <label className="grid w-fit gap-1 text-sm">
-          <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-badge) text-foreground-muted">
-            Your preference
-          </span>
-          <select
-            aria-label={`Preference for ${company.canonicalName}`}
-            className="h-10 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
-            disabled={props.isPreferencePending(company.id)}
-            onChange={(event) =>
-              void props.onSetCompanyPreference({
-                companyId: company.id,
-                preference: event.target.value as CompanyPreference,
-              })
-            }
-            value={company.preference}
-          >
-            {(Object.keys(companyPreferenceLabels) as CompanyPreference[]).map(
-              (preference) => (
-                <option key={preference} value={preference}>
-                  {companyPreferenceLabels[preference]}
-                </option>
-              ),
-            )}
-          </select>
-          <span className="max-w-96 text-(length:--text-tiny) leading-5 text-foreground-muted">
-            Preference is a local tracking and ranking signal only. It never
-            grants submission authority and never changes what you have already
-            applied to.
-          </span>
-        </label>
-      </header>
-
       <MergeReviewSection
         company={company}
         companies={props.companies}
@@ -915,34 +1053,46 @@ export function CompanyDetailScreen(props: CompanyDetailScreenProps) {
         onReview={props.onReviewCompanyMerge}
       />
 
-      <div className="grid gap-5 xl:grid-cols-2">
+      <div className="grid gap-4 xl:grid-cols-2">
         <SectionCard
-          description={`${openings.currentCount} current and ${openings.previousCount} previous openings linked to this employer.`}
+          description={`${openings.lastSeenAvailableCount} last seen available · ${openings.needsVerificationCount} need verification · ${openings.reportedClosedCount} reported closed`}
           title={`Openings (${openings.totalCount})`}
         >
-          {openings.current.length > 0 ? (
+          {openings.lastSeenAvailable.length > 0 ? (
             <div className="grid gap-1">
               <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-badge) text-foreground-muted">
-                Current
+                Last seen available
               </p>
               <ul className="grid gap-2">
-                {openings.current.map((job) => (
+                {openings.lastSeenAvailable.map((job) => (
                   <JobRow job={job} key={job.id} onOpen={props.onOpenJob} />
                 ))}
               </ul>
             </div>
           ) : (
             <p className="text-(length:--text-small) text-foreground-soft">
-              No current openings.
+              No openings were last seen available.
             </p>
           )}
-          {openings.previous.length > 0 ? (
+          {openings.needsVerification.length > 0 ? (
             <div className="grid gap-1">
               <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-badge) text-foreground-muted">
-                Previous
+                Needs verification
               </p>
               <ul className="grid gap-2">
-                {openings.previous.map((job) => (
+                {openings.needsVerification.map((job) => (
+                  <JobRow job={job} key={job.id} onOpen={props.onOpenJob} />
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {openings.reportedClosed.length > 0 ? (
+            <div className="grid gap-1">
+              <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-badge) text-foreground-muted">
+                Reported closed
+              </p>
+              <ul className="grid gap-2">
+                {openings.reportedClosed.map((job) => (
                   <JobRow job={job} key={job.id} onOpen={props.onOpenJob} />
                 ))}
               </ul>
@@ -956,7 +1106,7 @@ export function CompanyDetailScreen(props: CompanyDetailScreenProps) {
         </SectionCard>
 
         <SectionCard
-          description={`${applicationHistory.totalCount} application records with local outcomes and stages.`}
+          description="Stage and outcome history tracked locally."
           title={`Applications (${applicationHistory.totalCount})`}
         >
           {applicationHistory.records.length > 0 ? (
@@ -971,14 +1121,13 @@ export function CompanyDetailScreen(props: CompanyDetailScreenProps) {
             </ul>
           ) : (
             <p className="text-(length:--text-small) text-foreground-soft">
-              No application records yet. Applications tracked in the CRM will
-              appear here with their stage and outcome history.
+              No application records yet.
             </p>
           )}
         </SectionCard>
 
         <SectionCard
-          description="Postings that look like repeats of each other. Exact matches share a posting id or URL; possible matches share weaker facts and are surfaced for your review, never auto-merged."
+          description="Repeat postings surfaced for your review, never auto-merged."
           title={`Duplicate jobs (${duplicateGroups.length})`}
         >
           {duplicateGroups.length > 0 ? (
@@ -1031,7 +1180,7 @@ export function CompanyDetailScreen(props: CompanyDetailScreenProps) {
         </SectionCard>
 
         <SectionCard
-          description="Every source or application system that contributed a job or application for this employer."
+          description="Sources that contributed jobs or applications."
           title={`Source history (${company.sourceHistory.length})`}
         >
           {company.sourceHistory.length > 0 ? (
@@ -1061,7 +1210,7 @@ export function CompanyDetailScreen(props: CompanyDetailScreenProps) {
         </SectionCard>
       </div>
 
-      <div className="grid gap-5">
+      <div className="grid gap-4">
         <ContactsSection
           company={company}
           isPending={props.isMutationPending(company.id)}
@@ -1073,7 +1222,10 @@ export function CompanyDetailScreen(props: CompanyDetailScreenProps) {
           onMutate={handleMutate}
         />
         <EvidenceSection
+          applicationRecords={props.applicationRecords}
+          companies={props.companies}
           company={company}
+          jobs={props.discoveryJobs}
           isPending={props.isMutationPending(company.id)}
           onMutate={handleMutate}
         />

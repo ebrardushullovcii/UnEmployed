@@ -6,7 +6,10 @@ import {
 } from "@unemployed/contracts";
 
 import { createJobFinderProductActionToolRegistry } from "./product-action-tools";
-import { createSeed, createWorkspaceServiceHarness } from "./workspace-service.test-support";
+import {
+  createSeed,
+  createWorkspaceServiceHarness,
+} from "./workspace-service.test-support";
 
 const now = "2026-08-10T12:00:00.000Z";
 
@@ -89,16 +92,25 @@ describe("Job Finder product action tools", () => {
     ]);
     expect(
       registry.definitions.every(
-        (definition) => definition.inputJsonSchema.additionalProperties === false,
+        (definition) =>
+          definition.inputJsonSchema.additionalProperties === false,
       ),
     ).toBe(true);
-    expect(registry.definitions.map((definition) => definition.name)).not.toEqual(
-      expect.arrayContaining(["final_submit", "create_account", "navigate", "read_file"]),
+    expect(
+      registry.definitions.map((definition) => definition.name),
+    ).not.toEqual(
+      expect.arrayContaining([
+        "final_submit",
+        "create_account",
+        "navigate",
+        "read_file",
+      ]),
     );
   });
 
   test("executes bounded reads with typed receipts and actual capability calls", async () => {
-    const { applyDetails, capabilities, registry } = await createCapabilityHarness();
+    const { applyDetails, capabilities, registry } =
+      await createCapabilityHarness();
 
     const summary = await registry.execute("get_workspace_summary", {});
     expect(summary).toMatchObject({
@@ -165,6 +177,91 @@ describe("Job Finder product action tools", () => {
     );
   });
 
+  test("forwards an explicit closed conflict without calling the shortlist mutation", async () => {
+    const { capabilities, registry } = await createCapabilityHarness();
+    const snapshot = await capabilities.getWorkspaceSnapshot();
+    capabilities.getWorkspaceSnapshot.mockResolvedValue({
+      ...snapshot,
+      discoveryJobs: snapshot.discoveryJobs.map((job) =>
+        job.id === "job_ready"
+          ? {
+              ...job,
+              listingActivity: {
+                status: "closed" as const,
+                observedAt: now,
+                signalId: "signal_closed",
+                provenance: "provider" as const,
+                explanation: "The provider explicitly closed the listing.",
+                detail: null,
+                confidence: 1,
+              },
+            }
+          : job,
+      ),
+    });
+
+    await expect(
+      registry.execute(
+        "shortlist_job",
+        { jobId: "job_ready" },
+        { confirmed: true },
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: "conflict",
+        message: "This listing is explicitly closed and cannot be shortlisted.",
+        retryable: false,
+      },
+    });
+    expect(capabilities.queueJobForReview).not.toHaveBeenCalled();
+  });
+
+  test.each(["stale", "inactive"] as const)(
+    "allows %s listing activity through the product-action shortlist gate",
+    async (status) => {
+      const { capabilities, registry } = await createCapabilityHarness();
+      const snapshot = await capabilities.getWorkspaceSnapshot();
+      capabilities.getWorkspaceSnapshot.mockResolvedValue({
+        ...snapshot,
+        discoveryJobs: snapshot.discoveryJobs.map((job) =>
+          job.id === "job_ready"
+            ? {
+                ...job,
+                listingActivity:
+                  status === "stale"
+                    ? {
+                        status,
+                        observedAt: now,
+                        signalId: "signal_stale",
+                        provenance: "browser" as const,
+                        explanation: "The listing may be stale.",
+                        detail: null,
+                        confidence: 0.8,
+                      }
+                    : {
+                        status,
+                        observedAt: now,
+                        ledgerEntryId: "ledger_inactive",
+                        provenance: "discovery_ledger" as const,
+                        explanation: "The latest inventory did not include it.",
+                      },
+              }
+            : job,
+        ),
+      });
+
+      await expect(
+        registry.execute(
+          "shortlist_job",
+          { jobId: "job_ready" },
+          { confirmed: true },
+        ),
+      ).resolves.toMatchObject({ ok: true });
+      expect(capabilities.queueJobForReview).toHaveBeenCalledWith("job_ready");
+    },
+  );
+
   test("opens only the existing scoped user action with all authority flags false", async () => {
     const { capabilities, registry } = await createCapabilityHarness();
 
@@ -197,10 +294,13 @@ describe("Job Finder product action tools", () => {
         profile: { ...seed.profile, yearsExperience: 6 },
       },
     });
-    const registry = createJobFinderProductActionToolRegistry(workspaceService, {
-      now: () => now,
-      createReceiptId: () => "receipt_proposal",
-    });
+    const registry = createJobFinderProductActionToolRegistry(
+      workspaceService,
+      {
+        now: () => now,
+        createReceiptId: () => "receipt_proposal",
+      },
+    );
 
     const result = await registry.execute("propose_profile_change", {
       request: "make my experience 7 years",
@@ -247,13 +347,18 @@ describe("Job Finder product action tools", () => {
       }),
     ).toMatchObject({
       ok: false,
-      error: { code: "invalid_input", message: "The product action input is invalid." },
+      error: {
+        code: "invalid_input",
+        message: "The product action input is invalid.",
+      },
     });
 
     capabilities.restoreDismissedDiscoveryJob.mockRejectedValueOnce(
       new Error("C:\\private\\workspace.sqlite failed unexpectedly"),
     );
-    const failed = await registry.execute("restore_job", { jobId: "job_ready" });
+    const failed = await registry.execute("restore_job", {
+      jobId: "job_ready",
+    });
     expect(failed).toMatchObject({
       ok: false,
       error: { code: "execution_failed" },

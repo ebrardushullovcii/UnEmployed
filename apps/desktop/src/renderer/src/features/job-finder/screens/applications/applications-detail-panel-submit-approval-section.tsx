@@ -1,4 +1,8 @@
-import type { ApplyRunDetails } from "@unemployed/contracts";
+import type {
+  ApplyRunDetails,
+  JobFinderApplyRunActionInput,
+  JobFinderExactApplicationTarget,
+} from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui";
 import {
   formatTimestamp,
@@ -11,9 +15,10 @@ export function ApplicationsDetailPanelSubmitApprovalSection(props: {
   approvalScopeEntries: readonly { jobId: string; label: string }[];
   isApplyRunPending: (runId: string) => boolean;
   isSelectedRunPending: boolean;
-  onApproveApplyRun: (runId: string) => void;
-  onCancelApplyRun: (runId: string) => void;
-  onRevokeApplyRunApproval: (runId: string) => void;
+  onApproveApplyRun: (input: JobFinderApplyRunActionInput) => void;
+  onCancelApplyRun: (input: JobFinderApplyRunActionInput) => void;
+  onRevokeApplyRunApproval: (input: JobFinderApplyRunActionInput) => void;
+  selectedApplicationTarget: JobFinderExactApplicationTarget;
   selectedApplyRunDetails: ApplyRunDetails | null;
 }) {
   const {
@@ -23,6 +28,7 @@ export function ApplicationsDetailPanelSubmitApprovalSection(props: {
     onApproveApplyRun,
     onCancelApplyRun,
     onRevokeApplyRunApproval,
+    selectedApplicationTarget,
     selectedApplyRunDetails,
   } = props;
 
@@ -36,12 +42,10 @@ export function ApplicationsDetailPanelSubmitApprovalSection(props: {
     <section className="surface-card-tint grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="grid gap-1">
-          <h3 className="label-mono-xs text-primary">
-            Safe application preparation
-          </h3>
+          <h3 className="label-mono-xs text-primary">Preparation approval</h3>
           <p className="text-(length:--text-small) leading-6 text-foreground-soft">
             Approve preparation for this exact run and its already approved
-            résumé choices. This does not authorize account creation or a final
+            resume choices. This does not authorize account creation or a final
             application submission.
           </p>
         </div>
@@ -91,16 +95,21 @@ export function ApplicationsDetailPanelSubmitApprovalSection(props: {
       ) : null}
       <div className="rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) px-3 py-3 text-(length:--text-small) leading-6 text-foreground-soft">
         Preparation approval applies only to these jobs and their current
-        approved résumé artifacts. Changing a job or résumé requires fresh
-        approval. You can revoke or cancel at any time. Final submission and
-        account creation remain disabled and always require a separate,
-        explicit user decision.
+        approved resume artifacts. Changing a job or resume requires fresh
+        approval. You can revoke or cancel at any time. Job Finder cannot create
+        accounts or submit applications. Review and submit on each employer site
+        yourself.
       </div>
       <div className="flex flex-wrap gap-2">
         {submitApproval.status === "pending" &&
         selectedApplyRunDetails.run.state === "awaiting_submit_approval" ? (
           <Button
-            onClick={() => onApproveApplyRun(submitApproval.runId)}
+            onClick={() =>
+              onApproveApplyRun({
+                ...selectedApplicationTarget,
+                runId: submitApproval.runId,
+              })
+            }
             pending={isApplyRunPending(submitApproval.runId)}
             type="button"
             variant="secondary"
@@ -116,7 +125,12 @@ export function ApplicationsDetailPanelSubmitApprovalSection(props: {
         selectedApplyRunDetails.run.state !== "cancelled" &&
         selectedApplyRunDetails.run.state !== "failed" ? (
           <Button
-            onClick={() => onRevokeApplyRunApproval(submitApproval.runId)}
+            onClick={() =>
+              onRevokeApplyRunApproval({
+                ...selectedApplicationTarget,
+                runId: submitApproval.runId,
+              })
+            }
             pending={isApplyRunPending(submitApproval.runId)}
             type="button"
             variant="ghost"
@@ -129,7 +143,12 @@ export function ApplicationsDetailPanelSubmitApprovalSection(props: {
         selectedApplyRunDetails.run.state !== "cancelled" &&
         selectedApplyRunDetails.run.state !== "failed" ? (
           <Button
-            onClick={() => onCancelApplyRun(selectedApplyRunDetails.run.id)}
+            onClick={() =>
+              onCancelApplyRun({
+                ...selectedApplicationTarget,
+                runId: selectedApplyRunDetails.run.id,
+              })
+            }
             pending={isSelectedRunPending}
             type="button"
             variant="ghost"

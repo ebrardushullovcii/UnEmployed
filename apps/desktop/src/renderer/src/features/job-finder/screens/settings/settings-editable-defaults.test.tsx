@@ -232,7 +232,10 @@ describe("SettingsEditableDefaults", () => {
     expect(button?.getAttribute("aria-busy")).toBe("true");
     expect(button?.getAttribute("data-pending")).toBe("true");
 
-    expect(button?.hasAttribute("disabled")).toBe(true);
+    // Pending keeps the save control exposed but inert instead of natively
+    // disabled, so focus survives the in-flight save.
+    expect(button?.hasAttribute("disabled")).toBe(false);
+    expect(button?.getAttribute("aria-disabled")).toBe("true");
 
     const disabledNonSaveControls = Array.from(
       container?.querySelectorAll("button, input, select, textarea") ?? [],
@@ -245,7 +248,7 @@ describe("SettingsEditableDefaults", () => {
     expect(disabledNonSaveControls.length).toBeGreaterThan(0);
   });
 
-  it("saves original-CV mode as an explicit application workflow choice", () => {
+  it("saves original-resume mode as an explicit application workflow choice", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -276,7 +279,7 @@ describe("SettingsEditableDefaults", () => {
     const originalCvChoice = Array.from(
       container.querySelectorAll("button"),
     ).find((button) =>
-      button.textContent?.includes("Use my original CV unchanged"),
+      button.textContent?.includes("Use my original resume unchanged"),
     );
     expect(originalCvChoice?.getAttribute("aria-checked")).toBe("false");
     expect(container.textContent).toContain("Saved default");
@@ -293,7 +296,7 @@ describe("SettingsEditableDefaults", () => {
     );
     const nearbySaveButton = Array.from(
       container.querySelectorAll("button"),
-    ).find((button) => button.textContent?.trim() === "Save CV preference");
+    ).find((button) => button.textContent?.trim() === "Save resume preference");
     expect(nearbySaveButton?.hasAttribute("disabled")).toBe(false);
     act(() => nearbySaveButton?.click());
 
@@ -305,7 +308,7 @@ describe("SettingsEditableDefaults", () => {
     );
   });
 
-  it("saves the complete staged form from the nearby CV control and reports typed save truth", () => {
+  it("saves the complete staged form from the nearby resume control and reports typed save truth", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -346,7 +349,7 @@ describe("SettingsEditableDefaults", () => {
     const originalCvChoice = Array.from(
       container.querySelectorAll("button"),
     ).find((button) =>
-      button.textContent?.includes("Use my original CV unchanged"),
+      button.textContent?.includes("Use my original resume unchanged"),
     );
     const keepBrowserOpen = container.querySelector<HTMLElement>(
       '[role="switch"][aria-describedby]',
@@ -364,7 +367,7 @@ describe("SettingsEditableDefaults", () => {
 
     const nearbySaveButton = Array.from(
       container.querySelectorAll("button"),
-    ).find((button) => button.textContent?.trim() === "Save CV preference");
+    ).find((button) => button.textContent?.trim() === "Save resume preference");
     expect(nearbySaveButton?.hasAttribute("disabled")).toBe(false);
 
     act(() => nearbySaveButton?.click());
@@ -389,14 +392,14 @@ describe("SettingsEditableDefaults", () => {
       true,
     );
 
-    expect(container.textContent).toContain("Saving CV preference");
+    expect(container.textContent).toContain("Saving resume preference");
     expect(
       container.querySelector('[data-settings-save-state="saving"]')
         ?.textContent,
     ).toContain("Saving settings");
     expect(
       Array.from(container.querySelectorAll("button"))
-        .find((button) => button.textContent?.includes("Saving CV preference"))
+        .find((button) => button.textContent?.includes("Saving resume preference"))
         ?.getAttribute("aria-busy"),
     ).toBe("true");
 
@@ -411,7 +414,7 @@ describe("SettingsEditableDefaults", () => {
     });
 
     const retryButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Retry CV preference",
+      (button) => button.textContent?.trim() === "Retry resume preference",
     );
     expect(retryButton?.hasAttribute("disabled")).toBe(false);
     expect(
@@ -426,7 +429,7 @@ describe("SettingsEditableDefaults", () => {
         attempt: 2,
         surface: "settings",
         label: "Settings",
-        message: "Settings saved. Your exact imported CV is now used.",
+        message: "Settings saved. Your exact imported resume is now used.",
         canRetry: false,
       },
       false,
@@ -438,16 +441,16 @@ describe("SettingsEditableDefaults", () => {
     );
 
     const savedButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "CV preference saved",
+      (button) => button.textContent?.trim() === "Resume preference saved",
     );
     expect(savedButton?.hasAttribute("disabled")).toBe(true);
     expect(
       container.querySelector('[data-settings-save-state="saved"]')
         ?.textContent,
-    ).toContain("exact imported CV");
+    ).toContain("exact imported resume");
   });
 
-  it("shows original-CV mode as the saved default after persistence", () => {
+  it("shows original-resume mode as the saved default after persistence", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -455,7 +458,7 @@ describe("SettingsEditableDefaults", () => {
     act(() => {
       root?.render(
         <SettingsEditableDefaults
-          actionMessage="Settings saved. Newly shortlisted jobs will start with your original CV unchanged."
+          actionMessage="Settings saved. Newly shortlisted jobs will start with your original resume unchanged."
           availableResumeTemplates={[resumeTemplateFixtures.classicAts]}
           isSavePending={false}
           onSaveSettings={vi.fn()}
@@ -478,24 +481,24 @@ describe("SettingsEditableDefaults", () => {
     const originalCvChoice = Array.from(
       container.querySelectorAll("button"),
     ).find((button) =>
-      button.textContent?.includes("Use my original CV unchanged"),
+      button.textContent?.includes("Use my original resume unchanged"),
     );
     expect(originalCvChoice?.getAttribute("aria-checked")).toBe("true");
     expect(container.textContent).toContain("Saved default · no rewriting");
     expect(container.textContent).toContain(
-      "Original CV is the saved application default.",
+      "Original resume is the saved application default.",
     );
     expect(container.textContent).toContain("Newly shortlisted jobs");
     expect(
       Array.from(container.querySelectorAll("button"))
-        .find((button) => button.textContent?.trim() === "Save CV preference")
+        .find((button) => button.textContent?.trim() === "Save resume preference")
         ?.hasAttribute("disabled"),
     ).toBe(true);
   });
-  it("describes original-CV safety without requiring a tailored PDF", () => {
+  it("describes original-resume safety without requiring a tailored PDF", () => {
     const copy = getApplySafeguardCopy(true);
-    expect(copy.title).toBe("Original CV required");
-    expect(copy.description).toContain("exact imported CV");
+    expect(copy.title).toBe("Original resume required");
+    expect(copy.description).toContain("exact imported resume");
     expect(copy.description).toContain("stops before final submit");
   });
 });

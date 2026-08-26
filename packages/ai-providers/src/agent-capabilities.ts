@@ -1,6 +1,7 @@
 import { runAgentTask, type AgentTaskModel } from "@unemployed/agent-runtime";
 import {
   ProfileCopilotPatchGroupSchema,
+  ProfileCopilotPatchOperationSchema,
   ProfileCompensationPreferencePatchFieldsSchema,
   ProfileCoreListPatchFieldsSchema,
   ProfileIdentityPatchFieldsSchema,
@@ -27,9 +28,6 @@ import { compactOpenAiCompatibleUserPayload } from "./openai-compatible-request-
 
 const EmptyInputSchema = z.object({});
 const ContentInputSchema = z.object({ content: z.string().trim().min(1) });
-const ProfilePatchGroupInputSchema = z.object({
-  patchGroup: ProfileCopilotPatchGroupSchema,
-});
 const ResumePatchInputSchema = z.object({ patch: ResumeDraftPatchSchema });
 const ResumeSectionTextInputSchema = z.object({
   sectionId: z.string().trim().min(1),
@@ -58,6 +56,10 @@ const SearchPreferenceFieldsInputSchema = profileOperationInputSchema(
 const CompensationFieldsInputSchema = profileOperationInputSchema(
   ProfileCompensationPreferencePatchFieldsSchema,
 );
+const ProfileOperationsInputSchema = z.object({
+  summary: z.string().trim().min(1),
+  operations: z.array(ProfileCopilotPatchOperationSchema).min(1),
+});
 
 function jsonObject(
   properties: Record<string, unknown>,
@@ -124,6 +126,22 @@ export async function runProfileCopilotAgentTask(input: {
     content: "I need to inspect the saved profile before proposing a change.",
     patchGroups: [],
   };
+  const createRuntimeOwnedPatchGroup = (
+    draft: ProfileCopilotReply,
+    summary: string,
+    operations: readonly ProfileCopilotPatchOperation[],
+  ): ProfileCopilotPatchGroup => {
+    const takenIds = new Set(draft.patchGroups.map((group) => group.id));
+    let index = draft.patchGroups.length + 1;
+    while (takenIds.has(`profile_proposal_${index}`)) index += 1;
+    return ProfileCopilotPatchGroupSchema.parse({
+      id: `profile_proposal_${index}`,
+      summary,
+      applyMode: "needs_review",
+      operations: [...operations],
+      createdAt: new Date().toISOString(),
+    });
+  };
   const addOperation = (
     draft: ProfileCopilotReply,
     summary: string,
@@ -132,13 +150,7 @@ export async function runProfileCopilotAgentTask(input: {
     ...draft,
     patchGroups: [
       ...draft.patchGroups,
-      ProfileCopilotPatchGroupSchema.parse({
-        id: `profile_proposal_${draft.patchGroups.length + 1}`,
-        summary,
-        applyMode: "needs_review",
-        operations: [operation],
-        createdAt: new Date().toISOString(),
-      }),
+      createRuntimeOwnedPatchGroup(draft, summary, [operation]),
     ],
   });
   const result = await runAgentTask({
@@ -146,7 +158,7 @@ export async function runProfileCopilotAgentTask(input: {
     capability: "profile_copilot",
     systemPrompt: [
       "You are the Profile Copilot. Work through the typed tools instead of returning a final JSON object.",
-      "Prefer the dedicated set_identity_fields, set_professional_summary_fields, set_profile_list_fields, set_search_preferences, and set_compensation_preferences tools. Use add_profile_patch_group only when no dedicated value-setting tool fits.",
+      "Use propose_profile_operations for profile edits: it is the universal path that accepts every schema-valid operation kind and wraps them into one needs_review group per call with runtime-assigned id, apply mode, and timestamp. The dedicated set_* tools remain as conveniences.",
       "Answer grounded questions directly. For edits, set helpful response content and add one or more bounded patch groups.",
       "Never invent experience, credentials, dates, compensation currency, or metrics. Broad or ambiguous edits need review.",
       "Call validate_profile_draft, repair every issue, then finish_task.",
@@ -325,29 +337,39 @@ export async function runProfileCopilotAgentTask(input: {
         },
       },
       {
-        name: "add_profile_patch_group",
+        name: "propose_profile_operations",
         description:
-          "Add one validated bounded profile patch group to the temporary proposal.",
-        inputSchema: ProfilePatchGroupInputSchema,
+          "Universal profile proposal path: submit one or more schema-valid profile patch operations of any kind (scalar or list field replacements, record upserts or removals, review resolutions) and the runtime wraps them into a single review-only patch group, assigning the id, needs_review apply mode, and timestamp itself.",
+        inputSchema: ProfileOperationsInputSchema,
         parameters: jsonObject(
-          { patchGroup: { type: "object", additionalProperties: true } },
-          ["patchGroup"],
+          {
+            summary: { type: "string" },
+            operations: {
+              type: "array",
+              minItems: 1,
+              items: { type: "object", additionalProperties: true },
+              description:
+                "Each entry carries an operation discriminator (for example replace_identity_fields, upsert_experience_record, remove_link_record, resolve_review_items) plus its payload: value, record, recordId, or reviewItemIds with resolutionStatus.",
+            },
+          },
+          ["summary", "operations"],
         ),
         permission: "draft_write",
         execute(toolInput, context) {
-          const parsed = ProfilePatchGroupInputSchema.parse(toolInput);
-          const patchGroup: ProfileCopilotPatchGroup = parsed.patchGroup;
+          const parsed = ProfileOperationsInputSchema.parse(toolInput);
           return {
             draft: {
               ...context.draft,
               patchGroups: [
-                ...context.draft.patchGroups.filter(
-                  (group) => group.id !== patchGroup.id,
+                ...context.draft.patchGroups,
+                createRuntimeOwnedPatchGroup(
+                  context.draft,
+                  parsed.summary,
+                  parsed.operations,
                 ),
-                patchGroup,
               ],
             },
-            summary: `Added profile proposal: ${patchGroup.summary}`,
+            summary: parsed.summary,
             progressMade: true,
           };
         },

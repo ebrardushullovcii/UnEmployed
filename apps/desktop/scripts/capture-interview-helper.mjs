@@ -16,20 +16,47 @@ const width = Number.parseInt(process.env.UI_CAPTURE_WIDTH ?? "1440", 10);
 const height = Number.parseInt(process.env.UI_CAPTURE_HEIGHT ?? "920", 10);
 const runLabel = process.env.UI_CAPTURE_LABEL ?? "interview-helper";
 const outputDir = path.join(desktopDir, "test-artifacts", "ui", runLabel);
-const providerMode =
-  process.env.UI_INTERVIEW_HELPER_PROVIDER_MODE === "deterministic"
-    ? "deterministic"
-    : "configured";
-const deterministicProviderEnv =
-  providerMode === "deterministic"
-    ? {
-        UNEMPLOYED_AI_API_KEY: "",
-        UNEMPLOYED_AI_VISION_API_KEY: "",
-        UNEMPLOYED_RESUME_VISION_API_KEY: "",
-        UNEMPLOYED_INTERVIEW_AI_API_KEY: "",
-        UNEMPLOYED_INTERVIEW_LOCAL_STT_COMMAND: "",
-      }
-    : {};
+// Provider mode defaults to deterministic so ambient developer-shell
+// credentials can never reach live Interview Helper providers during a
+// capture run. Configured/live mode requires the explicit env opt-in below
+// and is announced on stdout; it additionally sets
+// UNEMPLOYED_INTERVIEW_TEST_USE_LIVE_AI=1 because the desktop test API is
+// always enabled here and otherwise forces deterministic providers (see
+// packages/ai-providers/src/interview-helper.ts).
+const PROVIDER_MODE_ENV = "UI_INTERVIEW_HELPER_PROVIDER_MODE";
+const INTERVIEW_TEST_LIVE_AI_OPT_IN_ENV =
+  "UNEMPLOYED_INTERVIEW_TEST_USE_LIVE_AI";
+const requestedProviderMode = process.env[PROVIDER_MODE_ENV] ?? "deterministic";
+if (
+  requestedProviderMode !== "deterministic" &&
+  requestedProviderMode !== "configured"
+) {
+  throw new Error(
+    `Unsupported ${PROVIDER_MODE_ENV} value: ${JSON.stringify(requestedProviderMode)}. Use "deterministic" (default) or "configured".`,
+  );
+}
+const providerMode = requestedProviderMode;
+if (providerMode === "configured") {
+  console.log(
+    `[capture-interview-helper] Configured/live provider mode requested explicitly via ${PROVIDER_MODE_ENV}=configured; setting ${INTERVIEW_TEST_LIVE_AI_OPT_IN_ENV}=1 so Interview Helper may use ambient interview/shared AI credentials despite UNEMPLOYED_ENABLE_TEST_API=1.`,
+  );
+} else {
+  console.log(
+    "[capture-interview-helper] Deterministic provider mode (default): all interview/shared AI credentials are blanked for this run.",
+  );
+}
+const deterministicProviderEnv = {
+  UNEMPLOYED_AI_API_KEY: "",
+  UNEMPLOYED_AI_VISION_API_KEY: "",
+  UNEMPLOYED_RESUME_VISION_API_KEY: "",
+  UNEMPLOYED_INTERVIEW_AI_API_KEY: "",
+  UNEMPLOYED_INTERVIEW_VISION_API_KEY: "",
+  UNEMPLOYED_INTERVIEW_LOCAL_STT_COMMAND: "",
+};
+const providerModeAppEnv =
+  providerMode === "configured"
+    ? { [INTERVIEW_TEST_LIVE_AI_OPT_IN_ENV]: "1" }
+    : { [INTERVIEW_TEST_LIVE_AI_OPT_IN_ENV]: "" };
 
 async function writeJson(fileName, value) {
   await writeFile(
@@ -309,7 +336,8 @@ async function runCapture() {
     cwd: desktopDir,
     env: {
       ...process.env,
-      ...deterministicProviderEnv,
+      ...(providerMode === "deterministic" ? deterministicProviderEnv : {}),
+      ...providerModeAppEnv,
       UNEMPLOYED_ENABLE_TEST_API: "1",
       UNEMPLOYED_TEST_SYSTEM_THEME:
         process.env.UNEMPLOYED_TEST_SYSTEM_THEME ?? "dark",

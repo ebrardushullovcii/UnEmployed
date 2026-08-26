@@ -84,6 +84,80 @@ describe('ProfileSetupImportStep', () => {
     expect(container?.textContent).toContain('Save your current profile or setup draft before importing or refreshing from resume so those unsaved edits do not get overwritten.')
   })
 
+  it('surfaces truthful recovery when a persisted import has no readable text', () => {
+    const profile = CandidateProfileSchema.parse({
+      id: 'candidate_needs_text',
+      firstName: 'Alex',
+      lastName: 'Vanguard',
+      fullName: 'Alex Vanguard',
+      headline: 'Senior systems designer',
+      summary: 'Builds resilient workflows.',
+      currentLocation: 'London, UK',
+      yearsExperience: 10,
+      email: 'alex@example.com',
+      baseResume: {
+        id: 'resume_needs_text',
+        fileName: 'alex-scanned.pdf',
+        uploadedAt: '2026-03-20T10:00:00.000Z',
+        extractionStatus: 'needs_text',
+        analysisWarnings: [
+          'Paste plain-text resume content below if you want the agent to extract profile details from this file.',
+          'Local resume image generation failed before the vision branch could start.',
+        ],
+      },
+      workEligibility: {},
+      professionalSummary: {},
+      targetRoles: [],
+      locations: [],
+      skills: [],
+      experiences: [],
+      education: [],
+      certifications: [],
+      links: [],
+      projects: [],
+      spokenLanguages: [],
+    })
+
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+
+    act(() => {
+      root?.render(
+        <ProfileSetupImportStep
+          importDisabledReason={null}
+          isImportResumePending={false}
+          isProfileSetupPending={false}
+          latestResumeImportReviewCandidates={[]}
+          resumeImportProgress={null}
+          onContinueToProfile={vi.fn()}
+          onImportResume={vi.fn()}
+          onSaveAndGoToStep={vi.fn()}
+          profile={profile}
+          renderFooter={() => null}
+          reviewItemCount={0}
+        />,
+      )
+    })
+
+    // Truthful outcome: saved but nothing extracted — never "ready".
+    expect(container?.textContent).toContain('Needs Text')
+    expect(container?.textContent).toContain(
+      'could not read text from it, so nothing was extracted into your profile yet.',
+    )
+    // Nearest usable recovery paths stay named, including manual/plain-text.
+    expect(container?.textContent).toContain('Choose Import resume to try again')
+    expect(container?.textContent).toContain('entering your details manually')
+    expect(container?.textContent).toContain('paste plain text into the resume')
+    // Persisted analysis warnings are shown as compact supporting detail.
+    expect(container?.textContent).toContain(
+      'Paste plain-text resume content below if you want the agent to extract profile details from this file.',
+    )
+    // The always-zero review-items tile is gone; the footer reports counts.
+    expect(container?.textContent).not.toContain('Review items')
+    expect(container?.textContent).not.toContain('in this step')
+  })
+
   it('summarizes imported text-vs-vision conflict choices', () => {
     const profile = CandidateProfileSchema.parse({
       id: 'candidate_1',
@@ -296,7 +370,7 @@ describe('ProfileSetupImportStep', () => {
     })
 
     expect(container?.textContent).toContain(
-      '1 optional suggestion is available. Optional suggestions do not block setup.',
+      '1 optional suggestion is available. These do not block setup.',
     )
     expect(container?.textContent).not.toContain('needs confirmation or an edit')
   })

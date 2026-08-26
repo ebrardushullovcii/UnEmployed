@@ -1,5 +1,4 @@
-import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { access, mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { performance } from "node:perf_hooks";
@@ -11,6 +10,7 @@ import {
   acceptanceEnvironment,
   assertFileRenderer,
   assertPrepareOnly,
+  assertViewportEvidence,
   attachProcessOutput,
   cleanupDirectory,
   digestSeed,
@@ -19,6 +19,8 @@ import {
   loadAcceptanceContext,
   makeIsolatedUserDataDirectory,
   installPrepareOnlySafetyProbe,
+  resolvePrimaryRunError,
+  resolveStartupBrowserWindow,
   screenshotMetadata,
   verifyAcceptanceArtifacts,
 } from "./release-acceptance-harness.mjs";
@@ -27,11 +29,10 @@ const execFileAsync = promisify(execFile);
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const desktopDir = path.resolve(scriptDir, "..");
 const acceptance = loadAcceptanceContext("scale");
-const artifactRoot = path.resolve(desktopDir, "test-artifacts", "ui");
 const outputDir = acceptance.outputDir;
 const screenshotDir = path.resolve(outputDir, "screenshots");
 const viewportNormal = { width: 1440, height: 920, zoomFactor: 1 };
-const viewportZoomed = { width: 1440, height: 920, zoomFactor: 2 };
+const viewportNative125 = { width: 1440, height: 920, zoomFactor: 1.25 };
 const viewportMinimum = { width: 1024, height: 768, zoomFactor: 1 };
 const WIDE_SIDEBAR_DESTINATIONS = Object.freeze([
   "Search plans",
@@ -42,6 +43,40 @@ const PLANNING_SETTINGS_MENU_DESTINATIONS = Object.freeze([
   "Resume approaches",
   "Settings",
 ]);
+// Local selector/limit tokens for the compact-navigation runtime evidence.
+// The static validator parses these markers from this file's source text; it
+// must not import this module because importing would execute the capture
+// harness. collapsedShortcutsMaxHeightPx mirrors
+// MORE_MENU_COMPACT_SHORTCUTS_MAX_HEIGHT_PX in job-finder-shell.tsx.
+const COMPACT_NAVIGATION_EVIDENCE_TOKENS = Object.freeze({
+  selectors: Object.freeze({
+    navigation: 'nav[aria-label="Job Finder sections"]',
+    panel: "[data-job-finder-compact-navigation]",
+    scroller: "[data-job-finder-compact-navigation-scroll]",
+    content: "[data-job-finder-compact-navigation-content]",
+    fadeStart: "[data-job-finder-compact-navigation-fade-start]",
+    fadeEnd: "[data-job-finder-compact-navigation-fade-end]",
+    planningButton: 'button[aria-label^="Planning and settings"]',
+    interviewHelperLink: 'a[aria-label="Open Interview Helper"]',
+    notificationsGroup:
+      '[role="group"][aria-label="Notifications and actions"]',
+    windowControlsGroup: '[role="group"][aria-label="Window controls"]',
+    planningMenu: '[role="navigation"][aria-label="Planning and settings"]',
+    shortcutsDisclosure: "[data-job-finder-planning-shortcuts-disclosure]",
+    shortcutsExpandedGroup: '[role="group"][aria-label="Keyboard shortcuts"]',
+  }),
+  collapsedShortcutsMaxHeightPx: 480,
+  viewportEpsilonPx: 2,
+  containmentEpsilonPx: 2,
+  edgeFadeEpsilonPx: 1,
+  overlapTolerancePx: 1,
+  // Fail-closed floors for compact route-strip geometry. The stale
+  // [1120,1440) shell-grid regime collapsed this strip to ~8px at native
+  // 125% zoom (physical 1440x920 -> CSS 1152x736); a healthy strip keeps
+  // hundreds of px of usable width and full-height route buttons.
+  minUsableRouteStripWidthPx: 320,
+  minRouteChipHeightPx: 32,
+});
 const CANONICAL_ROUTE_DEFINITIONS = Object.freeze([
   {
     id: "profile",
@@ -79,20 +114,33 @@ const CANONICAL_LATENCY_BUDGETS = Object.freeze({
   coldToUsableShellMs: 2_000,
   warmRouteSwitchMs: 500,
 });
-// Cross the historical 1,000-record boundary in every collection that the UI pages.
-// The filename remains scale-500 for compatibility with the existing handoff, but
-// the release gate must prove that the production build handles records beyond the
-// old silent cap.
+// Scale axis: discovery jobs prove production volume through real Electron
+// bootstrap, SQLite persistence, hydration, IPC, and rendering. Every other
+// paged collection intentionally stays exactly at the historical 1,001-record
+// boundary so the prior silent-cap guard survives instead of every collection
+// blindly multiplying with the job axis.
+const priorCapBoundaryCount = 1_001;
+const requiredJobCount = 5_000;
 const counts = {
-  jobs: 1_001,
-  shortlisted: 1_001,
-  applications: 1_001,
-  sources: 1_001,
+  jobs: requiredJobCount,
+  shortlisted: priorCapBoundaryCount,
+  applications: priorCapBoundaryCount,
+  sources: priorCapBoundaryCount,
 };
 const routeCycles = 3;
+// Renderer pagination checks must stay bounded as the job axis grows: the
+// sampled discovery walk exhaustively verifies fixed head pages plus the
+// final boundary page, reached through a hard-capped Next-click budget.
+// Growth beyond this budget fails loudly instead of silently walking an
+// unbounded number of rendered pages.
+const MAX_PAGINATION_FAST_FORWARD_CLICKS = 200;
+const REVIEW_QUEUE_DRAFT_PREPARATION_LIMIT = 10;
+const REVIEW_QUEUE_READY_RESUME_REASON =
+  "Batch preparation needs a ready resume file: an approved tailored PDF or unchanged original CV.";
 
 const report = {
   startedAt: new Date().toISOString(),
+  pass: false,
   outputDir,
   screenshotDir,
   acceptance: {
@@ -104,20 +152,27 @@ const report = {
     seedDigest: acceptance.seedDigest,
   },
   syntheticData: counts,
-  scaleBoundary: { priorSilentCap: 1_000, requiredRecordCount: 1_001 },
-  viewports: [viewportNormal, viewportZoomed, viewportMinimum],
+  scaleBoundary: {
+    priorSilentCap: 1_000,
+    priorCapBoundaryCount,
+    requiredJobCount,
+  },
+  viewports: [viewportNormal, viewportNative125, viewportMinimum],
   routeCycles,
   requiredScenarioCompletionIds: [
-    "scale-1001-bootstrap",
-    "scale-1001-find-jobs-pagination",
-    "scale-1001-shortlisted-pagination",
-    "scale-1001-applications-pagination",
-    "scale-1001-profile-sources-pagination",
-    "scale-1001-sidebar-1440",
-    "scale-1001-planning-settings-zoom200",
-    "scale-1001-planning-settings-minimum-width",
-    "scale-1001-find-jobs-zoom200",
-    "scale-1001-minimum-width",
+    "scale-bootstrap",
+    "scale-find-jobs-pagination",
+    "scale-shortlisted-pagination",
+    "scale-applications-pagination",
+    "scale-profile-sources-pagination",
+    "scale-rapid-review-pagination",
+    "scale-review-queue-batch-actions",
+    "scale-sidebar-1440",
+    "scale-planning-settings-native125",
+    "scale-planning-settings-minimum-width",
+    "scale-find-jobs-native125",
+    "scale-minimum-width",
+    "scale-applications-minimum-width",
   ],
   requiredCanonicalRoutes: CANONICAL_ROUTE_DEFINITIONS.map(({ id }) => id),
   scenarioCompletionIds: [],
@@ -132,9 +187,11 @@ const report = {
   },
   startup: {},
   latencyBudgets: CANONICAL_LATENCY_BUDGETS,
+  hydration: null,
   routeSwitches: [],
   pagination: {},
   screenshots: [],
+  screenshotCollisions: [],
   verifications: {
     paginationFlexWrap: [],
     horizontalOverflow: [],
@@ -143,6 +200,9 @@ const report = {
       wideSidebar: {},
       compactPlanning: {},
       planningSettingsMenu: {},
+      compactRail: {},
+      compactActiveRoute: {},
+      planningShortcutsMenu: {},
     },
   },
   memory: [],
@@ -150,10 +210,47 @@ const report = {
   runtimeErrors: [],
   safetyEvents: [],
   mainProcess: { pid: null, stdout: "", stderr: "" },
+  processOwnership: {
+    trackedProcesses: [],
+    verifications: [],
+    leftoverPids: [],
+    verified: false,
+  },
 };
 let activeBrowserWindow = null;
+let activeViewport = null;
 let processOutputState = null;
+let scenarioSucceeded = false;
 const processOutputStates = [];
+const capturedScreenshotDigests = [];
+
+// Pure collision detector: byte-identical screenshots cannot simultaneously
+// evidence distinct semantic states. Every repeated digest is reported together
+// with both scenario IDs and files so a mislabeled capture can never pass.
+function findScreenshotStateCollisions(entries) {
+  const byDigest = new Map();
+  for (const entry of entries) {
+    if (!entry.digest || !entry.scenarioId || !entry.fileName) continue;
+    const occurrences = byDigest.get(entry.digest) ?? [];
+    occurrences.push({
+      scenarioId: entry.scenarioId,
+      fileName: entry.fileName,
+    });
+    byDigest.set(entry.digest, occurrences);
+  }
+  const collisions = [];
+  for (const [digest, occurrences] of byDigest.entries()) {
+    if (occurrences.length < 2) continue;
+    collisions.push({
+      digest,
+      occurrences,
+      distinctScenarioIds: [
+        ...new Set(occurrences.map((entry) => entry.scenarioId)),
+      ],
+    });
+  }
+  return collisions;
+}
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -170,6 +267,33 @@ async function writeReport() {
     path.join(outputDir, "report.json"),
     `${JSON.stringify(report, null, 2)}\n`,
     "utf8",
+  );
+}
+
+function describeTeardownFailure(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+// Terminal-error precedence after teardown: the resolved primary/finalization
+// failure wins (resolvePrimaryRunError already folds finalization into the
+// primary as its cause), then owned-process teardown, then isolated-directory
+// cleanup, then report persistence itself.
+function resolveScaleTerminalError(
+  teardownFailure,
+  ownershipError,
+  cleanupError,
+  persistenceError,
+) {
+  return (
+    teardownFailure ??
+    ownershipError ??
+    (cleanupError
+      ? new Error(
+          `Unable to clean isolated user data directory: ${cleanupError}`,
+        )
+      : null) ??
+    persistenceError ??
+    null
   );
 }
 
@@ -376,6 +500,201 @@ async function sampleProcessMemory(pid) {
   }
 }
 
+// Force-stops an Electron main process and waits for its real exit event,
+// preserving the strict Windows taskkill /T /F semantics while remaining
+// functional on POSIX runners. Waiting for the exit is mandatory: SQLite/WAL
+// files must be released before the cold launch or directory cleanup starts.
+async function forceStopElectronProcess(processHandle) {
+  const pid = processHandle?.pid;
+  if (!pid) return false;
+  if (process.platform === "win32") {
+    await execFileAsync("taskkill", ["/PID", String(pid), "/T", "/F"]);
+  } else {
+    try {
+      processHandle.kill("SIGTERM");
+    } catch {
+      // The process can vanish before the signal lands; the exit race below decides the outcome.
+    }
+    const exited = await Promise.race([
+      new Promise((resolve) => processHandle.once("exit", () => resolve(true))),
+      new Promise((resolve) => setTimeout(() => resolve(false), 1_500)),
+    ]);
+    if (!exited) {
+      try {
+        processHandle.kill("SIGKILL");
+      } catch {
+        // A process that already exited cannot be signaled again; the exit wait below still resolves.
+      }
+    }
+  }
+  if (processHandle.exitCode === null && processHandle.signalCode === null) {
+    await Promise.race([
+      new Promise((resolve) => processHandle.once("exit", resolve)),
+      new Promise((resolve) => setTimeout(resolve, 5_000)),
+    ]);
+  }
+  return true;
+}
+
+// On macOS the Electron binary prints the Node SQLite experimental warning
+// with the capitalized process title, leaving the trace-warnings hint line
+// unmatched by the harness's canonical accepted-warning strip. Accept only
+// that exact hint line; every other stderr byte still fails the run.
+const ACCEPTED_SCALE_STDERR_PATTERNS = [
+  {
+    name: "node-sqlite-experimental-trace-hint-electron-title",
+    pattern:
+      /\(Use `Electron --trace-warnings \.\.\.` to show where the warning was created\)\r?\n/g,
+  },
+  {
+    // Benign, deterministic teardown notice from Playwright's inspector-based
+    // Electron transport on POSIX. Only the exact full line is accepted.
+    name: "playwright-inspector-disconnect-notice",
+    pattern: /^Waiting for the debugger to disconnect\.\.\.\r?\n/gm,
+  },
+];
+
+// Read-only snapshot of the OS process table. It is used exclusively to prove
+// teardown of Electron trees this capture launched: enumeration is anchored to
+// PIDs recorded while those trees were alive, and nothing is ever signaled or
+// killed through these queries.
+async function readProcessTable() {
+  if (process.platform === "win32") {
+    const { stdout } = await execFileAsync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress",
+      ],
+      { windowsHide: true, maxBuffer: 64 * 1024 * 1024 },
+    );
+    const parsed = JSON.parse(stdout.trim() || "[]");
+    const rows = Array.isArray(parsed) ? parsed : [parsed];
+    return rows.map((row) => ({
+      pid: Number(row.ProcessId),
+      parentPid: Number(row.ParentProcessId),
+      command: String(row.CommandLine ?? ""),
+    }));
+  }
+  const { stdout } = await execFileAsync(
+    "ps",
+    ["-axww", "-o", "pid=,ppid=,command="],
+    { windowsHide: true, maxBuffer: 64 * 1024 * 1024 },
+  );
+  return stdout
+    .split("\n")
+    .map((line) => {
+      const match = /^(\d+)\s+(\d+)\s+(.*)$/.exec(line.trim());
+      return match
+        ? {
+            pid: Number(match[1]),
+            parentPid: Number(match[2]),
+            command: match[3],
+          }
+        : null;
+    })
+    .filter((row) => row !== null);
+}
+
+function descendantPidsFromTable(table, rootPid) {
+  const childrenByParent = new Map();
+  for (const row of table) {
+    const siblings = childrenByParent.get(row.parentPid);
+    if (siblings) siblings.push(row.pid);
+    else childrenByParent.set(row.parentPid, [row.pid]);
+  }
+  const descendants = [];
+  const pending = [rootPid];
+  const seen = new Set([rootPid]);
+  while (pending.length > 0) {
+    const pid = pending.pop();
+    for (const childPid of childrenByParent.get(pid) ?? []) {
+      if (seen.has(childPid)) continue;
+      seen.add(childPid);
+      descendants.push(childPid);
+      pending.push(childPid);
+    }
+  }
+  return descendants;
+}
+
+// Ownership ledger for every Electron process this capture launched. Identities
+// (exact command lines) are snapshotted while the tree is still alive so a
+// recycled PID cannot mask a leftover.
+function createOwnedProcessLedger() {
+  const tracked = new Map();
+  return {
+    track(pid, role, command) {
+      if (!Number.isInteger(pid)) return;
+      tracked.set(pid, { pid, role, command });
+    },
+    entries() {
+      return [...tracked.values()];
+    },
+  };
+}
+
+async function snapshotOwnedProcessTree(ledger, rootPid, role) {
+  const table = await readProcessTable();
+  const byPid = new Map(table.map((row) => [row.pid, row]));
+  const rootRow = byPid.get(rootPid);
+  if (!rootRow)
+    throw new Error(
+      `Tracked ${role} root pid ${rootPid} vanished before its process tree could be snapshotted.`,
+    );
+  ledger.track(rootPid, `${role}:root`, rootRow.command);
+  for (const pid of descendantPidsFromTable(table, rootPid)) {
+    const row = byPid.get(pid);
+    if (row) ledger.track(pid, `${role}:descendant`, row.command);
+  }
+}
+
+// Fails closed: every tracked PID must be absent from a fresh process-table
+// read. A live PID counts as a leftover unless its exact command line changed,
+// which proves the PID was recycled by an unrelated process.
+async function verifyZeroLeftoverOwnedProcesses(ledger, label) {
+  const startedAt = performance.now();
+  const deadline = startedAt + 10_000;
+  let leftover = [];
+  let enumerationError = null;
+  let attempts = 0;
+  while (performance.now() <= deadline) {
+    attempts += 1;
+    leftover = [];
+    enumerationError = null;
+    try {
+      const table = await readProcessTable();
+      const byPid = new Map(table.map((row) => [row.pid, row]));
+      for (const entry of ledger.entries()) {
+        const row = byPid.get(entry.pid);
+        if (!row) continue;
+        if (entry.command === "" || row.command === entry.command)
+          leftover.push({
+            pid: entry.pid,
+            role: entry.role,
+            command: row.command,
+          });
+      }
+    } catch (error) {
+      enumerationError = error instanceof Error ? error.message : String(error);
+    }
+    if (enumerationError === null && leftover.length === 0) break;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return {
+    label,
+    trackedProcessCount: ledger.entries().length,
+    attempts,
+    elapsedMs: Math.round((performance.now() - startedAt) * 100) / 100,
+    verified: enumerationError === null && leftover.length === 0,
+    enumerationError,
+    leftoverPids: leftover.map((entry) => entry.pid),
+    leftoverDetail: leftover.slice(0, 5),
+  };
+}
+
 async function installRendererProbe(page) {
   await page.evaluate(() => {
     if (globalThis.__productionScaleProbe) return;
@@ -455,6 +774,7 @@ async function readSurface(page, route, paginationLabel = null) {
           '[aria-labelledby="discovery-job-results-heading"] [data-collection-item-id]',
         shortlisted: "[data-collection-item-id]",
         applications: 'ul[aria-label="Applications"] > li',
+        rapidReview: 'ul[aria-label="Jobs to review"] > li',
       }[surface];
       const rows = rowSelector
         ? Array.from(document.querySelectorAll(rowSelector))
@@ -558,9 +878,13 @@ async function switchRoute(page, definition, memoryPid) {
   const timingMark = `acceptance-route-start-${report.routeSwitches.length + 1}`;
   await page.evaluate((mark) => performance.mark(mark), timingMark);
   const startedAt = performance.now();
-  await button.click({ timeout: 10_000 });
-  await waitForHeading(page, definition.heading);
-  const headingObservedLatencyMs = performance.now() - startedAt;
+  const headingReady = waitForHeading(page, definition.heading).then(
+    () => performance.now() - startedAt,
+  );
+  const [, headingObservedLatencyMs] = await Promise.all([
+    button.click({ timeout: 10_000 }),
+    headingReady,
+  ]);
   const rendererTiming = await page.evaluate(
     ({ mark, route }) => {
       const end = `${mark}-end`;
@@ -612,6 +936,14 @@ async function switchRoute(page, definition, memoryPid) {
     latencyMs <= CANONICAL_LATENCY_BUDGETS.warmRouteSwitchMs,
     `${definition.label}: warm route switch exceeded ${CANONICAL_LATENCY_BUDGETS.warmRouteSwitchMs} ms (${latencyMs.toFixed(2)} ms).`,
   );
+  // Renderer feedback marks commit before the destination surface renders,
+  // so they are optimistic. The release gate is the externally observed time
+  // until the destination's own level-1 heading is visible; both metrics stay
+  // recorded as diagnostics.
+  assert(
+    headingObservedLatencyMs <= CANONICAL_LATENCY_BUDGETS.warmRouteSwitchMs,
+    `${definition.label}: externally observed heading readiness exceeded ${CANONICAL_LATENCY_BUDGETS.warmRouteSwitchMs} ms (${headingObservedLatencyMs.toFixed(2)} ms; renderer feedback mark ${latencyMs.toFixed(2)} ms).`,
+  );
   if (definition.surface === "shortlisted") {
     await page.waitForFunction(
       () => Boolean(document.querySelector("[data-collection-item-id]")),
@@ -662,6 +994,7 @@ async function setViewportAndZoom(page, browserWindow, vp) {
     win.webContents.setZoomFactor(factor);
   }, vp.zoomFactor);
   await page.waitForTimeout(300);
+  activeViewport = vp;
 }
 
 async function captureScreenshot(page, name, meta = {}) {
@@ -674,11 +1007,12 @@ async function captureScreenshot(page, name, meta = {}) {
     activeBrowserWindow,
     fullPath,
     {
-      viewport: meta.viewport ?? null,
+      viewport: activeViewport,
       seedDigest: acceptance.seedDigest,
       route: meta.route,
     },
   );
+  assertViewportEvidence(screenshot.viewport, activeViewport);
   const navigation = await inspectNavigation(page);
   const failures = [];
   if (navigation.documentHorizontalOverflow > 0)
@@ -708,6 +1042,28 @@ async function captureScreenshot(page, name, meta = {}) {
     failures.push(
       `Planning and settings menu is not keyboard reachable ${JSON.stringify(meta.planningSettingsKeyboard)}`,
     );
+  if (meta.expectRoute && screenshot.route !== meta.expectRoute)
+    failures.push(
+      `observed route ${screenshot.route} does not match expected ${meta.expectRoute}`,
+    );
+  if (screenshot.clickablePointEvidence.pass !== true)
+    failures.push(
+      `interactive controls have no unobscured clickable point: ${JSON.stringify(screenshot.clickablePointEvidence.failures)}`,
+    );
+  const digestEntry = {
+    digest: screenshot.screenshot?.sha256 ?? null,
+    scenarioId: meta.scenarioId ?? name,
+    fileName,
+  };
+  capturedScreenshotDigests.push(digestEntry);
+  const collisions = findScreenshotStateCollisions(capturedScreenshotDigests);
+  if (collisions.length > 0) {
+    report.screenshotCollisions = collisions;
+    await writeReport();
+    throw new Error(
+      `Byte-identical screenshots claim distinct semantic states: ${JSON.stringify(collisions.slice(0, 5))}`,
+    );
+  }
   const insideViewport = failures.length === 0;
   const entry = {
     fileName,
@@ -717,6 +1073,7 @@ async function captureScreenshot(page, name, meta = {}) {
     seedDigest: screenshot.seedDigest,
     viewportMetadata: screenshot.viewport,
     screenshot: screenshot.screenshot,
+    clickablePointEvidence: screenshot.clickablePointEvidence,
     ...meta,
     navigation,
     insideViewport,
@@ -989,7 +1346,7 @@ async function inspectNavigation(page) {
         compactPlanning.sidebarHidden;
 
       const menu = document.querySelector(
-        '[role="menu"][aria-label="Planning and settings"]',
+        '[role="navigation"][aria-label="Planning and settings"]',
       );
       const menuRect = menu?.getBoundingClientRect() ?? null;
       const menuStyle = menu ? getComputedStyle(menu) : null;
@@ -999,7 +1356,7 @@ async function inspectNavigation(page) {
           (menuStyle && /(auto|scroll)/.test(menuStyle.overflowY))),
       );
       const menuItems = menu
-        ? Array.from(menu.querySelectorAll('[role="menuitem"]')).map((item) => {
+        ? Array.from(menu.querySelectorAll("button")).map((item) => {
             const itemRect = item.getBoundingClientRect();
             const itemVisible = rendered(item);
             return {
@@ -1082,11 +1439,1149 @@ async function inspectNavigation(page) {
   );
 }
 
+function rectInsideViewport(rect, viewport, epsilonPx) {
+  return Boolean(
+    rect &&
+    rect.left >= -epsilonPx &&
+    rect.top >= -epsilonPx &&
+    rect.right <= viewport.width + epsilonPx &&
+    rect.bottom <= viewport.height + epsilonPx,
+  );
+}
+
+// Overlap means a real area intersection, not border adjacency; the tolerance
+// absorbs 1px rounding so touching clusters never count as overlapping.
+function rectsOverlap(left, right, tolerancePx) {
+  if (!left || !right) return false;
+  const width =
+    Math.min(left.right, right.right) - Math.max(left.left, right.left);
+  const height =
+    Math.min(left.bottom, right.bottom) - Math.max(left.top, right.top);
+  return width > tolerancePx && height > tolerancePx;
+}
+
+async function inspectCompactNavigationRail(page) {
+  return page.evaluate(
+    ({ selectors, containmentEpsilonPx }) => {
+      const describe = (element) => {
+        if (!(element instanceof HTMLElement)) return null;
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return {
+          present:
+            style.display !== "none" &&
+            style.visibility !== "hidden" &&
+            Number.parseFloat(style.opacity || "1") > 0 &&
+            rect.width > 0 &&
+            rect.height > 0,
+          rect: {
+            left: rect.left,
+            top: rect.top,
+            right: rect.right,
+            bottom: rect.bottom,
+            width: rect.width,
+            height: rect.height,
+          },
+        };
+      };
+      const query = (selector) => document.querySelector(selector);
+      const navigation = describe(query(selectors.navigation));
+      const panel = describe(query(selectors.panel));
+      const scrollerElement = query(selectors.scroller);
+      const scrollerDescribe = describe(scrollerElement);
+      const scrollerRect = scrollerElement?.getBoundingClientRect() ?? null;
+      const scrollerStyle =
+        scrollerElement instanceof HTMLElement
+          ? getComputedStyle(scrollerElement)
+          : null;
+      const scrollWidth = scrollerElement?.scrollWidth ?? null;
+      const clientWidth = scrollerElement?.clientWidth ?? null;
+      const clientHeight = scrollerElement?.clientHeight ?? null;
+      const offsetWidth = scrollerElement?.offsetWidth ?? null;
+      const offsetHeight = scrollerElement?.offsetHeight ?? null;
+      const scrollLeft = scrollerElement?.scrollLeft ?? null;
+      const maxScrollLeft =
+        scrollWidth !== null && clientWidth !== null
+          ? scrollWidth - clientWidth
+          : null;
+      const contentScrollWidth = query(selectors.content)?.scrollWidth ?? null;
+      const scroller = {
+        ...scrollerDescribe,
+        exists: scrollerElement instanceof HTMLElement,
+        scrollWidth,
+        clientWidth,
+        clientHeight,
+        offsetWidth,
+        offsetHeight,
+        scrollLeft,
+        maxScrollLeft,
+        overflowPx: maxScrollLeft,
+        contentScrollWidth,
+        horizontalScrollbarThicknessPx:
+          offsetHeight !== null && clientHeight !== null
+            ? offsetHeight - clientHeight
+            : null,
+        verticalScrollbarThicknessPx:
+          offsetWidth !== null && clientWidth !== null
+            ? offsetWidth - clientWidth
+            : null,
+        computedScrollbarWidth: scrollerStyle?.scrollbarWidth ?? null,
+        computedPaddingLeftPx: scrollerStyle
+          ? Number.parseFloat(scrollerStyle.paddingLeft)
+          : null,
+        computedPaddingRightPx: scrollerStyle
+          ? Number.parseFloat(scrollerStyle.paddingRight)
+          : null,
+        webkitScrollbarPseudoDisplay: scrollerStyle
+          ? getComputedStyle(scrollerElement, "::-webkit-scrollbar").display
+          : null,
+      };
+      const fadeState = (selector) => {
+        const element = query(selector);
+        if (!(element instanceof HTMLElement)) return null;
+        const opacity = Number.parseFloat(
+          getComputedStyle(element).opacity || "0",
+        );
+        return { opacity, visible: opacity > 0.5 };
+      };
+      const content = query(selectors.content);
+      const chipElements = content
+        ? Array.from(content.querySelectorAll(":scope > button"))
+        : [];
+      const classifyChip = (rect) => {
+        if (!rect || !scrollerRect) return "unmeasured";
+        const contained =
+          rect.left >= scrollerRect.left - containmentEpsilonPx &&
+          rect.right <= scrollerRect.right + containmentEpsilonPx &&
+          rect.top >= scrollerRect.top - containmentEpsilonPx &&
+          rect.bottom <= scrollerRect.bottom + containmentEpsilonPx;
+        if (contained) return "contained";
+        const outside =
+          rect.right <= scrollerRect.left + containmentEpsilonPx ||
+          rect.left >= scrollerRect.right - containmentEpsilonPx;
+        return outside ? "outside" : "partial";
+      };
+      const chips = chipElements.map((chip, index) => {
+        const described = describe(chip);
+        return {
+          index,
+          label: chip.textContent?.replace(/\s+/g, " ").trim() ?? "",
+          ariaCurrent: chip.getAttribute("aria-current"),
+          classification: classifyChip(described?.rect ?? null),
+          ...described,
+        };
+      });
+      const activeChips = chips.filter((chip) => chip.ariaCurrent === "page");
+      return {
+        viewport: {
+          width: window.innerWidth,
+          height: window.innerHeight,
+        },
+        navigation,
+        panel,
+        scroller,
+        fades: {
+          start: fadeState(selectors.fadeStart),
+          end: fadeState(selectors.fadeEnd),
+        },
+        chips,
+        activeChipCount: activeChips.length,
+        activeChip: activeChips[0] ?? null,
+        clusters: {
+          panel,
+          planningButton: describe(query(selectors.planningButton)),
+          interviewHelperLink: describe(query(selectors.interviewHelperLink)),
+          notificationsGroup: describe(query(selectors.notificationsGroup)),
+          windowControlsGroup: describe(query(selectors.windowControlsGroup)),
+        },
+      };
+    },
+    {
+      selectors: COMPACT_NAVIGATION_EVIDENCE_TOKENS.selectors,
+      containmentEpsilonPx:
+        COMPACT_NAVIGATION_EVIDENCE_TOKENS.containmentEpsilonPx,
+    },
+  );
+}
+
+// Fail-closed audit of the compact header clusters: every control cluster must
+// sit inside the viewport and no two sibling clusters may intersect. Window
+// controls are legitimately absent on macOS (native traffic lights), so their
+// absence is only a failure on other platforms.
+function auditCompactRailClusters(state, platform) {
+  const failures = [];
+  const epsilon = COMPACT_NAVIGATION_EVIDENCE_TOKENS.containmentEpsilonPx;
+  const tolerance = COMPACT_NAVIGATION_EVIDENCE_TOKENS.overlapTolerancePx;
+  const clusters = state.clusters;
+  for (const name of ["panel", "planningButton", "notificationsGroup"]) {
+    const cluster = clusters[name];
+    if (!cluster?.present) {
+      failures.push(`${name} is missing or not rendered`);
+      continue;
+    }
+    if (!rectInsideViewport(cluster.rect, state.viewport, epsilon))
+      failures.push(
+        `${name} is not contained in the viewport: ${JSON.stringify(cluster.rect)}`,
+      );
+  }
+  const interviewHelperLink = clusters.interviewHelperLink;
+  if (state.viewport.width < 900) {
+    if (!interviewHelperLink?.present)
+      failures.push("interviewHelperLink is missing below 900px CSS width");
+    else if (
+      !rectInsideViewport(interviewHelperLink.rect, state.viewport, epsilon)
+    )
+      failures.push(
+        `interviewHelperLink is not contained in the viewport: ${JSON.stringify(interviewHelperLink.rect)}`,
+      );
+  }
+  const windowControls = clusters.windowControlsGroup;
+  if (platform === "darwin") {
+    if (
+      windowControls?.present &&
+      !rectInsideViewport(windowControls.rect, state.viewport, epsilon)
+    )
+      failures.push(
+        `windowControlsGroup is not contained in the viewport: ${JSON.stringify(windowControls.rect)}`,
+      );
+  } else if (!windowControls?.present) {
+    failures.push("windowControlsGroup is missing on a non-macOS platform");
+  } else if (
+    !rectInsideViewport(windowControls.rect, state.viewport, epsilon)
+  ) {
+    failures.push(
+      `windowControlsGroup is not contained in the viewport: ${JSON.stringify(windowControls.rect)}`,
+    );
+  }
+  const headerPairs = [
+    ["panel", "notificationsGroup"],
+    ["panel", "windowControlsGroup"],
+    ["notificationsGroup", "windowControlsGroup"],
+  ];
+  for (const [leftName, rightName] of headerPairs) {
+    const left = clusters[leftName];
+    const right = clusters[rightName];
+    if (
+      left?.present &&
+      right?.present &&
+      rectsOverlap(left.rect, right.rect, tolerance)
+    )
+      failures.push(`${leftName} overlaps ${rightName}`);
+  }
+  const siblings = [
+    ["routeScrollerBand", state.scroller.present ? state.scroller.rect : null],
+    [
+      "planningButton",
+      clusters.planningButton?.present ? clusters.planningButton.rect : null,
+    ],
+  ];
+  if (interviewHelperLink?.present)
+    siblings.push(["interviewHelperLink", interviewHelperLink.rect]);
+  for (let leftIndex = 0; leftIndex < siblings.length; leftIndex += 1) {
+    for (
+      let rightIndex = leftIndex + 1;
+      rightIndex < siblings.length;
+      rightIndex += 1
+    ) {
+      const [leftName, leftRect] = siblings[leftIndex];
+      const [rightName, rightRect] = siblings[rightIndex];
+      if (leftRect && rightRect && rectsOverlap(leftRect, rightRect, tolerance))
+        failures.push(
+          `${leftName} overlaps ${rightName} inside the compact panel`,
+        );
+    }
+  }
+  return failures;
+}
+
+async function verifyCompactNavigationRail(page, label, expectedCssViewport) {
+  const tokens = COMPACT_NAVIGATION_EVIDENCE_TOKENS;
+  const selectors = tokens.selectors;
+  await page.locator(selectors.scroller).waitFor({
+    state: "visible",
+    timeout: 10_000,
+  });
+  const phases = {};
+  const readPhase = async (phase) => {
+    const state = await inspectCompactNavigationRail(page);
+    phases[phase] = state;
+    return state;
+  };
+  const resting = await readPhase("resting");
+  assert(
+    resting.navigation?.present === true,
+    `${label}: compact sections navigation missing at CSS ${viewportLabel(resting.viewport)}: ${JSON.stringify(resting.navigation)}`,
+  );
+  assert(
+    Math.abs(resting.viewport.width - expectedCssViewport.width) <=
+      tokens.viewportEpsilonPx &&
+      Math.abs(resting.viewport.height - expectedCssViewport.height) <=
+        tokens.viewportEpsilonPx,
+    `${label}: CSS viewport ${JSON.stringify(resting.viewport)} does not match expected ${JSON.stringify(expectedCssViewport)}`,
+  );
+
+  const assertScrollerEvidence = (state, phase) => {
+    const scroller = state.scroller;
+    assert(
+      scroller.exists && scroller.present,
+      `${label}/${phase}: compact route scroller missing`,
+    );
+    assert(
+      scroller.horizontalScrollbarThicknessPx === 0 &&
+        scroller.verticalScrollbarThicknessPx === 0,
+      `${label}/${phase}: classic scrollbar consumes space h=${scroller.horizontalScrollbarThicknessPx}px v=${scroller.verticalScrollbarThicknessPx}px`,
+    );
+    assert(
+      scroller.computedScrollbarWidth === "none" ||
+        scroller.webkitScrollbarPseudoDisplay === "none",
+      `${label}/${phase}: no scrollbar suppression mechanism active (${JSON.stringify({ computedScrollbarWidth: scroller.computedScrollbarWidth, webkitScrollbarPseudoDisplay: scroller.webkitScrollbarPseudoDisplay })})`,
+    );
+    // Padding-corrected content stability: the scroller's own horizontal
+    // padding is part of its scrollable span, so scrollWidth must equal the
+    // content span plus both paddings within rounding tolerance. The identity
+    // holds for zero overflow and real overflow alike, and fails if any
+    // measurement node or padding assumption drifts.
+    const paddingPx =
+      (scroller.computedPaddingLeftPx ?? 0) +
+      (scroller.computedPaddingRightPx ?? 0);
+    const contentSpanDeltaPx =
+      scroller.contentScrollWidth === null
+        ? null
+        : scroller.scrollWidth - (scroller.contentScrollWidth + paddingPx);
+    assert(
+      scroller.clientWidth > 0 &&
+        scroller.scrollWidth >= scroller.clientWidth &&
+        contentSpanDeltaPx !== null &&
+        Math.abs(contentSpanDeltaPx) <= tokens.containmentEpsilonPx,
+      `${label}/${phase}: scroller overflow dimensions disagree with the padded chip content: ${JSON.stringify({ scrollWidth: scroller.scrollWidth, clientWidth: scroller.clientWidth, contentScrollWidth: scroller.contentScrollWidth, paddingLeftPx: scroller.computedPaddingLeftPx, paddingRightPx: scroller.computedPaddingRightPx, contentSpanDeltaPx })}`,
+    );
+  };
+
+  const assertFadeTruth = (state, phase) => {
+    const { scroller, fades } = state;
+    assert(
+      fades.start && fades.end,
+      `${label}/${phase}: edge fade elements missing`,
+    );
+    const expectedStart = scroller.scrollLeft > tokens.edgeFadeEpsilonPx;
+    const expectedEnd =
+      scroller.scrollLeft < scroller.maxScrollLeft - tokens.edgeFadeEpsilonPx;
+    assert(
+      fades.start.visible === expectedStart &&
+        fades.end.visible === expectedEnd,
+      `${label}/${phase}: fades do not match LTR overflow/position: ${JSON.stringify({ scrollLeft: scroller.scrollLeft, maxScrollLeft: scroller.maxScrollLeft, fadeStartVisible: fades.start.visible, fadeEndVisible: fades.end.visible, expectedStart, expectedEnd })}`,
+    );
+  };
+
+  const assertChipIntegrity = (state, phase) => {
+    assert(
+      state.chips.length > 0,
+      `${label}/${phase}: no route chips rendered in the compact scroller`,
+    );
+    const partial = state.chips.filter(
+      (chip) => chip.classification === "partial",
+    );
+    // With zero LTR overflow every chip must be fully contained. With real
+    // overflow a single chip may legitimately straddle an outer clip edge
+    // mid-layout; it must then be provably an edge straddler and never the
+    // active route.
+    if (state.scroller.overflowPx <= tokens.edgeFadeEpsilonPx) {
+      assert(
+        partial.length === 0,
+        `${label}/${phase}: route chips partially clipped without scroller overflow: ${JSON.stringify(partial.map((chip) => ({ label: chip.label, rect: chip.rect })))}`,
+      );
+    } else {
+      assert(
+        partial.length <= 1,
+        `${label}/${phase}: more than one route chip partially clipped by the scroller edge: ${JSON.stringify(partial.map((chip) => ({ label: chip.label, rect: chip.rect })))}`,
+      );
+      const band = state.scroller.rect;
+      for (const chip of partial) {
+        const straddlesLeftEdge =
+          band !== null &&
+          chip.rect.left < band.left &&
+          chip.rect.right > band.left;
+        const straddlesRightEdge =
+          band !== null &&
+          chip.rect.left < band.right &&
+          chip.rect.right > band.right;
+        assert(
+          straddlesLeftEdge || straddlesRightEdge,
+          `${label}/${phase}: interior/non-edge partial route chip "${chip.label}": ${JSON.stringify({ rect: chip.rect, band })}`,
+        );
+      }
+    }
+    assert(
+      !partial.some((chip) => chip.ariaCurrent === "page"),
+      `${label}/${phase}: active route chip is partially clipped: ${JSON.stringify(partial.filter((chip) => chip.ariaCurrent === "page").map((chip) => ({ label: chip.label, rect: chip.rect })))}`,
+    );
+    assert(
+      state.activeChipCount === 1 && state.activeChip,
+      `${label}/${phase}: expected exactly one active route chip, got ${state.activeChipCount}`,
+    );
+    // The app guarantees the revealed route is visible wherever it left the
+    // scroll position (resting/restored states, and any state without
+    // overflow). scrolled-to-end/scrolled-to-start are harness-forced
+    // diagnostic positions: there the active chip may legitimately sit fully
+    // outside the band, so only partial clipping stays a failure — an outside
+    // active chip in those phases is harness scroll, not app regression.
+    const forcedDiagnosticPhase =
+      phase === "scrolled-to-end" || phase === "scrolled-to-start";
+    if (
+      !forcedDiagnosticPhase ||
+      state.scroller.overflowPx <= tokens.edgeFadeEpsilonPx
+    ) {
+      assert(
+        state.activeChip.classification === "contained",
+        `${label}/${phase}: active route chip "${state.activeChip.label}" is not fully contained in the scroller (${state.activeChip.classification}): ${JSON.stringify(state.activeChip.rect)}`,
+      );
+    } else {
+      assert(
+        state.activeChip.classification !== "partial",
+        `${label}/${phase}: active route chip is partially clipped under harness-forced scroll: ${JSON.stringify(state.activeChip.rect)}`,
+      );
+    }
+  };
+
+  // Usable-width/full-button geometry floors: the compact strip must keep a
+  // real usable width (never the ~8px collapse from the broken grid regime)
+  // and every route button must render at its full pinned height.
+  const assertUsableGeometry = (state, phase) => {
+    const { scroller, chips } = state;
+    assert(
+      scroller.clientWidth !== null &&
+        scroller.clientWidth >= tokens.minUsableRouteStripWidthPx,
+      `${label}/${phase}: compact route strip lost its usable width (${scroller.clientWidth}px < ${tokens.minUsableRouteStripWidthPx}px floor): ${JSON.stringify({ viewport: state.viewport, clientWidth: scroller.clientWidth })}`,
+    );
+    const crushed = chips.filter((chip) => {
+      const rect = chip.rect;
+      return (
+        !rect ||
+        !Number.isFinite(rect.height) ||
+        rect.height < tokens.minRouteChipHeightPx ||
+        !(rect.width > 0)
+      );
+    });
+    assert(
+      crushed.length === 0,
+      `${label}/${phase}: compact route buttons lost full-button geometry: ${JSON.stringify(crushed.map((chip) => ({ label: chip.label, rect: chip.rect })))}`,
+    );
+  };
+
+  for (const [phase, state] of Object.entries(phases)) {
+    assertScrollerEvidence(state, phase);
+    assertFadeTruth(state, phase);
+    assertChipIntegrity(state, phase);
+    assertUsableGeometry(state, phase);
+  }
+
+  await page.evaluate(
+    ({ selector }) => {
+      document.querySelector(selector)?.scrollTo({
+        left: Number.MAX_SAFE_INTEGER,
+      });
+    },
+    { selector: selectors.scroller },
+  );
+  await page.waitForTimeout(150);
+  const scrolledToEnd = await readPhase("scrolled-to-end");
+
+  await page.evaluate(
+    ({ selector }) => {
+      document.querySelector(selector)?.scrollTo({ left: 0 });
+    },
+    { selector: selectors.scroller },
+  );
+  await page.waitForTimeout(150);
+  const scrolledToStart = await readPhase("scrolled-to-start");
+
+  for (const [phase, state] of Object.entries(phases)) {
+    assertScrollerEvidence(state, phase);
+    assertFadeTruth(state, phase);
+    assertChipIntegrity(state, phase);
+    assertUsableGeometry(state, phase);
+  }
+
+  const hasOverflow = resting.scroller.overflowPx > tokens.edgeFadeEpsilonPx;
+  assert(
+    scrolledToEnd.scroller.overflowPx === resting.scroller.overflowPx &&
+      scrolledToStart.scroller.overflowPx === resting.scroller.overflowPx,
+    `${label}: scroller overflow dimension drifted between scroll phases: ${JSON.stringify([resting.scroller.overflowPx, scrolledToEnd.scroller.overflowPx, scrolledToStart.scroller.overflowPx])}`,
+  );
+  if (hasOverflow) {
+    assert(
+      scrolledToEnd.scroller.scrollLeft >=
+        scrolledToEnd.scroller.maxScrollLeft - 1 &&
+        scrolledToEnd.fades.start.visible &&
+        !scrolledToEnd.fades.end.visible,
+      `${label}/scrolled-to-end: full LTR scroll did not flip the edge fades: ${JSON.stringify({ scrollLeft: scrolledToEnd.scroller.scrollLeft, maxScrollLeft: scrolledToEnd.scroller.maxScrollLeft, ...scrolledToEnd.fades })}`,
+    );
+    assert(
+      scrolledToStart.scroller.scrollLeft <= 1 &&
+        !scrolledToStart.fades.start.visible &&
+        scrolledToStart.fades.end.visible,
+      `${label}/scrolled-to-start: zero scroll position did not restore the edge fades: ${JSON.stringify({ scrollLeft: scrolledToStart.scroller.scrollLeft, ...scrolledToStart.fades })}`,
+    );
+  } else {
+    for (const phase of ["resting", "scrolled-to-end", "scrolled-to-start"])
+      assert(
+        !phases[phase].fades.start.visible && !phases[phase].fades.end.visible,
+        `${label}/${phase}: both edge fades must hide when the scroller has no LTR overflow`,
+      );
+  }
+
+  await page.evaluate(
+    ({ selector, scrollLeft }) => {
+      document.querySelector(selector)?.scrollTo({ left: scrollLeft });
+    },
+    { selector: selectors.scroller, scrollLeft: resting.scroller.scrollLeft },
+  );
+  await page.waitForTimeout(120);
+  const restored = await readPhase("restored");
+  assertScrollerEvidence(restored, "restored");
+  assertFadeTruth(restored, "restored");
+  assertChipIntegrity(restored, "restored");
+  assertUsableGeometry(restored, "restored");
+  assert(
+    Math.abs(restored.scroller.scrollLeft - resting.scroller.scrollLeft) <= 1,
+    `${label}/restored: original scroll position was not recovered: ${JSON.stringify({ before: resting.scroller.scrollLeft, after: restored.scroller.scrollLeft })}`,
+  );
+
+  const clusterFailures = auditCompactRailClusters(resting, process.platform);
+  assert(
+    clusterFailures.length === 0,
+    `${label}: compact header cluster containment/overlap failures: ${JSON.stringify(clusterFailures)}`,
+  );
+
+  report.verifications.navigation.compactRail[label] = {
+    pass: true,
+    expectedCssViewport,
+    observedCssViewport: resting.viewport,
+    scrollerOverflowPx: resting.scroller.overflowPx,
+    contentStability: {
+      scrollWidth: resting.scroller.scrollWidth,
+      clientWidth: resting.scroller.clientWidth,
+      contentScrollWidth: resting.scroller.contentScrollWidth,
+      paddingLeftPx: resting.scroller.computedPaddingLeftPx,
+      paddingRightPx: resting.scroller.computedPaddingRightPx,
+      contentSpanDeltaPx:
+        resting.scroller.contentScrollWidth === null
+          ? null
+          : resting.scroller.scrollWidth -
+            (resting.scroller.contentScrollWidth +
+              (resting.scroller.computedPaddingLeftPx ?? 0) +
+              (resting.scroller.computedPaddingRightPx ?? 0)),
+    },
+    classicScrollbarThicknessPx: {
+      horizontal: resting.scroller.horizontalScrollbarThicknessPx,
+      vertical: resting.scroller.verticalScrollbarThicknessPx,
+    },
+    scrollbarSuppression: {
+      computedScrollbarWidth: resting.scroller.computedScrollbarWidth,
+      webkitScrollbarPseudoDisplay:
+        resting.scroller.webkitScrollbarPseudoDisplay,
+    },
+    chipLabels: resting.chips.map((chip) => chip.label),
+    activeChipLabel: resting.activeChip?.label ?? null,
+    usableGeometry: {
+      usableRouteStripWidthPx: resting.scroller.clientWidth,
+      minUsableRouteStripWidthPx: tokens.minUsableRouteStripWidthPx,
+      routeChipHeightsPx: resting.chips.map(
+        (chip) => chip.rect?.height ?? null,
+      ),
+      minRouteChipHeightPx: tokens.minRouteChipHeightPx,
+    },
+    clusterAudit: { failures: clusterFailures },
+    phases: Object.fromEntries(
+      Object.entries(phases).map(([phase, state]) => [
+        phase,
+        {
+          phaseKind:
+            phase === "scrolled-to-end" || phase === "scrolled-to-start"
+              ? "forced-diagnostic"
+              : "app-reveal",
+          scrollLeft: state.scroller.scrollLeft,
+          maxScrollLeft: state.scroller.maxScrollLeft,
+          fadeStartVisible: state.fades.start.visible,
+          fadeEndVisible: state.fades.end.visible,
+          chipClassifications: state.chips.map((chip) => ({
+            label: chip.label,
+            classification: chip.classification,
+          })),
+          activeChipClassification: state.activeChip?.classification ?? null,
+        },
+      ]),
+    ),
+  };
+  return report.verifications.navigation.compactRail[label];
+}
+
+function viewportLabel(viewport) {
+  return `${Math.round(viewport?.width ?? -1)}x${Math.round(viewport?.height ?? -1)}`;
+}
+
+// Small fail-closed active-route probe for the existing native-125 navigation
+// points: the compact chip carrying aria-current="page" must be the expected
+// route label (first span; badges are trailing siblings) and must be fully
+// contained in the scroller band after layout settles. Read-only, so it never
+// disturbs surrounding captures or route-switch contracts.
+async function verifyCompactActiveRoute(page, config) {
+  const { label, expectedLabel } = config;
+  const tokens = COMPACT_NAVIGATION_EVIDENCE_TOKENS;
+  await page.waitForFunction(
+    ({ contentSelector, expected }) => {
+      const chip = document.querySelector(
+        `${contentSelector} > button[aria-current="page"]`,
+      );
+      return (
+        chip instanceof HTMLButtonElement &&
+        (chip.querySelector("span")?.textContent ?? "")
+          .replace(/\s+/g, " ")
+          .trim() === expected
+      );
+    },
+    { contentSelector: tokens.selectors.content, expected: expectedLabel },
+    { timeout: 10_000 },
+  );
+  const evidence = await page.evaluate(
+    ({ contentSelector, scrollerSelector, containmentEpsilonPx }) => {
+      const chip = document.querySelector(
+        `${contentSelector} > button[aria-current="page"]`,
+      );
+      const scroller = document.querySelector(scrollerSelector);
+      if (!(chip instanceof HTMLElement) || !(scroller instanceof HTMLElement))
+        return null;
+      const chipRect = chip.getBoundingClientRect();
+      const scrollerRect = scroller.getBoundingClientRect();
+      return {
+        ariaCurrent: chip.getAttribute("aria-current"),
+        observedLabel:
+          (chip.querySelector("span")?.textContent ?? "")
+            .replace(/\s+/g, " ")
+            .trim() || null,
+        contained:
+          chipRect.left >= scrollerRect.left - containmentEpsilonPx &&
+          chipRect.right <= scrollerRect.right + containmentEpsilonPx &&
+          chipRect.top >= scrollerRect.top - containmentEpsilonPx &&
+          chipRect.bottom <= scrollerRect.bottom + containmentEpsilonPx,
+        chipRect: {
+          left: chipRect.left,
+          top: chipRect.top,
+          right: chipRect.right,
+          bottom: chipRect.bottom,
+          width: chipRect.width,
+          height: chipRect.height,
+        },
+        scrollerRect: {
+          left: scrollerRect.left,
+          top: scrollerRect.top,
+          right: scrollerRect.right,
+          bottom: scrollerRect.bottom,
+          width: scrollerRect.width,
+          height: scrollerRect.height,
+        },
+        scrollLeft: scroller.scrollLeft,
+        overflowPx: scroller.scrollWidth - scroller.clientWidth,
+      };
+    },
+    {
+      contentSelector: tokens.selectors.content,
+      scrollerSelector: tokens.selectors.scroller,
+      containmentEpsilonPx: tokens.containmentEpsilonPx,
+    },
+  );
+  assert(
+    evidence !== null,
+    `${label}: active route chip or compact scroller missing`,
+  );
+  assert(
+    evidence.ariaCurrent === "page" && evidence.observedLabel === expectedLabel,
+    `${label}: compact active-route label was ${JSON.stringify(evidence.observedLabel)} with aria-current=${JSON.stringify(evidence.ariaCurrent)}, expected exactly ${JSON.stringify(expectedLabel)}`,
+  );
+  assert(
+    evidence.contained === true,
+    `${label}: active route chip "${expectedLabel}" is not fully contained after layout settle: ${JSON.stringify({ chipRect: evidence.chipRect, scrollerRect: evidence.scrollerRect })}`,
+  );
+  report.verifications.navigation.compactActiveRoute[label] = {
+    pass: true,
+    expectedLabel,
+    ...evidence,
+  };
+  return report.verifications.navigation.compactActiveRoute[label];
+}
+
+// Proves the Planning menu shortcuts section matches its height mode. Short
+// menus (< collapsedShortcutsMaxHeightPx) must collapse Shortcuts into a
+// native disclosure whose summary stays visible, focusable as the terminal
+// roving participant, and activatable with Enter and Space; tall menus must
+// render the expanded group with its rows attached to the header.
+async function verifyPlanningShortcutsEvidence(page, config) {
+  const { label, expectedMode, expectedCssViewport } = config;
+  const tokens = COMPACT_NAVIGATION_EVIDENCE_TOKENS;
+  const selectors = tokens.selectors;
+  const planningButton = page.getByRole("button", {
+    name: /^Planning and settings/,
+    exact: false,
+  });
+  await planningButton.waitFor({ state: "visible", timeout: 10_000 });
+  await planningButton.click();
+  const menu = page.getByRole("navigation", { name: "Planning and settings" });
+  await menu.waitFor({ state: "visible", timeout: 10_000 });
+  await page.waitForFunction(
+    () =>
+      document.activeElement instanceof HTMLButtonElement &&
+      document.activeElement
+        .closest('[role="navigation"][aria-label="Planning and settings"]') !==
+        null,
+    undefined,
+    { timeout: 10_000 },
+  );
+  const menuGeometry = await page.evaluate(
+    ({ menuSelector }) => {
+      const menu = document.querySelector(menuSelector);
+      if (!(menu instanceof HTMLElement)) return null;
+      const rect = menu.getBoundingClientRect();
+      return {
+        maxHeightToken: menu.style.maxHeight ?? "",
+        rect: {
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height,
+        },
+      };
+    },
+    { menuSelector: selectors.planningMenu },
+  );
+  assert(menuGeometry !== null, `${label}: Planning menu geometry unavailable`);
+  const maxHeightPx = Number.parseFloat(menuGeometry.maxHeightToken);
+  assert(
+    Number.isFinite(maxHeightPx) && maxHeightPx > 0,
+    `${label}: Planning menu inline max-height token missing: ${JSON.stringify(menuGeometry)}`,
+  );
+  const observedMode =
+    maxHeightPx < tokens.collapsedShortcutsMaxHeightPx
+      ? "collapsed"
+      : "expanded";
+  assert(
+    observedMode === expectedMode,
+    `${label}: Planning menu height mode is ${observedMode} (max-height ${maxHeightPx}px), expected ${expectedMode}`,
+  );
+  const evidence =
+    observedMode === "collapsed"
+      ? await collectCollapsedShortcutsEvidence(page, label)
+      : await collectExpandedShortcutsEvidence(page, label);
+
+  await page.keyboard.press("Escape");
+  await menu.waitFor({ state: "detached", timeout: 5_000 });
+
+  report.verifications.navigation.planningShortcutsMenu[label] = {
+    pass: true,
+    expectedMode,
+    observedMode,
+    menuMaxHeightPx: maxHeightPx,
+    cssViewport: expectedCssViewport,
+    ...evidence,
+  };
+  return report.verifications.navigation.planningShortcutsMenu[label];
+}
+
+async function collectCollapsedShortcutsEvidence(page, label) {
+  const tokens = COMPACT_NAVIGATION_EVIDENCE_TOKENS;
+  const selectors = tokens.selectors;
+  const disclosure = page.locator(selectors.shortcutsDisclosure);
+  assert(
+    (await disclosure.count()) === 1,
+    `${label}: short Planning menu did not collapse Shortcuts into exactly one disclosure`,
+  );
+  assert(
+    (await page.locator(selectors.shortcutsExpandedGroup).count()) === 0,
+    `${label}: expanded Keyboard shortcuts group rendered in a short menu`,
+  );
+  const initialState = await disclosure.evaluate((element) => {
+    const summary = element.querySelector(":scope > summary");
+    const rect =
+      summary instanceof HTMLElement ? summary.getBoundingClientRect() : null;
+    return {
+      open: element.open,
+      summaryFound: summary instanceof HTMLElement,
+      summaryRole: summary?.getAttribute("role") ?? null,
+      summaryText: summary?.textContent?.replace(/\s+/g, " ").trim() ?? null,
+      summaryAriaExpanded: summary?.getAttribute("aria-expanded") ?? null,
+      summaryTabIndex: summary instanceof HTMLElement ? summary.tabIndex : null,
+      summarySize:
+        rect !== null ? { width: rect.width, height: rect.height } : null,
+    };
+  });
+  assert(
+    initialState.open === false &&
+      initialState.summaryAriaExpanded === "false" &&
+      initialState.summaryTabIndex === -1,
+    `${label}: Shortcuts disclosure did not start collapsed and unfocused: ${JSON.stringify(initialState)}`,
+  );
+  assert(
+    initialState.summaryRole === null &&
+      initialState.summaryText === "Shortcuts",
+    `${label}: Shortcuts summary is not a native "Shortcuts" disclosure: ${JSON.stringify(initialState)}`,
+  );
+  assert(
+    initialState.summarySize !== null &&
+      initialState.summarySize.width > 0 &&
+      initialState.summarySize.height > 0,
+    `${label}: collapsed Shortcuts summary is not visible: ${JSON.stringify(initialState)}`,
+  );
+  const rovingOrder = await page.evaluate(
+    ({ menuSelector }) => {
+      const items = Array.from(
+        document.querySelectorAll(`${menuSelector} [tabindex]`),
+      );
+      return {
+        itemCount: items.length,
+        terminalTag: items.at(-1)?.tagName.toLowerCase() ?? null,
+        terminalText:
+          items.at(-1)?.textContent?.replace(/\s+/g, " ").trim() ?? null,
+      };
+    },
+    { menuSelector: selectors.planningMenu },
+  );
+  assert(
+    rovingOrder.itemCount > 1 &&
+      rovingOrder.terminalTag === "summary" &&
+      rovingOrder.terminalText === "Shortcuts",
+    `${label}: Shortcuts summary is not the terminal roving participant: ${JSON.stringify(rovingOrder)}`,
+  );
+  await page.keyboard.press("End");
+  await page.waitForFunction(
+    ({ disclosureSelector }) =>
+      document.activeElement ===
+      document.querySelector(`${disclosureSelector} > summary`),
+    { disclosureSelector: selectors.shortcutsDisclosure },
+    { timeout: 5_000 },
+  );
+  const rovingFocus = await page.evaluate(
+    ({ disclosureSelector, menuSelector }) => {
+      const summary = document.querySelector(`${disclosureSelector} > summary`);
+      const menu = document.querySelector(menuSelector);
+      const items = Array.from(
+        document.querySelectorAll(`${menuSelector} [tabindex]`),
+      );
+      const summaryRect =
+        summary instanceof HTMLElement ? summary.getBoundingClientRect() : null;
+      const menuRect = menu?.getBoundingClientRect() ?? null;
+      return {
+        activeIsSummary: document.activeElement === summary,
+        summaryTabIndex:
+          summary instanceof HTMLElement ? summary.tabIndex : null,
+        screenItemTabIndexes: items
+          .filter((item) => item !== summary)
+          .map((item) => item.tabIndex),
+        focusedSummaryWithinMenu:
+          summaryRect !== null &&
+          menuRect !== null &&
+          summaryRect.top >= menuRect.top - 1 &&
+          summaryRect.bottom <= menuRect.bottom + 1,
+        summaryRect:
+          summaryRect !== null
+            ? {
+                top: summaryRect.top,
+                bottom: summaryRect.bottom,
+                left: summaryRect.left,
+                right: summaryRect.right,
+              }
+            : null,
+      };
+    },
+    {
+      disclosureSelector: selectors.shortcutsDisclosure,
+      menuSelector: selectors.planningMenu,
+    },
+  );
+  assert(
+    rovingFocus.activeIsSummary === true &&
+      rovingFocus.summaryTabIndex === 0 &&
+      rovingFocus.screenItemTabIndexes.every((tabIndex) => tabIndex === -1),
+    `${label}: End key did not move roving focus to the Shortcuts summary: ${JSON.stringify(rovingFocus)}`,
+  );
+  assert(
+    rovingFocus.focusedSummaryWithinMenu,
+    `${label}: focused Shortcuts summary is clipped outside the Planning menu: ${JSON.stringify(rovingFocus.summaryRect)}`,
+  );
+  const hitTest = await page.evaluate(
+    ({ disclosureSelector }) => {
+      const summary = document.querySelector(`${disclosureSelector} > summary`);
+      if (!(summary instanceof HTMLElement))
+        return { blocked: true, hitDescriptor: "missing-summary" };
+      const rect = summary.getBoundingClientRect();
+      const point = document.elementFromPoint(
+        rect.left + rect.width / 2,
+        rect.top + rect.height / 2,
+      );
+      return {
+        blocked: !(point === summary || summary.contains(point)),
+        hitDescriptor:
+          point === null
+            ? "no-element-at-point"
+            : `${point.tagName.toLowerCase()}${point.getAttribute("role") ? `[role="${point.getAttribute("role")}"]` : ""}`,
+      };
+    },
+    { disclosureSelector: selectors.shortcutsDisclosure },
+  );
+  assert(
+    hitTest.blocked === false,
+    `${label}: Shortcuts summary activation is blocked by an overlay: ${JSON.stringify(hitTest)}`,
+  );
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(
+    ({ disclosureSelector }) =>
+      document.querySelector(disclosureSelector)?.open === true,
+    { disclosureSelector: selectors.shortcutsDisclosure },
+    { timeout: 5_000 },
+  );
+  const opened = await disclosure.evaluate((element) => {
+    const summary = element.querySelector(":scope > summary");
+    const rows = Array.from(element.querySelectorAll(":scope > div > div"));
+    return {
+      open: element.open,
+      summaryAriaExpanded: summary?.getAttribute("aria-expanded") ?? null,
+      rowLabels: rows.map(
+        (row) => row.textContent?.replace(/\s+/g, " ").trim() ?? "",
+      ),
+      kbdCount: element.querySelectorAll("kbd").length,
+    };
+  });
+  assert(
+    opened.open === true && opened.summaryAriaExpanded === "true",
+    `${label}: Enter did not open the Shortcuts disclosure: ${JSON.stringify(opened)}`,
+  );
+  assert(
+    opened.rowLabels.length >= 2 && opened.kbdCount >= opened.rowLabels.length,
+    `${label}: opening Shortcuts did not reveal shortcut rows: ${JSON.stringify(opened)}`,
+  );
+  await page.evaluate(
+    ({ disclosureSelector }) => {
+      const rows = document.querySelectorAll(
+        `${disclosureSelector} > div > div`,
+      );
+      rows[rows.length - 1]?.scrollIntoView({ block: "nearest" });
+    },
+    { disclosureSelector: selectors.shortcutsDisclosure },
+  );
+  const reachability = await page.evaluate(
+    ({ disclosureSelector, menuSelector }) => {
+      const menu = document.querySelector(menuSelector);
+      const menuRect = menu?.getBoundingClientRect() ?? null;
+      const rows = Array.from(
+        document.querySelectorAll(`${disclosureSelector} > div > div`),
+      );
+      return {
+        rowsWithinMenu:
+          menuRect !== null &&
+          rows.every((row) => {
+            const rect = row.getBoundingClientRect();
+            return (
+              rect.height > 0 &&
+              rect.top >= menuRect.top - 1 &&
+              rect.bottom <= menuRect.bottom + 1
+            );
+          }),
+        rowCount: rows.length,
+      };
+    },
+    {
+      disclosureSelector: selectors.shortcutsDisclosure,
+      menuSelector: selectors.planningMenu,
+    },
+  );
+  assert(
+    reachability.rowsWithinMenu,
+    `${label}: revealed shortcut rows are not reachable inside the Planning menu scroll area: ${JSON.stringify(reachability)}`,
+  );
+  await page.keyboard.press("Space");
+  await page.waitForFunction(
+    ({ disclosureSelector }) =>
+      document.querySelector(disclosureSelector)?.open === false,
+    { disclosureSelector: selectors.shortcutsDisclosure },
+    { timeout: 5_000 },
+  );
+  const closed = await disclosure.evaluate((element) => {
+    const summary = element.querySelector(":scope > summary");
+    return {
+      open: element.open,
+      summaryAriaExpanded: summary?.getAttribute("aria-expanded") ?? null,
+    };
+  });
+  assert(
+    closed.open === false && closed.summaryAriaExpanded === "false",
+    `${label}: Space did not toggle the Shortcuts disclosure closed: ${JSON.stringify(closed)}`,
+  );
+  return {
+    summaryHitTest: hitTest,
+    rovingOrder,
+    enterOpenedRows: opened.rowLabels,
+    spaceClosedDisclosure: true,
+  };
+}
+
+async function collectExpandedShortcutsEvidence(page, label) {
+  const tokens = COMPACT_NAVIGATION_EVIDENCE_TOKENS;
+  const selectors = tokens.selectors;
+  assert(
+    (await page.locator(selectors.shortcutsDisclosure).count()) === 0,
+    `${label}: collapsed Shortcuts disclosure rendered in a normal-height menu`,
+  );
+  const group = page.locator(selectors.shortcutsExpandedGroup);
+  assert(
+    (await group.count()) === 1,
+    `${label}: normal-height Planning menu did not render one expanded Keyboard shortcuts group`,
+  );
+  const groupEvidence = await group.evaluate((element) => {
+    const children = Array.from(element.children);
+    const headers = children.filter(
+      (child) => child instanceof HTMLSpanElement,
+    );
+    const rows = children.filter((child) => child.tagName === "DIV");
+    const rectOf = (node) => {
+      const rect = node.getBoundingClientRect();
+      return {
+        top: rect.top,
+        bottom: rect.bottom,
+        left: rect.left,
+        right: rect.right,
+        width: rect.width,
+        height: rect.height,
+      };
+    };
+    return {
+      ariaLabel: element.getAttribute("aria-label"),
+      headerCount: headers.length,
+      headerText: headers[0]?.textContent?.replace(/\s+/g, " ").trim() ?? null,
+      headerRect: headers[0] ? rectOf(headers[0]) : null,
+      rowCount: rows.length,
+      rowHeights: rows.map((row) => rectOf(row).height),
+      rowLabels: rows.map(
+        (row) => row.textContent?.replace(/\s+/g, " ").trim() ?? "",
+      ),
+    };
+  });
+  assert(
+    groupEvidence.ariaLabel === "Keyboard shortcuts" &&
+      groupEvidence.headerCount === 1 &&
+      groupEvidence.headerText === "Shortcuts",
+    `${label}: expanded shortcuts group header is not truthful: ${JSON.stringify(groupEvidence)}`,
+  );
+  assert(
+    groupEvidence.rowCount >= 2 &&
+      groupEvidence.rowHeights.every((height) => height > 0),
+    `${label}: expanded shortcuts group lacks visible shortcut rows: ${JSON.stringify(groupEvidence)}`,
+  );
+  await page.evaluate(
+    ({ menuSelector }) => {
+      const menu = document.querySelector(menuSelector);
+      if (menu instanceof HTMLElement) menu.scrollTop = menu.scrollHeight;
+    },
+    { menuSelector: selectors.planningMenu },
+  );
+  await page.waitForTimeout(80);
+  const orphanAudit = await page.evaluate(
+    ({ groupSelector, menuSelector }) => {
+      const menu = document.querySelector(menuSelector);
+      const group = document.querySelector(groupSelector);
+      const menuRect = menu?.getBoundingClientRect() ?? null;
+      const children = group ? Array.from(group.children) : [];
+      const header = children.find((child) => child.tagName === "SPAN");
+      const rows = children.filter((child) => child.tagName === "DIV");
+      const withinMenu = (rect) =>
+        menuRect !== null &&
+        rect.top >= menuRect.top - 1 &&
+        rect.bottom <= menuRect.bottom + 1;
+      const headerRect = header?.getBoundingClientRect() ?? null;
+      const firstRowRect = rows[0]?.getBoundingClientRect() ?? null;
+      return {
+        menuScrollable:
+          menu instanceof HTMLElement
+            ? menu.scrollHeight > menu.clientHeight + 2
+            : null,
+        headerWithinMenu: headerRect !== null && withinMenu(headerRect),
+        allRowsWithinMenu:
+          rows.length > 0 &&
+          rows.every((row) => withinMenu(row.getBoundingClientRect())),
+        headerFirstRowGapPx:
+          headerRect && firstRowRect
+            ? firstRowRect.top - headerRect.bottom
+            : null,
+        orphanHeaderCount: Array.from(
+          document.querySelectorAll(`${menuSelector} span`),
+        ).filter(
+          (span) =>
+            span.textContent?.trim() === "Shortcuts" && !group?.contains(span),
+        ).length,
+      };
+    },
+    {
+      groupSelector: selectors.shortcutsExpandedGroup,
+      menuSelector: selectors.planningMenu,
+    },
+  );
+  assert(
+    orphanAudit.headerWithinMenu && orphanAudit.allRowsWithinMenu,
+    `${label}: expanded Shortcuts header is severed from its rows at the menu scroll cut (orphan header): ${JSON.stringify(orphanAudit)}`,
+  );
+  assert(
+    orphanAudit.orphanHeaderCount === 0,
+    `${label}: orphan Shortcuts header found outside the shortcuts group: ${JSON.stringify(orphanAudit)}`,
+  );
+  assert(
+    orphanAudit.headerFirstRowGapPx === null ||
+      (orphanAudit.headerFirstRowGapPx >= -1 &&
+        orphanAudit.headerFirstRowGapPx <= 16),
+    `${label}: Shortcuts header is not adjacent above its shortcut rows: ${JSON.stringify(orphanAudit)}`,
+  );
+  return {
+    headerText: groupEvidence.headerText,
+    rowLabels: groupEvidence.rowLabels,
+    menuScrollable: orphanAudit.menuScrollable,
+    orphanAudit,
+  };
+}
+
+function paginationVisitPlan(config) {
+  const sampling = config.sampling;
+  if (!sampling)
+    return Array.from({ length: config.pageCount }, (_, index) => index + 1);
+  const headPages = sampling.headPages.filter(
+    (pageNumber) => pageNumber >= 1 && pageNumber <= config.pageCount,
+  );
+  const plan = [...headPages];
+  if (!plan.includes(config.pageCount)) plan.push(config.pageCount);
+  return [...new Set(plan)].sort((left, right) => left - right);
+}
+
+async function advancePagination(page, config, fromPage, toPage) {
+  const clicks = toPage - fromPage;
+  assert(
+    clicks > 0 && clicks <= MAX_PAGINATION_FAST_FORWARD_CLICKS,
+    `${config.id}: pagination advance from page ${fromPage} to ${toPage} exceeds the bounded fast-forward budget of ${MAX_PAGINATION_FAST_FORWARD_CLICKS} clicks.`,
+  );
+  const nextButton = page
+    .getByRole("navigation", { name: config.paginationLabel })
+    .getByRole("button", { name: /^Next(?: page)?$/ });
+  for (let remaining = clicks; remaining > 0; remaining -= 1)
+    await nextButton.click({ timeout: 10_000 });
+}
+
 async function assertPagination(page, config) {
   await navigateHash(page, config.route, config.heading);
   if (config.waitFor) await config.waitFor(page);
+  const visitPlan = paginationVisitPlan(config);
   const pages = [];
-  for (let pageNumber = 1; pageNumber <= config.pageCount; pageNumber += 1) {
+  let previousPageNumber = null;
+  for (const pageNumber of visitPlan) {
+    if (previousPageNumber !== null) {
+      await advancePagination(page, config, previousPageNumber, pageNumber);
+    }
+    previousPageNumber = pageNumber;
     const expectedRows = config.expectedRows(pageNumber);
     const expectedText = config.expectedText(pageNumber);
     if (config.screenshotOnPages?.includes(pageNumber)) {
@@ -1104,6 +2599,7 @@ async function assertPagination(page, config) {
             '[aria-labelledby="discovery-job-results-heading"] [data-collection-item-id]',
           shortlisted: "[data-collection-item-id]",
           applications: 'ul[aria-label="Applications"] > li',
+          rapidReview: 'ul[aria-label="Jobs to review"] > li',
         }[surface];
         const pagination = Array.from(document.querySelectorAll("nav")).find(
           (el) => el.getAttribute("aria-label") === paginationLabel,
@@ -1121,6 +2617,7 @@ async function assertPagination(page, config) {
       },
       { timeout: 15_000 },
     );
+    if (config.assertPage) await config.assertPage(page, pageNumber);
     const state = await readSurface(
       page,
       config.surface,
@@ -1160,7 +2657,7 @@ async function assertPagination(page, config) {
       await checkDropdownsNotClipped(page, `${config.id}-p${pageNumber}`);
       await captureScreenshot(
         page,
-        `${config.id}-p${pageNumber}-${page.viewportSize ? page.viewportSize.width : 1440}`,
+        `${config.id}-p${pageNumber}-${(typeof page.viewportSize === "function" ? page.viewportSize()?.width : page.viewportSize?.width) ?? 1440}`,
         {
           scenarioId: config.scenarioId
             ? `${config.scenarioId}-page-${pageNumber}`
@@ -1177,20 +2674,34 @@ async function assertPagination(page, config) {
         },
       );
     }
-    if (pageNumber < config.pageCount) {
-      await page
-        .getByRole("navigation", { name: config.paginationLabel })
-        .getByRole("button", { name: /^Next(?: page)?$/ })
-        .click();
-      await page.waitForTimeout(80);
-    }
   }
-  report.pagination[config.id] = { pageCount: config.pageCount, pages };
+  report.pagination[config.id] = {
+    pageCount: config.pageCount,
+    strategy: config.sampling ? "bounded-head-tail" : "exhaustive-walk",
+    visitedPages: visitPlan,
+    pages,
+  };
   if (config.scenarioId) completeScenario(config.scenarioId);
+  return {
+    visitedPages: visitPlan,
+    pages,
+    lastVisitedPage: previousPageNumber,
+  };
 }
 
 async function verifyWideSidebar(page) {
+  // Arriving from ?section=sources keeps the sources library mounted because
+  // the app reads the section query on mount, which previously produced a
+  // byte-identical duplicate of the sources capture labeled as the sidebar.
+  // Force a real remount through another route and prove the sources library
+  // detached before recording sidebar evidence.
+  await navigateHash(page, "/job-finder/discovery", "Find jobs");
   await navigateHash(page, "/job-finder/profile", "Your profile");
+  await page.waitForFunction(
+    () => !document.querySelector("[data-job-sources-library]"),
+    undefined,
+    { timeout: 15_000 },
+  );
   const sidebar = page.getByRole("complementary", {
     name: "Job Finder sidebar",
   });
@@ -1204,10 +2715,11 @@ async function verifyWideSidebar(page) {
   await captureScreenshot(page, "sidebar-1440", {
     viewport: "1440-normal",
     scenario: "wide-sidebar",
-    scenarioId: "scale-1001-sidebar-1440",
+    scenarioId: "scale-sidebar-1440",
     expectWideSidebar: true,
+    expectRoute: "#/job-finder/profile",
   });
-  completeScenario("scale-1001-sidebar-1440");
+  completeScenario("scale-sidebar-1440");
 }
 
 async function verifyPlanningSettingsMenu(page, viewportLabel) {
@@ -1218,9 +2730,18 @@ async function verifyPlanningSettingsMenu(page, viewportLabel) {
   });
   await planningButton.waitFor({ state: "visible", timeout: 10_000 });
   await planningButton.click();
-  const menu = page.getByRole("menu", { name: "Planning and settings" });
+  const menu = page.getByRole("navigation", { name: "Planning and settings" });
   await menu.waitFor({ state: "visible", timeout: 10_000 });
-  const items = menu.getByRole("menuitem");
+  const items = menu.getByRole("button");
+  await page.waitForFunction(
+    () =>
+      document.activeElement instanceof HTMLButtonElement &&
+      document.activeElement
+        .closest('[role="navigation"][aria-label="Planning and settings"]') !==
+        null,
+    undefined,
+    { timeout: 10_000 },
+  );
   const labels = await items.evaluateAll((elements) =>
     elements.map(
       (element) =>
@@ -1236,7 +2757,7 @@ async function verifyPlanningSettingsMenu(page, viewportLabel) {
     );
   const verticalClipEvidence = await menu.evaluate((element) => {
     const menu = element;
-    const items = Array.from(menu.querySelectorAll('[role="menuitem"]'));
+    const items = Array.from(menu.querySelectorAll("button"));
     const lastItem = items.at(-1);
     const beforeScrollTop = menu.scrollTop;
     const beforeRect = lastItem?.getBoundingClientRect() ?? null;
@@ -1272,11 +2793,19 @@ async function verifyPlanningSettingsMenu(page, viewportLabel) {
   );
   await page.keyboard.press("Home");
   const firstFocused = await page.evaluate(
-    () => document.activeElement?.getAttribute("role") === "menuitem",
+    () =>
+      document.activeElement instanceof HTMLButtonElement &&
+      document.activeElement
+        .closest('[role="navigation"][aria-label="Planning and settings"]') !==
+        null,
   );
   await page.keyboard.press("End");
   const lastFocused = await page.evaluate(
-    () => document.activeElement?.getAttribute("role") === "menuitem",
+    () =>
+      document.activeElement instanceof HTMLButtonElement &&
+      document.activeElement
+        .closest('[role="navigation"][aria-label="Planning and settings"]') !==
+        null,
   );
   const planningSettingsKeyboard = {
     pass: firstFocused && lastFocused,
@@ -1307,14 +2836,346 @@ async function verifyPlanningSettingsMenu(page, viewportLabel) {
   await captureScreenshot(page, `planning-settings-menu-${viewportLabel}`, {
     viewport: viewportLabel,
     scenario: "planning-settings-menu",
-    scenarioId: `scale-1001-planning-settings-${viewportLabel}`,
+    scenarioId: `scale-planning-settings-${viewportLabel}`,
     expectPlanningSettingsMenu: true,
     expectPlanningSettingsKeyboard: true,
     planningSettingsKeyboard,
   });
-  completeScenario(`scale-1001-planning-settings-${viewportLabel}`);
+  completeScenario(`scale-planning-settings-${viewportLabel}`);
   await page.keyboard.press("Escape");
   await page.waitForTimeout(100);
+}
+
+// The CRM lifecycle control is a native <select>: its open popup is rendered by
+// the OS and never appears in page pixels, which is why the previous
+// "lifecycle dropdown" capture came out byte-identical to the closed-state
+// capture. Open-state is therefore proven through DOM-observable semantics -
+// the focused select plus frame-to-frame geometry stability - recorded as
+// evidence, and a non-default lifecycle view is applied so the capture carries
+// real filtered state instead of duplicating the default view.
+async function captureApplicationsLifecycleView(page) {
+  // The lifecycle select is rendered only inside the Tracker (CRM) workspace
+  // view; the default Preparation view never mounts it. Switch explicitly
+  // through the workspace view toggle, then restore Preparation after evidence
+  // collection so later captures stay comparable.
+  const workspaceViewGroup = page.getByRole("group", {
+    name: "Applications workspace view",
+  });
+  await workspaceViewGroup.waitFor({ state: "visible", timeout: 10_000 });
+  await workspaceViewGroup
+    .getByRole("button", { name: "Tracker", exact: true })
+    .click();
+  const trigger = page.getByLabel("Lifecycle view");
+  await trigger.waitFor({ state: "visible", timeout: 10_000 });
+  const beforeState = await trigger.evaluate((element) => ({
+    tagName: element.tagName.toLowerCase(),
+    value: element.value,
+    optionLabels: Array.from(
+      element.options ?? [],
+      (option) => option.textContent?.trim() ?? "",
+    ),
+  }));
+  const applicationsPaginationText = () =>
+    page.evaluate(() => {
+      const nav = Array.from(document.querySelectorAll("nav")).find((el) =>
+        /applications/i.test(el.getAttribute("aria-label") ?? ""),
+      );
+      return nav?.textContent?.replace(/\s+/g, " ").trim() ?? null;
+    });
+  const beforePaginationText = await applicationsPaginationText();
+  await trigger.focus();
+  await page.keyboard.press("Alt+ArrowDown");
+  await page.waitForFunction(
+    () => document.activeElement instanceof HTMLSelectElement,
+    undefined,
+    { timeout: 5_000 },
+  );
+  const geometryStability = await page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const select = document.activeElement;
+        if (!(select instanceof HTMLSelectElement)) {
+          resolve({ stable: false, rects: [] });
+          return;
+        }
+        const first = select.getBoundingClientRect().toJSON();
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            const second = select.getBoundingClientRect().toJSON();
+            resolve({
+              stable:
+                Math.abs(first.width - second.width) <= 0.5 &&
+                Math.abs(first.height - second.height) <= 0.5 &&
+                Math.abs(first.left - second.left) <= 0.5 &&
+                Math.abs(first.top - second.top) <= 0.5,
+              rects: [first, second],
+            });
+          }),
+        );
+      }),
+  );
+  assert(
+    geometryStability.stable,
+    `Applications lifecycle control geometry did not stabilize while open: ${JSON.stringify(geometryStability.rects)}`,
+  );
+  await page.keyboard.press("Escape");
+  await trigger.selectOption("needs_follow_up");
+  const selectedValue = await trigger.inputValue();
+  assert(
+    selectedValue === "needs_follow_up",
+    `Applications lifecycle view selection did not apply: ${selectedValue}`,
+  );
+  await page.waitForFunction(
+    ({ previous }) => {
+      const emptyHeading = Array.from(document.querySelectorAll("h3")).find(
+        (element) =>
+          (element.textContent ?? "").includes(
+            "No applications match this lifecycle view",
+          ),
+      );
+      const nav = Array.from(document.querySelectorAll("nav")).find((el) =>
+        /applications/i.test(el.getAttribute("aria-label") ?? ""),
+      );
+      const text = nav?.textContent?.replace(/\s+/g, " ").trim() ?? null;
+      return Boolean(emptyHeading) || (text !== null && text !== previous);
+    },
+    { previous: beforePaginationText },
+    { timeout: 10_000 },
+  );
+  const appliedOutcome = await applicationsPaginationText();
+  await captureScreenshot(
+    page,
+    `applications-lifecycle-${selectedValue}-1440`,
+    {
+      surface: "applications",
+      expectRoute: "#/job-finder/applications",
+      note: "Native lifecycle select opened via Alt+ArrowDown; the OS popup cannot appear in page pixels, so open-state is recorded as focused-select semantics with geometry stability, then a non-default lifecycle view is applied.",
+      lifecycleEvidence: {
+        controlLabel: "Lifecycle view",
+        tagName: beforeState.tagName,
+        optionLabels: beforeState.optionLabels,
+        previousValue: beforeState.value,
+        selectedValue,
+        openFocused: true,
+        geometryStable: geometryStability.stable,
+        rects: geometryStability.rects,
+        appliedOutcome,
+      },
+    },
+  );
+  // Restore the default lifecycle view so later captures are not contaminated
+  // by the filtered state. Wait for the unfiltered total instead of the exact
+  // prior page text; a filter change may legitimately reset the page counter.
+  await trigger.selectOption(beforeState.value);
+  await page.waitForFunction(
+    ({ totalCount }) => {
+      const emptyHeading = Array.from(document.querySelectorAll("h3")).find(
+        (element) =>
+          (element.textContent ?? "").includes(
+            "No applications match this lifecycle view",
+          ),
+      );
+      const nav = Array.from(document.querySelectorAll("nav")).find((el) =>
+        /applications/i.test(el.getAttribute("aria-label") ?? ""),
+      );
+      const text = nav?.textContent?.replace(/\s+/g, " ").trim() ?? null;
+      return (
+        !emptyHeading &&
+        text !== null &&
+        text.includes(`of ${totalCount} applications`)
+      );
+    },
+    { totalCount: counts.applications },
+    { timeout: 10_000 },
+  );
+  // Restore the default Preparation workspace view; the Tracker-only
+  // lifecycle control must be gone before any later capture runs.
+  await workspaceViewGroup
+    .getByRole("button", { name: "Preparation", exact: true })
+    .click();
+  await trigger.waitFor({ state: "detached", timeout: 10_000 });
+}
+
+async function assertRapidReviewPagination(page) {
+  const pageCount = Math.ceil(counts.jobs / 40);
+  return assertPagination(page, {
+    id: "rapidReview",
+    scenarioId: "scale-rapid-review-pagination",
+    route: "/job-finder/rapid-review",
+    heading: "Rapid review",
+    surface: "rapidReview",
+    pageCount,
+    sampling: { headPages: [1, 2] },
+    paginationLabel: "jobs pagination",
+    expectedRows: (pageNumber) =>
+      Math.min(40, counts.jobs - (pageNumber - 1) * 40),
+    expectedText: (pageNumber) => {
+      const first = (pageNumber - 1) * 40 + 1;
+      const last = Math.min(pageNumber * 40, counts.jobs);
+      return `Showing ${first}–${last} of ${counts.jobs} jobs`;
+    },
+    assertPage: async (_currentPage, pageNumber) => {
+      const pageCounter = await page.evaluate(() => {
+        const nav = Array.from(document.querySelectorAll("nav")).find(
+          (el) => el.getAttribute("aria-label") === "jobs pagination",
+        );
+        return (
+          nav
+            ?.querySelector('[aria-current="page"]')
+            ?.textContent?.replace(/\s+/g, " ")
+            .trim() ?? null
+        );
+      });
+      assert(
+        pageCounter === `Page ${pageNumber} of ${pageCount}`,
+        `rapidReview page ${pageNumber}: page counter was ${pageCounter}, expected Page ${pageNumber} of ${pageCount}.`,
+      );
+    },
+    screenshotOnPages: [1, pageCount],
+  });
+}
+
+async function assertReviewQueueBatchActions(page) {
+  const expectedCountsText = `${counts.shortlisted} eligible · 0 ready to queue`;
+  const draftRemainder =
+    counts.shortlisted - REVIEW_QUEUE_DRAFT_PREPARATION_LIMIT;
+  const expectedCapNoteText = `Only the next ${REVIEW_QUEUE_DRAFT_PREPARATION_LIMIT} eligible jobs run now, in list order; ${draftRemainder} more remain.`;
+  const expectedGenerateLabel = `Generate up to ${REVIEW_QUEUE_DRAFT_PREPARATION_LIMIT} drafts (review required)`;
+  await navigateHash(page, "/job-finder/review-queue", "Shortlisted jobs");
+  const summary = page
+    .locator('details[data-testid="batch-actions"] > summary')
+    .first();
+  await summary.waitFor({ state: "visible", timeout: 15_000 });
+  await summary.click();
+  await page.waitForFunction(
+    () => {
+      const details = document.querySelector(
+        'details[data-testid="batch-actions"]',
+      );
+      return Boolean(
+        details?.open &&
+        details.querySelector('[data-testid="tailored-draft-preparation"]'),
+      );
+    },
+    undefined,
+    { timeout: 15_000 },
+  );
+  const batchActionsEvidence = await page.evaluate(() => {
+    const normalize = (value) => value?.replace(/\s+/g, " ").trim() ?? null;
+    const details = document.querySelector(
+      'details[data-testid="batch-actions"]',
+    );
+    const panel = details?.querySelector(
+      '[data-testid="tailored-draft-preparation"]',
+    );
+    const panelParagraphs = panel
+      ? Array.from(panel.querySelectorAll("p")).map((paragraph) =>
+          normalize(paragraph.textContent),
+        )
+      : [];
+    const generateButton = panel
+      ? Array.from(panel.querySelectorAll("button")).find((button) =>
+          normalize(button.textContent)?.startsWith("Generate up to "),
+        )
+      : null;
+    const selectionLabels = Array.from(
+      document.querySelectorAll("label"),
+    ).filter((label) => normalize(label.textContent) === "Select for batch");
+    const rowSelections = selectionLabels.map((label) => {
+      const control = label.querySelector(
+        'input[type="checkbox"], [role="checkbox"]',
+      );
+      const rect = label.getBoundingClientRect();
+      const reasonId = control?.getAttribute("aria-describedby") ?? null;
+      return {
+        role: control?.getAttribute("role"),
+        disabled: control?.disabled ?? null,
+        describedByReason: Boolean(reasonId),
+        reason: reasonId
+          ? normalize(document.getElementById(reasonId)?.textContent)
+          : null,
+        visible: rect.width > 0 && rect.height > 0,
+      };
+    });
+    const selectAllReadyJobsPresent = Array.from(
+      document.querySelectorAll("button"),
+    ).some(
+      (button) => normalize(button.textContent) === "Select all ready jobs",
+    );
+    return {
+      disclosureOpen: Boolean(details?.open),
+      summaryExpanded:
+        details?.querySelector("summary")?.getAttribute("aria-expanded") ??
+        null,
+      panelMounted: Boolean(panel),
+      countsText:
+        panelParagraphs.find((text) => text?.includes("eligible ·")) ?? null,
+      capNoteText:
+        panelParagraphs.find((text) => text?.startsWith("Only the next ")) ??
+        null,
+      generateButtonLabel: generateButton
+        ? normalize(generateButton.textContent)
+        : null,
+      generateButtonDisabled: generateButton?.disabled ?? null,
+      rowSelectionCount: rowSelections.length,
+      rowSelections,
+      selectAllReadyJobsPresent,
+    };
+  });
+  assert(
+    batchActionsEvidence.disclosureOpen &&
+      batchActionsEvidence.summaryExpanded === "true" &&
+      batchActionsEvidence.panelMounted,
+    `scale-review-queue-batch-actions: the batch actions disclosure did not open its preparation panel: ${JSON.stringify(batchActionsEvidence)}`,
+  );
+  assert(
+    batchActionsEvidence.countsText === expectedCountsText,
+    `scale-review-queue-batch-actions: eligibility strip was "${batchActionsEvidence.countsText}", expected "${expectedCountsText}".`,
+  );
+  assert(
+    batchActionsEvidence.capNoteText === expectedCapNoteText,
+    `scale-review-queue-batch-actions: cap note was "${batchActionsEvidence.capNoteText}", expected "${expectedCapNoteText}".`,
+  );
+  assert(
+    batchActionsEvidence.generateButtonLabel === expectedGenerateLabel &&
+      batchActionsEvidence.generateButtonDisabled === false,
+    `scale-review-queue-batch-actions: Generate action was "${batchActionsEvidence.generateButtonLabel}" disabled=${batchActionsEvidence.generateButtonDisabled}, expected enabled "${expectedGenerateLabel}".`,
+  );
+  assert(
+    batchActionsEvidence.rowSelectionCount > 0 &&
+      batchActionsEvidence.rowSelections.every(
+        (selection) =>
+          selection.disabled === true &&
+          selection.describedByReason &&
+          selection.reason === REVIEW_QUEUE_READY_RESUME_REASON &&
+          selection.visible,
+      ),
+    `scale-review-queue-batch-actions: per-row Select for batch controls are not all disabled with the ready-resume reason: ${JSON.stringify(batchActionsEvidence.rowSelections.slice(0, 3))}`,
+  );
+  assert(
+    !batchActionsEvidence.selectAllReadyJobsPresent,
+    "scale-review-queue-batch-actions: Select all ready jobs rendered without any stage-ready job.",
+  );
+  await captureScreenshot(page, "review-queue-batch-actions-1440", {
+    viewport: "1440-normal",
+    expectRoute: "#/job-finder/review-queue",
+    batchActionsEvidence: {
+      ...batchActionsEvidence,
+      eligibleTotal: counts.shortlisted,
+      draftPreparationLimit: REVIEW_QUEUE_DRAFT_PREPARATION_LIMIT,
+      expectedCountsText,
+      expectedCapNoteText,
+      expectedGenerateLabel,
+      readyResumeReason: REVIEW_QUEUE_READY_RESUME_REASON,
+    },
+  });
+  completeScenario("scale-review-queue-batch-actions");
+  await summary.click();
+  await page.waitForFunction(
+    () => !document.querySelector('details[data-testid="batch-actions"]')?.open,
+    undefined,
+    { timeout: 10_000 },
+  );
 }
 
 async function run() {
@@ -1333,6 +3194,7 @@ async function run() {
   });
   const createdDemoFiles = new Set();
   const observedSafetyEvents = [];
+  const ownedProcesses = createOwnedProcessLedger();
   let app = null;
   let page = null;
   let memoryPid = null;
@@ -1354,6 +3216,11 @@ async function run() {
     await page.addInitScript(installPrepareOnlySafetyProbe);
     await page.evaluate(installPrepareOnlySafetyProbe);
     memoryPid = app.process()?.pid ?? null;
+    ownedProcesses.track(
+      memoryPid,
+      `electron-root-${processOutputStates.length}`,
+      "",
+    );
     page.on("pageerror", (e) =>
       report.runtimeErrors.push({ type: "pageerror", message: e.message }),
     );
@@ -1367,6 +3234,8 @@ async function run() {
     return page;
   };
 
+  let primaryScenarioError = null;
+  let postTeardownFailure = null;
   try {
     log("launching bootstrap app");
     const bootstrapPage = await launch();
@@ -1387,7 +3256,9 @@ async function run() {
       try {
         await access(filePath);
         beforeFiles.add(filePath);
-      } catch {}
+      } catch {
+        // The demo had not created this file, so it must not be tracked for deletion.
+      }
     }
     const scaleState = createScaleState(baseSnapshot);
     log(
@@ -1436,32 +3307,44 @@ async function run() {
     log(
       `bootstrapped totals: jobs=${totalJobs} reviewQueue=${reviewQueueLen} applications=${bootstrappedWorkspace.applicationRecords.length} sources=${bootstrappedWorkspace.searchPreferences.discovery.targets.length}`,
     );
-    assert(totalJobs === counts.jobs, `Bootstrap jobs mismatch`);
     assert(
-      bootstrappedWorkspace.applicationRecords.length === counts.applications,
-      `Bootstrap applications mismatch`,
+      totalJobs === requiredJobCount,
+      `Bootstrap persisted ${totalJobs} jobs instead of the required ${requiredJobCount}.`,
+    );
+    assert(
+      bootstrappedWorkspace.applicationRecords.length === priorCapBoundaryCount,
+      `Bootstrap persisted ${bootstrappedWorkspace.applicationRecords.length} applications instead of the required ${priorCapBoundaryCount}.`,
+    );
+    assert(
+      reviewQueueLen === counts.shortlisted,
+      `Bootstrap shortlisted ${reviewQueueLen} jobs instead of the required ${counts.shortlisted}.`,
     );
     assert(
       bootstrappedWorkspace.searchPreferences.discovery.targets.length ===
         counts.sources,
-      `Bootstrap sources mismatch`,
+      `Bootstrap persisted ${bootstrappedWorkspace.searchPreferences.discovery.targets.length} sources instead of the required ${counts.sources}.`,
     );
-    completeScenario("scale-1001-bootstrap");
+    completeScenario("scale-bootstrap");
 
     log("stopping bootstrap app");
     const bootstrapProcess = app.process();
     if (!bootstrapProcess)
       throw new Error("Bootstrap Electron process was unavailable.");
-    const bootstrapExit = new Promise((resolve) => {
-      bootstrapProcess.once("exit", resolve);
-    });
-    await execFileAsync("taskkill", [
-      "/PID",
-      String(bootstrapProcess.pid),
-      "/T",
-      "/F",
-    ]);
-    await bootstrapExit;
+    await snapshotOwnedProcessTree(
+      ownedProcesses,
+      bootstrapProcess.pid,
+      "bootstrap",
+    );
+    await forceStopElectronProcess(bootstrapProcess);
+    const bootstrapTeardown = await verifyZeroLeftoverOwnedProcesses(
+      ownedProcesses,
+      "bootstrap",
+    );
+    report.processOwnership.verifications.push(bootstrapTeardown);
+    assert(
+      bootstrapTeardown.verified,
+      `Bootstrap Electron teardown left ${bootstrapTeardown.leftoverPids.length} tracked process(es) alive: ${JSON.stringify(bootstrapTeardown.leftoverDetail)}`,
+    );
     // Let Windows finish terminating Chromium descendants and releasing the
     // SQLite/WAL files before starting the measured launch. The timer begins
     // only after this cleanup period, so harness teardown is not charged to or
@@ -1493,16 +3376,18 @@ async function run() {
             if (app) {
               const proc = app.process();
               if (proc?.pid) {
-                await execFileAsync("taskkill", [
-                  "/PID",
-                  String(proc.pid),
-                  "/T",
-                  "/F",
-                ]).catch(() => {});
+                await snapshotOwnedProcessTree(
+                  ownedProcesses,
+                  proc.pid,
+                  `cold-retry-${attempt}`,
+                ).catch(() => {});
+                await forceStopElectronProcess(proc).catch(() => {});
                 await new Promise((r) => setTimeout(r, 800));
               }
             }
-          } catch {}
+          } catch {
+            // Retry teardown is best effort; the fresh launch below re-proves liveness.
+          }
           app = null;
           page = null;
           if (process.platform === "win32") {
@@ -1514,7 +3399,9 @@ async function run() {
                 "/C",
                 "/Q",
               ]);
-            } catch {}
+            } catch {
+              // ACL repair is Windows-only best effort; launch failures surface on their own.
+            }
           }
           await new Promise((r) => setTimeout(r, 800));
         }
@@ -1538,7 +3425,9 @@ async function run() {
               body: document.body.innerText.slice(0, 2000),
             }));
             report.coldLaunchDiagnostic = diag;
-          } catch {}
+          } catch {
+            // Diagnostics are opportunistic; the original launch error still propagates.
+          }
         if (attempt === 1) throw error;
         await new Promise((r) => setTimeout(r, 1000));
       }
@@ -1573,6 +3462,46 @@ async function run() {
     report.startup.electronPid = memoryPid;
     report.startup.memory = await sampleProcessMemory(memoryPid);
     await waitForWorkspaceHydrationComplete(page);
+    // Prove the cold production app actually hydrated the full scale axis
+    // through IPC before any rendering assertion runs. This is the hydrated
+    // contract: 5,000 discovery jobs plus every prior-cap boundary collection.
+    const hydratedWorkspace = await page.evaluate(() =>
+      window.unemployed.jobFinder.getWorkspace(),
+    );
+    assert(
+      hydratedWorkspace.hydration?.phase === "complete",
+      `Cold launch hydration did not complete: ${hydratedWorkspace.hydration?.phase}`,
+    );
+    const hydratedJobRecords =
+      hydratedWorkspace.discoveryJobs ?? hydratedWorkspace.savedJobs ?? [];
+    const hydratedJobs = hydratedJobRecords.length;
+    const hydratedShortlisted =
+      hydratedWorkspace.reviewQueue?.length ??
+      hydratedJobRecords.filter((job) => job?.status === "ready_for_review")
+        .length;
+    const hydrationProof = {
+      phase: hydratedWorkspace.hydration?.phase ?? null,
+      jobs: hydratedJobs,
+      requiredJobs: requiredJobCount,
+      shortlisted: hydratedShortlisted,
+      applications: hydratedWorkspace.applicationRecords?.length ?? 0,
+      sources:
+        hydratedWorkspace.searchPreferences?.discovery?.targets?.length ?? 0,
+    };
+    assert(
+      hydrationProof.jobs === requiredJobCount,
+      `Cold launch hydrated ${hydrationProof.jobs} jobs instead of ${requiredJobCount}: ${JSON.stringify(hydrationProof)}`,
+    );
+    assert(
+      hydrationProof.shortlisted >= priorCapBoundaryCount &&
+        hydrationProof.applications >= priorCapBoundaryCount &&
+        hydrationProof.sources >= priorCapBoundaryCount,
+      `Cold launch dropped below the ${priorCapBoundaryCount}-record boundary collections: ${JSON.stringify(hydrationProof)}`,
+    );
+    report.hydration = hydrationProof;
+    log(
+      `hydrated jobs=${hydrationProof.jobs} shortlisted=${hydrationProof.shortlisted} applications=${hydrationProof.applications} sources=${hydrationProof.sources}`,
+    );
     report.startup.timingMarks = await readJobFinderTimingMarks(page);
     assert(
       report.startup.coldToUsableShellMs <=
@@ -1582,7 +3511,7 @@ async function run() {
     await installRendererProbe(page);
     report.renderer.longTaskSupported =
       (await readRendererProbe(page))?.longTaskSupported ?? false;
-    const browserWindow = await app.browserWindow(page);
+    const browserWindow = await resolveStartupBrowserWindow(app, page);
     activeBrowserWindow = browserWindow;
     await setViewportAndZoom(page, browserWindow, viewportNormal);
     log(`cold usable shell ${report.startup.coldToUsableShellMs} ms at 1440`);
@@ -1606,22 +3535,30 @@ async function run() {
     );
     log("route switch cycles complete");
 
-    // Capture baseline screenshots at 1440
+    // Capture baseline screenshots at 1440. The route cycles end on
+    // Applications, so navigate explicitly and gate the label on the observed
+    // route instead of trusting wherever the previous step left the app.
+    await navigateHash(page, "/job-finder/profile", "Your profile");
     await captureScreenshot(page, "1440-profile-baseline", {
       viewport: "1440-normal",
+      expectRoute: "#/job-finder/profile",
     });
     await checkHorizontalOverflow(page, "1440-profile");
     await checkDropdownsNotClipped(page, "1440-profile");
 
-    log("checking Find Jobs pagination 1-50 / 51-100 with screenshots");
-    // Only capture pages 1 and 2 for Find Jobs to match objective (1-50/51-100), but also verify full pagination bounded
+    log("checking Find Jobs pagination 1-50 / 51-100 with bounded tail proof");
+    // The discovery axis scales with requiredJobCount (5,000 jobs => 100 pages
+    // of 50). Keep renderer checks bounded: exhaustively verify head pages
+    // 1-2 (with screenshots) plus the final boundary page (last rows, Next
+    // disabled) reached through the capped fast-forward.
     await assertPagination(page, {
       id: "findJobs",
-      scenarioId: "scale-1001-find-jobs-pagination",
+      scenarioId: "scale-find-jobs-pagination",
       route: "/job-finder/discovery",
       heading: "Find jobs",
       surface: "findJobs",
       pageCount: Math.ceil(counts.jobs / 50),
+      sampling: { headPages: [1, 2] },
       paginationLabel: "Job result pages",
       expectedRows: (pn) => Math.min(50, counts.jobs - (pn - 1) * 50),
       expectedText: (pn) => {
@@ -1629,12 +3566,45 @@ async function run() {
         const last = Math.min(pn * 50, counts.jobs);
         return `${first}–${last} of ${counts.jobs}`;
       },
+      assertPage: async (currentPage, pageNumber) => {
+        await currentPage.waitForFunction(
+          () => {
+            const selectedTitle = document
+              .querySelector('[data-job-result-id][aria-current="true"] strong')
+              ?.textContent?.trim();
+            const inspectorTitle = document
+              .querySelector("#discovery-selected-job-heading")
+              ?.textContent?.trim();
+            return Boolean(
+              selectedTitle &&
+              inspectorTitle &&
+              selectedTitle === inspectorTitle,
+            );
+          },
+          undefined,
+          { timeout: 10_000 },
+        );
+        const parity = await currentPage.evaluate(() => ({
+          inspectorTitle:
+            document
+              .querySelector("#discovery-selected-job-heading")
+              ?.textContent?.trim() ?? null,
+          selectedTitle:
+            document
+              .querySelector('[data-job-result-id][aria-current="true"] strong')
+              ?.textContent?.trim() ?? null,
+        }));
+        assert(
+          parity.selectedTitle === parity.inspectorTitle,
+          `findJobs page ${pageNumber}: inspector does not match the highlighted result: ${JSON.stringify(parity)}.`,
+        );
+      },
       screenshotOnPages: [1, 2],
     });
     log("checking Shortlisted pagination");
-    await assertPagination(page, {
+    const shortlistedPagination = await assertPagination(page, {
       id: "shortlisted",
-      scenarioId: "scale-1001-shortlisted-pagination",
+      scenarioId: "scale-shortlisted-pagination",
       route: "/job-finder/review-queue",
       heading: "Shortlisted jobs",
       surface: "shortlisted",
@@ -1648,15 +3618,25 @@ async function run() {
       },
       screenshotOnPages: [1],
     });
-    // Extra screenshot for Shortlisted at bounded page
-    await captureScreenshot(page, "shortlisted-p1-1440", {
-      surface: "shortlisted",
-      page: 1,
-    });
+    // The bounded walk ends on the final boundary page; label the extra
+    // capture with the page counter actually observed at capture time instead
+    // of a static page number that would misdescribe the evidence.
+    const shortlistedFinalPage = shortlistedPagination.lastVisitedPage ?? 1;
+    const shortlistedFinalState = shortlistedPagination.pages.at(-1);
+    await captureScreenshot(
+      page,
+      `shortlisted-final-p${shortlistedFinalPage}-1440`,
+      {
+        surface: "shortlisted",
+        page: shortlistedFinalPage,
+        pagination: shortlistedFinalState?.text ?? null,
+        mountedRows: shortlistedFinalState?.mountedRows ?? null,
+      },
+    );
     log("checking Applications pagination");
-    await assertPagination(page, {
+    const applicationsPagination = await assertPagination(page, {
       id: "applications",
-      scenarioId: "scale-1001-applications-pagination",
+      scenarioId: "scale-applications-pagination",
       route: "/job-finder/applications",
       heading: "Applications",
       surface: "applications",
@@ -1670,9 +3650,18 @@ async function run() {
       },
       screenshotOnPages: [1],
     });
-    await captureScreenshot(page, "applications-crm-p1-1440", {
-      surface: "applications",
-    });
+    const applicationsFinalPage = applicationsPagination.lastVisitedPage ?? 1;
+    const applicationsFinalState = applicationsPagination.pages.at(-1);
+    await captureScreenshot(
+      page,
+      `applications-crm-final-p${applicationsFinalPage}-1440`,
+      {
+        surface: "applications",
+        page: applicationsFinalPage,
+        pagination: applicationsFinalState?.text ?? null,
+        mountedRows: applicationsFinalState?.mountedRows ?? null,
+      },
+    );
     // Verify Applications CRM specific: ensure pagination is outside table scroll and table not horizontally overflowing
     await page.evaluate(
       () => (window.location.hash = "#/job-finder/applications"),
@@ -1680,14 +3669,12 @@ async function run() {
     await waitForHeading(page, "Applications");
     await checkHorizontalOverflow(page, "applications-crm-1440");
     await checkDropdownsNotClipped(page, "applications-crm-1440");
-    await captureScreenshot(page, "applications-crm-1440-lifecycle-dropdown", {
-      note: "CRM lifecycle view dropdown visible",
-    });
+    await captureApplicationsLifecycleView(page);
 
     log("checking Profile source pagination");
-    await assertPagination(page, {
+    const profileSourcesPagination = await assertPagination(page, {
       id: "profileSources",
-      scenarioId: "scale-1001-profile-sources-pagination",
+      scenarioId: "scale-profile-sources-pagination",
       route: "/job-finder/profile?section=sources&focus=job-sources",
       heading: "Your profile",
       surface: "profile",
@@ -1706,48 +3693,77 @@ async function run() {
       },
       screenshotOnPages: [1, 2],
     });
-    await captureScreenshot(page, "profile-sources-p1-1440", {
-      surface: "profileSources",
-    });
+    const sourcesFinalPage = profileSourcesPagination.lastVisitedPage ?? 1;
+    const sourcesFinalState = profileSourcesPagination.pages.at(-1);
+    await captureScreenshot(
+      page,
+      `profile-sources-final-p${sourcesFinalPage}-1440`,
+      {
+        surface: "profileSources",
+        page: sourcesFinalPage,
+        pagination: sourcesFinalState?.text ?? null,
+        mountedRows: sourcesFinalState?.mountedRows ?? null,
+      },
+    );
     log("pagination checks at 1440 complete");
+
+    log("checking Rapid review pagination across all active-campaign jobs");
+    await assertRapidReviewPagination(page);
+    log("checking Review queue batch actions disclosure");
+    await assertReviewQueueBatchActions(page);
 
     // Verify the wide sidebar at 1440.
     await verifyWideSidebar(page);
 
-    // Now test 200% zoom
-    log("switching to 200% zoom");
-    await setViewportAndZoom(page, browserWindow, viewportZoomed);
+    // Now test practical native 125% zoom: the shell keeps its desktop-like
+    // layout (CSS 1152x736) instead of the removed 200% mobile-like collapse.
+    log("switching to native 125% zoom");
+    await setViewportAndZoom(page, browserWindow, viewportNative125);
     await page.waitForTimeout(400);
-    // Capture screenshots at 200%
+    // Capture screenshots at native 125%
     await navigateHash(page, "/job-finder/discovery", "Find jobs");
-    await checkHorizontalOverflow(page, "findJobs-200pct");
-    await checkPaginationFlexWrap(page, "findJobs-200pct");
-    await checkDropdownsNotClipped(page, "findJobs-200pct");
-    await captureScreenshot(page, "findJobs-p1-200pct", {
-      viewport: "200pct",
-      zoom: 2,
+    await checkHorizontalOverflow(page, "findJobs-native125");
+    await checkPaginationFlexWrap(page, "findJobs-native125");
+    await checkDropdownsNotClipped(page, "findJobs-native125");
+    await captureScreenshot(page, "findJobs-p1-native125", {
+      viewport: "native125",
+      zoom: 1.25,
     });
-    completeScenario("scale-1001-find-jobs-zoom200");
+    completeScenario("scale-find-jobs-native125");
+    await verifyCompactActiveRoute(page, {
+      label: "native125-find-jobs",
+      expectedLabel: "Find jobs",
+    });
 
-    // Go to page 2 at 200% and capture
+    // Go to page 2 at native 125% and capture
     await page
       .getByRole("navigation", { name: "Job result pages" })
       .getByRole("button", { name: /^Next/ })
       .click();
     await page.waitForTimeout(150);
-    await checkHorizontalOverflow(page, "findJobs-p2-200pct");
-    await captureScreenshot(page, "findJobs-p2-200pct", { viewport: "200pct" });
+    await checkHorizontalOverflow(page, "findJobs-p2-native125");
+    await captureScreenshot(page, "findJobs-p2-native125", {
+      viewport: "native125",
+    });
 
     await navigateHash(page, "/job-finder/review-queue", "Shortlisted jobs");
-    await checkHorizontalOverflow(page, "shortlisted-200pct");
-    await captureScreenshot(page, "shortlisted-p1-200pct", {
-      viewport: "200pct",
+    await checkHorizontalOverflow(page, "shortlisted-native125");
+    await captureScreenshot(page, "shortlisted-p1-native125", {
+      viewport: "native125",
+    });
+    await verifyCompactActiveRoute(page, {
+      label: "native125-shortlisted",
+      expectedLabel: "Shortlisted",
     });
 
     await navigateHash(page, "/job-finder/applications", "Applications");
-    await checkHorizontalOverflow(page, "applications-200pct");
-    await captureScreenshot(page, "applications-crm-p1-200pct", {
-      viewport: "200pct",
+    await checkHorizontalOverflow(page, "applications-native125");
+    await captureScreenshot(page, "applications-crm-p1-native125", {
+      viewport: "native125",
+    });
+    await verifyCompactActiveRoute(page, {
+      label: "native125-applications",
+      expectedLabel: "Applications",
     });
 
     await navigateHash(
@@ -1758,26 +3774,51 @@ async function run() {
     await page
       .locator("[data-job-sources-library]")
       .waitFor({ state: "visible", timeout: 15_000 });
-    await checkHorizontalOverflow(page, "profile-sources-200pct");
-    await captureScreenshot(page, "profile-sources-p1-200pct", {
-      viewport: "200pct",
+    await checkHorizontalOverflow(page, "profile-sources-native125");
+    await captureScreenshot(page, "profile-sources-p1-native125", {
+      viewport: "native125",
+    });
+    await verifyCompactActiveRoute(page, {
+      label: "native125-profile-sources",
+      expectedLabel: "Profile",
     });
 
-    // Verify compact Planning and settings navigation at 200%.
-    await verifyPlanningSettingsMenu(page, "zoom200");
+    // Verify compact Planning and settings navigation at native 125%. The CSS
+    // viewport is 1440/1.25 x 920/1.25 = 1152x736; the Planning menu height
+    // budget stays above the 480px collapse threshold, so shortcuts render in
+    // expanded mode exactly like the minimum-width desktop surface.
+    await verifyPlanningSettingsMenu(page, "native125");
+    await verifyCompactNavigationRail(page, "native125", {
+      width: 1152,
+      height: 736,
+    });
+    await verifyPlanningShortcutsEvidence(page, {
+      label: "native125",
+      expectedMode: "expanded",
+      expectedCssViewport: { width: 1152, height: 736 },
+    });
 
     // Final overall checks
     await navigateHash(page, "/job-finder/discovery", "Find jobs");
-    await checkPaginationFlexWrap(page, "final-200pct");
-    await checkHorizontalOverflow(page, "final-200pct");
-    await captureScreenshot(page, "final-200pct-overview", {
-      viewport: "200pct",
+    await checkPaginationFlexWrap(page, "final-native125");
+    await checkHorizontalOverflow(page, "final-native125");
+    await captureScreenshot(page, "final-native125-overview", {
+      viewport: "native125",
     });
 
     // Exercise the actual Electron minimum window width after the populated and zoomed matrix.
     log("switching to the 1024px minimum-width viewport");
     await setViewportAndZoom(page, browserWindow, viewportMinimum);
     await verifyPlanningSettingsMenu(page, "minimum-width");
+    await verifyCompactNavigationRail(page, "minimum-width", {
+      width: 1024,
+      height: 768,
+    });
+    await verifyPlanningShortcutsEvidence(page, {
+      label: "minimum-width",
+      expectedMode: "expanded",
+      expectedCssViewport: { width: 1024, height: 768 },
+    });
     await navigateHash(page, "/job-finder/discovery", "Find jobs");
     await checkHorizontalOverflow(page, "minimum-width-discovery");
     await checkPaginationFlexWrap(page, "minimum-width-discovery");
@@ -1785,7 +3826,14 @@ async function run() {
       viewport: viewportMinimum,
       scenario: "minimum-width-populated",
     });
-    completeScenario("scale-1001-minimum-width");
+    completeScenario("scale-minimum-width");
+    await navigateHash(page, "/job-finder/applications", "Applications");
+    await checkHorizontalOverflow(page, "minimum-width-applications");
+    await captureScreenshot(page, "minimum-width-applications-populated", {
+      viewport: viewportMinimum,
+      scenario: "minimum-width-applications-populated",
+      scenarioId: "scale-applications-minimum-width",
+    });
 
     // Return to normal zoom for final report screenshot
     await setViewportAndZoom(page, browserWindow, viewportNormal);
@@ -1805,7 +3853,10 @@ async function run() {
       window.unemployed.jobFinder.getWorkspace(),
     );
     report.safetyEvents = observedSafetyEvents;
-    assertPrepareOnly(finalWorkspace, observedSafetyEvents);
+    report.safety.authoritativePersistedFacts = assertPrepareOnly(
+      finalWorkspace,
+      observedSafetyEvents,
+    );
     report.safety.prepareOnlyVerified = true;
     report.safety.applicationActionsExecuted = false;
     report.safety.finalSubmissionClicked = false;
@@ -1839,11 +3890,48 @@ async function run() {
       moreMenuWithinViewport,
       `Compact navigation/menu clipping checks did not pass: ${JSON.stringify({ planningMenuChecks, compactNavigationChecks })}`,
     );
+    const compactRailChecks = Object.values(
+      report.verifications.navigation.compactRail,
+    );
+    const planningShortcutsChecks = Object.values(
+      report.verifications.navigation.planningShortcutsMenu,
+    );
+    const compactActiveRouteChecks =
+      report.verifications.navigation.compactActiveRoute;
+    const compactActiveRouteLabels = Object.keys(
+      compactActiveRouteChecks,
+    ).sort();
+    const expectedCompactActiveRouteLabels = [
+      "native125-applications",
+      "native125-find-jobs",
+      "native125-profile-sources",
+      "native125-shortlisted",
+    ];
+    const compactNavigationEvidencePassed =
+      compactRailChecks.length === 2 &&
+      compactRailChecks.every((check) => check.pass === true) &&
+      planningShortcutsChecks.length === 2 &&
+      planningShortcutsChecks.every((check) => check.pass === true) &&
+      JSON.stringify(compactActiveRouteLabels) ===
+        JSON.stringify(expectedCompactActiveRouteLabels) &&
+      Object.values(compactActiveRouteChecks).every(
+        (check) => check.pass === true,
+      );
+    assert(
+      compactNavigationEvidencePassed,
+      `Compact navigation rail evidence incomplete: ${JSON.stringify({ compactRailLabels: Object.keys(report.verifications.navigation.compactRail), planningShortcutsLabels: Object.keys(report.verifications.navigation.planningShortcutsMenu), compactActiveRouteLabels, expectedCompactActiveRouteLabels })}`,
+    );
     report.summary = {
       coldToUsableShellMs: report.startup.coldToUsableShellMs,
+      hydratedJobs: report.hydration?.jobs ?? null,
+      requiredJobCount,
+      priorCapBoundaryCount,
       routeSwitchCount: report.routeSwitches.length,
       maxRouteSwitchMs: Math.max(
         ...report.routeSwitches.map((e) => e.latencyMs),
+      ),
+      maxHeadingObservedRouteSwitchMs: Math.max(
+        ...report.routeSwitches.map((e) => e.headingObservedLatencyMs),
       ),
       runtimeErrorCount: report.runtimeErrors.length,
       longTaskSupported: report.renderer.longTaskSupported,
@@ -1860,51 +3948,87 @@ async function run() {
         observedRouteIds.includes(routeId),
       ),
       moreMenuWithinViewport,
+      compactNavigationEvidencePassed,
       screenshotCount: report.screenshots.length,
     };
-    report.completedAt = new Date().toISOString();
+    scenarioSucceeded = true;
     await writeReport();
     process.stdout.write(`Saved capture-scale-500 report to ${outputDir}\n`);
     process.stdout.write(
       `Screenshots: ${report.screenshots.map((s) => s.fileName).join(", ")}\n`,
     );
     process.stdout.write(JSON.stringify(report.summary, null, 2) + "\n");
+  } catch (error) {
+    primaryScenarioError = error;
   } finally {
     let finalizationError = null;
+    let ownershipError = null;
     for (const filePath of createdDemoFiles) {
       try {
         await rm(filePath, { force: true });
       } catch {
         try {
           await execFileAsync("icacls", [filePath, "/reset"]).catch(() => {});
-        } catch {}
+        } catch {
+          // ACL repair is best effort; the unlink retry below decides success.
+        }
         try {
           await rm(filePath, { force: true });
-        } catch {}
+        } catch {
+          // Last-resort removal of a synthetic file created by this run.
+        }
       }
     }
     if (app) {
       try {
         const appProcess = app.process();
         if (appProcess?.pid) {
-          const appExit = new Promise((resolve) => {
-            appProcess.once("exit", resolve);
-            setTimeout(resolve, 3000);
-          });
-          await execFileAsync("taskkill", [
-            "/PID",
-            String(appProcess.pid),
-            "/T",
-            "/F",
-          ]);
-          await appExit;
+          try {
+            await snapshotOwnedProcessTree(
+              ownedProcesses,
+              appProcess.pid,
+              "final",
+            );
+          } catch (snapshotError) {
+            ownershipError =
+              snapshotError instanceof Error
+                ? snapshotError
+                : new Error(String(snapshotError));
+          }
+          await forceStopElectronProcess(appProcess);
           await new Promise((r) => setTimeout(r, 800));
         }
-      } catch {}
+      } catch {
+        // Teardown is proven separately by verifyZeroLeftoverOwnedProcesses below.
+      }
     }
+    const finalTeardown = await verifyZeroLeftoverOwnedProcesses(
+      ownedProcesses,
+      "final",
+    );
+    report.processOwnership.verifications.push(finalTeardown);
+    report.processOwnership.trackedProcesses = ownedProcesses.entries();
+    report.processOwnership.leftoverPids = [
+      ...new Set(
+        report.processOwnership.verifications.flatMap(
+          (verification) => verification.leftoverPids,
+        ),
+      ),
+    ];
+    report.processOwnership.verified =
+      !ownershipError &&
+      report.processOwnership.verifications.every(
+        (verification) => verification.verified === true,
+      );
+    if (!report.processOwnership.verified && !ownershipError)
+      ownershipError = new Error(
+        `Acceptance Electron teardown left tracked process(es) alive: ${JSON.stringify(report.processOwnership.verifications.filter((v) => !v.verified))}`,
+      );
     for (const output of processOutputStates) {
       try {
-        finalizeProcessOutput(output, report);
+        finalizeProcessOutput(output, report, {
+          acceptedStderrPatterns: ACCEPTED_SCALE_STDERR_PATTERNS,
+        });
       } catch (error) {
         finalizationError = finalizationError ?? error;
       }
@@ -1912,20 +4036,72 @@ async function run() {
     const cleanupError = await cleanupDirectory(userDataDirectory);
     report.safety.cleanedUp = !cleanupError;
     if (cleanupError) report.safety.cleanupError = String(cleanupError);
-    await writeReport();
-    if (finalizationError) throw finalizationError;
-    if (cleanupError)
-      throw new Error(
-        `Unable to clean isolated user data directory: ${cleanupError}`,
-      );
+    if (
+      scenarioSucceeded &&
+      !finalizationError &&
+      !ownershipError &&
+      !cleanupError &&
+      report.processOwnership.verified
+    ) {
+      report.pass = true;
+      report.completedAt = new Date().toISOString();
+    }
+    let persistenceError = null;
+    try {
+      await writeReport();
+    } catch (error) {
+      persistenceError = error;
+      report.pass = false;
+      delete report.completedAt;
+    }
+    const secondaryTeardownFailures = [
+      ...(ownershipError
+        ? [`owned-process teardown: ${describeTeardownFailure(ownershipError)}`]
+        : []),
+      ...(cleanupError
+        ? [
+            `isolated user-data cleanup: ${describeTeardownFailure(cleanupError)}`,
+          ]
+        : []),
+      ...(persistenceError
+        ? [`report persistence: ${describeTeardownFailure(persistenceError)}`]
+        : []),
+    ];
+    if (secondaryTeardownFailures.length > 0)
+      report.teardownSecondaryFailures = [...secondaryTeardownFailures];
+    const teardownFailure = resolvePrimaryRunError(
+      primaryScenarioError,
+      finalizationError,
+    );
+    if (teardownFailure && secondaryTeardownFailures.length > 0)
+      Object.defineProperty(teardownFailure, "secondaryTeardownFailures", {
+        value: [...secondaryTeardownFailures],
+        enumerable: false,
+        configurable: true,
+      });
+    postTeardownFailure = resolveScaleTerminalError(
+      teardownFailure,
+      ownershipError,
+      cleanupError,
+      persistenceError,
+    );
   }
+  if (postTeardownFailure) throw postTeardownFailure;
 }
 
 run().catch(async (error) => {
   report.failedAt = new Date().toISOString();
   report.failure =
     error instanceof Error ? (error.stack ?? error.message) : String(error);
-  await writeReport();
+  report.pass = false;
+  delete report.completedAt;
+  try {
+    await writeReport();
+  } catch (writeError) {
+    process.stderr.write(
+      `[capture-scale-500] unable to persist the failed scale report: ${describeTeardownFailure(writeError)}\n`,
+    );
+  }
   process.stderr.write(`${report.failure}\n`);
   process.exitCode = 1;
 });

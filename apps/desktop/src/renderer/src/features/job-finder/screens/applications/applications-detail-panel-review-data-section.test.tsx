@@ -16,6 +16,7 @@ import {
   CandidateAssetSchema,
 } from "@unemployed/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 import { ApplicationsDetailPanelReviewDataSection } from "./applications-detail-panel-review-data-section";
 
 const now = "2026-08-10T10:00:00.000Z";
@@ -36,6 +37,7 @@ function createDetails(withAnswer = false) {
     id: "result-1",
     runId: run.id,
     jobId: "job-1",
+    applicationRecordId: "application-1",
     state: "awaiting_review",
     summary: "Review required answers",
     detail: "Nothing was submitted.",
@@ -97,16 +99,18 @@ describe("application question answer review", () => {
     const onSave = vi.fn(() => Promise.resolve());
 
     render(
-      <ApplicationsDetailPanelReviewDataSection
-        applyRunDetailsError={null}
-        applyRunDetailsStatus="ready"
-        isApplyRequestPending={() => false}
-        onClearApplicationAnswer={vi.fn(() => Promise.resolve())}
-        onResolveApplyConsentRequest={vi.fn()}
-        onSaveApplicationAnswer={onSave}
-        selectedApplyRunDetails={details}
-        visibleApplyResult={details.result}
-      />,
+      <MemoryRouter>
+        <ApplicationsDetailPanelReviewDataSection
+          applyRunDetailsError={null}
+          applyRunDetailsStatus="ready"
+          isApplyRequestPending={() => false}
+          onClearApplicationAnswer={vi.fn(() => Promise.resolve())}
+          onResolveApplyConsentRequest={vi.fn()}
+          onSaveApplicationAnswer={onSave}
+          selectedApplyRunDetails={details}
+          visibleApplyResult={details.result}
+        />
+      </MemoryRouter>,
     );
 
     fireEvent.change(
@@ -145,16 +149,18 @@ describe("application question answer review", () => {
     const onClear = vi.fn(() => Promise.resolve());
 
     render(
-      <ApplicationsDetailPanelReviewDataSection
-        applyRunDetailsError={null}
-        applyRunDetailsStatus="ready"
-        isApplyRequestPending={() => false}
-        onClearApplicationAnswer={onClear}
-        onResolveApplyConsentRequest={vi.fn()}
-        onSaveApplicationAnswer={vi.fn(() => Promise.resolve())}
-        selectedApplyRunDetails={details}
-        visibleApplyResult={details.result}
-      />,
+      <MemoryRouter>
+        <ApplicationsDetailPanelReviewDataSection
+          applyRunDetailsError={null}
+          applyRunDetailsStatus="ready"
+          isApplyRequestPending={() => false}
+          onClearApplicationAnswer={onClear}
+          onResolveApplyConsentRequest={vi.fn()}
+          onSaveApplicationAnswer={vi.fn(() => Promise.resolve())}
+          selectedApplyRunDetails={details}
+          visibleApplyResult={details.result}
+        />
+      </MemoryRouter>,
     );
 
     fireEvent.click(
@@ -214,16 +220,18 @@ describe("application question answer review", () => {
     });
 
     render(
-      <ApplicationsDetailPanelReviewDataSection
-        applyRunDetailsError={null}
-        applyRunDetailsStatus="ready"
-        isApplyRequestPending={() => false}
-        onClearApplicationAnswer={vi.fn(() => Promise.resolve())}
-        onResolveApplyConsentRequest={vi.fn()}
-        onSaveApplicationAnswer={onSave}
-        selectedApplyRunDetails={details}
-        visibleApplyResult={details.result}
-      />,
+      <MemoryRouter>
+        <ApplicationsDetailPanelReviewDataSection
+          applyRunDetailsError={null}
+          applyRunDetailsStatus="ready"
+          isApplyRequestPending={() => false}
+          onClearApplicationAnswer={vi.fn(() => Promise.resolve())}
+          onResolveApplyConsentRequest={vi.fn()}
+          onSaveApplicationAnswer={onSave}
+          selectedApplyRunDetails={details}
+          visibleApplyResult={details.result}
+        />
+      </MemoryRouter>,
     );
 
     const selector = await screen.findByRole("combobox", {
@@ -270,48 +278,242 @@ describe("application question answer review", () => {
     });
 
     render(
-      <ApplicationsDetailPanelReviewDataSection
-        applyRunDetailsError={null}
-        applyRunDetailsStatus="ready"
-        isApplyRequestPending={() => false}
-        onClearApplicationAnswer={vi.fn(() => Promise.resolve())}
-        onResolveApplyConsentRequest={vi.fn()}
-        onSaveApplicationAnswer={vi.fn(() => Promise.resolve())}
-        selectedApplyRunDetails={details}
-        visibleApplyResult={details.result}
-      />,
+      <MemoryRouter>
+        <ApplicationsDetailPanelReviewDataSection
+          applyRunDetailsError={null}
+          applyRunDetailsStatus="ready"
+          isApplyRequestPending={() => false}
+          onClearApplicationAnswer={vi.fn(() => Promise.resolve())}
+          onResolveApplyConsentRequest={vi.fn()}
+          onSaveApplicationAnswer={vi.fn(() => Promise.resolve())}
+          selectedApplyRunDetails={details}
+          visibleApplyResult={details.result}
+        />
+      </MemoryRouter>,
     );
 
     expect(
       screen
         .getByRole("link", { name: "Open this job in Shortlisted" })
         .getAttribute("href"),
-    ).toBe("#/job-finder/review-queue?jobId=job-1");
+    ).toBe("/job-finder/review-queue?jobId=job-1");
   });
 
   it("makes the saved answer retry path explicit without widening authority", () => {
     const details = createDetails(true);
 
     render(
-      <ApplicationsDetailPanelReviewDataSection
-        applyRunDetailsError={null}
-        applyRunDetailsStatus="ready"
-        isApplyRequestPending={() => false}
-        onClearApplicationAnswer={vi.fn(() => Promise.resolve())}
-        onResolveApplyConsentRequest={vi.fn()}
-        onSaveApplicationAnswer={vi.fn(() => Promise.resolve())}
-        selectedApplyRunDetails={details}
-        visibleApplyResult={details.result}
-      />,
+      <MemoryRouter>
+        <ApplicationsDetailPanelReviewDataSection
+          applyRunDetailsError={null}
+          applyRunDetailsStatus="ready"
+          isApplyRequestPending={() => false}
+          onClearApplicationAnswer={vi.fn(() => Promise.resolve())}
+          onResolveApplyConsentRequest={vi.fn()}
+          onSaveApplicationAnswer={vi.fn(() => Promise.resolve())}
+          selectedApplyRunDetails={details}
+          visibleApplyResult={details.result}
+        />
+      </MemoryRouter>,
     );
 
     expect(
       screen.getByRole("link", { name: "Needs you" }).getAttribute("href"),
-    ).toBe("#/job-finder/actions");
+    ).toBe("/job-finder/actions");
     expect(
       screen.getByText(
         /final submission and account creation remain disabled/i,
       ),
     ).toBeTruthy();
+  });
+
+  it("explains consent requests as one view of the same paused preparation shown in Needs you", () => {
+    const onResolveApplyConsentRequest = vi.fn();
+    const baseDetails = createDetails(true);
+    const details = ApplyRunDetailsSchema.parse({
+      ...baseDetails,
+      run: { ...baseDetails.run, state: "paused_for_consent" },
+      consentRequests: [
+        {
+          id: "consent-1",
+          runId: baseDetails.run.id,
+          jobId: "job-1",
+          applicationRecordId: "application-1",
+          label: "Manual verification on the employer site",
+          detail: "Job Finder paused before a step that needs you.",
+          requestedAt: now,
+        },
+      ],
+    });
+
+    render(
+      <MemoryRouter>
+        <ApplicationsDetailPanelReviewDataSection
+          applyRunDetailsError={null}
+          applyRunDetailsStatus="ready"
+          isApplyRequestPending={() => false}
+          onClearApplicationAnswer={vi.fn(() => Promise.resolve())}
+          onResolveApplyConsentRequest={onResolveApplyConsentRequest}
+          onSaveApplicationAnswer={vi.fn(() => Promise.resolve())}
+          selectedApplyRunDetails={details}
+          visibleApplyResult={details.result}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(
+      screen.getByText(/two views of the same paused preparation/i),
+    ).toBeTruthy();
+    expect(screen.getByText(/also clears it in\s*Needs you/i)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue safely" }));
+    expect(onResolveApplyConsentRequest).toHaveBeenCalledWith({
+      requestId: "consent-1",
+      runId: "run-1",
+      jobId: "job-1",
+      applicationRecordId: "application-1",
+      action: "approve",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Skip this job" }));
+    expect(onResolveApplyConsentRequest).toHaveBeenCalledWith({
+      requestId: "consent-1",
+      runId: "run-1",
+      jobId: "job-1",
+      applicationRecordId: "application-1",
+      action: "decline",
+    });
+
+    expect(document.body.textContent ?? "").not.toMatch(
+      /submit approval|apply copilot|restage/i,
+    );
+  });
+
+  it("renders every prepared-answer control with canonical field tokens and focus", async () => {
+    const canonicalFieldTokens = [
+      "border-(--field-border)",
+      "bg-(--field)",
+      "outline-none",
+      "focus-visible:border-(--field-focus-border)",
+      "focus-visible:bg-(--field-strong)",
+      "focus-visible:shadow-[var(--field-focus-shadow)]",
+    ];
+    const expectCanonicalField = (
+      control: Element,
+      geometry: readonly string[],
+    ) => {
+      for (const token of canonicalFieldTokens) {
+        expect(control.className).toContain(token);
+      }
+      expect(control.className).not.toContain("border-input");
+      expect(control.className).not.toContain("focus-visible:ring");
+      for (const token of geometry) {
+        expect(control.className).toContain(token);
+      }
+    };
+    const renderSection = (details: ReturnType<typeof createDetails>) =>
+      render(
+        <MemoryRouter>
+          <ApplicationsDetailPanelReviewDataSection
+            applyRunDetailsError={null}
+            applyRunDetailsStatus="ready"
+            isApplyRequestPending={() => false}
+            onClearApplicationAnswer={vi.fn(() => Promise.resolve())}
+            onResolveApplyConsentRequest={vi.fn()}
+            onSaveApplicationAnswer={vi.fn(() => Promise.resolve())}
+            selectedApplyRunDetails={details}
+            visibleApplyResult={details.result}
+          />
+        </MemoryRouter>,
+      );
+    const detailsWithControl = (questionOverrides: Record<string, unknown>) => {
+      const baseDetails = createDetails();
+      const [baseQuestion] = baseDetails.questionRecords;
+      return ApplyRunDetailsSchema.parse({
+        ...baseDetails,
+        questionRecords: [
+          {
+            ...baseQuestion,
+            prompt: "Field token probe",
+            ...questionOverrides,
+          },
+        ],
+      });
+    };
+
+    for (const answerControlType of ["single_choice", "boolean"]) {
+      const view = renderSection(detailsWithControl({ answerControlType }));
+      expect(view.container.querySelectorAll("select")).toHaveLength(1);
+      expectCanonicalField(view.container.querySelector("select")!, [
+        "h-10",
+        "w-full",
+      ]);
+      view.unmount();
+    }
+
+    const dateView = renderSection(
+      detailsWithControl({ answerControlType: "date" }),
+    );
+    expectCanonicalField(
+      dateView.container.querySelector("input[type='date']")!,
+      ["h-10", "w-full"],
+    );
+    dateView.unmount();
+
+    const textView = renderSection(
+      detailsWithControl({ answerControlType: "text" }),
+    );
+    expectCanonicalField(textView.container.querySelector("textarea")!, [
+      "min-h-24",
+      "resize-y",
+    ]);
+    textView.unmount();
+
+    // Multi-choice without employer options falls back to a textarea.
+    const multiChoiceView = renderSection(
+      detailsWithControl({
+        answerControlType: "multi_choice",
+        answerOptions: [],
+      }),
+    );
+    expectCanonicalField(multiChoiceView.container.querySelector("textarea")!, [
+      "min-h-20",
+      "resize-y",
+    ]);
+    multiChoiceView.unmount();
+
+    // File answers select an approved attachment-consented asset.
+    const asset = CandidateAssetSchema.parse({
+      id: "asset-tokens",
+      kind: "portfolio",
+      originalName: "portfolio.pdf",
+      mime: "application/pdf",
+      byteSize: 100,
+      sha256: "b".repeat(64),
+      createdAt: now,
+      sensitivity: "sensitive",
+      consentScope: "job_application_attachment",
+      retention: "until_deleted",
+    });
+    Object.defineProperty(window, "unemployed", {
+      configurable: true,
+      value: {
+        jobFinder: {
+          listCandidateAssets: vi.fn(() =>
+            Promise.resolve({ assets: [asset] }),
+          ),
+        },
+      },
+    });
+    const fileView = renderSection(
+      detailsWithControl({ answerControlType: "file" }),
+    );
+    await waitFor(() =>
+      expect(fileView.container.querySelector("select")).toBeTruthy(),
+    );
+    expectCanonicalField(fileView.container.querySelector("select")!, [
+      "h-10",
+      "w-full",
+    ]);
+    fileView.unmount();
   });
 });

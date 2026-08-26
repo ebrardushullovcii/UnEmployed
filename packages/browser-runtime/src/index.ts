@@ -20,6 +20,11 @@ export {
 } from "./catalog-browser-session-runtime";
 
 export {
+  ApplicationNavigationError,
+  isApplicationNavigationError,
+} from "./application-navigation-error";
+
+export {
   createBrowserAgentRuntime,
   type BrowserAgentRuntimeOptions,
   type JobPageExtractor,

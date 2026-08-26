@@ -1,0 +1,385 @@
+import { mkdtemp } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import type { CandidateProfile } from "@unemployed/contracts";
+import { describe, expect, test } from "vitest";
+
+import {
+  createFileJobFinderRepository,
+  createInMemoryJobFinderRepository,
+  type JobFinderRepository,
+} from "./index";
+import { cleanupTempDirectoryWithRetry } from "./file-repository.test-support";
+import { createSeed } from "./test-fixtures";
+
+async function expectSingletonRevisionParity(
+  createRepository: () => JobFinderRepository | Promise<JobFinderRepository>,
+): Promise<void> {
+  const repository = await createRepository();
+  try {
+    const seed = createSeed();
+    const initial = await repository.getProfileWithRevision();
+    expect(initial.revision).toBe(1);
+    expect(initial.profile).toEqual(seed.profile);
+    expect(await repository.getProfile()).toEqual(initial.profile);
+
+    const applied = await repository.commitProfileUpdate((current) => ({
+      ...current,
+      headline: "Applied headline",
+    }));
+    expect(applied.status).toBe("applied");
+    if (applied.status !== "applied") {
+      throw new Error("Expected applied outcome.");
+    }
+    expect(applied.profile.headline).toBe("Applied headline");
+    expect(applied.revision).toBe(initial.revision + 1);
+    expect(await repository.getProfileWithRevision()).toEqual({
+      profile: applied.profile,
+      revision: applied.revision,
+    });
+
+    await repository.saveProfile({
+      ...applied.profile,
+      fullName: "Concurrent Editor",
+    });
+    expect((await repository.getProfileWithRevision()).revision).toBe(
+      applied.revision + 1,
+    );
+
+    const captured = await repository.getProfileWithRevision();
+    await repository.saveProfile({
+      ...captured.profile,
+      answerBank: {
+        ...captured.profile.answerBank,
+        customAnswers: [
+          {
+            id: "answer_1",
+            kind: "other",
+            label: "Notice period",
+            question: "What is your notice period?",
+            answer: "Two weeks",
+            roleFamilies: [],
+            proofEntryIds: [],
+          },
+        ],
+      },
+    });
+
+    const stale = await repository.commitProfileUpdate(
+      (current) => ({
+        ...current,
+        headline: "Stale overwrite attempt",
+      }),
+      { expectedRevision: captured.revision },
+    );
+    expect(stale.status).toBe("stale");
+    if (stale.status !== "stale") {
+      throw new Error("Expected stale outcome.");
+    }
+    expect(stale.revision).toBe(captured.revision + 1);
+    expect(stale.profile.answerBank.customAnswers).toHaveLength(1);
+    expect(stale.profile.headline).toBe("Applied headline");
+
+    const persistedAfterStale = await repository.getProfileWithRevision();
+    expect(persistedAfterStale.revision).toBe(captured.revision + 1);
+    expect(persistedAfterStale.profile.headline).toBe("Applied headline");
+    expect(persistedAfterStale.profile.answerBank.customAnswers).toHaveLength(
+      1,
+    );
+
+    await expect(
+      repository.commitProfileUpdate(() => {
+        throw new Error("updater failed");
+      }),
+    ).rejects.toThrow("updater failed");
+    const afterThrow = await repository.getProfileWithRevision();
+    expect(afterThrow.revision).toBe(captured.revision + 1);
+    expect(afterThrow.profile).toEqual(persistedAfterStale.profile);
+
+    await expect(
+      repository.commitProfileUpdate(
+        (current) =>
+          ({ ...current, yearsExperience: -1 }) as unknown as CandidateProfile,
+      ),
+    ).rejects.toThrow();
+    const afterInvalid = await repository.getProfileWithRevision();
+    expect(afterInvalid.revision).toBe(captured.revision + 1);
+    expect(afterInvalid.profile).toEqual(persistedAfterStale.profile);
+
+    const loserCapture = await repository.getProfileWithRevision();
+    const winner = await repository.commitProfileUpdate((current) => ({
+      ...current,
+      summary: "Winner summary",
+    }));
+    expect(winner.status).toBe("applied");
+    const loser = await repository.commitProfileUpdate(
+      (current) => ({
+        ...current,
+        summary: "Loser summary",
+      }),
+      { expectedRevision: loserCapture.revision },
+    );
+    expect(loser.status).toBe("stale");
+    if (loser.status !== "stale") {
+      throw new Error("Expected stale outcome.");
+    }
+    expect(loser.profile.summary).toBe("Winner summary");
+    expect((await repository.getProfile()).summary).toBe("Winner summary");
+  } finally {
+    await repository.close();
+  }
+}
+
+describe("singleton profile revisions", () => {
+  test("in-memory repository applies, increments, and rejects stale writes", async () => {
+    await expectSingletonRevisionParity(() =>
+      createInMemoryJobFinderRepository(createSeed()),
+    );
+  });
+
+  test("file repository applies, increments, and rejects stale writes", async () => {
+    const tempDirectory = await mkdtemp(
+      path.join(os.tmpdir(), "unemployed-db-singleton-revision-"),
+    );
+    try {
+      await expectSingletonRevisionParity(() =>
+        createFileJobFinderRepository({
+          filePath: path.join(tempDirectory, "job-finder-state.sqlite"),
+          seed: createSeed(),
+        }),
+      );
+    } finally {
+      await cleanupTempDirectoryWithRetry(tempDirectory);
+    }
+  });
+
+  test("commitProfileCopilotState honors expectedProfileRevision in both repositories", async () => {
+    const seed = createSeed();
+
+    async function expectCopilotCasParity(
+      createRepository: () =>
+        | JobFinderRepository
+        | Promise<JobFinderRepository>,
+    ): Promise<void> {
+      const repository = await createRepository();
+      try {
+        const captured = await repository.getProfileWithRevision();
+
+        const stale = await repository.commitProfileCopilotState({
+          profile: {
+            ...captured.profile,
+            headline: "Copilot overwrite attempt",
+          },
+          searchPreferences: seed.searchPreferences,
+          profileSetupState: seed.profileSetupState,
+          messages: [],
+          revisions: [],
+          expectedProfileRevision: captured.revision + 5,
+        });
+        expect(stale.status).toBe("stale");
+        if (stale.status !== "stale") {
+          throw new Error("Expected stale outcome.");
+        }
+        expect(stale.revision).toBe(captured.revision);
+        expect(stale.profile).toEqual(seed.profile);
+        expect((await repository.getProfile()).headline).toBe(
+          seed.profile.headline,
+        );
+        expect(await repository.listProfileCopilotMessages()).toHaveLength(0);
+
+        const applied = await repository.commitProfileCopilotState({
+          profile: {
+            ...captured.profile,
+            headline: "Copilot headline",
+          },
+          searchPreferences: seed.searchPreferences,
+          profileSetupState: seed.profileSetupState,
+          messages: [
+            {
+              id: "profile_copilot_assistant_message_1",
+              role: "assistant",
+              content: "Applied your change.",
+              context: { surface: "general" },
+              patchGroups: [],
+              createdAt: "2026-05-01T10:00:00.000Z",
+            },
+          ],
+          revisions: [],
+          expectedProfileRevision: captured.revision,
+        });
+        expect(applied.status).toBe("applied");
+        if (applied.status !== "applied") {
+          throw new Error("Expected applied outcome.");
+        }
+        expect(applied.revision).toBe(captured.revision + 1);
+        expect((await repository.getProfile()).headline).toBe(
+          "Copilot headline",
+        );
+        expect(await repository.listProfileCopilotMessages()).toHaveLength(1);
+      } finally {
+        await repository.close();
+      }
+    }
+
+    await expectCopilotCasParity(() => createInMemoryJobFinderRepository(seed));
+
+    const tempDirectory = await mkdtemp(
+      path.join(os.tmpdir(), "unemployed-db-copilot-cas-"),
+    );
+    try {
+      await expectCopilotCasParity(() =>
+        createFileJobFinderRepository({
+          filePath: path.join(tempDirectory, "job-finder-state.sqlite"),
+          seed,
+        }),
+      );
+    } finally {
+      await cleanupTempDirectoryWithRetry(tempDirectory);
+    }
+  });
+
+  test("reset reinitializes the profile revision deterministically", async () => {
+    const repository = createInMemoryJobFinderRepository(createSeed());
+    try {
+      await repository.commitProfileUpdate((current) => ({
+        ...current,
+        headline: "Changed",
+      }));
+      await repository.commitProfileUpdate((current) => ({
+        ...current,
+        summary: "Changed again",
+      }));
+      expect((await repository.getProfileWithRevision()).revision).toBe(3);
+
+      await repository.reset(createSeed());
+      const reset = await repository.getProfileWithRevision();
+      expect(reset.revision).toBe(1);
+      expect(reset.profile).toEqual(createSeed().profile);
+    } finally {
+      await repository.close();
+    }
+  });
+});
+
+describe("singleton_state revision migration", () => {
+  function createLegacyVersion10Database(filePath: string): void {
+    const database = new DatabaseSync(filePath);
+    database.exec(`
+      PRAGMA journal_mode = WAL;
+      CREATE TABLE singleton_state (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+      CREATE TABLE saved_jobs (
+        id TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+      CREATE TABLE schema_migrations (
+        version INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    const insertMigration = database.prepare(
+      "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
+    );
+    for (const [version, name] of [
+      [1, "job_finder_baseline"],
+      [2, "job_finder_source_debug_artifacts"],
+      [3, "job_finder_resume_workspace"],
+      [4, "job_finder_resume_import_runs"],
+      [5, "job_finder_profile_copilot_history"],
+      [6, "job_finder_apply_foundation"],
+      [7, "job_finder_apply_foundation_dedupe"],
+      [8, "repair_legacy_profile_achievement_fragments"],
+      [9, "job_finder_user_actions"],
+      [10, "job_search_campaigns"],
+    ] as const) {
+      insertMigration.run(version, name);
+    }
+    database
+      .prepare("INSERT INTO singleton_state (key, value) VALUES (?, ?)")
+      .run("profile", JSON.stringify(createSeed().profile));
+    database.close();
+  }
+
+  test("legacy database gains revision 1 without changing values, idempotently", async () => {
+    const tempDirectory = await mkdtemp(
+      path.join(os.tmpdir(), "unemployed-db-revision-migration-"),
+    );
+    const filePath = path.join(tempDirectory, "job-finder-state.sqlite");
+    try {
+      createLegacyVersion10Database(filePath);
+
+      const firstOpen = await createFileJobFinderRepository({
+        filePath,
+        seed: createSeed(),
+      });
+      try {
+        const migrated = await firstOpen.getProfileWithRevision();
+        expect(migrated.revision).toBe(1);
+        expect(migrated.profile).toEqual(createSeed().profile);
+
+        await firstOpen.commitProfileUpdate((current) => ({
+          ...current,
+          headline: "Post-migration edit",
+        }));
+        expect((await firstOpen.getProfileWithRevision()).revision).toBe(2);
+      } finally {
+        await firstOpen.close();
+      }
+
+      const secondOpen = await createFileJobFinderRepository({
+        filePath,
+        seed: createSeed(),
+      });
+      try {
+        const reopened = await secondOpen.getProfileWithRevision();
+        expect(reopened.revision).toBe(2);
+        expect(reopened.profile.headline).toBe("Post-migration edit");
+      } finally {
+        await secondOpen.close();
+      }
+
+      const raw = new DatabaseSync(filePath);
+      try {
+        const migrationRows = raw
+          .prepare(
+            "SELECT COUNT(*) AS count FROM schema_migrations WHERE version = 11 AND name = 'singleton_state_revision'",
+          )
+          .get() as { count: number };
+        expect(Number(migrationRows.count)).toBe(1);
+        const columns = raw
+          .prepare("PRAGMA table_info(singleton_state)")
+          .all() as Array<{ name: string }>;
+        expect(columns.map((column) => column.name)).toContain("revision");
+      } finally {
+        raw.close();
+      }
+    } finally {
+      await cleanupTempDirectoryWithRetry(tempDirectory);
+    }
+  });
+
+  test("fresh bootstrap initializes revision 1 deterministically", async () => {
+    const tempDirectory = await mkdtemp(
+      path.join(os.tmpdir(), "unemployed-db-revision-bootstrap-"),
+    );
+    try {
+      const repository = await createFileJobFinderRepository({
+        filePath: path.join(tempDirectory, "job-finder-state.sqlite"),
+        seed: createSeed(),
+      });
+      try {
+        const bootstrapped = await repository.getProfileWithRevision();
+        expect(bootstrapped.revision).toBe(1);
+        expect(bootstrapped.profile).toEqual(createSeed().profile);
+      } finally {
+        await repository.close();
+      }
+    } finally {
+      await cleanupTempDirectoryWithRetry(tempDirectory);
+    }
+  });
+});

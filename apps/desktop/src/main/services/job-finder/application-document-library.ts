@@ -64,7 +64,7 @@ function collectGroundedEvidence(profile: CandidateProfile) {
     profile.professionalSummary.fullSummary ??
     profile.professionalSummary.shortValueProposition ??
     profile.summary;
-  if (summary.trim()) {
+  if (summary?.trim()) {
     evidence.push({
       id: "profile.summary",
       source: "profile_summary",

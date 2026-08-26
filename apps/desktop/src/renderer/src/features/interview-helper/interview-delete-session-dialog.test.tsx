@@ -2,11 +2,16 @@
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  acquireJobFinderOverlay,
+  resetJobFinderOverlaysForTests,
+} from "../job-finder/lib/job-finder-overlay-ownership";
 import { InterviewDeleteSessionDialog } from "./interview-delete-session-dialog";
 
 afterEach(() => {
   cleanup();
   document.body.innerHTML = "";
+  resetJobFinderOverlaysForTests();
 });
 
 function renderDialog(overrides?: { pending?: boolean }) {
@@ -99,11 +104,14 @@ describe("InterviewDeleteSessionDialog", () => {
       screen.getByRole<HTMLButtonElement>("button", { name: "Cancel" })
         .disabled,
     ).toBe(true);
-    expect(
-      screen.getByRole<HTMLButtonElement>("button", {
-        name: "Delete permanently",
-      }).disabled,
-    ).toBe(true);
+    const confirmButton = screen.getByRole<HTMLButtonElement>("button", {
+      name: "Delete permanently",
+    });
+    // Pending keeps the destructive control exposed but inert (aria-disabled +
+    // aria-busy) instead of natively disabled, so focus survives deletion.
+    expect(confirmButton.hasAttribute("disabled")).toBe(false);
+    expect(confirmButton.getAttribute("aria-disabled")).toBe("true");
+    expect(confirmButton.getAttribute("aria-busy")).toBe("true");
   });
 
   it("keeps the original trigger for focus restoration across pending and failure states", () => {
@@ -169,5 +177,47 @@ describe("InterviewDeleteSessionDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
 
     expect(onConfirm).toHaveBeenCalledOnce();
+  });
+
+  it("defers Escape to an overlay opened above it, then closes on its own Escape", () => {
+    const { onCancel } = renderDialog();
+
+    const higherLayer = acquireJobFinderOverlay(vi.fn());
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("alertdialog", {
+        name: "Delete this interview session?",
+      }),
+    ).toBeTruthy();
+
+    higherLayer.release();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it("ignores Escape that another handler already consumed or IME composition owns", () => {
+    const { onCancel } = renderDialog();
+
+    const blocked = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Escape",
+    });
+    blocked.preventDefault();
+    document.dispatchEvent(blocked);
+    expect(onCancel).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(document, {
+      isComposing: true,
+      key: "Escape",
+      keyCode: 229,
+    });
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("alertdialog", {
+        name: "Delete this interview session?",
+      }),
+    ).toBeTruthy();
   });
 });

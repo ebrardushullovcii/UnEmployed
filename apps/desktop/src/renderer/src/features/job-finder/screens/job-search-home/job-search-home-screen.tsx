@@ -11,6 +11,8 @@ import { CampaignNotificationCenter } from "../../components/campaign-notificati
 import { StatusBadge } from "../../components/status-badge";
 import { buildJobFinderGlobalSearchEntries } from "../../lib/build-job-finder-global-search-entries";
 import type { JobFinderGlobalSearchEntry } from "../../lib/job-finder-global-search";
+import { DiscoveryRunFeedbackCallout } from "../discovery/discovery-run-feedback-callout";
+import type { DiscoveryRunFeedback } from "../discovery/discovery-run-feedback";
 
 function Metric(props: { label: string; value: number | string }) {
   return (
@@ -23,18 +25,46 @@ function Metric(props: { label: string; value: number | string }) {
   );
 }
 
+function countHomeNeedsYou(workspace: JobFinderWorkspaceSnapshot): number {
+  const requests = workspace.userActionRequests ?? [];
+  const groupedDecisions = workspace.intelligence?.groupedDecisions ?? [];
+  const unresolved = requests.filter(
+    (request) =>
+      !["resolved", "skipped", "cancelled", "expired", "superseded"].includes(
+        request.state,
+      ),
+  );
+  const pendingDecisions = groupedDecisions.filter(
+    (decision) => decision.approval === "pending",
+  );
+  const representedRequestIds = new Set(
+    pendingDecisions.flatMap((decision) =>
+      decision.lineage.map((entry) => entry.requestId),
+    ),
+  );
+  const unrepresentedRequests = unresolved.filter(
+    (request) => !representedRequestIds.has(request.id),
+  );
+  return unrepresentedRequests.length + pendingDecisions.length;
+}
+
 export function JobSearchHomeScreen(props: {
   activityPending: boolean;
   campaignNotificationError?: string | null;
   campaignNotificationPending?: (notificationId: string) => boolean;
   campaignNotificationAllPending?: boolean;
   campaignNotifications?: readonly CampaignNotification[];
+  discoveryRunFeedback?: DiscoveryRunFeedback | null;
+  discoveryRunPending?: boolean;
+  browserSessionPending?: boolean;
   onMarkAllCampaignNotificationsRead?: () => void;
   onMarkCampaignNotificationRead?: (notificationId: string) => void;
   onNavigate: (path: string) => void;
   onNavigateGlobalEntry: (entry: JobFinderGlobalSearchEntry) => void;
   onPauseActivity: () => void;
+  onOpenBrowserSession?: () => void;
   onResumeActivity: () => void;
+  onRunDiscovery?: () => void;
   onSelectCampaign: (campaignId: string) => void;
   workspace: JobFinderWorkspaceSnapshot;
 }) {
@@ -42,11 +72,16 @@ export function JobSearchHomeScreen(props: {
   const activeCampaign = props.workspace.campaigns.find(
     (campaign) => campaign.id === props.workspace.activeCampaignId,
   );
+  const retainedLabel =
+    typeof activeCampaign?.limits?.retainedJobTarget === "number"
+      ? ` · ${activeCampaign.limits.retainedJobTarget} retained`
+      : "";
   const activeSearchPlanVolume = activeCampaign
     ? activeCampaign.mode === "scale"
-      ? "Scale volume"
-      : "Precision volume"
-    : "Unknown volume";
+      ? `Scale — a larger discovery pool${retainedLabel}`
+      : `Precision — a smaller discovery pool${retainedLabel}`
+    : "Unknown search plan";
+  const needsYouCount = countHomeNeedsYou(props.workspace);
   const globalEntries = buildJobFinderGlobalSearchEntries(props.workspace);
   const activeBrowserCount =
     (props.workspace.activeDiscoveryRun?.state === "running" ? 1 : 0) +
@@ -71,7 +106,7 @@ export function JobSearchHomeScreen(props: {
     dashboard.jobsFoundToday === 0 &&
     dashboard.jobsAwaitingReview === 0 &&
     dashboard.applicationsReadyForApproval === 0 &&
-    dashboard.needsYouCount === 0 &&
+    needsYouCount === 0 &&
     dashboard.applicationsAppliedToday === 0 &&
     dashboard.applicationsAppliedThisWeek === 0 &&
     dashboard.upcomingInterviews === 0 &&
@@ -85,8 +120,39 @@ export function JobSearchHomeScreen(props: {
     (props.workspace.recentDiscoveryRuns?.length ?? 0) > 0;
   const sourcesReadyButNoMetrics =
     !hasNoSources && isZeroMetrics && !hasSearchHistory;
-  const showZeroGuidance =
-    isZeroMetrics && (hasNoSources || sourcesReadyButNoMetrics);
+  const hasSecondaryActivity =
+    dashboard.applicationsAppliedToday > 0 ||
+    dashboard.applicationsAppliedThisWeek > 0 ||
+    dashboard.upcomingInterviews > 0 ||
+    dashboard.upcomingFollowUps > 0;
+  const showZeroGuidance = isZeroMetrics && sourcesReadyButNoMetrics;
+  const canRunFirstSearch =
+    !hasIncompleteProfileSetup &&
+    sourcesReadyButNoMetrics &&
+    Boolean(props.onRunDiscovery);
+  const firstRunPresentation = hasIncompleteProfileSetup || hasNoSources;
+  const showReturningDashboardModules = !firstRunPresentation;
+  const showBackgroundWorkPane =
+    showReturningDashboardModules ||
+    dashboard.backgroundOperationCount > 0 ||
+    Boolean(props.workspace.activityControl.reason);
+  const showResultsPane =
+    showReturningDashboardModules ||
+    Boolean(dashboard.responseRate || dashboard.interviewRate);
+  const hasOperationalActivity =
+    props.workspace.activityControl.paused ||
+    Boolean(props.workspace.activityControl.pausedAt) ||
+    Boolean(props.workspace.activityControl.reason) ||
+    activeApplicationCount > 0 ||
+    activeBrowserCount > 0 ||
+    dashboard.backgroundOperationCount > 0 ||
+    Boolean(props.activityPending);
+  const showHeaderActivityControl =
+    showReturningDashboardModules || hasOperationalActivity;
+  const homeDiscoveryFeedback =
+    props.discoveryRunFeedback?.targetLabel === null
+      ? props.discoveryRunFeedback
+      : null;
 
   const profileJobSourcesRoute =
     "/job-finder/profile?section=sources&focus=job-sources#profile-job-sources";
@@ -114,6 +180,12 @@ export function JobSearchHomeScreen(props: {
           }
         : dashboard.recommendedNextAction;
 
+  // A successful in-place search must visibly lead to its results, but the
+  // follow-up yields to the primary when Find jobs already owns that action.
+  const showDiscoverySuccessFollowUp =
+    homeDiscoveryFeedback?.status === "succeeded" &&
+    effectiveRecommendedNext.route !== "/job-finder/discovery";
+
   const sourceHealthBadgeTone = hasNoSources
     ? "critical"
     : hasSourceHealthAttention
@@ -128,25 +200,25 @@ export function JobSearchHomeScreen(props: {
 
   return (
     <section className="grid gap-5 pb-8">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <PageHeader
-          compact
-          eyebrow="Job Finder"
-          title="Today"
-          description="See what is moving, what needs you, and the best next step for your active search plan."
-        />
-        <JobFinderActivityControl
-          onPause={props.onPauseActivity}
-          onResume={props.onResumeActivity}
-          state={{
-            activeApplicationCount,
-            activeBrowserCount,
-            paused: props.workspace.activityControl.paused,
-            pausedAt: props.workspace.activityControl.pausedAt,
-            pending: props.activityPending,
-          }}
-        />
-      </div>
+      <PageHeader
+        actions={
+          showHeaderActivityControl ? (
+            <JobFinderActivityControl
+              onPause={props.onPauseActivity}
+              onResume={props.onResumeActivity}
+              state={{
+                activeApplicationCount,
+                activeBrowserCount,
+                paused: props.workspace.activityControl.paused,
+                pausedAt: props.workspace.activityControl.pausedAt,
+                pending: props.activityPending,
+              }}
+            />
+          ) : null
+        }
+        description="See progress, open tasks, and the best next step."
+        title="Home"
+      />
 
       <div
         aria-label="Source health"
@@ -157,27 +229,33 @@ export function JobSearchHomeScreen(props: {
           {sourceHealthBadgeLabel}
         </StatusBadge>
         <span className="text-xs text-foreground-muted">
-          {dashboard.sourceHealth.total} enabled source
-          {dashboard.sourceHealth.total === 1 ? "" : "s"} in this search plan
-          {hasNoSources
-            ? hasIncompleteProfileSetup
-              ? " • Finish your profile first"
-              : " • Add a source in Profile"
-            : ""}
+          {firstRunPresentation
+            ? hasNoSources
+              ? hasIncompleteProfileSetup
+                ? "No job sources yet • Finish your profile first"
+                : "No job sources yet • Add one in Profile"
+              : `${dashboard.sourceHealth.total} enabled source${dashboard.sourceHealth.total === 1 ? "" : "s"}`
+            : `${dashboard.sourceHealth.total} enabled source${dashboard.sourceHealth.total === 1 ? "" : "s"} in this search plan`}
         </span>
-        {hasNoSources && !hasIncompleteProfileSetup ? (
+        {hasSourceHealthAttention ? (
           <Button
             onClick={() => props.onNavigate(profileJobSourcesRoute)}
             size="sm"
             type="button"
             variant="outline"
           >
-            Set up job sources
+            Review source health
           </Button>
         ) : null}
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.55fr)]">
+      <div
+        className={
+          showReturningDashboardModules
+            ? "grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.55fr)]"
+            : "grid"
+        }
+      >
         <div className="surface-panel-shell grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) p-5">
           <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
             Recommended next
@@ -190,15 +268,46 @@ export function JobSearchHomeScreen(props: {
           </p>
           <Button
             className="w-fit"
-            onClick={() => props.onNavigate(effectiveRecommendedNext.route)}
+            onClick={() => {
+              if (canRunFirstSearch) {
+                props.onRunDiscovery?.();
+                return;
+              }
+
+              props.onNavigate(effectiveRecommendedNext.route);
+            }}
+            pending={canRunFirstSearch && Boolean(props.discoveryRunPending)}
             type="button"
           >
             {hasIncompleteProfileSetup
               ? "Finish your profile"
               : hasNoSources
                 ? "Set up job sources"
-                : "Continue"}
+                : canRunFirstSearch
+                  ? "Search now"
+                  : effectiveRecommendedNext.label}
           </Button>
+          {homeDiscoveryFeedback ? (
+            <DiscoveryRunFeedbackCallout
+              feedback={homeDiscoveryFeedback}
+              {...(props.browserSessionPending !== undefined
+                ? { isRecoveryPending: props.browserSessionPending }
+                : {})}
+              {...(props.onOpenBrowserSession
+                ? { onOpenBrowserSession: props.onOpenBrowserSession }
+                : {})}
+            />
+          ) : null}
+          {showDiscoverySuccessFollowUp ? (
+            <Button
+              className="w-fit"
+              onClick={() => props.onNavigate("/job-finder/discovery")}
+              type="button"
+              variant="secondary"
+            >
+              See results in Find jobs
+            </Button>
+          ) : null}
           {hasIncompleteProfileSetup ? (
             <p className="text-xs text-foreground-muted">
               Opens guided Profile setup and resumes at {profileSetupStepLabel}.
@@ -209,48 +318,58 @@ export function JobSearchHomeScreen(props: {
             </p>
           ) : null}
         </div>
-        <div className="surface-panel-shell grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) p-5">
-          <div>
-            <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-              Active search plan
-            </p>
-            <label className="mt-2 grid gap-1 text-sm font-medium text-foreground">
-              <span className="sr-only">Choose active search plan</span>
-              <select
-                aria-label="Active search plan"
-                className="h-10 rounded-(--radius-field) border border-input bg-background px-3 text-sm"
-                onChange={(event) => props.onSelectCampaign(event.target.value)}
-                value={props.workspace.activeCampaignId}
+        {showReturningDashboardModules ? (
+          <div className="surface-panel-shell grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) p-5">
+            <div>
+              <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
+                Active search plan
+              </p>
+              <label className="mt-2 grid gap-1 text-sm font-medium text-foreground">
+                <span className="sr-only">Choose active search plan</span>
+                <select
+                  aria-label="Active search plan"
+                  className="h-10 w-full min-w-0 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 text-sm outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+                  onChange={(event) =>
+                    props.onSelectCampaign(event.target.value)
+                  }
+                  value={props.workspace.activeCampaignId}
+                >
+                  {props.workspace.campaigns.map((campaign) => (
+                    <option key={campaign.id} value={campaign.id}>
+                      {campaign.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className="text-sm text-foreground-soft">
+                {activeSearchPlanVolume}
+              </p>
+              <p className="text-xs text-foreground-muted">
+                Search plans are optional — the default plan is enough to start.
+                Switching updates Home, Find jobs, Shortlisted, and Applications
+                to that plan&apos;s jobs and progress.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                className="w-fit"
+                onClick={() => props.onNavigate("/job-finder/rapid-review")}
+                type="button"
+                variant="secondary"
               >
-                {props.workspace.campaigns.map((campaign) => (
-                  <option key={campaign.id} value={campaign.id}>
-                    {campaign.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <p className="text-sm capitalize text-foreground-soft">
-              {activeSearchPlanVolume}
-            </p>
+                Rapid review
+              </Button>
+              <Button
+                className="w-fit"
+                onClick={() => props.onNavigate("/job-finder/campaigns")}
+                type="button"
+                variant="outline"
+              >
+                Manage search plans
+              </Button>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              className="w-fit"
-              onClick={() => props.onNavigate("/job-finder/rapid-review")}
-              type="button"
-            >
-              Rapid review
-            </Button>
-            <Button
-              className="w-fit"
-              onClick={() => props.onNavigate("/job-finder/campaigns")}
-              type="button"
-              variant="outline"
-            >
-              Manage search plans
-            </Button>
-          </div>
-        </div>
+        ) : null}
       </div>
 
       <JobFinderGlobalSearch
@@ -258,7 +377,7 @@ export function JobSearchHomeScreen(props: {
         onNavigate={props.onNavigateGlobalEntry}
       />
 
-      {hasIncompleteProfileSetup ? null : showZeroGuidance ? (
+      {firstRunPresentation ? null : showZeroGuidance ? (
         <section
           aria-label="Getting started"
           className="grid gap-3"
@@ -274,25 +393,14 @@ export function JobSearchHomeScreen(props: {
                 <BriefcaseBusiness aria-hidden="true" className="size-8" />
               </div>
               <h2 className="font-display text-(length:--text-section-title) font-semibold tracking-(--tracking-page-title-compact) text-(--text-headline) break-words [overflow-wrap:anywhere]">
-                {hasIncompleteProfileSetup
-                  ? "Finish your profile before searching"
-                  : hasNoSources
-                    ? "Set up your job sources to get started"
-                    : "Run your first search"}
+                Run your first search
               </h2>
               <p className="text-(length:--text-description) leading-6 text-foreground-soft break-words [overflow-wrap:anywhere]">
-                {hasIncompleteProfileSetup
-                  ? `Continue with ${profileSetupStepLabel} so your job targets, sources, and resume tailoring are ready before you search.`
-                  : hasNoSources
-                    ? "Add an enabled job source in Profile to start finding relevant openings."
-                    : "Your job sources are ready. Run your active search plan to find relevant openings and see metrics here."}
+                Your job sources are ready. Run your active search plan to find
+                relevant openings and see metrics here.
               </p>
               <p className="text-xs text-foreground-muted">
-                {hasIncompleteProfileSetup
-                  ? `Profile setup is the next step and resumes at ${profileSetupStepLabel}.`
-                  : hasNoSources
-                    ? "Enable a public board in Profile to start."
-                    : "The active search plan will check each enabled source."}
+                The active search plan will check each enabled source.
               </p>
             </div>
           </div>
@@ -308,76 +416,94 @@ export function JobSearchHomeScreen(props: {
             value={dashboard.jobsAwaitingReview}
           />
           <Metric
-            label="Ready for approval"
+            label="Applications awaiting approval"
             value={dashboard.applicationsReadyForApproval}
           />
-          <Metric label="Needs you" value={dashboard.needsYouCount} />
-          <Metric
-            label="Applied today"
-            value={dashboard.applicationsAppliedToday}
-          />
-          <Metric
-            label="Applied this week"
-            value={dashboard.applicationsAppliedThisWeek}
-          />
-          <Metric
-            label="Upcoming interviews"
-            value={dashboard.upcomingInterviews}
-          />
-          <Metric label="Follow-ups due" value={dashboard.upcomingFollowUps} />
+          <Metric label="Needs you" value={needsYouCount} />
+          {hasSecondaryActivity ? (
+            <>
+              <Metric
+                label="Marked applied today"
+                value={dashboard.applicationsAppliedToday}
+              />
+              <Metric
+                label="Marked applied this week"
+                value={dashboard.applicationsAppliedThisWeek}
+              />
+              <Metric
+                label="Upcoming interviews"
+                value={dashboard.upcomingInterviews}
+              />
+              <Metric
+                label="Follow-ups due"
+                value={dashboard.upcomingFollowUps}
+              />
+            </>
+          ) : null}
         </section>
       )}
 
-      <div className="grid gap-3 lg:grid-cols-3">
-        <section className="surface-panel-shell grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) p-5">
-          <h2 className="font-semibold text-(--text-headline)">
-            Results so far
-          </h2>
-          <p className="text-sm text-foreground-soft">
-            Response rate:{" "}
-            {dashboard.responseRate
-              ? `${dashboard.responseRate.percent}% (${dashboard.responseRate.numerator} of ${dashboard.responseRate.denominator})`
-              : "Not enough data yet"}
-          </p>
-          <p className="text-sm text-foreground-soft">
-            Interview rate:{" "}
-            {dashboard.interviewRate
-              ? `${dashboard.interviewRate.percent}% (${dashboard.interviewRate.numerator} of ${dashboard.interviewRate.denominator})`
-              : "Not enough data yet"}
-          </p>
-        </section>
-        <section className="surface-panel-shell grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) p-5">
-          <h2 className="font-semibold text-(--text-headline)">
-            Source health
-          </h2>
-          <p className="text-sm text-foreground-soft">
-            {dashboard.sourceHealth.healthy} healthy ·{" "}
-            {dashboard.sourceHealth.needsAttention} need attention ·{" "}
-            {dashboard.sourceHealth.running} running
-          </p>
-          <p className="text-xs text-foreground-muted">
-            {dashboard.sourceHealth.total} enabled sources in this search plan
-          </p>
-        </section>
-        <section className="surface-panel-shell grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) p-5">
-          <h2 className="font-semibold text-(--text-headline)">
-            Background work
-          </h2>
-          <p className="text-sm text-foreground-soft">
-            {dashboard.backgroundOperationCount === 0
-              ? "Nothing is running right now."
-              : `${dashboard.backgroundOperationCount} ${dashboard.backgroundOperationCount === 1 ? "operation is" : "operations are"} running.`}
-          </p>
-          {props.workspace.activityControl.reason ? (
-            <p className="text-xs text-foreground-muted">
-              Pause reason: {props.workspace.activityControl.reason}
-            </p>
+      {showResultsPane || showBackgroundWorkPane ? (
+        <div className="grid gap-3 lg:grid-cols-3">
+          {showResultsPane ? (
+            <section className="surface-panel-shell grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) p-5">
+              <h2 className="font-semibold text-(--text-headline)">
+                Results so far
+              </h2>
+              <p className="text-sm text-foreground-soft">
+                Response rate:{" "}
+                {dashboard.responseRate
+                  ? `${dashboard.responseRate.percent}% (${dashboard.responseRate.numerator} of ${dashboard.responseRate.denominator})`
+                  : "Not enough data yet"}
+              </p>
+              <p className="text-sm text-foreground-soft">
+                Interview rate:{" "}
+                {dashboard.interviewRate
+                  ? `${dashboard.interviewRate.percent}% (${dashboard.interviewRate.numerator} of ${dashboard.interviewRate.denominator})`
+                  : "Not enough data yet"}
+              </p>
+            </section>
           ) : null}
-        </section>
-      </div>
+          {showReturningDashboardModules ? (
+            <section className="surface-panel-shell grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) p-5">
+              <h2 className="font-semibold text-(--text-headline)">
+                Source health
+              </h2>
+              <p className="text-sm text-foreground-soft">
+                {dashboard.sourceHealth.healthy} healthy ·{" "}
+                {dashboard.sourceHealth.needsAttention} need attention ·{" "}
+                {dashboard.sourceHealth.running} running
+              </p>
+              <p className="text-xs text-foreground-muted">
+                {dashboard.sourceHealth.total} enabled sources in this search
+                plan
+              </p>
+            </section>
+          ) : null}
+          {showBackgroundWorkPane ? (
+            <section className="surface-panel-shell grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) p-5">
+              <h2 className="font-semibold text-(--text-headline)">
+                Background work
+              </h2>
+              <p className="text-sm text-foreground-soft">
+                {dashboard.backgroundOperationCount === 0
+                  ? "Nothing is running right now."
+                  : `${dashboard.backgroundOperationCount} ${dashboard.backgroundOperationCount === 1 ? "operation is" : "operations are"} running.`}
+              </p>
+              {props.workspace.activityControl.reason ? (
+                <p className="text-xs text-foreground-muted">
+                  Pause reason: {props.workspace.activityControl.reason}
+                </p>
+              ) : null}
+            </section>
+          ) : null}
+        </div>
+      ) : null}
 
-      {props.onMarkCampaignNotificationRead ||
-      props.onMarkAllCampaignNotificationsRead ? (
+      {(props.onMarkCampaignNotificationRead ||
+        props.onMarkAllCampaignNotificationsRead) &&
+      (showReturningDashboardModules ||
+        (props.campaignNotifications?.length ?? 0) > 0) ? (
         <CampaignNotificationCenter
           errorMessage={props.campaignNotificationError ?? null}
           loading={false}

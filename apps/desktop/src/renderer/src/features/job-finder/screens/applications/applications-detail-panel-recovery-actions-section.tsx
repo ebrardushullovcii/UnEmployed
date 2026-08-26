@@ -1,12 +1,23 @@
-import type { JobFinderWorkspaceSnapshot } from "@unemployed/contracts";
+import type {
+  GlobalDailyApplicationPreparationCapacity,
+  JobFinderExactApplicationTarget,
+  JobFinderWorkspaceSnapshot,
+} from "@unemployed/contracts";
+import { useId } from "react";
 import { Button } from "@renderer/components/ui";
 import { formatStatusLabel } from "@renderer/features/job-finder/lib/job-finder-utils";
+import {
+  formatDailyPreparationBatchExceedsRemainingText,
+  formatDailyPreparationCapacityReachedText,
+  isDailyPreparationCapacityExhausted,
+} from "@renderer/features/job-finder/lib/job-finder-daily-capacity";
 import { StatusBadge } from "../../components/status-badge";
 import {
   applyResultNeedsResumeAttachment,
   getCustomerFacingApplyText,
   getQueueRecoveryTone,
   getQueueStateExplanation,
+  getVerifiedExternalWriteRecoveryText,
   type QueueEntry,
 } from "./applications-detail-panel-helpers";
 
@@ -14,15 +25,17 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
   applyRunHistoryCount: number;
   canRestageAutoRun: boolean;
   canRestageQueueRun: boolean;
+  dailyPreparationCapacity: GlobalDailyApplicationPreparationCapacity | null;
   excludedQueueRecoveryEntries: QueueEntry[];
   isApplyPending: boolean;
-  onStartApplyCopilot: (jobId: string) => void;
-  onStartAutoApply: (jobId: string) => void;
+  onStartApplyCopilot: (input: JobFinderExactApplicationTarget) => void;
+  onStartAutoApply: (input: JobFinderExactApplicationTarget) => void;
   onStartAutoApplyQueue: (jobIds: string[]) => void;
   selectedQueueOutcomeEntries: QueueEntry[];
   selectedQueueRecoveryEntries: QueueEntry[];
   selectedQueueRecoveryJobIds: string[];
   selectedRecordJobId: string;
+  selectedApplicationRecordId: string;
   selectedRun: JobFinderWorkspaceSnapshot["applyRuns"][number] | null;
   visibleApplyResult:
     | JobFinderWorkspaceSnapshot["applyJobResults"][number]
@@ -32,6 +45,7 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
     applyRunHistoryCount,
     canRestageAutoRun,
     canRestageQueueRun,
+    dailyPreparationCapacity,
     excludedQueueRecoveryEntries,
     isApplyPending,
     onStartApplyCopilot,
@@ -41,13 +55,46 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
     selectedQueueRecoveryEntries,
     selectedQueueRecoveryJobIds,
     selectedRecordJobId,
+    selectedApplicationRecordId,
     selectedRun,
     visibleApplyResult,
   } = props;
   const isWaitingForSignIn =
     visibleApplyResult?.blockerReason === "auth_required";
+  const isNavigationUnreachable =
+    visibleApplyResult?.blockerReason === "application_page_unreachable";
   const needsResumeAttachment =
     applyResultNeedsResumeAttachment(visibleApplyResult);
+  const externalWriteRecoveryText = getVerifiedExternalWriteRecoveryText(
+    visibleApplyResult?.privacyReceipt,
+  );
+  // The fixed local-day safeguard is enforced fail-closed by the workspace
+  // service. When nothing remains, every start control is disabled here so no
+  // dialog or run can begin, and the reached state is stated in plain text
+  // with the exact usage and reset timing instead of a silent no-op.
+  const isDailyCapacityExhausted =
+    isDailyPreparationCapacityExhausted(dailyPreparationCapacity);
+  const dailyCapacityReachedText =
+    dailyPreparationCapacity && isDailyCapacityExhausted
+      ? formatDailyPreparationCapacityReachedText(dailyPreparationCapacity)
+      : null;
+  // A partial exceedance keeps its own control-associated reason so the
+  // disabled multi-job control names the selected count, the remaining
+  // slots, and the local reset timing instead of reading as full
+  // exhaustion, which stays owned by the reached summary below. Single-job
+  // retry keeps working while any slot remains.
+  const selectedQueueRecoveryExceedsDailyRemaining =
+    dailyPreparationCapacity !== null &&
+    !isDailyCapacityExhausted &&
+    selectedQueueRecoveryJobIds.length > dailyPreparationCapacity.remaining;
+  const queueRecoveryExceedsNoteId = useId();
+  const dailyQueueRecoveryExceedsRemainingReason =
+    dailyPreparationCapacity && selectedQueueRecoveryExceedsDailyRemaining
+      ? formatDailyPreparationBatchExceedsRemainingText({
+          capacity: dailyPreparationCapacity,
+          selectedCount: selectedQueueRecoveryJobIds.length,
+        })
+      : null;
 
   return (
     <>
@@ -56,11 +103,15 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
           <div className="grid gap-1">
             <h3 className="label-mono-xs text-primary">Recovery</h3>
             <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-              {isWaitingForSignIn
-                ? "Job Finder is waiting while you sign in in the open browser. It never handles or stores your credentials. Return here after sign-in and retry this application."
-                : needsResumeAttachment
-                  ? "Your confirmed profile fields are still in the open application, but the approved CV was not attached. Retry below to approve that attachment. Job Finder will prepare the page and stop before the final submit control."
-                  : "Start a fresh safe run for this job without leaving Applications. Each recovery action creates a new run and still stops before any final submit click."}
+              {isDailyCapacityExhausted
+                ? "Retry preparation stays available after today's application slots reset."
+                : isWaitingForSignIn
+                ? "Job Finder is waiting while you sign in in the open browser. It never handles or stores your credentials. Return here after sign-in and retry this application. Retrying creates a fresh run and uses one of today's remaining application slots."
+                : isNavigationUnreachable
+                  ? "Last time, the dedicated browser could not open this employer page, so preparation stopped before anything was filled or submitted. That failed attempt did not count against today's application slots. Retry below when you are ready."
+                  : needsResumeAttachment
+                    ? `The approved resume was not attached. ${externalWriteRecoveryText} Retry below to approve that attachment. Job Finder will prepare the page and stop before the final submit control.`
+                    : "Start a fresh safe run for this job without leaving Applications. Each recovery action creates a new run, uses one of today's remaining application slots, and still stops before any final submit click."}
             </p>
           </div>
           <StatusBadge tone={visibleApplyResult ? "active" : "muted"}>
@@ -70,39 +121,80 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
         </div>
         <div className="flex flex-wrap gap-2">
           <Button
-            onClick={() => onStartApplyCopilot(selectedRecordJobId)}
+            onClick={() =>
+              onStartApplyCopilot({
+                jobId: selectedRecordJobId,
+                applicationRecordId: selectedApplicationRecordId,
+              })
+            }
             pending={isApplyPending}
             type="button"
             variant="secondary"
-            disabled={isApplyPending}
+            disabled={isApplyPending || isDailyCapacityExhausted}
           >
             {isApplyPending
               ? "Preparing safely..."
               : isWaitingForSignIn
-                ? "I'm signed in — retry application"
+                ? "I'm signed in — retry preparation"
                 : needsResumeAttachment
-                  ? "Approve and retry CV attachment"
-                  : "Rerun apply copilot"}
+                  ? "Approve and retry resume attachment"
+                  : "Retry preparation"}
           </Button>
           <Button
-            onClick={() => onStartAutoApply(selectedRecordJobId)}
+            onClick={() =>
+              onStartAutoApply({
+                jobId: selectedRecordJobId,
+                applicationRecordId: selectedApplicationRecordId,
+              })
+            }
             pending={isApplyPending}
             type="button"
             variant="ghost"
-            disabled={isApplyPending || !canRestageAutoRun}
+            disabled={
+              isApplyPending || !canRestageAutoRun || isDailyCapacityExhausted
+            }
           >
-            Restage auto run
+            Queue automatic preparation
           </Button>
           <Button
+            aria-describedby={
+              dailyQueueRecoveryExceedsRemainingReason
+                ? queueRecoveryExceedsNoteId
+                : undefined
+            }
             onClick={() => onStartAutoApplyQueue(selectedQueueRecoveryJobIds)}
             pending={isApplyPending}
             type="button"
             variant="ghost"
-            disabled={isApplyPending || !canRestageQueueRun}
+            disabled={
+              isApplyPending ||
+              !canRestageQueueRun ||
+              isDailyCapacityExhausted ||
+              selectedQueueRecoveryExceedsDailyRemaining
+            }
           >
-            Restage remaining queue
+            Queue remaining jobs
           </Button>
         </div>
+        {dailyQueueRecoveryExceedsRemainingReason ? (
+          <p
+            aria-live="polite"
+            className="rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) px-3 py-2 text-(length:--text-small) leading-6 text-foreground"
+            data-testid="queue-recovery-daily-capacity-exceeded-note"
+            id={queueRecoveryExceedsNoteId}
+          >
+            {dailyQueueRecoveryExceedsRemainingReason}
+          </p>
+        ) : null}
+        {dailyCapacityReachedText ? (
+          <p
+            className="rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) px-3 py-2 text-(length:--text-small) leading-6 text-foreground"
+            data-testid="daily-capacity-reached-alert"
+            role="alert"
+          >
+            {dailyCapacityReachedText}
+          </p>
+        ) : null}
         {isApplyPending ? (
           <p
             aria-live="polite"
@@ -117,28 +209,28 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
         <div className="grid gap-1 text-(length:--text-small) leading-6 text-foreground-soft">
           {!canRestageAutoRun ? (
             <p>
-              Auto-run restaging stays available only when this job is still in
-              a review-ready stage.
+              Staging an automatic preparation stays available only while this
+              job is still review-ready.
             </p>
           ) : null}
           {selectedRun?.mode === "queue_auto" ? (
             <div className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3">
               <p>
-                Queue recovery will restage {selectedQueueRecoveryJobIds.length}
-                &nbsp;remaining or blocked job
+                Run recovery targets {selectedQueueRecoveryJobIds.length}
+                &nbsp;remaining, blocked, failed, or skipped job
                 {selectedQueueRecoveryJobIds.length === 1 ? "" : "s"} from the
-                selected queue run.
+                selected run.
               </p>
               <div className="grid gap-2 2xl:grid-cols-2">
                 <QueueEntryList
                   entries={selectedQueueRecoveryEntries}
-                  emptyMessage="No jobs from this queue still need restaging."
-                  heading="Will restage"
+                  emptyMessage="No jobs from this run still need recovery."
+                  heading="Will be prepared"
                   statusFallback="planned"
                 />
                 <QueueEntryList
                   entries={excludedQueueRecoveryEntries}
-                  emptyMessage="No jobs are excluded from this historical queue yet."
+                  emptyMessage="No jobs are excluded from this historical run yet."
                   heading="Already completed or review-ready"
                   statusFallback="awaiting_review"
                 />
@@ -152,11 +244,11 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="grid gap-1">
               <h3 className="label-mono-xs text-primary">
-                Queue outcome summary
+                Run outcome summary
               </h3>
               <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                Review how each job in the selected historical queue finished
-                before you restage anything.
+                Review how each job in the selected historical run finished
+                before you prepare anything again.
               </p>
             </div>
             <StatusBadge tone={canRestageQueueRun ? "active" : "muted"}>
@@ -204,13 +296,17 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
                     </StatusBadge>
                   </div>
                   <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                    {getCustomerFacingApplyText(entry.runResult?.summary) ??
+                    {getCustomerFacingApplyText(
+                      entry.runResult?.summary,
+                      entry.runResult?.privacyReceipt,
+                    ) ??
                       "This job never started before the queue paused or was cancelled."}
                   </p>
                   {entry.runResult?.blockerSummary ? (
                     <p className="text-(length:--text-small) leading-6 text-foreground-soft">
                       {getCustomerFacingApplyText(
                         entry.runResult.blockerSummary,
+                        entry.runResult.privacyReceipt,
                       )}
                     </p>
                   ) : null}

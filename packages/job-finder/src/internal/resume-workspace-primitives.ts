@@ -21,6 +21,7 @@ export function createBullet(
     locked: false,
     included: true,
     sourceRefs: [...sourceRefs],
+    lastGeneratedContentHash: null,
     updatedAt,
   };
 }

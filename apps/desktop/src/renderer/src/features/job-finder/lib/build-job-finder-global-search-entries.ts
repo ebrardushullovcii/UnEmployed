@@ -5,6 +5,12 @@ import { buildJobFinderContextRoute } from "./job-finder-context-navigation";
 export function buildJobFinderGlobalSearchEntries(
   workspace: JobFinderWorkspaceSnapshot,
 ): readonly JobFinderGlobalSearchEntry[] {
+  const campaigns = workspace.campaigns ?? [];
+  const discoveryJobs = workspace.discoveryJobs ?? [];
+  const applicationRecords = workspace.applicationRecords ?? [];
+  const tailoredAssets = workspace.tailoredAssets ?? [];
+  const resumeExportArtifacts = workspace.resumeExportArtifacts ?? [];
+
   const companyEntries: JobFinderGlobalSearchEntry[] =
     workspace.intelligence?.companies?.map((company) => ({
       campaignId: null,
@@ -25,24 +31,43 @@ export function buildJobFinderGlobalSearchEntries(
       title: company.canonicalName,
     })) ?? [];
 
-  const campaignByJobId = new Map<string, string>();
-  for (const campaign of workspace.campaigns) {
-    for (const jobId of campaign.jobIds) {
-      if (!campaignByJobId.has(jobId)) campaignByJobId.set(jobId, campaign.id);
+  const campaignIdsByJobId = new Map<string, Set<string>>();
+  for (const campaign of campaigns) {
+    for (const jobId of campaign.jobIds ?? []) {
+      const campaignIds = campaignIdsByJobId.get(jobId) ?? new Set<string>();
+      campaignIds.add(campaign.id);
+      campaignIdsByJobId.set(jobId, campaignIds);
     }
   }
   const campaignNameById = new Map(
-    workspace.campaigns.map((campaign) => [campaign.id, campaign.name]),
+    campaigns.map((campaign) => [campaign.id, campaign.name]),
   );
-  const campaignLabelForJob = (jobId: string) => {
-    const campaignId = campaignByJobId.get(jobId);
-    return campaignId ? (campaignNameById.get(campaignId) ?? "Campaign") : null;
-  };
+  // A null or stale activeCampaignId means no searchable plan scope. Valid
+  // planless workspaces must still surface every job, application, and
+  // document record instead of returning none — including records that carry
+  // another plan's campaign id, which keep their own campaign metadata and
+  // label. When an active plan resolves, scope those records to its jobs so
+  // unrelated plans drop out; campaign and company entries always remain
+  // searchable as shared context.
+  const resolvesActivePlan = campaigns.some(
+    (campaign) => campaign.id === workspace.activeCampaignId,
+  );
+  const campaignLabelFor = (campaignId: string | null) =>
+    campaignId ? (campaignNameById.get(campaignId) ?? "Campaign") : null;
+  const isInActivePlan = (jobId: string) =>
+    campaignIdsByJobId.get(jobId)?.has(workspace.activeCampaignId) ?? false;
+  const isInSearchScope = resolvesActivePlan ? isInActivePlan : () => true;
+  const campaignIdForJob = resolvesActivePlan
+    ? (jobId: string) => (isInActivePlan(jobId) ? workspace.activeCampaignId : null)
+    : (jobId: string) =>
+        campaigns.find((campaign) =>
+          campaignIdsByJobId.get(jobId)?.has(campaign.id),
+        )?.id ?? null;
 
-  const campaignEntries: JobFinderGlobalSearchEntry[] = workspace.campaigns.map(
+  const campaignEntries: JobFinderGlobalSearchEntry[] = campaigns.map(
     (campaign) => ({
       campaignId: campaign.id,
-      href: "/job-finder/campaigns",
+      href: `/job-finder/campaigns?campaignId=${encodeURIComponent(campaign.id)}`,
       id: campaign.id,
       kind: "campaign",
       metadata: [campaign.mode, campaign.status, campaign.description],
@@ -50,9 +75,10 @@ export function buildJobFinderGlobalSearchEntries(
       title: campaign.name,
     }),
   );
-  const jobEntries: JobFinderGlobalSearchEntry[] = workspace.discoveryJobs.map(
-    (job) => ({
-      campaignId: campaignByJobId.get(job.id) ?? null,
+  const jobEntries: JobFinderGlobalSearchEntry[] = discoveryJobs
+    .filter((job) => isInSearchScope(job.id))
+    .map((job) => ({
+      campaignId: campaignIdForJob(job.id),
       href: buildJobFinderContextRoute("/job-finder/discovery", {
         jobId: job.id,
       }),
@@ -61,19 +87,19 @@ export function buildJobFinderGlobalSearchEntries(
       metadata: [
         job.company,
         job.location,
-        ...job.workMode,
+        ...(job.workMode ?? []),
         job.status,
-        ...job.matchAssessment.reasons,
+        ...(job.matchAssessment?.reasons ?? []),
       ].filter((value): value is string => typeof value === "string"),
-      subtitle: [job.company, job.location, campaignLabelForJob(job.id)]
+      subtitle: [job.company, job.location, campaignLabelFor(campaignIdForJob(job.id))]
         .filter(Boolean)
         .join(" · "),
       title: job.title,
-    }),
-  );
-  const applicationEntries: JobFinderGlobalSearchEntry[] =
-    workspace.applicationRecords.map((record) => ({
-      campaignId: campaignByJobId.get(record.jobId) ?? null,
+    }));
+  const applicationEntries: JobFinderGlobalSearchEntry[] = applicationRecords
+    .filter((record) => isInSearchScope(record.jobId))
+    .map((record) => ({
+      campaignId: campaignIdForJob(record.jobId),
       href: buildJobFinderContextRoute("/job-finder/applications", {
         applicationRecordId: record.id,
       }),
@@ -88,44 +114,48 @@ export function buildJobFinderGlobalSearchEntries(
       ].filter((value): value is string => typeof value === "string"),
       subtitle: [
         record.company,
-        record.status.replaceAll("_", " "),
-        campaignLabelForJob(record.jobId),
+        (record.status ?? "").replaceAll("_", " "),
+        campaignLabelFor(campaignIdForJob(record.jobId)),
       ]
         .filter(Boolean)
         .join(" · "),
       title: record.title,
     }));
   const documentEntries: JobFinderGlobalSearchEntry[] = [
-    ...workspace.tailoredAssets.map((asset) => ({
-      campaignId: campaignByJobId.get(asset.jobId) ?? null,
-      href: `/job-finder/review-queue/${asset.jobId}/resume`,
-      id: asset.id,
-      kind: "document" as const,
-      metadata: [asset.templateName, asset.status, asset.version],
-      subtitle: [
-        asset.templateName,
-        asset.status,
-        campaignLabelForJob(asset.jobId),
-      ]
-        .filter(Boolean)
-        .join(" · "),
-      title: asset.label,
-    })),
-    ...workspace.resumeExportArtifacts.map((artifact) => ({
-      campaignId: campaignByJobId.get(artifact.jobId) ?? null,
-      href: `/job-finder/review-queue/${artifact.jobId}/resume`,
-      id: artifact.id,
-      kind: "document" as const,
-      metadata: [artifact.templateId, artifact.format, artifact.filePath],
-      subtitle: [
-        artifact.templateId.replaceAll("_", " "),
-        `${artifact.format.toUpperCase()} export`,
-        campaignLabelForJob(artifact.jobId),
-      ]
-        .filter(Boolean)
-        .join(" · "),
-      title: artifact.filePath.split(/[\\/]/).at(-1) ?? "Resume export",
-    })),
+    ...tailoredAssets
+      .filter((asset) => isInSearchScope(asset.jobId))
+      .map((asset) => ({
+        campaignId: campaignIdForJob(asset.jobId),
+        href: `/job-finder/review-queue/${asset.jobId}/resume`,
+        id: asset.id,
+        kind: "document" as const,
+        metadata: [asset.templateName, asset.status, asset.version],
+        subtitle: [
+          asset.templateName,
+          asset.status,
+          campaignLabelFor(campaignIdForJob(asset.jobId)),
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        title: asset.label,
+      })),
+    ...resumeExportArtifacts
+      .filter((artifact) => isInSearchScope(artifact.jobId))
+      .map((artifact) => ({
+        campaignId: campaignIdForJob(artifact.jobId),
+        href: `/job-finder/review-queue/${artifact.jobId}/resume`,
+        id: artifact.id,
+        kind: "document" as const,
+        metadata: [artifact.templateId, artifact.format, artifact.filePath],
+        subtitle: [
+          (artifact.templateId ?? "").replaceAll("_", " "),
+          `${(artifact.format ?? "").toUpperCase()} export`,
+          campaignLabelFor(campaignIdForJob(artifact.jobId)),
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        title: artifact.filePath.split(/[\\/]/).at(-1) ?? "Resume export",
+      })),
   ];
 
   return [

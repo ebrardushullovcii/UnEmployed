@@ -1,8 +1,10 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { ChevronDown } from 'lucide-react'
 
 interface ProfileOptionalSectionProps {
   children: ReactNode
+  // Only applied on mount so later value changes never collapse an open
+  // section while the user is editing inside it.
   defaultOpen?: boolean
   description: string
   title: string
@@ -10,10 +12,6 @@ interface ProfileOptionalSectionProps {
 
 export function ProfileOptionalSection({ children, defaultOpen = false, description, title }: ProfileOptionalSectionProps) {
   const [open, setOpen] = useState(defaultOpen)
-
-  useEffect(() => {
-    setOpen(defaultOpen)
-  }, [defaultOpen])
 
   return (
     <details className="surface-card-tint group rounded-(--radius-panel) border border-(--surface-panel-border) p-4 [&_summary::-webkit-details-marker]:hidden" onToggle={(event) => setOpen((event.currentTarget as HTMLDetailsElement).open)} open={open}>
@@ -23,7 +21,7 @@ export function ProfileOptionalSection({ children, defaultOpen = false, descript
           <span className="text-(length:--text-description) leading-6 text-foreground-muted">{description}</span>
         </span>
 
-        <span className="inline-flex items-center gap-1 rounded-full border border-(--field-border) bg-(--field) px-2.5 py-1 text-(length:--text-tiny) font-medium uppercase tracking-(--tracking-mono) text-foreground-muted transition-transform group-open:[&_svg]:rotate-180">
+        <span className="inline-flex items-center gap-1 rounded-full border border-(--surface-well-border) bg-(--surface-well) px-2.5 py-1 text-(length:--text-tiny) font-medium uppercase tracking-(--tracking-mono) text-foreground-muted transition-transform group-open:[&_svg]:rotate-180">
           <ChevronDown className="size-3 transition-transform duration-200" />
           Optional
         </span>

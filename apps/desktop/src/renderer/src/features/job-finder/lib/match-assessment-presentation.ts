@@ -6,7 +6,7 @@ export const fitRecommendationCopy: Record<
   { label: string; tone: BadgeTone }
 > = {
   strong_fit: { label: "Strong fit", tone: "positive" },
-  apply_with_original: { label: "Original CV is credible", tone: "active" },
+  apply_with_original: { label: "Original resume is credible", tone: "active" },
   review_before_applying: {
     label: "Review before applying",
     tone: "neutral",

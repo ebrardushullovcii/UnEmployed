@@ -185,6 +185,10 @@ export function getReviewItemScrollTargetId(item: ProfileSetupReviewItem): strin
     switch (item.target.key) {
       case 'summary':
         return 'profile-setup-field-identity-summary'
+      case 'firstName':
+        return 'profile-setup-field-identity-first-name'
+      case 'lastName':
+        return 'profile-setup-field-identity-last-name'
       case 'headline':
         return 'profile-setup-field-identity-headline'
       case 'currentLocation':

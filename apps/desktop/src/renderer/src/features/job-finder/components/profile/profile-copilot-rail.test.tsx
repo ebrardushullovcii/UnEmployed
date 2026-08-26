@@ -3,6 +3,10 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  COPILOT_LAUNCHER_MIN_INTERACTIVE_GAP,
+  getCollapsedLauncherStackSize,
+} from "./profile-copilot-rail-layout";
 import { ProfileCopilotRail } from "./profile-copilot-rail";
 
 describe("ProfileCopilotRail", () => {
@@ -210,9 +214,137 @@ describe("ProfileCopilotRail", () => {
     const bubble = document.body.querySelector<HTMLButtonElement>(
       'button[aria-haspopup="dialog"]',
     );
-    expect(bubble?.parentElement?.style.bottom).toBe("116px");
+    expect(bubble?.parentElement?.style.bottom).toBe("124px");
 
-    actions.remove();
+    act(() => {
+      actions.remove();
+    });
+  });
+
+  it("lifts the launcher above Profile section tabs in the bottom corner", () => {
+    const tabs = document.createElement("div");
+    tabs.setAttribute("data-profile-section-tabs", "");
+    tabs.getBoundingClientRect = () =>
+      ({
+        bottom: window.innerHeight - 20,
+        height: 68,
+        left: 0,
+        right: window.innerWidth,
+        top: window.innerHeight - 88,
+        width: window.innerWidth,
+        x: 0,
+        y: window.innerHeight - 88,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    document.body.appendChild(tabs);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(
+        <ProfileCopilotRail
+          busy={false}
+          context={{ surface: "profile", section: "basics" }}
+          emptyStateDescription="Ask why a field matters."
+          emptyStateTitle="No requests yet"
+          messages={[]}
+          onApplyPatchGroup={vi.fn()}
+          onRejectPatchGroup={vi.fn()}
+          onSendMessage={vi.fn()}
+          onUndoRevision={vi.fn()}
+          pendingContextKey={null}
+          placeholder="Ask for an edit"
+          revisions={[]}
+          title="Profile Copilot"
+        />,
+      );
+    });
+
+    const bubble = document.body.querySelector<HTMLButtonElement>(
+      'button[aria-haspopup="dialog"]',
+    );
+    expect(bubble?.parentElement?.style.bottom).toBe("112px");
+
+    act(() => {
+      tabs.remove();
+    });
+  });
+
+  it("lifts the suggestion pill clear of section tabs inside the old 64px probe blind zone", () => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 1440,
+      writable: true,
+    });
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: 920,
+      writable: true,
+    });
+    const tabs = document.createElement("div");
+    tabs.setAttribute("data-profile-section-tabs", "");
+    const tabsBottom = 840;
+    tabs.getBoundingClientRect = () =>
+      ({
+        bottom: tabsBottom,
+        height: 68,
+        left: 0,
+        right: 1440,
+        top: tabsBottom - 68,
+        width: 1440,
+        x: 0,
+        y: tabsBottom - 68,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    document.body.appendChild(tabs);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(
+        <ProfileCopilotRail
+          busy={false}
+          context={{ surface: "profile", section: "basics" }}
+          emptyStateDescription="Ask why a field matters."
+          emptyStateTitle="No requests yet"
+          messages={[]}
+          onApplyPatchGroup={vi.fn()}
+          onRejectPatchGroup={vi.fn()}
+          onSendMessage={vi.fn()}
+          onUndoRevision={vi.fn()}
+          pendingContextKey={null}
+          placeholder="Ask for an edit"
+          revisions={[]}
+          starterQuestion="How should I tighten my headline?"
+          title="Profile Copilot"
+        />,
+      );
+    });
+
+    const rail = document.body.querySelector<HTMLButtonElement>(
+      'button[aria-haspopup="dialog"]',
+    )?.parentElement;
+    expect(rail).not.toBeNull();
+    expect(rail?.querySelector(".max-sm\\:hidden")).not.toBeNull();
+
+    const launcherStack = getCollapsedLauncherStackSize({
+      showSuggestionPill: true,
+    });
+    const clearance = Number.parseInt(rail?.style.bottom ?? "0", 10);
+    const stackBottom = window.innerHeight - clearance;
+
+    expect(stackBottom).toBeLessThanOrEqual(
+      tabsBottom - 68 - COPILOT_LAUNCHER_MIN_INTERACTIVE_GAP,
+    );
+    expect(
+      window.innerHeight - clearance - launcherStack.height,
+    ).toBeGreaterThanOrEqual(0);
+
+    act(() => {
+      tabs.remove();
+    });
   });
 
   it("ignores old saved placement and keeps the collapsed launcher docked after maximize", () => {

@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { useFieldArray, useForm } from "react-hook-form";
+import { useEffect, useRef, useState } from "react";
+import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import type {
   ApplicationCrmSettings,
   ApplicationCrmStageDefinition,
@@ -23,7 +23,7 @@ const colors: readonly ApplicationCrmStageDefinition["color"][] = [
 ];
 
 const fieldClassName =
-  "h-10 w-full min-w-0 rounded-(--radius-field) border border-input bg-background px-3 text-sm text-foreground";
+  "h-10 w-full min-w-0 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 text-sm text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]";
 
 function createCustomStage(position: number): ApplicationCrmStageDefinition {
   return {
@@ -38,6 +38,8 @@ function createCustomStage(position: number): ApplicationCrmStageDefinition {
 
 export function ApplicationsCrmSettingsEditor(props: {
   settings: ApplicationCrmSettings;
+  /** Reports staged tracker edits so a stale shell save retry is retired. */
+  onDraftEdited?: () => void;
   onSave: (settings: ApplicationCrmSettings) => Promise<void>;
 }) {
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -58,6 +60,21 @@ export function ApplicationsCrmSettingsEditor(props: {
   });
 
   useEffect(() => reset(props.settings), [props.settings, reset]);
+
+  // Observe staged tracker edits without owning the form: every value change
+  // while the form is dirty reports upward so an exact-request shell retry
+  // captured before the edit can never resubmit stale CRM settings.
+  const watchedValues = useWatch({ control });
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      return;
+    }
+    if (isDirty) {
+      props.onDraftEdited?.();
+    }
+  }, [isDirty, props.onDraftEdited, watchedValues]);
 
   return (
     <form

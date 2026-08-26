@@ -196,6 +196,7 @@ describe("createJobFinderWorkspaceService", () => {
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:05.000Z",
           querySummary: "Standard discovery run",
+          inventoryCompleteness: "complete",
           warning: null,
           jobs: [
             JobPostingSchema.parse({
@@ -238,6 +239,7 @@ describe("createJobFinderWorkspaceService", () => {
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:05.000Z",
           querySummary: "Agent discovery run",
+          inventoryCompleteness: "partial",
           warning: null,
           jobs: [],
           agentMetadata: {
@@ -460,6 +462,7 @@ describe("createJobFinderWorkspaceService", () => {
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:05.000Z",
           querySummary: "LinkedIn discovery triage sample run",
+          inventoryCompleteness: "partial",
           warning: null,
           jobs: [
             JobPostingSchema.parse({
@@ -588,6 +591,7 @@ describe("createJobFinderWorkspaceService", () => {
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:05.000Z",
           querySummary: "Compaction metadata discovery run",
+          inventoryCompleteness: "partial",
           warning: null,
           jobs: [],
           agentMetadata: {
@@ -730,6 +734,7 @@ describe("createJobFinderWorkspaceService", () => {
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:05.000Z",
           querySummary: "Agent discovery test run",
+          inventoryCompleteness: "partial",
           warning: options.aiClient?.chatWithTools
             ? null
             : "AI client does not support tool calling. Cannot run agent discovery.",
@@ -798,6 +803,7 @@ describe("createJobFinderWorkspaceService", () => {
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:05.000Z",
           querySummary: "Budgeted discovery test run",
+          inventoryCompleteness: "partial",
           warning: null,
           jobs: Array.from({ length: options.targetJobCount }, (_, index) =>
             JobPostingSchema.parse({
@@ -939,6 +945,7 @@ describe("createJobFinderWorkspaceService", () => {
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:05.000Z",
           querySummary: "Distinct-retained discovery budget regression",
+          inventoryCompleteness: "partial",
           warning: null,
           jobs,
           agentMetadata: {
@@ -968,7 +975,7 @@ describe("createJobFinderWorkspaceService", () => {
     );
     const run = snapshot.recentDiscoveryRuns[0];
 
-    expect(capturedBudgets).toEqual([34, 50, 49]);
+    expect(capturedBudgets).toEqual([34, 33, 33]);
     expect(
       run?.targetExecutions.map((target) => ({
         requestedJobBudget: target.requestedJobBudget,
@@ -983,8 +990,10 @@ describe("createJobFinderWorkspaceService", () => {
     ).toEqual([
       {
         requestedJobBudget: 34,
+        // jobsReviewed counts every scored/merged observation of the one
+        // duplicate identity; jobsFound stays at the distinct retained job.
         jobsReviewed: 34,
-        jobsFound: 34,
+        jobsFound: 1,
         jobsStaged: 1,
         jobsSkippedByLedger: 0,
         jobsSkippedByTitleTriage: 0,
@@ -992,20 +1001,20 @@ describe("createJobFinderWorkspaceService", () => {
         invalidSkipped: 0,
       },
       {
-        requestedJobBudget: 50,
-        jobsReviewed: 50,
-        jobsFound: 50,
-        jobsStaged: 50,
+        requestedJobBudget: 33,
+        jobsReviewed: 33,
+        jobsFound: 33,
+        jobsStaged: 33,
         jobsSkippedByLedger: 0,
         jobsSkippedByTitleTriage: 0,
         duplicatesMerged: 0,
         invalidSkipped: 0,
       },
       {
-        requestedJobBudget: 49,
-        jobsReviewed: 49,
-        jobsFound: 49,
-        jobsStaged: 49,
+        requestedJobBudget: 33,
+        jobsReviewed: 33,
+        jobsFound: 33,
+        jobsStaged: 33,
         jobsSkippedByLedger: 0,
         jobsSkippedByTitleTriage: 0,
         duplicatesMerged: 0,
@@ -1022,11 +1031,11 @@ describe("createJobFinderWorkspaceService", () => {
       ),
     ).toEqual(run?.targetExecutions.map((target) => target.jobsReviewed));
     expect(run?.summary).toMatchObject({
-      validJobsFound: 133,
-      jobsStaged: 100,
+      validJobsFound: 67,
+      jobsStaged: 67,
       duplicatesMerged: 33,
     });
-    expect(snapshot.discoveryJobs).toHaveLength(100);
+    expect(snapshot.discoveryJobs).toHaveLength(67);
   });
   test("single-target agent discovery requests a useful batch of jobs", async () => {
     const capturedBudgets: Array<{ targetJobCount: number; maxSteps: number }> =
@@ -1044,6 +1053,7 @@ describe("createJobFinderWorkspaceService", () => {
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:05.000Z",
           querySummary: "Single-target budgeted discovery test run",
+          inventoryCompleteness: "partial",
           warning: null,
           jobs: [],
           agentMetadata: {
@@ -1077,7 +1087,7 @@ describe("createJobFinderWorkspaceService", () => {
     expect(capturedBudgets).toEqual([{ targetJobCount: 50, maxSteps: 36 }]);
   });
 
-  test("single-target agent discovery passes the provider-aware LinkedIn query-first starting url", async () => {
+  test("single-target agent discovery passes the configured starting url without synthesizing a query route", async () => {
     const capturedStartingUrls: string[][] = [];
     const browserRuntime: BrowserSessionRuntime = {
       ...createAgentBrowserRuntime([]),
@@ -1088,7 +1098,8 @@ describe("createJobFinderWorkspaceService", () => {
           source,
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:05.000Z",
-          querySummary: "Query-first discovery test run",
+          querySummary: "Configured starting url discovery test run",
+          inventoryCompleteness: "partial",
           warning: null,
           jobs: [],
           agentMetadata: {
@@ -1106,9 +1117,22 @@ describe("createJobFinderWorkspaceService", () => {
         });
       },
     };
+    const seed = createDiscoveryOnlySeed();
+    const defaultTarget = seed.searchPreferences.discovery.targets[0];
+    if (!defaultTarget) {
+      throw new Error("Expected a default discovery target in the test seed.");
+    }
+    seed.searchPreferences.discovery.targets = [
+      {
+        ...defaultTarget,
+        id: "target_configured_route",
+        label: "Configured Board",
+        startingUrl: "https://example.com/jobs/search/",
+      },
+    ];
 
     const { workspaceService } = createWorkspaceServiceHarness({
-      seed: createDiscoveryOnlySeed(),
+      seed,
       browserRuntime,
       aiClient: createAiClient(),
     });
@@ -1116,14 +1140,11 @@ describe("createJobFinderWorkspaceService", () => {
     await workspaceService.runAgentDiscovery(
       () => {},
       new AbortController().signal,
-      "target_linkedin_default",
+      "target_configured_route",
     );
 
     expect(capturedStartingUrls).toEqual([
-      [
-        "https://www.linkedin.com/jobs/search/?keywords=Principal+Designer&location=Remote",
-        "https://www.linkedin.com/jobs/search/",
-      ],
+      ["https://example.com/jobs/search/"],
     ]);
   });
 
@@ -1222,6 +1243,7 @@ describe("createJobFinderWorkspaceService", () => {
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:05.000Z",
           querySummary: "Early-stop discovery test run",
+          inventoryCompleteness: "partial",
           warning: null,
           jobs: Array.from({ length: 200 }, (_, index) =>
             JobPostingSchema.parse({
@@ -1306,6 +1328,7 @@ describe("createJobFinderWorkspaceService", () => {
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:05.000Z",
           querySummary: "Provider inventory ordering regression",
+          inventoryCompleteness: "partial",
           warning: null,
           jobs: Array.from({ length: 12 }, (_, index) =>
             JobPostingSchema.parse({
@@ -1409,6 +1432,7 @@ describe("createJobFinderWorkspaceService", () => {
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:05.000Z",
           querySummary: "Healthy source discovery test run",
+          inventoryCompleteness: "partial",
           warning: null,
           jobs: [
             JobPostingSchema.parse({
@@ -1486,6 +1510,7 @@ describe("createJobFinderWorkspaceService", () => {
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:05.000Z",
           querySummary: "Detail quality discovery test run",
+          inventoryCompleteness: "partial",
           warning: null,
           jobs: [
             JobPostingSchema.parse({
@@ -1785,6 +1810,7 @@ describe("createJobFinderWorkspaceService", () => {
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:05.000Z",
           querySummary: "Single-target discovery test run",
+          inventoryCompleteness: "partial",
           warning: null,
           jobs: [
             JobPostingSchema.parse({
@@ -1850,6 +1876,10 @@ describe("createJobFinderWorkspaceService", () => {
       () => {},
       new AbortController().signal,
     );
-    expect(resumedRevisions).toEqual([null, 1]);
+    // The checkpoint stays recorded on the completed execution for durability,
+    // but a completed run never seeds process progress into a fresh run: the
+    // second single-target run starts exploring fresh instead of replaying
+    // finished loop progress against a new budget.
+    expect(resumedRevisions).toEqual([null, null]);
   });
 });

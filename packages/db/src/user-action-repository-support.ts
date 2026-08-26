@@ -20,6 +20,7 @@ export const USER_ACTION_INDEXED_COLLECTION_CONFIGS = {
       "kind",
       "state",
       "scope_type",
+      "application_record_id",
       "updated_at",
     ],
     getColumns: (value: unknown): readonly SQLInputValue[] => {
@@ -30,6 +31,9 @@ export const USER_ACTION_INDEXED_COLLECTION_CONFIGS = {
         request.kind,
         request.state,
         request.scope.type,
+        request.scope.type === "application"
+          ? request.scope.applicationRecordId
+          : null,
         request.updatedAt,
       ];
     },
@@ -122,7 +126,11 @@ export function matchesUserActionRequestQuery(
   return (
     (query?.id === undefined || request.id === query.id) &&
     (query?.states === undefined || query.states.includes(request.state)) &&
-    (query?.scopeType === undefined || request.scope.type === query.scopeType)
+    (query?.scopeType === undefined ||
+      request.scope.type === query.scopeType) &&
+    (query?.applicationRecordId === undefined ||
+      (request.scope.type === "application" &&
+        request.scope.applicationRecordId === query.applicationRecordId))
   );
 }
 
@@ -180,6 +188,8 @@ export function assertUserActionTransitionCurrent(
     JSON.stringify(next.scope) !== JSON.stringify(current.scope) ||
     JSON.stringify(next.verification) !== JSON.stringify(current.verification)
   ) {
-    throw new Error("User action transitions cannot rewrite request identity or scope.");
+    throw new Error(
+      "User action transitions cannot rewrite request identity or scope.",
+    );
   }
 }

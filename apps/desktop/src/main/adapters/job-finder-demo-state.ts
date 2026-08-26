@@ -12,6 +12,29 @@ import {
 } from "./job-finder-demo-resume-files";
 import { createEmptyJobFinderRepositoryState } from "./job-finder-initial-state";
 
+const demoDiscoveryTarget = {
+  id: "target_linkedin_default",
+  label: "Primary target",
+  startingUrl: "https://www.linkedin.com/jobs/search/",
+  enabled: true,
+  adapterKind: "auto",
+  customInstructions: null,
+  instructionStatus: "missing",
+  validatedInstructionId: null,
+  draftInstructionId: null,
+  lastDebugRunId: null,
+  lastVerifiedAt: null,
+  staleReason: null,
+} as const;
+
+const demoSeedProvenance = {
+  targetId: demoDiscoveryTarget.id,
+  adapterKind: demoDiscoveryTarget.adapterKind,
+  resolvedAdapterKind: "target_site",
+  startingUrl: demoDiscoveryTarget.startingUrl,
+  collectionMethod: "fallback_search",
+} as const;
+
 const demoResumeDraftSections = [
   {
     id: "section_summary",
@@ -43,7 +66,8 @@ const demoResumeDraftSections = [
         subtitle: "CoreLedger",
         location: "Prishtina, Kosovo",
         dateRange: "Aug 2019 - Jan 2022",
-        summary: "Built workflow applications and maintained production services.",
+        summary:
+          "Built workflow applications and maintained production services.",
         bullets: [
           {
             id: "bullet_coreledger_recent",
@@ -133,7 +157,9 @@ const orderedDemoResumeDraftSections = demoResumeDraftSections.map((section) =>
   section.id === "section_experience"
     ? {
         ...section,
-        entries: [...section.entries].sort((left, right) => left.sortOrder - right.sortOrder),
+        entries: [...section.entries].sort(
+          (left, right) => left.sortOrder - right.sortOrder,
+        ),
       }
     : section,
 );
@@ -150,7 +176,8 @@ export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
       lastName: "Vanguard",
       fullName: "Alex Vanguard",
       headline: "Senior systems designer",
-      summary: "Builds resilient workflows for design systems, workflow automation, and operations platforms.",
+      summary:
+        "Builds resilient workflows for design systems, workflow automation, and operations platforms.",
       currentLocation: "London, UK",
       yearsExperience: 10,
       email: "alex@example.com",
@@ -168,14 +195,20 @@ export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
           "Turns ambiguous workflow pain into durable design systems",
           "Pairs product strategy with hands-on systems execution",
         ],
-        motivationThemes: ["workflow automation", "design systems", "platform quality"],
+        motivationThemes: [
+          "workflow automation",
+          "design systems",
+          "platform quality",
+        ],
       },
       proofBank: [
         {
           id: "proof_1",
           title: "Design-system rollout",
-          claim: "Led a design-system rollout across core workflow surfaces used by design and operations teams.",
-          heroMetric: "Adoption reached 80% of core product surfaces within two quarters.",
+          claim:
+            "Led a design-system rollout across core workflow surfaces used by design and operations teams.",
+          heroMetric:
+            "Adoption reached 80% of core product surfaces within two quarters.",
           supportingContext:
             "Worked across product, engineering, and operations to standardize interaction and content patterns.",
           roleFamilies: ["product design", "design systems", "platform"],
@@ -184,13 +217,18 @@ export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
         },
       ],
       answerBank: {
-        workAuthorization: "Authorized to work in the United Kingdom and open to remote roles across Europe.",
-        visaSponsorship: "Do not currently require visa sponsorship for UK-based roles.",
-        relocation: "Open to relocation for the right platform or systems role.",
-        travel: "Open to occasional travel for planning, workshops, and launch support.",
+        workAuthorization:
+          "Authorized to work in the United Kingdom and open to remote roles across Europe.",
+        visaSponsorship:
+          "Do not currently require visa sponsorship for UK-based roles.",
+        relocation:
+          "Open to relocation for the right platform or systems role.",
+        travel:
+          "Open to occasional travel for planning, workshops, and launch support.",
         noticePeriod: "Currently able to start after a 30-day notice period.",
         availability: "Available to interview now and start within 30 days.",
-        salaryExpectations: "Targeting senior remote roles in the 180k-220k USD range depending on scope and package.",
+        salaryExpectations:
+          "Targeting senior remote roles in the 180k-220k USD range depending on scope and package.",
         selfIntroduction:
           "I am a systems-focused product designer with 10 years of experience building workflow tools, design systems, and cross-functional operating rhythms.",
         careerTransition:
@@ -233,7 +271,9 @@ export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
           isCurrent: true,
           isDraft: false,
           summary: "Builds resilient workflow tools.",
-          achievements: ["Led design-system rollout across core workflow surfaces."],
+          achievements: [
+            "Led design-system rollout across core workflow surfaces.",
+          ],
           skills: ["Figma", "Design Systems"],
           domainTags: [],
           peopleManagementScope: null,
@@ -251,8 +291,11 @@ export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
           endDate: "2022-01",
           isCurrent: false,
           isDraft: false,
-          summary: "Built workflow applications and maintained production services.",
-          achievements: ["Authored quick fixes that restored business-critical services while preserving release reliability."],
+          summary:
+            "Built workflow applications and maintained production services.",
+          achievements: [
+            "Authored quick fixes that restored business-critical services while preserving release reliability.",
+          ],
           skills: [".NET", "C#", "SQL"],
           domainTags: ["web applications"],
           peopleManagementScope: null,
@@ -271,7 +314,9 @@ export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
           isCurrent: false,
           isDraft: false,
           summary: "Maintained earlier .NET applications.",
-          achievements: ["Maintained legacy .NET services and supported incident recovery."],
+          achievements: [
+            "Maintained legacy .NET services and supported incident recovery.",
+          ],
           skills: [".NET", "C#"],
           domainTags: ["web applications"],
           peopleManagementScope: null,
@@ -316,22 +361,7 @@ export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
       companyWhitelist: ["Signal Systems"],
       discovery: {
         historyLimit: 5,
-        targets: [
-          {
-            id: "target_linkedin_default",
-            label: "Primary target",
-            startingUrl: "https://www.linkedin.com/jobs/search/",
-            enabled: true,
-            adapterKind: "auto",
-            customInstructions: null,
-            instructionStatus: "missing",
-            validatedInstructionId: null,
-            draftInstructionId: null,
-            lastDebugRunId: null,
-            lastVerifiedAt: null,
-            staleReason: null,
-          },
-        ],
+        targets: [demoDiscoveryTarget],
       },
     },
     savedJobs: [
@@ -340,8 +370,10 @@ export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
         source: "target_site",
         sourceJobId: "linkedin_signal_ready",
         discoveryMethod: "catalog_seed",
-        canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_signal_ready",
-        applicationUrl: "https://www.linkedin.com/jobs/view/linkedin_signal_ready/apply",
+        canonicalUrl:
+          "https://www.linkedin.com/jobs/view/linkedin_signal_ready",
+        applicationUrl:
+          "https://www.linkedin.com/jobs/view/linkedin_signal_ready/apply",
         title: "Senior Product Designer",
         company: "Signal Systems",
         location: "Remote",
@@ -404,14 +436,20 @@ export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
           reasons: ["Strong design-systems overlap"],
           gaps: [],
         },
-        provenance: [],
+        provenance: [
+          {
+            ...demoSeedProvenance,
+            discoveredAt: "2026-03-20T09:05:00.000Z",
+          },
+        ],
       },
       {
         id: "job_generating",
         source: "target_site",
         sourceJobId: "linkedin_northwind_generating",
         discoveryMethod: "catalog_seed",
-        canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_northwind_generating",
+        canonicalUrl:
+          "https://www.linkedin.com/jobs/view/linkedin_northwind_generating",
         applicationUrl: null,
         title: "Principal UX Engineer",
         company: "Northwind Labs",
@@ -476,7 +514,12 @@ export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
           reasons: ["Strong platform overlap"],
           gaps: ["Accessibility leadership"],
         },
-        provenance: [],
+        provenance: [
+          {
+            ...demoSeedProvenance,
+            discoveredAt: "2026-03-20T08:05:00.000Z",
+          },
+        ],
       },
     ],
     tailoredAssets: [],
@@ -520,13 +563,17 @@ export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
 
 export function createApplyQueueDemoState(): JobFinderRepositoryState {
   const resumeDemoState = createResumeWorkspaceDemoState();
-  const readySavedJob = resumeDemoState.savedJobs.find((job) => job.id === "job_ready");
+  const readySavedJob = resumeDemoState.savedJobs.find(
+    (job) => job.id === "job_ready",
+  );
   const generatingSavedJob = resumeDemoState.savedJobs.find(
     (job) => job.id === "job_generating",
   );
 
   if (!readySavedJob || !generatingSavedJob) {
-    throw new Error("Resume workspace demo state is missing required saved jobs.");
+    throw new Error(
+      "Resume workspace demo state is missing required saved jobs.",
+    );
   }
 
   return JobFinderRepositoryStateSchema.parse({
@@ -537,12 +584,16 @@ export function createApplyQueueDemoState(): JobFinderRepositoryState {
         ...readySavedJob,
         id: "job_consent_queue",
         sourceJobId: "linkedin_consent_queue",
-        canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_consent_queue",
+        canonicalUrl:
+          "https://www.linkedin.com/jobs/view/linkedin_consent_queue",
         applicationUrl:
           "https://www.linkedin.com/jobs/view/linkedin_consent_queue/apply",
         title: "Staff Product Designer",
         company: "Consent Labs",
-        summary: "Guide a workflow platform that pauses on account-consent questions.",
+        employerWebsiteUrl: "https://consentlabs.example.com",
+        employerDomain: "consentlabs.example.com",
+        summary:
+          "Guide a workflow platform that pauses on account-consent questions.",
         description:
           "Guide a workflow platform that asks whether you already have an account before continuing the application.",
         keywordSignals: [
@@ -569,7 +620,8 @@ export function createApplyQueueDemoState(): JobFinderRepositoryState {
         ...generatingSavedJob,
         id: "job_not_ready_queue",
         sourceJobId: "linkedin_not_ready_queue",
-        canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_not_ready_queue",
+        canonicalUrl:
+          "https://www.linkedin.com/jobs/view/linkedin_not_ready_queue",
         applicationUrl:
           "https://www.linkedin.com/jobs/view/linkedin_not_ready_queue/apply",
         title: "Lead UX Strategist",

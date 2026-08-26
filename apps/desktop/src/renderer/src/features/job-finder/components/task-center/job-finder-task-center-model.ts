@@ -7,12 +7,18 @@ import type {
   ResumeImportRun,
 } from "@unemployed/contracts";
 import { countActiveSafeguardBlockers } from "../../lib/safeguards-blocker-count";
+import {
+  formatDiscoveryRunCountLabel,
+  getDiscoveryRunCountEvidence,
+} from "../../lib/discovery-run-count-label";
+import type { TailoredDraftPreparationViewState } from "../../screens/review-queue/review-queue-status";
 
 export type JobFinderTaskKind =
   | "discovery"
   | "resume_import"
   | "apply"
-  | "safeguards";
+  | "safeguards"
+  | "tailored_drafts";
 export type JobFinderTaskStatus =
   | "active"
   | "paused"
@@ -31,7 +37,7 @@ export interface JobFinderTaskCenterItem {
   countLabel: string;
   historyEstimateLabel: string | null;
   canCancel: boolean;
-  cancelKind: "discovery" | "apply" | null;
+  cancelKind: "discovery" | "apply" | "tailored_drafts" | null;
   resumeRoute: string | null;
   resumeActionLabel: string | null;
 }
@@ -47,6 +53,10 @@ export interface BuildJobFinderTaskCenterModelInput {
   isResumeImportPending: boolean;
   liveDiscoveryEvents?: readonly DiscoveryActivityEvent[] | undefined;
   resumeImportProgress?: ResumeImportProgressEvent | null | undefined;
+  tailoredDraftPreparation?:
+    | TailoredDraftPreparationViewState
+    | null
+    | undefined;
 }
 
 const discoveryStageLabels: Record<DiscoveryActivityEvent["stage"], string> = {
@@ -229,10 +239,7 @@ function buildDiscoveryTask(
       ? [liveEvent.targetId]
       : [];
   const targetIdCounts = countTargetIds(targetIds);
-  const jobsFound = Math.max(
-    run?.summary.validJobsFound ?? 0,
-    liveEvent?.jobsFound ?? 0,
-  );
+  const countEvidence = getDiscoveryRunCountEvidence(run, liveEvent);
   const targetsPlanned = run?.summary.targetsPlanned || targetIds.length;
   const targetsCompleted = run?.summary.targetsCompleted ?? 0;
   const status = discoveryStatus(
@@ -245,7 +252,11 @@ function buildDiscoveryTask(
       candidate.state === "completed" &&
       candidate.summary.durationMs > 0 &&
       (targetIds.length === 0 ||
-        sameTargetCounts(candidate.targetIds, targetIdCounts, targetIds.length)),
+        sameTargetCounts(
+          candidate.targetIds,
+          targetIdCounts,
+          targetIds.length,
+        )),
   );
   const canCancel = status === "active" && input.isDiscoveryPending;
   const canRunAgain = ["cancelled", "failed", "interrupted"].includes(status);
@@ -270,8 +281,8 @@ function buildDiscoveryTask(
     sourceLabel: targetSourceLabel(input.workspace, targetIds),
     countLabel:
       targetsPlanned > 0
-        ? `${targetsCompleted} of ${targetsPlanned} sources finished · ${jobsFound} jobs found`
-        : `${jobsFound} jobs found`,
+        ? `${targetsCompleted} of ${targetsPlanned} sources finished · ${formatDiscoveryRunCountLabel(countEvidence)}`
+        : formatDiscoveryRunCountLabel(countEvidence),
     historyEstimateLabel:
       status === "active"
         ? historyEstimate(
@@ -397,7 +408,7 @@ function applySourceLabel(
   jobId: string | null,
 ): string {
   if (!jobId) {
-    return "Application queue";
+    return "Applications";
   }
 
   const job = workspace.discoveryJobs.find(
@@ -412,7 +423,7 @@ function applySourceLabel(
   );
   return application
     ? `${application.company} · ${application.title}`
-    : "Application queue";
+    : "Applications";
 }
 
 function applyDuration(run: ApplyRunSummary): number | null {
@@ -452,38 +463,35 @@ function buildApplyTask(
   return {
     id: run.id,
     kind: "apply",
-    title:
-      run.mode === "queue_auto"
-        ? "Application queue"
-        : "Application preparation",
+    title: "Applications",
     status,
     stageLabel:
       run.state === "draft"
-        ? "Drafted"
+        ? "Ready to start"
         : run.state === "awaiting_submit_approval"
-          ? "Awaiting approval"
+          ? "Waiting for your approval"
           : run.state === "running"
-            ? "Preparing employer form"
+            ? "Opening application"
             : run.state === "paused_for_user_review"
-              ? "Paused for your review"
+              ? "Waiting for your review"
               : run.state === "paused_for_consent"
-                ? "Paused for consent"
+                ? "Waiting for your consent"
                 : run.state === "completed"
-                  ? "Preparation completed"
+                  ? "Ready for final review"
                   : run.state === "cancelled"
-                    ? "Run cancelled"
-                    : "Run failed",
+                    ? "Application stopped"
+                    : "Application needs attention",
     sourceLabel: applySourceLabel(
       input.workspace,
       run.currentJobId ?? run.jobIds[0] ?? null,
     ),
-    countLabel: `${finishedJobs} of ${run.totalJobs} jobs finished · ${run.blockedJobs} blocked · ${run.failedJobs} failed`,
+    countLabel: `${finishedJobs} of ${run.totalJobs} application tasks finished · ${run.blockedJobs} blocked · ${run.failedJobs} need attention`,
     historyEstimateLabel:
       status === "active"
         ? historyEstimate(
             historyDurations,
-            "similar completed run",
-            "similar completed runs",
+            "similar application task",
+            "similar application tasks",
             " (total time, including pauses)",
           )
         : null,
@@ -491,7 +499,7 @@ function buildApplyTask(
     cancelKind: canCancel ? "apply" : null,
     resumeRoute: needsReview || canRestage ? "/job-finder/applications" : null,
     resumeActionLabel: needsReview
-      ? "Review task"
+      ? "Continue application"
       : canRestage
         ? "Open Applications"
         : null,
@@ -502,17 +510,16 @@ function buildSafeguardTask(
   input: BuildJobFinderTaskCenterModelInput,
 ): JobFinderTaskCenterItem | null {
   const blockerCount = countActiveSafeguardBlockers(
-    input.workspace.intelligence?.safeguards ??
-      {
-        companyApplicationCaps: [],
-        simultaneousApplicationConflicts: [],
-        listingSignals: [],
-        abnormalFailurePauses: [],
-        preparedBatchSampleReviews: [],
-        contradictoryAnswerDetections: [],
-        safeguardDismissals: [],
-        updatedAt: null,
-      },
+    input.workspace.intelligence?.safeguards ?? {
+      companyApplicationCaps: [],
+      simultaneousApplicationConflicts: [],
+      listingSignals: [],
+      abnormalFailurePauses: [],
+      preparedBatchSampleReviews: [],
+      contradictoryAnswerDetections: [],
+      safeguardDismissals: [],
+      updatedAt: null,
+    },
   );
   if (blockerCount === 0) {
     return null;
@@ -523,15 +530,50 @@ function buildSafeguardTask(
     kind: "safeguards",
     title: "Safeguards need attention",
     status: "paused",
-    stageLabel: "Automatic quality pause",
+    stageLabel: "Waiting for safeguards",
     sourceLabel:
-      "Discovery and application preparation are paused until these are resolved.",
+      "Job search and applications are waiting until these are resolved.",
     countLabel: `${blockerCount} active blocker${blockerCount === 1 ? "" : "s"}`,
     historyEstimateLabel: null,
     canCancel: false,
     cancelKind: null,
     resumeRoute: "/job-finder/safeguards",
     resumeActionLabel: "Open Safeguards",
+  };
+}
+
+/**
+ * Tailored-draft batch progress is renderer-session state, not durable
+ * history: the task is visible only while a batch is actually running so the
+ * center never implies that an interrupted run survived a restart.
+ */
+function buildTailoredDraftsTask(
+  input: BuildJobFinderTaskCenterModelInput,
+): JobFinderTaskCenterItem | null {
+  const preparation = input.tailoredDraftPreparation;
+  if (!preparation || preparation.status !== "running") {
+    return null;
+  }
+
+  const completedCount = Math.max(0, preparation.completedCount);
+  const totalCount = Math.max(0, preparation.totalCount);
+  const failedCount = Math.max(0, preparation.failedCount);
+
+  return {
+    id: "tailored-drafts-current",
+    kind: "tailored_drafts",
+    title: "Tailored drafts",
+    status: "active",
+    stageLabel: "Preparing shortlisted resumes",
+    sourceLabel: "Shortlisted jobs",
+    countLabel: `${completedCount} of ${totalCount} prepared${
+      failedCount > 0 ? ` · ${failedCount} failed` : ""
+    }`,
+    historyEstimateLabel: null,
+    canCancel: true,
+    cancelKind: "tailored_drafts",
+    resumeRoute: "/job-finder/review-queue",
+    resumeActionLabel: "Open Shortlisted",
   };
 }
 
@@ -542,6 +584,7 @@ export function buildJobFinderTaskCenterModel(
     buildDiscoveryTask(input),
     buildResumeTask(input),
     buildApplyTask(input),
+    buildTailoredDraftsTask(input),
     buildSafeguardTask(input),
   ].filter((item): item is JobFinderTaskCenterItem => item !== null);
 

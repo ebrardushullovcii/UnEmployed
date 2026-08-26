@@ -15,6 +15,7 @@ import {
   CampaignScheduleStateSchema,
   CreateCampaignNotificationInputSchema,
   DeleteCampaignRuleInputSchema,
+  DeleteJobSearchCampaignInputSchema,
   MarkAllCampaignNotificationsReadInputSchema,
   MarkCampaignNotificationReadInputSchema,
   ProjectCampaignRuleFunnelInputSchema,
@@ -820,6 +821,22 @@ describe("campaign rule mutations and funnel projection", () => {
       ProjectCampaignRuleFunnelInputSchema.parse({ campaignId: "campaign_1" }),
     ).toEqual({ campaignId: "campaign_1" });
     expect(() => ProjectCampaignRuleFunnelInputSchema.parse({})).toThrow();
+  });
+
+  test("delete campaign input requires a non-empty campaign id", () => {
+    expect(
+      DeleteJobSearchCampaignInputSchema.parse({ campaignId: "campaign_1" }),
+    ).toEqual({ campaignId: "campaign_1" });
+    expect(() => DeleteJobSearchCampaignInputSchema.parse({})).toThrow();
+    expect(() =>
+      DeleteJobSearchCampaignInputSchema.parse({ campaignId: "" }),
+    ).toThrow();
+    expect(() =>
+      DeleteJobSearchCampaignInputSchema.parse({
+        campaignId: "campaign_1",
+        ruleId: "rule_unexpected",
+      }),
+    ).toThrow();
   });
 
   test("legacy/default funnel projection defaults every rule surface", () => {

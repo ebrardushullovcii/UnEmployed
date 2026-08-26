@@ -6,6 +6,10 @@ import type {
 } from "@unemployed/contracts";
 
 import type { MatchAssessmentPostingInput } from "./match-assessment-posting-input";
+import type {
+  LocationCompatibilityState,
+  WorkModeCompatibilityState,
+} from "./matching";
 import { normalizeText } from "./shared";
 
 export type BuildMatchDimensionsAssessmentInput = {
@@ -15,8 +19,8 @@ export type BuildMatchDimensionsAssessmentInput = {
   matchesRole: boolean;
   roleFamilyMismatch: boolean;
   roleFamilyUnclear: boolean;
-  matchesLocation: boolean;
-  matchesWorkMode: boolean;
+  locationCompatibility: LocationCompatibilityState;
+  workModeCompatibility: WorkModeCompatibilityState;
   isPreferredCompany: boolean;
 };
 
@@ -188,23 +192,42 @@ function buildPreferenceAlignment(
   }> = [];
 
   if (hasLocationPreference) {
+    const locationSignal =
+      input.locationCompatibility === "compatible"
+        ? true
+        : input.locationCompatibility === "incompatible"
+          ? false
+          : null;
     facets.push({
-      signal: input.matchesLocation,
+      signal: locationSignal,
       evidence: evidence(
         "preference",
         "Location comparison",
-        `${posting.location} compared with ${formatList(searchPreferences.locations)}: ${input.matchesLocation ? "aligned" : "outside the saved areas"}.`,
+        input.locationCompatibility === "compatible"
+          ? `${posting.location} compared with ${formatList(searchPreferences.locations)}: aligned.`
+          : input.locationCompatibility === "incompatible"
+            ? `${posting.location} compared with ${formatList(searchPreferences.locations)}: outside the saved areas.`
+            : `The listing does not specify enough geography to compare with ${formatList(searchPreferences.locations)}.`,
       ),
     });
   }
 
   if (hasWorkModePreference) {
     facets.push({
-      signal: input.matchesWorkMode,
+      signal:
+        input.workModeCompatibility === "compatible"
+          ? true
+          : input.workModeCompatibility === "conflict"
+            ? false
+            : null,
       evidence: evidence(
         "preference",
         "Work-mode comparison",
-        `${formatList(posting.workMode)} compared with ${formatList(searchPreferences.workModes)}: ${input.matchesWorkMode ? "aligned" : "not aligned"}.`,
+        input.workModeCompatibility === "compatible"
+          ? `${formatList(posting.workMode)} compared with ${formatList(searchPreferences.workModes)}: aligned.`
+          : input.workModeCompatibility === "conflict"
+            ? `${formatList(posting.workMode)} compared with ${formatList(searchPreferences.workModes)}: not aligned.`
+            : `The listing does not state a concrete work mode comparable with ${formatList(searchPreferences.workModes)}.`,
       ),
     });
   }

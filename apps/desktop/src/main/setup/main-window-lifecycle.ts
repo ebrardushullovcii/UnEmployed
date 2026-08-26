@@ -64,6 +64,10 @@ export function bindMainWindowLifecycle(
   window: BrowserWindow,
   options: MainWindowLifecycleOptions,
 ): MainWindowLifecycleBinding {
+  // BrowserWindow.webContents throws once Electron has destroyed the native
+  // window. Keep the stable reference captured while the window is alive so
+  // shutdown cleanup never re-enters that destroyed BrowserWindow getter.
+  const webContents = window.webContents;
   const startupLoadTimeoutMs = normalizePositiveInteger(
     options.startupLoadTimeoutMs,
     DEFAULT_MAIN_WINDOW_STARTUP_LOAD_TIMEOUT_MS,
@@ -249,21 +253,21 @@ export function bindMainWindowLifecycle(
 
     disposed = true;
     clearStartupLoadTimeout();
-    window.webContents.removeListener("did-finish-load", onDidFinishLoad);
-    window.webContents.removeListener("did-fail-load", onDidFailLoad);
-    window.webContents.removeListener(
-      "render-process-gone",
-      onRenderProcessGone,
-    );
-    window.webContents.removeListener("unresponsive", onUnresponsive);
-    window.webContents.removeListener("responsive", onResponsive);
+    if (webContents.isDestroyed()) {
+      return;
+    }
+    webContents.removeListener("did-finish-load", onDidFinishLoad);
+    webContents.removeListener("did-fail-load", onDidFailLoad);
+    webContents.removeListener("render-process-gone", onRenderProcessGone);
+    webContents.removeListener("unresponsive", onUnresponsive);
+    webContents.removeListener("responsive", onResponsive);
   };
 
-  window.webContents.on("did-finish-load", onDidFinishLoad);
-  window.webContents.on("did-fail-load", onDidFailLoad);
-  window.webContents.on("render-process-gone", onRenderProcessGone);
-  window.webContents.on("unresponsive", onUnresponsive);
-  window.webContents.on("responsive", onResponsive);
+  webContents.on("did-finish-load", onDidFinishLoad);
+  webContents.on("did-fail-load", onDidFailLoad);
+  webContents.on("render-process-gone", onRenderProcessGone);
+  webContents.on("unresponsive", onUnresponsive);
+  webContents.on("responsive", onResponsive);
   beginStartupLoadTimeout();
 
   return {

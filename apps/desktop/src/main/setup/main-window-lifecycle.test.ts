@@ -10,6 +10,7 @@ type EventListener = (...args: unknown[]) => void;
 function createWindowHarness() {
   const listeners = new Map<string, EventListener>();
   const webContents = {
+    isDestroyed: vi.fn(() => false),
     on: vi.fn((eventName: string, listener: EventListener) => {
       listeners.set(eventName, listener);
     }),
@@ -172,6 +173,20 @@ describe("main window lifecycle recovery", () => {
 
     binding.dispose();
     expect(harness.listeners.size).toBe(0);
+  });
+
+  test("disposes safely after Electron has already destroyed web contents", () => {
+    const harness = createWindowHarness();
+    const binding = bindMainWindowLifecycle(harness.window, {
+      showRecoveryDialog: vi.fn().mockResolvedValue("quit" as const),
+      recover: vi.fn(),
+      requestQuit: vi.fn(),
+    });
+
+    harness.webContents.isDestroyed.mockReturnValue(true);
+
+    expect(() => binding.dispose()).not.toThrow();
+    expect(harness.webContents.removeListener).not.toHaveBeenCalled();
   });
 
   test("ignores aborted navigations and clean renderer exits", async () => {

@@ -1,11 +1,10 @@
 /**
  * Pure, immutable company intelligence operations.
  *
- * Reconciliation is deliberately conservative: identity is only ever linked
- * through an exact normalized employer domain when one is present, otherwise
- * through an exact normalized company name. Ambiguous or near matches never
- * merge silently; they surface as explicit `pending` merge-review candidates
- * that require an explicit user decision.
+ * Reconciliation is deliberately conservative: job ownership requires one
+ * exact normalized canonical name or user-approved alias. Domains are research
+ * evidence only. Ambiguous or near matches never merge silently; they surface
+ * as explicit `pending` merge-review candidates that require a user decision.
  *
  * Every mutating operation returns freshly schema-parsed values and never
  * mutates its inputs. Ids for newly created companies and all timestamps are
@@ -28,7 +27,9 @@ import {
   CompanySourceHistoryRefSchema,
   type CompanySourceHistoryRef,
   IsoDateTimeSchema,
+  isGenericCompanyName,
   NonEmptyStringSchema,
+  normalizeCompanyName,
   ReviewCompanyMergeInputSchema,
   type ReviewCompanyMergeInput,
   SavedJobSchema,
@@ -38,16 +39,11 @@ import {
 } from "@unemployed/contracts";
 
 import { buildJobIdentityAliases, type JobIdentityInput } from "./job-identity";
-import { normalizeText } from "./shared";
-
 // ---------------------------------------------------------------------------
 // Normalization
 // ---------------------------------------------------------------------------
 
-/** Lowercases and collapses company names to a comparable token form. */
-export function normalizeCompanyName(value: string): string {
-  return normalizeText(value);
-}
+export { normalizeCompanyName } from "@unemployed/contracts";
 
 /**
  * Normalizes an employer domain for exact comparison: lowercase, trimmed, a
@@ -66,6 +62,10 @@ function tokenSet(value: string): string[] {
   return value.split(/\s+/u).filter(Boolean);
 }
 
+function isSpecificCompanyName(normalizedName: string): boolean {
+  return normalizedName !== "" && !isGenericCompanyName(normalizedName);
+}
+
 // ---------------------------------------------------------------------------
 // Shared plumbing
 // ---------------------------------------------------------------------------
@@ -80,6 +80,22 @@ interface ZodErrorLike {
 
 function firstIssueMessage(error: ZodErrorLike): string {
   return error.issues[0]?.message ?? "Invalid value.";
+}
+
+export function nextCompanyIntelligenceUpdatedAt(
+  now: string,
+  ...currentUpdatedAts: readonly (string | null)[]
+): string {
+  return new Date(
+    Math.max(
+      Date.parse(now),
+      ...currentUpdatedAts.map((updatedAt) =>
+        updatedAt === null
+          ? Number.NEGATIVE_INFINITY
+          : Date.parse(updatedAt) + 1,
+      ),
+    ),
+  ).toISOString();
 }
 
 function addToIndex(
@@ -191,7 +207,9 @@ function buildIndexes(companies: readonly CompanyEntity[]): CompanyIndexes {
       company.id,
     );
     for (const alias of company.aliases) {
-      addToIndex(nameIndex, alias.normalized, company.id);
+      if (alias.identityAuthority === "user_approved_merge") {
+        addToIndex(nameIndex, alias.normalized, company.id);
+      }
     }
   }
 
@@ -206,37 +224,54 @@ function resolveEvidence(
     evidence.kind === "job" ? evidence.job.company : evidence.record.company;
   const domain = evidence.kind === "job" ? evidence.job.employerDomain : null;
 
-  if (domain !== null && domain.trim() !== "") {
-    const normalizedDomain = normalizeEmployerDomain(domain);
-    const domainMatches = indexes.domainIndex.get(normalizedDomain) ?? [];
-    if (domainMatches.length === 1) {
-      return { status: "matched", companyId: domainMatches[0]! };
-    }
-    if (domainMatches.length > 1) {
-      return {
-        status: "ambiguous",
-        companyIds: [...domainMatches],
-        reason: `Multiple companies share the employer domain "${normalizedDomain}".`,
-      };
-    }
-  }
-
   const normalizedName = normalizeCompanyName(name);
-  if (!normalizedName) return { status: "none" };
+  const normalizedDomain =
+    domain !== null && domain.trim() !== ""
+      ? normalizeEmployerDomain(domain)
+      : null;
+  const nameMatches = normalizedName
+    ? (indexes.nameIndex.get(normalizedName) ?? [])
+    : [];
+  const domainMatches = normalizedDomain
+    ? (indexes.domainIndex.get(normalizedDomain) ?? [])
+    : [];
+  if (!isSpecificCompanyName(normalizedName)) return { status: "none" };
 
-  const nameMatches = indexes.nameIndex.get(normalizedName) ?? [];
-  if (nameMatches.length === 1) {
-    return { status: "matched", companyId: nameMatches[0]! };
-  }
   if (nameMatches.length > 1) {
     return {
       status: "ambiguous",
       companyIds: [...nameMatches],
-      reason: `Multiple companies share the company name "${normalizedName}".`,
+      reason: `Multiple companies claim the company name "${normalizedName}".`,
     };
   }
 
+  if (
+    nameMatches.length === 1 &&
+    domainMatches.length === 1 &&
+    nameMatches[0] !== domainMatches[0]
+  ) {
+    return {
+      status: "ambiguous",
+      companyIds: [nameMatches[0]!, domainMatches[0]!],
+      reason: `Company name "${normalizedName}" and employer domain "${normalizedDomain}" resolve to different companies.`,
+    };
+  }
+
+  if (nameMatches.length === 1) {
+    return { status: "matched", companyId: nameMatches[0]! };
+  }
   return { status: "none" };
+}
+
+function resolveCurrentJobOwner(
+  companies: readonly CompanyEntity[],
+  job: SavedJob,
+): string | null {
+  const resolution = resolveEvidence(buildIndexes(companies), {
+    kind: "job",
+    job,
+  });
+  return resolution.status === "matched" ? resolution.companyId : null;
 }
 
 function mergeSourceHistory(
@@ -400,17 +435,21 @@ function attachEvidence(input: {
       alias: rawName,
       normalized: normalizedName,
       confidence: 1,
+      identityAuthority: "unknown",
     });
-    addToIndex(indexes.nameIndex, normalizedName, companyId);
     changed = true;
 
-    const nameMatches = indexes.nameIndex.get(normalizedName) ?? [];
-    if (nameMatches.length > 1) {
+    const authoritativeNameMatches =
+      indexes.nameIndex.get(normalizedName) ?? [];
+    const conflictingNameMatches = authoritativeNameMatches.filter(
+      (id) => id !== companyId,
+    );
+    if (conflictingNameMatches.length > 0) {
       flagAmbiguousPair(
         working,
         indexes,
-        nameMatches,
-        `Multiple companies share the company name "${normalizedName}".`,
+        [companyId, ...conflictingNameMatches],
+        `Observed company name "${normalizedName}" conflicts with another company's authoritative name.`,
         now,
         created,
       );
@@ -427,6 +466,8 @@ function attachEvidence(input: {
 
   if (!changed) return;
 
+  const updatedAt = nextCompanyIntelligenceUpdatedAt(now, company.updatedAt);
+
   working[index] = CompanyEntitySchema.parse({
     ...company,
     jobIds: [...jobIds],
@@ -434,7 +475,7 @@ function attachEvidence(input: {
     domains,
     aliases,
     sourceHistory: [...sourceHistoryResult.refs],
-    updatedAt: now,
+    updatedAt,
   });
 }
 
@@ -548,6 +589,8 @@ function ensureMergeCandidates(
     );
   if (alreadyRecorded) return null;
 
+  const updatedAt = nextCompanyIntelligenceUpdatedAt(now, primary.updatedAt);
+
   const candidate = CompanyMergeReviewCandidateSchema.parse({
     candidateCompanyId: secondary.id,
     reason,
@@ -559,7 +602,7 @@ function ensureMergeCandidates(
   working[primaryIndex] = CompanyEntitySchema.parse({
     ...primary,
     mergeReviewCandidates: [...primary.mergeReviewCandidates, candidate],
-    updatedAt: now,
+    updatedAt,
   });
 
   return { companyId: primary.id, candidateCompanyId: secondary.id, reason };
@@ -754,9 +797,10 @@ function applyNearConflictCandidates(
 /**
  * Reconciles companies from jobs and application records.
  *
- * Matching is conservative: an exact normalized employer domain wins when one
- * is present, otherwise an exact normalized company name. Ambiguous matches
- * are never attached and instead produce pending merge-review candidates.
+ * Matching is conservative: exactly one canonical name or user-approved alias
+ * must match. A unique conflicting domain fails closed; shared or ambiguous
+ * domains are research evidence and do not veto that name owner. Ambiguous
+ * matches are never attached and instead produce pending merge candidates.
  * Near-name and near-domain conflicts also produce explicit pending
  * candidates. Existing companies are preserved; new companies receive
  * caller-provided ids and the caller-provided `now` timestamp.
@@ -849,10 +893,17 @@ export function reconcileCompanies(input: {
     createdMergeCandidates: [],
   };
 
-  const processEvidence = (evidence: Evidence): void => {
+  const processEvidence = (
+    evidence: Evidence,
+    requiredCompanyId?: string,
+  ): string | null => {
     const resolution = resolveEvidence(indexes, evidence);
 
-    if (resolution.status === "matched") {
+    if (
+      resolution.status === "matched" &&
+      (requiredCompanyId === undefined ||
+        resolution.companyId === requiredCompanyId)
+    ) {
       attachEvidence({
         working,
         indexes,
@@ -865,10 +916,10 @@ export function reconcileCompanies(input: {
       if (!summary.matchedCompanyIds.includes(resolution.companyId)) {
         summary.matchedCompanyIds.push(resolution.companyId);
       }
-      return;
+      return resolution.companyId;
     }
 
-    if (resolution.status === "ambiguous") {
+    if (resolution.status === "ambiguous" && requiredCompanyId === undefined) {
       summary.ambiguousEvidenceCount += 1;
       flagAmbiguousPair(
         working,
@@ -878,15 +929,31 @@ export function reconcileCompanies(input: {
         now,
         summary.createdMergeCandidates,
       );
-      return;
+      return null;
+    }
+
+    if (requiredCompanyId !== undefined) {
+      attachEvidence({
+        working,
+        indexes,
+        companyId: requiredCompanyId,
+        evidence,
+        now,
+        jobSourceById,
+        created: summary.createdMergeCandidates,
+      });
+      if (!summary.matchedCompanyIds.includes(requiredCompanyId)) {
+        summary.matchedCompanyIds.push(requiredCompanyId);
+      }
+      return requiredCompanyId;
     }
 
     const rawName =
       evidence.kind === "job" ? evidence.job.company : evidence.record.company;
     const normalizedName = normalizeCompanyName(rawName);
-    if (!normalizedName) {
+    if (!isSpecificCompanyName(normalizedName)) {
       summary.unresolvableEvidenceCount += 1;
-      return;
+      return null;
     }
 
     const rawDomain =
@@ -922,11 +989,23 @@ export function reconcileCompanies(input: {
     indexes.byId.set(newId, working.length);
     working.push(company);
     for (const domain of company.domains) {
+      const existingDomainMatches =
+        indexes.domainIndex.get(normalizeEmployerDomain(domain.domain)) ?? [];
       addToIndex(
         indexes.domainIndex,
         normalizeEmployerDomain(domain.domain),
         newId,
       );
+      if (existingDomainMatches.length > 0) {
+        flagAmbiguousPair(
+          working,
+          indexes,
+          [...existingDomainMatches, newId],
+          `Multiple companies share the employer domain "${normalizeEmployerDomain(domain.domain)}".`,
+          now,
+          summary.createdMergeCandidates,
+        );
+      }
     }
     addToIndex(
       indexes.nameIndex,
@@ -934,14 +1013,52 @@ export function reconcileCompanies(input: {
       newId,
     );
     summary.createdCompanyIds.push(newId);
+    return newId;
   };
 
   try {
+    const currentJobOwnerById = new Map<string, string | null>();
     for (const job of jobsResult.data) {
-      processEvidence({ kind: "job", job });
+      currentJobOwnerById.set(job.id, processEvidence({ kind: "job", job }));
     }
+    const currentApplicationOwnerById = new Map<string, string | null>();
     for (const record of recordsResult.data) {
-      processEvidence({ kind: "application", record });
+      const relatedJobOwner = currentJobOwnerById.get(record.jobId);
+      if (relatedJobOwner === undefined) {
+        summary.unresolvableEvidenceCount += 1;
+        continue;
+      }
+      const owner =
+        relatedJobOwner === null
+          ? null
+          : processEvidence({ kind: "application", record }, relatedJobOwner);
+      currentApplicationOwnerById.set(record.id, owner);
+    }
+
+    for (let index = 0; index < working.length; index += 1) {
+      const company = working[index]!;
+      const jobIds = company.jobIds.filter((jobId) => {
+        const owner = currentJobOwnerById.get(jobId);
+        return owner === undefined || owner === company.id;
+      });
+      const applicationRecordIds = company.applicationRecordIds.filter(
+        (recordId) => {
+          const owner = currentApplicationOwnerById.get(recordId);
+          return owner === undefined || owner === company.id;
+        },
+      );
+      if (
+        jobIds.length === company.jobIds.length &&
+        applicationRecordIds.length === company.applicationRecordIds.length
+      ) {
+        continue;
+      }
+      working[index] = CompanyEntitySchema.parse({
+        ...company,
+        jobIds,
+        applicationRecordIds,
+        updatedAt: nextCompanyIntelligenceUpdatedAt(now, company.updatedAt),
+      });
     }
   } catch (error) {
     return {
@@ -1043,7 +1160,10 @@ export function setCompanyPreference(input: {
     ...companiesResult.data[index]!,
     preference: command.preference,
     preferenceReason: null,
-    updatedAt: now,
+    updatedAt: nextCompanyIntelligenceUpdatedAt(
+      now,
+      companiesResult.data[index]!.updatedAt,
+    ),
   });
 
   const companies = companiesResult.data.map((company, companyIndex) =>
@@ -1142,24 +1262,47 @@ function mergeCompanies(
   target: CompanyEntity,
   now: string,
 ): CompanyEntity {
-  const aliasKeys = new Set<string>([
-    normalizeCompanyName(primary.canonicalName),
-    ...primary.aliases.map((alias) => alias.normalized),
-  ]);
+  const updatedAt = nextCompanyIntelligenceUpdatedAt(
+    now,
+    primary.updatedAt,
+    target.updatedAt,
+  );
+  const primaryCanonicalNormalized = normalizeCompanyName(
+    primary.canonicalName,
+  );
   const aliases = primary.aliases.map((alias) => ({ ...alias }));
+  const aliasIndexByKey = new Map(
+    aliases.map((alias, index) => [alias.normalized, index] as const),
+  );
+  const addOrUpgradeAlias = (alias: CompanyEntity["aliases"][number]): void => {
+    if (alias.normalized === primaryCanonicalNormalized) return;
+    const existingIndex = aliasIndexByKey.get(alias.normalized);
+    if (existingIndex === undefined) {
+      aliasIndexByKey.set(alias.normalized, aliases.length);
+      aliases.push({ ...alias });
+      return;
+    }
+    if (
+      alias.identityAuthority === "user_approved_merge" &&
+      aliases[existingIndex]?.identityAuthority === "unknown"
+    ) {
+      aliases[existingIndex] = {
+        ...aliases[existingIndex],
+        identityAuthority: "user_approved_merge",
+      };
+    }
+  };
   const targetCanonicalNormalized = normalizeCompanyName(target.canonicalName);
-  if (targetCanonicalNormalized && !aliasKeys.has(targetCanonicalNormalized)) {
-    aliases.push({
+  if (targetCanonicalNormalized) {
+    addOrUpgradeAlias({
       alias: target.canonicalName,
       normalized: targetCanonicalNormalized,
       confidence: 1,
+      identityAuthority: "user_approved_merge",
     });
-    aliasKeys.add(targetCanonicalNormalized);
   }
   for (const alias of target.aliases) {
-    if (aliasKeys.has(alias.normalized)) continue;
-    aliasKeys.add(alias.normalized);
-    aliases.push({ ...alias });
+    addOrUpgradeAlias(alias);
   }
 
   const domainKeys = new Set<string>();
@@ -1209,7 +1352,7 @@ function mergeCompanies(
       Date.parse(primary.createdAt) <= Date.parse(target.createdAt)
         ? primary.createdAt
         : target.createdAt,
-    updatedAt: now,
+    updatedAt,
   });
 }
 
@@ -1311,6 +1454,7 @@ export function reviewCompanyMerge(input: {
   }
 
   if (command.decision === "rejected") {
+    const updatedAt = nextCompanyIntelligenceUpdatedAt(now, primary.updatedAt);
     const nextPrimary = CompanyEntitySchema.parse({
       ...primary,
       mergeReviewCandidates: primary.mergeReviewCandidates.map((entry) =>
@@ -1318,11 +1462,11 @@ export function reviewCompanyMerge(input: {
           ? CompanyMergeReviewCandidateSchema.parse({
               ...entry,
               decision: "rejected",
-              decidedAt: now,
+              decidedAt: updatedAt,
             })
           : entry,
       ),
-      updatedAt: now,
+      updatedAt,
     });
 
     const companies = companiesResult.data.map((company, companyIndex) =>
@@ -1357,6 +1501,10 @@ export function reviewCompanyMerge(input: {
           (entry) => entry.candidateCompanyId === command.candidateId,
         )
       ) {
+        const updatedAt = nextCompanyIntelligenceUpdatedAt(
+          now,
+          company.updatedAt,
+        );
         return CompanyEntitySchema.parse({
           ...company,
           mergeReviewCandidates: dedupeCandidates(
@@ -1369,7 +1517,7 @@ export function reviewCompanyMerge(input: {
                 : entry,
             ),
           ),
-          updatedAt: now,
+          updatedAt,
         });
       }
       return company;
@@ -1524,6 +1672,10 @@ export type CompanyIntelligenceMutationFailure =
   | { code: "company_changed"; message: string }
   | { code: "contact_not_found"; message: string }
   | { code: "note_not_found"; message: string }
+  | { code: "job_not_found"; message: string }
+  | { code: "job_company_mismatch"; message: string }
+  | { code: "application_record_not_found"; message: string }
+  | { code: "application_record_mismatch"; message: string }
   | { code: "evidence_not_found"; message: string };
 
 export type CompanyIntelligenceMutationResult =
@@ -1549,6 +1701,8 @@ function replaceCompany(
  */
 export function applyCompanyIntelligenceMutation(input: {
   companies: readonly CompanyEntity[];
+  jobs?: readonly SavedJob[];
+  applicationRecords?: readonly ApplicationRecord[];
   input: CompanyIntelligenceMutationInput;
   now: string;
 }): CompanyIntelligenceMutationResult {
@@ -1616,6 +1770,8 @@ export function applyCompanyIntelligenceMutation(input: {
     };
   }
 
+  const updatedAt = nextCompanyIntelligenceUpdatedAt(now, company.updatedAt);
+
   let next: CompanyEntity | null = null;
 
   if (command.mutation.type === "upsert_contact") {
@@ -1624,14 +1780,14 @@ export function applyCompanyIntelligenceMutation(input: {
     const contacts = existing
       ? company.contacts.map((entry) =>
           entry.id === contact.id
-            ? { ...contact, createdAt: entry.createdAt, updatedAt: now }
+            ? { ...contact, createdAt: entry.createdAt, updatedAt }
             : entry,
         )
-      : [...company.contacts, { ...contact, updatedAt: now }];
+      : [...company.contacts, { ...contact, updatedAt }];
     next = CompanyEntitySchema.parse({
       ...company,
       contacts,
-      updatedAt: now,
+      updatedAt,
     });
   } else if (command.mutation.type === "remove_contact") {
     const removeContact = command.mutation;
@@ -1651,13 +1807,13 @@ export function applyCompanyIntelligenceMutation(input: {
       contacts: company.contacts.filter(
         (entry) => entry.id !== removeContact.contactId,
       ),
-      updatedAt: now,
+      updatedAt,
     });
   } else if (command.mutation.type === "add_note") {
     next = CompanyEntitySchema.parse({
       ...company,
       notes: [...company.notes, command.mutation.note],
-      updatedAt: now,
+      updatedAt,
     });
   } else if (command.mutation.type === "remove_note") {
     const removeNote = command.mutation;
@@ -1673,24 +1829,80 @@ export function applyCompanyIntelligenceMutation(input: {
     next = CompanyEntitySchema.parse({
       ...company,
       notes: company.notes.filter((entry) => entry.id !== removeNote.noteId),
-      updatedAt: now,
+      updatedAt,
     });
   } else if (command.mutation.type === "upsert_salary_offer_evidence") {
     const evidence = command.mutation.evidence;
+    const job =
+      evidence.jobId === null
+        ? null
+        : (input.jobs ?? []).find((entry) => entry.id === evidence.jobId);
+    if (evidence.jobId !== null && !job) {
+      return {
+        ok: false,
+        failure: {
+          code: "job_not_found",
+          message: `Job "${evidence.jobId}" does not exist.`,
+        },
+      };
+    }
+    if (
+      job &&
+      (!company.jobIds.includes(job.id) ||
+        resolveCurrentJobOwner(companiesResult.data, job) !== company.id)
+    ) {
+      return {
+        ok: false,
+        failure: {
+          code: "job_company_mismatch",
+          message: `Job "${job.id}" does not belong to company "${company.id}".`,
+        },
+      };
+    }
+    const applicationRecord =
+      evidence.applicationRecordId === null
+        ? null
+        : (input.applicationRecords ?? []).find(
+            (entry) => entry.id === evidence.applicationRecordId,
+          );
+    if (evidence.applicationRecordId !== null && !applicationRecord) {
+      return {
+        ok: false,
+        failure: {
+          code: "application_record_not_found",
+          message: `Application record "${evidence.applicationRecordId}" does not exist.`,
+        },
+      };
+    }
+    if (
+      applicationRecord &&
+      (applicationRecord.jobId !== evidence.jobId ||
+        !job ||
+        !company.applicationRecordIds.includes(applicationRecord.id) ||
+        resolveCurrentJobOwner(companiesResult.data, job) !== company.id)
+    ) {
+      return {
+        ok: false,
+        failure: {
+          code: "application_record_mismatch",
+          message: `Application record "${applicationRecord.id}" does not belong to the selected job and company.`,
+        },
+      };
+    }
     const existing = company.salaryOfferEvidence.find(
       (entry) => entry.id === evidence.id,
     );
     const salaryOfferEvidence = existing
       ? company.salaryOfferEvidence.map((entry) =>
           entry.id === evidence.id
-            ? { ...evidence, createdAt: entry.createdAt, updatedAt: now }
+            ? { ...evidence, createdAt: entry.createdAt, updatedAt }
             : entry,
         )
-      : [...company.salaryOfferEvidence, { ...evidence, updatedAt: now }];
+      : [...company.salaryOfferEvidence, { ...evidence, updatedAt }];
     next = CompanyEntitySchema.parse({
       ...company,
       salaryOfferEvidence,
-      updatedAt: now,
+      updatedAt,
     });
   } else if (command.mutation.type === "remove_salary_offer_evidence") {
     const removeEvidence = command.mutation;
@@ -1712,7 +1924,7 @@ export function applyCompanyIntelligenceMutation(input: {
       salaryOfferEvidence: company.salaryOfferEvidence.filter(
         (entry) => entry.id !== removeEvidence.evidenceId,
       ),
-      updatedAt: now,
+      updatedAt,
     });
   } else {
     const unreachable: never = command.mutation;

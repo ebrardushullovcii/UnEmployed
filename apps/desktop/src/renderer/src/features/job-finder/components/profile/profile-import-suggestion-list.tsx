@@ -128,7 +128,7 @@ export function ProfileImportSuggestionList(props: {
 
         return (
           <article
-            className="grid gap-2 rounded-(--radius-field) border border-(--field-border) bg-(--field) p-3.5"
+            className="grid gap-2 rounded-(--radius-field) border border-(--surface-well-border) bg-(--surface-well) p-3.5"
             key={candidate.id}
           >
             <div className="flex flex-wrap items-start justify-between gap-2">

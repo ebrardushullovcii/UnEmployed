@@ -8,10 +8,20 @@ import {
   CampaignRuleSchema,
   CampaignRunFactsSchema,
 } from "./campaign-operations";
-import { JobSearchPreferencesSchema } from "./discovery";
+import {
+  DISCOVERY_RUN_JOB_BUDGET_MAX,
+  JobSearchPreferencesSchema,
+} from "./discovery";
 
 export const JobSearchCampaignModeSchema = z.enum(["precision", "scale"]);
 export type JobSearchCampaignMode = z.infer<typeof JobSearchCampaignModeSchema>;
+
+/**
+ * Default explicit discovery run budget for scale campaigns. Scale campaigns
+ * request high-volume runs; precision campaigns keep `null` so interactive
+ * runs preserve the default precision budget.
+ */
+export const DEFAULT_SCALE_CAMPAIGN_DISCOVERY_RUN_JOB_BUDGET = 1_000;
 
 export const JobSearchCampaignStatusSchema = z.enum([
   "active",
@@ -26,8 +36,22 @@ export type JobSearchCampaignStatus = z.infer<
 export const JobSearchCampaignLimitsSchema = z.object({
   retainedJobTarget: z.number().int().min(1).max(10_000),
   analysisConcurrency: z.number().int().min(1).max(20),
+  /** @deprecated Parsed and round-tripped for persisted campaigns; runtime uses a fixed global safeguard. */
   preparationBatchSize: z.number().int().min(1).max(500),
+  /** @deprecated Parsed and round-tripped for persisted campaigns; runtime uses a fixed global safeguard. */
   dailyPreparationLimit: z.number().int().min(1).max(5_000).nullable(),
+  /**
+   * Explicit per-run discovery budget for campaign runs. `null` keeps the
+   * interactive precision default; scale campaigns default to
+   * `DEFAULT_SCALE_CAMPAIGN_DISCOVERY_RUN_JOB_BUDGET`. Hard-capped by
+   * `DISCOVERY_RUN_JOB_BUDGET_MAX`.
+   */
+  discoveryRunJobBudget: z
+    .number()
+    .int()
+    .min(1)
+    .max(DISCOVERY_RUN_JOB_BUDGET_MAX)
+    .nullish(),
 });
 export type JobSearchCampaignLimits = z.infer<
   typeof JobSearchCampaignLimitsSchema
@@ -47,6 +71,7 @@ export type JobSearchCampaignStopRules = z.infer<
 export const JobSearchCampaignApplicationPolicySchema = z.object({
   resumeStrategy: z.enum(["job_specific", "job_family_variants"]),
   defaultResumeStrategyId: NonEmptyStringSchema.nullable().optional(),
+  /** @deprecated Parsed and round-tripped for persisted campaigns; preparation review remains product-required. */
   requireReviewBeforePreparation: z.boolean(),
   requireReviewBeforeExternalWrite: z.literal(true).default(true),
   finalSubmitAuthorized: z.literal(false).default(false),
@@ -217,6 +242,32 @@ export const JobFinderDashboardSourceHealthSchema = z.object({
   total: z.number().int().nonnegative(),
 });
 
+export const GlobalDailyApplicationPreparationCapacitySchema = z
+  .object({
+    limit: z.number().int().positive(),
+    used: z.number().int().nonnegative(),
+    legacyUncertain: z.number().int().nonnegative().default(0),
+    remaining: z.number().int().nonnegative(),
+    localDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    resetsAt: IsoDateTimeSchema,
+  })
+  .superRefine((capacity, context) => {
+    if (
+      capacity.remaining !==
+      Math.max(0, capacity.limit - capacity.used - capacity.legacyUncertain)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["remaining"],
+        message:
+          "Remaining capacity must equal max(0, limit - used - legacyUncertain).",
+      });
+    }
+  });
+export type GlobalDailyApplicationPreparationCapacity = z.infer<
+  typeof GlobalDailyApplicationPreparationCapacitySchema
+>;
+
 export const JobFinderDashboardSummarySchema = z.object({
   generatedAt: IsoDateTimeSchema,
   activeCampaignId: NonEmptyStringSchema,
@@ -233,6 +284,8 @@ export const JobFinderDashboardSummarySchema = z.object({
   interviewRate: JobFinderDashboardRateSchema.nullable(),
   sourceHealth: JobFinderDashboardSourceHealthSchema,
   backgroundOperationCount: z.number().int().nonnegative(),
+  globalDailyApplicationPreparationCapacity:
+    GlobalDailyApplicationPreparationCapacitySchema.nullable().default(null),
   recommendedNextAction: z.object({
     label: NonEmptyStringSchema,
     detail: NonEmptyStringSchema,
@@ -251,6 +304,7 @@ export function getDefaultCampaignConfiguration(mode: JobSearchCampaignMode) {
           analysisConcurrency: 2,
           preparationBatchSize: 5,
           dailyPreparationLimit: 20,
+          discoveryRunJobBudget: null,
         },
         stopRules: {
           pauseOnLoginRequired: false,
@@ -274,6 +328,8 @@ export function getDefaultCampaignConfiguration(mode: JobSearchCampaignMode) {
           analysisConcurrency: 6,
           preparationBatchSize: 25,
           dailyPreparationLimit: 100,
+          discoveryRunJobBudget:
+            DEFAULT_SCALE_CAMPAIGN_DISCOVERY_RUN_JOB_BUDGET,
         },
         stopRules: {
           pauseOnLoginRequired: false,

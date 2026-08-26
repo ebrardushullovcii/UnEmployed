@@ -104,8 +104,15 @@ describe("CampaignNotificationCenter", () => {
       pendingMarkAll: true,
     });
     expect(
-      screen.getByRole("button", { name: "Mark all read" }),
-    ).toHaveProperty("disabled", true);
+      screen.getByRole("button", { name: "Mark all read" }).getAttribute(
+        "aria-disabled",
+      ),
+    ).toBe("true");
+    expect(
+      screen.getByRole("button", { name: "Mark all read" }).getAttribute(
+        "aria-busy",
+      ),
+    ).toBe("true");
   });
 
   it("sorts notifications newest first and marks read items as read", () => {

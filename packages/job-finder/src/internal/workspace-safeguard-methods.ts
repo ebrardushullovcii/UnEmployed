@@ -7,6 +7,7 @@ import {
   type JobFinderWorkspaceSnapshot,
   type SafeguardMutationInput,
   type SafeguardsOverview,
+  type SavedJob,
 } from "@unemployed/contracts";
 
 import {
@@ -289,10 +290,13 @@ export function createWorkspaceSafeguardMethods(input: {
    */
   async function evaluateApplicationPreparationBlockers(
     jobIds: readonly string[],
+    scopedSavedJobs?: readonly SavedJob[],
   ): Promise<SafeguardBlocker[]> {
     const [state, savedJobs, applicationRecords] = await Promise.all([
       ctx.repository.getIntelligenceState(),
-      ctx.repository.listSavedJobs(),
+      scopedSavedJobs
+        ? Promise.resolve(scopedSavedJobs)
+        : ctx.repository.listSavedJobs(),
       ctx.repository.listApplicationRecords(),
     ]);
 

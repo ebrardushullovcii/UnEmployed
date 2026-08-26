@@ -151,7 +151,9 @@ describe("ApplicationsApplicationDocuments", () => {
       }),
     );
     expect(document.body.textContent).toContain("Approved profile evidence.");
-    expect(document.body.textContent).toContain("Exact job: Platform Engineer at Acme");
+    expect(document.body.textContent).toContain(
+      "Exact job: Platform Engineer at Acme",
+    );
 
     const textarea = document.querySelector("textarea") as HTMLTextAreaElement;
     await act(async () => {
@@ -193,5 +195,64 @@ describe("ApplicationsApplicationDocuments", () => {
       documentId: "document_1",
       expectedRevision: 2,
     });
+  });
+
+  it("renders every native field with canonical tokens, focus hierarchy, and preserved geometry", async () => {
+    const listApplicationDocuments = vi.fn(() =>
+      Promise.resolve({ documents: [proposed] }),
+    );
+    Object.defineProperty(window, "unemployed", {
+      configurable: true,
+      value: {
+        jobFinder: {
+          listApplicationDocuments,
+          proposeApplicationDocument: vi.fn(),
+          editApplicationDocument: vi.fn(),
+          approveApplicationDocument: vi.fn(),
+          exportApplicationDocument: vi.fn(),
+        },
+      },
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(
+        <ApplicationsApplicationDocuments
+          applicationRecord={applicationRecord}
+          applyRunDetails={null}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    const selects = [...container.querySelectorAll("select")];
+    const textareas = [...container.querySelectorAll("textarea")];
+    // Document type + Exact attachment question; the saved-document select only
+    // appears with more than one revision.
+    expect(selects).toHaveLength(2);
+    expect(textareas).toHaveLength(1);
+
+    for (const control of [...selects, ...textareas]) {
+      expect(control.className).toContain("border-(--field-border)");
+      expect(control.className).toContain("bg-(--field)");
+      expect(control.className).toContain("outline-none");
+      expect(control.className).toContain(
+        "focus-visible:border-(--field-focus-border)",
+      );
+      expect(control.className).toContain("focus-visible:bg-(--field-strong)");
+      expect(control.className).toContain(
+        "focus-visible:shadow-[var(--field-focus-shadow)]",
+      );
+      expect(control.className).not.toContain("border-input");
+      expect(control.className).not.toContain("focus-visible:ring");
+    }
+    for (const select of selects) {
+      expect(select.className).toContain("h-10");
+      expect(select.className).toContain("rounded-(--radius-field)");
+    }
+    expect(textareas[0]?.className).toContain("min-h-64");
+    expect(textareas[0]?.className).toContain("resize-y");
   });
 });

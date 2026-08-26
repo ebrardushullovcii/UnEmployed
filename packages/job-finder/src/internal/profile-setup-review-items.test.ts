@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   ResumeImportFieldCandidateSchema,
+  createFreshStartCandidateProfile,
   type ResumeImportFieldCandidate,
 } from "@unemployed/contracts";
 import { createSeed } from "../workspace-service.test-support";
@@ -177,5 +178,159 @@ describe("buildProfileSetupReviewItems", () => {
     });
 
     expect(items.find((item) => item.sourceCandidateId === "education_degree_evidence")?.sourceSnippet).toBe(evidence);
+  });
+
+  test("creates critical field-targeted items for missing first and last names", () => {
+    const seed = createSeed();
+    const profile = {
+      ...seed.profile,
+      firstName: null,
+      middleName: null,
+      lastName: null,
+      fullName: null,
+    };
+    const items = buildProfileSetupReviewItems({
+      currentState: null,
+      documentBundle: null,
+      now: createdAt,
+      profile,
+      candidates: [],
+      searchPreferences: seed.searchPreferences,
+    });
+
+    expect(items.find((item) => item.target.key === "firstName")).toMatchObject({
+      step: "essentials",
+      target: { domain: "identity", key: "firstName", recordId: null },
+      label: "First name",
+      severity: "critical",
+      status: "pending",
+    });
+    expect(items.find((item) => item.target.key === "lastName")).toMatchObject({
+      step: "essentials",
+      target: { domain: "identity", key: "lastName", recordId: null },
+      label: "Last name",
+      severity: "critical",
+      status: "pending",
+    });
+  });
+
+  test("a preferred display name never satisfies the required legal identity fields", () => {
+    const seed = createSeed();
+    const profile = {
+      ...seed.profile,
+      firstName: null,
+      lastName: null,
+      fullName: null,
+      preferredDisplayName: "Alex V.",
+    };
+    const items = buildProfileSetupReviewItems({
+      currentState: null,
+      documentBundle: null,
+      now: createdAt,
+      profile,
+      candidates: [],
+      searchPreferences: seed.searchPreferences,
+    });
+    const nameItems = items.filter((item) =>
+      ["firstName", "lastName"].includes(item.target.key),
+    );
+
+    expect(nameItems.map((item) => item.target.key)).toEqual([
+      "firstName",
+      "lastName",
+    ]);
+    for (const item of nameItems) {
+      expect(item.reason).toContain("profile and application fields");
+      expect(item.reason).toContain("preferred display name remains how Job Finder addresses you");
+      expect(item.reason.toLowerCase()).not.toContain("legal");
+    }
+  });
+
+  test("stale fresh-start placeholder names still count as missing identity", () => {
+    const seed = createSeed();
+    const profile = {
+      ...seed.profile,
+      firstName: "New",
+      lastName: "Candidate",
+      middleName: null,
+      fullName: "New Candidate",
+    };
+    const items = buildProfileSetupReviewItems({
+      currentState: null,
+      documentBundle: null,
+      now: createdAt,
+      profile,
+      candidates: [],
+      searchPreferences: seed.searchPreferences,
+    });
+
+    expect(items.some((item) => item.target.key === "firstName")).toBe(true);
+    expect(items.some((item) => item.target.key === "lastName")).toBe(true);
+  });
+
+  test("does not add split-name blockers when a real full name already exists", () => {
+    const seed = createSeed();
+    const profile = {
+      ...seed.profile,
+      firstName: null,
+      lastName: null,
+      middleName: null,
+    };
+    const items = buildProfileSetupReviewItems({
+      currentState: null,
+      documentBundle: null,
+      now: createdAt,
+      profile,
+      candidates: [],
+      searchPreferences: seed.searchPreferences,
+    });
+
+    expect(
+      items.some((item) =>
+        ["firstName", "lastName"].includes(item.target.key),
+      ),
+    ).toBe(false);
+  });
+
+  test("fresh-start profiles get a critical years-of-experience requirement spelled out", () => {
+    const seed = createSeed();
+    const profile = {
+      ...createFreshStartCandidateProfile(),
+      email: "new.candidate@example.com",
+    };
+    const items = buildProfileSetupReviewItems({
+      currentState: null,
+      documentBundle: null,
+      now: createdAt,
+      profile,
+      candidates: [],
+      searchPreferences: seed.searchPreferences,
+    });
+
+    expect(items.find((item) => item.target.key === "yearsExperience")).toMatchObject({
+      severity: "critical",
+    });
+    expect(
+      items.find((item) => item.target.key === "yearsExperience")?.reason,
+    ).toContain("A fresh-start profile stays blocked until this is added.");
+  });
+
+  test("keeps years of experience recommended outside the fresh-start rule", () => {
+    const seed = createSeed();
+    const items = buildProfileSetupReviewItems({
+      currentState: null,
+      documentBundle: null,
+      now: createdAt,
+      profile: { ...seed.profile, yearsExperience: 0 },
+      candidates: [],
+      searchPreferences: seed.searchPreferences,
+    });
+
+    expect(items.find((item) => item.target.key === "yearsExperience")).toMatchObject({
+      severity: "recommended",
+    });
+    expect(
+      items.find((item) => item.target.key === "yearsExperience")?.reason,
+    ).not.toContain("fresh-start");
   });
 });

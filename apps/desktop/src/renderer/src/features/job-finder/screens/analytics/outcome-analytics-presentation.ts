@@ -31,11 +31,11 @@ export const OUTCOME_VIEW_LOW_UNCERTAINTY_SAMPLE = 100;
 const WILSON_Z_95 = 1.96;
 
 export const outcomeDimensionLabels: Record<OutcomeBucketDimension, string> = {
-  campaign: "Campaign",
+  campaign: "Search plan",
   source: "Source",
   job_title: "Job title",
   company: "Company",
-  resume_strategy: "Resume strategy",
+  resume_strategy: "Resume approach",
 };
 
 export const outcomeDimensionOrder: readonly OutcomeBucketDimension[] =
@@ -46,7 +46,7 @@ export function outcomeDimensionNoun(
 ): string {
   switch (dimension) {
     case "campaign":
-      return "campaigns";
+      return "search plans";
     case "source":
       return "sources";
     case "job_title":
@@ -54,7 +54,7 @@ export function outcomeDimensionNoun(
     case "company":
       return "companies";
     case "resume_strategy":
-      return "resume strategies";
+      return "resume approaches";
   }
 }
 
@@ -430,7 +430,7 @@ function suggestForBucket(input: {
         enabled: true,
         kind: "increase_volume",
         label: `Increase volume for ${input.key}`,
-        reason: `Interview rate ${formatPercent(input.interviewRate)} meets or exceeds the 20% target — increase volume for this campaign.`,
+        reason: `Interview rate ${formatPercent(input.interviewRate)} meets or exceeds the 20% target — increase volume for this search plan.`,
       };
     }
     return null;

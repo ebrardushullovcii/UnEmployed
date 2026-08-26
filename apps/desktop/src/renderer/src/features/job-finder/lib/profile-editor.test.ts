@@ -1,170 +1,263 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test } from "vitest";
 import {
   CandidateProfileSchema,
+  createStarterJobDiscoveryTargets,
   JobSearchPreferencesSchema,
-  ResumeImportFieldCandidateSummarySchema
-} from '@unemployed/contracts'
+  ResumeImportFieldCandidateSummarySchema,
+} from "@unemployed/contracts";
 import {
   buildProfilePayload,
   buildSearchPreferencesPayload,
   createProfileEditorValues,
   createSearchPreferencesEditorValues,
   hasProfileDraftChanges,
-  hasSearchPreferencesDraftChanges
-} from './profile-editor'
+  hasSearchPreferencesDraftChanges,
+} from "./profile-editor";
+import type { DiscoveryTargetEditorValue } from "./job-finder-types";
 
 function createProfile() {
   return CandidateProfileSchema.parse({
-    id: 'candidate_1',
-    firstName: 'Alex',
-    lastName: 'Vanguard',
-    fullName: 'Alex Vanguard',
-    headline: 'Senior systems designer',
-    summary: 'Builds resilient workflows.',
-    currentLocation: 'London, UK',
+    id: "candidate_1",
+    firstName: "Alex",
+    lastName: "Vanguard",
+    fullName: "Alex Vanguard",
+    headline: "Senior systems designer",
+    summary: "Builds resilient workflows.",
+    currentLocation: "London, UK",
     yearsExperience: 10,
-    email: 'alex@example.com',
-    phone: '+44 7700 900123',
+    email: "alex@example.com",
+    phone: "+44 7700 900123",
     baseResume: {
-      id: 'resume_1',
-      fileName: 'alex-vanguard.txt',
-      uploadedAt: '2026-03-20T10:00:00.000Z'
+      id: "resume_1",
+      fileName: "alex-vanguard.txt",
+      uploadedAt: "2026-03-20T10:00:00.000Z",
     },
     workEligibility: {},
     professionalSummary: {},
-    targetRoles: ['Principal Designer'],
-    locations: ['Remote'],
-    skills: ['Figma'],
+    targetRoles: ["Principal Designer"],
+    locations: ["Remote"],
+    skills: ["Figma"],
     experiences: [],
     education: [],
     certifications: [],
     links: [],
     projects: [],
-    spokenLanguages: []
-  })
+    spokenLanguages: [],
+  });
 }
 
-describe('profile editor application identity defaults', () => {
-  test('does not mark a saved profile dirty when professionalSummary.fullSummary is missing', () => {
-    const profile = createProfile()
-    const values = createProfileEditorValues(profile)
-    const result = buildProfilePayload(profile, values)
+describe("profile editor legacy full name preservation", () => {
+  function createLegacyFullNameProfile() {
+    return CandidateProfileSchema.parse({
+      ...createProfile(),
+      firstName: null,
+      middleName: null,
+      lastName: null,
+      fullName: "Legacy Assembled Name",
+    });
+  }
 
-    expect(result.payload).toBeDefined()
-    expect(hasProfileDraftChanges(profile, result.payload)).toBe(false)
-    expect(result.payload?.professionalSummary.fullSummary).toBeNull()
-    expect(result.payload?.summary).toBe(profile.summary)
-  })
+  test("round-trips a legacy assembled full name through an unrelated save when split name inputs stay blank", () => {
+    const profile = createLegacyFullNameProfile();
+    const values = createProfileEditorValues(profile);
+    values.identity.headline = "Updated headline";
 
-  test('keeps application contact overrides null when the user is only inheriting main contact info', () => {
-    const profile = createProfile()
-    const values = createProfileEditorValues(profile)
-    const result = buildProfilePayload(profile, values)
+    const result = buildProfilePayload(profile, values);
 
-    expect(result.payload?.applicationIdentity.preferredEmail).toBeNull()
-    expect(result.payload?.applicationIdentity.preferredPhone).toBeNull()
-  })
+    expect(result.payload).toBeDefined();
+    expect(result.payload?.fullName).toBe("Legacy Assembled Name");
+    expect(result.payload?.firstName).toBeNull();
+    expect(result.payload?.middleName).toBeNull();
+    expect(result.payload?.lastName).toBeNull();
+    expect(result.payload?.headline).toBe("Updated headline");
+  });
 
-  test('persists explicit application contact overrides when the user enters them', () => {
-    const profile = createProfile()
-    const values = createProfileEditorValues(profile)
+  test("does not guess split names while preserving a legacy assembled full name", () => {
+    const profile = createLegacyFullNameProfile();
+    const values = createProfileEditorValues(profile);
 
-    values.applicationIdentity.preferredEmail = 'apply@example.com'
-    values.applicationIdentity.preferredPhone = '+44 7000 000999'
+    const result = buildProfilePayload(profile, values);
 
-    const result = buildProfilePayload(profile, values)
+    expect(result.payload?.fullName).toContain("Legacy Assembled Name");
+    expect(result.payload?.firstName).toBeNull();
+    expect(result.payload?.lastName).toBeNull();
+  });
 
-    expect(result.payload?.applicationIdentity.preferredEmail).toBe('apply@example.com')
-    expect(result.payload?.applicationIdentity.preferredPhone).toBe('+44 7000 000999')
-  })
+  test("assembles a new full name whenever any split name input is meaningfully present", () => {
+    const profile = createLegacyFullNameProfile();
+    const values = createProfileEditorValues(profile);
+    values.identity.firstName = "Jordan";
+    values.identity.lastName = "Rivera";
 
-  test('prefills unresolved review candidates into empty experience and education form sections', () => {
-    const profile = createProfile()
+    const result = buildProfilePayload(profile, values);
+
+    expect(result.payload?.fullName).toBe("Jordan Rivera");
+    expect(result.payload?.firstName).toBe("Jordan");
+    expect(result.payload?.lastName).toBe("Rivera");
+    expect(result.payload?.middleName).toBeNull();
+  });
+
+  test("still lets an explicit clear of previously stored split names clear the full name", () => {
+    const profile = createProfile();
+    const values = createProfileEditorValues(profile);
+    values.identity.firstName = "";
+    values.identity.middleName = "";
+    values.identity.lastName = "";
+
+    const result = buildProfilePayload(profile, values);
+
+    expect(result.payload?.firstName).toBeNull();
+    expect(result.payload?.middleName).toBeNull();
+    expect(result.payload?.lastName).toBeNull();
+    expect(result.payload?.fullName).toBeNull();
+  });
+
+  test("round-trips a stale placeholder full name without turning it into a fact", () => {
+    const profile = CandidateProfileSchema.parse({
+      ...createProfile(),
+      firstName: null,
+      middleName: null,
+      lastName: null,
+      fullName: "New Candidate",
+    });
+    const values = createProfileEditorValues(profile);
+    values.identity.summary = "Unrelated summary edit";
+
+    const result = buildProfilePayload(profile, values);
+
+    expect(result.payload?.fullName).toBe("New Candidate");
+    expect(result.payload?.summary).toBe("Unrelated summary edit");
+    expect(result.payload?.firstName).toBeNull();
+    expect(result.payload?.lastName).toBeNull();
+  });
+});
+
+describe("profile editor application identity defaults", () => {
+  test("does not mark a saved profile dirty when professionalSummary.fullSummary is missing", () => {
+    const profile = createProfile();
+    const values = createProfileEditorValues(profile);
+    const result = buildProfilePayload(profile, values);
+
+    expect(result.payload).toBeDefined();
+    expect(hasProfileDraftChanges(profile, result.payload)).toBe(false);
+    expect(result.payload?.professionalSummary.fullSummary).toBeNull();
+    expect(result.payload?.summary).toBe(profile.summary);
+  });
+
+  test("keeps application contact overrides null when the user is only inheriting main contact info", () => {
+    const profile = createProfile();
+    const values = createProfileEditorValues(profile);
+    const result = buildProfilePayload(profile, values);
+
+    expect(result.payload?.applicationIdentity.preferredEmail).toBeNull();
+    expect(result.payload?.applicationIdentity.preferredPhone).toBeNull();
+  });
+
+  test("persists explicit application contact overrides when the user enters them", () => {
+    const profile = createProfile();
+    const values = createProfileEditorValues(profile);
+
+    values.applicationIdentity.preferredEmail = "apply@example.com";
+    values.applicationIdentity.preferredPhone = "+44 7000 000999";
+
+    const result = buildProfilePayload(profile, values);
+
+    expect(result.payload?.applicationIdentity.preferredEmail).toBe(
+      "apply@example.com",
+    );
+    expect(result.payload?.applicationIdentity.preferredPhone).toBe(
+      "+44 7000 000999",
+    );
+  });
+
+  test("prefills unresolved review candidates into empty experience and education form sections", () => {
+    const profile = createProfile();
     const values = createProfileEditorValues(profile, [
       ResumeImportFieldCandidateSummarySchema.parse({
-        id: 'experience_candidate_1',
+        id: "experience_candidate_1",
         target: {
-          section: 'experience',
-          key: 'record',
-          recordId: 'experience_1'
+          section: "experience",
+          key: "record",
+          recordId: "experience_1",
         },
-        label: 'Staff/Senior Software Engineer at EdSights',
+        label: "Staff/Senior Software Engineer at EdSights",
         value: {
-          companyName: 'EdSights',
+          companyName: "EdSights",
           companyUrl: null,
-          title: 'Staff/Senior Software Engineer',
+          title: "Staff/Senior Software Engineer",
           employmentType: null,
-          location: 'Remote, NY',
+          location: "Remote, NY",
           workMode: [],
-          startDate: 'Sep 2021',
-          endDate: 'Feb 2026',
+          startDate: "Sep 2021",
+          endDate: "Feb 2026",
           isCurrent: false,
-          summary: 'Led scalable cloud-native application work.',
-          achievements: ['Cut costs by 20%.'],
-          skills: ['React', 'TypeScript'],
+          summary: "Led scalable cloud-native application work.",
+          achievements: ["Cut costs by 20%."],
+          skills: ["React", "TypeScript"],
           domainTags: [],
           peopleManagementScope: null,
-          ownershipScope: null
+          ownershipScope: null,
         },
-        valuePreview: 'Staff/Senior Software Engineer | EdSights',
-        evidenceText: 'EdSights, Remote, NY — Staff/Senior Software Engineer',
+        valuePreview: "Staff/Senior Software Engineer | EdSights",
+        evidenceText: "EdSights, Remote, NY — Staff/Senior Software Engineer",
         confidence: 0.84,
-        resolution: 'needs_review',
+        resolution: "needs_review",
         resolutionReason: null,
-        notes: []
+        notes: [],
       }),
       ResumeImportFieldCandidateSummarySchema.parse({
-        id: 'education_candidate_1',
+        id: "education_candidate_1",
         target: {
-          section: 'education',
-          key: 'record',
-          recordId: 'education_1'
+          section: "education",
+          key: "record",
+          recordId: "education_1",
         },
-        label: 'Education',
+        label: "Education",
         value: {
-          schoolName: 'Florida State University',
-          degree: 'Bachelor’s Degree in Computer Science and Physics',
+          schoolName: "Florida State University",
+          degree: "Bachelor’s Degree in Computer Science and Physics",
           fieldOfStudy: null,
-          location: '',
-          startDate: 'May 2011',
-          endDate: 'Sept 2015',
-          summary: null
+          location: "",
+          startDate: "May 2011",
+          endDate: "Sept 2015",
+          summary: null,
         },
-        valuePreview: 'Florida State University',
-        evidenceText: 'Florida State University — Bachelor’s Degree in Computer Science and Physics',
+        valuePreview: "Florida State University",
+        evidenceText:
+          "Florida State University — Bachelor’s Degree in Computer Science and Physics",
         confidence: 0.8,
-        resolution: 'needs_review',
+        resolution: "needs_review",
         resolutionReason: null,
-        notes: []
-      })
-    ])
+        notes: [],
+      }),
+    ]);
 
-    expect(values.records.experiences).toHaveLength(1)
+    expect(values.records.experiences).toHaveLength(1);
     expect(values.records.experiences[0]).toMatchObject({
-      companyName: 'EdSights',
-      title: 'Staff/Senior Software Engineer',
-      location: 'Remote, NY'
-    })
-    expect(values.records.education).toHaveLength(1)
+      companyName: "EdSights",
+      title: "Staff/Senior Software Engineer",
+      location: "Remote, NY",
+    });
+    expect(values.records.education).toHaveLength(1);
     expect(values.records.education[0]).toMatchObject({
-      schoolName: 'Florida State University',
-      degree: 'Bachelor’s Degree in Computer Science and Physics'
-    })
-  })
+      schoolName: "Florida State University",
+      degree: "Bachelor’s Degree in Computer Science and Physics",
+    });
+  });
 
-  test('dedupes review candidates that match saved records with different date formats', () => {
+  test("dedupes review candidates that match saved records with different date formats", () => {
     const profile = CandidateProfileSchema.parse({
       ...createProfile(),
       experiences: [
         {
-          id: 'experience_saved_1',
-          companyName: 'Mercury',
+          id: "experience_saved_1",
+          companyName: "Mercury",
           companyUrl: null,
-          title: 'Senior Software Engineer',
+          title: "Senior Software Engineer",
           employmentType: null,
-          location: 'New York City Metropolitan Area',
+          location: "New York City Metropolitan Area",
           workMode: [],
-          startDate: '2024-08',
+          startDate: "2024-08",
           endDate: null,
           isCurrent: true,
           isDraft: false,
@@ -173,332 +266,334 @@ describe('profile editor application identity defaults', () => {
           skills: [],
           domainTags: [],
           peopleManagementScope: null,
-          ownershipScope: null
-        }
-      ]
-    })
+          ownershipScope: null,
+        },
+      ],
+    });
 
     const values = createProfileEditorValues(profile, [
       ResumeImportFieldCandidateSummarySchema.parse({
-        id: 'experience_candidate_mercury',
+        id: "experience_candidate_mercury",
         target: {
-          section: 'experience',
-          key: 'record',
-          recordId: 'experience_1'
+          section: "experience",
+          key: "record",
+          recordId: "experience_1",
         },
-        label: 'Senior Software Engineer at Mercury',
+        label: "Senior Software Engineer at Mercury",
         value: {
-          companyName: 'Mercury',
+          companyName: "Mercury",
           companyUrl: null,
-          title: 'Senior Software Engineer',
+          title: "Senior Software Engineer",
           employmentType: null,
-          location: 'New York City Metropolitan Area',
+          location: "New York City Metropolitan Area",
           workMode: [],
-          startDate: 'Aug 2024',
-          endDate: '',
+          startDate: "Aug 2024",
+          endDate: "",
           isCurrent: true,
-          summary: 'Leads core product work.',
+          summary: "Leads core product work.",
           achievements: [],
           skills: [],
           domainTags: [],
           peopleManagementScope: null,
-          ownershipScope: null
+          ownershipScope: null,
         },
-        valuePreview: 'Mercury | Senior Software Engineer | Aug 2024',
-        evidenceText: 'Senior Software Engineer — Mercury',
+        valuePreview: "Mercury | Senior Software Engineer | Aug 2024",
+        evidenceText: "Senior Software Engineer — Mercury",
         confidence: 0.84,
-        resolution: 'needs_review',
+        resolution: "needs_review",
         resolutionReason: null,
-        notes: []
-      })
-    ])
+        notes: [],
+      }),
+    ]);
 
-    expect(values.records.experiences).toHaveLength(1)
+    expect(values.records.experiences).toHaveLength(1);
     expect(values.records.experiences[0]).toMatchObject({
-      companyName: 'Mercury',
-      title: 'Senior Software Engineer',
-      startDate: '2024-08',
-      isCurrent: true
-    })
-  })
+      companyName: "Mercury",
+      title: "Senior Software Engineer",
+      startDate: "2024-08",
+      isCurrent: true,
+    });
+  });
 
-  test('dedupes duplicate imported experience review candidates when record ids differ', () => {
-    const profile = createProfile()
+  test("dedupes duplicate imported experience review candidates when record ids differ", () => {
+    const profile = createProfile();
 
     const values = createProfileEditorValues(profile, [
       ResumeImportFieldCandidateSummarySchema.parse({
-        id: 'experience_candidate_duplicate_1',
+        id: "experience_candidate_duplicate_1",
         target: {
-          section: 'experience',
-          key: 'record',
-          recordId: 'experience_1'
+          section: "experience",
+          key: "record",
+          recordId: "experience_1",
         },
-        label: 'Senior Software Engineer at Mercury',
+        label: "Senior Software Engineer at Mercury",
         value: {
-          companyName: 'Mercury',
+          companyName: "Mercury",
           companyUrl: null,
-          title: 'Senior Software Engineer',
+          title: "Senior Software Engineer",
           employmentType: null,
-          location: 'New York City Metropolitan Area',
+          location: "New York City Metropolitan Area",
           workMode: [],
-          startDate: 'Aug 2024',
-          endDate: '',
+          startDate: "Aug 2024",
+          endDate: "",
           isCurrent: true,
-          summary: '',
+          summary: "",
           achievements: [],
           skills: [],
           domainTags: [],
           peopleManagementScope: null,
-          ownershipScope: null
+          ownershipScope: null,
         },
-        valuePreview: 'Mercury | Senior Software Engineer | Aug 2024',
-        evidenceText: 'Senior Software Engineer - Mercury',
+        valuePreview: "Mercury | Senior Software Engineer | Aug 2024",
+        evidenceText: "Senior Software Engineer - Mercury",
         confidence: 0.8,
-        resolution: 'needs_review',
+        resolution: "needs_review",
         resolutionReason: null,
-        notes: []
+        notes: [],
       }),
       ResumeImportFieldCandidateSummarySchema.parse({
-        id: 'experience_candidate_duplicate_2',
+        id: "experience_candidate_duplicate_2",
         target: {
-          section: 'experience',
-          key: 'record',
-          recordId: 'experience_9'
+          section: "experience",
+          key: "record",
+          recordId: "experience_9",
         },
-        label: 'Senior Software Engineer at Mercury',
+        label: "Senior Software Engineer at Mercury",
         value: {
-          companyName: 'Mercury',
+          companyName: "Mercury",
           companyUrl: null,
-          title: 'Senior Software Engineer',
+          title: "Senior Software Engineer",
           employmentType: null,
-          location: 'New York City Metropolitan Area',
-          workMode: ['remote'],
-          startDate: '2024-08',
+          location: "New York City Metropolitan Area",
+          workMode: ["remote"],
+          startDate: "2024-08",
           endDate: null,
           isCurrent: true,
-          summary: 'Leads core product work.',
-          achievements: ['Improved frontend performance.'],
-          skills: ['React'],
+          summary: "Leads core product work.",
+          achievements: ["Improved frontend performance."],
+          skills: ["React"],
           domainTags: [],
           peopleManagementScope: null,
-          ownershipScope: null
+          ownershipScope: null,
         },
-        valuePreview: 'Mercury | Senior Software Engineer | 2024-08',
-        evidenceText: 'Senior Software Engineer - Mercury',
+        valuePreview: "Mercury | Senior Software Engineer | 2024-08",
+        evidenceText: "Senior Software Engineer - Mercury",
         confidence: 0.86,
-        resolution: 'needs_review',
+        resolution: "needs_review",
         resolutionReason: null,
-        notes: []
-      })
-    ])
+        notes: [],
+      }),
+    ]);
 
-    expect(values.records.experiences).toHaveLength(1)
+    expect(values.records.experiences).toHaveLength(1);
     expect(values.records.experiences[0]).toMatchObject({
-      companyName: 'Mercury',
-      title: 'Senior Software Engineer',
-      startDate: '2024-08',
+      companyName: "Mercury",
+      title: "Senior Software Engineer",
+      startDate: "2024-08",
       isCurrent: true,
-      summary: 'Leads core product work.',
-      workMode: ['remote']
-    })
-  })
+      summary: "Leads core product work.",
+      workMode: ["remote"],
+    });
+  });
 
-  test('prefills unresolved years-of-experience candidates when the profile is still fresh start', () => {
+  test("prefills unresolved years-of-experience candidates when the profile is still fresh start", () => {
     const profile = CandidateProfileSchema.parse({
       ...createProfile(),
-      id: 'candidate_fresh_start',
-      firstName: 'New',
-      lastName: 'Candidate',
-      fullName: 'New Candidate',
-      headline: 'Import your resume to begin',
-      currentLocation: 'Set your preferred location',
-      yearsExperience: 0
-    })
+      id: "candidate_fresh_start",
+      firstName: "New",
+      lastName: "Candidate",
+      fullName: "New Candidate",
+      headline: "Import your resume to begin",
+      currentLocation: "Set your preferred location",
+      yearsExperience: 0,
+    });
 
     const values = createProfileEditorValues(profile, [
       ResumeImportFieldCandidateSummarySchema.parse({
-        id: 'identity_years_experience_candidate',
-        target: { section: 'identity', key: 'yearsExperience', recordId: null },
-        label: 'Years of experience',
+        id: "identity_years_experience_candidate",
+        target: { section: "identity", key: "yearsExperience", recordId: null },
+        label: "Years of experience",
         value: 12,
-        valuePreview: '12',
-        evidenceText: '12 years of experience',
+        valuePreview: "12",
+        evidenceText: "12 years of experience",
         confidence: 0.82,
-        resolution: 'needs_review',
+        resolution: "needs_review",
         resolutionReason: null,
-        notes: []
-      })
-    ])
+        notes: [],
+      }),
+    ]);
 
-    expect(values.identity.yearsExperience).toBe('12')
-  })
+    expect(values.identity.yearsExperience).toBe("12");
+  });
 
-  test('normalizes imported work mode values before save', () => {
-    const profile = createProfile()
+  test("normalizes imported work mode values before save", () => {
+    const profile = createProfile();
     const values = createProfileEditorValues(profile, [
       ResumeImportFieldCandidateSummarySchema.parse({
-        id: 'experience_candidate_work_mode',
+        id: "experience_candidate_work_mode",
         target: {
-          section: 'experience',
-          key: 'record',
-          recordId: 'experience_1'
+          section: "experience",
+          key: "record",
+          recordId: "experience_1",
         },
-        label: 'Senior Software Engineer at Leif',
+        label: "Senior Software Engineer at Leif",
         value: {
-          companyName: 'Leif',
+          companyName: "Leif",
           companyUrl: null,
-          title: 'Senior Software Engineer',
+          title: "Senior Software Engineer",
           employmentType: null,
-          location: 'New York City Metropolitan Area',
-          workMode: ['on-site'],
-          startDate: 'Jul 2021',
-          endDate: 'Aug 2024',
+          location: "New York City Metropolitan Area",
+          workMode: ["on-site"],
+          startDate: "Jul 2021",
+          endDate: "Aug 2024",
           isCurrent: false,
-          summary: 'Built platform features.',
+          summary: "Built platform features.",
           achievements: [],
           skills: [],
           domainTags: [],
           peopleManagementScope: null,
-          ownershipScope: null
+          ownershipScope: null,
         },
-        valuePreview: 'Leif | Senior Software Engineer | Jul 2021 | Aug 2024',
-        evidenceText: 'Jul 2021 – Aug 2024 · New York City Metropolitan Area · On-site',
+        valuePreview: "Leif | Senior Software Engineer | Jul 2021 | Aug 2024",
+        evidenceText:
+          "Jul 2021 – Aug 2024 · New York City Metropolitan Area · On-site",
         confidence: 0.84,
-        resolution: 'needs_review',
+        resolution: "needs_review",
         resolutionReason: null,
-        notes: []
-      })
-    ])
+        notes: [],
+      }),
+    ]);
 
-    expect(values.records.experiences[0]?.workMode).toEqual(['onsite'])
+    expect(values.records.experiences[0]?.workMode).toEqual(["onsite"]);
 
-    values.records.experiences[0]!.summary = 'Built platform features with onsite collaboration.'
+    values.records.experiences[0]!.summary =
+      "Built platform features with onsite collaboration.";
 
-    const result = buildProfilePayload(profile, values)
+    const result = buildProfilePayload(profile, values);
 
-    expect(result.validationMessage).toBeUndefined()
-    expect(result.payload?.experiences[0]?.workMode).toEqual(['onsite'])
-  })
+    expect(result.validationMessage).toBeUndefined();
+    expect(result.payload?.experiences[0]?.workMode).toEqual(["onsite"]);
+  });
 
-  test('drops unchanged imported provisional experience rows on save', () => {
-    const profile = createProfile()
+  test("drops unchanged imported provisional experience rows on save", () => {
+    const profile = createProfile();
     const values = createProfileEditorValues(profile, [
       ResumeImportFieldCandidateSummarySchema.parse({
-        id: 'experience_candidate_keep_review_first',
+        id: "experience_candidate_keep_review_first",
         target: {
-          section: 'experience',
-          key: 'record',
-          recordId: 'experience_candidate_1'
+          section: "experience",
+          key: "record",
+          recordId: "experience_candidate_1",
         },
-        label: 'React Developer at AUTOMATEDPROS',
+        label: "React Developer at AUTOMATEDPROS",
         value: {
-          companyName: 'AUTOMATEDPROS',
+          companyName: "AUTOMATEDPROS",
           companyUrl: null,
-          title: 'React Developer',
+          title: "React Developer",
           employmentType: null,
-          location: 'Prishtina, Kosovo',
-          workMode: ['remote'],
-          startDate: '2023-07',
-          endDate: '',
+          location: "Prishtina, Kosovo",
+          workMode: ["remote"],
+          startDate: "2023-07",
+          endDate: "",
           isCurrent: true,
-          summary: 'Worked on ordering flows.',
+          summary: "Worked on ordering flows.",
           achievements: [],
-          skills: ['React'],
+          skills: ["React"],
           domainTags: [],
           peopleManagementScope: null,
-          ownershipScope: null
+          ownershipScope: null,
         },
-        valuePreview: 'AUTOMATEDPROS | React Developer',
-        evidenceText: 'AUTOMATEDPROS – React Developer',
+        valuePreview: "AUTOMATEDPROS | React Developer",
+        evidenceText: "AUTOMATEDPROS – React Developer",
         confidence: 0.82,
-        resolution: 'needs_review',
+        resolution: "needs_review",
         resolutionReason: null,
-        notes: []
-      })
-    ])
+        notes: [],
+      }),
+    ]);
 
-    const result = buildProfilePayload(profile, values)
+    const result = buildProfilePayload(profile, values);
 
-    expect(result.validationMessage).toBeUndefined()
-    expect(result.payload?.experiences).toEqual([])
-  })
+    expect(result.validationMessage).toBeUndefined();
+    expect(result.payload?.experiences).toEqual([]);
+  });
 
-  test('keeps imported provisional experience rows after the user edits them', () => {
-    const profile = createProfile()
+  test("keeps imported provisional experience rows after the user edits them", () => {
+    const profile = createProfile();
     const values = createProfileEditorValues(profile, [
       ResumeImportFieldCandidateSummarySchema.parse({
-        id: 'experience_candidate_keep_after_edit',
+        id: "experience_candidate_keep_after_edit",
         target: {
-          section: 'experience',
-          key: 'record',
-          recordId: 'experience_candidate_2'
+          section: "experience",
+          key: "record",
+          recordId: "experience_candidate_2",
         },
-        label: 'React Developer at AUTOMATEDPROS',
+        label: "React Developer at AUTOMATEDPROS",
         value: {
-          companyName: 'AUTOMATEDPROS',
+          companyName: "AUTOMATEDPROS",
           companyUrl: null,
-          title: 'React Developer',
+          title: "React Developer",
           employmentType: null,
-          location: 'Prishtina, Kosovo',
-          workMode: ['remote'],
-          startDate: '2023-07',
-          endDate: '',
+          location: "Prishtina, Kosovo",
+          workMode: ["remote"],
+          startDate: "2023-07",
+          endDate: "",
           isCurrent: true,
-          summary: 'Worked on ordering flows.',
+          summary: "Worked on ordering flows.",
           achievements: [],
-          skills: ['React'],
+          skills: ["React"],
           domainTags: [],
           peopleManagementScope: null,
-          ownershipScope: null
+          ownershipScope: null,
         },
-        valuePreview: 'AUTOMATEDPROS | React Developer',
-        evidenceText: 'AUTOMATEDPROS – React Developer',
+        valuePreview: "AUTOMATEDPROS | React Developer",
+        evidenceText: "AUTOMATEDPROS – React Developer",
         confidence: 0.82,
-        resolution: 'needs_review',
+        resolution: "needs_review",
         resolutionReason: null,
-        notes: []
-      })
-    ])
+        notes: [],
+      }),
+    ]);
 
-    values.records.experiences[0]!.workMode = ['hybrid']
+    values.records.experiences[0]!.workMode = ["hybrid"];
 
-    const result = buildProfilePayload(profile, values)
+    const result = buildProfilePayload(profile, values);
 
-    expect(result.validationMessage).toBeUndefined()
-    expect(result.payload?.experiences).toHaveLength(1)
+    expect(result.validationMessage).toBeUndefined();
+    expect(result.payload?.experiences).toHaveLength(1);
     expect(result.payload?.experiences[0]).toMatchObject({
-      companyName: 'AUTOMATEDPROS',
-      title: 'React Developer',
-      workMode: ['hybrid']
-    })
-  })
+      companyName: "AUTOMATEDPROS",
+      title: "React Developer",
+      workMode: ["hybrid"],
+    });
+  });
 
-  test('detects profile draft changes even when the form only reflects imported review preload values', () => {
-    const profile = createProfile()
+  test("detects profile draft changes even when the form only reflects imported review preload values", () => {
+    const profile = createProfile();
     const values = createProfileEditorValues(profile, [
       ResumeImportFieldCandidateSummarySchema.parse({
-        id: 'contact_portfolio_candidate',
-        target: { section: 'contact', key: 'portfolioUrl', recordId: null },
-        label: 'Portfolio URL',
-        value: 'https://alex-vanguard.dev',
-        valuePreview: 'https://alex-vanguard.dev',
-        evidenceText: 'https://alex-vanguard.dev',
+        id: "contact_portfolio_candidate",
+        target: { section: "contact", key: "portfolioUrl", recordId: null },
+        label: "Portfolio URL",
+        value: "https://alex-vanguard.dev",
+        valuePreview: "https://alex-vanguard.dev",
+        evidenceText: "https://alex-vanguard.dev",
         confidence: 0.84,
-        resolution: 'needs_review',
+        resolution: "needs_review",
         resolutionReason: null,
-        notes: []
-      })
-    ])
+        notes: [],
+      }),
+    ]);
 
-    expect(values.identity.portfolioUrl).toBe('https://alex-vanguard.dev')
+    expect(values.identity.portfolioUrl).toBe("https://alex-vanguard.dev");
 
-    const draftProfile = buildProfilePayload(profile, values).payload
+    const draftProfile = buildProfilePayload(profile, values).payload;
 
-    expect(draftProfile).toBeDefined()
-    expect(hasProfileDraftChanges(profile, draftProfile)).toBe(true)
-  })
+    expect(draftProfile).toBeDefined();
+    expect(hasProfileDraftChanges(profile, draftProfile)).toBe(true);
+  });
 
-  test('detects search-preference draft changes from imported targeting suggestions', () => {
+  test("detects search-preference draft changes from imported targeting suggestions", () => {
     const searchPreferences = JobSearchPreferencesSchema.parse({
       targetRoles: [],
       jobFamilies: [],
@@ -511,90 +606,318 @@ describe('profile editor application identity defaults', () => {
       employmentTypes: [],
       minimumSalaryUsd: null,
       targetSalaryUsd: null,
-      salaryCurrency: 'USD',
-      approvalMode: 'review_before_submit',
-      tailoringMode: 'balanced',
+      salaryCurrency: "USD",
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
       companyBlacklist: [],
       companyWhitelist: [],
       discovery: {
         historyLimit: 5,
-        targets: []
-      }
-    })
+        targets: [],
+      },
+    });
 
-    const values = createSearchPreferencesEditorValues(searchPreferences)
-    expect(values.collectOnlyHardCriteriaMatches).toBe(false)
+    const values = createSearchPreferencesEditorValues(searchPreferences);
+    expect(values.collectOnlyHardCriteriaMatches).toBe(false);
 
-    values.targetRoles = 'Principal Product Designer'
-    values.collectOnlyHardCriteriaMatches = true
+    values.targetRoles = "Principal Product Designer";
+    values.collectOnlyHardCriteriaMatches = true;
 
-    const draftSearchPreferences = buildSearchPreferencesPayload(searchPreferences, values).payload
+    const draftSearchPreferences = buildSearchPreferencesPayload(
+      searchPreferences,
+      values,
+    ).payload;
 
-    expect(draftSearchPreferences).toBeDefined()
-    expect(draftSearchPreferences?.discovery.collectOnlyHardCriteriaMatches).toBe(true)
-    expect(hasSearchPreferencesDraftChanges(searchPreferences, draftSearchPreferences)).toBe(true)
-  })
-  test('invalidates saved source guidance when the starting URL changes', () => {
+    expect(draftSearchPreferences).toBeDefined();
+    expect(
+      draftSearchPreferences?.discovery.collectOnlyHardCriteriaMatches,
+    ).toBe(true);
+    expect(
+      hasSearchPreferencesDraftChanges(
+        searchPreferences,
+        draftSearchPreferences,
+      ),
+    ).toBe(true);
+  });
+
+  test("keeps an untouched canonical first-run preferences form free of draft changes", () => {
     const searchPreferences = JobSearchPreferencesSchema.parse({
-      targetRoles: ['Senior Frontend Engineer'],
-      locations: ['Remote'],
-      workModes: ['remote'],
+      targetRoles: [],
+      jobFamilies: [],
+      locations: [],
+      excludedLocations: [],
+      workModes: [],
+      seniorityLevels: [],
       minimumSalaryUsd: null,
-      approvalMode: 'review_before_submit',
-      tailoringMode: 'balanced',
+      targetSalaryUsd: null,
+      salaryCurrency: "USD",
+      targetIndustries: [],
+      targetCompanyStages: [],
+      employmentTypes: [],
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
+      companyBlacklist: [],
+      companyWhitelist: [],
+      discovery: {
+        historyLimit: 5,
+        targets: createStarterJobDiscoveryTargets(),
+      },
+    });
+
+    expect(searchPreferences.discovery.collectOnlyHardCriteriaMatches).toBe(
+      false,
+    );
+    expect(searchPreferences.compensation.currency).toBeNull();
+    expect(searchPreferences.discovery.targets).toHaveLength(3);
+
+    const values = createSearchPreferencesEditorValues(searchPreferences);
+    expect(values.salaryCurrency).toBe("");
+    expect(values.collectOnlyHardCriteriaMatches).toBe(false);
+
+    const draftSearchPreferences = buildSearchPreferencesPayload(
+      searchPreferences,
+      values,
+    ).payload;
+
+    expect(draftSearchPreferences).toBeDefined();
+    expect(
+      hasSearchPreferencesDraftChanges(
+        searchPreferences,
+        draftSearchPreferences,
+      ),
+    ).toBe(false);
+    expect(draftSearchPreferences?.salaryCurrency).toBe("USD");
+    expect(draftSearchPreferences?.compensation.currency).toBeNull();
+    expect(
+      draftSearchPreferences?.discovery.collectOnlyHardCriteriaMatches,
+    ).toBe(false);
+    expect(draftSearchPreferences?.discovery.targets).toEqual(
+      searchPreferences.discovery.targets,
+    );
+  });
+
+  test("keeps a currency-less baseline unset instead of inventing USD on rebuild", () => {
+    const searchPreferences = JobSearchPreferencesSchema.parse({
+      targetRoles: ["Senior Engineer"],
+      minimumSalaryUsd: null,
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
+      salaryCurrency: null,
+      compensation: {
+        minimum: null,
+        maximum: null,
+        interval: "year",
+        currency: null,
+        currencyStatus: "needs_clarification",
+      },
+    });
+    const values = createSearchPreferencesEditorValues(searchPreferences);
+
+    expect(values.salaryCurrency).toBe("");
+
+    const draftSearchPreferences = buildSearchPreferencesPayload(
+      searchPreferences,
+      values,
+    ).payload;
+
+    expect(draftSearchPreferences).toBeDefined();
+    expect(draftSearchPreferences?.salaryCurrency).toBeNull();
+    expect(draftSearchPreferences?.compensation.currency).toBeNull();
+    expect(
+      hasSearchPreferencesDraftChanges(
+        searchPreferences,
+        draftSearchPreferences,
+      ),
+    ).toBe(false);
+  });
+
+  test("persists an interval-only change on the amount-less inherited-USD baseline without touching currency state", () => {
+    const searchPreferences = JobSearchPreferencesSchema.parse({
+      targetRoles: [],
+      jobFamilies: [],
+      locations: [],
+      excludedLocations: [],
+      workModes: [],
+      seniorityLevels: [],
+      minimumSalaryUsd: null,
+      targetSalaryUsd: null,
+      salaryCurrency: "USD",
+      targetIndustries: [],
+      targetCompanyStages: [],
+      employmentTypes: [],
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
+      companyBlacklist: [],
+      companyWhitelist: [],
+      discovery: { historyLimit: 5, targets: [] },
+    });
+    const values = createSearchPreferencesEditorValues(searchPreferences);
+
+    const untouchedDraft = buildSearchPreferencesPayload(
+      searchPreferences,
+      values,
+    ).payload;
+
+    expect(untouchedDraft).toBeDefined();
+    expect(
+      hasSearchPreferencesDraftChanges(searchPreferences, untouchedDraft),
+    ).toBe(false);
+
+    values.compensationInterval = "month";
+
+    const draftSearchPreferences = buildSearchPreferencesPayload(
+      searchPreferences,
+      values,
+    ).payload;
+
+    expect(draftSearchPreferences?.compensation).toEqual({
+      minimum: null,
+      maximum: null,
+      interval: "month",
+      currency: null,
+      currencyStatus: "needs_clarification",
+    });
+    expect(draftSearchPreferences?.salaryCurrency).toBe("USD");
+    expect(
+      hasSearchPreferencesDraftChanges(
+        searchPreferences,
+        draftSearchPreferences,
+      ),
+    ).toBe(true);
+  });
+
+  test("persists an interval-only change on a currency-less baseline without inventing USD", () => {
+    const searchPreferences = JobSearchPreferencesSchema.parse({
+      targetRoles: ["Senior Engineer"],
+      minimumSalaryUsd: null,
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
+      salaryCurrency: null,
+      compensation: {
+        minimum: null,
+        maximum: null,
+        interval: "year",
+        currency: null,
+        currencyStatus: "needs_clarification",
+      },
+    });
+    const values = createSearchPreferencesEditorValues(searchPreferences);
+
+    values.compensationInterval = "month";
+
+    const draftSearchPreferences = buildSearchPreferencesPayload(
+      searchPreferences,
+      values,
+    ).payload;
+
+    expect(draftSearchPreferences?.compensation).toEqual({
+      minimum: null,
+      maximum: null,
+      interval: "month",
+      currency: null,
+      currencyStatus: "needs_clarification",
+    });
+    expect(draftSearchPreferences?.salaryCurrency).toBeNull();
+    expect(
+      hasSearchPreferencesDraftChanges(
+        searchPreferences,
+        draftSearchPreferences,
+      ),
+    ).toBe(true);
+  });
+
+  test("normalizes an explicitly entered currency to uppercase", () => {
+    const searchPreferences = JobSearchPreferencesSchema.parse({
+      targetRoles: ["Senior Engineer"],
+      minimumSalaryUsd: null,
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
+    });
+    const values = createSearchPreferencesEditorValues(searchPreferences);
+
+    values.salaryCurrency = "eur";
+
+    const draftSearchPreferences = buildSearchPreferencesPayload(
+      searchPreferences,
+      values,
+    ).payload;
+
+    expect(draftSearchPreferences?.salaryCurrency).toBe("EUR");
+    expect(draftSearchPreferences?.compensation.currency).toBe("EUR");
+    expect(draftSearchPreferences?.compensation.currencyStatus).toBe(
+      "explicit",
+    );
+  });
+
+  test("invalidates saved source guidance when the starting URL changes", () => {
+    const searchPreferences = JobSearchPreferencesSchema.parse({
+      targetRoles: ["Senior Frontend Engineer"],
+      locations: ["Remote"],
+      workModes: ["remote"],
+      minimumSalaryUsd: null,
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
       discovery: {
         targets: [
           {
-            id: 'target_mercury',
-            label: 'Mercury Greenhouse',
-            startingUrl: 'https://job-boards.greenhouse.io/mercury',
-            instructionStatus: 'validated',
-            validatedInstructionId: 'instruction_mercury',
+            id: "target_mercury",
+            label: "Mercury Greenhouse",
+            startingUrl: "https://job-boards.greenhouse.io/mercury",
+            instructionStatus: "validated",
+            validatedInstructionId: "instruction_mercury",
             draftInstructionId: null,
-            lastDebugRunId: 'debug_mercury',
-            lastVerifiedAt: '2026-07-31T20:00:00.000Z',
-            staleReason: null
-          }
-        ]
-      }
-    })
-    const values = createSearchPreferencesEditorValues(searchPreferences)
+            lastDebugRunId: "debug_mercury",
+            lastVerifiedAt: "2026-07-31T20:00:00.000Z",
+            staleReason: null,
+          },
+        ],
+      },
+    });
+    const values = createSearchPreferencesEditorValues(searchPreferences);
 
-    values.discoveryTargets[0]!.startingUrl = 'https://jobs.example.com/careers'
+    values.discoveryTargets[0]!.startingUrl =
+      "https://jobs.example.com/careers";
 
-    const changedTarget = buildSearchPreferencesPayload(searchPreferences, values).payload?.discovery.targets[0]
+    const changedTarget = buildSearchPreferencesPayload(
+      searchPreferences,
+      values,
+    ).payload?.discovery.targets[0];
 
     expect(changedTarget).toMatchObject({
-      startingUrl: 'https://jobs.example.com/careers',
-      instructionStatus: 'missing',
+      startingUrl: "https://jobs.example.com/careers",
+      instructionStatus: "missing",
       validatedInstructionId: null,
       draftInstructionId: null,
       lastDebugRunId: null,
       lastVerifiedAt: null,
-      staleReason: 'Starting page URL changed. Check this source again before reusing saved guidance.'
-    })
+      staleReason:
+        "Starting page URL changed. Check this source again before reusing saved guidance.",
+    });
 
-    const whitespaceOnlyValues = createSearchPreferencesEditorValues(searchPreferences)
-    whitespaceOnlyValues.discoveryTargets[0]!.startingUrl = '  https://job-boards.greenhouse.io/mercury  '
+    const whitespaceOnlyValues =
+      createSearchPreferencesEditorValues(searchPreferences);
+    whitespaceOnlyValues.discoveryTargets[0]!.startingUrl =
+      "  https://job-boards.greenhouse.io/mercury  ";
 
     expect(
-      buildSearchPreferencesPayload(searchPreferences, whitespaceOnlyValues).payload?.discovery.targets[0]
+      buildSearchPreferencesPayload(searchPreferences, whitespaceOnlyValues)
+        .payload?.discovery.targets[0],
     ).toMatchObject({
-      instructionStatus: 'validated',
-      validatedInstructionId: 'instruction_mercury',
-      lastDebugRunId: 'debug_mercury',
-      lastVerifiedAt: '2026-07-31T20:00:00.000Z',
-      staleReason: null
-    })
-  })
+      instructionStatus: "validated",
+      validatedInstructionId: "instruction_mercury",
+      lastDebugRunId: "debug_mercury",
+      lastVerifiedAt: "2026-07-31T20:00:00.000Z",
+      staleReason: null,
+    });
+  });
 
-  test('normalizes 512 source edits without quadratic persisted-target scans', () => {
-    const sourceCount = 512
+  test("normalizes 512 source edits without quadratic persisted-target scans", () => {
+    const sourceCount = 512;
     const searchPreferences = JobSearchPreferencesSchema.parse({
-      targetRoles: ['Engineer'],
+      targetRoles: ["Engineer"],
       minimumSalaryUsd: null,
-      approvalMode: 'review_before_submit',
-      tailoringMode: 'balanced',
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
       discovery: {
         historyLimit: 5,
         targets: Array.from({ length: sourceCount }, (_, index) => ({
@@ -602,136 +925,597 @@ describe('profile editor application identity defaults', () => {
           label: `Source ${index}`,
           startingUrl: `https://jobs.example.com/source-${index}`,
           enabled: index % 2 === 0,
-          instructionStatus: 'validated',
+          instructionStatus: "validated",
           validatedInstructionId: `instruction_${index}`,
           draftInstructionId: null,
           lastDebugRunId: `debug_${index}`,
-          lastVerifiedAt: '2026-07-31T20:00:00.000Z',
-          staleReason: null
-        }))
-      }
-    })
-    const values = createSearchPreferencesEditorValues(searchPreferences)
-    values.discoveryTargets[sourceCount - 1]!.startingUrl = 'https://jobs.example.com/source-updated'
+          lastVerifiedAt: "2026-07-31T20:00:00.000Z",
+          staleReason: null,
+        })),
+      },
+    });
+    const values = createSearchPreferencesEditorValues(searchPreferences);
+    values.discoveryTargets[sourceCount - 1]!.startingUrl =
+      "https://jobs.example.com/source-updated";
 
-    const result = buildSearchPreferencesPayload(searchPreferences, values)
+    const result = buildSearchPreferencesPayload(searchPreferences, values);
 
-    expect(result.validationMessage).toBeUndefined()
-    expect(result.payload?.discovery.targets).toHaveLength(sourceCount)
+    expect(result.validationMessage).toBeUndefined();
+    expect(result.payload?.discovery.targets).toHaveLength(sourceCount);
     expect(result.payload?.discovery.targets[0]).toMatchObject({
-      instructionStatus: 'validated',
-      validatedInstructionId: 'instruction_0'
-    })
+      instructionStatus: "validated",
+      validatedInstructionId: "instruction_0",
+    });
     expect(result.payload?.discovery.targets[sourceCount - 1]).toMatchObject({
-      startingUrl: 'https://jobs.example.com/source-updated',
-      instructionStatus: 'missing',
+      startingUrl: "https://jobs.example.com/source-updated",
+      instructionStatus: "missing",
       validatedInstructionId: null,
       draftInstructionId: null,
       lastDebugRunId: null,
       lastVerifiedAt: null,
-      staleReason: 'Starting page URL changed. Check this source again before reusing saved guidance.'
-    })
-  })
+      staleReason:
+        "Starting page URL changed. Check this source again before reusing saved guidance.",
+    });
+  });
 
-  test('keeps incomplete source rows from being saved as search-ready', () => {
+  test("keeps incomplete source rows from being saved as search-ready", () => {
     const searchPreferences = JobSearchPreferencesSchema.parse({
-      targetRoles: ['Engineer'],
+      targetRoles: ["Engineer"],
       minimumSalaryUsd: null,
-      approvalMode: 'review_before_submit',
-      tailoringMode: 'balanced',
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
       discovery: { historyLimit: 5, targets: [] },
-    })
-    const values = createSearchPreferencesEditorValues(searchPreferences)
+    });
+    const values = createSearchPreferencesEditorValues(searchPreferences);
     values.discoveryTargets = [
       {
-        id: 'target_new',
-        label: 'New careers page',
-        startingUrl: '',
+        id: "target_new",
+        label: "New careers page",
+        startingUrl: "",
         enabled: true,
-        adapterKind: 'auto',
-        customInstructions: '',
-        instructionStatus: 'missing',
+        adapterKind: "auto",
+        customInstructions: "",
+        instructionStatus: "missing",
         validatedInstructionId: null,
         draftInstructionId: null,
         lastDebugRunId: null,
         lastVerifiedAt: null,
         staleReason: null,
       },
-    ]
+    ];
 
-    const result = buildSearchPreferencesPayload(searchPreferences, values)
+    const result = buildSearchPreferencesPayload(searchPreferences, values);
 
-    expect(result.payload).toBeUndefined()
-    expect(result.validationMessage).toContain('public http or https URL')
-  })
+    expect(result.payload).toBeUndefined();
+    expect(result.validationMessage).toContain("public http or https URL");
+  });
 
-  test('edits compensation as a typed range without converting the visible monthly amounts', () => {
+  test("saves around an untouched empty source draft without persisting it", () => {
     const searchPreferences = JobSearchPreferencesSchema.parse({
-      targetRoles: ['Senior Engineer'],
+      targetRoles: ["Engineer"],
+      locations: ["Remote"],
       minimumSalaryUsd: null,
-      approvalMode: 'review_before_submit',
-      tailoringMode: 'balanced',
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
+      discovery: { historyLimit: 5, targets: [] },
+    });
+    const values = createSearchPreferencesEditorValues(searchPreferences);
+    // The user clicked "Add source" (creating a blank expanded draft), then
+    // abandoned it and edited an unrelated preferences section.
+    values.locations = "Remote\nEU";
+    values.discoveryTargets = [
+      {
+        id: "target_complete",
+        label: "Mercury Greenhouse",
+        startingUrl: "https://job-boards.greenhouse.io/mercury",
+        enabled: false,
+        adapterKind: "auto",
+        customInstructions: "",
+        instructionStatus: "missing",
+        validatedInstructionId: null,
+        draftInstructionId: null,
+        lastDebugRunId: null,
+        lastVerifiedAt: null,
+        staleReason: null,
+      },
+      {
+        id: "target_abandoned_draft",
+        label: "",
+        startingUrl: "",
+        enabled: false,
+        adapterKind: "auto",
+        customInstructions: "",
+        instructionStatus: "missing",
+        validatedInstructionId: null,
+        draftInstructionId: null,
+        lastDebugRunId: null,
+        lastVerifiedAt: null,
+        staleReason: null,
+      },
+    ];
+
+    const result = buildSearchPreferencesPayload(searchPreferences, values);
+
+    expect(result.validationMessage).toBeUndefined();
+    expect(result.payload).toBeDefined();
+    // Unrelated locations edits are no longer blocked by the abandoned draft.
+    expect(result.payload?.locations).toEqual(["Remote", "EU"]);
+    // Only the completed source persists; the untouched draft disappears.
+    expect(result.payload?.discovery.targets).toHaveLength(1);
+    expect(result.payload?.discovery.targets[0]).toMatchObject({
+      id: "target_complete",
+      label: "Mercury Greenhouse",
+      startingUrl: "https://job-boards.greenhouse.io/mercury",
+      enabled: false,
+    });
+  });
+
+  test("blocks the save for any partially entered source row instead of dropping it", () => {
+    const searchPreferences = JobSearchPreferencesSchema.parse({
+      targetRoles: ["Engineer"],
+      minimumSalaryUsd: null,
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
+      discovery: { historyLimit: 5, targets: [] },
+    });
+    const createValuesWithPartialDraft = (
+      draft: Partial<DiscoveryTargetEditorValue>,
+    ) => {
+      const values = createSearchPreferencesEditorValues(searchPreferences);
+      values.discoveryTargets = [
+        {
+          id: "target_partial",
+          label: "",
+          startingUrl: "",
+          enabled: false,
+          adapterKind: "auto",
+          customInstructions: "",
+          instructionStatus: "missing",
+          validatedInstructionId: null,
+          draftInstructionId: null,
+          lastDebugRunId: null,
+          lastVerifiedAt: null,
+          staleReason: null,
+          ...draft,
+        },
+      ];
+      return values;
+    };
+
+    const labelOnlyResult = buildSearchPreferencesPayload(
+      searchPreferences,
+      createValuesWithPartialDraft({ label: "Half-typed board" }),
+    );
+    expect(labelOnlyResult.payload).toBeUndefined();
+    expect(labelOnlyResult.validationMessage).toContain("Half-typed board");
+
+    const urlOnlyResult = buildSearchPreferencesPayload(
+      searchPreferences,
+      createValuesWithPartialDraft({
+        startingUrl: "https://jobs.example.com/careers",
+      }),
+    );
+    expect(urlOnlyResult.payload).toBeUndefined();
+    expect(urlOnlyResult.validationMessage).toContain('for "New source"');
+
+    const instructionsOnlyResult = buildSearchPreferencesPayload(
+      searchPreferences,
+      createValuesWithPartialDraft({
+        customInstructions: "Expand the engineering careers accordion first.",
+      }),
+    );
+    expect(instructionsOnlyResult.payload).toBeUndefined();
+    expect(instructionsOnlyResult.validationMessage).toContain(
+      "public http or https URL",
+    );
+
+    // Toggling include-in-search on an otherwise blank row is explicit intent:
+    // it must surface the named error rather than silently persist or drop it.
+    const enabledOnlyResult = buildSearchPreferencesPayload(
+      searchPreferences,
+      createValuesWithPartialDraft({ enabled: true }),
+    );
+    expect(enabledOnlyResult.payload).toBeUndefined();
+    expect(enabledOnlyResult.validationMessage).toContain(
+      "public http or https URL",
+    );
+  });
+
+  test("blocks the save when a persisted source is cleared instead of dropping it", () => {
+    const searchPreferences = JobSearchPreferencesSchema.parse({
+      targetRoles: ["Engineer"],
+      minimumSalaryUsd: null,
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
+      discovery: {
+        historyLimit: 5,
+        targets: [
+          {
+            id: "target_mercury",
+            label: "Mercury Greenhouse",
+            startingUrl: "https://job-boards.greenhouse.io/mercury",
+            enabled: false,
+            customInstructions: "Expand the engineering accordion first.",
+            instructionStatus: "validated",
+            validatedInstructionId: "instruction_mercury",
+            draftInstructionId: null,
+            lastDebugRunId: "debug_mercury",
+            lastVerifiedAt: "2026-07-31T20:00:00.000Z",
+            staleReason: null,
+          },
+        ],
+      },
+    });
+    const values = createSearchPreferencesEditorValues(searchPreferences);
+    // The user clears every editable field on the saved-but-disabled source.
+    const clearedTarget = values.discoveryTargets[0]!;
+    clearedTarget.label = "";
+    clearedTarget.startingUrl = "";
+    clearedTarget.customInstructions = "";
+    clearedTarget.enabled = false;
+
+    const result = buildSearchPreferencesPayload(searchPreferences, values);
+
+    // Clearing a persisted source is a material edit, not an untouched draft:
+    // no payload may be built (nothing saved, nothing deleted), and the named
+    // completion error must point back at the source row.
+    expect(result.payload).toBeUndefined();
+    expect(result.validationMessage).toContain("public http or https URL");
+  });
+
+  test("edits compensation as a typed range without converting the visible monthly amounts", () => {
+    const searchPreferences = JobSearchPreferencesSchema.parse({
+      targetRoles: ["Senior Engineer"],
+      minimumSalaryUsd: null,
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
       compensation: {
         minimum: 3000,
         maximum: 4000,
-        interval: 'month',
-        currency: 'EUR',
-        currencyStatus: 'explicit'
-      }
-    })
-    const values = createSearchPreferencesEditorValues(searchPreferences)
+        interval: "month",
+        currency: "EUR",
+        currencyStatus: "explicit",
+      },
+    });
+    const values = createSearchPreferencesEditorValues(searchPreferences);
 
     expect(values).toMatchObject({
-      minimumSalaryUsd: '3000',
-      targetSalaryUsd: '4000',
-      compensationInterval: 'month',
-      salaryCurrency: 'EUR'
-    })
+      minimumSalaryUsd: "3000",
+      targetSalaryUsd: "4000",
+      compensationInterval: "month",
+      salaryCurrency: "EUR",
+    });
 
-    values.targetSalaryUsd = '4500'
-    const result = buildSearchPreferencesPayload(searchPreferences, values)
+    values.targetSalaryUsd = "4500";
+    const result = buildSearchPreferencesPayload(searchPreferences, values);
 
-    expect(result.validationMessage).toBeUndefined()
+    expect(result.validationMessage).toBeUndefined();
     expect(result.payload?.compensation).toEqual({
       minimum: 3000,
       maximum: 4500,
-      interval: 'month',
-      currency: 'EUR',
-      currencyStatus: 'explicit'
-    })
-    expect(result.payload?.minimumSalaryUsd).toBeNull()
-    expect(result.payload?.targetSalaryUsd).toBeNull()
-  })
+      interval: "month",
+      currency: "EUR",
+      currencyStatus: "explicit",
+    });
+    expect(result.payload?.minimumSalaryUsd).toBeNull();
+    expect(result.payload?.targetSalaryUsd).toBeNull();
+  });
 
-  test('requires a valid range and preserves an unresolved currency explicitly', () => {
+  test("requires a valid range and preserves an unresolved currency explicitly", () => {
     const searchPreferences = JobSearchPreferencesSchema.parse({
-      targetRoles: ['Senior Engineer'],
+      targetRoles: ["Senior Engineer"],
       minimumSalaryUsd: null,
-      approvalMode: 'review_before_submit',
-      tailoringMode: 'balanced'
-    })
-    const values = createSearchPreferencesEditorValues(searchPreferences)
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
+    });
+    const values = createSearchPreferencesEditorValues(searchPreferences);
 
-    values.minimumSalaryUsd = '4000'
-    values.targetSalaryUsd = '3000'
-    values.compensationInterval = 'month'
-    expect(buildSearchPreferencesPayload(searchPreferences, values).validationMessage).toContain(
-      'Maximum compensation'
-    )
+    values.minimumSalaryUsd = "4000";
+    values.targetSalaryUsd = "3000";
+    values.compensationInterval = "month";
+    expect(
+      buildSearchPreferencesPayload(searchPreferences, values)
+        .validationMessage,
+    ).toContain("Maximum compensation");
 
-    values.targetSalaryUsd = '5000'
-    values.salaryCurrency = ''
-    const result = buildSearchPreferencesPayload(searchPreferences, values)
+    values.targetSalaryUsd = "5000";
+    values.salaryCurrency = "";
+    const result = buildSearchPreferencesPayload(searchPreferences, values);
 
-    expect(result.validationMessage).toBeUndefined()
+    expect(result.validationMessage).toBeUndefined();
     expect(result.payload?.compensation).toEqual({
       minimum: 4000,
       maximum: 5000,
-      interval: 'month',
+      interval: "month",
       currency: null,
-      currencyStatus: 'needs_clarification'
-    })
-    expect(result.payload?.minimumSalaryUsd).toBeNull()
-    expect(result.payload?.targetSalaryUsd).toBeNull()
-  })
-})
+      currencyStatus: "needs_clarification",
+    });
+    expect(result.payload?.minimumSalaryUsd).toBeNull();
+    expect(result.payload?.targetSalaryUsd).toBeNull();
+  });
+
+  test("blocks the save when a project row is started but missing its name", () => {
+    const profile = createProfile();
+    const values = createProfileEditorValues(profile);
+
+    values.projects = [
+      {
+        id: "project_kept",
+        name: "Shipped project",
+        projectType: "",
+        summary: "",
+        role: "",
+        skills: "",
+        outcome: "",
+        projectUrl: "",
+        repositoryUrl: "",
+        caseStudyUrl: "",
+      },
+      {
+        id: "project_incomplete",
+        name: "",
+        projectType: "",
+        summary: "Half-written summary",
+        role: "",
+        skills: "",
+        outcome: "",
+        projectUrl: "",
+        repositoryUrl: "",
+        caseStudyUrl: "",
+      },
+    ];
+
+    const result = buildProfilePayload(profile, values);
+
+    expect(result.payload).toBeUndefined();
+    expect(result.validationMessage).toContain("incomplete project row");
+    expect(result.validationMessage).toContain("Half-written summary");
+  });
+
+  test("blocks the save when a language row is started but missing its name", () => {
+    const profile = createProfile();
+    const values = createProfileEditorValues(profile);
+
+    values.languages = [
+      {
+        id: "language_incomplete",
+        language: "",
+        proficiency: "Fluent",
+        interviewPreference: false,
+        notes: "",
+      },
+    ];
+
+    const result = buildProfilePayload(profile, values);
+
+    expect(result.payload).toBeUndefined();
+    expect(result.validationMessage).toContain("incomplete language row");
+  });
+
+  test("blocks the save when a proof bank row is started but missing its claim", () => {
+    const profile = createProfile();
+    const values = createProfileEditorValues(profile);
+
+    values.proofBank = [
+      {
+        id: "proof_incomplete",
+        title: "Led migration",
+        claim: "",
+        heroMetric: "",
+        supportingContext: "",
+        roleFamilies: "",
+        projectIds: "",
+        linkIds: "",
+      },
+    ];
+
+    const result = buildProfilePayload(profile, values);
+
+    expect(result.payload).toBeUndefined();
+    expect(result.validationMessage).toContain("incomplete proof bank row");
+  });
+
+  test("blocks the save when a custom answer row is started but missing its answer", () => {
+    const profile = createProfile();
+    const values = createProfileEditorValues(profile);
+
+    values.answerBank.customAnswers = [
+      {
+        id: "answer_incomplete",
+        label: "Why this company?",
+        question: "Why do you want to work here?",
+        answer: "",
+        kind: "other",
+        roleFamilies: "",
+        proofEntryIds: "",
+      },
+    ];
+
+    const result = buildProfilePayload(profile, values);
+
+    expect(result.payload).toBeUndefined();
+    expect(result.validationMessage).toContain("incomplete custom answer row");
+  });
+
+  test("still saves fully empty optional rows without inventing data", () => {
+    const profile = createProfile();
+    const values = createProfileEditorValues(profile);
+
+    values.projects = [
+      {
+        id: "project_empty",
+        name: "",
+        projectType: "",
+        summary: "",
+        role: "",
+        skills: "",
+        outcome: "",
+        projectUrl: "",
+        repositoryUrl: "",
+        caseStudyUrl: "",
+      },
+    ];
+
+    const result = buildProfilePayload(profile, values);
+
+    expect(result.validationMessage).toBeUndefined();
+    expect(result.payload?.projects).toEqual([]);
+  });
+
+  test("keeps manual duplicate experience rows while collapsing duplicate import candidates", () => {
+    const profile = CandidateProfileSchema.parse({
+      ...createProfile(),
+      experiences: [
+        {
+          id: "experience_manual_1",
+          companyName: "Mercury",
+          companyUrl: null,
+          title: "Senior Software Engineer",
+          employmentType: null,
+          location: null,
+          workMode: [],
+          startDate: "2024-08",
+          endDate: null,
+          isCurrent: true,
+          isDraft: false,
+          summary: null,
+          achievements: [],
+          skills: [],
+          domainTags: [],
+          peopleManagementScope: null,
+          ownershipScope: null,
+        },
+      ],
+    });
+
+    const baseValues = createProfileEditorValues(profile);
+    // Simulate an untouched import candidate that duplicates the manual
+    // record exactly once it reaches the persisted record shape.
+    baseValues.records.experiences = [
+      ...baseValues.records.experiences,
+      {
+        id: "experience_candidate_dup",
+        companyName: "Mercury",
+        companyUrl: "",
+        title: "Senior Software Engineer",
+        employmentType: "",
+        location: "",
+        workMode: [],
+        startDate: "2024-08",
+        endDate: "",
+        isCurrent: true,
+        summary: "",
+        achievements: "",
+        skills: "",
+        domainTags: "",
+        peopleManagementScope: "",
+        ownershipScope: "",
+        sourceCandidateId: "candidate_duplicate",
+        sourceCandidateFingerprint: "candidate-duplicate-fingerprint",
+      },
+    ];
+
+    const result = buildProfilePayload(profile, baseValues);
+
+    expect(result.validationMessage).toBeUndefined();
+    // The manually created duplicate survives; only the import-candidate copy
+    // is collapsed.
+    expect(result.payload?.experiences).toHaveLength(1);
+    expect(result.payload?.experiences[0]?.id).toBe("experience_manual_1");
+  });
+
+  test("keeps Main skills authoritative so deleting a skill from Main sticks", () => {
+    const profile = CandidateProfileSchema.parse({
+      ...createProfile(),
+      skills: ["Figma", "Python"],
+      skillGroups: {
+        coreSkills: ["Python"],
+        tools: ["Figma"],
+        languagesAndFrameworks: [],
+        softSkills: [],
+        highlightedSkills: [],
+      },
+    });
+    const values = createProfileEditorValues(profile);
+
+    // The user deletes Python from the Main skills field.
+    values.profileSkills = "Figma";
+
+    const result = buildProfilePayload(profile, values);
+
+    expect(result.validationMessage).toBeUndefined();
+    expect(result.payload?.skills).toEqual(["Figma"]);
+    expect(result.payload?.skillGroups.coreSkills).toEqual(["Python"]);
+  });
+
+  test("parses comma-separated role families as separate tokens on save", () => {
+    const profile = createProfile();
+    const values = createProfileEditorValues(profile);
+
+    values.proofBank = [
+      {
+        id: "proof_roles",
+        title: "Led redesign",
+        claim: "Cut onboarding time by 18%.",
+        heroMetric: "",
+        supportingContext: "",
+        roleFamilies: "frontend, fullstack\ndesign systems",
+        projectIds: "",
+        linkIds: "",
+      },
+    ];
+    values.answerBank.customAnswers = [
+      {
+        id: "answer_roles",
+        label: "",
+        question: "Tell us about a launch.",
+        answer: "Shipped the platform relaunch.",
+        kind: "other",
+        roleFamilies: "backend,platform",
+        proofEntryIds: "",
+      },
+    ];
+
+    const result = buildProfilePayload(profile, values);
+
+    expect(result.validationMessage).toBeUndefined();
+    expect(result.payload?.proofBank[0]?.roleFamilies).toEqual([
+      "frontend",
+      "fullstack",
+      "design systems",
+    ]);
+    expect(result.payload?.answerBank.customAnswers[0]?.roleFamilies).toEqual([
+      "backend",
+      "platform",
+    ]);
+  });
+
+  test("round-trips saved role families through the editor values unchanged", () => {
+    const profile = CandidateProfileSchema.parse({
+      ...createProfile(),
+      proofBank: [
+        {
+          id: "proof_saved",
+          title: "Led redesign",
+          claim: "Cut onboarding time by 18%.",
+          heroMetric: null,
+          supportingContext: null,
+          roleFamilies: ["frontend", "fullstack"],
+          projectIds: [],
+          linkIds: [],
+        },
+      ],
+    });
+
+    const values = createProfileEditorValues(profile);
+    expect(values.proofBank[0]?.roleFamilies).toBe("frontend\nfullstack");
+
+    const result = buildProfilePayload(profile, values);
+    expect(result.validationMessage).toBeUndefined();
+    expect(result.payload?.proofBank[0]?.roleFamilies).toEqual([
+      "frontend",
+      "fullstack",
+    ]);
+    expect(hasProfileDraftChanges(profile, result.payload)).toBe(false);
+  });
+});

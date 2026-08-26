@@ -63,7 +63,7 @@ export function SettingsSupportControls() {
           </h2>
           <p className="text-sm leading-6 text-foreground-soft">
             Save a local report with app status, performance timings, and
-            capability checks. It excludes credentials, résumé content,
+            capability checks. It excludes credentials, resume content,
             screenshots, transcripts, browser storage, private payloads, URL
             secrets, and local paths.
           </p>

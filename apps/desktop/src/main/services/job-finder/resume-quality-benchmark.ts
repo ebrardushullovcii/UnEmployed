@@ -122,9 +122,14 @@ function collectVisibleSkills(draft: JobFinderRepositoryState['resumeDrafts'][nu
     .flatMap((section) => section.bullets.filter((bullet) => bullet.included).map((bullet) => bullet.text))
 }
 
+type GroundingSkillEvidenceProfile = Pick<JobFinderRepositoryState['profile'], 'skills' | 'skillGroups'> & {
+  experiences: readonly { skills: JobFinderRepositoryState['profile']['experiences'][number]['skills'] }[]
+  projects: readonly { skills: JobFinderRepositoryState['profile']['projects'][number]['skills'] }[]
+}
+
 function collectGroundingSkillEvidence(input: {
-  job: SavedJob
-  profile: JobFinderRepositoryState['profile']
+  job: Pick<SavedJob, 'keySkills' | 'keywordSignals'>
+  profile: GroundingSkillEvidenceProfile
 }): Set<string> {
   return new Set(
     [
@@ -143,13 +148,16 @@ function collectGroundingSkillEvidence(input: {
   )
 }
 
-function hasGroundedVisibleSkills(input: {
+/**
+ * Conservative grounding gate: zero visible skills is missing evidence, not a pass.
+ */
+export function calculateGroundedVisibleSkillRate(input: {
   visibleSkills: readonly string[]
-  job: SavedJob
-  profile: JobFinderRepositoryState['profile']
-}): boolean {
+  job: Pick<SavedJob, 'keySkills' | 'keywordSignals'>
+  profile: GroundingSkillEvidenceProfile
+}): number {
   if (input.visibleSkills.length === 0) {
-    return true
+    return 0
   }
 
   const evidence = collectGroundingSkillEvidence({
@@ -157,7 +165,7 @@ function hasGroundedVisibleSkills(input: {
     profile: input.profile,
   })
 
-  return input.visibleSkills.every((skill) => evidence.has(normalizeText(skill)))
+  return input.visibleSkills.every((skill) => evidence.has(normalizeText(skill))) ? 1 : 0
 }
 
 const experienceActionVerbs = new Set([
@@ -1653,6 +1661,19 @@ function buildGenerationDiagnostics(
   }
 }
 
+/**
+ * Applies a fixture's controlled post-generation draft override in every provider lane,
+ * so sanitizer gates are exercised against the same synthetic content whether the draft
+ * came from the deterministic client or the configured environment model.
+ */
+export function applyFixtureDraftOverride<J>(input: {
+  overrideDraft?: ((args: { baseDraft: TailoredResumeDraft; job: J }) => TailoredResumeDraft) | undefined
+  baseDraft: TailoredResumeDraft
+  job: J
+}): TailoredResumeDraft {
+  return input.overrideDraft ? input.overrideDraft({ baseDraft: input.baseDraft, job: input.job }) : input.baseDraft
+}
+
 function buildBenchmarkAiClient(input: {
   fixture: ResumeQualityBenchmarkFixture
   useConfiguredAi: boolean
@@ -1669,10 +1690,11 @@ function buildBenchmarkAiClient(input: {
   ) => {
     const baseDraft = await baseClient.createResumeDraft(createInput)
     const validatedJob = JobPostingSchema.parse(createInput.job)
-    const result =
-      !input.useConfiguredAi && input.fixture.overrideDraft
-        ? input.fixture.overrideDraft({ baseDraft, job: validatedJob })
-        : baseDraft
+    const result = applyFixtureDraftOverride({
+      overrideDraft: input.fixture.overrideDraft,
+      baseDraft,
+      job: validatedJob,
+    })
     input.onDraft(result)
     return result
   }
@@ -1690,17 +1712,62 @@ async function resolveFixtureState(
   return fixture.buildState(templateId)
 }
 
-function includesKeywordCoverage(content: string, job: SavedJob): boolean {
+/**
+ * Real coverage ratio: share of the job's distinct target keywords present in visible text.
+ * A job with no declared targets cannot demonstrate coverage, so the rate is 0.
+ */
+export function calculateKeywordCoverageRate(
+  content: string,
+  job: Pick<SavedJob, 'keySkills' | 'keywordSignals'>,
+): number {
   const normalizedContent = normalizeText(content)
-  const normalizedTargets = [...job.keySkills, ...job.keywordSignals.map((signal) => signal.label)]
-    .map((entry) => normalizeText(entry))
-    .filter(Boolean)
+  const normalizedTargets = [
+    ...new Set(
+      [...job.keySkills, ...job.keywordSignals.map((signal) => signal.label)]
+        .map((entry) => normalizeText(entry))
+        .filter(Boolean),
+    ),
+  ]
 
   if (normalizedTargets.length === 0) {
-    return true
+    return 0
   }
 
-  return normalizedTargets.some((target) => matchesWholePhrase(normalizedContent, target))
+  const supportedCount = normalizedTargets.filter((target) => matchesWholePhrase(normalizedContent, target)).length
+
+  return supportedCount / normalizedTargets.length
+}
+
+/**
+ * Page-target gate requires measured page evidence; absence of a measurement fails
+ * instead of passing vacuously.
+ */
+export function calculatePageTargetPassRate(input: {
+  measuredPageCount: number | null | undefined
+  hasPageOverflowIssue: boolean
+}): number {
+  if (
+    typeof input.measuredPageCount !== 'number' ||
+    !Number.isFinite(input.measuredPageCount) ||
+    input.measuredPageCount < 1
+  ) {
+    return 0
+  }
+
+  return input.hasPageOverflowIssue ? 0 : 1
+}
+
+/**
+ * Structural ATS criteria only. A self-declared marker such as data-ats-safe never
+ * satisfies this gate on its own.
+ */
+export function looksAtsSafeFromStructure(html: string): boolean {
+  return (
+    html.includes('grid-template-columns: 1fr;') &&
+    html.includes('@page') &&
+    !html.includes('Targeted Keywords') &&
+    !html.includes('<table')
+  )
 }
 
 function scoreCaseMetrics(input: {
@@ -1742,21 +1809,14 @@ function scoreCaseMetrics(input: {
   const hasDuplicateIssue = issues.some((issue) => duplicateCategories.has(issue.category))
   const hasThinOutputIssue = issues.some((issue) => issue.category === 'thin_output')
   const hasPageOverflowIssue = issues.some((issue) => issue.category === 'page_overflow')
-  const htmlLooksAtsSafe =
-    input.html.includes('data-ats-safe="true"') ||
-    (input.html.includes('grid-template-columns: 1fr;') &&
-      input.html.includes('@page') &&
-      !input.html.includes('Targeted Keywords') &&
-      !input.html.includes('<table'))
+  const htmlLooksAtsSafe = looksAtsSafeFromStructure(input.html)
 
   return {
-    groundedVisibleSkillRate: hasGroundedVisibleSkills({
+    groundedVisibleSkillRate: calculateGroundedVisibleSkillRate({
       visibleSkills,
       job: input.job,
       profile: input.profile,
-    })
-      ? 1
-      : 0,
+    }),
     workHistoryRepresentationRate: calculateWorkHistoryRepresentationRate({
       profileExperienceIds: input.profile.experiences.map((experience) => experience.id),
       draftExperienceEntries: allExperienceEntries,
@@ -1769,10 +1829,13 @@ function scoreCaseMetrics(input: {
     fragmentFreeExperienceBulletRate: calculateFragmentFreeExperienceBulletRate(includedExperienceBullets),
     professionalExperienceSummaryRate: calculateProfessionalExperienceSummaryRate(experienceEntries),
     bleedFreeCaseRate: hasBleedIssue ? 0 : 1,
-    keywordCoverageRate: includesKeywordCoverage(visibleText, input.job) ? 1 : 0,
+    keywordCoverageRate: calculateKeywordCoverageRate(visibleText, input.job),
     duplicateIssueFreeRate: hasDuplicateIssue ? 0 : 1,
     thinOutputFreeRate: hasThinOutputIssue ? 0 : 1,
-    pageTargetPassRate: hasPageOverflowIssue ? 0 : 1,
+    pageTargetPassRate: calculatePageTargetPassRate({
+      measuredPageCount: input.workspace.validation?.pageCount ?? null,
+      hasPageOverflowIssue,
+    }),
     atsRenderPassRate: htmlLooksAtsSafe ? 1 : 0,
     issueFreeCaseRate: issues.length === 0 ? 1 : 0,
   }
@@ -1922,9 +1985,15 @@ export async function runDesktopResumeQualityBenchmark(
             const passed = passesResumeQualityAcceptance(metrics)
 
             const templateName = asset.templateName?.trim() ?? ''
+            const pageCountMeasured = (workspace.validation?.pageCount ?? null) !== null
             const notes = [
               ...(templateName ? [`Template: ${templateName}.`] : []),
               ...(asset.notes ?? []).map((note) => note.trim()).filter(Boolean),
+              ...(pageCountMeasured
+                ? []
+                : [
+                    'Page target unevaluated: no measured page count for the rendered artifact, so the page-target gate cannot pass.',
+                  ]),
             ]
 
             results.push({
@@ -1966,7 +2035,7 @@ export async function runDesktopResumeQualityBenchmark(
     notes: [
       ...(request.useConfiguredAi
         ? [
-            'Configured provider benchmark: the current environment model generated each draft; deterministic claim validation and rendering still enforced safety.',
+            'Configured provider benchmark: the current environment model generated each draft; deterministic claim validation and rendering still enforced safety, and controlled fixture overrides (contamination guard, thin profile) were applied post-generation in this lane as well.',
           ]
         : []),
       ...availableTemplates

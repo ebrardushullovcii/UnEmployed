@@ -15,6 +15,7 @@ export function createSubmittedAttempt(): ApplicationAttempt {
   return {
     id: "attempt_1",
     jobId: "job_1",
+    applicationRecordId: null,
     state: "submitted" as const,
     summary: "Easy Apply submitted",
     detail: "Submitted successfully.",

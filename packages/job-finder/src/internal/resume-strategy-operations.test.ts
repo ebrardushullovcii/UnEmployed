@@ -796,10 +796,51 @@ describe("recommendResumeStrategy", () => {
     if (!result.ok) return;
     expect(result.strategyId).toBe("s_default");
     expect(result.source).toBe("campaign_default");
+    expect(result.reason).toBe(
+      "Multiple enabled approaches match role family “Backend Engineering”; using search plan fallback “Generalist”.",
+    );
   });
 
-  test("returns null when multiple matches exist and no campaign default is usable", () => {
-    const result = recommendResumeStrategy({
+  test("reports a configured-but-unusable fallback truthfully when multiple matches exist", () => {
+    const state = buildState([
+      buildStrategy({
+        id: "s_backend_a",
+        name: "Backend A",
+        roleFamily: "Backend Engineering",
+      }),
+      buildStrategy({
+        id: "s_backend_b",
+        name: "Backend B",
+        roleFamily: "Backend Engineering",
+      }),
+      buildStrategy({
+        id: "s_default",
+        name: "Generalist",
+        roleFamily: "General",
+        enabled: false,
+      }),
+    ]);
+
+    const disabledDefault = recommendResumeStrategy({
+      state,
+      roleFamily: "Backend Engineering",
+      campaignDefaultResumeStrategyId: "s_default",
+    });
+
+    expect(disabledDefault.ok).toBe(true);
+    if (!disabledDefault.ok) return;
+    expect(disabledDefault.strategyId).toBeNull();
+    expect(disabledDefault.source).toBe("none");
+    expect(disabledDefault.reason).toBe(
+      "Multiple enabled approaches match role family “Backend Engineering” and the configured search plan fallback “Generalist” is disabled.",
+    );
+    // The default is configured, so claiming it was never set would be false.
+    expect(disabledDefault.reason).not.toContain(
+      "no search plan fallback is set",
+    );
+    expect(disabledDefault.reason).not.toContain("s_default");
+
+    const unknownDefault = recommendResumeStrategy({
       state: buildState([
         buildStrategy({
           id: "s_backend_a",
@@ -813,13 +854,16 @@ describe("recommendResumeStrategy", () => {
         }),
       ]),
       roleFamily: "Backend Engineering",
-      campaignDefaultResumeStrategyId: "s_disabled_default",
+      campaignDefaultResumeStrategyId: "s_missing_default",
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.strategyId).toBeNull();
-    expect(result.source).toBe("none");
+    expect(unknownDefault.ok).toBe(true);
+    if (!unknownDefault.ok) return;
+    expect(unknownDefault.strategyId).toBeNull();
+    expect(unknownDefault.source).toBe("none");
+    expect(unknownDefault.reason).toBe(
+      "Multiple enabled approaches match role family “Backend Engineering” and the configured search plan fallback is not available.",
+    );
   });
 
   test("uses the campaign default for an empty roleFamily", () => {
@@ -839,5 +883,269 @@ describe("recommendResumeStrategy", () => {
     if (!result.ok) return;
     expect(result.strategyId).toBe("s_default");
     expect(result.source).toBe("campaign_default");
+  });
+
+  test("says no enabled approach matched the job when approaches exist but none match and no fallback is set", () => {
+    const result = recommendResumeStrategy({
+      state: buildState([
+        buildStrategy({
+          id: "s_se",
+          name: "Software engineering",
+          roleFamily: "Software Engineering",
+        }),
+      ]),
+      roleFamily: "",
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.strategyId).toBeNull();
+    expect(result.source).toBe("none");
+    expect(result.reason).toBe(
+      "No enabled approach matched this job and no search plan fallback is set.",
+    );
+    // The historical false claim must never come back.
+    expect(result.reason).not.toMatch(/no enabled strategy exists/i);
+  });
+
+  test("names the fallback approach instead of its raw id when the derived job family is unmatched", () => {
+    const result = recommendResumeStrategy({
+      state: buildState([
+        buildStrategy({
+          id: "s_se",
+          name: "Software engineering",
+          roleFamily: "Software Engineering",
+        }),
+      ]),
+      roleFamily: "",
+      campaignDefaultResumeStrategyId: "s_se",
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.strategyId).toBe("s_se");
+    expect(result.source).toBe("campaign_default");
+    expect(result.reason).toBe(
+      "No enabled approach matched this job; using search plan fallback “Software engineering”.",
+    );
+    expect(result.reason).toContain("Software engineering");
+    expect(result.reason).not.toContain("s_se");
+    expect(result.reason).not.toMatch(/no rolefamily was provided/i);
+  });
+
+  test("names the fallback approach for an unmatched explicit family without exposing the raw id", () => {
+    const result = recommendResumeStrategy({
+      state: buildState([
+        buildStrategy({
+          id: "s_default",
+          name: "Generalist",
+          roleFamily: "General",
+        }),
+      ]),
+      roleFamily: "Data Engineering",
+      campaignDefaultResumeStrategyId: "s_default",
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.strategyId).toBe("s_default");
+    expect(result.source).toBe("campaign_default");
+    expect(result.reason).toBe(
+      "No enabled approach matched role family “Data Engineering”; using search plan fallback “Generalist”.",
+    );
+    expect(result.reason).not.toContain("s_default");
+  });
+
+  test("reports a persisted-but-disabled fallback truthfully when no approach matches the derived family", () => {
+    const result = recommendResumeStrategy({
+      state: buildState([
+        buildStrategy({
+          id: "s_se",
+          name: "Software engineering",
+          roleFamily: "Software Engineering",
+        }),
+        buildStrategy({
+          id: "s_default",
+          name: "Generalist",
+          roleFamily: "General",
+          enabled: false,
+        }),
+      ]),
+      roleFamily: "Data Engineering",
+      campaignDefaultResumeStrategyId: "s_default",
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.strategyId).toBeNull();
+    expect(result.source).toBe("none");
+    expect(result.reason).toBe(
+      "No enabled approach matched role family “Data Engineering” and the configured search plan fallback “Generalist” is disabled.",
+    );
+    // The default is configured, so claiming it was never set would be false.
+    expect(result.reason).not.toContain("no search plan fallback is set");
+    expect(result.reason).not.toContain("s_default");
+  });
+
+  test("keeps fallback approach names containing quotes unambiguous without exposing raw ids", () => {
+    const quotedName = 'The "Closer" approach';
+
+    const usingFallback = recommendResumeStrategy({
+      state: buildState([
+        buildStrategy({
+          id: "s_quoted",
+          name: quotedName,
+          roleFamily: "General",
+        }),
+      ]),
+      roleFamily: "",
+      campaignDefaultResumeStrategyId: "s_quoted",
+    });
+
+    expect(usingFallback.ok).toBe(true);
+    if (!usingFallback.ok) return;
+    expect(usingFallback.strategyId).toBe("s_quoted");
+    expect(usingFallback.source).toBe("campaign_default");
+    expect(usingFallback.reason).toBe(
+      'No enabled approach matched this job; using search plan fallback “The "Closer" approach”.',
+    );
+    expect(usingFallback.reason).not.toContain("s_quoted");
+    // Straight-quote delimiters would blur where the human name ends.
+    expect(usingFallback.reason).not.toMatch(/fallback "/);
+
+    const disabledFallback = recommendResumeStrategy({
+      state: buildState([
+        buildStrategy({
+          id: "s_se",
+          name: "Software engineering",
+          roleFamily: "Software Engineering",
+        }),
+        buildStrategy({
+          id: "s_quoted",
+          name: quotedName,
+          roleFamily: "General",
+          enabled: false,
+        }),
+      ]),
+      roleFamily: "Data Engineering",
+      campaignDefaultResumeStrategyId: "s_quoted",
+    });
+
+    expect(disabledFallback.ok).toBe(true);
+    if (!disabledFallback.ok) return;
+    expect(disabledFallback.strategyId).toBeNull();
+    expect(disabledFallback.source).toBe("none");
+    expect(disabledFallback.reason).toBe(
+      'No enabled approach matched role family “Data Engineering” and the configured search plan fallback “The "Closer" approach” is disabled.',
+    );
+    expect(disabledFallback.reason).not.toContain("s_quoted");
+  });
+
+  test("says enabled resume approaches do not exist yet when none are enabled", () => {
+    const allDisabled = recommendResumeStrategy({
+      state: buildState([
+        buildStrategy({
+          id: "s_old",
+          name: "Legacy",
+          roleFamily: "Legacy",
+          enabled: false,
+        }),
+      ]),
+      roleFamily: "",
+    });
+
+    expect(allDisabled.ok).toBe(true);
+    if (!allDisabled.ok) return;
+    expect(allDisabled.strategyId).toBeNull();
+    expect(allDisabled.source).toBe("none");
+    expect(allDisabled.reason).toBe(
+      "No enabled resume approaches exist yet and no search plan fallback is set.",
+    );
+
+    const noneAtAll = recommendResumeStrategy({
+      state: emptyState,
+      roleFamily: "Backend Engineering",
+    });
+
+    expect(noneAtAll.ok).toBe(true);
+    if (!noneAtAll.ok) return;
+    expect(noneAtAll.strategyId).toBeNull();
+    expect(noneAtAll.source).toBe("none");
+    expect(noneAtAll.reason).toBe(
+      "No enabled resume approaches exist yet and no search plan fallback is set.",
+    );
+
+    // A configured fallback stays configured even while every approach is
+    // disabled, so the reason must name it instead of claiming none was set.
+    const disabledFallback = recommendResumeStrategy({
+      state: buildState([
+        buildStrategy({
+          id: "s_old",
+          name: "Legacy",
+          roleFamily: "Legacy",
+          enabled: false,
+        }),
+      ]),
+      roleFamily: "",
+      campaignDefaultResumeStrategyId: "s_old",
+    });
+
+    expect(disabledFallback.ok).toBe(true);
+    if (!disabledFallback.ok) return;
+    expect(disabledFallback.strategyId).toBeNull();
+    expect(disabledFallback.source).toBe("none");
+    expect(disabledFallback.reason).toBe(
+      "No enabled resume approaches exist yet and the configured search plan fallback “Legacy” is disabled.",
+    );
+    expect(disabledFallback.reason).not.toContain(
+      "no search plan fallback is set",
+    );
+    expect(disabledFallback.reason).not.toContain("s_old");
+
+    const staleFallback = recommendResumeStrategy({
+      state: buildState([
+        buildStrategy({
+          id: "s_old",
+          name: "Legacy",
+          roleFamily: "Legacy",
+          enabled: false,
+        }),
+      ]),
+      roleFamily: "",
+      campaignDefaultResumeStrategyId: "s_missing",
+    });
+
+    expect(staleFallback.ok).toBe(true);
+    if (!staleFallback.ok) return;
+    expect(staleFallback.strategyId).toBeNull();
+    expect(staleFallback.source).toBe("none");
+    expect(staleFallback.reason).toBe(
+      "No enabled resume approaches exist yet and the configured search plan fallback is not available.",
+    );
+  });
+
+  test("humanizes the exact-match reason label while keeping the recommendation semantics", () => {
+    const result = recommendResumeStrategy({
+      state: buildState([
+        buildStrategy({
+          id: "s_backend",
+          name: "Backend",
+          roleFamily: "Backend Engineering",
+        }),
+      ]),
+      roleFamily: "Backend Engineering",
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.strategyId).toBe("s_backend");
+    expect(result.source).toBe("role_family");
+    expect(result.reason).toBe(
+      "Exact enabled role family match: “Backend Engineering”.",
+    );
+    // The reason is display text only: humanized wording, never the raw
+    // camelCase field name.
+    expect(result.reason).toContain("role family");
+    expect(result.reason).not.toContain("roleFamily");
   });
 });

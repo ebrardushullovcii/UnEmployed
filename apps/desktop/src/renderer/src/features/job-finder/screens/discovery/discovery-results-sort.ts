@@ -1,0 +1,177 @@
+import { useEffect, useState } from "react";
+import type { SavedJob } from "@unemployed/contracts";
+import {
+  compareDiscoveryFitTieBreaks,
+  compareDiscoveryJobs,
+  getClearMismatchPenalty,
+  getDiscoveryListingRecencyKey,
+} from "@unemployed/job-finder/discovery-ordering";
+
+export type DiscoveryResultsSortField = "fit" | "recent" | "company";
+export type DiscoveryResultsSortDirection = "asc" | "desc";
+
+export interface DiscoveryResultsSort {
+  readonly direction: DiscoveryResultsSortDirection;
+  readonly field: DiscoveryResultsSortField;
+}
+
+export const DISCOVERY_RESULTS_DEFAULT_SORT: DiscoveryResultsSort = {
+  direction: "desc",
+  field: "fit",
+};
+
+const SORT_STORAGE_KEY = "unemployed.job-finder.discovery.results-sort.v1";
+
+// Switching pivots lands on the least surprising direction per field:
+// alphabetical companies, strongest fits, newest listings.
+const DEFAULT_DIRECTION_BY_FIELD: Record<
+  DiscoveryResultsSortField,
+  DiscoveryResultsSortDirection
+> = {
+  company: "asc",
+  fit: "desc",
+  recent: "desc",
+};
+
+function isSortField(value: unknown): value is DiscoveryResultsSortField {
+  return value === "fit" || value === "recent" || value === "company";
+}
+
+function isSortDirection(
+  value: unknown,
+): value is DiscoveryResultsSortDirection {
+  return value === "asc" || value === "desc";
+}
+
+function readPersistedSort(): DiscoveryResultsSort {
+  try {
+    const raw = window.localStorage.getItem(SORT_STORAGE_KEY);
+    if (!raw) return DISCOVERY_RESULTS_DEFAULT_SORT;
+    const parsed = JSON.parse(raw) as {
+      direction?: unknown;
+      field?: unknown;
+    };
+    return isSortField(parsed.field) && isSortDirection(parsed.direction)
+      ? { direction: parsed.direction, field: parsed.field }
+      : DISCOVERY_RESULTS_DEFAULT_SORT;
+  } catch {
+    // Unreadable preferences fall back to the shipped fit ranking.
+    return DISCOVERY_RESULTS_DEFAULT_SORT;
+  }
+}
+
+export function useDiscoveryResultsSort() {
+  const [sort, setSort] = useState<DiscoveryResultsSort>(readPersistedSort);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify(sort));
+    } catch {
+      // Results still render when durable renderer preferences are unavailable.
+    }
+  }, [sort]);
+
+  return {
+    setSortDirection: (direction: DiscoveryResultsSortDirection) =>
+      setSort((current) => ({ ...current, direction })),
+    setSortField: (field: DiscoveryResultsSortField) =>
+      setSort((current) =>
+        current.field === field
+          ? current
+          : { direction: DEFAULT_DIRECTION_BY_FIELD[field], field },
+      ),
+    sort,
+    toggleSortDirection: () =>
+      setSort((current) => ({
+        ...current,
+        direction: current.direction === "desc" ? "asc" : "desc",
+      })),
+  };
+}
+
+// Renderer-facing name for the shared canonical Best-match comparator; the
+// discovery screen pre-sorts results with it before the panel takes over.
+export { compareDiscoveryJobs as compareDiscoveryFitOrder };
+
+// The recency key follows the shared source-generic chain: parsed postedAt
+// first, then an absolute postedAtText, then the provider's listing-update
+// date only when no posting-date label exists. A relative label ("2 days
+// ago") names no sortable instant, so it stays unknown rather than borrowing
+// a hidden provider date or fabricating one. Shared with the
+// discovery-ordering package so every consumer resolves recency identically.
+export function getListingRecencyTimestamp(job: SavedJob): number | null {
+  const recency = getDiscoveryListingRecencyKey({
+    postedAt: job.postedAt,
+    postedAtText: job.postedAtText,
+    providerUpdatedAt: job.providerUpdatedAt,
+  });
+  return recency.basis === null ? null : recency.timestamp;
+}
+
+const companyNameCollator = new Intl.Collator("en", {
+  sensitivity: "base",
+  numeric: true,
+});
+
+/**
+ * Deterministic total ordering for discovery results. `sourceIndex` is each
+ * job's position in the caller's incoming (already fit-ranked) list and breaks
+ * every tie, so equal keys keep their stable relative order instead of
+ * shuffling between renders.
+ */
+export function compareDiscoveryResults(
+  left: SavedJob,
+  right: SavedJob,
+  sort: DiscoveryResultsSort,
+  leftSourceIndex: number,
+  rightSourceIndex: number,
+): number {
+  const mismatchOrder =
+    getClearMismatchPenalty(left) - getClearMismatchPenalty(right);
+  if (mismatchOrder !== 0) return mismatchOrder;
+
+  switch (sort.field) {
+    case "company": {
+      const byCompany = companyNameCollator.compare(
+        left.company,
+        right.company,
+      );
+      if (byCompany !== 0) {
+        return sort.direction === "asc" ? byCompany : -byCompany;
+      }
+      const byTitle = companyNameCollator.compare(left.title, right.title);
+      if (byTitle !== 0) {
+        return sort.direction === "asc" ? byTitle : -byTitle;
+      }
+      break;
+    }
+    case "recent": {
+      const leftTimestamp = getListingRecencyTimestamp(left);
+      const rightTimestamp = getListingRecencyTimestamp(right);
+      if (leftTimestamp === null || rightTimestamp === null) {
+        if (leftTimestamp !== rightTimestamp) {
+          return leftTimestamp === null ? 1 : -1;
+        }
+        break;
+      }
+      const byRecency = leftTimestamp - rightTimestamp;
+      if (byRecency !== 0) {
+        return sort.direction === "desc" ? -byRecency : byRecency;
+      }
+      break;
+    }
+    case "fit":
+    default: {
+      if (sort.direction === "desc") {
+        return compareDiscoveryJobs(left, right);
+      }
+      const byScore = right.matchAssessment.score - left.matchAssessment.score;
+      if (byScore !== 0) {
+        return -byScore;
+      }
+      return compareDiscoveryFitTieBreaks(left, right);
+    }
+  }
+
+  return leftSourceIndex - rightSourceIndex;
+}

@@ -1,4 +1,4 @@
-import { lazy, useCallback, useEffect, useLayoutEffect, useState } from "react";
+import { lazy, useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { jobFinderPendingActions } from "./job-finder-pending-actions";
 import { Button } from "@renderer/components/ui/button";
@@ -25,17 +25,30 @@ import type {
 } from "@unemployed/contracts";
 import { ApplicationCrmSettingsSchema } from "@unemployed/contracts";
 import { countActiveSafeguardBlockers } from "@renderer/features/job-finder/lib/safeguards-blocker-count";
+import { ApplicationsScreen } from "@renderer/features/job-finder/screens/applications/applications-screen";
+import { DiscoveryScreen } from "@renderer/features/job-finder/screens/discovery/discovery-screen";
+import { ProfileScreen } from "@renderer/features/job-finder/screens/profile-screen";
+import { ReviewQueueScreen } from "@renderer/features/job-finder/screens/review-queue/review-queue-screen";
 import {
+  buildJobFinderContextRoute,
   clearJobFinderContextQuery,
   JOB_FINDER_CONTEXT_QUERY_KEYS,
+  JOB_FINDER_RETURN_ROUTES,
   readJobFinderNavigationContext,
+  readJobFinderReturnRoute,
   selectJobFinderContext,
 } from "@renderer/features/job-finder/lib/job-finder-context-navigation";
+import {
+  RESUME_WORKSPACE_REQUIRED_COLLECTIONS,
+  resolveResumeWorkspaceRouteState,
+} from "@renderer/features/job-finder/lib/resume-workspace-route-state";
 
-// Keep the app shell and its initial route small. These screens are independent
-// route surfaces and are loaded only when their route is rendered. The page
-// boundary owns the shared loading fallback, so a first visit to a route is
-// explicit and recoverable instead of rendering a blank page.
+// The canonical workflow surfaces (Profile, Find jobs, Shortlisted,
+// Applications) are part of the initial-route bundle so their real headings
+// mount on the first commit without a Suspense placeholder. Long-tail route
+// surfaces stay lazy: they are independent chunks loaded only when their
+// route is rendered, and this file keeps their shared loading fallback so a
+// first visit is explicit and recoverable instead of rendering a blank page.
 function createSharedRouteLoader<T>(load: () => Promise<T>) {
   let promise: Promise<T> | null = null;
   return () => {
@@ -69,16 +82,6 @@ const loadJobSearchHomeScreen = createSharedRouteLoader(async () => ({
     await import("@renderer/features/job-finder/screens/job-search-home/job-search-home-screen")
   ).JobSearchHomeScreen,
 }));
-const loadProfileScreen = createSharedRouteLoader(async () => ({
-  default: (
-    await import("@renderer/features/job-finder/screens/profile-screen")
-  ).ProfileScreen,
-}));
-const loadApplicationsScreen = createSharedRouteLoader(async () => ({
-  default: (
-    await import("@renderer/features/job-finder/screens/applications-screen")
-  ).ApplicationsScreen,
-}));
 const loadActionsScreen = createSharedRouteLoader(async () => ({
   default: (
     await import("@renderer/features/job-finder/screens/actions-screen")
@@ -94,20 +97,10 @@ const loadResumeStrategiesScreen = createSharedRouteLoader(async () => ({
     await import("@renderer/features/job-finder/screens/resume-strategies/resume-strategies-screen")
   ).ResumeStrategiesScreen,
 }));
-const loadDiscoveryScreen = createSharedRouteLoader(async () => ({
-  default: (
-    await import("@renderer/features/job-finder/screens/discovery-screen")
-  ).DiscoveryScreen,
-}));
 const loadRapidReviewScreen = createSharedRouteLoader(async () => ({
   default: (
     await import("@renderer/features/job-finder/screens/rapid-review/rapid-review-screen")
   ).RapidReviewScreen,
-}));
-const loadReviewQueueScreen = createSharedRouteLoader(async () => ({
-  default: (
-    await import("@renderer/features/job-finder/screens/review-queue-screen")
-  ).ReviewQueueScreen,
 }));
 const loadResumeWorkspaceScreen = createSharedRouteLoader(async () => ({
   default: (
@@ -118,6 +111,11 @@ const loadSettingsScreen = createSharedRouteLoader(async () => ({
   default: (
     await import("@renderer/features/job-finder/screens/settings-screen")
   ).SettingsScreen,
+}));
+const loadDocumentsScreen = createSharedRouteLoader(async () => ({
+  default: (
+    await import("@renderer/features/job-finder/screens/settings/documents-screen")
+  ).DocumentsScreen,
 }));
 const loadSafeguardsScreen = createSharedRouteLoader(async () => ({
   default: (
@@ -130,27 +128,14 @@ const CampaignsScreen = lazy(loadCampaignsScreen);
 const CompaniesScreen = lazy(loadCompaniesScreen);
 const CompanyDetailScreen = lazy(loadCompanyDetailScreen);
 const JobSearchHomeScreen = lazy(loadJobSearchHomeScreen);
-const ProfileScreen = lazy(loadProfileScreen);
-const ApplicationsScreen = lazy(loadApplicationsScreen);
 const ActionsScreen = lazy(loadActionsScreen);
 const OutcomeAnalyticsScreen = lazy(loadOutcomeAnalyticsScreen);
 const ResumeStrategiesScreen = lazy(loadResumeStrategiesScreen);
-const DiscoveryScreen = lazy(loadDiscoveryScreen);
 const RapidReviewScreen = lazy(loadRapidReviewScreen);
-const ReviewQueueScreen = lazy(loadReviewQueueScreen);
 const ResumeWorkspaceScreen = lazy(loadResumeWorkspaceScreen);
 const SettingsScreen = lazy(loadSettingsScreen);
+const DocumentsScreen = lazy(loadDocumentsScreen);
 const SafeguardsScreen = lazy(loadSafeguardsScreen);
-
-export function preloadJobFinderPriorityScreens() {
-  // Attach a rejection handler to background imports without replacing the
-  // shared rejected promise. A later route visit still receives the real
-  // loader error through the normal route error boundary.
-  void loadProfileScreen().catch(() => undefined);
-  void loadDiscoveryScreen().catch(() => undefined);
-  void loadReviewQueueScreen().catch(() => undefined);
-  void loadApplicationsScreen().catch(() => undefined);
-}
 
 function useJobFinderPageContext() {
   return useOutletContext<JobFinderPageContext>();
@@ -174,6 +159,126 @@ export function selectRapidReviewScope(workspace: JobFinderWorkspaceSnapshot): {
       (entry) => entry.campaignId === workspace.activeCampaignId,
     ) ?? null;
   return { campaign, jobs, log };
+}
+
+function resolveCampaignForJobs(
+  campaigns: JobFinderWorkspaceSnapshot["campaigns"],
+  jobIds: readonly string[],
+): string | null {
+  if (jobIds.length === 0) return null;
+  let campaignId: string | null = null;
+  for (const campaign of campaigns) {
+    if (!jobIds.every((jobId) => campaign.jobIds.includes(jobId))) continue;
+    if (campaignId !== null) return null;
+    campaignId = campaign.id;
+  }
+  return campaignId;
+}
+
+function onlyValue(values: ReadonlySet<string>): string | null {
+  if (values.size !== 1) return null;
+  for (const value of values) return value;
+  return null;
+}
+
+export function selectCampaignApplicationsScope(
+  workspace: JobFinderWorkspaceSnapshot,
+) {
+  const activeCampaign = workspace.campaigns.find(
+    (campaign) => campaign.id === workspace.activeCampaignId,
+  );
+  if (!activeCampaign) {
+    return {
+      activeCampaign: null,
+      applicationAttempts: [],
+      applicationRecords: [],
+      applyJobResults: [],
+      applyRuns: [],
+      discoveryJobs: [],
+      selectedApplyRunId: null,
+    };
+  }
+
+  const runCampaignById = new Map(
+    workspace.applyRuns.map((run) => [
+      run.id,
+      run.campaignId ?? resolveCampaignForJobs(workspace.campaigns, run.jobIds),
+    ]),
+  );
+  const resultsByApplicationRecordId = new Map<
+    string,
+    JobFinderWorkspaceSnapshot["applyJobResults"]
+  >();
+  for (const result of workspace.applyJobResults) {
+    if (!result.applicationRecordId) continue;
+    const results =
+      resultsByApplicationRecordId.get(result.applicationRecordId) ?? [];
+    results.push(result);
+    resultsByApplicationRecordId.set(result.applicationRecordId, results);
+  }
+  const recordCampaignById = new Map<string, string | null>();
+  for (const record of workspace.applicationRecords) {
+    const linkedResults = resultsByApplicationRecordId.get(record.id) ?? [];
+    const linkedCampaignIds = new Set(
+      linkedResults.flatMap((result) => {
+        const campaignId = runCampaignById.get(result.runId) ?? null;
+        return campaignId ? [campaignId] : [];
+      }),
+    );
+    recordCampaignById.set(
+      record.id,
+      linkedResults.length > 0
+        ? onlyValue(linkedCampaignIds)
+        : resolveCampaignForJobs(workspace.campaigns, [record.jobId]),
+    );
+  }
+
+  const applicationRecords = workspace.applicationRecords.filter(
+    (record) => recordCampaignById.get(record.id) === activeCampaign.id,
+  );
+  const applicationRecordIds = new Set(
+    applicationRecords.map((record) => record.id),
+  );
+  const applyRuns = workspace.applyRuns.filter(
+    (run) => runCampaignById.get(run.id) === activeCampaign.id,
+  );
+  const applyRunIds = new Set(applyRuns.map((run) => run.id));
+  const recordsByJobId = new Map<string, string[]>();
+  for (const record of applicationRecords) {
+    const ids = recordsByJobId.get(record.jobId) ?? [];
+    ids.push(record.id);
+    recordsByJobId.set(record.jobId, ids);
+  }
+  const applyJobResults = workspace.applyJobResults.filter((result) => {
+    if (!applyRunIds.has(result.runId)) return false;
+    if (result.applicationRecordId) {
+      return applicationRecordIds.has(result.applicationRecordId);
+    }
+    return (recordsByJobId.get(result.jobId)?.length ?? 0) === 1;
+  });
+  const applicationAttempts = workspace.applicationAttempts.filter(
+    (attempt) => {
+      if (attempt.applicationRecordId) {
+        return applicationRecordIds.has(attempt.applicationRecordId);
+      }
+      return (recordsByJobId.get(attempt.jobId)?.length ?? 0) === 1;
+    },
+  );
+  const campaignJobIds = new Set(activeCampaign.jobIds);
+
+  return {
+    activeCampaign,
+    applicationAttempts,
+    applicationRecords,
+    applyJobResults,
+    applyRuns,
+    discoveryJobs: workspace.discoveryJobs.filter((job) =>
+      campaignJobIds.has(job.id),
+    ),
+    selectedApplyRunId: applyRunIds.has(workspace.selectedApplyRunId ?? "")
+      ? workspace.selectedApplyRunId
+      : null,
+  };
 }
 
 export function WorkspaceStateScreen(props: {
@@ -270,7 +375,7 @@ export function JobFinderCompaniesRoute() {
       <CompaniesScreen
         actionMessage={context.actionState.message}
         companies={context.workspace.intelligence.companies}
-        discoveryJobs={context.workspace.discoveryJobs}
+        discoveryJobs={context.workspace.companyJobs}
         isMergePending={(companyId) =>
           context.isPending(
             jobFinderPendingActions.companyMergeReview(companyId),
@@ -307,24 +412,32 @@ export function JobFinderCompanyDetailRoute() {
     context.workspace.intelligence.companies.find(
       (entry) => entry.id === companyId,
     ) ?? null;
-  const relatedCompany =
-    company ?? context.workspace.intelligence.companies[0] ?? null;
 
   return (
     <JobFinderHydrationGate
       collections={["discovery_jobs", "applications", "intelligence"]}
       workspace={context.workspace}
     >
-      {!companyId || !relatedCompany ? (
+      {!companyId ? (
         <Navigate replace to="/job-finder/companies" />
+      ) : !company ? (
+        <WorkspaceStateScreen
+          action={{
+            label: "View companies",
+            onClick: () => context.onNavigateSafely("/job-finder/companies"),
+          }}
+          kicker="Companies"
+          message="This company is no longer in your workspace. No other company was selected."
+          title="Company not found"
+        />
       ) : (
         <CompanyDetailScreen
           actionMessage={context.actionState.message}
           applicationRecords={context.workspace.applicationRecords}
           companies={context.workspace.intelligence.companies}
-          company={relatedCompany}
+          company={company}
           companyId={companyId}
-          discoveryJobs={context.workspace.discoveryJobs}
+          discoveryJobs={context.workspace.companyJobs}
           isMergePending={(targetCompanyId) =>
             context.isPending(
               jobFinderPendingActions.companyMergeReview(targetCompanyId),
@@ -405,6 +518,13 @@ export function JobFinderHomeRoute() {
         )
       }
       campaignNotifications={context.workspace.campaignNotifications}
+      discoveryRunFeedback={context.discoveryRunFeedback}
+      discoveryRunPending={context.isPending(
+        jobFinderPendingActions.discoveryAll(),
+      )}
+      browserSessionPending={context.isPending(
+        jobFinderPendingActions.browserSession(),
+      )}
       onMarkAllCampaignNotificationsRead={
         context.onMarkAllCampaignNotificationsRead
       }
@@ -414,6 +534,10 @@ export function JobFinderHomeRoute() {
       onPauseActivity={() =>
         handleActivityControl({ paused: true, reason: "Paused by you." })
       }
+      onOpenBrowserSession={() => context.onOpenBrowserSession()}
+      {...(context.onRunAgentDiscovery
+        ? { onRunDiscovery: context.onRunAgentDiscovery }
+        : {})}
       onResumeActivity={() => handleActivityControl({ paused: false })}
       onSelectCampaign={(campaignId) => {
         void context.onSelectCampaign(campaignId);
@@ -425,14 +549,56 @@ export function JobFinderHomeRoute() {
 
 export function JobFinderCampaignsRoute() {
   const context = useJobFinderPageContext();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [pending, setPending] = useState(false);
   const [rulePending, setRulePending] = useState(false);
   const [funnelProjection, setFunnelProjection] =
     useState<CampaignRuleFunnelProjection | null>(null);
+  const requestedCampaignId = searchParams.get("campaignId");
 
-  const handleSaveCampaign = (campaign: SaveJobSearchCampaignInput) => {
+  useEffect(() => {
+    if (!requestedCampaignId) return;
+    if (
+      !context.workspace.campaigns.some(
+        (campaign) => campaign.id === requestedCampaignId,
+      )
+    ) {
+      return;
+    }
+
+    const clearRequestedCampaign = () => {
+      const nextSearchParams = new URLSearchParams(searchParams);
+      nextSearchParams.delete("campaignId");
+      setSearchParams(nextSearchParams, { replace: true });
+    };
+    if (requestedCampaignId === context.workspace.activeCampaignId) {
+      clearRequestedCampaign();
+      return;
+    }
+
     setPending(true);
-    void context.onSaveCampaign(campaign).finally(() => {
+    void context
+      .onSelectCampaign(requestedCampaignId)
+      .then((selected) => {
+        if (selected) clearRequestedCampaign();
+      })
+      .finally(() => {
+        setPending(false);
+      });
+  }, [
+    context.onSelectCampaign,
+    context.workspace.activeCampaignId,
+    context.workspace.campaigns,
+    requestedCampaignId,
+    searchParams,
+    setSearchParams,
+  ]);
+
+  const handleSaveCampaign = (
+    campaign: SaveJobSearchCampaignInput,
+  ): Promise<boolean> => {
+    setPending(true);
+    return context.onSaveCampaign(campaign).finally(() => {
       setPending(false);
     });
   };
@@ -509,6 +675,7 @@ export function JobFinderCampaignsRoute() {
         campaignRuleFunnel={funnelProjection}
         campaignRulePending={rulePending}
         campaigns={context.workspace.campaigns}
+        onDeleteCampaign={context.onDeleteCampaign}
         onDeleteCampaignRule={handleDeleteCampaignRule}
         onRefreshCampaignRuleFunnel={refreshCampaignRuleFunnel}
         onRunCampaignNow={handleRunCampaignNow}
@@ -545,6 +712,7 @@ export function JobFinderProfileRoute() {
   return (
     <ProfileScreen
       actionState={context.actionState}
+      discoveryRunFeedback={context.discoveryRunFeedback}
       importResumeGuardMessage={context.importResumeGuardMessage}
       pendingActions={{
         analyzeProfile: context.isPending(
@@ -586,6 +754,7 @@ export function JobFinderProfileRoute() {
         context.onOpenBrowserSession({ targetId })
       }
       onProfileSurfaceDirtyChange={context.onProfileSurfaceDirtyChange}
+      onProfileSurfaceDraftEdited={context.onProfileSurfaceDraftEdited}
       profileCopilotPendingContextKey={context.profileCopilotPendingContextKey}
       onResumeProfileSetup={context.onResumeProfileSetup}
       onRejectProfileCopilotPatchGroup={
@@ -649,6 +818,7 @@ export function JobFinderProfileSetupRoute() {
       onContinueToProfile={context.onOpenProfile}
       onImportResume={context.onImportResume}
       onProfileSurfaceDirtyChange={context.onProfileSurfaceDirtyChange}
+      onProfileSurfaceDraftEdited={context.onProfileSurfaceDraftEdited}
       profileCopilotPendingContextKey={context.profileCopilotPendingContextKey}
       onRejectProfileCopilotPatchGroup={
         context.onRejectProfileCopilotPatchGroup
@@ -670,6 +840,16 @@ export function JobFinderDiscoveryRoute() {
   const context = useJobFinderPageContext();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigationContext = readJobFinderNavigationContext(searchParams);
+  const rapidReviewReturnRoute = readJobFinderReturnRoute(searchParams);
+  const [activityPausePending, setActivityPausePending] = useState(false);
+
+  const handleResumeActivity = () => {
+    setActivityPausePending(true);
+    void context.onSetActivityControl({ paused: false }).finally(() => {
+      setActivityPausePending(false);
+    });
+  };
+
   const activeCampaign = context.workspace.campaigns.find(
     (campaign) => campaign.id === context.workspace.activeCampaignId,
   );
@@ -734,11 +914,11 @@ export function JobFinderDiscoveryRoute() {
     return (
       <WorkspaceStateScreen
         action={{
-          label: "View Find jobs",
+          label: "Show all jobs",
           onClick: () => context.onNavigateSafely("/job-finder/discovery"),
         }}
         kicker="Find jobs"
-        message="The requested job is no longer available in the active campaign, so no other job was selected."
+        message="The requested job is no longer available in the active search plan, so no other job was selected."
         title="Job unavailable"
       />
     );
@@ -748,7 +928,7 @@ export function JobFinderDiscoveryRoute() {
     return (
       <WorkspaceStateScreen
         action={{
-          label: "View Find jobs",
+          label: "Show all jobs",
           onClick: () => context.onNavigateSafely("/job-finder/discovery"),
         }}
         kicker="Find jobs"
@@ -772,9 +952,11 @@ export function JobFinderDiscoveryRoute() {
     >
       <DiscoveryScreen
         actionState={context.actionState}
+        activityPaused={context.workspace.activityControl?.paused ?? false}
         activeRun={context.workspace.activeDiscoveryRun}
         browserSession={context.workspace.browserSession}
         companies={context.workspace.intelligence.companies}
+        discoveryRunFeedback={context.discoveryRunFeedback}
         isBrowserSessionPending={context.isPending(
           jobFinderPendingActions.browserSession(),
         )}
@@ -786,6 +968,7 @@ export function JobFinderDiscoveryRoute() {
         isDiscoveryAllPending={context.isPending(
           jobFinderPendingActions.discoveryAll(),
         )}
+        isActivityPausePending={activityPausePending}
         discoverySessions={context.workspace.discoverySessions}
         jobs={jobs}
         dismissedJobs={dismissedJobs}
@@ -804,8 +987,17 @@ export function JobFinderDiscoveryRoute() {
           ])
         }
         onDismissJob={context.onDismissJob}
+        onPreviewEmployerExclusion={context.onPreviewEmployerExclusion}
+        onRemoveEmployerExclusion={context.onRemoveEmployerExclusion}
         onRestoreDismissedJob={context.onRestoreDismissedJob}
-        onOpenBrowserSession={context.onOpenBrowserSession}
+        {...(rapidReviewReturnRoute
+          ? {
+              onBackToRapidReview: () =>
+                context.onNavigateSafely(JOB_FINDER_RETURN_ROUTES.rapidReview),
+            }
+          : {})}
+        onOpenBrowserSession={() => context.onOpenBrowserSession()}
+        onResumeActivity={handleResumeActivity}
         onOpenBrowserSessionForTarget={(targetId) =>
           context.onOpenBrowserSession({ targetId })
         }
@@ -814,6 +1006,9 @@ export function JobFinderDiscoveryRoute() {
         }
         onQueueJob={context.onQueueJob}
         onRunAgentDiscovery={context.onRunAgentDiscovery}
+        {...(context.onCancelDiscovery
+          ? { onCancelDiscovery: context.onCancelDiscovery }
+          : {})}
         {...(context.onRunDiscoveryForTarget
           ? { onRunDiscoveryForTarget: context.onRunDiscoveryForTarget }
           : {})}
@@ -849,7 +1044,12 @@ export function JobFinderRapidReviewRoute() {
         log={log}
         onInspectJob={(jobId) => {
           context.onSelectDiscoveryJob(jobId);
-          context.onNavigateSafely("/job-finder/discovery");
+          context.onNavigateSafely(
+            buildJobFinderContextRoute("/job-finder/discovery", {
+              jobId,
+              returnTo: JOB_FINDER_RETURN_ROUTES.rapidReview,
+            }),
+          );
         }}
         onMutate={context.onMutateRapidReview}
         pending={context.isPending(jobFinderPendingActions.rapidReview())}
@@ -859,32 +1059,9 @@ export function JobFinderRapidReviewRoute() {
 }
 
 export function JobFinderReviewQueueRoute() {
-  const [surfaceReady, setSurfaceReady] = useState(false);
-
-  useLayoutEffect(() => {
-    if (!surfaceReady) {
-      performance.mark("job-finder:route:shortlisted:feedback-committed");
-    }
-  }, [surfaceReady]);
-
-  useEffect(() => {
-    // The 1,001-row shortlist projection can occupy a long render task. Keep
-    // the route heading responsive first, then mount the collection after the
-    // browser has had time to paint and expose that navigation feedback.
-    const timer = window.setTimeout(() => setSurfaceReady(true), 250);
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  if (!surfaceReady) {
-    return (
-      <WorkspaceStateScreen
-        kicker="Shortlisted"
-        message="Opening your saved shortlist."
-        title="Shortlisted"
-      />
-    );
-  }
-
+  // The shortlist mounts its real heading on the first commit: no deferred
+  // surface timer, no placeholder, and no Suspense throttle in front of the
+  // canonical screen.
   return <JobFinderReviewQueueRouteContent />;
 }
 
@@ -953,7 +1130,7 @@ function JobFinderReviewQueueRouteContent() {
     return (
       <WorkspaceStateScreen
         action={{
-          label: "View Shortlisted",
+          label: "Show all shortlisted jobs",
           onClick: () => context.onNavigateSafely("/job-finder/review-queue"),
         }}
         kicker="Shortlisted"
@@ -987,8 +1164,17 @@ function JobFinderReviewQueueRouteContent() {
     >
       <ReviewQueueScreen
         actionState={context.actionState}
+        applicationRecords={context.workspace.applicationRecords}
         browserSession={context.workspace.browserSession}
         campaignId={activeCampaign?.id ?? ""}
+        campaignDefaultResumeStrategyId={
+          activeCampaign?.applicationPolicy.defaultResumeStrategyId ?? null
+        }
+        draftPreparation={context.tailoredDraftPreparation}
+        globalDailyApplicationPreparationCapacity={
+          context.workspace.dashboard
+            ?.globalDailyApplicationPreparationCapacity ?? null
+        }
         isApplyPending={context.isPending(jobFinderPendingActions.apply())}
         isJobPending={(jobId) =>
           context.isPending(jobFinderPendingActions.resumeJob(jobId))
@@ -999,8 +1185,13 @@ function JobFinderReviewQueueRouteContent() {
             jobFinderPendingActions.resumeStrategySelect(jobId),
           ])
         }
+        onPrepareTailoredDrafts={context.onPrepareTailoredDrafts}
+        onStopTailoredDraftPreparation={context.onStopTailoredDraftPreparation}
         onRecommendResumeStrategy={context.onRecommendResumeStrategy}
         onSelectResumeStrategy={context.onSelectResumeStrategy}
+        onSetCampaignResumeStrategyDefault={
+          context.onSetCampaignResumeStrategyDefault
+        }
         onStartAutoApplyQueue={context.onStartAutoApplyQueue}
         onStartApplyCopilot={context.onStartApplyCopilot}
         onEditResumeWorkspace={context.onEditResumeWorkspace}
@@ -1023,6 +1214,7 @@ function JobFinderReviewQueueRouteContent() {
         selectedAsset={selectedAsset}
         selectedItem={selectedItem}
         selectedJob={selectedJob}
+        tailoredAssets={context.workspace.tailoredAssets}
       />
     </JobFinderHydrationGate>
   );
@@ -1031,20 +1223,21 @@ function JobFinderReviewQueueRouteContent() {
 export function JobFinderResumeWorkspaceRoute() {
   const context = useJobFinderPageContext();
   const { jobId } = useParams<{ jobId: string }>();
-  const requiredCollections = [
-    "discovery_jobs",
-    "review_queue",
-    "documents",
-  ] as const;
 
   if (!jobId) {
     return <Navigate replace to="/job-finder/review-queue" />;
   }
 
-  if (isJobFinderHydratingCollections(context.workspace, requiredCollections)) {
+  const routeState = resolveResumeWorkspaceRouteState({
+    hydration: context.workspace.hydration,
+    jobId,
+    reviewQueue: context.workspace.reviewQueue,
+  });
+
+  if (routeState.kind === "hydrating") {
     return (
       <JobFinderHydrationGate
-        collections={requiredCollections}
+        collections={RESUME_WORKSPACE_REQUIRED_COLLECTIONS}
         workspace={context.workspace}
       >
         {null}
@@ -1052,17 +1245,26 @@ export function JobFinderResumeWorkspaceRoute() {
     );
   }
 
-  const reviewItem = context.workspace.reviewQueue.find(
-    (item) => item.jobId === jobId,
-  );
-
-  if (!reviewItem) {
-    return <Navigate replace to="/job-finder/review-queue" />;
+  if (routeState.kind === "unavailable") {
+    // The job genuinely left the hydrated shortlist. Do not silently bounce
+    // the URL: keep the route and explain why, so a background refresh that
+    // recomputes the queue (or a stale deep link) never yanks the operator.
+    return (
+      <WorkspaceStateScreen
+        action={{
+          label: "View Shortlisted",
+          onClick: () => context.onNavigateSafely("/job-finder/review-queue"),
+        }}
+        kicker="Resume workspace"
+        message="This resume is no longer available because the job is no longer in Shortlisted. Choose another shortlisted job to keep preparing."
+        title="Resume no longer available"
+      />
+    );
   }
 
   return (
     <JobFinderHydrationGate
-      collections={requiredCollections}
+      collections={RESUME_WORKSPACE_REQUIRED_COLLECTIONS}
       workspace={context.workspace}
     >
       <ResumeWorkspaceScreen
@@ -1077,9 +1279,14 @@ export function JobFinderResumeWorkspaceRoute() {
         onApproveResume={context.onApproveResume}
         onBack={() => context.onEditResumeWorkspace("")}
         onClearResumeApproval={context.onClearResumeApproval}
+        onSetWorkHistoryReviewAcknowledgment={
+          context.onSetWorkHistoryReviewAcknowledgment
+        }
+        onSetResumeClaimConfirmation={context.onSetResumeClaimConfirmation}
         onExportPdf={context.onExportResumePdf}
         onApplyPatch={context.onApplyResumePatch}
         onDirtyChange={context.onResumeWorkspaceDirtyChange}
+        onDraftEdited={context.onResumeWorkspaceDraftEdited}
         onPreviewDraft={context.onPreviewResumeDraft}
         onRefresh={() => context.onRefreshResumeWorkspace(jobId)}
         onRegenerateDraft={context.onRegenerateResumeDraft}
@@ -1099,27 +1306,15 @@ export function JobFinderApplicationsRoute() {
   const context = useJobFinderPageContext();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigationContext = readJobFinderNavigationContext(searchParams);
-  const activeCampaign = context.workspace.campaigns.find(
-    (campaign) => campaign.id === context.workspace.activeCampaignId,
-  );
-  const campaignJobIds = new Set(activeCampaign?.jobIds ?? []);
-  const discoveryJobs = context.workspace.discoveryJobs.filter((job) =>
-    campaignJobIds.has(job.id),
-  );
-  const applicationRecords = context.workspace.applicationRecords.filter(
-    (record) => campaignJobIds.has(record.jobId),
-  );
-  const applicationAttempts = context.workspace.applicationAttempts.filter(
-    (attempt) => campaignJobIds.has(attempt.jobId),
-  );
-  const applyRuns = context.workspace.applyRuns.filter((run) =>
-    run.jobIds.some((jobId) => campaignJobIds.has(jobId)),
-  );
-  const applyRunIds = new Set(applyRuns.map((run) => run.id));
-  const applyJobResults = context.workspace.applyJobResults.filter(
-    (result) =>
-      campaignJobIds.has(result.jobId) && applyRunIds.has(result.runId),
-  );
+  const {
+    activeCampaign,
+    applicationAttempts,
+    applicationRecords,
+    applyJobResults,
+    applyRuns,
+    discoveryJobs,
+    selectedApplyRunId,
+  } = selectCampaignApplicationsScope(context.workspace);
   const requestedApplicationRecord = (() => {
     if (navigationContext.applicationRecordId) {
       const record = applicationRecords.find(
@@ -1203,7 +1398,7 @@ export function JobFinderApplicationsRoute() {
     return (
       <WorkspaceStateScreen
         action={{
-          label: "View Applications",
+          label: "Show all applications",
           onClick: () => context.onNavigateSafely("/job-finder/applications"),
         }}
         kicker="Applications"
@@ -1225,10 +1420,10 @@ export function JobFinderApplicationsRoute() {
     ? (applicationAttempts.find(
         (attempt) =>
           attempt.id === context.selectedApplicationAttempt?.id &&
-          attempt.jobId === selectedRecord.jobId,
+          attempt.applicationRecordId === selectedRecord.id,
       ) ??
       applicationAttempts
-        .filter((attempt) => attempt.jobId === selectedRecord.jobId)
+        .filter((attempt) => attempt.applicationRecordId === selectedRecord.id)
         .sort((left, right) =>
           right.updatedAt.localeCompare(left.updatedAt),
         )[0] ??
@@ -1241,11 +1436,16 @@ export function JobFinderApplicationsRoute() {
       workspace={context.workspace}
     >
       <ApplicationsScreen
+        actionMessage={context.actionState.message}
         applicationAttempts={applicationAttempts}
         applicationRecords={applicationRecords}
         applyRuns={applyRuns}
         applyJobResults={applyJobResults}
         companies={context.workspace.intelligence.companies}
+        dailyPreparationCapacity={
+          context.workspace.dashboard
+            ?.globalDailyApplicationPreparationCapacity ?? null
+        }
         crmSettings={
           context.workspace.settings.applicationCrm ??
           ApplicationCrmSettingsSchema.parse({})
@@ -1291,11 +1491,13 @@ export function JobFinderApplicationsRoute() {
         }
         onResolveApplyConsentRequest={context.onResolveApplyConsentRequest}
         onRevokeApplyRunApproval={context.onRevokeApplyRunApproval}
-        onStartAutoApplyQueue={context.onStartAutoApplyQueue}
+        onStartAutoApplyQueue={(jobIds) => {
+          void context.onStartAutoApplyQueue(jobIds);
+        }}
         onStartApplyCopilot={context.onStartApplyCopilot}
         onStartAutoApply={context.onStartAutoApply}
         onSelectRecord={handleSelectRecord}
-        selectedApplyRunId={context.workspace.selectedApplyRunId}
+        selectedApplyRunId={selectedApplyRunId}
         selectedAttempt={selectedAttempt}
         selectedRecord={selectedRecord}
         safeguardsBlockerCount={countActiveSafeguardBlockers(
@@ -1409,22 +1611,28 @@ export function JobFinderSettingsRoute() {
 
   return (
     <SettingsScreen
-      actionState={context.actionState}
       availableResumeTemplates={context.workspace.availableResumeTemplates}
       browserSession={context.workspace.browserSession}
-      isSavePending={context.isPending(jobFinderPendingActions.settingsSave())}
       isWorkspaceResetPending={context.isPending(
         jobFinderPendingActions.workspaceReset(),
       )}
       onResetWorkspace={context.onResetWorkspace}
-      onSaveApplicationCrmSettings={context.onSaveApplicationCrmSettings}
-      onSaveSettings={(settings) => {
-        void context.onSaveSettings(settings);
-      }}
-      saveState={context.saveState}
+      onSettingsDraftEdited={context.onSettingsDraftEdited}
+      // Pass-through on purpose: these handlers resolve false when a save
+      // did not commit, and each section needs the real promise so its
+      // pending state lasts for the IPC call and false can surface as a
+      // failure instead of a local saved message.
+      onUpdateAppearanceTheme={context.onUpdateAppearanceTheme}
+      onUpdateApplicationDefaults={context.onUpdateApplicationDefaults}
+      onUpdateTrackerCrm={context.onUpdateTrackerCrm}
+      onUpdateWorkspaceBehavior={context.onUpdateWorkspaceBehavior}
       settings={context.workspace.settings}
     />
   );
+}
+
+export function JobFinderDocumentsRoute() {
+  return <DocumentsScreen />;
 }
 
 export function JobFinderSafeguardsRoute() {

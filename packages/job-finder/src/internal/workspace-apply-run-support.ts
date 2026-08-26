@@ -41,6 +41,7 @@ export function enforcePrepareOnlyExecutionResult(
 }
 
 export function buildMissingResumeCopilotArtifacts(input: {
+  applicationRecord: ReturnType<typeof ApplicationRecordSchema.parse>;
   job: SavedJob;
   detectedAt: string;
 }): {
@@ -85,6 +86,7 @@ export function buildMissingResumeCopilotArtifacts(input: {
     id: resultId,
     runId,
     jobId: input.job.id,
+    applicationRecordId: input.applicationRecord.id,
     queuePosition: 0,
     state: "blocked",
     summary: "Apply copilot blocked before launch.",
@@ -93,6 +95,8 @@ export function buildMissingResumeCopilotArtifacts(input: {
     startedAt: input.detectedAt,
     updatedAt: input.detectedAt,
     completedAt: input.detectedAt,
+    applicationPreparationStartedAt: null,
+    applicationPreparationStartedLocalDate: null,
     blockerReason: "resume_missing",
     blockerSummary:
       "An approved tailored resume is required before apply copilot can start.",
@@ -107,6 +111,7 @@ export function buildMissingResumeCopilotArtifacts(input: {
     id: questionId,
     runId,
     jobId: input.job.id,
+    applicationRecordId: input.applicationRecord.id,
     resultId,
     prompt: "Approved tailored resume available for this job",
     kind: "resume",
@@ -121,7 +126,8 @@ export function buildMissingResumeCopilotArtifacts(input: {
   });
 
   const applicationRecord = ApplicationRecordSchema.parse({
-    id: `application_${input.job.id}`,
+    ...input.applicationRecord,
+    id: input.applicationRecord.id,
     jobId: input.job.id,
     title: input.job.title,
     company: input.job.company,
@@ -166,6 +172,7 @@ export function buildMissingResumeCopilotArtifacts(input: {
     id: artifactId,
     runId,
     jobId: input.job.id,
+    applicationRecordId: input.applicationRecord.id,
     resultId,
     questionId,
     kind: "field_snapshot",
@@ -181,6 +188,7 @@ export function buildMissingResumeCopilotArtifacts(input: {
     id: checkpointId,
     runId,
     jobId: input.job.id,
+    applicationRecordId: input.applicationRecord.id,
     resultId,
     createdAt: input.detectedAt,
     label: "Blocked before live apply launch",
@@ -195,6 +203,7 @@ export function buildMissingResumeCopilotArtifacts(input: {
     id: consentRequestId,
     runId,
     jobId: input.job.id,
+    applicationRecordId: input.applicationRecord.id,
     resultId,
     kind: "resume_use",
     linkedConsentKind: "resume_use",
@@ -268,6 +277,7 @@ export function selectLatestApplyRunId(
 }
 
 export function buildSingleJobAutoApplyArtifacts(input: {
+  applicationRecordId: string;
   approvalId?: string | null;
   createdAt: string;
   detail?: string | null;
@@ -309,6 +319,7 @@ export function buildSingleJobAutoApplyArtifacts(input: {
     id: resultId,
     runId,
     jobId: input.job.id,
+    applicationRecordId: input.applicationRecordId,
     queuePosition: 0,
     state: "planned",
     summary: "Waiting for explicit submit approval.",
@@ -317,6 +328,8 @@ export function buildSingleJobAutoApplyArtifacts(input: {
     startedAt: input.createdAt,
     updatedAt: input.createdAt,
     completedAt: null,
+    applicationPreparationStartedAt: null,
+    applicationPreparationStartedLocalDate: null,
     blockerReason: null,
     blockerSummary: null,
     latestQuestionCount: 0,
@@ -368,6 +381,8 @@ export function mapExecutionResultToApplyBlockerReason(
     case "external_redirect":
     case "unsupported_apply_path":
       return "unexpected_navigation";
+    case "application_page_unreachable":
+      return "application_page_unreachable";
     default:
       console.warn(
         `[job-finder] Unhandled apply blocker code '${String(blocker.code)}' while mapping apply blocker reason.`,
@@ -427,6 +442,7 @@ export function mapExecutionResultToApplyRunState(input: {
 }
 
 export function buildApplicationPrivacyReceipt(input: {
+  applicationRecordId: string;
   job: SavedJob;
   resumeArtifact: ApplicationResumeArtifact;
   executionResult: ApplyExecutionResult;
@@ -450,6 +466,7 @@ export function buildApplicationPrivacyReceipt(input: {
       runId: input.runId,
       jobId: input.job.id,
       resultId: input.resultId,
+      applicationRecordId: input.applicationRecordId,
     },
     destination: {
       origin: destinationUrl.origin,
@@ -480,6 +497,7 @@ export function buildApplicationPrivacyReceipt(input: {
   });
 }
 export function buildApplyCopilotArtifacts(input: {
+  applicationRecordId: string;
   job: SavedJob;
   executionResult: ApplyExecutionResult;
   resumeArtifact: ApplicationResumeArtifact;
@@ -574,6 +592,7 @@ export function buildApplyCopilotArtifacts(input: {
           createUniqueId("apply_answer"),
         runId,
         jobId: input.job.id,
+        applicationRecordId: input.applicationRecordId,
         resultId,
         questionId:
           persistedQuestionIdByExecutionId.get(question.id) ?? question.id,
@@ -611,6 +630,7 @@ export function buildApplyCopilotArtifacts(input: {
       id: persistedQuestionId,
       runId,
       jobId: input.job.id,
+      applicationRecordId: input.applicationRecordId,
       resultId,
       prompt: question.prompt,
       kind: question.kind,
@@ -644,6 +664,7 @@ export function buildApplyCopilotArtifacts(input: {
           id: createUniqueId("apply_artifact"),
           runId,
           jobId: input.job.id,
+          applicationRecordId: input.applicationRecordId,
           resultId,
           questionId: record.id,
           kind: "field_snapshot",
@@ -672,6 +693,7 @@ export function buildApplyCopilotArtifacts(input: {
         id: artifactId,
         runId,
         jobId: input.job.id,
+        applicationRecordId: input.applicationRecordId,
         resultId,
         questionId: null,
         kind: "checkpoint",
@@ -699,6 +721,7 @@ export function buildApplyCopilotArtifacts(input: {
         id: persistedCheckpointId,
         runId,
         jobId: input.job.id,
+        applicationRecordId: input.applicationRecordId,
         resultId,
         createdAt: checkpoint.at,
         label: checkpoint.label,
@@ -720,6 +743,7 @@ export function buildApplyCopilotArtifacts(input: {
         id: createUniqueId("apply_consent_request"),
         runId,
         jobId: input.job.id,
+        applicationRecordId: input.applicationRecordId,
         resultId,
         kind:
           decision.kind === "resume_use"
@@ -747,6 +771,7 @@ export function buildApplyCopilotArtifacts(input: {
   });
 
   const privacyReceipt = buildApplicationPrivacyReceipt({
+    applicationRecordId: input.applicationRecordId,
     job: input.job,
     resumeArtifact: input.resumeArtifact,
     executionResult: input.executionResult,
@@ -758,6 +783,7 @@ export function buildApplyCopilotArtifacts(input: {
     id: resultId,
     runId,
     jobId: input.job.id,
+    applicationRecordId: input.applicationRecordId,
     queuePosition: 0,
     state: resultState,
     summary: input.executionResult.summary,
@@ -770,6 +796,8 @@ export function buildApplyCopilotArtifacts(input: {
       input.executionResult.state === "unsupported"
         ? input.detectedAt
         : null,
+    applicationPreparationStartedAt: null,
+    applicationPreparationStartedLocalDate: null,
     blockerReason: mapExecutionResultToApplyBlockerReason(
       input.executionResult.blocker,
     ),

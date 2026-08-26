@@ -48,6 +48,14 @@ export function buildCopilotStarterQuestion(
   }
 
   if (item.target.domain === "experience") {
+    if (
+      item.target.key === "record" &&
+      !item.proposedValue &&
+      !item.sourceSnippet
+    ) {
+      return "What work experience should I add first?";
+    }
+
     const companyLabel = extractExperienceCompanyLabel(item);
     return companyLabel
       ? `For ${companyLabel}, should I mark that role as Remote, Hybrid, or Onsite?`

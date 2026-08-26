@@ -35,6 +35,7 @@ import {
   ApplicationAttemptSchema,
   ApplicationRecordSchema,
   DiscoveryLedgerEntrySchema,
+  DiscoveryJobViewSchema,
   DiscoveryFeedbackReasonSchema,
   DiscoveryAdapterSessionStateSchema,
   DiscoveryRunRecordSchema,
@@ -57,6 +58,9 @@ import {
 } from "./profile-copilot";
 import {
   ResumeAssistantMessageSchema,
+  ResumeClaimContentHashSchema,
+  ResumeClaimFieldSchema,
+  ResumeClaimOwnershipStatementSchema,
   ResumeDraftPatchSchema,
   ResumeDraftRevisionSchema,
   ResumeDraftSchema,
@@ -67,6 +71,10 @@ import {
   ResumeResearchArtifactSchema,
   ResumeResearchArtifactSummarySchema,
   ResumeValidationResultSchema,
+  WorkHistoryReviewAcknowledgmentActionSchema,
+  WorkHistoryReviewAcknowledgmentKindSchema,
+  WorkHistoryReviewAcknowledgmentReasonSchema,
+  WorkHistoryReviewMessageContentHashSchema,
   WorkHistoryReviewSuggestionSchema,
 } from "./resume";
 import {
@@ -114,18 +122,139 @@ export type JobFinderJobResumeApplicationModeInput = z.infer<
   typeof JobFinderJobResumeApplicationModeInputSchema
 >;
 
-export const JobFinderDismissDiscoveryJobInputSchema = z.object({
-  jobId: NonEmptyStringSchema,
-  reasons: z.array(DiscoveryFeedbackReasonSchema).min(1).max(9),
-});
+export const JobFinderDismissDiscoveryJobInputSchema = z
+  .object({
+    jobId: NonEmptyStringSchema,
+    reasons: z.array(DiscoveryFeedbackReasonSchema).min(1).max(9),
+    action: z.enum(["hide_job", "hide_and_exclude_employer"]).optional(),
+    expectedNormalizedCompanyName: NonEmptyStringSchema.nullish(),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    if (
+      input.action === "hide_and_exclude_employer" &&
+      input.expectedNormalizedCompanyName == null
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["expectedNormalizedCompanyName"],
+        message:
+          "Employer exclusion requires the previewed normalized company name.",
+      });
+    }
+  });
 export type JobFinderDismissDiscoveryJobInput = z.infer<
   typeof JobFinderDismissDiscoveryJobInputSchema
 >;
 
-export const JobFinderApplyCopilotActionInputSchema = z.object({
+export const employerExclusionUnavailableReasonValues = [
+  "missing_or_generic_company",
+  "ambiguous_company_name",
+  "ambiguous_employer_domain",
+  "company_name_domain_conflict",
+  "pending_company_merge",
+  "provider_domain_only",
+  "company_whitelisted",
+] as const;
+export const EmployerExclusionUnavailableReasonSchema = z.enum(
+  employerExclusionUnavailableReasonValues,
+);
+export type EmployerExclusionUnavailableReason = z.infer<
+  typeof EmployerExclusionUnavailableReasonSchema
+>;
+
+export const EmployerExclusionPreviewSchema = z.discriminatedUnion("status", [
+  z
+    .object({
+      status: z.literal("available"),
+      jobId: NonEmptyStringSchema,
+      displayCompanyName: NonEmptyStringSchema,
+      normalizedCompanyName: NonEmptyStringSchema,
+      employerDomain: NonEmptyStringSchema.nullable(),
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("unavailable"),
+      jobId: NonEmptyStringSchema,
+      reason: EmployerExclusionUnavailableReasonSchema,
+      employerDomain: NonEmptyStringSchema.nullable(),
+    })
+    .strict(),
+]);
+export type EmployerExclusionPreview = z.infer<
+  typeof EmployerExclusionPreviewSchema
+>;
+
+export const RemoveEmployerExclusionInputSchema = z
+  .object({
+    jobId: NonEmptyStringSchema,
+    normalizedCompanyName: NonEmptyStringSchema,
+  })
+  .strict();
+export type RemoveEmployerExclusionInput = z.infer<
+  typeof RemoveEmployerExclusionInputSchema
+>;
+
+export const JobFinderApplicationTargetSchema = z
+  .object({
+    jobId: NonEmptyStringSchema,
+    applicationRecordId: NonEmptyStringSchema.optional(),
+  })
+  .strict();
+export type JobFinderApplicationTarget = z.infer<
+  typeof JobFinderApplicationTargetSchema
+>;
+
+export const JobFinderExactApplicationTargetSchema = z
+  .object({
+    jobId: NonEmptyStringSchema,
+    applicationRecordId: NonEmptyStringSchema,
+  })
+  .strict();
+export type JobFinderExactApplicationTarget = z.infer<
+  typeof JobFinderExactApplicationTargetSchema
+>;
+
+const JobFinderApplicationStartTargetShape = {
   jobId: NonEmptyStringSchema,
-  visualCheckpointsEnabled: z.boolean().default(false),
-});
+  applicationRecordId: NonEmptyStringSchema.optional(),
+  startNewApplication: z.boolean().optional(),
+} satisfies z.ZodRawShape;
+
+export const JobFinderApplicationStartTargetSchema = z
+  .object(JobFinderApplicationStartTargetShape)
+  .strict()
+  .superRefine((input, context) => {
+    if (input.startNewApplication && input.applicationRecordId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["applicationRecordId"],
+        message:
+          "Starting a new application cannot also target an existing application record.",
+      });
+    }
+  });
+export type JobFinderApplicationStartTarget = z.infer<
+  typeof JobFinderApplicationStartTargetSchema
+>;
+
+export const JobFinderApplyCopilotActionInputSchema = z
+  .object({
+    ...JobFinderApplicationStartTargetShape,
+    visualCheckpointsEnabled: z.boolean().default(false),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    if (input.startNewApplication && input.applicationRecordId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["applicationRecordId"],
+        message:
+          "Starting a new application cannot also target an existing application record.",
+      });
+    }
+  });
 export type JobFinderApplyCopilotActionInput = z.infer<
   typeof JobFinderApplyCopilotActionInputSchema
 >;
@@ -302,25 +431,37 @@ export type JobFinderSourceDebugRunQuery = z.infer<
   typeof JobFinderSourceDebugRunQuerySchema
 >;
 
-export const JobFinderApplyRunDetailsQuerySchema = z.object({
-  runId: NonEmptyStringSchema,
-  jobId: NonEmptyStringSchema,
-});
+export const JobFinderApplyRunDetailsQuerySchema = z
+  .object({
+    runId: NonEmptyStringSchema,
+    jobId: NonEmptyStringSchema,
+    applicationRecordId: NonEmptyStringSchema,
+  })
+  .strict();
 export type JobFinderApplyRunDetailsQuery = z.infer<
   typeof JobFinderApplyRunDetailsQuerySchema
 >;
 
-export const JobFinderApplyRunActionInputSchema = z.object({
-  runId: NonEmptyStringSchema,
-});
+export const JobFinderApplyRunActionInputSchema = z
+  .object({
+    runId: NonEmptyStringSchema,
+    jobId: NonEmptyStringSchema,
+    applicationRecordId: NonEmptyStringSchema,
+  })
+  .strict();
 export type JobFinderApplyRunActionInput = z.infer<
   typeof JobFinderApplyRunActionInputSchema
 >;
 
-export const JobFinderApplyConsentActionInputSchema = z.object({
-  requestId: NonEmptyStringSchema,
-  action: z.enum(["approve", "decline"]),
-});
+export const JobFinderApplyConsentActionInputSchema = z
+  .object({
+    requestId: NonEmptyStringSchema,
+    runId: NonEmptyStringSchema,
+    jobId: NonEmptyStringSchema,
+    applicationRecordId: NonEmptyStringSchema,
+    action: z.enum(["approve", "decline"]),
+  })
+  .strict();
 export type JobFinderApplyConsentActionInput = z.infer<
   typeof JobFinderApplyConsentActionInputSchema
 >;
@@ -575,9 +716,46 @@ const JobFinderRepositoryStateShape = {
   activityControl: JobFinderActivityControlSchema.default({}),
   intelligence: JobFinderIntelligenceStateSchema.default({}),
 } satisfies z.ZodRawShape;
-export const JobFinderRepositoryStateSchema: z.ZodObject<
+
+const JobFinderRepositoryStateObjectSchema: z.ZodObject<
   typeof JobFinderRepositoryStateShape
 > = z.object(JobFinderRepositoryStateShape);
+
+export const JobFinderRepositoryStateSchema: z.ZodEffects<
+  typeof JobFinderRepositoryStateObjectSchema
+> = JobFinderRepositoryStateObjectSchema.superRefine((state, context) => {
+  if (state.campaigns.length === 0) {
+    if (state.activeCampaignId !== null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["activeCampaignId"],
+        message:
+          "A workspace without campaigns must not reference an active campaign.",
+      });
+    }
+    return;
+  }
+
+  if (state.activeCampaignId === null) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["activeCampaignId"],
+      message:
+        "A workspace with campaigns must reference an active campaign id.",
+    });
+    return;
+  }
+
+  if (
+    !state.campaigns.some((campaign) => campaign.id === state.activeCampaignId)
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["activeCampaignId"],
+      message: "The active campaign must exist in the workspace campaigns.",
+    });
+  }
+});
 export type JobFinderRepositoryState = z.infer<
   typeof JobFinderRepositoryStateSchema
 >;
@@ -674,6 +852,147 @@ export type JobFinderResumePreview = z.infer<
   typeof JobFinderResumePreviewSchema
 >;
 
+const JobFinderAcknowledgeWorkHistoryReviewSuggestionInputObjectSchema = z
+  .object({
+    intent: z.literal("acknowledge"),
+    jobId: NonEmptyStringSchema,
+    draftId: NonEmptyStringSchema,
+    expectedDraftUpdatedAt: IsoDateTimeSchema,
+    suggestionId: NonEmptyStringSchema,
+    profileRecordId: NonEmptyStringSchema,
+    kind: WorkHistoryReviewAcknowledgmentKindSchema,
+    action: WorkHistoryReviewAcknowledgmentActionSchema,
+    messageContentHash: WorkHistoryReviewMessageContentHashSchema,
+    reason: WorkHistoryReviewAcknowledgmentReasonSchema,
+  })
+  .strict();
+export type JobFinderAcknowledgeWorkHistoryReviewSuggestionInput = z.infer<
+  typeof JobFinderAcknowledgeWorkHistoryReviewSuggestionInputObjectSchema
+>;
+
+const JobFinderRemoveWorkHistoryReviewAcknowledgmentInputObjectSchema = z
+  .object({
+    intent: z.literal("remove"),
+    jobId: NonEmptyStringSchema,
+    draftId: NonEmptyStringSchema,
+    expectedDraftUpdatedAt: IsoDateTimeSchema,
+    acknowledgmentId: NonEmptyStringSchema,
+  })
+  .strict();
+export type JobFinderRemoveWorkHistoryReviewAcknowledgmentInput = z.infer<
+  typeof JobFinderRemoveWorkHistoryReviewAcknowledgmentInputObjectSchema
+>;
+
+/**
+ * Server-owned work-history review decision command. Clients identify the
+ * exact projected suggestion (acknowledge) or stored acknowledgment (remove)
+ * and never supply record ids or timestamps: those are minted by the service.
+ */
+export const JobFinderSetWorkHistoryReviewAcknowledgmentInputSchema = z
+  .discriminatedUnion("intent", [
+    JobFinderAcknowledgeWorkHistoryReviewSuggestionInputObjectSchema,
+    JobFinderRemoveWorkHistoryReviewAcknowledgmentInputObjectSchema,
+  ])
+  .superRefine((input, ctx) => {
+    if (input.intent !== "acknowledge") {
+      return;
+    }
+
+    const isEligibleOmissionPair =
+      (input.kind === "weak_fit" || input.kind === "gap_coverage") &&
+      input.action === "consider_showing" &&
+      input.reason === "intentional_omission";
+
+    if (!isEligibleOmissionPair) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["reason"],
+        message:
+          "Only weak_fit or gap_coverage suggestions with consider_showing can be acknowledged as intentional_omission.",
+      });
+    }
+  });
+export type JobFinderSetWorkHistoryReviewAcknowledgmentInput = z.infer<
+  typeof JobFinderSetWorkHistoryReviewAcknowledgmentInputSchema
+>;
+
+const JobFinderAddResumeClaimConfirmationInputObjectSchema = z
+  .object({
+    intent: z.literal("add"),
+    jobId: NonEmptyStringSchema,
+    draftId: NonEmptyStringSchema,
+    expectedDraftUpdatedAt: IsoDateTimeSchema,
+    field: ResumeClaimFieldSchema,
+    sectionId: NonEmptyStringSchema,
+    entryId: NonEmptyStringSchema.nullable(),
+    bulletId: NonEmptyStringSchema.nullable(),
+    confirmedClaimContentHash: ResumeClaimContentHashSchema,
+    ownershipStatement: ResumeClaimOwnershipStatementSchema,
+  })
+  .strict();
+export type JobFinderAddResumeClaimConfirmationInput = z.infer<
+  typeof JobFinderAddResumeClaimConfirmationInputObjectSchema
+>;
+
+const JobFinderRemoveResumeClaimConfirmationInputObjectSchema = z
+  .object({
+    intent: z.literal("remove"),
+    jobId: NonEmptyStringSchema,
+    draftId: NonEmptyStringSchema,
+    expectedDraftUpdatedAt: IsoDateTimeSchema,
+    confirmationId: NonEmptyStringSchema,
+  })
+  .strict();
+export type JobFinderRemoveResumeClaimConfirmationInput = z.infer<
+  typeof JobFinderRemoveResumeClaimConfirmationInputObjectSchema
+>;
+
+/**
+ * Server-owned resume claim confirmation command. Clients identify the exact
+ * projected `confirm_needed` assessment (add: claim locator plus normalized
+ * content hash and literal ownership statement) or the stored confirmation
+ * (remove: confirmation id), and never supply record ids or timestamps:
+ * those are minted by the service. Only an exact explicit ownership of the
+ * exact normalized claim text can unblock export; edits and removals
+ * invalidate it.
+ */
+export const JobFinderSetResumeClaimConfirmationInputSchema = z
+  .discriminatedUnion("intent", [
+    JobFinderAddResumeClaimConfirmationInputObjectSchema,
+    JobFinderRemoveResumeClaimConfirmationInputObjectSchema,
+  ])
+  .superRefine((input, ctx) => {
+    if (input.intent !== "add") {
+      return;
+    }
+
+    const expectsEntry =
+      input.field === "entry_summary" || input.field === "entry_bullet";
+    const expectsBullet =
+      input.field === "section_bullet" || input.field === "entry_bullet";
+
+    if ((input.entryId !== null) !== expectsEntry) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["entryId"],
+        message:
+          "Claim confirmation locators require an entryId exactly when field is entry_summary or entry_bullet.",
+      });
+    }
+
+    if ((input.bulletId !== null) !== expectsBullet) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["bulletId"],
+        message:
+          "Claim confirmation locators require a bulletId exactly when field is section_bullet or entry_bullet.",
+      });
+    }
+  });
+export type JobFinderSetResumeClaimConfirmationInput = z.infer<
+  typeof JobFinderSetResumeClaimConfirmationInputSchema
+>;
+
 export const JobFinderWorkspaceHydrationSchema = z
   .object({
     phase: z.enum(["bootstrap", "complete"]).default("complete"),
@@ -713,8 +1032,9 @@ export const JobFinderWorkspaceSnapshotSchema = z.object({
   recentDiscoveryRuns: z.array(DiscoveryRunRecordSchema).default([]),
   activeSourceDebugRun: SourceDebugRunRecordSchema.nullable().default(null),
   recentSourceDebugRuns: z.array(SourceDebugRunRecordSchema).default([]),
-  discoveryJobs: z.array(SavedJobSchema).default([]),
-  dismissedDiscoveryJobs: z.array(SavedJobSchema).default([]),
+  discoveryJobs: z.array(DiscoveryJobViewSchema).default([]),
+  dismissedDiscoveryJobs: z.array(DiscoveryJobViewSchema).default([]),
+  companyJobs: z.array(DiscoveryJobViewSchema).default([]),
   selectedDiscoveryJobId: NonEmptyStringSchema.nullable(),
   reviewQueue: z.array(ReviewQueueItemSchema).default([]),
   selectedReviewJobId: NonEmptyStringSchema.nullable(),
@@ -753,6 +1073,40 @@ export type JobFinderWorkspaceSnapshot = z.infer<
   typeof JobFinderWorkspaceSnapshotSchema
 >;
 
+export const JobFinderAgentDiscoveryOutcomeSchema = z.enum([
+  "completed",
+  "cancelled",
+]);
+export type JobFinderAgentDiscoveryOutcome = z.infer<
+  typeof JobFinderAgentDiscoveryOutcomeSchema
+>;
+
+/**
+ * Typed terminal outcome for the agent-discovery IPC route. `cancelled` is
+ * authoritative: the run stopped because the user (or the runtime) aborted it,
+ * so callers must never render success feedback for it. The snapshot stays
+ * required in both variants so incrementally committed jobs remain visible and
+ * the workspace commit path is unchanged.
+ */
+export type JobFinderAgentDiscoveryResult = {
+  outcome: JobFinderAgentDiscoveryOutcome;
+  snapshot: JobFinderWorkspaceSnapshot;
+};
+type JobFinderAgentDiscoveryResultInput = {
+  outcome: z.input<typeof JobFinderAgentDiscoveryOutcomeSchema>;
+  snapshot: z.input<typeof JobFinderWorkspaceSnapshotSchema>;
+};
+export const JobFinderAgentDiscoveryResultSchema: z.ZodType<
+  JobFinderAgentDiscoveryResult,
+  z.ZodTypeDef,
+  JobFinderAgentDiscoveryResultInput
+> = z
+  .object({
+    outcome: JobFinderAgentDiscoveryOutcomeSchema,
+    snapshot: JobFinderWorkspaceSnapshotSchema,
+  })
+  .strict();
+
 export const WorkspaceRevisionSchema = z.number().int().nonnegative();
 export type WorkspaceRevision = z.infer<typeof WorkspaceRevisionSchema>;
 
@@ -783,6 +1137,8 @@ export const JobFinderWorkspaceEntityMutationSchema = z.discriminatedUnion(
         type: z.literal("dismiss_discovery_job"),
         jobId: NonEmptyStringSchema,
         reasons: z.array(DiscoveryFeedbackReasonSchema).min(1).max(9),
+        action: z.enum(["hide_job", "hide_and_exclude_employer"]).optional(),
+        expectedNormalizedCompanyName: NonEmptyStringSchema.nullish(),
       })
       .strict(),
     z
@@ -802,7 +1158,21 @@ export const JobFinderWorkspaceEntityMutationInputSchema = z
     baseRevision: WorkspaceRevisionSchema.nullable(),
     mutation: JobFinderWorkspaceEntityMutationSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((input, context) => {
+    if (
+      input.mutation.type === "dismiss_discovery_job" &&
+      input.mutation.action === "hide_and_exclude_employer" &&
+      input.mutation.expectedNormalizedCompanyName == null
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["mutation", "expectedNormalizedCompanyName"],
+        message:
+          "Employer exclusion requires the previewed normalized company name.",
+      });
+    }
+  });
 export type JobFinderWorkspaceEntityMutationInput = z.infer<
   typeof JobFinderWorkspaceEntityMutationInputSchema
 >;
@@ -833,16 +1203,23 @@ export const JobFinderWorkspaceDeltaSchema = z
     selectedApplicationRecordId: NonEmptyStringSchema.nullable(),
     discoveryJobs: z
       .object({
-        upserts: z.array(SavedJobSchema).default([]),
+        upserts: z.array(DiscoveryJobViewSchema).default([]),
         removedIds: WorkspaceDeltaRemovalIdsSchema,
       })
       .strict(),
     dismissedDiscoveryJobs: z
       .object({
-        upserts: z.array(SavedJobSchema).default([]),
+        upserts: z.array(DiscoveryJobViewSchema).default([]),
         removedIds: WorkspaceDeltaRemovalIdsSchema,
       })
       .strict(),
+    companyJobs: z
+      .object({
+        upserts: z.array(DiscoveryJobViewSchema).default([]),
+        removedIds: WorkspaceDeltaRemovalIdsSchema,
+      })
+      .strict()
+      .default({}),
     recentDiscoveryRuns: z
       .object({
         upserts: z.array(DiscoveryRunRecordSchema).default([]),
@@ -976,6 +1353,23 @@ export type SaveJobFinderSettingsInput = z.infer<
   typeof SaveJobFinderSettingsInputSchema
 >;
 
+export const UpdateApplicationDefaultsInputSchema = z.object({
+  resumeApplicationMode: ResumeApplicationModeSchema.optional(),
+  resumeTemplateId: ResumeTemplateIdSchema.optional(),
+  fontPreset: DocumentFontPresetSchema.optional(),
+});
+export type UpdateApplicationDefaultsInput = z.infer<
+  typeof UpdateApplicationDefaultsInputSchema
+>;
+
+export const UpdateWorkspaceBehaviorInputSchema = z.object({
+  keepSessionAlive: z.boolean().optional(),
+  discoveryOnly: z.boolean().optional(),
+});
+export type UpdateWorkspaceBehaviorInput = z.infer<
+  typeof UpdateWorkspaceBehaviorInputSchema
+>;
+
 export const DesktopPlatformPingSchema = z.object({
   ok: z.literal(true),
   platform: z.enum(["darwin", "win32", "linux"]),
@@ -986,6 +1380,44 @@ export const DesktopTestOkResponseSchema = z.object({
   ok: z.literal(true),
 });
 export type DesktopTestOkResponse = z.infer<typeof DesktopTestOkResponseSchema>;
+
+/**
+ * Renderer-owned close protection state mirrored to the main process. The
+ * renderer stays the single owner of dirty Profile/setup/Resume Studio state;
+ * main only caches this flag so a native window close can be paused and
+ * confirmed through the app-owned dialog instead of discarding drafts.
+ */
+export const DesktopWindowCloseGuardStateSchema = z.object({
+  blocked: z.boolean(),
+});
+export type DesktopWindowCloseGuardState = z.infer<
+  typeof DesktopWindowCloseGuardStateSchema
+>;
+
+/**
+ * Main-to-renderer request pushed after a native close was paused. The
+ * renderer answers through `DesktopWindowCloseResolution`; an unanswered
+ * request is bounded by a main-process watchdog instead of blocking forever.
+ */
+export const DesktopWindowCloseRequestSchema = z.object({
+  requestId: NonEmptyStringSchema,
+});
+export type DesktopWindowCloseRequest = z.infer<
+  typeof DesktopWindowCloseRequestSchema
+>;
+
+export const DesktopWindowCloseDecisionSchema = z.enum(["proceed", "cancel"]);
+export type DesktopWindowCloseDecision = z.infer<
+  typeof DesktopWindowCloseDecisionSchema
+>;
+
+export const DesktopWindowCloseResolutionSchema = z.object({
+  requestId: NonEmptyStringSchema,
+  decision: DesktopWindowCloseDecisionSchema,
+});
+export type DesktopWindowCloseResolution = z.infer<
+  typeof DesktopWindowCloseResolutionSchema
+>;
 
 export const DesktopWindowControlsStateSchema = z.object({
   isMaximized: z.boolean(),

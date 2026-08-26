@@ -4,6 +4,23 @@ UnEmployed is an agent-first desktop product for job search, resume preparation,
 
 ## Job Finder Language
 
+**Application automation mode**:
+The user's selected authority level for one application scope: prepare only,
+confirm before submit, or autonomous submit.
+_Avoid_: hidden auto-apply flag, implicit submit permission
+
+**Application authority envelope**:
+The explicit, inspectable, revocable policy that scopes what Job Finder may do,
+for which jobs, with which answers and documents, at what volume, until when, and
+where it must stop.
+_Avoid_: blanket consent, preferences imply everything
+
+**Autonomous submit**:
+An application mode in which Job Finder may perform the final employer-site
+submission action because the exact application and action are inside the saved
+authority envelope.
+_Avoid_: prepare-only auto-apply, unscoped submit
+
 **Resume coverage policy**:
 The rule for which profile work-history records appear in a generated resume and at what level of detail.
 _Avoid_: irrelevant jobs, hidden jobs

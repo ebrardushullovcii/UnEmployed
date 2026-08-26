@@ -101,6 +101,14 @@ export function JobFinderSaveStatus(props: {
           <RotateCcw aria-hidden="true" className="size-3.5" />
           Retry
         </Button>
+      ) : props.saveState.state === "failed" &&
+        props.saveState.retryBlockedReason ? (
+        <span
+          className="max-w-56 text-right text-xs leading-4 text-destructive"
+          data-save-retry-blocked="true"
+        >
+          {props.saveState.retryBlockedReason}
+        </span>
       ) : null}
       {props.saveState.state === "saved" ? (
         <Button

@@ -2,6 +2,9 @@ import { describe, expect, test } from "vitest";
 import { ApplicationRecordSchema } from "@unemployed/contracts";
 
 import {
+  APPLICATION_CRM_STAGE_LABELS,
+  applicationCrmStageLabelForView,
+  applicationCrmStageProvenanceForView,
   buildApplicationCrmCalendarForView,
   groupApplicationRecordsByStage,
   inferApplicationCrmStageForView,
@@ -22,9 +25,35 @@ function record(overrides: Record<string, unknown> = {}) {
 }
 
 describe("application CRM renderer model", () => {
-  test("maps old records without rewriting them", () => {
-    expect(inferApplicationCrmStageForView(record())).toBe("applied");
-    expect(record().crm).toBeNull();
+  test("distinguishes compatibility-inferred stages from CRM stages", () => {
+    const legacyRecord = record();
+    const explicitRecord = record({
+      crm: {
+        stage: "applied",
+        stageChangedAt: "2026-08-15T10:00:00.000Z",
+      },
+    });
+
+    expect(inferApplicationCrmStageForView(legacyRecord)).toBe("applied");
+    expect(applicationCrmStageLabelForView(legacyRecord)).toBe(
+      "Applied (local historical inference)",
+    );
+    expect(applicationCrmStageProvenanceForView(legacyRecord)).toBe(
+      "Local historical inference",
+    );
+    expect(applicationCrmStageLabelForView(explicitRecord)).toBe(
+      "Applied (user recorded)",
+    );
+    expect(applicationCrmStageProvenanceForView(explicitRecord)).toBe(
+      "User recorded",
+    );
+    expect(APPLICATION_CRM_STAGE_LABELS.applied).toBe(
+      "Applied (user recorded)",
+    );
+    expect(APPLICATION_CRM_STAGE_LABELS.interview).toBe(
+      "Interview (user recorded)",
+    );
+    expect(legacyRecord.crm).toBeNull();
   });
 
   test("groups records into all lifecycle columns", () => {

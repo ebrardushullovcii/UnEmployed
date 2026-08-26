@@ -15,6 +15,10 @@ import {
 
 import { resolvePendingReviewItemsAfterExplicitSave } from "./profile-setup-review-items";
 import { deriveAndPersistProfileSetupState } from "./profile-workspace-state";
+import {
+  commitProfileCopilotStateWithStaleRetry,
+  type CommitProfileCopilotStateInput,
+} from "./profile-commit-stale-conflict";
 import { hasResumeAffectingProfileChange } from "./resume-workspace-staleness";
 import { createUniqueId } from "./shared";
 import { normalizeSearchPreferences } from "./workspace-helpers";
@@ -227,21 +231,6 @@ function setPatchGroupApplyMode(
   };
 }
 
-function replacePatchGroupInMessage(input: {
-  message: ProfileCopilotMessage;
-  patchGroupId: string;
-  applyMode: ProfileCopilotPatchGroup["applyMode"];
-}): ProfileCopilotMessage {
-  return {
-    ...input.message,
-    patchGroups: input.message.patchGroups.map((group) =>
-      group.id === input.patchGroupId
-        ? setPatchGroupApplyMode(group, input.applyMode)
-        : group,
-    ),
-  };
-}
-
 function formatCopilotFactLabel(value: string): string {
   return value
     .replaceAll("_", " ")
@@ -319,11 +308,11 @@ function buildConversationFacts(input: {
 }): string[] {
   const facts: string[] = [];
 
-  if (input.profile.headline.trim()) {
+  if (input.profile.headline?.trim()) {
     facts.push(`Headline: ${input.profile.headline.trim()}`);
   }
 
-  if (input.profile.currentLocation.trim()) {
+  if (input.profile.currentLocation?.trim()) {
     facts.push(`Location: ${input.profile.currentLocation.trim()}`);
   }
 
@@ -517,53 +506,22 @@ export function createWorkspaceProfileCopilotMethods(input: {
     return persistProfileCopilotMessage(content, context, false);
   }
 
-  async function applyProfileCopilotPatchGroupInternal(
-    patchGroupId: string,
-    options?: {
-      messageId?: string | null;
-      patchGroup?: ProfileCopilotPatchGroup;
+  function applyPatchGroupOperationsToWorkspace(
+    workspace: {
+      profile: CandidateProfile;
+      searchPreferences: JobSearchPreferences;
+      profileSetupState: ProfileSetupState;
     },
-  ) {
-    const [messages, currentSetupContext] = await Promise.all([
-      ctx.repository.listProfileCopilotMessages(),
-      getCurrentSetupStateContext(),
-    ]);
-    const now = new Date().toISOString();
-    const patchGroup =
-      options?.patchGroup ??
-      messages
-        .flatMap((message) => message.patchGroups)
-        .find((group) => group.id === patchGroupId);
-
-    if (!patchGroup) {
-      throw new Error(`Unknown profile copilot patch group '${patchGroupId}'.`);
-    }
-
-    if (!hasValidPatchValues(patchGroup)) {
-      throw new Error(
-        "Profile Copilot returned a malformed field value. Rewrite the request with the field and value stated directly.",
-      );
-    }
-
-    let nextProfile = currentSetupContext.profile;
-    let nextSearchPreferences = currentSetupContext.searchPreferences;
-    let nextProfileSetupState = currentSetupContext.profileSetupState;
-    const latestResumeImportCandidates =
-      currentSetupContext.latestResumeImportAllCandidates;
-    const sourceMessage =
-      messages.find((message) =>
-        message.patchGroups.some((group) => group.id === patchGroupId),
-      ) ?? null;
-
-    const revision = buildProfileRevision({
-      trigger: "assistant_patch",
-      profile: currentSetupContext.profile,
-      searchPreferences: currentSetupContext.searchPreferences,
-      profileSetupState: currentSetupContext.profileSetupState,
-      reason: `Assistant patch: ${patchGroup.summary}`,
-      messageId: options?.messageId ?? sourceMessage?.id ?? null,
-      patchGroupId,
-    });
+    patchGroup: ProfileCopilotPatchGroup,
+    now: string,
+  ): {
+    profile: CandidateProfile;
+    searchPreferences: JobSearchPreferences;
+    profileSetupState: ProfileSetupState;
+  } {
+    let nextProfile = workspace.profile;
+    let nextSearchPreferences = workspace.searchPreferences;
+    let nextProfileSetupState = workspace.profileSetupState;
 
     for (const operation of patchGroup.operations) {
       switch (operation.operation) {
@@ -847,60 +805,134 @@ export function createWorkspaceProfileCopilotMethods(input: {
       }
     }
 
-    nextProfileSetupState = resolvePendingReviewItemsAfterExplicitSave({
-      currentProfile: currentSetupContext.profile,
-      currentSearchPreferences: currentSetupContext.searchPreferences,
-      nextProfile,
-      nextSearchPreferences,
-      profileSetupState: nextProfileSetupState,
-      now,
-    });
-
-    if (
-      hasResumeAffectingProfileChange(currentSetupContext.profile, nextProfile)
-    ) {
-      await ctx.staleApprovedResumeDrafts(
-        "Profile details changed after approval and the resume needs a fresh review.",
-      );
-    }
-
-    const refreshedLatestResumeImportReviewCandidates =
-      latestResumeImportCandidates.filter(
-        (candidate) =>
-          candidate.resolution === "needs_review" ||
-          candidate.resolution === "abstained",
-      );
-    const derivedProfileSetupState = await deriveAndPersistProfileSetupState(
-      ctx,
-      {
-        persistedState: nextProfileSetupState,
-        profile: nextProfile,
-        searchPreferences: nextSearchPreferences,
-        latestResumeImportRunId:
-          currentSetupContext.latestResumeImportRun?.id ?? null,
-        latestResumeImportReviewCandidates:
-          refreshedLatestResumeImportReviewCandidates,
-        persist: false,
-      },
-    );
-
-    await ctx.repository.commitProfileCopilotState({
+    return {
       profile: nextProfile,
       searchPreferences: nextSearchPreferences,
-      profileSetupState: derivedProfileSetupState,
-      ...(sourceMessage
-        ? {
-            messages: [
-              replacePatchGroupInMessage({
-                message: sourceMessage,
-                patchGroupId,
-                applyMode: "applied",
-              }),
-            ],
-          }
-        : {}),
-      revisions: [revision],
-    });
+      profileSetupState: nextProfileSetupState,
+    };
+  }
+
+  async function applyProfileCopilotPatchGroupInternal(
+    patchGroupId: string,
+    options?: {
+      messageId?: string | null;
+      patchGroup?: ProfileCopilotPatchGroup;
+    },
+  ) {
+    const prepareAttempt =
+      async (): Promise<CommitProfileCopilotStateInput> => {
+        const [messages, currentSetupContext] = await Promise.all([
+          ctx.repository.listProfileCopilotMessages(),
+          getCurrentSetupStateContext(),
+        ]);
+        const captured = await ctx.repository.getProfileWithRevision();
+        const now = new Date().toISOString();
+        const patchGroup =
+          options?.patchGroup ??
+          messages
+            .flatMap((message) => message.patchGroups)
+            .find((group) => group.id === patchGroupId);
+
+        if (!patchGroup) {
+          throw new Error(
+            `Unknown profile copilot patch group '${patchGroupId}'.`,
+          );
+        }
+
+        if (!hasValidPatchValues(patchGroup)) {
+          throw new Error(
+            "Profile Copilot returned a malformed field value. Rewrite the request with the field and value stated directly.",
+          );
+        }
+
+        const sourceMessage =
+          messages.find((message) =>
+            message.patchGroups.some((group) => group.id === patchGroupId),
+          ) ?? null;
+
+        const patched = applyPatchGroupOperationsToWorkspace(
+          {
+            profile: captured.profile,
+            searchPreferences: currentSetupContext.searchPreferences,
+            profileSetupState: currentSetupContext.profileSetupState,
+          },
+          patchGroup,
+          now,
+        );
+
+        const nextProfileSetupState =
+          resolvePendingReviewItemsAfterExplicitSave({
+            currentProfile: captured.profile,
+            currentSearchPreferences: currentSetupContext.searchPreferences,
+            nextProfile: patched.profile,
+            nextSearchPreferences: patched.searchPreferences,
+            profileSetupState: patched.profileSetupState,
+            now,
+          });
+
+        if (
+          hasResumeAffectingProfileChange(captured.profile, patched.profile)
+        ) {
+          await ctx.staleApprovedResumeDrafts(
+            "Profile details changed after approval and the resume needs a fresh review.",
+          );
+        }
+
+        const refreshedLatestResumeImportReviewCandidates =
+          currentSetupContext.latestResumeImportAllCandidates.filter(
+            (candidate) =>
+              candidate.resolution === "needs_review" ||
+              candidate.resolution === "abstained",
+          );
+        const derivedProfileSetupState =
+          await deriveAndPersistProfileSetupState(ctx, {
+            persistedState: nextProfileSetupState,
+            profile: patched.profile,
+            searchPreferences: patched.searchPreferences,
+            latestResumeImportRunId:
+              currentSetupContext.latestResumeImportRun?.id ?? null,
+            latestResumeImportReviewCandidates:
+              refreshedLatestResumeImportReviewCandidates,
+            persist: false,
+          });
+
+        return {
+          profile: patched.profile,
+          searchPreferences: patched.searchPreferences,
+          profileSetupState: derivedProfileSetupState,
+          // A flag delta instead of a whole-message snapshot: sibling groups
+          // keep their transaction-current apply/reject status even if they
+          // change between this capture and the commit.
+          ...(sourceMessage
+            ? {
+                messagePatchFlags: [
+                  {
+                    messageId: sourceMessage.id,
+                    patchGroupId,
+                    applyMode: "applied",
+                  },
+                ],
+              }
+            : {}),
+          revisions: [
+            buildProfileRevision({
+              trigger: "assistant_patch",
+              profile: captured.profile,
+              searchPreferences: currentSetupContext.searchPreferences,
+              profileSetupState: currentSetupContext.profileSetupState,
+              reason: `Assistant patch: ${patchGroup.summary}`,
+              messageId: options?.messageId ?? sourceMessage?.id ?? null,
+              patchGroupId,
+            }),
+          ],
+          expectedProfileRevision: captured.revision,
+        };
+      };
+
+    await commitProfileCopilotStateWithStaleRetry(
+      ctx.repository,
+      prepareAttempt,
+    );
   }
 
   async function applyProfileCopilotPatchGroup(patchGroupId: string) {
@@ -918,12 +950,18 @@ export function createWorkspaceProfileCopilotMethods(input: {
       throw new Error(`Unknown profile copilot patch group '${patchGroupId}'.`);
     }
 
-    await ctx.repository.upsertProfileCopilotMessage({
-      ...message,
-      patchGroups: message.patchGroups.map((group) =>
-        group.id === patchGroupId ? { ...group, applyMode: "rejected" } : group,
-      ),
-    });
+    // The flag flip resolves against transaction-current persisted state, so
+    // a sibling group applied or rejected while this call was in flight keeps
+    // its status instead of being reverted by a stale whole-message write.
+    const didUpdate =
+      await ctx.repository.commitProfileCopilotPatchFlagUpdate({
+        patchGroupId,
+        applyMode: "rejected",
+      });
+
+    if (!didUpdate) {
+      throw new Error(`Unknown profile copilot patch group '${patchGroupId}'.`);
+    }
 
     return getWorkspaceSnapshot();
   }
@@ -960,13 +998,18 @@ export function createWorkspaceProfileCopilotMethods(input: {
         "Profile details changed after approval and the resume needs a fresh review.",
       );
     }
-    await ctx.repository.commitProfileCopilotState({
-      profile: targetRevision.snapshotProfile,
-      searchPreferences: normalizeSearchPreferences(
-        targetRevision.snapshotSearchPreferences,
-      ),
-      profileSetupState: targetRevision.snapshotProfileSetupState,
-      revisions: [undoRevision],
+
+    await commitProfileCopilotStateWithStaleRetry(ctx.repository, async () => {
+      const captured = await ctx.repository.getProfileWithRevision();
+      return {
+        profile: targetRevision.snapshotProfile,
+        searchPreferences: normalizeSearchPreferences(
+          targetRevision.snapshotSearchPreferences,
+        ),
+        profileSetupState: targetRevision.snapshotProfileSetupState,
+        revisions: [undoRevision],
+        expectedProfileRevision: captured.revision,
+      };
     });
 
     return getWorkspaceSnapshot();

@@ -6,7 +6,12 @@ import {
 } from "@unemployed/contracts";
 
 import type { ReviseCandidateProfileInput } from "../shared";
-import { createUniqueId } from "./profile-copilot-helpers";
+import { createUniqueId, normalizeFactText } from "./profile-copilot-helpers";
+import {
+  detectSalaryCurrency,
+  detectSalaryInterval,
+  requestMentionsSalaryAnswerBank,
+} from "./profile-copilot-salary";
 
 interface ParsedCompensationRequest {
   minimum: number;
@@ -28,28 +33,10 @@ function parseAmount(
   return Math.round(parsed * (hasThousandsSuffix ? 1_000 : 1));
 }
 
-function detectInterval(request: string): CompensationInterval | null {
-  if (/\b(?:per|a|each)?\s*(?:month|monthly)\b/i.test(request)) return "month";
-  if (/\b(?:per|a|each)?\s*(?:year|yearly|annual(?:ly)?)\b/i.test(request)) return "year";
-  if (/\b(?:per|a|each)?\s*(?:week|weekly)\b/i.test(request)) return "week";
-  if (/\b(?:per|a|each)?\s*(?:day|daily)\b/i.test(request)) return "day";
-  if (/\b(?:per|an|each)?\s*(?:hour|hourly)\b/i.test(request)) return "hour";
-  return null;
-}
-
-function detectCurrency(request: string): string | null {
-  const isoCode = request.match(/\b(USD|EUR|GBP|CAD|AUD|NZD|CHF)\b/i)?.[1];
-  if (isoCode) return isoCode.toUpperCase();
-  if (/US\$/i.test(request)) return "USD";
-  if (request.includes("€")) return "EUR";
-  if (request.includes("£")) return "GBP";
-  return null;
-}
-
 function parseCompensationRequest(
   input: ReviseCandidateProfileInput,
 ): ParsedCompensationRequest | null {
-  const interval = detectInterval(input.request);
+  const interval = detectSalaryInterval(input.request);
   const range = input.request.match(
     /(?:\b[A-Z]{3}\b|US\$|[$€£])?\s*([\d,.]+)\s*(k)?\s*(?:-|–|—|to)\s*(?:\b[A-Z]{3}\b|US\$|[$€£])?\s*([\d,.]+)\s*(k)?/i,
   );
@@ -65,7 +52,7 @@ function parseCompensationRequest(
     return null;
   }
 
-  const explicitCurrency = detectCurrency(input.request);
+  const explicitCurrency = detectSalaryCurrency(input.request);
   const savedExplicitCurrency =
     input.searchPreferences.compensation.currencyStatus === "explicit"
       ? input.searchPreferences.compensation.currency
@@ -99,6 +86,12 @@ function detectPreferredLocation(request: string): string | null {
 export function buildNaturalSearchPreferenceReply(
   input: ReviseCandidateProfileInput,
 ): ProfileCopilotReply | null {
+  // "Salary expectations answer" edits stored application answer text; the
+  // structured compensation specialists must not hijack that phrasing.
+  if (requestMentionsSalaryAnswerBank(normalizeFactText(input.request))) {
+    return null;
+  }
+
   if (!/\b(?:jobs?|roles?|look(?:ing)?|search|pay|salary|compensation)\b/i.test(input.request)) {
     return null;
   }

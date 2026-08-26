@@ -49,6 +49,12 @@ export function ProfileSaveFooter({
           ) : null}
         </div>
 
+        {/* Save-state copy stays in role="status" live regions only: wiring
+            these messages to the button via aria-describedby would announce
+            them a second time when focus lands on the control. The shared
+            Button owns the pending semantics (aria-busy + aria-disabled while
+            isSavePending keeps focus on the control), and the clean state
+            keeps native disabled semantics. */}
         <Button
           className="w-full sm:w-auto sm:shrink-0"
           disabled={!hasUnsavedChanges}

@@ -8,7 +8,10 @@ import type {
   SavedJob,
   SourceAccessPrompt,
 } from "@unemployed/contracts";
-import { DiscoveryFiltersPanel } from "./discovery-filters-panel";
+import {
+  DiscoveryFiltersPanel,
+  getDiscoveryOtherActiveCriteria,
+} from "./discovery-filters-panel";
 import { DiscoverySearchSections } from "./discovery-filters-panel-sections";
 import { DiscoveryResultsPanel } from "./discovery-results-panel";
 
@@ -46,11 +49,10 @@ describe("DiscoveryFiltersPanel", () => {
       discovery: { historyLimit: 5, targets: [] },
     };
 
-    const { getByRole } = render(
+    const { container, getAllByRole, getByRole, queryByText } = render(
       <MemoryRouter>
         <DiscoveryFiltersPanel
           activeRun={null}
-          actionMessage={null}
           browserSession={{
             source: "target_site",
             status: "unknown",
@@ -83,26 +85,314 @@ describe("DiscoveryFiltersPanel", () => {
     expect(scrollRegion.getAttribute("tabindex")).toBe("0");
     expect(scrollRegion.className).toContain("overflow-y-auto");
     expect(scrollRegion.className).toContain("overscroll-contain");
+
+    // Action hierarchy in Search setup: exactly one primary command, a
+    // visibly bounded secondary browser action, and Search history styled as
+    // navigation (link register) rather than a third command.
+    const searchButtons = getAllByRole("button", { name: "Search jobs" });
+    expect(searchButtons).toHaveLength(1);
+    expect(searchButtons[0]?.getAttribute("data-variant")).toBe("primary");
+    const browserButton = getByRole("button", { name: "Open browser" });
+    expect(browserButton.getAttribute("data-variant")).toBe("secondary");
+    const historyButton = getByRole("button", { name: "Search history" });
+    expect(historyButton.getAttribute("data-variant")).toBe("link");
+
+    // The decorative Browser/Search scope pill is gone; the status badge
+    // carries a non-color glyph instead.
+    expect(queryByText("Search")).toBeNull();
+    expect(
+      container.querySelector("[data-slot='badge'] svg[aria-hidden='true']"),
+    ).not.toBeNull();
+    expect(queryByText(/^Other active criteria/)).toBeNull();
   });
 
-  it("wraps long source filter labels and keeps their full names available", () => {
+  it("discloses configured omitted preferences and hard exclusions in a collapsed native control", () => {
+    const searchPreferences: JobSearchPreferences = {
+      targetRoles: ["Software Engineer"],
+      jobFamilies: ["Engineering"],
+      locations: ["Remote"],
+      excludedLocations: ["Antarctica"],
+      workModes: ["remote"],
+      seniorityLevels: ["Senior"],
+      targetIndustries: ["Climate tech"],
+      targetCompanyStages: ["Series B"],
+      employmentTypes: ["Full-time"],
+      minimumSalaryUsd: 120_000,
+      targetSalaryUsd: 160_000,
+      salaryCurrency: "USD",
+      compensation: {
+        minimum: 120_000,
+        maximum: 160_000,
+        interval: "year",
+        currency: "USD",
+        currencyStatus: "explicit",
+      },
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
+      companyBlacklist: ["Blocked Corp"],
+      companyWhitelist: ["Preferred Inc"],
+      discovery: {
+        collectOnlyHardCriteriaMatches: true,
+        historyLimit: 5,
+        runJobBudget: 500,
+        targets: [],
+      },
+    };
+    const criteria = getDiscoveryOtherActiveCriteria(searchPreferences);
+
+    expect(criteria.preferences.map(({ label }) => label)).toEqual([
+      "Job families",
+      "Seniority",
+      "Employment types",
+      "Industries",
+      "Company stages",
+      "Preferred companies",
+      "Minimum compensation",
+      "Target compensation",
+      "Collection limit",
+    ]);
+    expect(criteria.hardExclusions.map(({ label }) => label)).toEqual([
+      "Excluded locations",
+      "Excluded companies",
+      "Strict collection",
+    ]);
+
+    const { container, getByRole, getByText } = render(
+      <MemoryRouter>
+        <DiscoveryFiltersPanel
+          activeRun={null}
+          browserSession={{
+            source: "target_site",
+            status: "unknown",
+            driver: "catalog_seed",
+            label: "Browser optional",
+            detail: "The browser is only needed for sign-in.",
+            lastCheckedAt: "2026-03-20T10:00:00.000Z",
+          }}
+          discoverySessions={[]}
+          isBrowserSessionPending={false}
+          isBrowserSessionPendingForTarget={() => false}
+          isDiscoveryAllPending={false}
+          isTargetPending={() => false}
+          onOpenBrowserSession={vi.fn()}
+          onOpenBrowserSessionForTarget={vi.fn()}
+          onRunAgentDiscovery={vi.fn()}
+          onViewProgress={vi.fn()}
+          searchPreferences={searchPreferences}
+          sourceAccessPrompts={[]}
+        />
+      </MemoryRouter>,
+    );
+
+    const disclosure = container.querySelector("details");
+    const summary = getByText(
+      "Other active criteria (12, including 3 hard exclusions)",
+    );
+    expect(disclosure?.open).toBe(false);
+    expect(summary.tagName).toBe("SUMMARY");
+
+    fireEvent.click(summary);
+
+    expect(disclosure?.open).toBe(true);
+    expect(
+      getByRole("region", { name: "Other search preferences" }).textContent,
+    ).toContain("Minimum compensation: 120,000 USD per year");
+    expect(
+      getByRole("region", { name: "Other search preferences" }).textContent,
+    ).toContain("Collection limit: 500 jobs per run");
+    expect(
+      getByRole("region", { name: "Hard exclusions" }).textContent,
+    ).toContain("Excluded companies: Blocked Corp");
+    expect(
+      getByRole("region", { name: "Hard exclusions" }).textContent,
+    ).toContain("Strict collection: Only jobs meeting hard criteria");
+  });
+
+  it("renders saved criteria as one flat read-only summary line per section", () => {
     const longSource =
       "https://careers.example.test/this-is-an-extremely-long-source-label-without-spaces";
     const { container } = render(
       <DiscoverySearchSections
         sectionHeadingPrefix="discovery-filter"
         sections={[
-          { empty: "No sources", label: "Sources", values: [longSource] },
+          {
+            empty: "No sources",
+            label: "Sources",
+            values: [longSource, "Greenhouse"],
+          },
         ]}
       />,
     );
 
-    const chip = container.querySelector("span[title]");
-    expect(chip?.textContent).toBe(longSource);
-    expect(chip?.getAttribute("title")).toBe(longSource);
-    expect(chip?.className).toContain("min-w-0");
-    expect(chip?.className).toContain("max-w-full");
-    expect(chip?.className).toContain("break-words");
+    // Saved values are inert facts, not controls: one plain text summary with
+    // strong contrast, wrapping support for long tokens, and no border,
+    // tooltip, hover target, or interactive descendant.
+    const summary = container.querySelector("section p");
+    expect(summary?.textContent).toBe(`${longSource} · Greenhouse`);
+    expect(summary?.className).toContain("text-foreground");
+    expect(summary?.className).toContain("[overflow-wrap:anywhere]");
+    expect(container.querySelector("[title]")).toBeNull();
+    expect(summary?.querySelector("button, a, span")).toBeNull();
+  });
+
+  it("renders an empty setup section as one compact row with an inline edit action", () => {
+    const { container, getByRole } = render(
+      <MemoryRouter>
+        <DiscoverySearchSections
+          sectionHeadingPrefix="discovery-filter"
+          sections={[
+            {
+              editAction: {
+                href: "/job-finder/profile?section=preferences&focus=target-roles",
+                label: "Add roles",
+              },
+              empty: "No roles added yet.",
+              label: "Roles",
+              values: [],
+            },
+          ]}
+        />
+      </MemoryRouter>,
+    );
+
+    const section = container.querySelector("section");
+    expect(section?.className).toContain("py-2.5");
+    expect(section?.className).not.toContain("py-4");
+    expect(section?.textContent).toContain("No roles added yet.");
+    const editLink = getByRole("link", { name: "Add roles" });
+    expect(editLink.getAttribute("href")).toBe(
+      "/job-finder/profile?section=preferences&focus=target-roles",
+    );
+  });
+
+  it("surfaces inline recovery actions for every empty setup section", () => {
+    const emptySearchPreferences: JobSearchPreferences = {
+      targetRoles: [],
+      jobFamilies: [],
+      locations: [],
+      excludedLocations: [],
+      workModes: [],
+      seniorityLevels: [],
+      targetIndustries: [],
+      targetCompanyStages: [],
+      employmentTypes: [],
+      minimumSalaryUsd: null,
+      targetSalaryUsd: null,
+      salaryCurrency: "USD",
+      compensation: {
+        minimum: null,
+        maximum: null,
+        interval: "year",
+        currency: "USD",
+        currencyStatus: "inherited",
+      },
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
+      companyBlacklist: [],
+      companyWhitelist: [],
+      discovery: { historyLimit: 5, targets: [] },
+    };
+
+    const { getByRole } = render(
+      <MemoryRouter>
+        <DiscoveryFiltersPanel
+          activeRun={null}
+          browserSession={{
+            source: "target_site",
+            status: "unknown",
+            driver: "catalog_seed",
+            label: "Browser optional",
+            detail: "The browser is only needed for sign-in.",
+            lastCheckedAt: "2026-03-20T10:00:00.000Z",
+          }}
+          discoverySessions={[]}
+          isBrowserSessionPending={false}
+          isBrowserSessionPendingForTarget={() => false}
+          isDiscoveryAllPending={false}
+          isTargetPending={() => false}
+          onOpenBrowserSession={vi.fn()}
+          onOpenBrowserSessionForTarget={vi.fn()}
+          onRunAgentDiscovery={vi.fn()}
+          onViewProgress={vi.fn()}
+          searchPreferences={emptySearchPreferences}
+          sourceAccessPrompts={[]}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(
+      (
+        getByRole("link", { name: "Add roles" }) as HTMLAnchorElement
+      ).getAttribute("href"),
+    ).toBe("/job-finder/profile?section=preferences&focus=target-roles");
+    expect(getByRole("link", { name: "Add locations" })).toBeTruthy();
+    expect(getByRole("link", { name: "Set work modes" })).toBeTruthy();
+    expect(
+      (
+        getByRole("link", { name: "Add sources" }) as HTMLAnchorElement
+      ).getAttribute("href"),
+    ).toBe("/job-finder/profile?section=sources&focus=job-sources");
+
+    // Sources saved but all disabled must not read as "no sources added yet".
+    cleanup();
+    const disabledOnlyPreferences: JobSearchPreferences = {
+      ...emptySearchPreferences,
+      discovery: {
+        historyLimit: 5,
+        targets: [
+          {
+            id: "target_disabled",
+            label: "Paused Board",
+            startingUrl: "https://paused.example/jobs",
+            enabled: false,
+            adapterKind: "auto",
+            customInstructions: null,
+            instructionStatus: "draft",
+            validatedInstructionId: null,
+            draftInstructionId: null,
+            lastDebugRunId: null,
+            lastVerifiedAt: null,
+            staleReason: null,
+          },
+        ],
+      },
+    };
+
+    const { getByText: getDisabledText, getByRole: getDisabledRole } = render(
+      <MemoryRouter>
+        <DiscoveryFiltersPanel
+          activeRun={null}
+          browserSession={{
+            source: "target_site",
+            status: "unknown",
+            driver: "catalog_seed",
+            label: "Browser optional",
+            detail: "The browser is only needed for sign-in.",
+            lastCheckedAt: "2026-03-20T10:00:00.000Z",
+          }}
+          discoverySessions={[]}
+          isBrowserSessionPending={false}
+          isBrowserSessionPendingForTarget={() => false}
+          isDiscoveryAllPending={false}
+          isTargetPending={() => false}
+          onOpenBrowserSession={vi.fn()}
+          onOpenBrowserSessionForTarget={vi.fn()}
+          onRunAgentDiscovery={vi.fn()}
+          onViewProgress={vi.fn()}
+          searchPreferences={disabledOnlyPreferences}
+          sourceAccessPrompts={[]}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(getDisabledText("1 source saved, none enabled yet.")).toBeTruthy();
+    expect(
+      (
+        getDisabledRole("link", {
+          name: "Enable sources",
+        }) as HTMLAnchorElement
+      ).getAttribute("href"),
+    ).toBe("/job-finder/profile?section=sources&focus=job-sources");
   });
 
   it("shows a source-aware sign-in prompt near the search controls", () => {
@@ -168,7 +458,6 @@ describe("DiscoveryFiltersPanel", () => {
       <MemoryRouter>
         <DiscoveryFiltersPanel
           activeRun={null}
-          actionMessage={null}
           browserSession={{
             source: "target_site",
             status: "login_required",
@@ -327,7 +616,6 @@ describe("DiscoveryFiltersPanel", () => {
       <MemoryRouter>
         <DiscoveryFiltersPanel
           activeRun={null}
-          actionMessage={null}
           browserSession={{
             source: "target_site",
             status: "login_required",
@@ -443,7 +731,6 @@ describe("DiscoveryFiltersPanel", () => {
       <MemoryRouter>
         <DiscoveryFiltersPanel
           activeRun={null}
-          actionMessage={null}
           browserSession={{
             source: "target_site",
             status: "unknown",
@@ -471,7 +758,7 @@ describe("DiscoveryFiltersPanel", () => {
 
     expect(
       getByText(
-        "Some sources work without sign-in, but the browser can improve coverage.",
+        "The browser can improve coverage for sources that support sign-in.",
       ),
     ).toBeTruthy();
     expect(
@@ -491,23 +778,25 @@ describe("DiscoveryFiltersPanel", () => {
   it("shows a primary recovery action inside blocked results", () => {
     const onRecoveryAction = vi.fn();
     const { container, getByText } = render(
-      <DiscoveryResultsPanel
-        browserSession={{
-          source: "target_site",
-          status: "login_required",
-          driver: "chrome_profile_agent",
-          label: "Browser session needs sign-in",
-          detail: "A saved source needs sign-in.",
-          lastCheckedAt: "2026-03-20T10:00:00.000Z",
-        }}
-        jobs={[]}
-        onRecoveryAction={onRecoveryAction}
-        onSelectJob={vi.fn()}
-        recoveryActionLabel="Sign in to LinkedIn"
-        recoveryActionNextStep="Then search again after sign-in."
-        recoveryActionPending={false}
-        selectedJob={null}
-      />,
+      <MemoryRouter>
+        <DiscoveryResultsPanel
+          browserSession={{
+            source: "target_site",
+            status: "login_required",
+            driver: "chrome_profile_agent",
+            label: "Browser session needs sign-in",
+            detail: "A saved source needs sign-in.",
+            lastCheckedAt: "2026-03-20T10:00:00.000Z",
+          }}
+          jobs={[]}
+          onRecoveryAction={onRecoveryAction}
+          onSelectJob={vi.fn()}
+          recoveryActionLabel="Sign in to LinkedIn"
+          recoveryActionNextStep="Then search again after sign-in."
+          recoveryActionPending={false}
+          selectedJob={null}
+        />
+      </MemoryRouter>,
     );
 
     expect(getByText("Next step")).toBeTruthy();
@@ -520,140 +809,142 @@ describe("DiscoveryFiltersPanel", () => {
   it("keeps a primary recovery action visible when blocked state still shows stale results", () => {
     const onRecoveryAction = vi.fn();
     const { container, getByText } = render(
-      <DiscoveryResultsPanel
-        browserSession={{
-          source: "target_site",
-          status: "login_required",
-          driver: "chrome_profile_agent",
-          label: "Browser session needs sign-in",
-          detail: "A saved source needs sign-in.",
-          lastCheckedAt: "2026-03-20T10:00:00.000Z",
-        }}
-        jobs={[
-          {
-            id: "job_1",
+      <MemoryRouter>
+        <DiscoveryResultsPanel
+          browserSession={{
             source: "target_site",
-            sourceJobId: "job_1",
-            discoveryMethod: "catalog_seed",
-            collectionMethod: "fallback_search",
-            canonicalUrl: "https://example.com/job-1",
-            applicationUrl: "https://example.com/job-1/apply",
-            title: "Principal Designer",
-            company: "Acme",
-            location: "Remote",
-            workMode: ["remote"],
-            easyApplyEligible: true,
-            discoveredAt: "2026-03-20T10:00:00.000Z",
-            firstSeenAt: "2026-03-20T10:00:00.000Z",
-            lastSeenAt: "2026-03-20T10:00:00.000Z",
-            lastVerifiedActiveAt: "2026-03-20T10:00:00.000Z",
-            employmentType: null,
-            salaryText: null,
-            normalizedCompensation: {
-              currency: null,
-              interval: null,
-              minAmount: null,
-              maxAmount: null,
-              minAnnualUsd: null,
-              maxAnnualUsd: null,
-            },
-            detailQuality: "card_only",
-            summary: "Strong fit",
-            seniority: null,
-            postedAt: null,
-            postedAtText: null,
-            providerUpdatedAt: null,
-            description: "Lead design systems work.",
-            responsibilities: [],
-            minimumQualifications: [],
-            preferredQualifications: [],
-            department: null,
-            team: null,
-            employerWebsiteUrl: null,
-            employerDomain: null,
-            atsProvider: null,
-            providerKey: null,
-            providerBoardToken: null,
-            providerIdentifier: null,
-            titleTriageOutcome: "pass",
-            sourceIntelligence: null,
-            screeningHints: {
-              sponsorshipText: null,
-              requiresSecurityClearance: null,
-              relocationText: null,
-              travelText: null,
-              remoteGeographies: [],
-              requiresConsentInterrupt: null,
-              requiresConsentInterruptKind: null,
-            },
-            keywordSignals: [],
-            keySkills: [],
-            benefits: [],
-            matchAssessment: {
-              scorerVersion: 2,
-              contextFingerprint: null,
-              postingFingerprint: null,
-              score: 92,
-              compensationFit: {
-                state: "not_requested",
-                confidence: "unavailable",
-                minimumSalaryUsd: null,
-                listingMinimumAnnualUsd: null,
-                listingCurrency: null,
-                explanation: "No minimum salary preference is configured.",
+            status: "login_required",
+            driver: "chrome_profile_agent",
+            label: "Browser session needs sign-in",
+            detail: "A saved source needs sign-in.",
+            lastCheckedAt: "2026-03-20T10:00:00.000Z",
+          }}
+          jobs={[
+            {
+              id: "job_1",
+              source: "target_site",
+              sourceJobId: "job_1",
+              discoveryMethod: "catalog_seed",
+              collectionMethod: "fallback_search",
+              canonicalUrl: "https://example.com/job-1",
+              applicationUrl: "https://example.com/job-1/apply",
+              title: "Principal Designer",
+              company: "Acme",
+              location: "Remote",
+              workMode: ["remote"],
+              easyApplyEligible: true,
+              discoveredAt: "2026-03-20T10:00:00.000Z",
+              firstSeenAt: "2026-03-20T10:00:00.000Z",
+              lastSeenAt: "2026-03-20T10:00:00.000Z",
+              lastVerifiedActiveAt: "2026-03-20T10:00:00.000Z",
+              employmentType: null,
+              salaryText: null,
+              normalizedCompensation: {
+                currency: null,
+                interval: null,
+                minAmount: null,
+                maxAmount: null,
+                minAnnualUsd: null,
+                maxAnnualUsd: null,
               },
-              dimensions: {
-                roleSuitability: {
-                  state: "unknown",
-                  explanation:
-                    "Role suitability is unavailable in this fixture.",
-                  evidence: [],
-                },
-                preferenceAlignment: {
-                  state: "unknown",
-                  explanation:
-                    "Preference alignment is unavailable in this fixture.",
-                  evidence: [],
-                },
-                applicationEffort: {
-                  level: "unknown",
-                  explanation:
-                    "Application effort is unavailable in this fixture.",
-                  evidence: [],
-                },
-                evidenceConfidence: {
-                  level: "unavailable",
-                  explanation:
-                    "Evidence confidence is unavailable in this fixture.",
-                  evidence: [],
-                  supportedCount: 0,
-                  partialCount: 0,
-                  missingCount: 0,
-                  unknownCount: 0,
-                  conflictCount: 0,
-                },
+              detailQuality: "card_only",
+              summary: "Strong fit",
+              seniority: null,
+              postedAt: null,
+              postedAtText: null,
+              providerUpdatedAt: null,
+              description: "Lead design systems work.",
+              responsibilities: [],
+              minimumQualifications: [],
+              preferredQualifications: [],
+              department: null,
+              team: null,
+              employerWebsiteUrl: null,
+              employerDomain: null,
+              atsProvider: null,
+              providerKey: null,
+              providerBoardToken: null,
+              providerIdentifier: null,
+              titleTriageOutcome: "pass",
+              sourceIntelligence: null,
+              screeningHints: {
+                sponsorshipText: null,
+                requiresSecurityClearance: null,
+                relocationText: null,
+                travelText: null,
+                remoteGeographies: [],
+                requiresConsentInterrupt: null,
+                requiresConsentInterruptKind: null,
               },
-              reasons: ["Strong fit"],
-              gaps: [],
-              recommendation: "strong_fit",
-              recommendationRationale: "No hard blockers detected.",
-              requirements: [],
+              keywordSignals: [],
+              keySkills: [],
+              benefits: [],
+              matchAssessment: {
+                scorerVersion: 2,
+                contextFingerprint: null,
+                postingFingerprint: null,
+                score: 92,
+                compensationFit: {
+                  state: "not_requested",
+                  confidence: "unavailable",
+                  minimumSalaryUsd: null,
+                  listingMinimumAnnualUsd: null,
+                  listingCurrency: null,
+                  explanation: "No minimum salary preference is configured.",
+                },
+                dimensions: {
+                  roleSuitability: {
+                    state: "unknown",
+                    explanation:
+                      "Role suitability is unavailable in this fixture.",
+                    evidence: [],
+                  },
+                  preferenceAlignment: {
+                    state: "unknown",
+                    explanation:
+                      "Preference alignment is unavailable in this fixture.",
+                    evidence: [],
+                  },
+                  applicationEffort: {
+                    level: "unknown",
+                    explanation:
+                      "Application effort is unavailable in this fixture.",
+                    evidence: [],
+                  },
+                  evidenceConfidence: {
+                    level: "unavailable",
+                    explanation:
+                      "Evidence confidence is unavailable in this fixture.",
+                    evidence: [],
+                    supportedCount: 0,
+                    partialCount: 0,
+                    missingCount: 0,
+                    unknownCount: 0,
+                    conflictCount: 0,
+                  },
+                },
+                reasons: ["Strong fit"],
+                gaps: [],
+                recommendation: "strong_fit",
+                recommendationRationale: "No hard blockers detected.",
+                requirements: [],
+              },
+              status: "discovered",
+              applyPath: "easy_apply",
+              provenance: [],
+              discoveryFeedback: null,
+              resumeApplicationMode: null,
+              latestMatchAssessmentAudit: null,
             },
-            status: "discovered",
-            applyPath: "easy_apply",
-            provenance: [],
-            discoveryFeedback: null,
-            resumeApplicationMode: null,
-            latestMatchAssessmentAudit: null,
-          },
-        ]}
-        onRecoveryAction={onRecoveryAction}
-        onSelectJob={vi.fn()}
-        recoveryActionLabel="Sign in to LinkedIn"
-        recoveryActionNextStep="Then search again after sign-in."
-        recoveryActionPending={false}
-        selectedJob={null}
-      />,
+          ]}
+          onRecoveryAction={onRecoveryAction}
+          onSelectJob={vi.fn()}
+          recoveryActionLabel="Sign in to LinkedIn"
+          recoveryActionNextStep="Then search again after sign-in."
+          recoveryActionPending={false}
+          selectedJob={null}
+        />
+      </MemoryRouter>,
     );
 
     expect(getByText(/last completed search/i)).toBeTruthy();
@@ -667,27 +958,29 @@ describe("DiscoveryFiltersPanel", () => {
 
   it("prioritizes missing search setup over browser startup copy", () => {
     const { getByText, getByRole, queryByText } = render(
-      <DiscoveryResultsPanel
-        browserSession={{
-          source: "target_site",
-          status: "unknown",
-          driver: "chrome_profile_agent",
-          label: "Browser starting",
-          detail: "Preparing browser runtime.",
-          lastCheckedAt: "2026-03-20T10:00:00.000Z",
-        }}
-        jobs={[]}
-        onSelectJob={vi.fn()}
-        searchSetupBlocker={{
-          title: "Add a target role before searching",
-          description:
-            "Add at least one target role in Profile so Find jobs can aim the next search.",
-          actionLabel: "Edit search in Profile",
-          actionHref: "#/job-finder/profile?section=sources&focus=job-sources",
-          nextStep: "Then search again.",
-        }}
-        selectedJob={null}
-      />,
+      <MemoryRouter>
+        <DiscoveryResultsPanel
+          browserSession={{
+            source: "target_site",
+            status: "unknown",
+            driver: "chrome_profile_agent",
+            label: "Browser starting",
+            detail: "Preparing browser runtime.",
+            lastCheckedAt: "2026-03-20T10:00:00.000Z",
+          }}
+          jobs={[]}
+          onSelectJob={vi.fn()}
+          searchSetupBlocker={{
+            title: "Add a target role before searching",
+            description:
+              "Add at least one target role in Profile so Find jobs can aim the next search.",
+            actionLabel: "Edit search in Profile",
+            actionHref: "/job-finder/profile?section=sources&focus=job-sources",
+            nextStep: "Then search again.",
+          }}
+          selectedJob={null}
+        />
+      </MemoryRouter>,
     );
 
     expect(getByText("Add a target role before searching")).toBeTruthy();
@@ -703,24 +996,26 @@ describe("DiscoveryFiltersPanel", () => {
           name: "Edit search in Profile",
         }) as HTMLAnchorElement
       ).getAttribute("href"),
-    ).toBe("#/job-finder/profile?section=sources&focus=job-sources");
+    ).toBe("/job-finder/profile?section=sources&focus=job-sources");
   });
 
   it("shows a ready first-search state before any completed run", () => {
     const { getByText, queryByText } = render(
-      <DiscoveryResultsPanel
-        browserSession={{
-          source: "target_site",
-          status: "ready",
-          driver: "chrome_profile_agent",
-          label: "Browser ready",
-          detail: "Ready when needed.",
-          lastCheckedAt: "2026-03-20T10:00:00.000Z",
-        }}
-        jobs={[]}
-        onSelectJob={vi.fn()}
-        selectedJob={null}
-      />,
+      <MemoryRouter>
+        <DiscoveryResultsPanel
+          browserSession={{
+            source: "target_site",
+            status: "ready",
+            driver: "chrome_profile_agent",
+            label: "Browser ready",
+            detail: "Ready when needed.",
+            lastCheckedAt: "2026-03-20T10:00:00.000Z",
+          }}
+          jobs={[]}
+          onSelectJob={vi.fn()}
+          selectedJob={null}
+        />
+      </MemoryRouter>,
     );
 
     expect(getByText("Ready for your first search")).toBeTruthy();
@@ -729,20 +1024,22 @@ describe("DiscoveryFiltersPanel", () => {
 
   it("shows no matches only after a completed search", () => {
     const { getByRole, getByText, queryByText } = render(
-      <DiscoveryResultsPanel
-        browserSession={{
-          source: "target_site",
-          status: "ready",
-          driver: "chrome_profile_agent",
-          label: "Browser ready",
-          detail: "Ready when needed.",
-          lastCheckedAt: "2026-03-20T10:00:00.000Z",
-        }}
-        hasCompletedSearch
-        jobs={[]}
-        onSelectJob={vi.fn()}
-        selectedJob={null}
-      />,
+      <MemoryRouter>
+        <DiscoveryResultsPanel
+          browserSession={{
+            source: "target_site",
+            status: "ready",
+            driver: "chrome_profile_agent",
+            label: "Browser ready",
+            detail: "Ready when needed.",
+            lastCheckedAt: "2026-03-20T10:00:00.000Z",
+          }}
+          hasCompletedSearch
+          jobs={[]}
+          onSelectJob={vi.fn()}
+          selectedJob={null}
+        />
+      </MemoryRouter>,
     );
 
     expect(getByText("No matches from this search")).toBeTruthy();
@@ -761,24 +1058,27 @@ describe("DiscoveryFiltersPanel", () => {
       applyPath: "external_redirect",
       salaryText: null,
       workMode: ["remote"],
+      provenance: [],
       postedAt: "2026-07-15T00:00:00.000Z",
       postedAtText: null,
     } as unknown as SavedJob;
     const { getByRole, getByText, queryByRole } = render(
-      <DiscoveryResultsPanel
-        browserSession={{
-          source: "target_site",
-          status: "ready",
-          driver: "chrome_profile_agent",
-          label: "Browser ready",
-          detail: "Ready when needed.",
-          lastCheckedAt: "2026-07-16T10:00:00.000Z",
-        }}
-        isSearchInProgress
-        jobs={[progressiveJob]}
-        onSelectJob={vi.fn()}
-        selectedJob={progressiveJob}
-      />,
+      <MemoryRouter>
+        <DiscoveryResultsPanel
+          browserSession={{
+            source: "target_site",
+            status: "ready",
+            driver: "chrome_profile_agent",
+            label: "Browser ready",
+            detail: "Ready when needed.",
+            lastCheckedAt: "2026-07-16T10:00:00.000Z",
+          }}
+          isSearchInProgress
+          jobs={[progressiveJob]}
+          onSelectJob={vi.fn()}
+          selectedJob={progressiveJob}
+        />
+      </MemoryRouter>,
     );
 
     expect(getByText("1 match ready to review.")).toBeTruthy();
@@ -799,19 +1099,21 @@ describe("DiscoveryFiltersPanel", () => {
 
   it("does not treat the neutral optional-browser snapshot as browser startup", () => {
     const { getByText, queryByText } = render(
-      <DiscoveryResultsPanel
-        browserSession={{
-          source: "target_site",
-          status: "unknown",
-          driver: "catalog_seed",
-          label: "Browser optional",
-          detail: "The browser is only needed for sign-in.",
-          lastCheckedAt: "2026-03-20T10:00:00.000Z",
-        }}
-        jobs={[]}
-        onSelectJob={vi.fn()}
-        selectedJob={null}
-      />,
+      <MemoryRouter>
+        <DiscoveryResultsPanel
+          browserSession={{
+            source: "target_site",
+            status: "unknown",
+            driver: "catalog_seed",
+            label: "Browser optional",
+            detail: "The browser is only needed for sign-in.",
+            lastCheckedAt: "2026-03-20T10:00:00.000Z",
+          }}
+          jobs={[]}
+          onSelectJob={vi.fn()}
+          selectedJob={null}
+        />
+      </MemoryRouter>,
     );
 
     expect(getByText("Ready for your first search")).toBeTruthy();
@@ -821,21 +1123,23 @@ describe("DiscoveryFiltersPanel", () => {
 
   it("shows live search progress instead of an empty result verdict", () => {
     const { getByText, queryByText } = render(
-      <DiscoveryResultsPanel
-        browserSession={{
-          source: "target_site",
-          status: "ready",
-          driver: "chrome_profile_agent",
-          label: "Browser ready",
-          detail: "Ready when needed.",
-          lastCheckedAt: "2026-03-20T10:00:00.000Z",
-        }}
-        hasCompletedSearch
-        isSearchInProgress
-        jobs={[]}
-        onSelectJob={vi.fn()}
-        selectedJob={null}
-      />,
+      <MemoryRouter>
+        <DiscoveryResultsPanel
+          browserSession={{
+            source: "target_site",
+            status: "ready",
+            driver: "chrome_profile_agent",
+            label: "Browser ready",
+            detail: "Ready when needed.",
+            lastCheckedAt: "2026-03-20T10:00:00.000Z",
+          }}
+          hasCompletedSearch
+          isSearchInProgress
+          jobs={[]}
+          onSelectJob={vi.fn()}
+          selectedJob={null}
+        />
+      </MemoryRouter>,
     );
 
     expect(getByText("Searching your sources")).toBeTruthy();

@@ -1,6 +1,7 @@
 import type {
   ApplicationRecord,
   CompanyEntity,
+  DiscoveryJobView,
   SavedJob,
 } from "@unemployed/contracts";
 
@@ -13,58 +14,89 @@ import type {
  * for review, never silently merged.
  */
 
-const OPEN_APPLICATION_STATUSES: ReadonlySet<string> = new Set([
-  "discovered",
-  "shortlisted",
-  "drafting",
-  "ready_for_review",
-  "approved",
-  "submitted",
-  "assessment",
-  "interview",
-  "offer",
-]);
+export type CompanyListingJob = SavedJob &
+  Partial<Pick<DiscoveryJobView, "listingActivity">>;
+
+export type CompanyJobIndex = ReadonlyMap<string, CompanyListingJob>;
+
+export function indexCompanyJobs(
+  jobs: readonly CompanyListingJob[],
+): CompanyJobIndex {
+  const jobById = new Map<string, CompanyListingJob>();
+  for (const job of jobs) {
+    if (!jobById.has(job.id)) jobById.set(job.id, job);
+  }
+  return jobById;
+}
 
 export type CompanyOpeningsProjection = {
   companyId: string;
-  current: SavedJob[];
-  previous: SavedJob[];
-  currentCount: number;
-  previousCount: number;
+  lastSeenAvailable: CompanyListingJob[];
+  needsVerification: CompanyListingJob[];
+  reportedClosed: CompanyListingJob[];
+  lastSeenAvailableCount: number;
+  needsVerificationCount: number;
+  reportedClosedCount: number;
   totalCount: number;
   lastOpenedAt: string | null;
 };
 
-function compareOpenedAtDescending(first: SavedJob, second: SavedJob): number {
-  const firstOpenedAt = first.postedAt ?? first.discoveredAt;
-  const secondOpenedAt = second.postedAt ?? second.discoveredAt;
-  const difference = Date.parse(secondOpenedAt) - Date.parse(firstOpenedAt);
-  if (difference !== 0) return difference;
+function getListingOrderDate(job: SavedJob): string | null {
+  return job.postedAt ?? job.providerUpdatedAt;
+}
+
+function compareOpenedAtDescending(
+  first: CompanyListingJob,
+  second: CompanyListingJob,
+): number {
+  const firstOpenedAt = getListingOrderDate(first);
+  const secondOpenedAt = getListingOrderDate(second);
+  if (firstOpenedAt && secondOpenedAt) {
+    const difference = Date.parse(secondOpenedAt) - Date.parse(firstOpenedAt);
+    if (difference !== 0) return difference;
+  } else if (firstOpenedAt) {
+    return -1;
+  } else if (secondOpenedAt) {
+    return 1;
+  }
   return first.id < second.id ? -1 : first.id > second.id ? 1 : 0;
 }
 
 export function projectCompanyOpenings(input: {
   company: CompanyEntity;
-  jobs: readonly SavedJob[];
+  jobs: readonly CompanyListingJob[];
+  jobById?: CompanyJobIndex;
 }): CompanyOpeningsProjection {
-  const linked = input.jobs.filter((job) =>
-    input.company.jobIds.includes(job.id),
-  );
-  const current: SavedJob[] = [];
-  const previous: SavedJob[] = [];
+  const jobById = input.jobById ?? indexCompanyJobs(input.jobs);
+  const linked: CompanyListingJob[] = [];
+  const linkedJobIds = new Set<string>();
+  for (const jobId of input.company.jobIds) {
+    if (linkedJobIds.has(jobId)) continue;
+    linkedJobIds.add(jobId);
+    const job = jobById.get(jobId);
+    if (job) linked.push(job);
+  }
+  const lastSeenAvailable: CompanyListingJob[] = [];
+  const needsVerification: CompanyListingJob[] = [];
+  const reportedClosed: CompanyListingJob[] = [];
   for (const job of linked) {
-    if (OPEN_APPLICATION_STATUSES.has(job.status)) {
-      current.push(job);
+    const activityStatus = job.listingActivity?.status ?? "unknown";
+    if (activityStatus === "active") {
+      lastSeenAvailable.push(job);
+    } else if (activityStatus === "closed") {
+      reportedClosed.push(job);
     } else {
-      previous.push(job);
+      needsVerification.push(job);
     }
   }
-  current.sort(compareOpenedAtDescending);
-  previous.sort(compareOpenedAtDescending);
+  lastSeenAvailable.sort(compareOpenedAtDescending);
+  needsVerification.sort(compareOpenedAtDescending);
+  reportedClosed.sort(compareOpenedAtDescending);
 
   let lastOpenedAt: string | null = null;
   for (const job of linked) {
-    const openedAt = job.postedAt ?? job.discoveredAt;
+    const openedAt = getListingOrderDate(job);
+    if (!openedAt) continue;
     if (
       lastOpenedAt === null ||
       Date.parse(openedAt) > Date.parse(lastOpenedAt)
@@ -75,10 +107,12 @@ export function projectCompanyOpenings(input: {
 
   return {
     companyId: input.company.id,
-    current,
-    previous,
-    currentCount: current.length,
-    previousCount: previous.length,
+    lastSeenAvailable,
+    needsVerification,
+    reportedClosed,
+    lastSeenAvailableCount: lastSeenAvailable.length,
+    needsVerificationCount: needsVerification.length,
+    reportedClosedCount: reportedClosed.length,
     totalCount: linked.length,
     lastOpenedAt,
   };

@@ -4,6 +4,8 @@ import type {
   ApplyRunDetails,
   ClearApplicationAnswerCommandInput,
   JobFinderWorkspaceSnapshot,
+  JobFinderApplyConsentActionInput,
+  JobFinderApplyRunDetailsQuery,
   SaveApplicationAnswerCommandInput,
 } from "@unemployed/contracts";
 import { ApplicationsDetailPanelAttemptSection } from "./applications-detail-panel-attempt-section";
@@ -15,7 +17,9 @@ export function ApplicationsDetailPanelActivitySections(props: {
   applyRunDetailsError: string | null;
   applyRunDetailsStatus: "idle" | "loading" | "ready" | "error";
   isApplyRequestPending: (requestId: string) => boolean;
-  onExportApplicationPacket: (runId: string, jobId: string) => Promise<void>;
+  onExportApplicationPacket: (
+    input: JobFinderApplyRunDetailsQuery,
+  ) => Promise<void>;
   onSaveApplicationAnswer: (
     command: SaveApplicationAnswerCommandInput,
   ) => Promise<void>;
@@ -23,8 +27,7 @@ export function ApplicationsDetailPanelActivitySections(props: {
     command: ClearApplicationAnswerCommandInput,
   ) => Promise<void>;
   onResolveApplyConsentRequest: (
-    requestId: string,
-    action: "approve" | "decline",
+    input: JobFinderApplyConsentActionInput,
   ) => void;
   selectedApplyRunDetails: ApplyRunDetails | null;
   selectedAttempt: ApplicationAttempt | null;
@@ -65,14 +68,15 @@ export function ApplicationsDetailPanelActivitySections(props: {
       <ApplicationsDetailPanelPrivacyReceiptSection
         onExport={() => {
           const receipt = visibleApplyResult?.privacyReceipt;
-          if (!receipt) {
+          if (!receipt?.lineage.applicationRecordId) {
             return Promise.resolve();
           }
 
-          return onExportApplicationPacket(
-            receipt.lineage.runId,
-            receipt.lineage.jobId,
-          );
+          return onExportApplicationPacket({
+            runId: receipt.lineage.runId,
+            jobId: receipt.lineage.jobId,
+            applicationRecordId: receipt.lineage.applicationRecordId,
+          });
         }}
         receipt={visibleApplyResult?.privacyReceipt ?? null}
       />

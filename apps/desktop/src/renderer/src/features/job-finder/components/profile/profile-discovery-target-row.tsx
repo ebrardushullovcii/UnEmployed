@@ -132,6 +132,9 @@ export function ProfileDiscoveryTargetRow(
   const isTargetDiscoveryPending = props.isTargetDiscoveryPending(
     props.target.id,
   );
+  const isAnyTargetDiscoveryPending = props.discoveryTargets.some((target) =>
+    props.isTargetDiscoveryPending(target.id),
+  );
   const isTargetBrowserSessionPending = props.isBrowserSessionPending(
     props.target.id,
   );
@@ -152,6 +155,7 @@ export function ProfileDiscoveryTargetRow(
       ? "border-(--warning-border) bg-(--warning-surface) text-(--warning-text)"
       : "border-(--info-border) bg-(--info-surface) text-(--info-text)";
   const canRunSearchNow =
+    !isAnyTargetDiscoveryPending &&
     props.target.enabled &&
     hasValidAbsoluteStartingUrl(props.target.startingUrl);
   const canRunSourceDebug = hasValidAbsoluteStartingUrl(

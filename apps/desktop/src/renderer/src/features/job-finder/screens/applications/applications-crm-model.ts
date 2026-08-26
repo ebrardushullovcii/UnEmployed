@@ -22,7 +22,7 @@ export const APPLICATION_CRM_STAGE_ORDER: readonly ApplicationCrmStage[] = [
   "no_response",
 ];
 
-export const APPLICATION_CRM_STAGE_LABELS: Record<ApplicationCrmStage, string> =
+export const APPLICATION_CRM_STAGE_NAMES: Record<ApplicationCrmStage, string> =
   {
     discovered: "Discovered",
     reviewing: "Reviewing",
@@ -38,6 +38,24 @@ export const APPLICATION_CRM_STAGE_LABELS: Record<ApplicationCrmStage, string> =
     rejected: "Rejected",
     withdrawn: "Withdrawn",
     no_response: "No response",
+  };
+
+export const APPLICATION_CRM_STAGE_LABELS: Record<ApplicationCrmStage, string> =
+  {
+    discovered: "Discovered",
+    reviewing: "Reviewing",
+    shortlisted: "Shortlisted",
+    preparing: "Preparing",
+    ready_for_approval: "Ready for approval",
+    applied: "Applied (user recorded)",
+    employer_viewed: "Employer viewed (user recorded)",
+    recruiter_contact: "Recruiter contact (user recorded)",
+    assessment: "Assessment (user recorded)",
+    interview: "Interview (user recorded)",
+    offer: "Offer (user recorded)",
+    rejected: "Rejected (user recorded)",
+    withdrawn: "Withdrawn (user recorded)",
+    no_response: "No response (user recorded)",
   };
 
 export function inferApplicationCrmStageForView(
@@ -67,6 +85,21 @@ export function inferApplicationCrmStageForView(
         ? "preparing"
         : "discovered";
   }
+}
+
+export function applicationCrmStageLabelForView(
+  record: ApplicationRecord,
+): string {
+  const stage = inferApplicationCrmStageForView(record);
+  return record.crm
+    ? APPLICATION_CRM_STAGE_LABELS[stage]
+    : `${APPLICATION_CRM_STAGE_NAMES[stage]} (local historical inference)`;
+}
+
+export function applicationCrmStageProvenanceForView(
+  record: ApplicationRecord,
+): string {
+  return record.crm ? "User recorded" : "Local historical inference";
 }
 
 export function applicationCrmDataForView(

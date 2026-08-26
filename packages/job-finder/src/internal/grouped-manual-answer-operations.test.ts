@@ -534,6 +534,7 @@ describe("projectGroupedManualAnswerDecisions", () => {
         type: "application",
         runId: "run_2",
         jobId: "job_b",
+        applicationRecordId: "application_b",
         resultId: "result_job_b",
         replayCheckpointId: null,
         source: "target_site",

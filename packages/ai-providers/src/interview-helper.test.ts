@@ -11,7 +11,9 @@ import {
   createOpenAiCompatibleInterviewCueCardProvider,
   createOpenAiCompatibleInterviewScreenshotVisionProvider,
   createOpenAiCompatibleInterviewTranscriptionProvider,
+  DESKTOP_TEST_API_ENV,
   type InterviewCueCardRequest,
+  INTERVIEW_HELPER_TEST_LIVE_AI_OPT_IN_ENV,
 } from "./interview-helper";
 import {
   createEnvironment,
@@ -526,6 +528,118 @@ describe("Interview Helper AI providers", () => {
     expect(providers.screenshotVisionProvider.getStatus()).toMatchObject({
       ready: true,
       label: "Deterministic screenshot vision",
+    });
+  });
+
+  test("forces deterministic providers under the desktop test API even with interview and shared credentials", () => {
+    const providers = createInterviewHelperProvidersFromEnvironment(
+      createEnvironment({
+        [DESKTOP_TEST_API_ENV]: "1",
+        UNEMPLOYED_INTERVIEW_AI_API_KEY: "ambient-interview-key",
+        UNEMPLOYED_INTERVIEW_VISION_API_KEY: "ambient-interview-vision-key",
+      }),
+    );
+
+    const cueStatus = providers.cueCardProvider.getStatus();
+    expect(cueStatus).toMatchObject({
+      ready: true,
+      label: "Deterministic cue-card provider",
+    });
+    expect(cueStatus.detail).toContain("Desktop test API forces deterministic");
+    const visionStatus = providers.screenshotVisionProvider.getStatus();
+    expect(visionStatus).toMatchObject({
+      ready: true,
+      label: "Deterministic screenshot vision",
+    });
+    expect(visionStatus.detail).toContain("Desktop test API forces deterministic");
+    expect(
+      providers.transcriptionProvider.getEngines().meetingAudio,
+    ).toMatchObject({
+      kind: "deterministic",
+      ready: true,
+    });
+  });
+
+  test("forces deterministic providers under the desktop test API when only shared credentials exist", () => {
+    const providers = createInterviewHelperProvidersFromEnvironment(
+      createEnvironment({ [DESKTOP_TEST_API_ENV]: "true" }),
+    );
+
+    expect(providers.cueCardProvider.getStatus().label).toBe(
+      "Deterministic cue-card provider",
+    );
+    expect(providers.screenshotVisionProvider.getStatus().label).toBe(
+      "Deterministic screenshot vision",
+    );
+  });
+
+  test("keeps configured providers under the desktop test API only with the explicit narrowly named live-AI opt-in", () => {
+    const providers = createInterviewHelperProvidersFromEnvironment(
+      createEnvironment({
+        [DESKTOP_TEST_API_ENV]: "1",
+        [INTERVIEW_HELPER_TEST_LIVE_AI_OPT_IN_ENV]: "1",
+        UNEMPLOYED_INTERVIEW_AI_API_KEY: "opted-in-interview-key",
+      }),
+    );
+
+    expect(providers.cueCardProvider.getStatus()).toMatchObject({
+      ready: true,
+      label: "AI interview cue provider",
+    });
+    expect(providers.screenshotVisionProvider.getStatus()).toMatchObject({
+      ready: true,
+      label: "AI interview screenshot vision provider",
+    });
+  });
+
+  test("treats non-truthy live-AI opt-in values as absent while the desktop test API is enabled", () => {
+    for (const optInValue of ["0", "true ", "yes", "", undefined]) {
+      const providers = createInterviewHelperProvidersFromEnvironment(
+        createEnvironment({
+          [DESKTOP_TEST_API_ENV]: "1",
+          [INTERVIEW_HELPER_TEST_LIVE_AI_OPT_IN_ENV]: optInValue,
+        }),
+      );
+
+      expect(providers.cueCardProvider.getStatus().label).toBe(
+        "Deterministic cue-card provider",
+      );
+      expect(providers.screenshotVisionProvider.getStatus().label).toBe(
+        "Deterministic screenshot vision",
+      );
+    }
+  });
+
+  test("keeps configured production behavior when the desktop test API is absent", () => {
+    const providers = createInterviewHelperProvidersFromEnvironment(
+      createEnvironment({
+        [INTERVIEW_HELPER_TEST_LIVE_AI_OPT_IN_ENV]: undefined,
+      }),
+    );
+
+    expect(providers.cueCardProvider.getStatus()).toMatchObject({
+      ready: true,
+      label: "AI interview cue provider",
+    });
+    expect(providers.screenshotVisionProvider.getStatus()).toMatchObject({
+      ready: true,
+      label: "AI interview screenshot vision provider",
+    });
+  });
+
+  test("keeps an explicitly configured local STT command available under the desktop test API because it runs offline", () => {
+    const providers = createInterviewHelperProvidersFromEnvironment(
+      createEnvironment({
+        [DESKTOP_TEST_API_ENV]: "1",
+        UNEMPLOYED_INTERVIEW_LOCAL_STT_COMMAND: "whisper-local",
+      }),
+    );
+
+    expect(
+      providers.transcriptionProvider.getEngines().meetingAudio,
+    ).toMatchObject({
+      kind: "local_model",
+      privacy: "local",
     });
   });
 

@@ -91,6 +91,8 @@ const UNSUPPORTED_ABSOLUTE_CLAIM_PATTERN =
 const FIRST_PERSON_PATTERN = /\b(?:i|me|my|mine|we|our|ours)\b/i;
 const LEADERSHIP_CLAIM_PATTERN =
   /\b(?:lead(?!\s+time)|led|leads|leading|manage|manages|managed|managing|direct|directs|directed|directing|own|owns|owned|supervise|supervises|supervised|supervising|oversee|oversees|oversaw|head|heads|headed|mentor|mentors|mentored|mentoring)\b/i;
+const CREDENTIAL_CLAIM_PATTERN =
+  /\b(?:certified|licensed|fluent|native proficiency|subject[- ]matter expert)\b/i;
 const NUMBER_OR_METRIC_PATTERN =
   /(?:[$€£]\s*)?\d+(?:[.,]\d+)*(?:\s*(?:%|x|k|m|b|million|billion|thousand))?/gi;
 
@@ -103,7 +105,10 @@ function normalizeNullableText(value: unknown): string | null {
 function normalizeToken(value: string): string {
   let normalized = value
     .toLowerCase()
-    .replace(/^[^a-z0-9+#.]+|[^a-z0-9+#.]+$/g, "");
+    .replace(/^[^a-z0-9+#.]+|[^a-z0-9+#.]+$/g, "")
+    // Preserve meaningful internal/leading dots (`Node.js`, `.NET`) while
+    // removing sentence punctuation from otherwise identical evidence tokens.
+    .replace(/\.+$/g, "");
 
   if (normalized.length > 6 && normalized.endsWith("ing")) {
     normalized = normalized.slice(0, -3);
@@ -424,43 +429,209 @@ export function parseEvidenceLinkedText(
   };
 }
 
-function isRewriteGrounded(input: {
+export type ResumeClaimGroundingVerdict =
+  | "exact"
+  | "covered"
+  | "elaborated"
+  | "weakly_supported"
+  | "unsupported";
+
+/**
+ * Hard gaps are integrity violations that make a claim unpublishable without
+ * edits. A classification is `weakly_supported` — a human-confirmation state,
+ * never auto-accepted for generation — only when it carries no hard gap.
+ */
+export type ResumeClaimHardGapType =
+  | "claim_too_short"
+  | "claim_too_long"
+  | "first_person_voice"
+  | "unsupported_absolute_claim"
+  | "fabricated_metric"
+  | "unknown_named_word"
+  | "job_only_term"
+  | "claim_without_content"
+  | "evidence_without_content"
+  | "unevidenced_leadership_claim"
+  | "unevidenced_credential_claim"
+  | "inference_not_allowed"
+  | "unsafe_elaboration";
+
+export interface ResumeClaimGroundingGap {
+  type: ResumeClaimHardGapType;
+  /** Offending metrics, words, terms, or tokens in claim discovery order. */
+  values: string[];
+}
+
+export interface ResumeClaimGroundingResult {
+  verdict: ResumeClaimGroundingVerdict;
+  /**
+   * Deterministic input-ordered IDs of the evidence union the claim was
+   * audited against. Cited pools within the cap are kept verbatim; oversized
+   * pools are reduced by greedy anchor coverage (cap included).
+   */
+  supportEvidenceIds: string[];
+  /**
+   * Share of distinct claim anchors (metrics, named words, meaningful tokens)
+   * found in the selected evidence union, rounded to two decimals.
+   */
+  anchorRatio: number;
+  gaps: ResumeClaimGroundingGap[];
+}
+
+export interface ResumeClaimGroundingInput {
   text: string;
   evidence: readonly ResumeGenerationEvidenceItem[];
   jobCompany: string;
   jobSkills: readonly string[];
-  allowReasonableInference: boolean;
-}): boolean {
-  const trimmed = input.text.trim();
-  if (
-    trimmed.length < 12 ||
-    trimmed.length > 1_000 ||
-    FIRST_PERSON_PATTERN.test(trimmed) ||
-    UNSUPPORTED_ABSOLUTE_CLAIM_PATTERN.test(trimmed)
-  ) {
-    return false;
+  allowReasonableInference?: boolean;
+}
+
+// Support unions are bounded to the same per-claim citation limit enforced by
+// parseEvidenceLinkedText and selectResumeRewrite.
+export const RESUME_CLAIM_SUPPORT_EVIDENCE_CAP = 8;
+
+const GENERATION_ACCEPTED_GROUNDING_VERDICTS: ReadonlySet<ResumeClaimGroundingVerdict> =
+  new Set(["exact", "covered", "elaborated"] as const);
+
+// Deterministic support selection for direct classifier callers that pass more
+// candidate evidence than the citation cap. Items are chosen greedily by how
+// many still-uncovered claim anchors they add, weighted metrics > named words
+// > meaningful tokens, with strict-greater comparison so ties resolve to the
+// earliest input position. Pools already within the cap are kept verbatim in
+// input order: cited evidence is the audited union, and dropping zero-gain
+// citations could silently flip gate outcomes (for example substring-only or
+// phrase-only authorizations) for generation rewrites.
+function selectResumeClaimSupportEvidence(
+  claimText: string,
+  pool: readonly ResumeGenerationEvidenceItem[],
+): ResumeGenerationEvidenceItem[] {
+  if (pool.length <= RESUME_CLAIM_SUPPORT_EVIDENCE_CAP) {
+    return [...pool];
   }
 
-  const evidenceText = input.evidence.map((item) => item.text).join(" ");
+  const claimMetrics = Array.from(new Set(normalizedMetrics(claimText)));
+  const claimNamedWords = Array.from(new Set(capitalizedNamedWords(claimText)));
+  const claimTokens = meaningfulTokens(claimText);
+
+  const itemSnapshots = pool.map((item) => ({
+    item,
+    metrics: new Set(normalizedMetrics(item.text)),
+    lowercaseText: item.text.toLowerCase(),
+    tokens: new Set(meaningfulTokens(item.text)),
+  }));
+
+  const coveredMetrics = new Set<string>();
+  const coveredNamedWords = new Set<string>();
+  const coveredTokens = new Set<string>();
+  const selectedIndexes = new Set<number>();
+
+  while (selectedIndexes.size < RESUME_CLAIM_SUPPORT_EVIDENCE_CAP) {
+    let bestIndex = -1;
+    let bestGain = 0;
+    itemSnapshots.forEach((snapshot, index) => {
+      if (selectedIndexes.has(index)) {
+        return;
+      }
+      const metricGain = claimMetrics.filter(
+        (metric) => snapshot.metrics.has(metric) && !coveredMetrics.has(metric),
+      ).length;
+      const namedGain = claimNamedWords.filter(
+        (word) =>
+          snapshot.lowercaseText.includes(word) && !coveredNamedWords.has(word),
+      ).length;
+      const tokenGain = claimTokens.filter(
+        (token) => snapshot.tokens.has(token) && !coveredTokens.has(token),
+      ).length;
+      const gain = metricGain * 3 + namedGain * 2 + tokenGain;
+      if (gain > bestGain) {
+        bestGain = gain;
+        bestIndex = index;
+      }
+    });
+    if (bestIndex < 0 || bestGain === 0) {
+      break;
+    }
+
+    selectedIndexes.add(bestIndex);
+    const best = itemSnapshots[bestIndex];
+    if (!best) {
+      break;
+    }
+    claimMetrics.forEach((metric) => {
+      if (best.metrics.has(metric)) {
+        coveredMetrics.add(metric);
+      }
+    });
+    claimNamedWords.forEach((word) => {
+      if (best.lowercaseText.includes(word)) {
+        coveredNamedWords.add(word);
+      }
+    });
+    claimTokens.forEach((token) => {
+      if (best.tokens.has(token)) {
+        coveredTokens.add(token);
+      }
+    });
+  }
+
+  return pool.filter((_, index) => selectedIndexes.has(index));
+}
+
+export function classifyResumeClaimGrounding(
+  input: ResumeClaimGroundingInput,
+): ResumeClaimGroundingResult {
+  const allowReasonableInference = input.allowReasonableInference ?? false;
+  const trimmed = input.text.trim();
+  const supportEvidence = selectResumeClaimSupportEvidence(
+    trimmed,
+    input.evidence,
+  );
+  const supportEvidenceIds = supportEvidence.map((item) => item.id);
+
+  const gaps: ResumeClaimGroundingGap[] = [];
+  const pushGap = (
+    type: ResumeClaimHardGapType,
+    values: readonly string[] = [],
+  ) => {
+    gaps.push({ type, values: [...values] });
+  };
+
+  // Gate order below mirrors the historical rewrite predicate exactly so the
+  // generation acceptance set stays byte-for-byte identical.
+  if (trimmed.length < 12) {
+    pushGap("claim_too_short");
+  }
+  if (trimmed.length > 1_000) {
+    pushGap("claim_too_long");
+  }
+  if (FIRST_PERSON_PATTERN.test(trimmed)) {
+    pushGap("first_person_voice");
+  }
+  if (UNSUPPORTED_ABSOLUTE_CLAIM_PATTERN.test(trimmed)) {
+    pushGap("unsupported_absolute_claim");
+  }
+
+  const evidenceText = supportEvidence.map((item) => item.text).join(" ");
   const evidenceMetrics = new Set(normalizedMetrics(evidenceText));
-  if (
-    normalizedMetrics(trimmed).some((metric) => !evidenceMetrics.has(metric))
-  ) {
-    return false;
+  const fabricatedMetrics = normalizedMetrics(trimmed).filter(
+    (metric) => !evidenceMetrics.has(metric),
+  );
+  if (fabricatedMetrics.length > 0) {
+    pushGap("fabricated_metric", fabricatedMetrics);
   }
 
   // Named words are capitalized tokens that are not plain sentence starts:
   // technologies, frameworks, tools, services, products, employers, and other
-  // proper nouns. They must come from the cited evidence in every mode. This
-  // keeps aggressive elaboration safe: the model may invent plain-language
-  // work details, but never a named technology, product, or company.
+  // proper nouns. They must come from the cited evidence in every mode.
+  // Aggressive rewrites are additionally gated by the fail-closed lexical
+  // policy below (SAFE_ELABORATION_TOKENS): unevidenced technology, product,
+  // or brand tokens reject regardless of casing or sentence position.
   const evidenceLowercaseText = evidenceText.toLowerCase();
-  if (
-    capitalizedNamedWords(trimmed).some(
-      (word) => !evidenceLowercaseText.includes(word),
-    )
-  ) {
-    return false;
+  const unknownNamedWords = capitalizedNamedWords(trimmed).filter(
+    (word) => !evidenceLowercaseText.includes(word),
+  );
+  if (unknownNamedWords.length > 0) {
+    pushGap("unknown_named_word", unknownNamedWords);
   }
 
   const jobOnlyTerms = [input.jobCompany, ...input.jobSkills].filter(
@@ -470,48 +641,135 @@ function isRewriteGrounded(input: {
       !phraseAppears(evidenceText, term),
   );
   if (jobOnlyTerms.length > 0) {
-    return false;
+    pushGap("job_only_term", jobOnlyTerms);
   }
 
   const generatedTokens = meaningfulTokens(trimmed);
   const evidenceTokens = new Set(meaningfulTokens(evidenceText));
-  if (generatedTokens.length === 0 || evidenceTokens.size === 0) {
-    return false;
+  if (generatedTokens.length === 0) {
+    pushGap("claim_without_content");
+  } else if (evidenceTokens.size === 0) {
+    pushGap("evidence_without_content");
+  }
+
+  if (
+    LEADERSHIP_CLAIM_PATTERN.test(trimmed) &&
+    !LEADERSHIP_CLAIM_PATTERN.test(evidenceText)
+  ) {
+    pushGap("unevidenced_leadership_claim");
+  }
+  if (
+    CREDENTIAL_CLAIM_PATTERN.test(trimmed) &&
+    !CREDENTIAL_CLAIM_PATTERN.test(evidenceText)
+  ) {
+    pushGap("unevidenced_credential_claim");
+  }
+
+  const anchorCoverage = new Map<string, boolean>();
+  const recordAnchor = (anchor: string, covered: boolean) => {
+    anchorCoverage.set(anchor, (anchorCoverage.get(anchor) ?? false) || covered);
+  };
+  Array.from(new Set(normalizedMetrics(trimmed))).forEach((metric) => {
+    recordAnchor(metric, evidenceMetrics.has(metric));
+  });
+  Array.from(new Set(capitalizedNamedWords(trimmed))).forEach((word) => {
+    recordAnchor(word, evidenceLowercaseText.includes(word));
+  });
+  generatedTokens.forEach((token) => {
+    recordAnchor(token, evidenceTokens.has(token));
+  });
+  const totalAnchors = anchorCoverage.size;
+  const coveredAnchors = Array.from(anchorCoverage.values()).filter(
+    (covered) => covered,
+  ).length;
+  const anchorRatio =
+    totalAnchors === 0
+      ? 0
+      : Math.round((coveredAnchors / totalAnchors) * 100) / 100;
+
+  if (gaps.length > 0) {
+    return {
+      verdict: "unsupported",
+      supportEvidenceIds,
+      anchorRatio,
+      gaps,
+    };
   }
 
   const unmatchedTokens = generatedTokens.filter(
     (token) => !evidenceTokens.has(token),
   );
   const matchedTokens = generatedTokens.length - unmatchedTokens.length;
-  if (
-    (LEADERSHIP_CLAIM_PATTERN.test(trimmed) &&
-      !LEADERSHIP_CLAIM_PATTERN.test(evidenceText)) ||
-    (/\b(?:certified|licensed|fluent|native proficiency|subject[- ]matter expert)\b/i.test(
-      trimmed,
-    ) &&
-      !/\b(?:certified|licensed|fluent|native proficiency|subject[- ]matter expert)\b/i.test(
-        evidenceText,
-      ))
-  ) {
-    return false;
-  }
 
+  // Thin lexical overlap short-circuits before mode-specific elaboration
+  // policy, mirroring the historical check order: content without a hard gap
+  // but with too little shared wording is weak support needing confirmation,
+  // not an integrity violation.
   if (matchedTokens < Math.min(2, generatedTokens.length)) {
-    return false;
+    return {
+      verdict: "weakly_supported",
+      supportEvidenceIds,
+      anchorRatio,
+      gaps: [],
+    };
   }
 
-  if (!input.allowReasonableInference) {
-    return unmatchedTokens.length === 0;
+  if (!allowReasonableInference) {
+    if (unmatchedTokens.length > 0) {
+      pushGap("inference_not_allowed", unmatchedTokens);
+      return {
+        verdict: "unsupported",
+        supportEvidenceIds,
+        anchorRatio,
+        gaps,
+      };
+    }
+  } else {
+    // Aggressive tailoring may elaborate beyond the cited wording, but the
+    // elaboration is fail-closed at the lexical level: every normalized token
+    // the cited evidence does not contain must belong to the bounded
+    // ordinary-prose vocabulary (SAFE_ELABORATION_TOKENS). Concrete anchors are
+    // already protected above — numbers and metrics, named words, job-only
+    // skills, leadership claims, and credentials — and everything unrecognized,
+    // including new or unknown brands, products, and technologies in any casing
+    // or sentence position, rejects here. Conservative false negatives are
+    // preferred over invented facts; no proportional cap is needed because
+    // unmatched content is bounded to explicitly safe prose.
+    const evidenceGateUnits = new Set(gateUnits(evidenceText));
+    const unsafeUnits = gateUnits(trimmed).filter(
+      (unit) => !evidenceGateUnits.has(unit) && !SAFE_ELABORATION_TOKENS.has(unit),
+    );
+    if (unsafeUnits.length > 0) {
+      pushGap("unsafe_elaboration", unsafeUnits);
+      return {
+        verdict: "unsupported",
+        supportEvidenceIds,
+        anchorRatio,
+        gaps,
+      };
+    }
   }
 
-  // Aggressive tailoring may elaborate beyond the cited wording. Every
-  // concrete anchor is already protected above: numbers and metrics, named
-  // technologies and products, job-only skills, leadership claims, and
-  // credentials must all come from the cited evidence. The unmatched
-  // remainder is plain-language elaboration (features, implementation
-  // approaches, effects), which the user reviews before approving the
-  // resume, so no proportional cap applies in aggressive mode.
-  return true;
+  // Exact means the trimmed claim appears verbatim at word boundaries inside
+  // the normalized selected-evidence union; otherwise full anchor coverage is
+  // "covered" and safe-elaborated claims are "elaborated".
+  const normalizedClaim = normalizedComparableText(trimmed);
+  const isExact =
+    normalizedClaim.length > 0 &&
+    ` ${normalizedComparableText(evidenceText)} `.includes(
+      ` ${normalizedClaim} `,
+    );
+
+  return {
+    verdict: isExact
+      ? "exact"
+      : unmatchedTokens.length === 0
+        ? "covered"
+        : "elaborated",
+    supportEvidenceIds,
+    anchorRatio,
+    gaps: [],
+  };
 }
 
 function capitalizedNamedWords(value: string): string[] {
@@ -527,9 +785,631 @@ function capitalizedNamedWords(value: string): string[] {
     if (index === 0 || /[.!?:;\n\u2013\u2014]\s*$/.test(trimmedPrefix)) {
       return;
     }
-    named.push(word.toLowerCase());
+    // Sentence-final punctuation must not leak into the checked word
+    // ("PostgreSQL." should be validated as "postgresql").
+    named.push(word.toLowerCase().replace(/\.+$/, ""));
   });
   return named;
+}
+
+// Fail-closed lexical policy for aggressive free-text rewrites: every
+// normalized generated token that is not present in the cited candidate
+// evidence must belong to this bounded ordinary-prose vocabulary, or the
+// rewrite is rejected. There is deliberately no technology allowlist or
+// blacklist: any unknown, new, misspelled, or ambiguous token — brand,
+// product, library, protocol, acronym, or technology homograph such as "go",
+// "swift", "rails", "express", "spring", "flask", "bun", "temporal" — is
+// evidence-required by default, including in lowercase or sentence-initial
+// position. Conservative false negatives are preferred over invented facts.
+// Entries are seeded from the supported elaboration language exercised by the
+// grounding tests and stay strictly non-domain and non-product: connectors,
+// modifiers, elaboration verbs, and generic engineering nouns that cannot
+// assert a named tool.
+const SAFE_ELABORATION_TOKENS = new Set([
+  // Connector synonyms and elaboration verb groups (leadership group
+  // excluded: leading/directing/owning must always come from evidence).
+  "group_0",
+  "group_1",
+  "group_2",
+  "group_4",
+  "group_5",
+  "group_6",
+  "group_7",
+  // Connectors, quantifiers, and time/place framing.
+  "across",
+  "after",
+  "again",
+  "against",
+  "all",
+  "also",
+  "although",
+  "always",
+  "among",
+  "another",
+  "any",
+  "around",
+  "because",
+  "before",
+  "behind",
+  "below",
+  "besides",
+  "between",
+  "beyond",
+  "both",
+  "during",
+  "each",
+  "either",
+  "else",
+  "enough",
+  "especially",
+  "even",
+  "ever",
+  "every",
+  "first",
+  "following",
+  "further",
+  "furthermore",
+  "hence",
+  "however",
+  "instead",
+  "later",
+  "meanwhile",
+  "moreover",
+  "most",
+  "mostly",
+  "much",
+  "namely",
+  "nearly",
+  "notably",
+  "often",
+  "once",
+  "only",
+  "overall",
+  "particularly",
+  "per",
+  "plus",
+  "primarily",
+  "previously",
+  "recently",
+  "roughly",
+  "second",
+  "several",
+  "significantly",
+  "similarly",
+  "since",
+  "sometimes",
+  "soon",
+  "still",
+  "such",
+  "then",
+  "there",
+  "therefore",
+  "though",
+  "throughout",
+  "thus",
+  "together",
+  "toward",
+  "towards",
+  "twice",
+  "typically",
+  "under",
+  "until",
+  "upon",
+  "usually",
+  "well",
+  "while",
+  "within",
+  "without",
+  "yet",
+  // Generic modifiers.
+  "additional",
+  "advanced",
+  "annual",
+  "available",
+  "back",
+  "backed",
+  "became",
+  "better",
+  "big",
+  "bigger",
+  "central",
+  "clean",
+  "clear",
+  "close",
+  "common",
+  "complete",
+  "complex",
+  "concise",
+  "consistent",
+  "continuous",
+  "core",
+  "correct",
+  "critical",
+  "current",
+  "currently",
+  "custom",
+  "daily",
+  "deep",
+  "different",
+  "difficult",
+  "direct",
+  "distributed",
+  "distribut",
+  "dual",
+  "early",
+  "easy",
+  "efficient",
+  "existing",
+  "external",
+  "extra",
+  "faster",
+  "flexible",
+  "focused",
+  "full",
+  "global",
+  "greater",
+  "high",
+  "higher",
+  "hourly",
+  "internal",
+  "large",
+  "larger",
+  "last",
+  "late",
+  "latest",
+  "light",
+  "local",
+  "long",
+  "longer",
+  "low",
+  "lower",
+  "main",
+  "major",
+  "minimal",
+  "minor",
+  "modern",
+  "modular",
+  "monthly",
+  "needed",
+  "new",
+  "newer",
+  "nightly",
+  "notable",
+  "ongoing",
+  "online",
+  "operational",
+  "optional",
+  "original",
+  "other",
+  "parallel",
+  "partial",
+  "periodic",
+  "practical",
+  "precise",
+  "predictable",
+  "primary",
+  "private",
+  "proven",
+  "public",
+  "quick",
+  "quicker",
+  "rapid",
+  "redundant",
+  "regional",
+  "regular",
+  "related",
+  "relevant",
+  "reliab",
+  "repeatable",
+  "resilient",
+  "responsive",
+  "robust",
+  "seamless",
+  "secondary",
+  "secure",
+  "shared",
+  "short",
+  "shorter",
+  "simple",
+  "single",
+  "slow",
+  "small",
+  "smaller",
+  "smooth",
+  "specialized",
+  "stable",
+  "standalone",
+  "standard",
+  "steady",
+  "strategic",
+  "strong",
+  "stronger",
+  "successful",
+  "sustainable",
+  "tailored",
+  "technical",
+  "thorough",
+  "tight",
+  "timely",
+  "top",
+  "total",
+  "transparent",
+  "typical",
+  "unique",
+  "unified",
+  "upcoming",
+  "upper",
+  "visible",
+  "weekly",
+  "whole",
+  "wide",
+  "wider",
+  "yearly",
+  // Elaboration verbs (normalized stems).
+  "acros",
+  "across",
+  "adopt",
+  "align",
+  "appl",
+  "apply",
+  "archiv",
+  "automat",
+  "captur",
+  "centraliz",
+  "clarifi",
+  "combin",
+  "consolidat",
+  "coordinat",
+  "cutt",
+  "debug",
+  "defin",
+  "deploy",
+  "describ",
+  "detect",
+  "diagnos",
+  "diagnose",
+  "document",
+  "doubl",
+  "draft",
+  "eliminat",
+  "embed",
+  "enabl",
+  "ensur",
+  "establish",
+  "evaluat",
+  "expand",
+  "explor",
+  "extend",
+  "facilitat",
+  "facing",
+  "featur",
+  "finaliz",
+  "focus",
+  "formaliz",
+  "gather",
+  "handl",
+  "identifi",
+  "incorpor",
+  "integrat",
+  "introduc",
+  "keep",
+  "lazy",
+  "learn",
+  "leverag",
+  "map",
+  "mapp",
+  "migrat",
+  "moderniz",
+  "modul",
+  "module",
+  "monitor",
+  "mov",
+  "navigat",
+  "onboard",
+  "organize",
+  "organiz",
+  "outlin",
+  "pair",
+  "pilot",
+  "pivot",
+  "plan",
+  "prepar",
+  "prioritiz",
+  "prototyp",
+  "publish",
+  "ran",
+  "refactor",
+  "replac",
+  "report",
+  "research",
+  "resolv",
+  "respond",
+  "restor",
+  "review",
+  "revis",
+  "run",
+  "rout",
+  "route",
+  "scale",
+  "scal",
+  "schedul",
+  "sequenc",
+  "shap",
+  "shipp",
+  "split",
+  "splitt",
+  "streamlin",
+  "structur",
+  "track",
+  "train",
+  "transfer",
+  "translat",
+  "triage",
+  "triag",
+  "troubleshoot",
+  "tun",
+  "tune",
+  "updat",
+  "upgrad",
+  "validat",
+  "verifi",
+  "visualiz",
+  "write",
+  "wrote",
+  "written",
+  "writ",
+  // Generic engineering and process nouns that cannot assert a named tool,
+  // service, vendor, or product.
+  "algorithm",
+  "analytic",
+  "app",
+  "architectur",
+  "backend",
+  "backlog",
+  "backup",
+  "batch",
+  "benchmark",
+  "browser",
+  "cach",
+  "cache",
+  "capability",
+  "chatbot",
+  "checklist",
+  "client",
+  "cluster",
+  "code",
+  "codebas",
+  "column",
+  "component",
+  "comput",
+  "config",
+  "configuration",
+  "connector",
+  "console",
+  "container",
+  "contract",
+  "coverage",
+  "customer",
+  "dashboard",
+  "data",
+  "database",
+  "dataset",
+  "deadline",
+  "deployment",
+  "developer",
+  "device",
+  "discovery",
+  "distribution",
+  "documentation",
+  "domain",
+  "email",
+  "endpoint",
+  "engine",
+  "engineer",
+  "environment",
+  "error",
+  "event",
+  "experiment",
+  "feature",
+  "feed",
+  "file",
+  "finance",
+  "flag",
+  "flow",
+  "form",
+  "formula",
+  "framework",
+  "frontend",
+  "function",
+  "functionality",
+  "funnel",
+  "gateway",
+  "guideline",
+  "handler",
+  "hardware",
+  "history",
+  "homepage",
+  "hook",
+  "image",
+  "incident",
+  "index",
+  "infrastructur",
+  "ingestion",
+  "input",
+  "integration",
+  "interface",
+  "inventory",
+  "issue",
+  "item",
+  "iteration",
+  "job",
+  "label",
+  "latency",
+  "layer",
+  "library",
+  "limit",
+  "link",
+  "list",
+  "listing",
+  "load",
+  "localization",
+  "log",
+  "logic",
+  "login",
+  "lookup",
+  "loop",
+  "maintenance",
+  "message",
+  "metric",
+  "migration",
+  "mock",
+  "model",
+  "module",
+  "notification",
+  "object",
+  "onboarding",
+  "operation",
+  "optimization",
+  "order",
+  "outcome",
+  "output",
+  "package",
+  "page",
+  "panel",
+  "parameter",
+  "parse",
+  "partner",
+  "pattern",
+  "performance",
+  "permission",
+  "pipeline",
+  "platform",
+  "playbook",
+  "practice",
+  "process",
+  "product",
+  "production",
+  "profile",
+  "project",
+  "prompt",
+  "quer",
+  "queri",
+  "query",
+  "queue",
+  "rate",
+  "record",
+  "regression",
+  "region",
+  "reliability",
+  "reminder",
+  "render",
+  "repair",
+  "request",
+  "requirement",
+  "response",
+  "retry",
+  "retri",
+  "roadmap",
+  "routine",
+  "rule",
+  "runtime",
+  "schema",
+  "screen",
+  "script",
+  "search",
+  "security",
+  "sequence",
+  "service",
+  "session",
+  "signup",
+  "snapshot",
+  "source",
+  "spec",
+  "specification",
+  "stack",
+  "stakeholder",
+  "state",
+  "status",
+  "storage",
+  "store",
+  "strategy",
+  "stream",
+  "structure",
+  "summary",
+  "sync",
+  "system",
+  "table",
+  "tag",
+  "task",
+  "team",
+  "template",
+  "test",
+  "technology",
+  "throughput",
+  "tier",
+  "time",
+  "timeline",
+  "timeout",
+  "tool",
+  "toolkit",
+  "transaction",
+  "transition",
+  "trigger",
+  "uptime",
+  "usage",
+  "user",
+  "validation",
+  "vendor",
+  "version",
+  "view",
+  "viewer",
+  "widget",
+  "workflow",
+  "workspace",
+  "workload",
+  "end",
+  "menu",
+  "staff",
+  "reservation",
+  "ritual",
+  "organization",
+]);
+
+// Gate tokens keep technology spellings intact ("c++"), then split
+// punctuation-joined compounds at separators so evidence compounds such as
+// "Redis-based" authorize their components ("redis") without authorizing
+// unrelated substrings ("restaurant" never yields "rest"). Matching is
+// token-boundary based end to end; there is no substring containment check.
+const GATE_TOKEN_PATTERN = /[A-Za-z0-9][A-Za-z0-9+#._/-]*/g;
+
+function gateUnits(value: string): string[] {
+  const units = new Set<string>();
+  for (const match of value.matchAll(GATE_TOKEN_PATTERN)) {
+    const lower = match[0].toLowerCase();
+    if (!/[a-z]/.test(lower)) {
+      continue;
+    }
+    const segments = lower
+      .split(/[._/-]+/)
+      .filter((segment) => /[a-z]/.test(segment));
+    // Always reduce through the separator split so sentence-final
+    // punctuation ("postgresql.") cannot leak into the checked unit.
+    const parts = segments.length > 1 ? segments : [segments[0]];
+    for (const part of parts) {
+      if (!part || part.length < 2) {
+        continue;
+      }
+      const unit = normalizeToken(part);
+      if (
+        unit.length >= 2 &&
+        /[a-z]/.test(unit) &&
+        !RESUME_STOP_WORDS.has(unit)
+      ) {
+        units.add(unit);
+      }
+    }
+  }
+  return Array.from(units);
 }
 
 export function selectResumeRewrite(input: {
@@ -615,15 +1495,14 @@ export function selectResumeRewrite(input: {
     }
   }
 
-  if (
-    !isRewriteGrounded({
-      text: parsed.text,
-      evidence: referencedEvidence,
-      jobCompany: input.jobCompany,
-      jobSkills: input.jobSkills,
-      allowReasonableInference: input.allowReasonableInference ?? false,
-    })
-  ) {
+  const grounding = classifyResumeClaimGrounding({
+    text: parsed.text,
+    evidence: referencedEvidence,
+    jobCompany: input.jobCompany,
+    jobSkills: input.jobSkills,
+    allowReasonableInference: input.allowReasonableInference ?? false,
+  });
+  if (!GENERATION_ACCEPTED_GROUNDING_VERDICTS.has(grounding.verdict)) {
     return null;
   }
 

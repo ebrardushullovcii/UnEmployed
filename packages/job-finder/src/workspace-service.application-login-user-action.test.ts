@@ -30,6 +30,7 @@ describe("application login UserActionRequest adoption", () => {
 
     const input = {
       repository: harness.repository,
+      applicationRecordId: `application_${job.id}`,
       job,
       runId: "apply_run_login",
       resultId: "apply_result_login",
@@ -69,6 +70,34 @@ describe("application login UserActionRequest adoption", () => {
     });
   });
 
+  test("persists no Needs-you request when the application page never opened", async () => {
+    const harness = createWorkspaceServiceHarness({ seed: createSeed() });
+    const job = (await harness.repository.listSavedJobs())[0];
+    if (!job) throw new Error("Expected a saved job fixture.");
+    const blocker = ApplicationAttemptBlockerSchema.parse({
+      code: "application_page_unreachable",
+      summary: "Job Finder could not open the application page.",
+      detail:
+        "The dedicated browser could not load this employer page, so preparation stopped before the page opened. Nothing was filled, attached, or submitted.",
+      questionIds: [],
+      sourceDebugEvidenceRefIds: [],
+      url: job.applicationUrl,
+    });
+
+    await persistApplicationUserAction({
+      repository: harness.repository,
+      applicationRecordId: `application_${job.id}`,
+      job,
+      runId: "apply_run_unreachable",
+      resultId: "apply_result_unreachable",
+      replayCheckpointId: "apply_checkpoint_unreachable",
+      blocker,
+      occurredAt: "2026-07-30T10:00:00.000Z",
+    });
+
+    expect(await harness.repository.listUserActionRequests()).toEqual([]);
+  });
+
   test("keeps only the latest rerun handoff actionable for one job", async () => {
     const harness = createWorkspaceServiceHarness({ seed: createSeed() });
     const job = (await harness.repository.listSavedJobs())[0];
@@ -82,6 +111,7 @@ describe("application login UserActionRequest adoption", () => {
 
     await persistApplicationUserAction({
       repository: harness.repository,
+      applicationRecordId: `application_${job.id}`,
       job,
       runId: "apply_run_old",
       resultId: "apply_result_old",
@@ -111,6 +141,7 @@ describe("application login UserActionRequest adoption", () => {
 
     await persistApplicationUserAction({
       repository: harness.repository,
+      applicationRecordId: `application_${job.id}`,
       job,
       runId: "apply_run_new",
       resultId: "apply_result_new",
@@ -164,6 +195,57 @@ describe("application login UserActionRequest adoption", () => {
     ).toEqual(["created", "open_page", "supersede"]);
   });
 
+  test("does not supersede a blocker owned by a sibling application record", async () => {
+    const harness = createWorkspaceServiceHarness({ seed: createSeed() });
+    const job = (await harness.repository.listSavedJobs())[0];
+    if (!job) throw new Error("Expected a saved job fixture.");
+    const blocker = ApplicationAttemptBlockerSchema.parse({
+      code: "requires_manual_review",
+      summary: "Complete the browser-owned step.",
+      url: job.applicationUrl,
+    });
+
+    await persistApplicationUserAction({
+      repository: harness.repository,
+      applicationRecordId: "application_a",
+      job,
+      runId: "run_a",
+      resultId: "result_a",
+      replayCheckpointId: "checkpoint_a",
+      blocker,
+      occurredAt: "2026-07-30T10:00:00.000Z",
+    });
+    await persistApplicationUserAction({
+      repository: harness.repository,
+      applicationRecordId: "application_b",
+      job,
+      runId: "run_b",
+      resultId: "result_b",
+      replayCheckpointId: "checkpoint_b",
+      blocker,
+      occurredAt: "2026-07-30T11:00:00.000Z",
+    });
+
+    expect(
+      (await harness.repository.listUserActionRequests())
+        .map((request) => ({
+          applicationRecordId:
+            request.scope.type === "application"
+              ? request.scope.applicationRecordId
+              : null,
+          state: request.state,
+        }))
+        .sort((left, right) =>
+          (left.applicationRecordId ?? "").localeCompare(
+            right.applicationRecordId ?? "",
+          ),
+        ),
+    ).toEqual([
+      { applicationRecordId: "application_a", state: "pending" },
+      { applicationRecordId: "application_b", state: "pending" },
+    ]);
+  });
+
   test("supersedes a stale same-job handoff after a newer blocker-free final checkpoint", async () => {
     const harness = createWorkspaceServiceHarness({ seed: createSeed() });
     const job = (await harness.repository.listSavedJobs())[0];
@@ -177,6 +259,7 @@ describe("application login UserActionRequest adoption", () => {
 
     await persistApplicationUserAction({
       repository: harness.repository,
+      applicationRecordId: `application_${job.id}`,
       job,
       runId: "apply_run_failed",
       resultId: "apply_result_failed",
@@ -187,6 +270,7 @@ describe("application login UserActionRequest adoption", () => {
     const unrelatedJob = { ...job, id: "job_unrelated" };
     await persistApplicationUserAction({
       repository: harness.repository,
+      applicationRecordId: `application_${unrelatedJob.id}`,
       job: unrelatedJob,
       runId: "apply_run_unrelated",
       resultId: "apply_result_unrelated",
@@ -222,6 +306,7 @@ describe("application login UserActionRequest adoption", () => {
 
     await persistApplicationUserAction({
       repository: harness.repository,
+      applicationRecordId: `application_${job.id}`,
       job,
       runId: "apply_run_success",
       resultId: "apply_result_success",
@@ -271,6 +356,7 @@ describe("application login UserActionRequest adoption", () => {
 
     await persistApplicationUserAction({
       repository: harness.repository,
+      applicationRecordId: `application_${job.id}`,
       job,
       runId: "apply_run_newer_blocker",
       resultId: "apply_result_newer_blocker",
@@ -286,6 +372,7 @@ describe("application login UserActionRequest adoption", () => {
 
     await persistApplicationUserAction({
       repository: harness.repository,
+      applicationRecordId: `application_${job.id}`,
       job,
       runId: "apply_run_older_success",
       resultId: "apply_result_older_success",
@@ -303,6 +390,7 @@ describe("application login UserActionRequest adoption", () => {
       type: "application",
       runId: "apply_run_newer_blocker",
       jobId: job.id,
+      applicationRecordId: `application_${job.id}`,
       resultId: "apply_result_newer_blocker",
       replayCheckpointId: "apply_checkpoint_newer_blocker",
       source: job.source,
@@ -327,6 +415,7 @@ describe("application login UserActionRequest adoption", () => {
       });
       const input = {
         repository: harness.repository,
+        applicationRecordId: `application_${job.id}`,
         job,
         runId: `apply_run_${kind}`,
         resultId: `apply_result_${kind}`,
@@ -380,6 +469,7 @@ describe("application login UserActionRequest adoption", () => {
 
       await persistApplicationUserAction({
         repository: harness.repository,
+        applicationRecordId: `application_${job.id}`,
         job,
         runId: `apply_run_${kind}`,
         resultId: `apply_result_${kind}`,
@@ -828,6 +918,7 @@ describe("application login UserActionRequest adoption", () => {
           type: "application",
           runId,
           jobId: "job_queue_login",
+          applicationRecordId: loginResult?.applicationRecordId,
           resultId: loginResult?.id,
           replayCheckpointId: loginResult?.latestCheckpointId,
           source: "target_site",
@@ -844,6 +935,7 @@ describe("application login UserActionRequest adoption", () => {
 
     await persistApplicationUserAction({
       repository: harness.repository,
+      applicationRecordId: `application_${job.id}`,
       job,
       runId: "apply_run_manual",
       resultId: "apply_result_manual",
@@ -1209,7 +1301,7 @@ describe("application login UserActionRequest adoption", () => {
     );
   });
 
-  test("verifies a completed manual step with one prepare-only retry and remains restart-idempotent", async () => {
+  test("retries with the exact persisted manual answer and remains restart-idempotent", async () => {
     const seed = createSeed();
     seed.settings.resumeApplicationMode = "original_resume";
     seed.profile.baseResume.storagePath = "C:/tmp/alex-vanguard.pdf";
@@ -1231,6 +1323,20 @@ describe("application login UserActionRequest adoption", () => {
               state: "paused",
               summary: "A required answer needs you",
               detail: "Answer this question in the browser.",
+              questions: [
+                {
+                  id: "question_work_authorization",
+                  prompt: "Are you authorized to work in this location?",
+                  kind: "work_authorization",
+                  answerControlType: "text",
+                  isRequired: true,
+                  detectedAt: "2026-07-30T10:00:00.000Z",
+                  answerOptions: [],
+                  suggestedAnswers: [],
+                  submittedAnswer: null,
+                  status: "detected",
+                },
+              ],
               blocker: {
                 code: "missing_candidate_answer",
                 userActionKind: "manual_answer",
@@ -1252,15 +1358,24 @@ describe("application login UserActionRequest adoption", () => {
     const blocked =
       await harness.workspaceService.startApplyCopilotRun("job_ready");
     const request = blocked.userActionRequests[0];
-    if (!request || request.scope.type !== "application") {
+    if (
+      !request ||
+      request.scope.type !== "application" ||
+      !request.scope.applicationRecordId
+    ) {
       throw new Error("Expected a manual application action.");
     }
 
     const resumed = await harness.workspaceService.performUserAction({
-      commandId: "confirm_manual_answer_complete",
+      commandId: "submit_manual_answer_complete",
       requestId: request.id,
       expectedRevision: request.revision,
-      action: "confirm_done",
+      action: "submit_manual_answer",
+      answer: "Yes, I am authorized to work in this location.",
+      saveForFuture: false,
+      credentialsPolicy: "browser_only",
+      submitAuthorized: false,
+      accountCreationAuthorized: false,
     });
 
     expect(request.kind).toBe("manual_answer");
@@ -1271,6 +1386,28 @@ describe("application login UserActionRequest adoption", () => {
       accountCreationAuthorized: false,
       submitAuthorized: false,
     });
+    expect(
+      executeApplicationFlow.mock.calls[1]?.[1].profile.answerBank
+        .customAnswers,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          answer: "Yes, I am authorized to work in this location.",
+        }),
+      ]),
+    );
+    expect(
+      await harness.repository.listApplicationAnswerRecords({
+        applicationRecordId: request.scope.applicationRecordId,
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        applicationRecordId: request.scope.applicationRecordId,
+        resultId: request.scope.resultId,
+        sourceId: request.id,
+        text: "Yes, I am authorized to work in this location.",
+      }),
+    ]);
     expect(resumed.userActionRequests[0]?.state).toBe("resolved");
     expect(resumed.applyJobResults[0]?.lastUserActionResumptionId).toContain(
       request.id,

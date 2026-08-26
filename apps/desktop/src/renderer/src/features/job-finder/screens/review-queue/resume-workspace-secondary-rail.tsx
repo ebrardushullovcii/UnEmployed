@@ -6,7 +6,11 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
-import type { ResumeAssistantMessage, ResumeDraft } from "@unemployed/contracts";
+import type {
+  ResumeAssistantMessage,
+  ResumeDraft,
+  ResumeValidationResult,
+} from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
 import { FieldLabel } from "@renderer/components/ui/field";
 import { Textarea } from "@renderer/components/ui/textarea";
@@ -26,6 +30,7 @@ export function ResumeWorkspaceSecondaryRail(props: {
     action: "accept" | "reject",
     patchIds: readonly string[],
   ) => void;
+  validation?: ResumeValidationResult | null;
 }) {
   const [assistantInput, setAssistantInput] = useState("");
   const assistantId = useId();
@@ -161,6 +166,7 @@ export function ResumeWorkspaceSecondaryRail(props: {
                           isPending={props.isWorkspacePending}
                           message={message}
                           onResolve={props.onResolveProposal}
+                          validation={props.validation ?? null}
                         />
                       ) : null}
                     </div>

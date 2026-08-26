@@ -2,20 +2,33 @@ import {
   type ApplicationCrmSettings,
   type JobDiscoveryTarget,
   ApplicationCrmSettingsSchema,
+  AppearanceThemeSchema,
   CandidateProfileSchema,
-  JobFinderDiscoveryStateSchema,
+  JobFinderSettingsSchema,
   JobFinderWorkspaceSnapshotSchema,
   JobSearchPreferencesSchema,
   ProfileSetupStateSchema,
   ResumeDocumentBundleSchema,
   ResumeSourceDocumentSchema,
   SourceDebugRunRecordSchema,
+  UpdateApplicationDefaultsInputSchema,
+  UpdateWorkspaceBehaviorInputSchema,
+  type AppearanceTheme,
+  type ApplicationRecord,
+  type ApplyJobResult,
+  type ApplyRun,
   type CandidateProfile,
   type JobFinderSettings,
   type JobFinderWorkspaceSnapshot,
+  type JobSearchCampaign,
   type JobSearchPreferences,
   type ProfileSetupState,
+  type ResumeApplicationMode,
   type ResumeTimelineRepairAction,
+  type SavedJob,
+  type UpdateApplicationDefaultsInput,
+  type UpdateWorkspaceBehaviorInput,
+  type UserActionRequest,
 } from "@unemployed/contracts";
 import type { JobFinderRepositorySeed } from "@unemployed/db";
 
@@ -36,7 +49,15 @@ import {
   hasResumeAffectingSettingsChange,
 } from "./resume-workspace-staleness";
 import { selectLatestApplyRunId } from "./workspace-apply-run-support";
-import { recoverInterruptedApplyRun } from "./workspace-apply-run-recovery";
+import {
+  groupApplyJobResultsByRunId,
+  isInterruptedApplyJobState,
+  isRecoveryTerminalizedApplyRun,
+  recoverInterruptedApplyJobResult,
+  recoverInterruptedApplyRun,
+  recoverInterruptedExactLineageProjections,
+  refreshTerminalizedApplyRunCounters,
+} from "./workspace-apply-run-recovery";
 import { persistAutomaticApplicationSafeguards } from "./automatic-safeguards";
 import { recoverInterruptedDiscoveryRun } from "./workspace-discovery-run-helpers";
 import {
@@ -64,6 +85,8 @@ import {
   createCampaign,
   ensureCampaignState,
 } from "./campaign-dashboard";
+import { projectDiscoveryJobViews } from "./listing-activity";
+import { deriveGlobalDailyApplicationPreparationCapacity } from "./application-preparation-capacity";
 
 const BOOTSTRAP_DEFERRED_COLLECTIONS = [
   "discovery_jobs",
@@ -75,6 +98,161 @@ const BOOTSTRAP_DEFERRED_COLLECTIONS = [
 ] as const;
 
 const NO_RESPONSE_AUTOMATION_MIN_INTERVAL_MS = 5 * 60 * 1000;
+
+const RESUME_SETTINGS_STALE_REASON =
+  "Resume settings changed after approval and the resume needs a fresh review.";
+
+const ACTIVE_REVIEW_JOB_STATUSES = new Set<SavedJob["status"]>([
+  "drafting",
+  "ready_for_review",
+  "approved",
+]);
+
+function pickDefined<TValue>(
+  input: Record<string, TValue>,
+): Record<string, TValue> {
+  const result: Record<string, TValue> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (value !== undefined) {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
+/**
+ * Pins the previous default CV mode onto active jobs that never chose one,
+ * so changing the default cannot silently rewrite in-flight applications.
+ */
+function capturePreviousResumeApplicationMode(
+  previousResumeApplicationMode: ResumeApplicationMode,
+): (job: SavedJob) => SavedJob {
+  return (job) =>
+    job.resumeApplicationMode === null &&
+    ACTIVE_REVIEW_JOB_STATUSES.has(job.status)
+      ? { ...job, resumeApplicationMode: previousResumeApplicationMode }
+      : job;
+}
+
+/**
+ * Newer of two optional dashboard instants. Progress merges use this so a
+ * terminal commit that serialized ahead of a parked projection keeps the
+ * later `lastRunAt`/`lastUpdatedAt` instead of being regressed by it.
+ */
+function laterIsoTimestamp(left: string, right: string | null): string;
+function laterIsoTimestamp(
+  left: string | null,
+  right: string | null,
+): string | null;
+function laterIsoTimestamp(
+  left: string | null,
+  right: string | null,
+): string | null {
+  if (left === null) return right;
+  if (right === null) return left;
+  return Date.parse(right) >= Date.parse(left) ? right : left;
+}
+
+function resolveCampaignForJobs(
+  campaigns: readonly JobSearchCampaign[],
+  jobIds: readonly string[],
+): string | null {
+  if (jobIds.length === 0) return null;
+  let campaignId: string | null = null;
+  for (const campaign of campaigns) {
+    if (!jobIds.every((jobId) => campaign.jobIds.includes(jobId))) continue;
+    if (campaignId !== null) return null;
+    campaignId = campaign.id;
+  }
+  return campaignId;
+}
+
+function onlyValue(values: ReadonlySet<string>): string | null {
+  if (values.size !== 1) return null;
+  for (const value of values) return value;
+  return null;
+}
+
+function projectCampaignApplicationFacts(input: {
+  activeCampaign: JobSearchCampaign;
+  campaigns: readonly JobSearchCampaign[];
+  applicationRecords: readonly ApplicationRecord[];
+  applyJobResults: readonly ApplyJobResult[];
+  applyRuns: readonly ApplyRun[];
+  userActionRequests: readonly UserActionRequest[];
+}) {
+  const runCampaignById = new Map(
+    input.applyRuns.map((run) => [
+      run.id,
+      run.campaignId ?? resolveCampaignForJobs(input.campaigns, run.jobIds),
+    ]),
+  );
+  const resultsByApplicationRecordId = new Map<string, ApplyJobResult[]>();
+  for (const result of input.applyJobResults) {
+    if (!result.applicationRecordId) continue;
+    const results =
+      resultsByApplicationRecordId.get(result.applicationRecordId) ?? [];
+    results.push(result);
+    resultsByApplicationRecordId.set(result.applicationRecordId, results);
+  }
+  const recordCampaignById = new Map<string, string | null>();
+
+  for (const record of input.applicationRecords) {
+    const linkedResults = resultsByApplicationRecordId.get(record.id) ?? [];
+    const linkedCampaignIds = new Set(
+      linkedResults.flatMap((result) => {
+        const campaignId = runCampaignById.get(result.runId) ?? null;
+        return campaignId ? [campaignId] : [];
+      }),
+    );
+    const campaignId =
+      linkedResults.length > 0
+        ? onlyValue(linkedCampaignIds)
+        : resolveCampaignForJobs(input.campaigns, [record.jobId]);
+    recordCampaignById.set(record.id, campaignId);
+  }
+
+  const activeCampaignId = input.activeCampaign.id;
+  const applicationRecords = input.applicationRecords.filter(
+    (record) => recordCampaignById.get(record.id) === activeCampaignId,
+  );
+  const applicationRecordIds = new Set(
+    applicationRecords.map((record) => record.id),
+  );
+  const applyRuns = input.applyRuns.filter(
+    (run) => runCampaignById.get(run.id) === activeCampaignId,
+  );
+  const resultById = new Map(
+    input.applyJobResults.map((result) => [result.id, result]),
+  );
+  const userActionRequests = input.userActionRequests.filter((request) => {
+    if (request.scope.type === "discovery_source") {
+      return input.activeCampaign.sourceTargetIds.includes(
+        request.scope.targetId,
+      );
+    }
+    if (runCampaignById.get(request.scope.runId) !== activeCampaignId) {
+      return false;
+    }
+    if (request.scope.applicationRecordId) {
+      if (!applicationRecordIds.has(request.scope.applicationRecordId)) {
+        return false;
+      }
+      if (!request.scope.resultId) return true;
+      const result = resultById.get(request.scope.resultId);
+      return (
+        result?.runId === request.scope.runId &&
+        result.applicationRecordId === request.scope.applicationRecordId
+      );
+    }
+    return (
+      resolveCampaignForJobs(input.campaigns, [request.scope.jobId]) ===
+      activeCampaignId
+    );
+  });
+
+  return { applicationRecords, applyRuns, userActionRequests };
+}
 
 export function createWorkspaceSnapshotProfileMethods(
   ctx: WorkspaceServiceContext,
@@ -100,6 +278,10 @@ export function createWorkspaceSnapshotProfileMethods(
   | "rejectProfileCopilotPatchGroup"
   | "undoProfileRevision"
   | "saveSettings"
+  | "updateApplicationDefaults"
+  | "updateWorkspaceBehavior"
+  | "updateTrackerCrm"
+  | "updateAppearanceTheme"
 > {
   const { buildBundleFromStoredResume, getCurrentSetupStateContext } =
     createWorkspaceProfileSetupContextHelpers(ctx);
@@ -110,11 +292,9 @@ export function createWorkspaceSnapshotProfileMethods(
 
   async function runNoResponseAutomationIfDue(options?: {
     settings?: ApplicationCrmSettings;
-    force?: boolean;
   }): Promise<void> {
     const now = Date.now();
     if (
-      !options?.force &&
       lastNoResponseAutomationRunAt !== null &&
       now - lastNoResponseAutomationRunAt <
         NO_RESPONSE_AUTOMATION_MIN_INTERVAL_MS
@@ -148,25 +328,30 @@ export function createWorkspaceSnapshotProfileMethods(
   async function syncActiveCampaignPreferences(
     searchPreferences: JobSearchPreferences,
   ): Promise<void> {
-    const campaignState = await ensureCampaignState({
-      repository: ctx.repository,
-      searchPreferences,
-    });
-    const now = new Date().toISOString();
-    await ctx.repository.saveCampaignState({
-      ...campaignState,
-      campaigns: campaignState.campaigns.map((campaign) =>
-        campaign.id === campaignState.activeCampaignId
-          ? {
-              ...campaign,
-              searchPreferences,
-              sourceTargetIds: searchPreferences.discovery.targets
-                .filter((target) => target.enabled)
-                .map((target) => target.id),
-              updatedAt: now,
-            }
-          : campaign,
-      ),
+    // The preferences/pointer rewrite is derived from a fresh collection read
+    // inside the campaign transition so a scheduled-run commit that lands
+    // first keeps its history, run facts, rules, and notifications.
+    await ctx.withCampaignTransition(async () => {
+      const campaignState = await ensureCampaignState({
+        repository: ctx.repository,
+        searchPreferences,
+      });
+      const now = new Date().toISOString();
+      await ctx.repository.saveCampaignState({
+        ...campaignState,
+        campaigns: campaignState.campaigns.map((campaign) =>
+          campaign.id === campaignState.activeCampaignId
+            ? {
+                ...campaign,
+                searchPreferences,
+                sourceTargetIds: searchPreferences.discovery.targets
+                  .filter((target) => target.enabled)
+                  .map((target) => target.id),
+                updatedAt: now,
+              }
+            : campaign,
+        ),
+      });
     });
   }
 
@@ -184,7 +369,10 @@ export function createWorkspaceSnapshotProfileMethods(
     }
 
     const recoveryPromise = (async () => {
-      const runs = await ctx.repository.listApplyRuns();
+      const [runs, allResults] = await Promise.all([
+        ctx.repository.listApplyRuns(),
+        ctx.repository.listApplyJobResults(),
+      ]);
 
       if (
         ctx.activeApplyRunAbortControllers.size > 0 ||
@@ -193,28 +381,154 @@ export function createWorkspaceSnapshotProfileMethods(
         return;
       }
 
+      const resultsByRunId = groupApplyJobResultsByRunId(allResults);
       const interruptedRuns = runs.filter((run) => run.state === "running");
-      if (interruptedRuns.length === 0) {
+      // Runs already terminal BECAUSE a prior recovery pass terminalized them:
+      // a crash between committing the failed run and sweeping its results
+      // once stranded non-terminal rows under it forever, because only running
+      // runs were swept. The recovery summary pins provenance, so user-owned
+      // cancelled/completed runs keep their parked rows and counters untouched.
+      const partiallyRecoveredRunIds = new Set(
+        runs
+          .filter(isRecoveryTerminalizedApplyRun)
+          .map((run) => run.id),
+      );
+      const hasPartiallyRecoveredOrphans =
+        partiallyRecoveredRunIds.size > 0 &&
+        allResults.some(
+          (result) =>
+            partiallyRecoveredRunIds.has(result.runId) &&
+            isInterruptedApplyJobState(result.state),
+        );
+
+      if (interruptedRuns.length === 0 && !hasPartiallyRecoveredOrphans) {
         return;
       }
 
       const completedAt = new Date().toISOString();
-      await Promise.all(
-        interruptedRuns.map(async (run) => {
-          const recoveredRun = recoverInterruptedApplyRun(run, completedAt);
-          await ctx.repository.upsertApplyRun(recoveredRun);
-          await persistAutomaticApplicationSafeguards({
-            ctx,
-            run: recoveredRun,
-            now: completedAt,
-          }).catch((safeguardError: unknown) => {
-            console.error(
-              "Failed to persist automatic application safeguards.",
-              safeguardError,
+      await Promise.all([
+        Promise.all(
+          interruptedRuns.map(async (run) => {
+            const runResults = resultsByRunId.get(run.id) ?? [];
+            const recoveredRun = recoverInterruptedApplyRun(
+              run,
+              completedAt,
+              runResults,
             );
-          });
-        }),
-      );
+            const terminalizedRecordIds = new Set<string>();
+            const recoveredResults: ApplyJobResult[] = [];
+            for (const result of runResults) {
+              const recoveredResult = recoverInterruptedApplyJobResult(
+                result,
+                completedAt,
+              );
+              if (!recoveredResult) {
+                continue;
+              }
+              // Exact applicationRecordId lineage only: legacy rows with a
+              // null record id stay fail-closed and are never attributed to
+              // an application record here.
+              if (result.applicationRecordId) {
+                terminalizedRecordIds.add(result.applicationRecordId);
+              }
+              recoveredResults.push(recoveredResult);
+            }
+            // Crash-resumable persist order: exact-lineage projections land
+            // before the run/result commits, so a crash mid-recovery leaves
+            // the parent run durably non-terminal and this whole replay reruns
+            // idempotently on the next load. A crash after the projections can
+            // never strand in-progress attempt/record rows under a terminal
+            // run, because the projections are already durable by then.
+            await recoverInterruptedExactLineageProjections({
+              repository: ctx.repository,
+              interruptedRecordIds: terminalizedRecordIds,
+              completedAt,
+              eventIdFor: (recordId) =>
+                `event_${run.id}_app_closed_recovery_${recordId}`,
+            });
+            await Promise.all([
+              ...recoveredResults.map((recoveredResult) =>
+                ctx.repository.upsertApplyJobResult(recoveredResult),
+              ),
+              ctx.repository.upsertApplyRun(recoveredRun),
+            ]);
+            await persistAutomaticApplicationSafeguards({
+              ctx,
+              run: recoveredRun,
+              now: completedAt,
+            }).catch((safeguardError: unknown) => {
+              console.error(
+                "Failed to persist automatic application safeguards.",
+                safeguardError,
+              );
+            });
+          }),
+        ),
+        (async () => {
+          if (!hasPartiallyRecoveredOrphans) {
+            return;
+          }
+
+          for (const runId of partiallyRecoveredRunIds) {
+            const run = runs.find((candidate) => candidate.id === runId);
+            if (!run) continue;
+            const runResults = resultsByRunId.get(runId) ?? [];
+            const orphanWrites: Promise<void>[] = [];
+            for (const result of runResults) {
+              if (!isInterruptedApplyJobState(result.state)) {
+                continue;
+              }
+              const recoveredResult = recoverInterruptedApplyJobResult(
+                result,
+                completedAt,
+              );
+              if (!recoveredResult) {
+                continue;
+              }
+              orphanWrites.push(
+                ctx.repository.upsertApplyJobResult(recoveredResult),
+              );
+            }
+            if (orphanWrites.length === 0) {
+              continue;
+            }
+            // Deterministic orphan sweep: the repository exposes no central
+            // multi-entity recovery transaction, so convergence comes from
+            // idempotent per-row writes with deterministic event ids instead.
+            // Lineage projection covers every exact-lineage row of this run —
+            // not just the orphans being terminalized — so a prior pass that
+            // died between committing results and projecting attempts/records
+            // heals here too. Null/ambiguous lineage is never attributed.
+            const sweptRecordIds = new Set<string>();
+            for (const result of runResults) {
+              if (result.applicationRecordId) {
+                sweptRecordIds.add(result.applicationRecordId);
+              }
+            }
+            await recoverInterruptedExactLineageProjections({
+              repository: ctx.repository,
+              interruptedRecordIds: sweptRecordIds,
+              completedAt,
+              eventIdFor: (recordId) =>
+                `event_${runId}_app_closed_recovery_${recordId}`,
+            });
+            // The prior pass terminalized this run but may have crashed before
+            // its stale running-time counters could be recomputed; restore
+            // counter truth without rewriting its state, copy, or completion.
+            const refreshedRun = refreshTerminalizedApplyRunCounters(
+              run,
+              runResults,
+              completedAt,
+            );
+            await Promise.all([
+              ...orphanWrites,
+              ...(refreshedRun
+                ? [ctx.repository.upsertApplyRun(refreshedRun)]
+                : []),
+            ]);
+          }
+        })(),
+      ]);
     })();
 
     interruptedApplyRecoveryPromise = recoveryPromise;
@@ -276,22 +590,36 @@ export function createWorkspaceSnapshotProfileMethods(
         : null;
       const historyLimit =
         normalizeSearchPreferences(searchPreferences).discovery.historyLimit;
+      // Recheck ownership at commit time: a newer writer (for example a run
+      // started between the read above and this transaction) that replaced
+      // the observed run must survive untouched.
+      const observedRunState = discoveryState.runState;
+      const observedActiveRunId = activeRun?.id ?? null;
+      const observedActiveRunState = activeRun?.state ?? null;
 
-      await ctx.repository.saveDiscoveryState(
-        JobFinderDiscoveryStateSchema.parse({
-          ...discoveryState,
+      await ctx.repository.commitDiscoveryStateUpdate((current) => {
+        if (
+          current.runState !== observedRunState ||
+          (current.activeRun?.id ?? null) !== observedActiveRunId ||
+          (current.activeRun?.state ?? null) !== observedActiveRunState
+        ) {
+          return current;
+        }
+
+        return {
+          ...current,
           runState: recoveredRun?.state ?? "failed",
           activeRun: null,
           recentRuns: recoveredRun
             ? [
                 recoveredRun,
-                ...discoveryState.recentRuns.filter(
+                ...current.recentRuns.filter(
                   (run) => run.id !== recoveredRun.id,
                 ),
               ].slice(0, historyLimit)
-            : discoveryState.recentRuns,
-        }),
-      );
+            : current.recentRuns,
+        };
+      });
     })();
 
     interruptedDiscoveryRecoveryPromise = recoveryPromise;
@@ -348,18 +676,25 @@ export function createWorkspaceSnapshotProfileMethods(
         });
 
         await ctx.repository.upsertSourceDebugRun(interruptedRun);
-        await ctx.repository.saveDiscoveryState(
-          JobFinderDiscoveryStateSchema.parse({
-            ...discoveryState,
+        await ctx.repository.commitDiscoveryStateUpdate((current) => {
+          if (
+            current.activeSourceDebugRun?.id !== interruptedRun.id ||
+            current.activeSourceDebugRun?.state !== "running"
+          ) {
+            return current;
+          }
+
+          return {
+            ...current,
             activeSourceDebugRun: null,
             recentSourceDebugRuns: [
               interruptedRun,
-              ...discoveryState.recentSourceDebugRuns.filter(
+              ...current.recentSourceDebugRuns.filter(
                 (run) => run.id !== interruptedRun.id,
               ),
             ].slice(0, SOURCE_DEBUG_RECENT_HISTORY_LIMIT),
-          }),
-        );
+          };
+        });
       }
     }
 
@@ -450,10 +785,43 @@ export function createWorkspaceSnapshotProfileMethods(
     const mergedPendingJobs = discovery.pendingDiscoveryJobs.filter(
       (job) => !savedJobIds.has(job.id),
     );
-    const discoveryJobs = [
+    const unprojectedDiscoveryJobs = [
       ...persistedDiscoveryJobs,
       ...mergedPendingJobs,
     ].sort(compareDiscoveryJobs);
+    const projectedJobs = projectDiscoveryJobViews({
+      jobs: [...savedJobs, ...mergedPendingJobs],
+      discoveryLedger: discovery.discoveryLedger,
+      listingSignals: intelligence.safeguards.listingSignals,
+    });
+    const projectedJobById = new Map(
+      projectedJobs.map((job) => [job.id, job] as const),
+    );
+    const discoveryJobs = unprojectedDiscoveryJobs.flatMap((job) => {
+      const projected = projectedJobById.get(job.id);
+      return projected ? [projected] : [];
+    });
+    const projectedDismissedDiscoveryJobs = dismissedDiscoveryJobs.flatMap(
+      (job) => {
+        const projected = projectedJobById.get(job.id);
+        return projected ? [projected] : [];
+      },
+    );
+    const companyJobIds = new Set(
+      intelligence.companies.flatMap((company) => company.jobIds),
+    );
+    const companyJobById = new Map<string, SavedJob>();
+    for (const job of savedJobs) {
+      if (companyJobIds.has(job.id) && !companyJobById.has(job.id)) {
+        companyJobById.set(job.id, job);
+      }
+    }
+    const companyJobs = [...companyJobById.values()]
+      .sort(compareDiscoveryJobs)
+      .flatMap((job) => {
+        const projected = projectedJobById.get(job.id);
+        return projected ? [projected] : [];
+      });
     const reviewQueue = buildReviewQueue(
       savedJobs,
       tailoredAssets,
@@ -464,11 +832,16 @@ export function createWorkspaceSnapshotProfileMethods(
     );
     const orderedApplicationRecords =
       buildApplicationRecords(applicationRecords);
-    let campaignState = await ensureCampaignState({
-      repository: ctx.repository,
-      searchPreferences: setupContext.searchPreferences,
-      now: generatedAt,
-    });
+    // Creation and adoption reconcile rewrite the whole collection, so they
+    // hold the campaign transition like every other mutating campaign
+    // operation; the returned state is truthful for this snapshot.
+    let campaignState = await ctx.withCampaignTransition(() =>
+      ensureCampaignState({
+        repository: ctx.repository,
+        searchPreferences: setupContext.searchPreferences,
+        now: generatedAt,
+      }),
+    );
     const activeCampaign = campaignState.campaigns.find(
       (campaign) => campaign.id === campaignState.activeCampaignId,
     );
@@ -483,16 +856,25 @@ export function createWorkspaceSnapshotProfileMethods(
     const campaignReviewQueue = reviewQueue.filter((item) =>
       activeCampaignJobIds.has(item.jobId),
     );
-    const campaignApplicationRecords = orderedApplicationRecords.filter(
-      (record) => activeCampaignJobIds.has(record.jobId),
+    const {
+      applicationRecords: campaignApplicationRecords,
+      applyRuns: campaignApplyRuns,
+      userActionRequests: campaignApplicationFacts,
+    } = projectCampaignApplicationFacts({
+      activeCampaign,
+      campaigns: campaignState.campaigns,
+      applicationRecords: orderedApplicationRecords,
+      applyJobResults,
+      applyRuns,
+      userActionRequests,
+    });
+    const campaignApplyRunIds = new Set(
+      campaignApplyRuns.map((run) => run.id),
     );
-    const campaignApplyRuns = applyRuns.filter((run) =>
-      run.jobIds.some((jobId) => activeCampaignJobIds.has(jobId)),
-    );
-    const campaignUserActionRequests = userActionRequests.filter((request) =>
-      request.scope.type === "application"
-        ? activeCampaignJobIds.has(request.scope.jobId)
-        : activeCampaignTargetIds.has(request.scope.targetId),
+    const campaignUserActionRequests = campaignApplicationFacts.filter(
+      (request) =>
+        request.scope.type === "application" ||
+        activeCampaignTargetIds.has(request.scope.targetId),
     );
     const campaignUnresolvedActionCount = campaignUserActionRequests.filter(
       (request) =>
@@ -500,6 +882,12 @@ export function createWorkspaceSnapshotProfileMethods(
           request.state,
         ),
     ).length;
+    const campaignUserActionRequestIds = new Set(
+      campaignUserActionRequests.map((request) => request.id),
+    );
+    const campaignUserActionEvents = userActionEvents.filter((event) =>
+      campaignUserActionRequestIds.has(event.requestId),
+    );
     const activeCampaignRunIds = new Set(
       activeCampaign.history.flatMap((entry) =>
         entry.discoveryRunId ? [entry.discoveryRunId] : [],
@@ -520,6 +908,9 @@ export function createWorkspaceSnapshotProfileMethods(
       reviewQueue: campaignReviewQueue,
       applicationRecords: campaignApplicationRecords,
       applyRuns: campaignApplyRuns,
+      applyJobResults: applyJobResults.filter((result) =>
+        campaignApplyRunIds.has(result.runId),
+      ),
       unresolvedActions: campaignUnresolvedActionCount,
       lastRunAt:
         activeCampaignActiveRun?.startedAt ??
@@ -527,7 +918,7 @@ export function createWorkspaceSnapshotProfileMethods(
         null,
       now: generatedAt,
     });
-    const comparableProgress = (progress: typeof nextProgress) => ({
+    const comparableProgress = (progress: JobSearchCampaign["progress"]) => ({
       ...progress,
       lastUpdatedAt: "",
     });
@@ -535,17 +926,63 @@ export function createWorkspaceSnapshotProfileMethods(
       JSON.stringify(comparableProgress(activeCampaign.progress)) !==
       JSON.stringify(comparableProgress(nextProgress));
     if (campaignProgressChanged) {
-      campaignState = {
-        ...campaignState,
-        campaigns: campaignState.campaigns.map((campaign) =>
-          campaign.id === activeCampaign.id
-            ? { ...campaign, progress: nextProgress, updatedAt: generatedAt }
-            : campaign,
-        ),
-      };
-    }
-    if (campaignProgressChanged) {
-      await ctx.repository.saveCampaignState(campaignState);
+      // The projection delta lands on the latest committed collection inside
+      // the campaign transition: the progress is re-derived against the
+      // freshly read campaign so current saved-job counts stay truthful while
+      // run timestamps merge forward — a terminal commit that serialized
+      // ahead of this parked projection keeps its advanced lastRunAt and
+      // lastUpdatedAt, plus its pointer, rules, history, run facts, and
+      // notifications.
+      campaignState = await ctx.withCampaignTransition(async () => {
+        const latestState =
+          (await ctx.repository.getCampaignState()) ?? campaignState;
+        const latestCampaign = latestState.campaigns.find(
+          (campaign) => campaign.id === activeCampaign.id,
+        );
+        if (!latestCampaign) return latestState;
+        const mergedProgress = {
+          ...deriveCampaignProgress({
+            campaign: latestCampaign,
+            savedJobs: campaignSavedJobs,
+            reviewQueue: campaignReviewQueue,
+            applicationRecords: campaignApplicationRecords,
+            applyRuns: campaignApplyRuns,
+            applyJobResults: applyJobResults.filter((result) =>
+              campaignApplyRunIds.has(result.runId),
+            ),
+            unresolvedActions: campaignUnresolvedActionCount,
+            lastRunAt: laterIsoTimestamp(
+              nextProgress.lastRunAt,
+              latestCampaign.progress.lastRunAt,
+            ),
+            now: generatedAt,
+          }),
+          lastUpdatedAt: laterIsoTimestamp(
+            generatedAt,
+            latestCampaign.progress.lastUpdatedAt,
+          ),
+        };
+        if (
+          JSON.stringify(comparableProgress(latestCampaign.progress)) ===
+          JSON.stringify(comparableProgress(mergedProgress))
+        ) {
+          return latestState;
+        }
+        const nextState = {
+          ...latestState,
+          campaigns: latestState.campaigns.map((campaign) =>
+            campaign.id === activeCampaign.id
+              ? {
+                  ...campaign,
+                  progress: mergedProgress,
+                  updatedAt: generatedAt,
+                }
+              : campaign,
+          ),
+        };
+        await ctx.repository.saveCampaignState(nextState);
+        return nextState;
+      });
     }
     const dashboard = deriveDashboardSummary({
       generatedAt,
@@ -556,8 +993,15 @@ export function createWorkspaceSnapshotProfileMethods(
       applyRuns: campaignApplyRuns,
       userActionRequests: campaignUserActionRequests,
       discovery,
-      searchPreferences: activeCampaign.searchPreferences,
+      searchPreferences: setupContext.searchPreferences,
+      sourceAccessPrompts,
     });
+    dashboard.globalDailyApplicationPreparationCapacity =
+      deriveGlobalDailyApplicationPreparationCapacity({
+        applyRuns,
+        applyJobResults,
+        now: new Date(generatedAt),
+      });
 
     return JobFinderWorkspaceSnapshotSchema.parse({
       module: "job-finder",
@@ -581,7 +1025,8 @@ export function createWorkspaceSnapshotProfileMethods(
       activeSourceDebugRun: discovery.activeSourceDebugRun,
       recentSourceDebugRuns: discovery.recentSourceDebugRuns,
       discoveryJobs,
-      dismissedDiscoveryJobs,
+      dismissedDiscoveryJobs: projectedDismissedDiscoveryJobs,
+      companyJobs,
       selectedDiscoveryJobId: discoveryJobs[0]?.id ?? null,
       reviewQueue,
       selectedReviewJobId: reviewQueue[0]?.jobId ?? null,
@@ -602,8 +1047,8 @@ export function createWorkspaceSnapshotProfileMethods(
       selectedApplyRunId: selectLatestApplyRunId(applyRuns),
       selectedApplicationRecordId: orderedApplicationRecords[0]?.id ?? null,
       settings,
-      userActionRequests,
-      userActionEvents,
+      userActionRequests: campaignUserActionRequests,
+      userActionEvents: campaignUserActionEvents,
       campaigns: campaignState.campaigns,
       activeCampaignId: campaignState.activeCampaignId,
       campaignNotifications: campaignState.notifications,
@@ -661,6 +1106,22 @@ export function createWorkspaceSnapshotProfileMethods(
       notifications: [],
     };
     const bootstrapCampaignState = campaignState;
+    const bootstrapActiveCampaign = campaignState.campaigns.find(
+      (campaign) => campaign.id === campaignState.activeCampaignId,
+    );
+    const bootstrapTargetIds = new Set(
+      bootstrapActiveCampaign?.sourceTargetIds ?? [],
+    );
+    // Application lineage is deferred in bootstrap snapshots. Fail closed
+    // until the complete snapshot can join requests to runs and records.
+    const bootstrapUserActionRequests = userActionRequests.filter(
+      (request) =>
+        request.scope.type === "discovery_source" &&
+        bootstrapTargetIds.has(request.scope.targetId),
+    );
+    // Bootstrap intentionally omits sourceAccessPrompts: login-required
+    // prompts need deferred debug history, so attention here reflects stored
+    // target fields until the complete snapshot hydrates.
     const dashboard = deriveDashboardSummary({
       generatedAt,
       campaigns: bootstrapCampaignState,
@@ -668,7 +1129,7 @@ export function createWorkspaceSnapshotProfileMethods(
       reviewQueue: [],
       applicationRecords: [],
       applyRuns: [],
-      userActionRequests,
+      userActionRequests: bootstrapUserActionRequests,
       discovery: {
         ...discovery,
         activeRun: discovery.activeRun,
@@ -706,6 +1167,7 @@ export function createWorkspaceSnapshotProfileMethods(
       recentSourceDebugRuns: [],
       discoveryJobs: [],
       dismissedDiscoveryJobs: [],
+      companyJobs: [],
       selectedDiscoveryJobId: null,
       reviewQueue: [],
       selectedReviewJobId: null,
@@ -732,7 +1194,7 @@ export function createWorkspaceSnapshotProfileMethods(
       dashboard,
       activityControl,
       intelligence: {},
-      userActionRequests,
+      userActionRequests: bootstrapUserActionRequests,
       userActionEvents: [],
     });
   }
@@ -1062,47 +1524,106 @@ export function createWorkspaceSnapshotProfileMethods(
       profileCopilotMethods.rejectProfileCopilotPatchGroup,
     undoProfileRevision: profileCopilotMethods.undoProfileRevision,
     async saveSettings(settings: JobFinderSettings) {
-      const currentSettings = await ctx.repository.getSettings();
+      const availableResumeTemplates =
+        ctx.documentManager.listResumeTemplates();
+      const currentSettings = normalizeJobFinderSettings(
+        await ctx.repository.getSettings(),
+        availableResumeTemplates,
+      );
       const nextSettings = normalizeJobFinderSettings(
         settings,
-        ctx.documentManager.listResumeTemplates(),
+        availableResumeTemplates,
       );
 
       if (hasResumeAffectingSettingsChange(currentSettings, nextSettings)) {
-        await ctx.staleApprovedResumeDrafts(
-          "Resume settings changed after approval and the resume needs a fresh review.",
-        );
+        await ctx.staleApprovedResumeDrafts(RESUME_SETTINGS_STALE_REASON);
       }
 
       const currentResumeApplicationMode =
         currentSettings.resumeApplicationMode ?? "tailored_per_job";
       const nextResumeApplicationMode =
         nextSettings.resumeApplicationMode ?? "tailored_per_job";
-      const activeReviewStatuses = new Set([
-        "drafting",
-        "ready_for_review",
-        "approved",
-      ]);
-      await Promise.all([
-        ctx.repository.saveSettings(nextSettings),
-        currentResumeApplicationMode === nextResumeApplicationMode
-          ? Promise.resolve()
-          : ctx.repository.commitSavedJobDelta({
-              update: (job) =>
-                job.resumeApplicationMode === null &&
-                activeReviewStatuses.has(job.status)
-                  ? {
-                      ...job,
-                      resumeApplicationMode: currentResumeApplicationMode,
-                    }
-                  : job,
-            }),
-      ]);
-      await runNoResponseAutomationIfDue({
-        settings:
-          nextSettings.applicationCrm ?? ApplicationCrmSettingsSchema.parse({}),
-        force: true,
+
+      if (currentResumeApplicationMode === nextResumeApplicationMode) {
+        await ctx.repository.commitSettingsUpdate(() => nextSettings);
+      } else {
+        await ctx.repository.commitSavedJobDelta({
+          update: capturePreviousResumeApplicationMode(
+            currentResumeApplicationMode,
+          ),
+          updateSettings: () => nextSettings,
+        });
+      }
+      return getWorkspaceSnapshot();
+    },
+    async updateApplicationDefaults(input: UpdateApplicationDefaultsInput) {
+      const parsedInput = UpdateApplicationDefaultsInputSchema.parse(input);
+      const availableResumeTemplates =
+        ctx.documentManager.listResumeTemplates();
+      const defaultsFields = pickDefined({
+        resumeApplicationMode: parsedInput.resumeApplicationMode,
+        resumeTemplateId: parsedInput.resumeTemplateId,
+        fontPreset: parsedInput.fontPreset,
       });
+      const mergeApplicationDefaults = (current: JobFinderSettings) =>
+        normalizeJobFinderSettings(
+          { ...current, ...defaultsFields },
+          availableResumeTemplates,
+        );
+
+      const currentSettings = normalizeJobFinderSettings(
+        await ctx.repository.getSettings(),
+        availableResumeTemplates,
+      );
+      const nextSettings = mergeApplicationDefaults(currentSettings);
+
+      if (hasResumeAffectingSettingsChange(currentSettings, nextSettings)) {
+        await ctx.staleApprovedResumeDrafts(RESUME_SETTINGS_STALE_REASON);
+      }
+
+      const previousResumeApplicationMode =
+        currentSettings.resumeApplicationMode ?? "tailored_per_job";
+      const nextResumeApplicationMode =
+        nextSettings.resumeApplicationMode ?? "tailored_per_job";
+
+      if (previousResumeApplicationMode === nextResumeApplicationMode) {
+        await ctx.repository.commitSettingsUpdate(mergeApplicationDefaults);
+      } else {
+        await ctx.repository.commitSavedJobDelta({
+          update: capturePreviousResumeApplicationMode(
+            previousResumeApplicationMode,
+          ),
+          updateSettings: mergeApplicationDefaults,
+        });
+      }
+      return getWorkspaceSnapshot();
+    },
+    async updateWorkspaceBehavior(input: UpdateWorkspaceBehaviorInput) {
+      const parsedInput = UpdateWorkspaceBehaviorInputSchema.parse(input);
+      const behaviorFields = pickDefined({
+        keepSessionAlive: parsedInput.keepSessionAlive,
+        discoveryOnly: parsedInput.discoveryOnly,
+      });
+      await ctx.repository.commitSettingsUpdate((current) =>
+        JobFinderSettingsSchema.parse({ ...current, ...behaviorFields }),
+      );
+      return getWorkspaceSnapshot();
+    },
+    async updateTrackerCrm(applicationCrm: ApplicationCrmSettings) {
+      const committedCrm = ApplicationCrmSettingsSchema.parse(applicationCrm);
+      await ctx.repository.commitSettingsUpdate((current) => ({
+        ...current,
+        applicationCrm: committedCrm,
+      }));
+      await runNoResponseAutomationIfDue({ settings: committedCrm });
+      return getWorkspaceSnapshot();
+    },
+    async updateAppearanceTheme(appearanceTheme: AppearanceTheme) {
+      const parsedTheme = AppearanceThemeSchema.parse(appearanceTheme);
+      await ctx.repository.commitSettingsUpdate((current) => ({
+        ...current,
+        appearanceTheme: parsedTheme,
+      }));
       return getWorkspaceSnapshot();
     },
   };

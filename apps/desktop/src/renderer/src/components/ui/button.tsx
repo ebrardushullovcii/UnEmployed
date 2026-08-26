@@ -3,15 +3,18 @@ import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@renderer/lib/utils";
 
+// `aria-disabled:` mirrors the `disabled:` treatment so pending controls (and
+// asChild children that cannot take a native disabled attribute) keep the same
+// dimmed, non-interactive look without leaving the accessibility tree.
 const buttonVariants = cva(
-  "relative inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap transition-[background-color,border-color,color,opacity,box-shadow,transform] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:border-border/55 disabled:text-foreground-muted disabled:shadow-none disabled:saturate-75 disabled:opacity-65 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "relative inline-flex shrink-0 items-center justify-center gap-2 rounded-(--radius-button) whitespace-nowrap transition-[background-color,border-color,color,opacity,box-shadow,transform] outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:border-border disabled:bg-secondary disabled:text-muted-foreground disabled:shadow-none disabled:saturate-100 disabled:opacity-100 aria-disabled:cursor-not-allowed aria-disabled:border-border aria-disabled:bg-secondary aria-disabled:text-muted-foreground aria-disabled:shadow-none aria-disabled:saturate-100 aria-disabled:opacity-100 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
         primary:
-          "border border-primary/20 bg-primary text-primary-foreground shadow-[inset_0_1px_0_var(--focus-inset-highlight)] hover:opacity-90",
+          "border border-primary/55 bg-primary text-primary-foreground shadow-none hover:bg-primary/90",
         destructive:
-          "border border-destructive/35 bg-destructive text-destructive-foreground hover:opacity-90 focus-visible:ring-destructive/20",
+          "border border-destructive/35 bg-destructive text-destructive-foreground hover:opacity-90",
         outline:
           "border border-border bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground",
         secondary:
@@ -21,10 +24,8 @@ const buttonVariants = cva(
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
-        default:
-          "h-10 px-5 text-[11px] font-bold uppercase tracking-(--tracking-badge) has-[>svg]:px-4",
-        compact:
-          "h-8 px-3 text-[10px] font-bold uppercase tracking-(--tracking-badge) has-[>svg]:px-2.5",
+        default: "h-10 px-5 text-sm font-semibold has-[>svg]:px-4",
+        compact: "h-8 px-3 text-xs font-semibold has-[>svg]:px-2.5",
         xs: "h-6 gap-1 rounded-md px-2 text-xs has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-3",
         sm: "h-8 gap-1.5 px-3 has-[>svg]:px-2.5",
         lg: "h-10 px-6 has-[>svg]:px-4",
@@ -57,7 +58,13 @@ function Button({
   }) {
   const resolvedVariant = variant ?? "primary";
   const resolvedSize = size ?? "default";
-  const isDisabled = disabled || pending;
+  // Pending controls must stay focusable: flipping a focused button to native
+  // `disabled` would blur it and drop keyboard users back to <body>. Pending
+  // therefore exposes aria-busy + aria-disabled and blocks activation through
+  // guarded handlers instead, while truly disabled buttons keep native
+  // disabled semantics (and stay out of the tab order that way).
+  const isDisabled = Boolean(disabled) || pending;
+  const isTrulyDisabled = Boolean(disabled) && !pending;
   const { onClick, onKeyDown, tabIndex, ...restProps } = props;
   const sharedClassName = cn(
     buttonVariants({ variant: resolvedVariant, size: resolvedSize }),
@@ -109,20 +116,33 @@ function Button({
     const childProps = child.props;
     const resolvedOnClick = isDisabled
       ? handlePendingClick
-      : childProps.onClick ?? onClick;
+      : (childProps.onClick ?? onClick);
     const resolvedOnKeyDown = isDisabled
       ? handlePendingKeyDown
-      : childProps.onKeyDown ?? onKeyDown;
+      : (childProps.onKeyDown ?? onKeyDown);
     const clonedChildProps = {
-      ...(pending ? { "aria-busy": true as const, "data-pending": "true" } : {}),
-      ...(isDisabled ? { "aria-disabled": true as const, tabIndex: -1 } : {}),
+      // Forward the remaining button props (aria-describedby, ids, …) so both
+      // render paths expose the same accessibility wiring.
+      ...restProps,
+      // Pending keeps the same exposed state on both paths: busy + disabled,
+      // still tabbable so focus survives the transition. Truly disabled
+      // children keep this component's aria-disabled convention and drop out
+      // of the tab order explicitly.
+      ...(pending
+        ? { "aria-busy": true as const, "data-pending": "true" }
+        : {}),
+      ...(isDisabled ? { "aria-disabled": true as const } : {}),
+      ...(isTrulyDisabled
+        ? { tabIndex: -1 as const }
+        : tabIndex !== undefined
+          ? { tabIndex }
+          : {}),
       "data-slot": "button",
       "data-variant": resolvedVariant,
       "data-size": resolvedSize,
       className: cn(sharedClassName, childProps.className),
       ...(resolvedOnClick ? { onClick: resolvedOnClick } : {}),
       ...(resolvedOnKeyDown ? { onKeyDown: resolvedOnKeyDown } : {}),
-      ...(!isDisabled && tabIndex !== undefined ? { tabIndex } : {}),
     };
 
     return React.cloneElement(child, {
@@ -133,15 +153,28 @@ function Button({
 
   return (
     <button
-      aria-busy={pending || undefined}
+      {...(pending
+        ? {
+            // Busy, not natively disabled: the control keeps its place in the
+            // tab order and any existing focus, while the guarded handlers
+            // swallow click and Enter/Space activation.
+            "aria-busy": true,
+            "aria-disabled": true,
+            "data-pending": "true" as const,
+            onClick: handlePendingClick,
+            onKeyDown: handlePendingKeyDown,
+          }
+        : {
+            "aria-busy": undefined,
+            "data-pending": undefined,
+            disabled: disabled || undefined,
+            onClick,
+            onKeyDown,
+          })}
       data-slot="button"
-      data-pending={pending ? "true" : undefined}
       data-variant={resolvedVariant}
       data-size={resolvedSize}
       className={sharedClassName}
-      disabled={isDisabled}
-      onClick={onClick}
-      onKeyDown={onKeyDown}
       tabIndex={tabIndex}
       {...restProps}
     >

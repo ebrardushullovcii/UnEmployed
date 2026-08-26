@@ -11,6 +11,8 @@ import type {
 import { Button } from "@renderer/components/ui/button";
 import { Input } from "@renderer/components/ui/input";
 import { EmptyState } from "../../components/empty-state";
+import { Link } from "react-router-dom";
+import { JOB_FINDER_ROUTE_PATHS } from "../../lib/job-finder-route-hrefs";
 import { PageHeader } from "../../components/page-header";
 import { StatusBadge } from "../../components/status-badge";
 import {
@@ -206,7 +208,7 @@ function BucketCard(props: {
               {label}
             </h3>
             {isCurrentCampaign ? (
-              <StatusBadge tone="active">Current campaign</StatusBadge>
+              <StatusBadge tone="active">Current search plan</StatusBadge>
             ) : null}
             {bucket.suggestion.disabledByUser ? (
               <StatusBadge tone="muted">Suggestion off</StatusBadge>
@@ -420,7 +422,7 @@ export function OutcomeAnalyticsScreen(props: {
     campaignById.get(props.activeCampaignId)?.name ?? null;
   const scopeLabel =
     effectiveScope.kind === "all"
-      ? "All campaigns"
+      ? "All search plans"
       : (campaignById.get(effectiveScope.campaignId)?.name ??
         effectiveScope.campaignId);
 
@@ -439,10 +441,8 @@ export function OutcomeAnalyticsScreen(props: {
   return (
     <section className="grid gap-4 pb-8">
       <PageHeader
-        compact
-        eyebrow="Analytics"
+        description="Compare response and interview rates from outcomes you record. Suggestions are never applied automatically and never change job facts."
         title="Outcomes"
-        description="Response and interview rates for the sources, titles, companies, campaigns, and resume strategies you apply to — derived only from outcomes you record. Suggestions here are never applied automatically and never change objective job facts."
       />
 
       {props.actionMessage ? (
@@ -470,9 +470,9 @@ export function OutcomeAnalyticsScreen(props: {
 
       <div className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) p-4 sm:grid-cols-[minmax(14rem,0.8fr)_repeat(3,minmax(0,1fr))] sm:items-end">
         <label className="grid gap-1.5 text-sm font-medium text-foreground">
-          Campaign scope
+          Search plan scope
           <select
-            className="h-10 w-full rounded-(--radius-field) border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+            className="h-10 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 text-sm text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             onChange={(event) => {
               const value = event.target.value;
               setScope(
@@ -487,7 +487,7 @@ export function OutcomeAnalyticsScreen(props: {
                 : effectiveScope.campaignId
             }
           >
-            <option value="__all__">All campaigns</option>
+            <option value="__all__">All search plans</option>
             {props.campaigns.map((campaign) => (
               <option key={campaign.id} value={campaign.id}>
                 {campaign.name}
@@ -512,8 +512,8 @@ export function OutcomeAnalyticsScreen(props: {
           </p>
           <p className="mt-1 text-(length:--text-small) leading-5 text-muted-foreground">
             {activeCampaignName
-              ? `Active campaign: ${activeCampaignName}`
-              : "No active campaign"}
+              ? `Active search plan: ${activeCampaignName}`
+              : "No active search plan"}
           </p>
         </div>
         <div className="rounded-(--radius-field) border border-border/50 bg-background/40 p-3">
@@ -528,15 +528,35 @@ export function OutcomeAnalyticsScreen(props: {
       </div>
 
       {!hasAnyEvents ? (
-        <EmptyState
-          description="Record what happened to each application from Applications → Tracker: completed, abandoned, employer response, assessment, interview, offer, rejection, withdrawal, or no response. Rates and suggestions appear here only after you record outcomes — nothing is inferred."
-          title="No outcomes recorded yet"
-        />
+        <div className="grid gap-3">
+          <EmptyState
+            className="min-h-40 px-5 py-6"
+            description="Record what happened to each application from Applications → Tracker: completed, abandoned, employer response, assessment, interview, offer, rejection, withdrawal, or no response. Rates and suggestions appear here only after you record outcomes — nothing is inferred."
+            title="No outcomes recorded yet"
+          />
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <Button asChild size="sm" type="button">
+              <Link to={JOB_FINDER_ROUTE_PATHS.applications}>
+                Open Applications Tracker
+              </Link>
+            </Button>
+          </div>
+        </div>
       ) : !scopeHasEvents ? (
-        <EmptyState
-          description="This campaign has no recorded outcomes yet. Record what happened to its applications in Applications → Tracker, then return here."
-          title="No outcomes in this campaign"
-        />
+        <div className="grid gap-3">
+          <EmptyState
+            className="min-h-40 px-5 py-6"
+            description="This search plan has no recorded outcomes yet. Record what happened to its applications in Applications → Tracker, then return here."
+            title="No outcomes in this search plan"
+          />
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <Button asChild size="sm" type="button">
+              <Link to={JOB_FINDER_ROUTE_PATHS.applications}>
+                Open Applications Tracker
+              </Link>
+            </Button>
+          </div>
+        </div>
       ) : (
         <div className="grid gap-3">
           <div
@@ -563,7 +583,7 @@ export function OutcomeAnalyticsScreen(props: {
               className="grid gap-1.5 text-sm font-medium text-foreground"
               htmlFor="outcome-analytics-search"
             >
-              Search {outcomeDimensionNoun(dimension)}
+              Filter {outcomeDimensionNoun(dimension)}
               <Input
                 autoComplete="off"
                 id="outcome-analytics-search"

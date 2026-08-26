@@ -4,11 +4,12 @@ import {
   Circle,
   Compass,
   FileSearch,
+  FolderOpen,
   Sparkles,
   Target,
   UserRound,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type {
   ProfileSetupReviewActionOptions,
   ProfileSetupState,
@@ -40,6 +41,8 @@ import {
   formatReviewStatus,
   formatProfileSetupReviewValue,
   getReviewItemEditHint,
+  isProfileSetupPathStepComplete,
+  type ProfileSetupPathStepReadiness,
   type ProfileSetupReviewItemDisplay,
   isBlockingPendingReviewItem,
   isOptionalPendingReviewItem,
@@ -94,6 +97,16 @@ export function ProfileSetupSummaryCards(props: {
 }) {
   const hasPendingReviewItems = props.reviewItemCount > 0;
   const hasOptionalSuggestions = props.optionalReviewItemCount > 0;
+  const importDisabledReasonId = useId();
+  // The import and manual controls mirror the shared Button pending contract:
+  // in-flight work keeps them focusable via aria-disabled/aria-busy with
+  // guarded activation, while a hard import guard (no workspace write access,
+  // unsupported file, …) keeps native disabled semantics. The visible reason
+  // text is associated with the import control through aria-describedby.
+  const isImportControlLocked =
+    props.isImportResumePending || props.isProfileSetupPending;
+  const isManualControlLocked = isImportControlLocked;
+  const isImportDisabledByReason = Boolean(props.importDisabledReason);
   const isPristine =
     props.profileSetupState.status === "not_started" &&
     !props.hasImportedResume;
@@ -103,45 +116,69 @@ export function ProfileSetupSummaryCards(props: {
 
   if (isPristine) {
     return (
-      <Card className="overflow-hidden rounded-(--radius-panel) border-border/40 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--surface-panel)_90%,transparent),color-mix(in_srgb,var(--surface-panel-raised)_86%,transparent))]">
+      <Card className="overflow-hidden border-(--surface-panel-border) bg-(--surface-panel)">
         <CardHeader className="gap-3 border-b border-border/30 pb-5">
           <Badge className="w-fit" variant="outline">
             First step
           </Badge>
-          <CardTitle>Start with the résumé you already have.</CardTitle>
+          <CardTitle>Start with the resume you already have.</CardTitle>
           <CardDescription className="max-w-2xl">
             Importing is the fastest path: Job Finder extracts your experience,
             then asks only about important gaps or uncertain details. The
-            selected file is copied into this local workspace. If a model
-            provider is configured, its extracted content may be sent to that
-            provider for analysis; nothing is sent to an employer during setup.
+            selected file is copied into this local workspace and read here.
+            Some files — like scanned image PDFs — contain no readable text; if
+            that happens, Job Finder says so and extracts nothing, and you can
+            pick a text-based file or continue manually. If you connected an AI
+            provider, the extracted text may be sent to that provider for
+            analysis; nothing is sent to an employer during setup.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-5 pt-6">
           <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(15rem,0.62fr)]">
             <button
               className="group rounded-(--radius-field) border border-foreground/20 bg-foreground p-5 text-left text-background transition-transform hover:-translate-y-0.5"
-              disabled={
-                props.isImportResumePending ||
-                props.isProfileSetupPending ||
-                Boolean(props.importDisabledReason)
-              }
               aria-busy={props.isImportResumePending || undefined}
-              onClick={props.onImportResume}
+              aria-describedby={
+                isImportDisabledByReason ? importDisabledReasonId : undefined
+              }
+              aria-disabled={isImportControlLocked || undefined}
+              disabled={isImportDisabledByReason && !isImportControlLocked}
+              onClick={(event) => {
+                if (isImportControlLocked) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  return;
+                }
+                props.onImportResume();
+              }}
               type="button"
             >
-              <span className="block text-base font-semibold">
-                {props.isImportResumePending ? "Importing résumé…" : "Import my résumé"}
+              <span className="mb-2 inline-flex items-center rounded-full border border-background/40 px-2 py-0.5 text-(length:--text-tiny) uppercase tracking-[0.18em] text-background/85">
+                Recommended
+              </span>
+              <span className="flex items-center gap-2 text-base font-semibold">
+                <FolderOpen className="size-4 shrink-0" />
+                {props.isImportResumePending
+                  ? "Importing resume…"
+                  : "Choose my resume file…"}
               </span>
               <span className="mt-2 block text-sm leading-6 text-background/70">
-                PDF, DOCX, TXT, or Markdown · review before anything is approved
+                Opens a file browser · PDF, DOCX, TXT, or Markdown · review
+                before anything is approved
               </span>
             </button>
             <button
               className="group rounded-(--radius-field) border border-border/40 bg-background/55 p-5 text-left transition-colors hover:border-border hover:bg-secondary/35"
               aria-busy={props.isProfileSetupPending || undefined}
-              disabled={props.isProfileSetupPending || props.isImportResumePending}
-              onClick={props.onStartManually}
+              aria-disabled={isManualControlLocked || undefined}
+              onClick={(event) => {
+                if (isManualControlLocked) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  return;
+                }
+                props.onStartManually();
+              }}
               type="button"
             >
               <span className="block text-base font-semibold text-foreground">
@@ -154,10 +191,32 @@ export function ProfileSetupSummaryCards(props: {
             </button>
           </div>
           {props.importDisabledReason ? (
-            <p className="text-sm leading-6 text-foreground-soft">
+            <p
+              className="text-sm leading-6 text-foreground-soft"
+              id={importDisabledReasonId}
+            >
               {props.importDisabledReason}
             </p>
           ) : null}
+          <div className="rounded-(--radius-field) border border-border/25 bg-background/60 p-4">
+            <p className="text-sm font-semibold text-foreground">
+              What guided setup will ask for
+            </p>
+            <ul className="mt-2 grid list-none gap-1 p-0 text-sm leading-6 text-foreground-soft">
+              <li>Your resume, or the same details entered by hand.</li>
+              <li>At least one contact method, such as an email address.</li>
+              <li>A work-mode preference, like remote, hybrid, or onsite.</li>
+              <li>
+                One public job page for Job Finder to search — for example, a
+                job board you already browse.
+              </li>
+            </ul>
+            <p className="mt-3 border-t border-border/25 pt-3 text-sm leading-6 text-foreground-soft">
+              Guided setup is seven short steps, saved as you go — stop after
+              any step and pick back up later. These describe the inputs setup
+              guides you through, not a promise of job results.
+            </p>
+          </div>
           {props.actionMessage ? (
             <div
               className="rounded-(--radius-field) border border-border/25 bg-background/70 p-4 text-sm text-foreground-soft"
@@ -171,9 +230,8 @@ export function ProfileSetupSummaryCards(props: {
             progress={props.resumeImportProgress}
           />
           <p className="text-xs leading-5 text-muted-foreground">
-            Model processing, when enabled, follows your configured provider.
-            Employer access stays off until you explicitly prepare a shortlisted
-            application, and final submission remains unavailable.
+            Employer access stays off until you explicitly prepare a
+            shortlisted application, and final submission remains unavailable.
           </p>
         </CardContent>
       </Card>
@@ -182,7 +240,7 @@ export function ProfileSetupSummaryCards(props: {
 
   return (
     <>
-      <Card className="overflow-hidden rounded-(--radius-panel) border-border/40 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--surface-panel)_88%,transparent),color-mix(in_srgb,var(--surface-panel-raised)_88%,transparent))]">
+      <Card className="overflow-hidden border-(--surface-panel-border) bg-(--surface-panel)">
         <CardHeader className="gap-3 border-b border-border/30 pb-5">
           <div className="flex flex-wrap items-center gap-2">
             <Badge
@@ -258,6 +316,11 @@ export function ProfileSetupSummaryCards(props: {
                   onClick={props.onImportResume}
                   disabled={Boolean(props.importDisabledReason)}
                   pending={props.isImportResumePending}
+                  aria-describedby={
+                    props.importDisabledReason
+                      ? importDisabledReasonId
+                      : undefined
+                  }
                 >
                   Replace resume
                 </Button>
@@ -281,7 +344,10 @@ export function ProfileSetupSummaryCards(props: {
             </Button>
           </div>
           {props.importDisabledReason ? (
-            <p className="text-sm leading-6 text-foreground-soft">
+            <p
+              className="text-sm leading-6 text-foreground-soft"
+              id={importDisabledReasonId}
+            >
               {props.importDisabledReason}
             </p>
           ) : null}
@@ -303,10 +369,12 @@ export function ProfileSetupSummaryCards(props: {
             </p>
           </div>
           <div className="rounded-(--radius-field) border border-border/30 bg-background/60 p-4 text-sm text-foreground-soft">
+            {/* Counts stay in the header badges and the step footer; this line
+                describes the situation without repeating the numbers. */}
             {hasPendingReviewItems
-              ? `${props.reviewItemCount} review item${props.reviewItemCount === 1 ? "" : "s"} still ${props.reviewItemCount === 1 ? "needs" : "need"} attention in this step before the setup feels trustworthy.`
+              ? "Review items in this step still need attention before the setup feels trustworthy."
               : hasOptionalSuggestions
-                ? `${props.optionalReviewItemCount} optional suggestion${props.optionalReviewItemCount === 1 ? " is" : "s are"} available in this step. Optional suggestions do not block setup.`
+                ? "Only optional suggestions remain in this step; they do not block setup."
                 : props.profileSetupState.status === "not_started"
                   ? "Start by importing a resume or opening the current step to enter your details manually."
                   : "No review items here. Continue when you are ready."}
@@ -328,8 +396,15 @@ export function ProfileSetupSummaryCards(props: {
 export function ProfileSetupPathCard(props: {
   currentStep: ProfileSetupStep;
   disabled?: boolean;
+  /** Omitted means no imported resume: the Import row must then never read complete. */
+  hasImportedResume?: boolean;
   onGoToStep: (step: ProfileSetupStep) => void;
   profileSetupState: ProfileSetupState;
+  /**
+   * Draft readiness evidence for honest per-step Complete badges; omitted or
+   * null keeps the legacy chronology-only badges.
+   */
+  readiness?: ProfileSetupPathStepReadiness | null;
 }) {
   return (
     <Card className="rounded-(--radius-panel) border-border/40">
@@ -340,7 +415,7 @@ export function ProfileSetupPathCard(props: {
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3 pt-6">
-        {profileSetupStepDefinitions.map((step, index) => {
+        {profileSetupStepDefinitions.map((step) => {
           const StepIcon = stepIconById[step.id];
           const isActive = props.currentStep === step.id;
           const stepReviewItems = props.profileSetupState.reviewItems.filter(
@@ -352,12 +427,14 @@ export function ProfileSetupPathCard(props: {
           const optionalReviewCount = stepReviewItems.filter(
             isOptionalPendingReviewItem,
           ).length;
-          const isComplete =
-            pendingReviewCount === 0 &&
-            (props.profileSetupState.status === "completed" ||
-              profileSetupStepDefinitions.findIndex(
-                (entry) => entry.id === props.currentStep,
-              ) > index);
+          const isComplete = isProfileSetupPathStepComplete({
+            currentStep: props.currentStep,
+            hasImportedResume: props.hasImportedResume ?? false,
+            pendingBlockingReviewCount: pendingReviewCount,
+            readiness: props.readiness ?? null,
+            setupStatus: props.profileSetupState.status,
+            stepId: step.id,
+          });
 
           return (
             <button
@@ -489,7 +566,7 @@ export function ProfileSetupReviewQueueCard(props: {
 
   return (
     <Card
-      className="min-h-0 flex-1 overflow-hidden rounded-(--radius-panel) border-border/40"
+      className="min-h-0 flex-1 overflow-hidden rounded-(--radius-panel) border-border/40 scroll-mt-4 sm:scroll-mt-[8.25rem] min-[1440px]:scroll-mt-[4.5rem]"
       id="profile-setup-review-queue"
       tabIndex={-1}
     >
@@ -505,7 +582,7 @@ export function ProfileSetupReviewQueueCard(props: {
           {blockingPendingCount > 0
             ? `${blockingPendingCount} item${blockingPendingCount === 1 ? "" : "s"} still ${blockingPendingCount === 1 ? "needs" : "need"} confirmation or an edit in this step.${optionalPendingCount > 0 ? ` ${optionalPendingCount} optional suggestion${optionalPendingCount === 1 ? " is" : "s are"} also available.` : ""}`
             : optionalPendingCount > 0
-              ? `${optionalPendingCount} optional suggestion${optionalPendingCount === 1 ? " is" : "s are"} available. Optional suggestions do not block setup.`
+              ? `${optionalPendingCount} optional suggestion${optionalPendingCount === 1 ? " is" : "s are"} available. These do not block setup.`
               : "Everything mapped to this step is already resolved in the saved workspace state."}
         </div>
         <ScrollArea className="min-h-0 flex-1">

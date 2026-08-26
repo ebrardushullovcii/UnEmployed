@@ -1,16 +1,26 @@
 import { JobFinderShell } from "@renderer/features/job-finder/components/job-finder-shell";
+import { StartupDatabaseRecoveryNotice } from "@renderer/features/job-finder/components/startup-database-recovery-notice";
 import { ThemeProvider } from "@renderer/app/theme-provider";
 import { Button } from "@renderer/components/ui/button";
 import { useModalFocusTrap } from "@renderer/features/job-finder/components/profile/use-modal-focus-trap";
 import { X } from "lucide-react";
-import { Suspense, useEffect, useId, useLayoutEffect, useRef } from "react";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from "react";
+import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
-import {
-  preloadJobFinderPriorityScreens,
-  WorkspaceStateScreen,
-} from "./job-finder-page-routes";
+import { buildJobFinderStartupDatabaseRecoveryBlockedDetail } from "../../../shared/job-finder-startup-db-recovery";
+import { WorkspaceStateScreen } from "./job-finder-page-routes";
 import { jobFinderPendingActions } from "./job-finder-pending-actions";
+import { JobFinderUnsavedChangesDialog } from "./job-finder-unsaved-changes-dialog";
+import { JobFinderWindowCloseGuard } from "./job-finder-window-close-guard";
 import {
   type ApplyCopilotVisualCheckpointRequest,
   useJobFinderPageController,
@@ -24,6 +34,7 @@ export {
   JobFinderCompaniesRoute,
   JobFinderCompanyDetailRoute,
   JobFinderDiscoveryRoute,
+  JobFinderDocumentsRoute,
   JobFinderHomeRoute,
   JobFinderProfileRoute,
   JobFinderProfileSetupRoute,
@@ -35,6 +46,22 @@ export {
   JobFinderSettingsRoute,
 } from "./job-finder-page-routes";
 export type { JobFinderPageContext } from "./job-finder-page-context";
+
+/**
+ * Exactly one window-close responder stays mounted across every render state
+ * of this page (loading, both post-ready error branches, loaded shell). It is
+ * always the stable first child of the returned tree, so React preserves its
+ * subscription and any parked close dialog across branch switches instead of
+ * tearing the handshake down mid-decision.
+ */
+function withJobFinderWindowCloseGuard(content: ReactNode): ReactNode {
+  return (
+    <>
+      <JobFinderWindowCloseGuard />
+      {content}
+    </>
+  );
+}
 
 function markJobFinderTiming(markName: string, startMarkName?: string) {
   const performanceApi = globalThis.performance;
@@ -78,23 +105,6 @@ function measureFromLatestJobFinderMark(
   } catch {
     // Performance diagnostics must never affect rendering or navigation.
   }
-}
-
-function scheduleJobFinderPriorityPreload(onRun: () => void) {
-  let cancelled = false;
-  // Let the initial workspace state paint once, then start the shared route imports.
-  // Waiting for an idle period leaves the first Profile visit racing the
-  // network during hydration, while a zero-delay task keeps import startup
-  // off the shell's commit task without deferring it past that window.
-  const timer = window.setTimeout(() => {
-    if (!cancelled) {
-      onRun();
-    }
-  }, 0);
-  return () => {
-    cancelled = true;
-    window.clearTimeout(timer);
-  };
 }
 
 function JobFinderRouteReadyMarker() {
@@ -160,9 +170,7 @@ function JobFinderOpeningShell() {
                 size="sm"
                 type="button"
                 variant={
-                  location.pathname === destination.path
-                    ? "secondary"
-                    : "ghost"
+                  location.pathname === destination.path ? "secondary" : "ghost"
                 }
               >
                 {destination.label}
@@ -180,7 +188,17 @@ function JobFinderOpeningShell() {
   );
 }
 
-function ApplyCopilotVisualCheckpointDialog(props: {
+/**
+ * Per-run consent gate for optional visual checkpoints during Apply Copilot
+ * preparation. Consent must stay voluntary and explicit: the privacy-preserving
+ * action ("Continue without") renders as the primary, initially focused control
+ * and owns the first position in the dialog's tab order, while enabling page
+ * screenshot sharing remains an explicit secondary opt-in. Escape, the scrim,
+ * and the header X all resolve through onClose, which cancels the request, so
+ * dismissing this dialog can never enable sharing. Copy states the sensitivity
+ * plainly without confirm-shaming.
+ */
+export function ApplyCopilotVisualCheckpointDialog(props: {
   onClose: () => void;
   onResolve: (visualCheckpointsEnabled: boolean) => void;
   request: ApplyCopilotVisualCheckpointRequest | null;
@@ -188,8 +206,20 @@ function ApplyCopilotVisualCheckpointDialog(props: {
   const dialogTitleId = useId();
   const descriptionId = useId();
   const dialogRef = useRef<HTMLDivElement | null>(null);
+  const continueWithoutRef = useRef<HTMLButtonElement | null>(null);
   const open = props.request !== null;
   useModalFocusTrap(open, dialogRef, props.onClose);
+
+  // Declared after the shared trap so it runs second on open: the safe,
+  // privacy-preserving action receives initial focus instead of the header X
+  // (the same safe-default convention as the unsaved-changes and campaign
+  // dialogs), so a stray Enter lands on "Continue without", never on enabling.
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    continueWithoutRef.current?.focus();
+  }, [open]);
 
   if (!open) {
     return null;
@@ -213,13 +243,13 @@ function ApplyCopilotVisualCheckpointDialog(props: {
         <div className="flex items-start justify-between gap-4">
           <div className="grid gap-2">
             <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-              Apply copilot
+              Prepare application
             </p>
             <h2
               className="text-(length:--text-section-title) font-semibold text-(--text-headline)"
               id={dialogTitleId}
             >
-              Enable visual checkpoints?
+              Use visual checkpoints?
             </h2>
           </div>
           <Button
@@ -237,19 +267,28 @@ function ApplyCopilotVisualCheckpointDialog(props: {
           className="text-(length:--text-item) leading-6 text-foreground-soft"
           id={descriptionId}
         >
-          Optional visual checkpoints analyze temporary screenshots of the
-          application page to help classify visible blockers. Screenshots are
-          sensitive and temporary by default.
+          Optional visual checkpoints use temporary screenshots of the
+          application page to identify visible blockers. Choose whether to share
+          this sensitive page data for preparation. Job Finder cannot submit the
+          application.
         </p>
         <div className="flex flex-wrap justify-end gap-2">
+          {/* Sharing page screenshots is the sensitive outcome, so the
+              privacy-preserving choice stays visually primary, first in the
+              row, and initially focused; enabling remains an explicit
+              secondary opt-in. */}
           <Button
             onClick={() => props.onResolve(false)}
+            ref={continueWithoutRef}
             type="button"
-            variant="secondary"
           >
             Continue without
           </Button>
-          <Button onClick={() => props.onResolve(true)} type="button">
+          <Button
+            onClick={() => props.onResolve(true)}
+            type="button"
+            variant="secondary"
+          >
             Enable checkpoints
           </Button>
         </div>
@@ -262,7 +301,6 @@ function ApplyCopilotVisualCheckpointDialog(props: {
 export function JobFinderPage() {
   const location = useLocation();
   const shellMarkedRef = useRef(false);
-  const priorityPreloadStartedRef = useRef(false);
   const {
     appearanceTheme,
     applyCopilotVisualCheckpointRequest,
@@ -271,12 +309,33 @@ export function JobFinderPage() {
     dismissSavedStatus,
     navigateFromShell,
     platform,
+    resolveResumeWorkspaceLeaveRequest,
+    resolveUnsavedChangesLeave,
+    resolveUnsavedChangesStay,
     retryLastSave,
+    resumeWorkspaceLeaveConfirmation,
     saveState,
     resolveApplyCopilotVisualCheckpointRequest,
+    unsavedChangesConfirmation,
     workspace,
     workspaceState,
   } = useJobFinderPageController();
+
+  // One shared closure for both consumers of the existing fenced
+  // cancellation request: the shell Task Center and the Discovery route's
+  // header stop action. No new IPC or controller action is introduced.
+  const cancelDiscovery = useCallback(() => {
+    window.unemployed.jobFinder.cancelAgentDiscovery();
+  }, []);
+  // The route context gains only this optional member; memoized on the same
+  // inputs so outlet consumers keep the controller's context identity.
+  const routeContext = useMemo(
+    () =>
+      context
+        ? { ...context, onCancelDiscovery: cancelDiscovery }
+        : context,
+    [cancelDiscovery, context],
+  );
 
   useEffect(() => {
     if (!context || shellMarkedRef.current) {
@@ -293,26 +352,6 @@ export function JobFinderPage() {
   }, [context]);
 
   useEffect(() => {
-    if (priorityPreloadStartedRef.current) {
-      return;
-    }
-
-    let cancelled = false;
-    const cancelScheduledPreload = scheduleJobFinderPriorityPreload(() => {
-      if (cancelled) {
-        return;
-      }
-      priorityPreloadStartedRef.current = true;
-      preloadJobFinderPriorityScreens();
-    });
-
-    return () => {
-      cancelled = true;
-      cancelScheduledPreload();
-    };
-  }, []);
-
-  useEffect(() => {
     // The marker is a post-commit signal for direct hash changes and older
     // preload builds that do not expose bootstrap timing marks.
     if (!context) {
@@ -323,10 +362,30 @@ export function JobFinderPage() {
 
   if (!context || !workspace || !platform) {
     if (workspaceState.status === "loading") {
-      return <JobFinderOpeningShell />;
+      return withJobFinderWindowCloseGuard(<JobFinderOpeningShell />);
     }
 
-    return (
+    if (
+      workspaceState.status === "error" &&
+      workspaceState.startupDatabaseRecovery
+    ) {
+      // A typed recovery incident blocks the workspace on purpose: no retry
+      // action is offered because retrying would re-run recovery without any
+      // new information and every retained file stays untouched.
+      return withJobFinderWindowCloseGuard(
+        <WorkspaceStateScreen
+          kicker="Workspace error"
+          message={buildJobFinderStartupDatabaseRecoveryBlockedDetail({
+            incidentId: workspaceState.startupDatabaseRecovery.incidentId,
+            outcome: workspaceState.startupDatabaseRecovery.outcome,
+          })}
+          title="Couldn't open Job Finder"
+          tone="error"
+        />,
+      );
+    }
+
+    return withJobFinderWindowCloseGuard(
       <WorkspaceStateScreen
         {...(workspaceState.status === "error"
           ? {
@@ -344,11 +403,11 @@ export function JobFinderPage() {
         }
         title="Couldn't open Job Finder"
         tone="error"
-      />
+      />,
     );
   }
 
-  return (
+  return withJobFinderWindowCloseGuard(
     <ThemeProvider preference={appearanceTheme || "system"}>
       <JobFinderShell
         isDiscoveryPending={context.isAnyPending([
@@ -361,16 +420,33 @@ export function JobFinderPage() {
           jobFinderPendingActions.profileImport(),
         )}
         liveDiscoveryEvents={context.liveDiscoveryEvents}
-        onCancelApplyRun={context.onCancelApplyRun}
-        onCancelDiscovery={() =>
-          window.unemployed.jobFinder.cancelAgentDiscovery()
-        }
+        onCancelApplyRun={(runId) => {
+          const assignedResults = workspace.applyJobResults.filter(
+            (result) =>
+              result.runId === runId && result.applicationRecordId !== null,
+          );
+          if (assignedResults.length !== 1) {
+            return Promise.resolve(false);
+          }
+          const result = assignedResults[0];
+          if (!result?.applicationRecordId) {
+            return Promise.resolve(false);
+          }
+          return context.onCancelApplyRun({
+            runId,
+            jobId: result.jobId,
+            applicationRecordId: result.applicationRecordId,
+          });
+        }}
+        onCancelDiscovery={cancelDiscovery}
         onDismissSavedStatus={dismissSavedStatus}
         onNavigate={navigateFromShell}
         onRetrySave={retryLastSave}
+        onStopTailoredDraftPreparation={context.onStopTailoredDraftPreparation}
         platform={platform}
         resumeImportProgress={context.resumeImportProgress}
         saveState={saveState}
+        tailoredDraftPreparation={context.tailoredDraftPreparation}
         workspace={workspace}
       >
         <Suspense
@@ -382,7 +458,7 @@ export function JobFinderPage() {
             />
           }
         >
-          <Outlet context={context} />
+          <Outlet context={routeContext} />
           <JobFinderRouteReadyMarker />
         </Suspense>
       </JobFinderShell>
@@ -391,6 +467,23 @@ export function JobFinderPage() {
         onResolve={resolveApplyCopilotVisualCheckpointRequest}
         request={applyCopilotVisualCheckpointRequest}
       />
-    </ThemeProvider>
+      <JobFinderUnsavedChangesDialog
+        confirmation={unsavedChangesConfirmation}
+        onLeaveWithoutSaving={resolveUnsavedChangesLeave}
+        onStay={resolveUnsavedChangesStay}
+      />
+      {/* Same branded dialog, second parked decision: actions that leave
+          dirty Resume Studio work ask it through the controller's async
+          request instead of a native window.confirm. */}
+      <JobFinderUnsavedChangesDialog
+        confirmation={resumeWorkspaceLeaveConfirmation}
+        onLeaveWithoutSaving={() => resolveResumeWorkspaceLeaveRequest(true)}
+        onStay={() => resolveResumeWorkspaceLeaveRequest(false)}
+      />
+      {/* The window-close responder is mounted once by
+          withJobFinderWindowCloseGuard above this tree so it also answers on
+          loading and error screens. */}
+      <StartupDatabaseRecoveryNotice />
+    </ThemeProvider>,
   );
 }

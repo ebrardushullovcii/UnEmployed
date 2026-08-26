@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
-import type { BrowserContext, Page } from "playwright";
+import type { BrowserContext, Frame, Page, Route } from "playwright";
 import {
   ApplyExecutionResultSchema,
   type ApplyExecutionResult,
@@ -83,11 +84,36 @@ export interface PrepareOnlyBlockedAttempt {
     | "send_beacon"
     | "fetch"
     | "xhr"
-    | "network_request";
+    | "websocket"
+    | "webtransport"
+    | "eventsource"
+    | "window_open"
+    | "network_request"
+    | "popup_open"
+    | "download";
   method: string;
   url: string | null;
   at: string;
 }
+
+type WebTransportPageConstructor = new (url: string | URL) => unknown;
+
+const PREPARE_ONLY_SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+const PREPARE_ONLY_DENIED_RESOURCE_TYPES = new Set([
+  "xhr",
+  "fetch",
+  "websocket",
+  "eventsource",
+  "ping",
+  "other",
+]);
+
+const PREPARE_ONLY_QUERY_GUARDED_RESOURCE_TYPES = new Set([
+  "image",
+  "media",
+  "texttrack",
+]);
 
 export interface PrepareOnlyGuardSnapshot {
   installed: boolean;
@@ -99,6 +125,9 @@ const prepareOnlyNetworkGuardStates = new WeakMap<
   {
     blockedAttempts: PrepareOnlyBlockedAttempt[];
     intermediateMutationsAuthorized: boolean;
+    initScriptInstalled: boolean;
+    serviceWorkerInitScriptInstalled: boolean;
+    webSocketListenerInstalled: boolean;
   }
 >();
 
@@ -121,6 +150,10 @@ export function installPrepareOnlyMutationGuardInPage(
     xhrOpenWrapper: typeof XMLHttpRequest.prototype.open | null;
     xhrSendWrapper: typeof XMLHttpRequest.prototype.send | null;
     xhrMethods: WeakMap<XMLHttpRequest, { method: string; url: string | null }>;
+    webSocketWrapper: typeof WebSocket | null;
+    eventSourceWrapper: typeof EventSource | null;
+    webTransportWrapper: WebTransportPageConstructor | null;
+    windowOpenWrapper: typeof window.open | null;
   }
 
   const pageWindow = window as unknown as Record<string, unknown>;
@@ -139,14 +172,16 @@ export function installPrepareOnlyMutationGuardInPage(
     xhrOpenWrapper: null,
     xhrSendWrapper: null,
     xhrMethods: new WeakMap(),
+    webSocketWrapper: null,
+    eventSourceWrapper: null,
+    webTransportWrapper: null,
+    windowOpenWrapper: null,
   };
   state.intermediateMutationsAuthorized = intermediateMutationsAuthorized;
   pageWindow["__unemployedPrepareOnlyMutationGuardV1"] = state;
 
   const normalizeMethod = (value: string | null | undefined): string =>
     (value || "GET").trim().toUpperCase() || "GET";
-  const isMutatingMethod = (method: string): boolean =>
-    !new Set(["GET", "HEAD", "OPTIONS"]).has(normalizeMethod(method));
   const normalizeUrl = (value: unknown): string | null => {
     try {
       if (typeof value === "string" || value instanceof URL) {
@@ -253,14 +288,11 @@ export function installPrepareOnlyMutationGuardInPage(
             ? resource.method
             : "GET"),
       );
-      if (isMutatingMethod(method)) {
-        if (state.intermediateMutationsAuthorized) {
-          return originalFetch(resource, init);
-        }
+      if (!state.intermediateMutationsAuthorized) {
         recordBlockedAttempt("fetch", method, normalizeUrl(resource));
         return Promise.reject(
           new DOMException(
-            "Prepare-only mode blocked a mutating fetch request.",
+            "Prepare-only mode blocked a new network request while field mutations were unauthorized.",
             "AbortError",
           ),
         );
@@ -308,14 +340,10 @@ export function installPrepareOnlyMutationGuardInPage(
           method: "GET",
           url: null,
         };
-        if (isMutatingMethod(request.method)) {
-          if (state.intermediateMutationsAuthorized) {
-            originalSend.call(this, body ?? null);
-            return;
-          }
+        if (!state.intermediateMutationsAuthorized) {
           recordBlockedAttempt("xhr", request.method, request.url);
           throw new DOMException(
-            "Prepare-only mode blocked a mutating XMLHttpRequest.",
+            "Prepare-only mode blocked a new XMLHttpRequest while field mutations were unauthorized.",
             "AbortError",
           );
         }
@@ -325,6 +353,128 @@ export function installPrepareOnlyMutationGuardInPage(
     XMLHttpRequest.prototype.send = guardedSend;
     state.xhrOpenWrapper = guardedOpen;
     state.xhrSendWrapper = guardedSend;
+  }
+
+  if (typeof WebSocket === "function" && WebSocket !== state.webSocketWrapper) {
+    const OriginalWebSocket = WebSocket;
+    const GuardedWebSocket = function GuardedWebSocket(
+      url: string | URL,
+      protocols?: string | string[],
+    ): WebSocket {
+      if (!state.intermediateMutationsAuthorized) {
+        recordBlockedAttempt("websocket", "GET", normalizeUrl(url));
+        throw new DOMException(
+          "Prepare-only mode blocked a new WebSocket connection.",
+          "AbortError",
+        );
+      }
+      return new OriginalWebSocket(url, protocols);
+    } as unknown as typeof WebSocket;
+    Object.defineProperty(GuardedWebSocket, "prototype", {
+      value: OriginalWebSocket.prototype,
+    });
+    Object.assign(GuardedWebSocket, {
+      CONNECTING: OriginalWebSocket.CONNECTING,
+      OPEN: OriginalWebSocket.OPEN,
+      CLOSING: OriginalWebSocket.CLOSING,
+      CLOSED: OriginalWebSocket.CLOSED,
+    });
+    Object.defineProperty(window, "WebSocket", {
+      configurable: true,
+      value: GuardedWebSocket,
+      writable: true,
+    });
+    state.webSocketWrapper = GuardedWebSocket;
+  }
+
+  if (
+    typeof EventSource === "function" &&
+    EventSource !== state.eventSourceWrapper
+  ) {
+    const OriginalEventSource = EventSource;
+    const GuardedEventSource = function GuardedEventSource(
+      url: string | URL,
+      eventSourceInit?: EventSourceInit,
+    ): EventSource {
+      if (!state.intermediateMutationsAuthorized) {
+        recordBlockedAttempt("eventsource", "GET", normalizeUrl(url));
+        throw new DOMException(
+          "Prepare-only mode blocked a new EventSource stream.",
+          "AbortError",
+        );
+      }
+      return new OriginalEventSource(url, eventSourceInit);
+    } as unknown as typeof EventSource;
+    Object.defineProperty(GuardedEventSource, "prototype", {
+      value: OriginalEventSource.prototype,
+    });
+    Object.defineProperty(window, "EventSource", {
+      configurable: true,
+      value: GuardedEventSource,
+      writable: true,
+    });
+    state.eventSourceWrapper = GuardedEventSource;
+  }
+
+  const originalWebTransport = pageWindow["WebTransport"];
+  if (
+    typeof originalWebTransport === "function" &&
+    originalWebTransport !== state.webTransportWrapper
+  ) {
+    const OriginalWebTransport =
+      originalWebTransport as WebTransportPageConstructor;
+    const GuardedWebTransport = function GuardedWebTransport(
+      url: string | URL,
+    ): unknown {
+      if (!state.intermediateMutationsAuthorized) {
+        recordBlockedAttempt("webtransport", "GET", normalizeUrl(url));
+        throw new DOMException(
+          "Prepare-only mode blocked a new WebTransport session.",
+          "AbortError",
+        );
+      }
+      return new OriginalWebTransport(url);
+    } as unknown as WebTransportPageConstructor;
+    Object.defineProperty(GuardedWebTransport, "prototype", {
+      value: (OriginalWebTransport as unknown as { prototype: unknown })
+        .prototype,
+    });
+    Object.defineProperty(window, "WebTransport", {
+      configurable: true,
+      value: GuardedWebTransport,
+      writable: true,
+    });
+    state.webTransportWrapper = GuardedWebTransport;
+  }
+
+  if (
+    typeof window.open === "function" &&
+    window.open !== state.windowOpenWrapper
+  ) {
+    const originalWindowOpen = window.open.bind(window);
+    const guardedWindowOpen: typeof window.open = (
+      url?,
+      target?,
+      features?,
+    ) => {
+      if (!state.intermediateMutationsAuthorized) {
+        recordBlockedAttempt(
+          "window_open",
+          "GET",
+          url === undefined || String(url).trim() === ""
+            ? normalizeUrl(window.location.href)
+            : normalizeUrl(url),
+        );
+        return null;
+      }
+      return originalWindowOpen(url, target, features);
+    };
+    Object.defineProperty(window, "open", {
+      configurable: true,
+      value: guardedWindowOpen,
+      writable: true,
+    });
+    state.windowOpenWrapper = guardedWindowOpen;
   }
 }
 
@@ -339,6 +489,210 @@ export function readPrepareOnlyMutationGuardInPage(): PrepareOnlyGuardSnapshot {
     installed: state?.installed === true,
     blockedAttempts: [...(state?.blockedAttempts ?? [])],
   };
+}
+
+export interface ServiceWorkerRegisterGuardStatus {
+  supported: boolean;
+  prototypeGuardInstalled: boolean;
+  instanceGuardInstalled: boolean;
+  integrityVerified: boolean;
+  guardStatePresent: boolean;
+  blockedRegistrationAttempts: number;
+}
+
+/**
+ * Runs inside every document of the managed context before site scripts. The
+ * register replacement is installed non-configurable and non-writable on both
+ * the ServiceWorkerContainer prototype and the container instance so site
+ * scripts cannot delete, shadow, or restore it. Re-running the installer is
+ * idempotent: an existing hardened descriptor is verified instead of replaced.
+ */
+export function installServiceWorkerRegisterGuardInPage(): void {
+  const pageWindow = window as unknown as Record<string, unknown>;
+  const stateKey = "__unemployedServiceWorkerRegisterGuardV1";
+  type InstallState = ServiceWorkerRegisterGuardStatus;
+
+  const existingState = pageWindow[stateKey] as InstallState | undefined;
+  const state: InstallState = existingState ?? {
+    supported: false,
+    prototypeGuardInstalled: false,
+    instanceGuardInstalled: false,
+    integrityVerified: false,
+    guardStatePresent: true,
+    blockedRegistrationAttempts: 0,
+  };
+  try {
+    Object.defineProperty(pageWindow, stateKey, {
+      value: state,
+      writable: false,
+      enumerable: false,
+      configurable: false,
+    });
+  } catch {
+    // The state anchor already exists from a prior installation pass.
+  }
+
+  if (!navigator.serviceWorker || !navigator.serviceWorker.register) {
+    // Truthful feature absence: without a reachable registration API there is
+    // nothing to guard and nothing to claim.
+    state.supported = false;
+    state.prototypeGuardInstalled = true;
+    state.instanceGuardInstalled = true;
+    state.integrityVerified = true;
+    return;
+  }
+
+  const installOn = (target: object): boolean => {
+    const existing = Object.getOwnPropertyDescriptor(target, "register");
+    if (
+      existing &&
+      existing.configurable === false &&
+      existing.writable === false &&
+      typeof existing.value === "function"
+    ) {
+      return true;
+    }
+    const guard = function register(): Promise<never> {
+      state.blockedRegistrationAttempts += 1;
+      console.warn(
+        "Service Worker registration blocked by UnEmployed managed browser.",
+      );
+      return Promise.reject(
+        new DOMException(
+          "Service Worker registration is disabled in the UnEmployed managed browser.",
+          "NotAllowedError",
+        ),
+      );
+    };
+    try {
+      Object.defineProperty(target, "register", {
+        value: guard,
+        writable: false,
+        enumerable: true,
+        configurable: false,
+      });
+    } catch {
+      return false;
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(target, "register");
+    return Boolean(
+      descriptor &&
+      descriptor.configurable === false &&
+      descriptor.writable === false &&
+      descriptor.value === guard,
+    );
+  };
+
+  state.supported = true;
+  let prototype: object | null = null;
+  try {
+    prototype = Object.getPrototypeOf(navigator.serviceWorker) as object | null;
+  } catch {
+    prototype = null;
+  }
+  state.prototypeGuardInstalled = prototype ? installOn(prototype) : false;
+  state.instanceGuardInstalled = installOn(navigator.serviceWorker);
+  state.integrityVerified =
+    state.prototypeGuardInstalled && state.instanceGuardInstalled;
+}
+
+/** Runs inside the application page and returns only serializable status. */
+export function readServiceWorkerRegisterGuardInPage(): ServiceWorkerRegisterGuardStatus {
+  const pageWindow = window as unknown as Record<string, unknown>;
+  const state = pageWindow["__unemployedServiceWorkerRegisterGuardV1"] as
+    | ServiceWorkerRegisterGuardStatus
+    | undefined;
+  const container =
+    typeof navigator !== "undefined" && navigator.serviceWorker
+      ? navigator.serviceWorker
+      : null;
+  if (!container || !navigator.serviceWorker.register) {
+    return {
+      supported: false,
+      prototypeGuardInstalled: true,
+      instanceGuardInstalled: true,
+      integrityVerified: true,
+      guardStatePresent: state?.guardStatePresent === true,
+      blockedRegistrationAttempts: state?.blockedRegistrationAttempts ?? 0,
+    };
+  }
+
+  const describeOwn = (target: object): boolean => {
+    const descriptor = Object.getOwnPropertyDescriptor(target, "register");
+    return Boolean(
+      descriptor &&
+      descriptor.configurable === false &&
+      descriptor.writable === false &&
+      typeof descriptor.value === "function",
+    );
+  };
+  let prototype: object | null = null;
+  try {
+    prototype = Object.getPrototypeOf(container) as object | null;
+  } catch {
+    prototype = null;
+  }
+  const prototypeGuardInstalled = prototype ? describeOwn(prototype) : false;
+  const instanceGuardInstalled = describeOwn(container);
+
+  return {
+    supported: true,
+    prototypeGuardInstalled,
+    instanceGuardInstalled,
+    integrityVerified:
+      state !== undefined &&
+      state.supported === true &&
+      state.integrityVerified === true &&
+      prototypeGuardInstalled &&
+      instanceGuardInstalled,
+    guardStatePresent: state !== undefined,
+    blockedRegistrationAttempts:
+      typeof state?.blockedRegistrationAttempts === "number"
+        ? state.blockedRegistrationAttempts
+        : 0,
+  };
+}
+
+export interface PageServiceWorkerScanPayload {
+  scanned: boolean;
+  controllerUrl: string | null;
+  registrations: Array<{
+    scope: string;
+    installingUrl: string | null;
+    waitingUrl: string | null;
+    activeUrl: string | null;
+  }>;
+}
+
+/**
+ * Runs inside the application page main frame; returns serializable state.
+ * Self-contained on purpose: Playwright serializes only this function body,
+ * so it must not reference other module functions.
+ */
+export function collectApplicationOriginServiceWorkerStateInPage(): Promise<PageServiceWorkerScanPayload> {
+  const emptyPayload = (): PageServiceWorkerScanPayload => ({
+    scanned: false,
+    controllerUrl: null,
+    registrations: [],
+  });
+  if (!window.navigator.serviceWorker) {
+    return Promise.resolve(emptyPayload());
+  }
+
+  const serviceWorker = window.navigator.serviceWorker;
+  return serviceWorker
+    .getRegistrations()
+    .then((registrations) => ({
+      scanned: true,
+      controllerUrl: serviceWorker.controller?.scriptURL ?? null,
+      registrations: registrations.map((registration) => ({
+        scope: registration.scope,
+        installingUrl: registration.installing?.scriptURL ?? null,
+        waitingUrl: registration.waiting?.scriptURL ?? null,
+        activeUrl: registration.active?.scriptURL ?? null,
+      })),
+    }))
+    .catch(() => emptyPayload());
 }
 
 interface InspectedFormControl {
@@ -425,7 +779,24 @@ function createActionSemanticSignature(action: InspectedActionControl): string {
   return JSON.stringify([normalizeControlSignal(action.label), action.type]);
 }
 
-async function ensurePrepareOnlyMutationGuard(
+async function ensureFramePrepareOnlyMutationGuard(
+  frame: Frame,
+  intermediateMutationsAuthorized: boolean,
+): Promise<PrepareOnlyGuardSnapshot> {
+  await frame.evaluate(
+    installPrepareOnlyMutationGuardInPage,
+    intermediateMutationsAuthorized,
+  );
+  const snapshot = await frame.evaluate(readPrepareOnlyMutationGuardInPage);
+  if (!snapshot.installed) {
+    throw new Error(
+      "The prepare-only browser guard could not be verified in the application frame.",
+    );
+  }
+  return snapshot;
+}
+
+export async function ensurePrepareOnlyMutationGuard(
   page: Page,
   intermediateMutationsAuthorized: boolean,
 ): Promise<PrepareOnlyGuardSnapshot> {
@@ -434,15 +805,20 @@ async function ensurePrepareOnlyMutationGuard(
     networkGuardState = {
       blockedAttempts: [],
       intermediateMutationsAuthorized,
+      initScriptInstalled: false,
+      serviceWorkerInitScriptInstalled: false,
+      webSocketListenerInstalled: false,
     };
     prepareOnlyNetworkGuardStates.set(page, networkGuardState);
     await page.route("**/*", async (route) => {
       const request = route.request();
       const method = request.method().trim().toUpperCase();
-      if (
-        !networkGuardState!.intermediateMutationsAuthorized &&
-        !["GET", "HEAD", "OPTIONS"].includes(method)
-      ) {
+      if (networkGuardState!.intermediateMutationsAuthorized) {
+        await route.continue();
+        return;
+      }
+
+      const denyRequest = async (): Promise<void> => {
         networkGuardState!.blockedAttempts.push({
           kind: "network_request",
           method,
@@ -454,43 +830,624 @@ async function ensurePrepareOnlyMutationGuard(
           Math.max(0, networkGuardState!.blockedAttempts.length - 32),
         );
         await route.abort("blockedbyclient");
+      };
+
+      if (!PREPARE_ONLY_SAFE_METHODS.has(method)) {
+        await denyRequest();
         return;
       }
+
+      const resourceType = request.resourceType();
+      if (PREPARE_ONLY_DENIED_RESOURCE_TYPES.has(resourceType)) {
+        await denyRequest();
+        return;
+      }
+
+      if (
+        PREPARE_ONLY_QUERY_GUARDED_RESOURCE_TYPES.has(resourceType) &&
+        request.url().includes("?")
+      ) {
+        await denyRequest();
+        return;
+      }
+
       await route.continue();
     });
   }
   networkGuardState.intermediateMutationsAuthorized =
     intermediateMutationsAuthorized;
 
-  await page.evaluate(
-    installPrepareOnlyMutationGuardInPage,
-    intermediateMutationsAuthorized,
-  );
-  const snapshot = await page.evaluate(readPrepareOnlyMutationGuardInPage);
-  if (!snapshot.installed) {
-    throw new Error(
-      "The prepare-only browser guard could not be verified in the application page.",
-    );
+  if (!networkGuardState.initScriptInstalled) {
+    await page.addInitScript(installPrepareOnlyMutationGuardInPage, false);
+    networkGuardState.initScriptInstalled = true;
   }
+  if (!networkGuardState.serviceWorkerInitScriptInstalled) {
+    await page.addInitScript(installServiceWorkerRegisterGuardInPage);
+    networkGuardState.serviceWorkerInitScriptInstalled = true;
+  }
+  if (!networkGuardState.webSocketListenerInstalled) {
+    page.on("websocket", (webSocket) => {
+      if (networkGuardState.intermediateMutationsAuthorized) {
+        return;
+      }
+      networkGuardState.blockedAttempts.push({
+        kind: "websocket",
+        method: "GET",
+        url: webSocket.url(),
+        at: new Date().toISOString(),
+      });
+      networkGuardState.blockedAttempts.splice(
+        0,
+        Math.max(0, networkGuardState.blockedAttempts.length - 32),
+      );
+    });
+    networkGuardState.webSocketListenerInstalled = true;
+  }
+
+  const blockedAttempts: PrepareOnlyBlockedAttempt[] = [
+    ...networkGuardState.blockedAttempts,
+  ];
+  for (const frame of page.frames()) {
+    let snapshot: PrepareOnlyGuardSnapshot;
+    try {
+      snapshot = await ensureFramePrepareOnlyMutationGuard(
+        frame,
+        intermediateMutationsAuthorized,
+      );
+    } catch (error) {
+      throw new Error(
+        `The prepare-only browser guard could not be verified in application frame '${
+          frame.url() || "(unknown)"
+        }': ${describeUnknownError(error, "Unknown frame guard failure.")}`,
+      );
+    }
+    blockedAttempts.push(...snapshot.blockedAttempts);
+  }
+
   return {
     installed: true,
-    blockedAttempts: [
-      ...networkGuardState.blockedAttempts,
-      ...snapshot.blockedAttempts,
-    ],
+    blockedAttempts,
   };
 }
 
-async function getLatestBlockedPrepareOnlyAttempt(
+export async function getLatestBlockedPrepareOnlyAttempt(
   page: Page,
 ): Promise<PrepareOnlyBlockedAttempt | null> {
-  const snapshot = await page.evaluate(readPrepareOnlyMutationGuardInPage);
-  return (
-    [
-      ...(prepareOnlyNetworkGuardStates.get(page)?.blockedAttempts ?? []),
-      ...snapshot.blockedAttempts,
-    ].at(-1) ?? null
+  const ledger: PrepareOnlyBlockedAttempt[] = [
+    ...(prepareOnlyNetworkGuardStates.get(page)?.blockedAttempts ?? []),
+  ];
+  for (const frame of page.frames()) {
+    const snapshot = await frame.evaluate(readPrepareOnlyMutationGuardInPage);
+    ledger.push(...snapshot.blockedAttempts);
+  }
+  return ledger.at(-1) ?? null;
+}
+
+/**
+ * Records an out-of-band prepare-only interruption (popup, download, or
+ * context-level network denial) into the page-scoped guard ledger so the
+ * existing verification gates escalate it into a manual-review stop.
+ */
+export function recordPrepareOnlyRunInterruption(
+  page: Page,
+  attempt: PrepareOnlyBlockedAttempt,
+): void {
+  let ledgerState = prepareOnlyNetworkGuardStates.get(page);
+  if (!ledgerState) {
+    ledgerState = {
+      blockedAttempts: [],
+      intermediateMutationsAuthorized: false,
+      initScriptInstalled: false,
+      serviceWorkerInitScriptInstalled: false,
+      webSocketListenerInstalled: false,
+    };
+    prepareOnlyNetworkGuardStates.set(page, ledgerState);
+  }
+  ledgerState.blockedAttempts.push(attempt);
+  ledgerState.blockedAttempts.splice(
+    0,
+    Math.max(0, ledgerState.blockedAttempts.length - 32),
   );
+}
+
+export type ServiceWorkerSafetyStopReason =
+  | "active_service_worker_controlling_application_origin"
+  | "service_worker_origin_unresolved"
+  | "application_origin_registration_detected"
+  | "register_guard_compromised"
+  | "service_worker_safety_channel_unavailable";
+
+export type ServiceWorkerSafetyDetectionChannel =
+  | "context_serviceworker_event"
+  | "context_service_workers_enumeration"
+  | "page_service_worker_scan"
+  | "register_guard_integrity";
+
+export interface ServiceWorkerSafetyFinding {
+  reason: ServiceWorkerSafetyStopReason;
+  channel: ServiceWorkerSafetyDetectionChannel;
+  phase: string;
+  workerUrls: string[];
+  detail: string;
+}
+
+function parseHttpOriginOrNull(urlString: string): string | null {
+  try {
+    const url = new URL(urlString);
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.origin
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function describeServiceWorkerFinding(input: {
+  reason: ServiceWorkerSafetyStopReason;
+  channel: ServiceWorkerSafetyDetectionChannel;
+  phase: string;
+  workerUrls: readonly string[];
+}): string {
+  const workerDescription =
+    input.workerUrls.length > 0
+      ? input.workerUrls.join(", ")
+      : "an unnamed service worker";
+  switch (input.reason) {
+    case "active_service_worker_controlling_application_origin":
+      return `An active service worker (${workerDescription}) can control the application origin during the '${input.phase}' phase (detected through ${input.channel}).`;
+    case "service_worker_origin_unresolved":
+      return `A service worker (${workerDescription}) with an origin that cannot be safely determined was detected during the '${input.phase}' phase (detected through ${input.channel}).`;
+    case "application_origin_registration_detected":
+      return `A registered service worker (${workerDescription}) exists for the application origin during the '${input.phase}' phase (detected through ${input.channel}), so the run stopped before it could activate and claim the application page.`;
+    case "register_guard_compromised":
+      return `The in-page service-worker registration guard failed verification during the '${input.phase}' phase (detected through ${input.channel}).`;
+    case "service_worker_safety_channel_unavailable":
+      return `Continuous service-worker safety verification was unavailable during the '${input.phase}' phase (detected through ${input.channel}).`;
+  }
+}
+
+function classifyServiceWorkerUrlsAgainstOrigin(input: {
+  workerUrls: readonly string[];
+  targetOrigin: string | null;
+}): { controllingUrls: string[]; unresolvedUrls: string[] } {
+  const controllingUrls: string[] = [];
+  const unresolvedUrls: string[] = [];
+  for (const workerUrl of input.workerUrls) {
+    const workerOrigin = parseHttpOriginOrNull(workerUrl);
+    if (!workerOrigin || !input.targetOrigin) {
+      unresolvedUrls.push(workerUrl);
+    } else if (workerOrigin === input.targetOrigin) {
+      controllingUrls.push(workerUrl);
+    }
+  }
+  return { controllingUrls, unresolvedUrls };
+}
+
+function findingFromServiceWorkerUrls(input: {
+  reason: ServiceWorkerSafetyStopReason;
+  channel: ServiceWorkerSafetyDetectionChannel;
+  phase: string;
+  workerUrls: readonly string[];
+}): ServiceWorkerSafetyFinding | null {
+  if (input.workerUrls.length === 0) {
+    return null;
+  }
+  const workerUrls = [...input.workerUrls];
+  return {
+    reason: input.reason,
+    channel: input.channel,
+    phase: input.phase,
+    workerUrls,
+    detail: describeServiceWorkerFinding({
+      reason: input.reason,
+      channel: input.channel,
+      phase: input.phase,
+      workerUrls,
+    }),
+  };
+}
+
+/**
+ * Verifies that no active or registered same-origin (or unresolvable) service
+ * worker can influence the application origin right now. Cross-origin workers
+ * are intentionally ignored so unrelated origins keep working. Returns a
+ * safety finding instead of throwing so every checkpoint can return a
+ * truthful manual-review stop with zero further field or click actions.
+ */
+export async function findApplicationOriginServiceWorkerIssue(input: {
+  context: BrowserContext;
+  targetUrl: string;
+  page?: Page | null;
+  phase: string;
+  pendingWorkerEventUrls?: readonly string[];
+}): Promise<ServiceWorkerSafetyFinding | null> {
+  const targetOrigin = parseHttpOriginOrNull(input.targetUrl);
+
+  const relevantEventUrls = (input.pendingWorkerEventUrls ?? []).filter(
+    (workerUrl) => {
+      const { controllingUrls, unresolvedUrls } =
+        classifyServiceWorkerUrlsAgainstOrigin({
+          workerUrls: [workerUrl],
+          targetOrigin,
+        });
+      return controllingUrls.length > 0 || unresolvedUrls.length > 0;
+    },
+  );
+  const eventFinding = findingFromServiceWorkerUrls({
+    reason: "active_service_worker_controlling_application_origin",
+    channel: "context_serviceworker_event",
+    phase: input.phase,
+    workerUrls: relevantEventUrls,
+  });
+  if (eventFinding) {
+    return eventFinding;
+  }
+
+  if (typeof input.context.serviceWorkers !== "function") {
+    return {
+      reason: "service_worker_safety_channel_unavailable",
+      channel: "context_service_workers_enumeration",
+      phase: input.phase,
+      workerUrls: [],
+      detail: `Active service workers could not be inspected on the managed browser context during the '${input.phase}' phase.`,
+    };
+  }
+  let activeWorkers;
+  try {
+    activeWorkers = input.context.serviceWorkers();
+  } catch (error) {
+    return {
+      reason: "service_worker_safety_channel_unavailable",
+      channel: "context_service_workers_enumeration",
+      phase: input.phase,
+      workerUrls: [],
+      detail: `Active service workers could not be inspected on the managed browser context during the '${input.phase}' phase: ${
+        error instanceof Error ? error.message : "unknown inspection error"
+      }.`,
+    };
+  }
+  const { controllingUrls, unresolvedUrls } =
+    classifyServiceWorkerUrlsAgainstOrigin({
+      workerUrls: activeWorkers.map((worker) => worker.url()),
+      targetOrigin,
+    });
+  const enumerationFinding =
+    findingFromServiceWorkerUrls({
+      reason: "active_service_worker_controlling_application_origin",
+      channel: "context_service_workers_enumeration",
+      phase: input.phase,
+      workerUrls: controllingUrls,
+    }) ??
+    findingFromServiceWorkerUrls({
+      reason: "service_worker_origin_unresolved",
+      channel: "context_service_workers_enumeration",
+      phase: input.phase,
+      workerUrls: unresolvedUrls,
+    });
+  if (enumerationFinding) {
+    return enumerationFinding;
+  }
+
+  if (!input.page || typeof input.page.evaluate !== "function") {
+    return null;
+  }
+  let scanPayload: PageServiceWorkerScanPayload;
+  try {
+    scanPayload = await input.page.evaluate(
+      collectApplicationOriginServiceWorkerStateInPage,
+    );
+  } catch (error) {
+    return {
+      reason: "service_worker_safety_channel_unavailable",
+      channel: "page_service_worker_scan",
+      phase: input.phase,
+      workerUrls: [],
+      detail: `The application page service-worker scan could not be completed during the '${input.phase}' phase: ${
+        error instanceof Error ? error.message : "unknown scan error"
+      }.`,
+    };
+  }
+  let registerGuard: ServiceWorkerRegisterGuardStatus;
+  try {
+    registerGuard = await input.page.evaluate(
+      readServiceWorkerRegisterGuardInPage,
+    );
+  } catch {
+    registerGuard = {
+      supported: true,
+      prototypeGuardInstalled: false,
+      instanceGuardInstalled: false,
+      integrityVerified: false,
+      guardStatePresent: false,
+      blockedRegistrationAttempts: 0,
+    };
+  }
+
+  const scannedUrls = [
+    ...(scanPayload.controllerUrl ? [scanPayload.controllerUrl] : []),
+    ...scanPayload.registrations.flatMap((registration) =>
+      [
+        registration.scope,
+        registration.installingUrl,
+        registration.waitingUrl,
+        registration.activeUrl,
+      ].filter((url): url is string => Boolean(url)),
+    ),
+  ];
+  const registeredSameOriginUrls = scannedUrls.filter((url) => {
+    const urlOrigin = parseHttpOriginOrNull(url);
+    return Boolean(targetOrigin && urlOrigin && urlOrigin === targetOrigin);
+  });
+  const scannedUnresolvedUrls = scannedUrls.filter(
+    (url) => !parseHttpOriginOrNull(url),
+  );
+  const scanFinding =
+    findingFromServiceWorkerUrls({
+      reason: "active_service_worker_controlling_application_origin",
+      channel: "page_service_worker_scan",
+      phase: input.phase,
+      workerUrls: registeredSameOriginUrls,
+    }) ??
+    findingFromServiceWorkerUrls({
+      reason: "service_worker_origin_unresolved",
+      channel: "page_service_worker_scan",
+      phase: input.phase,
+      workerUrls: scannedUnresolvedUrls,
+    });
+  if (scanFinding) {
+    return scanFinding;
+  }
+
+  if (
+    registerGuard.supported &&
+    registerGuard.guardStatePresent &&
+    !registerGuard.integrityVerified
+  ) {
+    return {
+      reason: "register_guard_compromised",
+      channel: "register_guard_integrity",
+      phase: input.phase,
+      workerUrls: [],
+      detail: describeServiceWorkerFinding({
+        reason: "register_guard_compromised",
+        channel: "register_guard_integrity",
+        phase: input.phase,
+        workerUrls: [],
+      }),
+    };
+  }
+
+  return null;
+}
+
+export interface ApplicationRunServiceWorkerSentinel {
+  check(phase: string): Promise<ServiceWorkerSafetyFinding | null>;
+  attachPage(page: Page): void;
+  pendingWorkerEventCount(): number;
+  detach(): void;
+}
+
+/**
+ * Run-scoped service-worker sentinel plus popup/download/network containment
+ * for one application-preparation run. A newly created same-origin (or
+ * unresolvable) worker aborts the run before further actions; popups opened by
+ * the application page are closed immediately; downloads are canceled; and
+ * context-level non-safe requests are denied into the same ledger. All
+ * listeners are removed by detach().
+ */
+export function createApplicationRunServiceWorkerSentinel(input: {
+  context: BrowserContext;
+  targetUrl: string;
+  now?: () => Date;
+}): ApplicationRunServiceWorkerSentinel {
+  const now = input.now ?? (() => new Date());
+  const pendingWorkerEvents: string[] = [];
+  const pendingInterruptions: PrepareOnlyBlockedAttempt[] = [];
+  const detachListeners: Array<() => void> = [];
+  let ledgerPage: Page | null = null;
+  let eventChannelBroken = false;
+  let contextRouteInstalled = false;
+  let detached = false;
+
+  const recordInterruption = (attempt: PrepareOnlyBlockedAttempt): void => {
+    if (detached) {
+      return;
+    }
+    // Once an application page is attached, interruptions land in its guard
+    // ledger immediately so any verification gate escalates them; before that
+    // they queue until the first checkpoint or attachment.
+    if (ledgerPage) {
+      recordPrepareOnlyRunInterruption(ledgerPage, attempt);
+      return;
+    }
+    pendingInterruptions.push(attempt);
+  };
+
+  if (typeof input.context.on === "function") {
+    try {
+      const onServiceWorker = (worker: { url(): string }): void => {
+        pendingWorkerEvents.push(worker.url());
+      };
+      input.context.on("serviceworker" as never, onServiceWorker as never);
+      detachListeners.push(() => {
+        if (typeof input.context.off === "function") {
+          input.context.off("serviceworker" as never, onServiceWorker as never);
+        }
+      });
+
+      const onPage = (page: Page): void => {
+        void (async () => {
+          // Only opener-backed popups (window.open/target=_blank) are
+          // contained. Pages created without an opener are first-class tabs
+          // such as the managed application page itself.
+          const opener = await page.opener().catch(() => null);
+          if (!opener) {
+            return;
+          }
+          let popupUrl: string | null = null;
+          try {
+            const candidateUrl = page.url();
+            if (isHttpUrlLike(candidateUrl)) {
+              popupUrl = candidateUrl;
+            } else {
+              const openerUrl = opener.url();
+              if (openerUrl && isHttpUrlLike(openerUrl)) {
+                popupUrl = openerUrl;
+              }
+            }
+          } catch {
+            popupUrl = null;
+          }
+          recordInterruption({
+            kind: "popup_open",
+            method: "GET",
+            url: popupUrl,
+            at: now().toISOString(),
+          });
+          await page.close().catch(() => undefined);
+        })();
+      };
+      input.context.on("page" as never, onPage as never);
+      detachListeners.push(() => {
+        if (typeof input.context.off === "function") {
+          input.context.off("page" as never, onPage as never);
+        }
+      });
+    } catch {
+      eventChannelBroken = true;
+    }
+  }
+
+  const contextRouteHandler = async (route: Route): Promise<void> => {
+    const request = route.request();
+    const method = request.method().trim().toUpperCase();
+    const resourceType = request.resourceType();
+    const allowed =
+      PREPARE_ONLY_SAFE_METHODS.has(method) &&
+      !PREPARE_ONLY_DENIED_RESOURCE_TYPES.has(resourceType) &&
+      !(
+        PREPARE_ONLY_QUERY_GUARDED_RESOURCE_TYPES.has(resourceType) &&
+        request.url().includes("?")
+      );
+    if (!allowed) {
+      recordInterruption({
+        kind: "network_request",
+        method,
+        url: request.url(),
+        at: now().toISOString(),
+      });
+      await route.abort("blockedbyclient");
+      return;
+    }
+    await route.continue();
+  };
+  if (typeof input.context.route === "function") {
+    try {
+      void input.context
+        .route("**/*", contextRouteHandler)
+        .then(() => {
+          contextRouteInstalled = true;
+        })
+        .catch(() => undefined);
+    } catch {
+      // Context routing is best-effort hardening; page routing remains active.
+    }
+  }
+
+  const sentinel: ApplicationRunServiceWorkerSentinel = {
+    async check(phase) {
+      if (detached) {
+        return null;
+      }
+
+      while (pendingInterruptions.length > 0) {
+        const attempt = pendingInterruptions.shift();
+        if (attempt && ledgerPage) {
+          recordPrepareOnlyRunInterruption(ledgerPage, attempt);
+        } else if (attempt) {
+          pendingInterruptions.unshift(attempt);
+          break;
+        }
+      }
+
+      const drainedEvents = pendingWorkerEvents.splice(
+        0,
+        pendingWorkerEvents.length,
+      );
+
+      if (eventChannelBroken) {
+        return {
+          reason: "service_worker_safety_channel_unavailable",
+          channel: "context_serviceworker_event",
+          phase,
+          workerUrls: [],
+          detail: `The managed browser context failed to subscribe to service-worker creation events, so continuous service-worker verification is unavailable.`,
+        };
+      }
+
+      return findApplicationOriginServiceWorkerIssue({
+        context: input.context,
+        targetUrl: input.targetUrl,
+        page: ledgerPage,
+        phase,
+        pendingWorkerEventUrls: drainedEvents,
+      });
+    },
+    attachPage(page) {
+      if (detached) {
+        return;
+      }
+      ledgerPage = page;
+      if (typeof page.on === "function" && typeof page.off === "function") {
+        const onDownload = (download: {
+          url(): string;
+          cancel(): Promise<void>;
+        }): void => {
+          recordInterruption({
+            kind: "download",
+            method: "GET",
+            url: download.url(),
+            at: now().toISOString(),
+          });
+          void download.cancel().catch(() => undefined);
+        };
+        try {
+          page.on("download" as never, onDownload as never);
+          detachListeners.push(() => {
+            page.off("download" as never, onDownload as never);
+          });
+        } catch {
+          // Download containment stays best-effort on exotic hosts.
+        }
+      }
+    },
+    pendingWorkerEventCount() {
+      return pendingWorkerEvents.length;
+    },
+    detach() {
+      if (detached) {
+        return;
+      }
+      detached = true;
+      while (detachListeners.length > 0) {
+        detachListeners.pop()?.();
+      }
+      if (
+        contextRouteInstalled &&
+        typeof input.context.unroute === "function"
+      ) {
+        void input.context
+          .unroute("**/*", contextRouteHandler)
+          .catch(() => undefined);
+        contextRouteInstalled = false;
+      }
+      pendingWorkerEvents.length = 0;
+      pendingInterruptions.length = 0;
+      ledgerPage = null;
+    },
+  };
+
+  return sentinel;
 }
 
 function normalizeControlSignal(value: string): string {
@@ -513,6 +1470,26 @@ function describeUnknownError(error: unknown, fallback: string): string {
   return error instanceof Error && error.message.trim()
     ? error.message.trim()
     : fallback;
+}
+
+async function loadVerifiedResumeBytes(
+  resumeArtifact: ExecuteApplicationFlowInput["resumeArtifact"],
+): Promise<Uint8Array> {
+  const expectedSha256 = resumeArtifact.sha256?.trim().toLowerCase() ?? "";
+  if (!expectedSha256) {
+    throw new Error(
+      "The approved resume has no SHA-256 integrity record. Re-import or re-export it before application preparation.",
+    );
+  }
+
+  const bytes = await readFile(resumeArtifact.filePath);
+  const actualSha256 = createHash("sha256").update(bytes).digest("hex");
+  if (actualSha256 !== expectedSha256) {
+    throw new Error(
+      "The approved resume changed after verification. Re-import or re-export it before application preparation.",
+    );
+  }
+  return bytes;
 }
 
 function normalizeTechnicalControlSignal(value: string): string {
@@ -1123,6 +2100,7 @@ function getGroundedControlAnswer(input: {
   resumeFileName: string;
   resumeArtifactId: string;
   resumeProvenanceLabel: string;
+  loadVerifiedResumeBytes: () => Promise<Uint8Array>;
 }): GroundedControlAnswer | null {
   const { control, profile } = input;
   const autocomplete = normalizeControlSignal(control.autocomplete);
@@ -1131,6 +2109,7 @@ function getGroundedControlAnswer(input: {
     return {
       value: input.resumeFilePath,
       fileName: input.resumeFileName,
+      loadFileBytes: input.loadVerifiedResumeBytes,
       kind: "resume",
       sourceKind: "resume",
       sourceId: input.resumeArtifactId,
@@ -1162,8 +2141,9 @@ function getGroundedControlAnswer(input: {
   }
 
   if (
-    autocomplete === "given name" ||
-    hasExactControlSignal(control, FIRST_NAME_SIGNALS)
+    profile.firstName &&
+    (autocomplete === "given name" ||
+      hasExactControlSignal(control, FIRST_NAME_SIGNALS))
   ) {
     return {
       value: profile.firstName,
@@ -1175,8 +2155,9 @@ function getGroundedControlAnswer(input: {
   }
 
   if (
-    autocomplete === "family name" ||
-    hasExactControlSignal(control, LAST_NAME_SIGNALS)
+    profile.lastName &&
+    (autocomplete === "family name" ||
+      hasExactControlSignal(control, LAST_NAME_SIGNALS))
   ) {
     return {
       value: profile.lastName,
@@ -1188,8 +2169,9 @@ function getGroundedControlAnswer(input: {
   }
 
   if (
-    autocomplete === "name" ||
-    hasExactControlSignal(control, FULL_NAME_SIGNALS)
+    profile.fullName &&
+    (autocomplete === "name" ||
+      hasExactControlSignal(control, FULL_NAME_SIGNALS))
   ) {
     return {
       value: profile.fullName,
@@ -1251,7 +2233,10 @@ function getGroundedControlAnswer(input: {
     };
   }
 
-  if (hasExactControlSignal(control, LOCATION_SIGNALS)) {
+  if (
+    profile.currentLocation &&
+    hasExactControlSignal(control, LOCATION_SIGNALS)
+  ) {
     return {
       value: profile.currentLocation,
       kind: "location",
@@ -2859,6 +3844,7 @@ export async function runGenericApplicationPreparation(input: {
   executionInput: ExecuteApplicationFlowInput;
   signal?: AbortSignal;
   startedAt: string;
+  sentinel?: ApplicationRunServiceWorkerSentinel;
 }): Promise<ApplyExecutionResult> {
   const { executionInput, startedAt } = input;
   const targetUrl =
@@ -2886,6 +3872,8 @@ export async function runGenericApplicationPreparation(input: {
     });
   let currentPage = input.page;
   let resumeAttached = false;
+  const loadCurrentResumeBytes = () =>
+    loadVerifiedResumeBytes(executionInput.resumeArtifact);
 
   if (executionInput.recoveryContext?.latestCheckpoint) {
     checkpoints.push({
@@ -2951,26 +3939,95 @@ export async function runGenericApplicationPreparation(input: {
   ): ApplyExecutionResult => {
     const resumeInterrupted = interruptedField?.kind === "resume";
     const fieldLabel = interruptedField?.label || "application field";
-    const summary = resumeInterrupted
-      ? "Resume attachment needs your help"
-      : "The application page could not safely save a prepared field";
-    const detail = resumeInterrupted
-      ? `The application site tried to upload the approved CV while '${fieldLabel}' was being prepared, but this run did not have permission for that external save. Your other confirmed fields remain in the open browser. Approve preparation and retry, or attach the selected CV there manually; Job Finder will still never activate the final submit control.`
-      : `The application site tried to save '${fieldLabel}' while it was being prepared, but this run did not have permission for that external save. Job Finder stopped and left the application open instead of risking a final submission.`;
+    const containmentStop =
+      attempt.kind === "popup_open" ||
+      attempt.kind === "download" ||
+      attempt.kind === "window_open";
+    const summary = containmentStop
+      ? attempt.kind === "download"
+        ? "The application page attempted an unexpected file download"
+        : "The application page attempted to open an unexpected popup"
+      : resumeInterrupted
+        ? "Resume attachment needs your help"
+        : "The application page could not safely save a prepared field";
+    const containmentDetail =
+      attempt.kind === "download"
+        ? `The application page tried to start a file download${
+            attempt.url ? ` from ${attempt.url}` : ""
+          } while preparation was running. The download was canceled, nothing was written outside the managed browser, and the runtime stopped before any further action.`
+        : `The application page tried to open a new popup window${
+            attempt.url ? ` pointing at ${attempt.url}` : ""
+          } while preparation was running. The runtime blocked or immediately closed the popup window and stopped before any further action.`;
+    const detail = containmentStop
+      ? containmentDetail
+      : resumeInterrupted
+        ? `The application site tried to upload the approved resume file while '${fieldLabel}' was being prepared, but this run did not have permission for that external save. The blocked attempt transmitted nothing, and the selected file remains only inside the open page. Finish this employer-owned step yourself in the open application, or cancel; Job Finder will still never activate the final submit control.`
+        : `The application site tried to save '${fieldLabel}' while it was being prepared, but this run did not have permission for that external save. Job Finder stopped and left the application open instead of risking a final submission.`;
     return buildManualSafetyStop({
       summary,
       detail,
-      checkpointLabel: resumeInterrupted
-        ? "Paused before the resume could be attached"
-        : "Paused before the application field could be saved",
-      nextActionLabel: resumeInterrupted
-        ? "Approve preparation and retry resume attachment"
-        : "Review the open application and retry preparation",
+      checkpointLabel: containmentStop
+        ? attempt.kind === "download"
+          ? "Paused before an unexpected download"
+          : "Paused before an unexpected popup"
+        : resumeInterrupted
+          ? "Paused before the resume could be attached"
+          : "Paused before the application field could be saved",
+      nextActionLabel: containmentStop
+        ? "Review the open application manually"
+        : resumeInterrupted
+          ? "Complete the resume step manually in the open application, or cancel"
+          : "Complete the affected step manually in the open application, or cancel",
+    });
+  };
+
+  const serviceWorkerSafetyStopAt = async (
+    phase: string,
+  ): Promise<ApplyExecutionResult | null> => {
+    const finding =
+      (await input.sentinel?.check(phase)) ??
+      (await findApplicationOriginServiceWorkerIssue({
+        context: input.context,
+        targetUrl,
+        page: currentPage,
+        phase,
+      }));
+    if (!finding) {
+      return null;
+    }
+    const lastUrl = safePageUrl(currentPage);
+    const detail = `${finding.detail} The runtime stopped before any further field or click action and left every service-worker registration untouched. Reset the dedicated browser profile from Safeguards, then finish this application manually.`;
+    return buildCurrentPreparationResult({
+      executionInput,
+      summary: "A service worker can influence this application origin",
+      detail,
+      questions: [...questions.values()],
+      blocker: {
+        code: "requires_manual_review",
+        summary: "A service worker can influence this application origin.",
+        detail,
+        questionIds: [],
+        sourceDebugEvidenceRefIds: [],
+        url: lastUrl,
+      },
+      checkpoints,
+      checkpointLabel: "Paused for an application-origin service worker",
+      checkpointDetail: detail,
+      checkpointUrls: [...checkpointUrls],
+      lastUrl,
+      now: new Date().toISOString(),
+      nextActionLabel:
+        "Reset the browser profile, then finish this application manually",
     });
   };
 
   for (let step = 0; step < MAX_APPLICATION_PREPARATION_STEPS; step += 1) {
     input.signal?.throwIfAborted();
+    const ensureServiceWorkerStop =
+      await serviceWorkerSafetyStopAt("guard_ensure");
+    if (ensureServiceWorkerStop) {
+      return ensureServiceWorkerStop;
+    }
     try {
       const guard = await ensurePrepareOnlyMutationGuard(
         currentPage,
@@ -3119,6 +4176,7 @@ export async function runGenericApplicationPreparation(input: {
           executionInput.resumeArtifact.source === "original_upload"
             ? "Original resume selected by the user"
             : "Approved tailored resume export",
+        loadVerifiedResumeBytes: loadCurrentResumeBytes,
       });
       if (!answer || !groundedControlHasPrefillConflict(control, answer)) {
         continue;
@@ -3171,6 +4229,7 @@ export async function runGenericApplicationPreparation(input: {
           executionInput.resumeArtifact.source === "original_upload"
             ? "Original resume selected by the user"
             : "Approved tailored resume export",
+        loadVerifiedResumeBytes: loadCurrentResumeBytes,
       });
       return answer ? [createControlSemanticSignature(control)] : [];
     });
@@ -3218,6 +4277,12 @@ export async function runGenericApplicationPreparation(input: {
         continue;
       }
 
+      const preFillServiceWorkerStop =
+        await serviceWorkerSafetyStopAt("pre_fill");
+      if (preFillServiceWorkerStop) {
+        return preFillServiceWorkerStop;
+      }
+
       const answer = getGroundedControlAnswer({
         control,
         controls: currentControls,
@@ -3230,6 +4295,7 @@ export async function runGenericApplicationPreparation(input: {
           executionInput.resumeArtifact.source === "original_upload"
             ? "Original resume selected by the user"
             : "Approved tailored resume export",
+        loadVerifiedResumeBytes: loadCurrentResumeBytes,
       });
       if (!answer) {
         continue;
@@ -3249,6 +4315,11 @@ export async function runGenericApplicationPreparation(input: {
 
       let blockedAttempt: PrepareOnlyBlockedAttempt | null;
       try {
+        const postFillServiceWorkerStop =
+          await serviceWorkerSafetyStopAt("post_fill");
+        if (postFillServiceWorkerStop) {
+          return postFillServiceWorkerStop;
+        }
         blockedAttempt = await getLatestBlockedPrepareOnlyAttempt(currentPage);
       } catch (error) {
         const detail = `The prepare-only safety guard could not be re-verified after a field interaction, so the runtime stopped immediately: ${describeUnknownError(error, "Unknown guard verification failure.")}`;
@@ -3361,6 +4432,7 @@ export async function runGenericApplicationPreparation(input: {
             executionInput.resumeArtifact.source === "original_upload"
               ? "Original resume selected by the user"
               : "Approved tailored resume export",
+          loadVerifiedResumeBytes: loadCurrentResumeBytes,
         });
         if (!answer || groundedAnswerPersisted(inspectedControl, answer)) {
           continue;
@@ -3428,6 +4500,7 @@ export async function runGenericApplicationPreparation(input: {
                 executionInput.resumeArtifact.source === "original_upload"
                   ? "Original resume selected by the user"
                   : "Approved tailored resume export",
+              loadVerifiedResumeBytes: loadCurrentResumeBytes,
             });
             return Boolean(
               candidateAnswer &&
@@ -3441,6 +4514,20 @@ export async function runGenericApplicationPreparation(input: {
         if (consecutiveStableSamples >= REQUIRED_STABLE_FORM_SAMPLES) {
           break;
         }
+      }
+
+      // Delayed page writes that fire during or after the settle window must
+      // prevent a ready-state declaration, so re-read the aggregated guard
+      // ledger immediately before trusting the settled form.
+      const postSettleServiceWorkerStop =
+        await serviceWorkerSafetyStopAt("post_settle");
+      if (postSettleServiceWorkerStop) {
+        return postSettleServiceWorkerStop;
+      }
+      const blockedAfterSettle =
+        await getLatestBlockedPrepareOnlyAttempt(currentPage);
+      if (blockedAfterSettle) {
+        return buildGuardSafetyStop(blockedAfterSettle);
       }
 
       inspection = await inspectApplicationPage(currentPage);
@@ -3492,6 +4579,7 @@ export async function runGenericApplicationPreparation(input: {
           executionInput.resumeArtifact.source === "original_upload"
             ? "Original resume selected by the user"
             : "Approved tailored resume export",
+        loadVerifiedResumeBytes: loadCurrentResumeBytes,
       });
       if (!answer || groundedAnswerPersisted(control, answer)) {
         continue;
@@ -3574,6 +4662,29 @@ export async function runGenericApplicationPreparation(input: {
     const actionableControls = inspection.actions.filter(
       (action) => action.visible && !action.disabled,
     );
+    let blockedBeforeCheckpoint: PrepareOnlyBlockedAttempt | null;
+    try {
+      blockedBeforeCheckpoint =
+        await getLatestBlockedPrepareOnlyAttempt(currentPage);
+    } catch (error) {
+      const detail = `The prepare-only safety guard could not be re-verified before evaluating final application actions, so the runtime stopped immediately: ${describeUnknownError(error, "Unknown guard verification failure.")}`;
+      return buildManualSafetyStop({
+        summary: "Prepare-only guard verification was lost",
+        detail,
+        checkpointLabel: "Paused after guard verification failed",
+        nextActionLabel: "Review the current application manually",
+      });
+    }
+    if (blockedBeforeCheckpoint) {
+      return buildGuardSafetyStop(blockedBeforeCheckpoint);
+    }
+
+    const preReturnServiceWorkerStop =
+      await serviceWorkerSafetyStopAt("pre_return");
+    if (preReturnServiceWorkerStop) {
+      return preReturnServiceWorkerStop;
+    }
+
     const finalAction = actionableControls.find((action) =>
       isFinalApplicationAction(action, inspection),
     );
@@ -3661,6 +4772,11 @@ export async function runGenericApplicationPreparation(input: {
       if (blockedBeforeClick) {
         return buildGuardSafetyStop(blockedBeforeClick);
       }
+      const preClickServiceWorkerStop =
+        await serviceWorkerSafetyStopAt("pre_advance_click");
+      if (preClickServiceWorkerStop) {
+        return preClickServiceWorkerStop;
+      }
 
       const clickResult = await clickCurrentSafeActionBySignature({
         page: currentPage,
@@ -3736,6 +4852,27 @@ export async function runGenericApplicationPreparation(input: {
         nextActionLabel: `Continue past '${safeAdvance.label}' manually`,
       });
     }
+  }
+
+  try {
+    const blockedAtLimit =
+      await getLatestBlockedPrepareOnlyAttempt(currentPage);
+    if (blockedAtLimit) {
+      return buildGuardSafetyStop(blockedAtLimit);
+    }
+    const limitServiceWorkerStop =
+      await serviceWorkerSafetyStopAt("step_limit");
+    if (limitServiceWorkerStop) {
+      return limitServiceWorkerStop;
+    }
+  } catch (error) {
+    const detail = `The prepare-only safety guard could not be re-verified at the step limit, so the runtime stopped without clicking any final action: ${describeUnknownError(error, "Unknown guard verification failure.")}`;
+    return buildManualSafetyStop({
+      summary: "Prepare-only guard verification was lost",
+      detail,
+      checkpointLabel: "Paused after guard verification failed",
+      nextActionLabel: "Review the current application manually",
+    });
   }
 
   const lastUrl = safePageUrl(currentPage);

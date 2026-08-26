@@ -1,9 +1,11 @@
 import type {
   BrowserSessionState,
   ReviewQueueItem,
+  TailoredAsset,
 } from "@unemployed/contracts";
 import type { BadgeTone } from "../../lib/job-finder-types";
 
+export const APPLICATION_PREPARATION_BATCH_LIMIT = 10;
 export const TAILORED_DRAFT_PREPARATION_LIMIT = 10;
 
 export type TailoredDraftPreparationStatus =
@@ -17,6 +19,7 @@ export interface TailoredDraftPreparationViewState {
   attemptedCount: number;
   completedCount: number;
   currentIndex: number | null;
+  eligibleRemainingCount: number;
   failedCount: number;
   status: TailoredDraftPreparationStatus;
   totalCount: number;
@@ -32,7 +35,7 @@ export interface TailoredDraftPreparationResult {
   attemptedCount: number;
   completedCount: number;
   failedCount: number;
-  failedJobId: string | null;
+  failedJobIds: readonly string[];
   stopped: boolean;
   totalCount: number;
 }
@@ -51,6 +54,7 @@ export type ApplySupportState = "incomplete" | "manual_follow_up" | "supported";
 
 export function getReviewQueueWorkflowStatus(
   item: ReviewQueueItem | null,
+  asset?: TailoredAsset | null,
 ): ReviewQueueWorkflowStatus {
   if (!item) {
     return {
@@ -59,7 +63,7 @@ export function getReviewQueueWorkflowStatus(
     };
   }
 
-  if (item.assetStatus === "failed") {
+  if (hasResumeGenerationFailure(item, asset)) {
     return {
       label: "Resume issue",
       tone: "critical",
@@ -84,8 +88,8 @@ export function getReviewQueueWorkflowStatus(
     return {
       label:
         item.resumeReview.status === "original_resume"
-          ? "Original CV ready"
-          : "Ready to apply",
+          ? "Original resume ready"
+          : "Ready to prepare",
       tone: "positive",
     };
   }
@@ -125,8 +129,19 @@ export function needsResumeGeneration(item: ReviewQueueItem | null): boolean {
 
 export function hasResumeGenerationFailure(
   item: ReviewQueueItem | null,
+  asset?: TailoredAsset | null,
 ): boolean {
-  return item?.assetStatus === "failed";
+  if (item?.assetStatus !== "failed") {
+    return false;
+  }
+  // A real generation failure always persists sanitized failure detail next
+  // to its failed status. A failed marker without any failure detail is a
+  // restored or stale review state (the tailored draft still exists), so the
+  // nearest recovery is review plus export instead of regenerating.
+  if (!asset) {
+    return true;
+  }
+  return asset.failureMessage !== null || asset.failedAt !== null;
 }
 
 export function isQueueStageReady(item: ReviewQueueItem | null): boolean {
@@ -242,7 +257,7 @@ export async function prepareTailoredDraftsSequentially(
   const candidates = getTailoredDraftPreparationCandidates(queue);
   let attemptedCount = 0;
   let completedCount = 0;
-  let failedJobId: string | null = null;
+  const failedJobIds: string[] = [];
   let stopped = false;
 
   for (const [index, item] of candidates.entries()) {
@@ -266,25 +281,69 @@ export async function prepareTailoredDraftsSequentially(
     }
 
     if (!succeeded) {
-      failedJobId = item.jobId;
-      break;
+      failedJobIds.push(item.jobId);
+      continue;
     }
 
     completedCount += 1;
   }
 
-  if (!failedJobId && completedCount < candidates.length && !stopped) {
-    stopped = Boolean(options.shouldStop?.());
-  }
-
   return {
     attemptedCount,
     completedCount,
-    failedCount: failedJobId ? 1 : 0,
-    failedJobId,
+    failedCount: failedJobIds.length,
+    failedJobIds,
     stopped,
     totalCount: candidates.length,
   };
+}
+
+function formatEligibleRemainderSentence(count: number): string {
+  const safeCount = Math.max(0, count);
+  return safeCount === 1
+    ? "1 eligible job remains for another run."
+    : `${safeCount} eligible jobs remain for another run.`;
+}
+
+/**
+ * Result copy for a finished tailored-draft batch. A run that attempted every
+ * candidate never reports "Stopped": failures continue the batch, and failed
+ * jobs stay eligible so the exact remainder can be rerun.
+ */
+export function getTailoredDraftPreparationResultMessage(
+  state: TailoredDraftPreparationViewState,
+): string | null {
+  if (
+    state.status !== "completed" &&
+    state.status !== "failed" &&
+    state.status !== "stopped"
+  ) {
+    return null;
+  }
+
+  const completedCount = Math.max(0, state.completedCount);
+  const failedCount = Math.max(0, state.failedCount);
+  const eligibleRemainingCount = Math.max(0, state.eligibleRemainingCount);
+  const completedDrafts = `${completedCount} tailored draft${completedCount === 1 ? "" : "s"}`;
+  const remainderSentence =
+    eligibleRemainingCount > 0
+      ? ` ${formatEligibleRemainderSentence(eligibleRemainingCount)}`
+      : "";
+
+  if (state.status === "completed") {
+    return `Prepared ${completedDrafts}.${remainderSentence} Each draft still needs your review and approval. Nothing was approved, queued, submitted, or sent.`;
+  }
+
+  if (state.status === "stopped") {
+    return `Stopped after ${completedCount} completed draft${completedCount === 1 ? "" : "s"}. Nothing was approved, queued, submitted, or sent.`;
+  }
+
+  const ranToCompletion = state.attemptedCount >= state.totalCount;
+  const leadSentence = ranToCompletion
+    ? `Prepared ${completedDrafts}; ${failedCount} failed.`
+    : `Stopped after ${completedCount} completed draft${completedCount === 1 ? "" : "s"}; ${failedCount} failed.`;
+
+  return `${leadSentence}${remainderSentence} Fix the failed job${failedCount === 1 ? "" : "s"} and rerun to target only remaining eligible jobs. Nothing was approved, queued, submitted, or sent.`;
 }
 
 export function getApplyReadinessStatus(params: {
@@ -376,7 +435,7 @@ export function getApplyReadinessStatus(params: {
 
   if (browserSession.status === "ready") {
     return {
-      label: "Ready to start",
+      label: "Ready to prepare",
       tone: "positive",
     };
   }

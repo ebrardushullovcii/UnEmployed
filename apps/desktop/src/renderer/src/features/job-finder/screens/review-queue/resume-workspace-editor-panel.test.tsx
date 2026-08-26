@@ -1,28 +1,36 @@
 // @vitest-environment jsdom
 
-import { act } from 'react'
+import { act } from "react";
 import {
   getResumeEntryFieldTargetId,
   type ResumeCoverageComparison,
   type ResumeDraft,
-} from '@unemployed/contracts'
-import { createRoot, type Root } from 'react-dom/client'
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { ResumeWorkspaceEditorPanel } from './resume-workspace-editor-panel'
+} from "@unemployed/contracts";
+import { createRoot, type Root } from "react-dom/client";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import { ResumeWorkspaceEditorPanel } from "./resume-workspace-editor-panel";
 
 const draft: ResumeDraft = {
-  id: 'draft_1',
-  jobId: 'job_1',
-  status: 'draft',
-  templateId: 'classic_ats',
+  id: "draft_1",
+  jobId: "job_1",
+  status: "draft",
+  templateId: "classic_ats",
   identity: {
-    fullName: 'Alex Vanguard',
-    headline: 'Senior systems designer',
-    location: 'London, UK',
-    email: 'alex@example.com',
-    phone: '+44 7700 900123',
-    portfolioUrl: 'https://alex.example.com',
-    linkedinUrl: 'https://www.linkedin.com/in/alex-vanguard',
+    fullName: "Alex Vanguard",
+    headline: "Senior systems designer",
+    location: "London, UK",
+    email: "alex@example.com",
+    phone: "+44 7700 900123",
+    portfolioUrl: "https://alex.example.com",
+    linkedinUrl: "https://www.linkedin.com/in/alex-vanguard",
     githubUrl: null,
     personalWebsiteUrl: null,
     additionalLinks: [],
@@ -33,22 +41,24 @@ const draft: ResumeDraft = {
   approvedAt: null,
   approvedExportId: null,
   staleReason: null,
-  createdAt: '2026-04-26T12:00:00.000Z',
-  updatedAt: '2026-04-26T12:00:00.000Z',
-}
+  workHistoryReviewAcknowledgments: [],
+  claimConfirmations: [],
+  createdAt: "2026-04-26T12:00:00.000Z",
+  updatedAt: "2026-04-26T12:00:00.000Z",
+};
 
-describe('ResumeWorkspaceEditorPanel', () => {
+describe("ResumeWorkspaceEditorPanel", () => {
   const globalScope = globalThis as typeof globalThis & {
-    IS_REACT_ACT_ENVIRONMENT?: boolean
-  }
-  const originalActEnvironment = globalScope.IS_REACT_ACT_ENVIRONMENT
-  let container: HTMLDivElement | null = null
-  let root: Root | null = null
+    IS_REACT_ACT_ENVIRONMENT?: boolean;
+  };
+  const originalActEnvironment = globalScope.IS_REACT_ACT_ENVIRONMENT;
+  let container: HTMLDivElement | null = null;
+  let root: Root | null = null;
 
   const renderPanel = (isWorkspacePending: boolean) => {
-    container = document.createElement('div')
-    document.body.appendChild(container)
-    root = createRoot(container)
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
 
     act(() => {
       root?.render(
@@ -66,109 +76,116 @@ describe('ResumeWorkspaceEditorPanel', () => {
           onSelectEntry={vi.fn()}
           onSelectSection={vi.fn()}
           runWithSavedDraft={(next) => {
-            void next()
+            void next();
           }}
           selectedEntryId={null}
           selectedSectionId={null}
           selectedTargetId={null}
+          workHistoryAcknowledgments={[]}
+          onAcknowledgeWorkHistoryOmission={vi.fn()}
+          onRemoveWorkHistoryOmissionAcknowledgment={vi.fn()}
           workHistoryReviewSuggestions={[]}
         />,
-      )
-    })
-  }
+      );
+    });
+  };
 
   beforeAll(() => {
-    globalScope.IS_REACT_ACT_ENVIRONMENT = true
-  })
+    globalScope.IS_REACT_ACT_ENVIRONMENT = true;
+  });
 
   afterAll(() => {
     if (originalActEnvironment === undefined) {
-      delete globalScope.IS_REACT_ACT_ENVIRONMENT
-      return
+      delete globalScope.IS_REACT_ACT_ENVIRONMENT;
+      return;
     }
 
-    globalScope.IS_REACT_ACT_ENVIRONMENT = originalActEnvironment
-  })
+    globalScope.IS_REACT_ACT_ENVIRONMENT = originalActEnvironment;
+  });
 
   afterEach(() => {
     if (root) {
       act(() => {
-        root?.unmount()
-      })
+        root?.unmount();
+      });
     }
 
-    root = null
-    container?.remove()
-    container = null
-    vi.clearAllMocks()
-  })
+    root = null;
+    container?.remove();
+    container = null;
+    vi.clearAllMocks();
+  });
 
-  it('keeps structured editing available while template selection lives elsewhere in studio', () => {
-    renderPanel(false)
+  it("keeps structured editing available while template selection lives elsewhere in studio", () => {
+    renderPanel(false);
 
-    const scrollRegion = container?.querySelector('[data-resume-editor-scroll-region]')
+    const scrollRegion = container?.querySelector(
+      "[data-resume-editor-scroll-region]",
+    );
     const editableControls = Array.from(
-      scrollRegion?.querySelectorAll('input, textarea, select, button') ?? [],
-    )
+      scrollRegion?.querySelectorAll("input, textarea, select, button") ?? [],
+    );
 
-    expect(scrollRegion?.textContent).toContain('Structured edits')
-    expect(scrollRegion?.textContent).toContain('Resume identity')
-    expect(scrollRegion?.textContent).toContain('Change the schema-safe content behind the preview')
-    expect(scrollRegion?.textContent).not.toContain('Choose a family')
-    expect(scrollRegion?.querySelectorAll('[role="radio"]')).toHaveLength(0)
-    expect(editableControls.length).toBeGreaterThan(0)
+    expect(scrollRegion?.textContent).toContain("Structured edits");
+    expect(scrollRegion?.textContent).toContain("Resume identity");
+    expect(scrollRegion?.textContent).toContain(
+      "Change the schema-safe content behind the preview",
+    );
+    expect(scrollRegion?.textContent).not.toContain("Choose a family");
+    expect(scrollRegion?.querySelectorAll('[role="radio"]')).toHaveLength(0);
+    expect(editableControls.length).toBeGreaterThan(0);
     for (const control of editableControls) {
-      expect(control.hasAttribute('disabled')).toBe(false)
-      expect(control.getAttribute('aria-disabled')).not.toBe('true')
+      expect(control.hasAttribute("disabled")).toBe(false);
+      expect(control.getAttribute("aria-disabled")).not.toBe("true");
     }
-  })
+  });
 
-  it('exposes structured date controls as preview-edit targets', () => {
+  it("exposes structured date controls as preview-edit targets", () => {
     const entrySection = {
-      id: 'section_experience',
-      kind: 'experience' as const,
-      label: 'Experience',
+      id: "section_experience",
+      kind: "experience" as const,
+      label: "Experience",
       text: null,
       bullets: [],
       entries: [
         {
-          id: 'experience_date_target',
-          entryType: 'experience' as const,
-          title: 'Systems designer',
-          subtitle: 'Signal Systems',
+          id: "experience_date_target",
+          entryType: "experience" as const,
+          title: "Systems designer",
+          subtitle: "Signal Systems",
           location: null,
-          dateRange: '2020-01 – Present',
-          startDate: '2020-01',
+          dateRange: "2020-01 – Present",
+          startDate: "2020-01",
           endDate: null,
           isCurrent: true,
           summary: null,
           bullets: [],
-          origin: 'imported' as const,
+          origin: "imported" as const,
           locked: false,
           included: true,
           sortOrder: 0,
-          profileRecordId: 'experience_date_target',
+          profileRecordId: "experience_date_target",
           sourceRefs: [],
-          updatedAt: '2026-04-26T12:00:00.000Z',
+          updatedAt: "2026-04-26T12:00:00.000Z",
         },
       ],
-      origin: 'imported' as const,
+      origin: "imported" as const,
       locked: false,
       included: true,
       sortOrder: 0,
-      entryOrderMode: 'chronology' as const,
+      entryOrderMode: "chronology" as const,
       profileRecordId: null,
       sourceRefs: [],
-      updatedAt: '2026-04-26T12:00:00.000Z',
-    }
+      updatedAt: "2026-04-26T12:00:00.000Z",
+    };
     const dateDraft: ResumeDraft = {
       ...draft,
       sections: [entrySection],
-    }
+    };
 
-    container = document.createElement('div')
-    document.body.appendChild(container)
-    root = createRoot(container)
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
     act(() => {
       root?.render(
         <ResumeWorkspaceEditorPanel
@@ -185,130 +202,147 @@ describe('ResumeWorkspaceEditorPanel', () => {
           onSelectEntry={vi.fn()}
           onSelectSection={vi.fn()}
           runWithSavedDraft={(next) => {
-            void next()
+            void next();
           }}
           selectedEntryId="experience_date_target"
           selectedSectionId="section_experience"
           selectedTargetId={getResumeEntryFieldTargetId(
-            'section_experience',
-            'experience_date_target',
-            'startDate',
+            "section_experience",
+            "experience_date_target",
+            "startDate",
           )}
+          workHistoryAcknowledgments={[]}
+          onAcknowledgeWorkHistoryOmission={vi.fn()}
+          onRemoveWorkHistoryOmissionAcknowledgment={vi.fn()}
           workHistoryReviewSuggestions={[]}
         />,
-      )
-    })
+      );
+    });
 
     expect(
       container.querySelector(
         `[data-resume-editor-target="${getResumeEntryFieldTargetId(
-          'section_experience',
-          'experience_date_target',
-          'startDate',
+          "section_experience",
+          "experience_date_target",
+          "startDate",
         )}"]`,
       ),
-    ).toBeTruthy()
+    ).toBeTruthy();
+    const titleInput = container.querySelector<HTMLInputElement>(
+      `[data-resume-editor-target="${getResumeEntryFieldTargetId(
+        "section_experience",
+        "experience_date_target",
+        "title",
+      )}"]`,
+    );
+    expect(titleInput?.id).toBeTruthy();
+    expect(
+      container.querySelector(`label[for="${titleInput?.id}"]`)?.textContent,
+    ).toBe("Title");
+    expect(container.querySelector("label label")).toBeNull();
     expect(
       container.querySelector(
         `[data-resume-editor-target="${getResumeEntryFieldTargetId(
-          'section_experience',
-          'experience_date_target',
-          'endDate',
+          "section_experience",
+          "experience_date_target",
+          "endDate",
         )}"]`,
       ),
-    ).toBeTruthy()
+    ).toBeTruthy();
     expect(
       container.querySelector(
         `[data-resume-editor-target="${getResumeEntryFieldTargetId(
-          'section_experience',
-          'experience_date_target',
-          'isCurrent',
+          "section_experience",
+          "experience_date_target",
+          "isCurrent",
         )}"]`,
       ),
-    ).toBeTruthy()
-  })
+    ).toBeTruthy();
+  });
 
-  it('disables structured editing controls while workspace work is pending', () => {
-    renderPanel(true)
+  it("disables structured editing controls while workspace work is pending", () => {
+    renderPanel(true);
 
-    const scrollRegion = container?.querySelector('[data-resume-editor-scroll-region]')
+    const scrollRegion = container?.querySelector(
+      "[data-resume-editor-scroll-region]",
+    );
     const editableControls = Array.from(
-      scrollRegion?.querySelectorAll('input, textarea, select, button') ?? [],
-    )
+      scrollRegion?.querySelectorAll("input, textarea, select, button") ?? [],
+    );
 
-    expect(editableControls.length).toBeGreaterThan(0)
+    expect(editableControls.length).toBeGreaterThan(0);
     for (const control of editableControls) {
-      expect(control.hasAttribute('disabled')).toBe(true)
+      expect(control.hasAttribute("disabled")).toBe(true);
     }
-  })
+  });
 
-  it('keeps entry movement enabled for locked entries because locks protect content edits only', () => {
+  it("keeps entry movement enabled for locked entries because locks protect content edits only", () => {
     const lockedEntryDraft: ResumeDraft = {
       ...draft,
       sections: [
         {
-          id: 'section_experience',
-          kind: 'experience',
-          label: 'Experience',
+          id: "section_experience",
+          kind: "experience",
+          label: "Experience",
           text: null,
           bullets: [],
           entries: [
             {
-              id: 'experience_locked',
-              entryType: 'experience',
-              title: 'Locked role',
-              subtitle: 'Signal Systems',
+              id: "experience_locked",
+              entryType: "experience",
+              title: "Locked role",
+              subtitle: "Signal Systems",
               location: null,
-              dateRange: '2023 – Present',
-              startDate: '2023',
+              dateRange: "2023 – Present",
+              startDate: "2023",
               endDate: null,
               isCurrent: true,
-              summary: 'Locked content.',
+              summary: "Locked content.",
               bullets: [],
-              origin: 'user_edited',
+              origin: "user_edited",
               locked: true,
               included: true,
               sortOrder: 0,
-              profileRecordId: 'experience_locked',
+              profileRecordId: "experience_locked",
               sourceRefs: [],
               updatedAt: draft.updatedAt,
             },
             {
-              id: 'experience_editable',
-              entryType: 'experience',
-              title: 'Editable role',
-              subtitle: 'Northwind Labs',
+              id: "experience_editable",
+              entryType: "experience",
+              title: "Editable role",
+              subtitle: "Northwind Labs",
               location: null,
-              dateRange: '2021 – 2022',
-              startDate: '2021',
-              endDate: '2022',
+              dateRange: "2021 – 2022",
+              startDate: "2021",
+              endDate: "2022",
               isCurrent: false,
-              summary: 'Editable content.',
+              summary: "Editable content.",
               bullets: [],
-              origin: 'user_edited',
+              origin: "user_edited",
               locked: false,
               included: true,
               sortOrder: 1,
-              profileRecordId: 'experience_editable',
+              profileRecordId: "experience_editable",
               sourceRefs: [],
               updatedAt: draft.updatedAt,
             },
           ],
-          origin: 'user_edited',
+          origin: "user_edited",
           locked: false,
           included: true,
           sortOrder: 1,
-          entryOrderMode: 'chronology',
+          entryOrderMode: "chronology",
           profileRecordId: null,
           sourceRefs: [],
           updatedAt: draft.updatedAt,
         },
       ],
-    }
+    };
 
-    container = document.createElement('div')
-    document.body.appendChild(container)
-    root = createRoot(container)
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
 
     act(() => {
       root?.render(
@@ -326,29 +360,34 @@ describe('ResumeWorkspaceEditorPanel', () => {
           onSelectEntry={vi.fn()}
           onSelectSection={vi.fn()}
           runWithSavedDraft={(next) => {
-            void next()
+            void next();
           }}
           selectedEntryId={null}
           selectedSectionId={null}
           selectedTargetId={null}
+          workHistoryAcknowledgments={[]}
+          onAcknowledgeWorkHistoryOmission={vi.fn()}
+          onRemoveWorkHistoryOmissionAcknowledgment={vi.fn()}
           workHistoryReviewSuggestions={[]}
         />,
-      )
-    })
+      );
+    });
 
-    const lockedTitleInput = Array.from(container.querySelectorAll('input')).find(
-      (input) => input.id.includes('entry_title_experience_locked'),
-    )
-    const moveDownButton = Array.from(container.querySelectorAll('button')).find(
-      (button) => button.getAttribute('aria-label') === 'Move Locked role down',
-    )
+    const lockedTitleInput = Array.from(
+      container.querySelectorAll("input"),
+    ).find((input) => input.id.includes("entry_title_experience_locked"));
+    const moveDownButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find(
+      (button) => button.getAttribute("aria-label") === "Move Locked role down",
+    );
 
-    expect(lockedTitleInput?.value).toBe('Locked role')
-    expect(lockedTitleInput?.disabled).toBe(true)
-    expect(moveDownButton?.disabled).toBe(false)
-  })
+    expect(lockedTitleInput?.value).toBe("Locked role");
+    expect(lockedTitleInput?.disabled).toBe(true);
+    expect(moveDownButton?.disabled).toBe(false);
+  });
 
-  it('lets the user restore original role content from the coverage comparison', () => {
+  it("lets the user restore original role content from the coverage comparison", () => {
     const comparison: ResumeCoverageComparison = {
       originalRoleCount: 1,
       representedRoleCount: 1,
@@ -361,19 +400,19 @@ describe('ResumeWorkspaceEditorPanel', () => {
       addedClaimCount: 1,
       removedClaimCount: 1,
       duplicateIssueCount: 0,
-      addedKeywords: ['TypeScript'],
+      addedKeywords: ["TypeScript"],
       removedKeywords: [],
-      pageImpact: 'within_target',
+      pageImpact: "within_target",
       pageCount: 1,
       targetPageCount: 2,
       roles: [
         {
-          profileRecordId: 'experience_1',
-          title: 'Software Engineer',
-          employer: 'Signal Systems',
-          sectionId: 'section_experience',
-          entryId: 'experience_1',
-          status: 'rewritten',
+          profileRecordId: "experience_1",
+          title: "Software Engineer",
+          employer: "Signal Systems",
+          sectionId: "section_experience",
+          entryId: "experience_1",
+          status: "rewritten",
           included: true,
           reordered: false,
           originalIndex: 0,
@@ -382,27 +421,27 @@ describe('ResumeWorkspaceEditorPanel', () => {
           retainedClaimCount: 0,
           addedClaims: [
             {
-              field: 'summary',
-              text: 'Reworded summary.',
+              field: "summary",
+              text: "Reworded summary.",
               restorable: false,
             },
           ],
           removedClaims: [
             {
-              field: 'summary',
-              text: 'Original summary.',
+              field: "summary",
+              text: "Original summary.",
               restorable: true,
             },
           ],
-          reasons: ['The summary was rewritten for this role.'],
+          reasons: ["The summary was rewritten for this role."],
         },
       ],
-    }
-    const onApplyPatch = vi.fn()
+    };
+    const onApplyPatch = vi.fn();
 
-    container = document.createElement('div')
-    document.body.appendChild(container)
-    root = createRoot(container)
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
     act(() => {
       root?.render(
         <ResumeWorkspaceEditorPanel
@@ -419,80 +458,83 @@ describe('ResumeWorkspaceEditorPanel', () => {
           onSelectEntry={vi.fn()}
           onSelectSection={vi.fn()}
           runWithSavedDraft={(next) => {
-            void next()
+            void next();
           }}
           selectedEntryId={null}
           selectedSectionId={null}
           selectedTargetId={null}
+          workHistoryAcknowledgments={[]}
+          onAcknowledgeWorkHistoryOmission={vi.fn()}
+          onRemoveWorkHistoryOmissionAcknowledgment={vi.fn()}
           workHistoryReviewSuggestions={[]}
         />,
-      )
-    })
+      );
+    });
 
-    const restoreButton = Array.from(container.querySelectorAll('button')).find(
-      (button) => button.textContent?.trim() === 'Restore',
-    )
-    expect(container.textContent).toContain('Original vs tailored')
-    expect(restoreButton).toBeTruthy()
+    const restoreButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Restore",
+    );
+    expect(container.textContent).toContain("Original vs tailored");
+    expect(restoreButton).toBeTruthy();
 
     act(() => {
-      restoreButton?.click()
-    })
+      restoreButton?.click();
+    });
 
     expect(onApplyPatch).toHaveBeenCalledWith(
       expect.objectContaining({
-        operation: 'replace_entry_summary',
-        targetSectionId: 'section_experience',
-        targetEntryId: 'experience_1',
-        newText: 'Original summary.',
+        operation: "replace_entry_summary",
+        targetSectionId: "section_experience",
+        targetEntryId: "experience_1",
+        newText: "Original summary.",
       }),
-      'Restored original summary for Software Engineer.',
-    )
-  })
+      "Restored original summary for Software Engineer.",
+    );
+  });
 
-  it('targets the hidden role so the patch restores both it and its parent section', () => {
+  it("targets the hidden role so the patch restores both it and its parent section", () => {
     const hiddenDraft: ResumeDraft = {
       ...draft,
       sections: [
         {
-          id: 'section_experience',
-          kind: 'experience',
-          label: 'Experience',
+          id: "section_experience",
+          kind: "experience",
+          label: "Experience",
           text: null,
           bullets: [],
           entries: [
             {
-              id: 'experience_1',
-              entryType: 'experience',
-              title: 'Software Engineer',
-              subtitle: 'Signal Systems',
-              location: 'Remote',
-              dateRange: '2020 - Present',
-              startDate: '2020',
+              id: "experience_1",
+              entryType: "experience",
+              title: "Software Engineer",
+              subtitle: "Signal Systems",
+              location: "Remote",
+              dateRange: "2020 - Present",
+              startDate: "2020",
               endDate: null,
               isCurrent: true,
-              summary: 'Original summary.',
+              summary: "Original summary.",
               bullets: [],
-              origin: 'imported',
+              origin: "imported",
               locked: false,
               included: true,
               sortOrder: 0,
-              profileRecordId: 'experience_1',
+              profileRecordId: "experience_1",
               sourceRefs: [],
               updatedAt: draft.updatedAt,
             },
           ],
-          origin: 'imported',
+          origin: "imported",
           locked: false,
           included: false,
           sortOrder: 0,
-          entryOrderMode: 'chronology',
+          entryOrderMode: "chronology",
           profileRecordId: null,
           sourceRefs: [],
           updatedAt: draft.updatedAt,
         },
       ],
-    }
+    };
     const comparison: ResumeCoverageComparison = {
       originalRoleCount: 1,
       representedRoleCount: 1,
@@ -507,17 +549,17 @@ describe('ResumeWorkspaceEditorPanel', () => {
       duplicateIssueCount: 0,
       addedKeywords: [],
       removedKeywords: [],
-      pageImpact: 'unknown',
+      pageImpact: "unknown",
       pageCount: null,
       targetPageCount: 2,
       roles: [
         {
-          profileRecordId: 'experience_1',
-          title: 'Software Engineer',
-          employer: 'Signal Systems',
-          sectionId: 'section_experience',
-          entryId: 'experience_1',
-          status: 'hidden',
+          profileRecordId: "experience_1",
+          title: "Software Engineer",
+          employer: "Signal Systems",
+          sectionId: "section_experience",
+          entryId: "experience_1",
+          status: "hidden",
           included: false,
           reordered: false,
           originalIndex: 0,
@@ -527,20 +569,20 @@ describe('ResumeWorkspaceEditorPanel', () => {
           addedClaims: [],
           removedClaims: [
             {
-              field: 'summary',
-              text: 'Original summary.',
+              field: "summary",
+              text: "Original summary.",
               restorable: false,
             },
           ],
-          reasons: ['The experience section is hidden.'],
+          reasons: ["The experience section is hidden."],
         },
       ],
-    }
-    const onApplyPatch = vi.fn()
+    };
+    const onApplyPatch = vi.fn();
 
-    container = document.createElement('div')
-    document.body.appendChild(container)
-    root = createRoot(container)
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
     act(() => {
       root?.render(
         <ResumeWorkspaceEditorPanel
@@ -557,31 +599,229 @@ describe('ResumeWorkspaceEditorPanel', () => {
           onSelectEntry={vi.fn()}
           onSelectSection={vi.fn()}
           runWithSavedDraft={(next) => {
-            void next()
+            void next();
           }}
           selectedEntryId={null}
           selectedSectionId={null}
           selectedTargetId={null}
+          workHistoryAcknowledgments={[]}
+          onAcknowledgeWorkHistoryOmission={vi.fn()}
+          onRemoveWorkHistoryOmissionAcknowledgment={vi.fn()}
           workHistoryReviewSuggestions={[]}
         />,
-      )
-    })
+      );
+    });
 
-    const showRoleButton = Array.from(container.querySelectorAll('button')).find(
-      (button) => button.textContent?.includes('Show role'),
-    )
+    const showRoleButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("Show role"));
     act(() => {
-      showRoleButton?.click()
-    })
+      showRoleButton?.click();
+    });
 
     expect(onApplyPatch).toHaveBeenCalledWith(
       expect.objectContaining({
-        operation: 'toggle_include',
-        targetSectionId: 'section_experience',
-        targetEntryId: 'experience_1',
+        operation: "toggle_include",
+        targetSectionId: "section_experience",
+        targetEntryId: "experience_1",
         newIncluded: true,
       }),
-      'Restored Software Engineer to the resume.',
-    )
-  })
-})
+      "Restored Software Engineer to the resume.",
+    );
+  });
+
+  it("renders work-history decisions after coverage comparison and before identity editing", () => {
+    const comparison: ResumeCoverageComparison = {
+      originalRoleCount: 1,
+      representedRoleCount: 1,
+      visibleRoleCount: 0,
+      rewrittenRoleCount: 0,
+      compactedRoleCount: 0,
+      hiddenRoleCount: 1,
+      missingRoleCount: 0,
+      reorderedRoleCount: 0,
+      addedClaimCount: 0,
+      removedClaimCount: 0,
+      duplicateIssueCount: 0,
+      addedKeywords: [],
+      removedKeywords: [],
+      pageImpact: "unknown",
+      pageCount: null,
+      targetPageCount: 2,
+      roles: [],
+    };
+    const suggestion = {
+      id: "work_history_review_experience_1",
+      profileRecordId: "experience_1",
+      sectionId: "section_experience",
+      entryId: null,
+      kind: "weak_fit" as const,
+      action: "consider_showing" as const,
+      severity: "info" as const,
+      message: "Hidden by default for review.",
+      messageContentHash: "fnv1a32:b9eb28c6",
+    };
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => {
+      root?.render(
+        <ResumeWorkspaceEditorPanel
+          actionMessage={null}
+          coverageComparison={comparison}
+          draft={draft}
+          hasUnsavedChanges={false}
+          isWorkspacePending={false}
+          jobId="job_1"
+          onAcknowledgeWorkHistoryOmission={vi.fn()}
+          onApplyPatch={vi.fn()}
+          onDraftChange={vi.fn()}
+          onRegenerateSection={vi.fn()}
+          onRemoveWorkHistoryOmissionAcknowledgment={vi.fn()}
+          onSectionChange={vi.fn()}
+          onSelectEntry={vi.fn()}
+          onSelectSection={vi.fn()}
+          runWithSavedDraft={(next) => {
+            void next();
+          }}
+          selectedEntryId={null}
+          selectedSectionId={null}
+          selectedTargetId={null}
+          workHistoryAcknowledgments={[]}
+          workHistoryReviewSuggestions={[suggestion]}
+        />,
+      );
+    });
+
+    const scrollRegion = container.querySelector(
+      "[data-resume-editor-scroll-region]",
+    );
+    const coverageDetails = scrollRegion?.querySelector("details");
+    const decisionsSection = scrollRegion?.querySelector(
+      "[data-resume-work-history-decisions]",
+    );
+    const identityHeading = Array.from(
+      scrollRegion?.querySelectorAll("h3") ?? [],
+    ).find((heading) => heading.textContent === "Resume identity");
+
+    expect(coverageDetails).toBeTruthy();
+    expect(decisionsSection).toBeTruthy();
+    expect(identityHeading).toBeTruthy();
+    if (!coverageDetails || !decisionsSection || !identityHeading) {
+      throw new Error("Expected structured editor sections to render.");
+    }
+
+    expect(
+      coverageDetails.compareDocumentPosition(decisionsSection) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+    expect(
+      decisionsSection.compareDocumentPosition(identityHeading) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+
+    expect(decisionsSection.className).toContain("grid-cols-1");
+    expect(decisionsSection.className).toContain("min-w-0");
+    expect(decisionsSection.className).not.toMatch(/w-\[\d+px\]/);
+  });
+
+  it("always discloses AI assistance while reserving line markers for aggressive tailoring", () => {
+    const generatedDraft: ResumeDraft = {
+      ...draft,
+      generationMethod: "ai",
+      sections: [
+        {
+          id: "section_summary",
+          kind: "summary",
+          label: "Summary",
+          text: null,
+          bullets: [
+            {
+              id: "bullet_generated",
+              text: "Generated metric line.",
+              origin: "ai_generated",
+              locked: false,
+              included: true,
+              sourceRefs: [],
+              lastGeneratedContentHash: null,
+              updatedAt: draft.updatedAt,
+            },
+          ],
+          entries: [],
+          origin: "ai_generated",
+          locked: false,
+          included: true,
+          sortOrder: 0,
+          entryOrderMode: "chronology",
+          profileRecordId: null,
+          sourceRefs: [],
+          updatedAt: draft.updatedAt,
+        },
+      ],
+    };
+
+    const renderWithMarkers = (showMarkers: boolean) => {
+      container = document.createElement("div");
+      document.body.appendChild(container);
+      root = createRoot(container);
+      act(() => {
+        root?.render(
+          <ResumeWorkspaceEditorPanel
+            actionMessage={null}
+            coverageComparison={null}
+            draft={generatedDraft}
+            hasUnsavedChanges={false}
+            isWorkspacePending={false}
+            jobId="job_1"
+            onApplyPatch={vi.fn()}
+            onDraftChange={vi.fn()}
+            onRegenerateSection={vi.fn()}
+            onSectionChange={vi.fn()}
+            onSelectEntry={vi.fn()}
+            onSelectSection={vi.fn()}
+            runWithSavedDraft={(next) => {
+              void next();
+            }}
+            selectedEntryId={null}
+            selectedSectionId={null}
+            selectedTargetId={null}
+            showGeneratedLineMarkers={showMarkers}
+            workHistoryAcknowledgments={[]}
+            onAcknowledgeWorkHistoryOmission={vi.fn()}
+            onRemoveWorkHistoryOmissionAcknowledgment={vi.fn()}
+            workHistoryReviewSuggestions={[]}
+          />,
+        );
+      });
+    };
+
+    renderWithMarkers(false);
+    const hiddenContainer = container as HTMLDivElement;
+    expect(
+      hiddenContainer.querySelector("[data-resume-inference-disclosure]"),
+    ).toBeNull();
+    expect(
+      hiddenContainer.querySelector("[data-resume-ai-assistance-disclosure]")
+        ?.textContent,
+    ).toContain("created with AI assistance");
+    expect(hiddenContainer.textContent).not.toContain("Aggressive tailoring");
+    act(() => {
+      root?.unmount();
+    });
+
+    renderWithMarkers(true);
+    const markedContainer = container as HTMLDivElement;
+    const disclosure = markedContainer.querySelector(
+      "[data-resume-inference-disclosure]",
+    );
+    expect(disclosure?.textContent).toContain(
+      "Aggressive tailoring generated 1 bullet line",
+    );
+    expect(markedContainer.textContent).toContain("AI-generated");
+    expect(
+      markedContainer.querySelector("[data-resume-ai-assistance-disclosure]")
+        ?.textContent,
+    ).toContain("created with AI assistance");
+  });
+});

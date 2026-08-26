@@ -87,7 +87,33 @@ describe("workspace resume strategies end to end", () => {
     });
     expect(recommendation.strategyId).toBeNull();
     expect(recommendation.source).toBe("none");
-    expect(recommendation.reason).toMatch(/no enabled strategy/i);
+    expect(recommendation.reason).toBe(
+      "No enabled resume approaches exist yet and no search plan fallback is set.",
+    );
+  });
+
+  test("recommendResumeStrategy truthfully reports an unmatched job family while enabled approaches exist", async () => {
+    const harness = createWorkspaceServiceHarness();
+    const { workspaceService } = harness;
+    await withDefaultCampaign(harness);
+
+    await workspaceService.saveResumeStrategy(
+      strategyInput({
+        name: "Software engineering",
+        roleFamily: "Software Engineering",
+      }),
+    );
+
+    // "Senior Product Designer" derives no role family from the enabled
+    // approaches, and no search plan fallback is set.
+    const recommendation = await workspaceService.recommendResumeStrategy({
+      jobId: "job_ready",
+    });
+    expect(recommendation.strategyId).toBeNull();
+    expect(recommendation.source).toBe("none");
+    expect(recommendation.reason).toBe(
+      "No enabled approach matched this job and no search plan fallback is set.",
+    );
   });
 
   test("the campaign default is used when no role family matches", async () => {
@@ -115,6 +141,53 @@ describe("workspace resume strategies end to end", () => {
     expect(recommendation.source).toBe("campaign_default");
     expect(recommendation.campaignId).toBe("campaign_default");
     expect(recommendation.roleFamily).toBeNull();
+    // The fallback reason names the approach, never the raw strategy id.
+    expect(recommendation.reason).toBe(
+      "No enabled approach matched this job; using search plan fallback “Data engineering”.",
+    );
+    expect(recommendation.reason).not.toContain(strategyId);
+  });
+
+  test("recommendResumeStrategy reports a persisted-but-disabled search plan fallback truthfully", async () => {
+    const harness = createWorkspaceServiceHarness();
+    const { workspaceService } = harness;
+    await withDefaultCampaign(harness);
+
+    await workspaceService.saveResumeStrategy(
+      strategyInput({
+        name: "Software engineering",
+        roleFamily: "Software Engineering",
+      }),
+    );
+
+    const created = await workspaceService.saveResumeStrategy(
+      strategyInput({
+        name: "Generalist",
+        roleFamily: "General",
+      }),
+    );
+    const generalistId = created.intelligence.resumeStrategies[1]!.id;
+
+    // The default is set while Generalist is enabled...
+    await workspaceService.setCampaignResumeStrategyDefault({
+      campaignId: "campaign_default",
+      strategyId: generalistId,
+    });
+    // ...and disabling it keeps the default persisted on the campaign.
+    await workspaceService.disableResumeStrategy(generalistId);
+
+    // "Senior Product Designer" matches no enabled approach, so the disabled
+    // default cannot apply and the reason must say exactly that instead of
+    // claiming that no fallback was set.
+    const recommendation = await workspaceService.recommendResumeStrategy({
+      jobId: "job_ready",
+    });
+    expect(recommendation.strategyId).toBeNull();
+    expect(recommendation.source).toBe("none");
+    expect(recommendation.reason).toBe(
+      "No enabled approach matched this job and the configured search plan fallback “Generalist” is disabled.",
+    );
+    expect(recommendation.reason).not.toContain(generalistId);
   });
 
   test("a disabled strategy cannot become the campaign default", async () => {
@@ -377,7 +450,9 @@ describe("workspace resume strategies end to end", () => {
     });
     expect(recommendation.strategyId).toBeNull();
     expect(recommendation.source).toBe("none");
-    expect(recommendation.reason.length).toBeGreaterThan(0);
+    expect(recommendation.reason).toBe(
+      "No enabled resume approaches exist yet and no search plan fallback is set.",
+    );
   });
 
   test("reusing a strategy never clears an approval nor un-stales an approved artifact", async () => {

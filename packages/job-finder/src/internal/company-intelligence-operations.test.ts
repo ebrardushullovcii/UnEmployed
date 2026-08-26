@@ -4,13 +4,16 @@ import {
   ApplicationRecordSchema,
   type ApplicationRecord,
   type ApplicationStatus,
+  type CompanyIntelligenceMutationInput,
   CompanyEntitySchema,
   type CompanyEntity,
+  genericCompanyNameValues,
   type SavedJob,
   SavedJobSchema,
 } from "@unemployed/contracts";
 import {
   applyCompanyIntelligenceMutation,
+  nextCompanyIntelligenceUpdatedAt,
   normalizeCompanyName,
   normalizeEmployerDomain,
   projectCompanyApplicationHistory,
@@ -24,6 +27,21 @@ import {
 const now = "2026-08-15T10:00:00.000Z";
 const later = "2026-08-15T11:00:00.000Z";
 const latest = "2026-08-15T12:00:00.000Z";
+
+describe("nextCompanyIntelligenceUpdatedAt", () => {
+  test("uses now unless a current timestamp requires the next millisecond", () => {
+    expect(nextCompanyIntelligenceUpdatedAt(later, now)).toBe(later);
+    expect(nextCompanyIntelligenceUpdatedAt(now, now)).toBe(
+      "2026-08-15T10:00:00.001Z",
+    );
+    expect(nextCompanyIntelligenceUpdatedAt(now, later)).toBe(
+      "2026-08-15T11:00:00.001Z",
+    );
+    expect(nextCompanyIntelligenceUpdatedAt(now, later, latest)).toBe(
+      "2026-08-15T12:00:00.001Z",
+    );
+  });
+});
 
 function makeCompany(overrides: Partial<CompanyEntity> = {}): CompanyEntity {
   return CompanyEntitySchema.parse({
@@ -121,6 +139,7 @@ describe("normalizeCompanyName and normalizeEmployerDomain", () => {
     expect(normalizeCompanyName("Acme Inc.")).toBe("acme inc");
     expect(normalizeCompanyName("  Acme, Inc.  ")).toBe("acme inc");
     expect(normalizeCompanyName("Northwind Labs")).toBe("northwind labs");
+    expect(normalizeCompanyName("Café C++ & C#")).toBe("cafe cplusplus csharp");
   });
 
   test("normalizes domains for exact comparison", () => {
@@ -179,7 +198,7 @@ describe("reconcileCompanies", () => {
     ]);
   });
 
-  test("merges jobs sharing an exact normalized domain into one company", () => {
+  test("keeps renamed employers sharing an exact domain separate for merge review", () => {
     const result = reconcileCompanies({
       companies: [],
       jobs: [
@@ -202,21 +221,16 @@ describe("reconcileCompanies", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    expect(result.companies).toHaveLength(1);
-    const company = result.companies[0]!;
-    expect(company.canonicalName).toBe("Acme Inc");
-    expect(company.jobIds).toEqual(["job_1", "job_2"]);
-    expect(company.domains).toEqual([
-      { domain: "acme.com", primary: true, verifiedAt: null },
+    expect(result.companies).toHaveLength(2);
+    expect(result.companies.map((company) => company.jobIds)).toEqual([
+      ["job_1"],
+      ["job_2"],
     ]);
-    expect(company.aliases).toEqual([
-      {
-        alias: "Acme Corporation",
-        normalized: "acme corporation",
-        confidence: 1,
-      },
-    ]);
-    expect(result.summary.createdCompanyIds).toHaveLength(1);
+    expect(result.summary.createdCompanyIds).toHaveLength(2);
+    expect(result.summary.createdMergeCandidates).toHaveLength(1);
+    expect(result.summary.createdMergeCandidates[0]?.reason).toContain(
+      "share the employer domain",
+    );
   });
 
   test("matches by exact normalized name when no domain is present", () => {
@@ -239,7 +253,97 @@ describe("reconcileCompanies", () => {
     expect(result.summary.createdCompanyIds).toHaveLength(1);
   });
 
-  test("never silently merges ambiguous domain identities", () => {
+  test("keeps different employers on the same ATS hostname separate", () => {
+    const result = reconcileCompanies({
+      companies: [],
+      jobs: [
+        makeJob({
+          id: "job_acme",
+          company: "Acme Inc",
+          canonicalUrl: "https://jobs.provider.example/acme/job_acme",
+        }),
+        makeJob({
+          id: "job_other",
+          company: "Other Inc",
+          canonicalUrl: "https://jobs.provider.example/other/job_other",
+        }),
+      ],
+      applicationRecords: [],
+      now,
+      createCompanyId: defaultCreateCompanyId,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.companies).toHaveLength(2);
+    expect(
+      result.companies.map((company) => [
+        company.canonicalName,
+        company.jobIds,
+      ]),
+    ).toEqual([
+      ["Acme Inc", ["job_acme"]],
+      ["Other Inc", ["job_other"]],
+    ]);
+    expect(
+      result.companies.every((company) => company.domains.length === 0),
+    ).toBe(true);
+  });
+
+  test("matches only when unique name and domain evidence resolve to the same company", () => {
+    const companies = [
+      makeCompany({
+        id: "acme",
+        canonicalName: "Acme Inc",
+        domains: [{ domain: "acme.example", primary: true, verifiedAt: null }],
+      }),
+      makeCompany({
+        id: "other",
+        canonicalName: "Other Inc",
+        domains: [{ domain: "other.example", primary: true, verifiedAt: null }],
+      }),
+    ];
+    const matching = reconcileCompanies({
+      companies,
+      jobs: [
+        makeJob({
+          id: "job_match",
+          company: "Acme Inc",
+          employerDomain: "acme.example",
+        }),
+      ],
+      applicationRecords: [],
+      now,
+      createCompanyId: defaultCreateCompanyId,
+    });
+    expect(matching.ok).toBe(true);
+    if (!matching.ok) return;
+    expect(
+      matching.companies.find((company) => company.id === "acme")?.jobIds,
+    ).toEqual(["job_match"]);
+
+    const conflicting = reconcileCompanies({
+      companies,
+      jobs: [
+        makeJob({
+          id: "job_conflict",
+          company: "Acme Inc",
+          employerDomain: "other.example",
+        }),
+      ],
+      applicationRecords: [],
+      now,
+      createCompanyId: defaultCreateCompanyId,
+    });
+    expect(conflicting.ok).toBe(true);
+    if (!conflicting.ok) return;
+    expect(
+      conflicting.companies.flatMap((company) => company.jobIds),
+    ).not.toContain("job_conflict");
+    expect(conflicting.summary.ambiguousEvidenceCount).toBe(1);
+  });
+
+  test("shared domains do not veto an exact unique name owner", () => {
     const existing = [
       makeCompany({
         id: "c1",
@@ -272,17 +376,160 @@ describe("reconcileCompanies", () => {
 
     expect(result.companies).toHaveLength(2);
     const primary = result.companies.find((company) => company.id === "c1")!;
-    expect(primary.jobIds).toEqual([]);
-    expect(primary.mergeReviewCandidates).toEqual([
-      {
-        candidateCompanyId: "c2",
-        reason: 'Multiple companies share the employer domain "acme.com".',
-        decision: "pending",
-        decidedAt: null,
-        requiresUserDecision: true,
-      },
-    ]);
-    expect(result.summary.ambiguousEvidenceCount).toBe(1);
+    expect(primary.jobIds).toEqual(["job_1"]);
+    expect(result.summary.ambiguousEvidenceCount).toBe(0);
+  });
+
+  test("does not let a legacy unknown alias and domain claim a job", () => {
+    const polluted = makeCompany({
+      id: "polluted",
+      canonicalName: "Legacy Holdings",
+      aliases: [
+        {
+          alias: "Acme Inc",
+          normalized: "acme inc",
+          confidence: 1,
+          identityAuthority: "unknown",
+        },
+      ],
+      domains: [{ domain: "acme.example", primary: true, verifiedAt: null }],
+    });
+    const result = reconcileCompanies({
+      companies: [polluted],
+      jobs: [
+        makeJob({
+          id: "job_acme",
+          company: "Acme Inc",
+          employerDomain: "acme.example",
+        }),
+      ],
+      applicationRecords: [],
+      now,
+      createCompanyId: defaultCreateCompanyId,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.companies).toHaveLength(2);
+    expect(
+      result.companies.find((company) => company.id === "polluted")?.jobIds,
+    ).toEqual([]);
+    expect(
+      result.companies.find((company) => company.canonicalName === "Acme Inc")
+        ?.jobIds,
+    ).toEqual(["job_acme"]);
+    expect(result.summary.createdMergeCandidates).toHaveLength(1);
+  });
+
+  test("accepts an approved alias but rejects ambiguous approved aliases", () => {
+    const approvedAlias = {
+      alias: "Acme",
+      normalized: "acme",
+      confidence: 1,
+      identityAuthority: "user_approved_merge" as const,
+    };
+    const unique = reconcileCompanies({
+      companies: [
+        makeCompany({
+          id: "approved",
+          canonicalName: "Acme Incorporated",
+          aliases: [approvedAlias],
+        }),
+      ],
+      jobs: [makeJob({ id: "job_alias", company: "Acme" })],
+      applicationRecords: [],
+      now,
+      createCompanyId: defaultCreateCompanyId,
+    });
+    expect(unique.ok).toBe(true);
+    if (!unique.ok) return;
+    expect(unique.companies[0]?.jobIds).toEqual(["job_alias"]);
+
+    const ambiguous = reconcileCompanies({
+      companies: [
+        makeCompany({
+          id: "first",
+          canonicalName: "Acme Incorporated",
+          aliases: [approvedAlias],
+          jobIds: ["job_alias"],
+        }),
+        makeCompany({
+          id: "second",
+          canonicalName: "Acme Group",
+          aliases: [approvedAlias],
+          jobIds: ["job_alias"],
+        }),
+      ],
+      jobs: [makeJob({ id: "job_alias", company: "Acme" })],
+      applicationRecords: [],
+      now,
+      createCompanyId: defaultCreateCompanyId,
+    });
+    expect(ambiguous.ok).toBe(true);
+    if (!ambiguous.ok) return;
+    expect(ambiguous.companies.flatMap((company) => company.jobIds)).toEqual(
+      [],
+    );
+    expect(ambiguous.summary.ambiguousEvidenceCount).toBe(1);
+  });
+
+  test.each(genericCompanyNameValues)(
+    "does not create or retain ownership for generic company name %s",
+    (name) => {
+      const result = reconcileCompanies({
+        companies: [
+          makeCompany({
+            id: "legacy",
+            canonicalName: "Real Employer",
+            jobIds: ["job_unknown"],
+            applicationRecordIds: ["app_unknown"],
+          }),
+        ],
+        jobs: [
+          makeJob({
+            id: "job_unknown",
+            company: name,
+            employerDomain: "real.example",
+          }),
+        ],
+        applicationRecords: [
+          makeApplicationRecord({
+            id: "app_unknown",
+            jobId: "job_unknown",
+            company: "Real Employer",
+          }),
+        ],
+        now,
+        createCompanyId: defaultCreateCompanyId,
+      });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.companies).toHaveLength(1);
+      expect(result.companies[0]?.jobIds).toEqual([]);
+      expect(result.companies[0]?.applicationRecordIds).toEqual([]);
+      expect(result.summary.unresolvableEvidenceCount).toBe(1);
+    },
+  );
+
+  test.each([
+    "Named Staffing Agency",
+    "Recruiting Agency Partners",
+    "Staffing Agency, Inc.",
+  ])("creates ownership for legitimate agency %s", (name) => {
+    const result = reconcileCompanies({
+      companies: [],
+      jobs: [makeJob({ id: "job_agency", company: name })],
+      applicationRecords: [],
+      now,
+      createCompanyId: defaultCreateCompanyId,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.companies).toHaveLength(1);
+    expect(result.companies[0]?.canonicalName).toBe(name);
+    expect(result.companies[0]?.jobIds).toEqual(["job_agency"]);
   });
 
   test("creates a pending merge candidate for a near-name conflict", () => {
@@ -339,7 +586,7 @@ describe("reconcileCompanies", () => {
     );
   });
 
-  test("reconciles application records by name and links source history", () => {
+  test("links applications through their saved job and records copied names as unknown aliases", () => {
     const result = reconcileCompanies({
       companies: [],
       jobs: [makeJob({ id: "job_1", company: "Northwind Labs" })],
@@ -347,7 +594,7 @@ describe("reconcileCompanies", () => {
         makeApplicationRecord({
           id: "app_1",
           jobId: "job_1",
-          company: "Northwind Labs",
+          company: "Northwind Laboratories",
         }),
       ],
       now,
@@ -361,8 +608,191 @@ describe("reconcileCompanies", () => {
     const company = result.companies[0]!;
     expect(company.jobIds).toEqual(["job_1"]);
     expect(company.applicationRecordIds).toEqual(["app_1"]);
+    expect(company.aliases).toContainEqual({
+      alias: "Northwind Laboratories",
+      normalized: "northwind laboratories",
+      confidence: 1,
+      identityAuthority: "unknown",
+    });
     expect(company.sourceHistory[0]!.sourceId).toBe("target_site");
     expect(company.sourceHistory[0]!.applicationRecordIds).toEqual(["app_1"]);
+  });
+
+  test("preserves a legacy application membership when its saved job is missing", () => {
+    const legacy = makeCompany({
+      id: "legacy",
+      canonicalName: "Original Employer",
+      applicationRecordIds: ["legacy_app"],
+    });
+    const result = reconcileCompanies({
+      companies: [
+        legacy,
+        makeCompany({ id: "copied", canonicalName: "Copied Employer" }),
+      ],
+      jobs: [],
+      applicationRecords: [
+        makeApplicationRecord({
+          id: "legacy_app",
+          jobId: "deleted_job",
+          company: "Copied Employer",
+        }),
+      ],
+      now,
+      createCompanyId: defaultCreateCompanyId,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(
+      result.companies.find((company) => company.id === "legacy")
+        ?.applicationRecordIds,
+    ).toEqual(["legacy_app"]);
+    expect(
+      result.companies.find((company) => company.id === "copied")
+        ?.applicationRecordIds,
+    ).toEqual([]);
+    expect(result.summary.unresolvableEvidenceCount).toBe(1);
+  });
+
+  test("reassigns current job and application memberships without removing unrelated links", () => {
+    const initial = reconcileCompanies({
+      companies: [],
+      jobs: [
+        makeJob({
+          id: "job_move",
+          company: "Acme Inc",
+          employerDomain: "acme.example",
+        }),
+        makeJob({
+          id: "job_keep",
+          company: "Acme Inc",
+          employerDomain: "acme.example",
+        }),
+      ],
+      applicationRecords: [
+        makeApplicationRecord({
+          id: "app_move",
+          jobId: "job_move",
+          company: "Acme Inc",
+        }),
+        makeApplicationRecord({
+          id: "app_keep",
+          jobId: "job_keep",
+          company: "Acme Inc",
+        }),
+      ],
+      now,
+      createCompanyId: defaultCreateCompanyId,
+    });
+    expect(initial.ok).toBe(true);
+    if (!initial.ok) return;
+
+    const acmeId = initial.companies[0]!.id;
+    const companiesWithLegacyLinks = initial.companies.map((company) =>
+      company.id === acmeId
+        ? makeCompany({
+            ...company,
+            jobIds: [...company.jobIds, "legacy_job"],
+            applicationRecordIds: [
+              ...company.applicationRecordIds,
+              "legacy_app",
+            ],
+          })
+        : company,
+    );
+    const reassignedJobs = [
+      makeJob({
+        id: "job_move",
+        company: "Other Inc",
+        employerDomain: "other.example",
+      }),
+      makeJob({
+        id: "job_keep",
+        company: "Acme Inc",
+        employerDomain: "acme.example",
+      }),
+    ];
+    const reassignedRecords = [
+      makeApplicationRecord({
+        id: "app_move",
+        jobId: "job_move",
+        company: "Other Inc",
+      }),
+      makeApplicationRecord({
+        id: "app_keep",
+        jobId: "job_keep",
+        company: "Acme Inc",
+      }),
+    ];
+    const reassigned = reconcileCompanies({
+      companies: companiesWithLegacyLinks,
+      jobs: reassignedJobs,
+      applicationRecords: reassignedRecords,
+      now: later,
+      createCompanyId: defaultCreateCompanyId,
+    });
+    expect(reassigned.ok).toBe(true);
+    if (!reassigned.ok) return;
+
+    const acme = reassigned.companies.find((company) => company.id === acmeId)!;
+    const other = reassigned.companies.find(
+      (company) => company.canonicalName === "Other Inc",
+    )!;
+    expect(acme.jobIds).toEqual(["job_keep", "legacy_job"]);
+    expect(acme.applicationRecordIds).toEqual(["app_keep", "legacy_app"]);
+    expect(other.jobIds).toEqual(["job_move"]);
+    expect(other.applicationRecordIds).toEqual(["app_move"]);
+
+    const evidence = {
+      id: "evidence_reassigned",
+      kind: "offer" as const,
+      summary: "Current offer",
+      currency: "USD",
+      minimum: 200000,
+      maximum: 200000,
+      period: "year" as const,
+      offerStatus: "active" as const,
+      jobId: "job_move",
+      applicationRecordId: "app_move",
+      source: "manual",
+      recordedAt: latest,
+      createdAt: latest,
+      updatedAt: latest,
+    };
+    const mutate = (company: CompanyEntity) =>
+      applyCompanyIntelligenceMutation({
+        companies: reassigned.companies,
+        jobs: reassignedJobs,
+        applicationRecords: reassignedRecords,
+        input: {
+          companyId: company.id,
+          expectedUpdatedAt: company.updatedAt,
+          mutation: { type: "upsert_salary_offer_evidence", evidence },
+        },
+        now: latest,
+      });
+    const rejected = mutate(acme);
+    expect(rejected.ok).toBe(false);
+    if (!rejected.ok)
+      expect(rejected.failure.code).toBe("job_company_mismatch");
+    expect(mutate(other).ok).toBe(true);
+
+    const restarted = reconcileCompanies({
+      companies: reassigned.companies,
+      jobs: reassignedJobs,
+      applicationRecords: reassignedRecords,
+      now: latest,
+      createCompanyId: defaultCreateCompanyId,
+    });
+    expect(restarted.ok).toBe(true);
+    if (!restarted.ok) return;
+    expect(
+      restarted.companies.find((company) => company.id === acmeId)?.jobIds,
+    ).toEqual(["job_keep", "legacy_job"]);
+    expect(
+      restarted.companies.find((company) => company.id === other.id)
+        ?.applicationRecordIds,
+    ).toEqual(["app_move"]);
   });
 
   test("is idempotent and never mutates its inputs", () => {
@@ -395,7 +825,7 @@ describe("reconcileCompanies", () => {
 
     expect(second.companies).toEqual(first.companies);
     expect(second.companies[0]!.jobIds).toEqual(["job_1"]);
-    expect(second.companies[0]!.updatedAt).toBe(now);
+    expect(second.companies[0]!.updatedAt).toBe("2026-08-15T10:00:00.001Z");
     expect(JSON.stringify(companies)).toBe(companiesSnapshot);
     expect(JSON.stringify(jobs)).toBe(jobsSnapshot);
   });
@@ -526,6 +956,13 @@ describe("reviewCompanyMerge", () => {
           alias: "Acme Incorporated",
           normalized: "acme incorporated",
           confidence: 1,
+          identityAuthority: "unknown",
+        },
+        {
+          alias: "Acme",
+          normalized: "acme",
+          confidence: 0.5,
+          identityAuthority: "unknown",
         },
       ],
       domains: [{ domain: "acme.com", primary: true, verifiedAt: null }],
@@ -636,6 +1073,10 @@ describe("reviewCompanyMerge", () => {
     expect(merged.aliases.map((alias) => alias.normalized)).toEqual([
       "acme incorporated",
       "acme",
+    ]);
+    expect(merged.aliases.map((alias) => alias.identityAuthority)).toEqual([
+      "unknown",
+      "user_approved_merge",
     ]);
     expect(merged.domains).toEqual([
       { domain: "acme.com", primary: true, verifiedAt: null },
@@ -936,9 +1377,115 @@ describe("applyCompanyIntelligenceMutation", () => {
             updatedAt: now,
           },
         ],
+        jobIds: ["job_1"],
+        applicationRecordIds: ["app_1", "app_2"],
       }),
     ];
   }
+
+  test("advances every mutation variant beyond a fixed or future company timestamp", () => {
+    const mutations: CompanyIntelligenceMutationInput["mutation"][] = [
+      {
+        type: "upsert_contact",
+        contact: {
+          id: "contact_2",
+          name: "Grace",
+          role: null,
+          email: null,
+          phone: null,
+          notes: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+      },
+      { type: "remove_contact", contactId: "contact_1" },
+      {
+        type: "add_note",
+        note: {
+          id: "note_2",
+          body: "Next call",
+          createdAt: now,
+          updatedAt: now,
+        },
+      },
+      { type: "remove_note", noteId: "note_1" },
+      {
+        type: "upsert_salary_offer_evidence",
+        evidence: {
+          id: "evidence_2",
+          kind: "listed_salary",
+          summary: "New offer",
+          currency: "USD",
+          minimum: 200000,
+          maximum: 200000,
+          period: "year",
+          offerStatus: null,
+          jobId: "job_1",
+          applicationRecordId: null,
+          source: "manual",
+          recordedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        },
+      },
+      {
+        type: "remove_salary_offer_evidence",
+        evidenceId: "evidence_1",
+      },
+    ];
+
+    for (const mutation of mutations) {
+      const company = makeCompany({
+        ...companiesWith()[0],
+        updatedAt: later,
+      });
+      const result = applyCompanyIntelligenceMutation({
+        companies: [company],
+        jobs: [makeJob({ id: "job_1", company: "Acme Inc" })],
+        input: {
+          companyId: company.id,
+          expectedUpdatedAt: later,
+          mutation,
+        },
+        now,
+      });
+
+      expect(result.ok, JSON.stringify(result)).toBe(true);
+      if (!result.ok) continue;
+      expect(result.company.updatedAt).toBe("2026-08-15T11:00:00.001Z");
+      expect(Date.parse(result.company.updatedAt)).toBeGreaterThan(
+        Date.parse(company.updatedAt),
+      );
+    }
+  });
+
+  test("allows exactly one of two same-millisecond commands with the same CAS timestamp", () => {
+    const companies = companiesWith();
+    const first = applyCompanyIntelligenceMutation({
+      companies,
+      input: {
+        companyId: "c1",
+        expectedUpdatedAt: now,
+        mutation: { type: "remove_note", noteId: "note_1" },
+      },
+      now,
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(first.company.updatedAt).toBe("2026-08-15T10:00:00.001Z");
+
+    const second = applyCompanyIntelligenceMutation({
+      companies: first.companies,
+      input: {
+        companyId: "c1",
+        expectedUpdatedAt: now,
+        mutation: { type: "remove_contact", contactId: "contact_1" },
+      },
+      now,
+    });
+    expect(second.ok).toBe(false);
+    if (!second.ok) expect(second.failure.code).toBe("company_changed");
+  });
 
   test("upserts a contact preserving the original createdAt", () => {
     const result = applyCompanyIntelligenceMutation({
@@ -1081,6 +1628,14 @@ describe("applyCompanyIntelligenceMutation", () => {
   test("upserts and removes salary/offer evidence", () => {
     const updated = applyCompanyIntelligenceMutation({
       companies: companiesWith(),
+      jobs: [makeJob({ id: "job_1", company: "Acme Inc" })],
+      applicationRecords: [
+        makeApplicationRecord({
+          id: "app_1",
+          jobId: "job_1",
+          company: "Acme Inc",
+        }),
+      ],
       input: {
         companyId: "c1",
         expectedUpdatedAt: now,
@@ -1095,8 +1650,8 @@ describe("applyCompanyIntelligenceMutation", () => {
             maximum: 195000,
             period: "year",
             offerStatus: "accepted",
-            jobId: null,
-            applicationRecordId: null,
+            jobId: "job_1",
+            applicationRecordId: "app_1",
             source: "manual",
             recordedAt: later,
             createdAt: later,
@@ -1131,6 +1686,315 @@ describe("applyCompanyIntelligenceMutation", () => {
     expect(removed.ok).toBe(true);
     if (!removed.ok) return;
     expect(removed.company.salaryOfferEvidence).toEqual([]);
+  });
+
+  test("validates exact current job, company, and application lineage before writing", () => {
+    const jobs = [
+      makeJob({ id: "job_1", company: "Acme Inc" }),
+      makeJob({ id: "job_other", company: "Other Inc" }),
+    ];
+    const applicationRecords = [
+      makeApplicationRecord({
+        id: "app_1",
+        jobId: "job_1",
+        company: "Acme Inc",
+      }),
+      makeApplicationRecord({
+        id: "app_2",
+        jobId: "job_1",
+        company: "Acme Inc",
+      }),
+      makeApplicationRecord({
+        id: "app_other_job",
+        jobId: "job_other",
+        company: "Other Inc",
+      }),
+    ];
+    const companies = companiesWith();
+    const snapshot = JSON.stringify(companies);
+    const evidence = {
+      id: "evidence_new",
+      kind: "offer" as const,
+      summary: "Exact offer",
+      currency: "USD",
+      minimum: 200000,
+      maximum: 200000,
+      period: "year" as const,
+      offerStatus: "active" as const,
+      jobId: "job_1",
+      applicationRecordId: "app_2",
+      source: "manual",
+      recordedAt: later,
+      createdAt: later,
+      updatedAt: later,
+    };
+    const apply = (overrides: Partial<typeof evidence>) =>
+      applyCompanyIntelligenceMutation({
+        companies,
+        jobs,
+        applicationRecords,
+        input: {
+          companyId: "c1",
+          expectedUpdatedAt: now,
+          mutation: {
+            type: "upsert_salary_offer_evidence",
+            evidence: { ...evidence, ...overrides },
+          },
+        },
+        now: latest,
+      });
+
+    expect(apply({}).ok).toBe(true);
+    for (const [overrides, code] of [
+      [{ jobId: "missing" }, "job_not_found"],
+      [
+        { jobId: "job_other", applicationRecordId: "app_other_job" },
+        "job_company_mismatch",
+      ],
+      [{ applicationRecordId: "deleted" }, "application_record_not_found"],
+      [{ applicationRecordId: "app_other_job" }, "application_record_mismatch"],
+    ] as const) {
+      const result = apply(overrides);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.failure.code).toBe(code);
+      expect(JSON.stringify(companies)).toBe(snapshot);
+    }
+
+    const salary = applyCompanyIntelligenceMutation({
+      companies,
+      jobs,
+      applicationRecords,
+      input: {
+        companyId: "c1",
+        expectedUpdatedAt: now,
+        mutation: {
+          type: "upsert_salary_offer_evidence",
+          evidence: {
+            ...evidence,
+            kind: "listed_salary",
+            applicationRecordId: null,
+          },
+        },
+      },
+      now: latest,
+    });
+    expect(salary.ok).toBe(true);
+  });
+
+  test("fails closed for ambiguous current company identity without writing", () => {
+    const companies = [
+      makeCompany({
+        id: "c1",
+        canonicalName: "Acme One",
+        aliases: [
+          {
+            alias: "Acme",
+            normalized: "acme",
+            confidence: 1,
+            identityAuthority: "user_approved_merge",
+          },
+        ],
+        domains: [
+          { domain: "shared.example", primary: true, verifiedAt: null },
+        ],
+        jobIds: ["job_1", "job_alias"],
+        applicationRecordIds: ["app_1"],
+      }),
+      makeCompany({
+        id: "c2",
+        canonicalName: "Acme Two",
+        aliases: [
+          {
+            alias: "Acme",
+            normalized: "acme",
+            confidence: 1,
+            identityAuthority: "user_approved_merge",
+          },
+        ],
+        domains: [
+          { domain: "shared.example", primary: true, verifiedAt: null },
+        ],
+        jobIds: ["job_1", "job_alias"],
+        applicationRecordIds: ["app_1"],
+      }),
+    ];
+    const snapshot = JSON.stringify(companies);
+    const job = makeJob({
+      id: "job_1",
+      company: "Acme",
+      employerDomain: "shared.example",
+    });
+    const record = makeApplicationRecord({
+      id: "app_1",
+      jobId: "job_1",
+      company: "Acme",
+    });
+
+    for (const company of companies) {
+      const result = applyCompanyIntelligenceMutation({
+        companies,
+        jobs: [job],
+        applicationRecords: [record],
+        input: {
+          companyId: company.id,
+          expectedUpdatedAt: company.updatedAt,
+          mutation: {
+            type: "upsert_salary_offer_evidence",
+            evidence: {
+              id: "ambiguous_evidence",
+              kind: "offer",
+              summary: "Ambiguous offer",
+              currency: "USD",
+              minimum: 180000,
+              maximum: 180000,
+              period: "year",
+              offerStatus: "active",
+              jobId: "job_1",
+              applicationRecordId: "app_1",
+              source: "manual",
+              recordedAt: later,
+              createdAt: later,
+              updatedAt: later,
+            },
+          },
+        },
+        now: latest,
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.failure.code).toBe("job_company_mismatch");
+
+      const aliasResult = applyCompanyIntelligenceMutation({
+        companies,
+        jobs: [makeJob({ id: "job_alias", company: "Acme" })],
+        applicationRecords: [],
+        input: {
+          companyId: company.id,
+          expectedUpdatedAt: company.updatedAt,
+          mutation: {
+            type: "upsert_salary_offer_evidence",
+            evidence: {
+              id: "ambiguous_alias_evidence",
+              kind: "listed_salary",
+              summary: "Ambiguous listing",
+              currency: "USD",
+              minimum: 170000,
+              maximum: 190000,
+              period: "year",
+              offerStatus: null,
+              jobId: "job_alias",
+              applicationRecordId: null,
+              source: "manual",
+              recordedAt: later,
+              createdAt: later,
+              updatedAt: later,
+            },
+          },
+        },
+        now: latest,
+      });
+      expect(aliasResult.ok).toBe(false);
+      if (!aliasResult.ok) {
+        expect(aliasResult.failure.code).toBe("job_company_mismatch");
+      }
+    }
+    expect(JSON.stringify(companies)).toBe(snapshot);
+  });
+
+  test("rejects domain-only, unknown-alias, and conflicting-domain authority without writing", () => {
+    const cases = [
+      {
+        companies: [
+          makeCompany({
+            id: "owner",
+            canonicalName: "Legacy Holdings",
+            domains: [
+              { domain: "acme.example", primary: true, verifiedAt: null },
+            ],
+            jobIds: ["job_1"],
+          }),
+        ],
+        job: makeJob({
+          id: "job_1",
+          company: "Acme",
+          employerDomain: "acme.example",
+        }),
+      },
+      {
+        companies: [
+          makeCompany({
+            id: "owner",
+            canonicalName: "Legacy Holdings",
+            aliases: [
+              {
+                alias: "Acme",
+                normalized: "acme",
+                confidence: 1,
+                identityAuthority: "unknown",
+              },
+            ],
+            jobIds: ["job_1"],
+          }),
+        ],
+        job: makeJob({ id: "job_1", company: "Acme" }),
+      },
+      {
+        companies: [
+          makeCompany({
+            id: "owner",
+            canonicalName: "Acme",
+            jobIds: ["job_1"],
+          }),
+          makeCompany({
+            id: "domain_owner",
+            canonicalName: "Other",
+            domains: [
+              { domain: "other.example", primary: true, verifiedAt: null },
+            ],
+          }),
+        ],
+        job: makeJob({
+          id: "job_1",
+          company: "Acme",
+          employerDomain: "other.example",
+        }),
+      },
+    ];
+
+    for (const { companies, job } of cases) {
+      const snapshot = JSON.stringify(companies);
+      const owner = companies.find((company) => company.id === "owner")!;
+      const result = applyCompanyIntelligenceMutation({
+        companies,
+        jobs: [job],
+        input: {
+          companyId: owner.id,
+          expectedUpdatedAt: owner.updatedAt,
+          mutation: {
+            type: "upsert_salary_offer_evidence",
+            evidence: {
+              id: "unowned_evidence",
+              kind: "listed_salary",
+              summary: "Unowned listing",
+              currency: "USD",
+              minimum: 170000,
+              maximum: 190000,
+              period: "year",
+              offerStatus: null,
+              jobId: job.id,
+              applicationRecordId: null,
+              source: "manual",
+              recordedAt: later,
+              createdAt: later,
+              updatedAt: later,
+            },
+          },
+        },
+        now: latest,
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.failure.code).toBe("job_company_mismatch");
+      expect(JSON.stringify(companies)).toBe(snapshot);
+    }
   });
 
   test("rejects a stale compare-and-swap timestamp", () => {

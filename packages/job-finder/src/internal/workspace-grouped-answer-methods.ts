@@ -131,19 +131,13 @@ export function createWorkspaceGroupedAnswerMethods(input: {
   ): Promise<void> {
     await ctx.withIntelligenceTransition(async () => {
       const now = new Date().toISOString();
-      const [
-        requests,
-        questionRecords,
-        answerRecords,
-        applicationRecords,
-        intelligence,
-      ] = await Promise.all([
-        ctx.repository.listUserActionRequests(),
-        ctx.repository.listApplicationQuestionRecords(),
-        ctx.repository.listApplicationAnswerRecords(),
-        ctx.repository.listApplicationRecords(),
-        ctx.repository.getIntelligenceState(),
-      ]);
+      const [requests, questionRecords, answerRecords, intelligence] =
+        await Promise.all([
+          ctx.repository.listUserActionRequests(),
+          ctx.repository.listApplicationQuestionRecords(),
+          ctx.repository.listApplicationAnswerRecords(),
+          ctx.repository.getIntelligenceState(),
+        ]);
 
       const root = requests.find((request) => request.id === command.requestId);
       if (!root) {
@@ -162,12 +156,10 @@ export function createWorkspaceGroupedAnswerMethods(input: {
         );
       }
 
-      const applicationRecordIdByJobId = new Map(
-        applicationRecords.map((record) => [record.jobId, record.id]),
-      );
       const questionsByScope = new Map<string, ApplicationQuestionRecord[]>();
       for (const question of questionRecords) {
-        const key = `${question.runId}|${question.jobId}|${question.resultId ?? ""}`;
+        if (!question.applicationRecordId) continue;
+        const key = `${question.runId}|${question.jobId}|${question.applicationRecordId}|${question.resultId ?? ""}`;
         const entries = questionsByScope.get(key) ?? [];
         entries.push(question);
         questionsByScope.set(key, entries);
@@ -181,10 +173,10 @@ export function createWorkspaceGroupedAnswerMethods(input: {
         const request = parsed.data;
         if (!isProjectableManualAnswerRequest(request)) continue;
         const scope = request.scope;
-        if (!scope.resultId) continue;
+        if (!scope.applicationRecordId || !scope.resultId) continue;
         const detectedQuestions = (
           questionsByScope.get(
-            `${scope.runId}|${scope.jobId}|${scope.resultId}`,
+            `${scope.runId}|${scope.jobId}|${scope.applicationRecordId}|${scope.resultId}`,
           ) ?? []
         ).filter((question) => question.status === "detected");
         // Only unambiguous question contexts are groupable; the apply copilot
@@ -195,11 +187,15 @@ export function createWorkspaceGroupedAnswerMethods(input: {
           answerRecords,
           question.id,
         );
+        if (
+          latestAnswer !== null &&
+          latestAnswer.applicationRecordId !== scope.applicationRecordId
+        ) {
+          continue;
+        }
         contexts.set(request.id, {
           question: toAttemptQuestion(question),
-          applicationRecordId:
-            applicationRecordIdByJobId.get(scope.jobId) ??
-            `application_${scope.jobId}`,
+          applicationRecordId: scope.applicationRecordId,
           questionRevision: 1,
           answerRevision: latestAnswer?.revision ?? 0,
         });
@@ -374,12 +370,27 @@ export function createWorkspaceGroupedAnswerMethods(input: {
         if (seenQuestionIds.has(entry.questionId)) continue;
         seenQuestionIds.add(entry.questionId);
 
+        const request = requestsByRequestId.get(entry.requestId);
+        if (
+          request?.scope.type !== "application" ||
+          request.scope.applicationRecordId !== entry.applicationRecordId
+        ) {
+          throw new Error(
+            `Member request '${entry.requestId}' no longer has exact application lineage for decision '${pending.id}'; the whole group is aborted.`,
+          );
+        }
+
         const question = questionRecords.find(
           (candidate) => candidate.id === entry.questionId,
         );
         if (!question) {
           throw new Error(
             `Question '${entry.questionId}' is no longer available for decision '${pending.id}'.`,
+          );
+        }
+        if (question.applicationRecordId !== entry.applicationRecordId) {
+          throw new Error(
+            `Question '${entry.questionId}' no longer has exact application lineage for decision '${pending.id}'; the whole group is aborted.`,
           );
         }
         // Questions carry no persisted revision; the atomic commit
@@ -389,10 +400,19 @@ export function createWorkspaceGroupedAnswerMethods(input: {
         nextQuestions.push(question);
 
         const latest = latestAnswerForQuestion(answerRecords, entry.questionId);
+        if (
+          latest !== null &&
+          latest.applicationRecordId !== entry.applicationRecordId
+        ) {
+          throw new Error(
+            `Answer for question '${entry.questionId}' no longer has exact application lineage for decision '${pending.id}'; the whole group is aborted.`,
+          );
+        }
         const baseAnswer = {
           id: groupedAnswerRecordId(pending.id, entry.questionId),
           runId: question.runId,
           jobId: question.jobId,
+          applicationRecordId: entry.applicationRecordId,
           resultId: question.resultId,
           questionId: question.id,
           status: "suggested" as const,

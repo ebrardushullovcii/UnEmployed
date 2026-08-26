@@ -3,11 +3,12 @@ import { performance } from "node:perf_hooks";
 import {
   ApplicationAttemptSchema,
   ApplicationRecordSchema,
+  DiscoveryJobViewSchema,
   ReviewQueueItemSchema,
-  SavedJobSchema,
   UserActionRequestSchema,
   type ApplicationAttempt,
   type ApplicationRecord,
+  type DiscoveryJobView,
   type ReviewQueueItem,
   type SavedJob,
   type UserActionRequest,
@@ -37,16 +38,16 @@ const FIXED_NOW = "2026-07-30T08:00:00.000Z";
 type RendererScaleFixture = {
   applicationAttempts: readonly ApplicationAttempt[];
   applicationRecords: readonly ApplicationRecord[];
-  discoveryJobs: readonly SavedJob[];
+  discoveryJobs: readonly DiscoveryJobView[];
   reviewQueue: readonly ReviewQueueItem[];
   userActionRequests: readonly UserActionRequest[];
 };
 
-function createDiscoveryJobs(): SavedJob[] {
+function createDiscoveryJobs(): DiscoveryJobView[] {
   return Array.from({ length: DISCOVERY_JOB_COUNT }, (_, index) => {
     const ordinal = index.toString().padStart(4, "0");
 
-    return SavedJobSchema.parse({
+    return DiscoveryJobViewSchema.parse({
       id: `renderer_job_${ordinal}`,
       source: "target_site",
       sourceJobId: `renderer_source_${ordinal}`,
@@ -66,6 +67,11 @@ function createDiscoveryJobs(): SavedJob[] {
         score: 70 + (index % 30),
         reasons: ["Relevant product design experience"],
         gaps: [],
+      },
+      listingActivity: {
+        status: "active",
+        observedAt: FIXED_NOW,
+        evidence: "last_seen_at",
       },
     });
   });
@@ -135,6 +141,7 @@ function createApplications(discoveryJobs: readonly SavedJob[]): {
         ApplicationAttemptSchema.parse({
           id: `renderer_attempt_${index}_${attemptIndex}`,
           jobId: job.id,
+          applicationRecordId: `renderer_application_${index}`,
           state: lastAttemptState,
           summary: "Application preparation checkpoint",
           detail: "Final submission remains disabled.",

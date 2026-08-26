@@ -271,6 +271,14 @@ export function nextAssetVersion(
   return `v${numericPortion + 1}`;
 }
 
+// Per-application event history is capped at the newest 100 entries so
+// repeated apply/retry cycles cannot grow workspace snapshots and DB rows
+// without bound. This mirrors the newest-100 history retention already used
+// for campaign dashboards and resume revision diffs. Dedupe still replaces
+// same-ID events before the cap is applied, so retried checkpoints never
+// consume extra history slots.
+export const MAX_APPLICATION_EVENT_HISTORY = 100;
+
 export function mergeEvents(
   existingEvents: readonly ApplicationEvent[],
   additionalEvents: readonly ApplicationEvent[],
@@ -281,9 +289,12 @@ export function mergeEvents(
     merged.set(event.id, event);
   }
 
-  return [...merged.values()].sort(
-    (left, right) => new Date(right.at).getTime() - new Date(left.at).getTime(),
-  );
+  return [...merged.values()]
+    .sort(
+      (left, right) =>
+        new Date(right.at).getTime() - new Date(left.at).getTime(),
+    )
+    .slice(0, MAX_APPLICATION_EVENT_HISTORY);
 }
 
 export function toApplicationEvents(

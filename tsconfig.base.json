@@ -27,8 +27,14 @@
       "@unemployed/core": ["packages/core/src/index.ts"],
       "@unemployed/db": ["packages/db/src/index.ts"],
       "@unemployed/knowledge-base": ["packages/knowledge-base/src/index.ts"],
+      "@unemployed/job-finder/discovery-ordering": [
+        "packages/job-finder/src/discovery-ordering.ts"
+      ],
       "@unemployed/job-finder/resume-record-identity": [
         "packages/job-finder/src/resume-record-identity.ts"
+      ],
+      "@unemployed/job-finder/source-health": [
+        "packages/job-finder/src/source-health.ts"
       ],
       "@unemployed/job-finder/source-instruction-review": [
         "packages/job-finder/src/source-instruction-review.ts"

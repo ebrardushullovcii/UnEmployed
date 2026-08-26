@@ -7,6 +7,7 @@ import type {
   OpenBrowserSessionOptions,
 } from "@unemployed/browser-runtime";
 import type {
+  ApplyJobResult,
   JobFinderDiscoveryState,
   JobFinderWorkspaceSnapshot,
   JobSearchPreferences,
@@ -32,6 +33,11 @@ export interface MutableRef<T> {
   current: T;
 }
 
+export interface ApplicationPreparationCapacityToken {
+  localDate: string;
+  remainingJobs: number;
+}
+
 export interface WorkspaceServiceContext {
   aiClient: JobFinderAiClient;
   visionProvider?: ResumeVisionProvider;
@@ -49,6 +55,14 @@ export interface WorkspaceServiceContext {
   activeApplyRunAbortControllers: Map<string, AbortController>;
   activeApplyRunPromises: Map<string, Promise<void>>;
   applyRunTransitionTails: Map<string, Promise<void>>;
+  markApplicationPreparationStarted(
+    input: { resultId: string; runId: string; jobId: string },
+    token?: ApplicationPreparationCapacityToken,
+  ): Promise<ApplyJobResult>;
+  requireApplicationSafeguardClearance?(
+    jobIds: readonly string[],
+    savedJobs?: readonly SavedJob[],
+  ): Promise<void>;
   withApplicationCrmTransition<T>(operation: () => Promise<T>): Promise<T>;
   withIntelligenceTransition<T>(operation: () => Promise<T>): Promise<T>;
   withCampaignTransition<T>(operation: () => Promise<T>): Promise<T>;
@@ -67,10 +81,6 @@ export interface WorkspaceServiceContext {
   persistDiscoveryState: (
     updater: (current: JobFinderDiscoveryState) => JobFinderDiscoveryState,
   ) => Promise<JobFinderDiscoveryState>;
-  persistSavedJobsAndDiscoveryState: (input: {
-    savedJobs: readonly SavedJob[];
-    discoveryState: JobFinderDiscoveryState;
-  }) => Promise<void>;
   refreshDiscoverySessions: (
     searchPreferences: JobSearchPreferences,
   ) => Promise<JobFinderDiscoveryState["sessions"]>;

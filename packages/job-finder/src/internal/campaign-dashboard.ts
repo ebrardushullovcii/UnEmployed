@@ -2,7 +2,9 @@ import {
   JobFinderDashboardSummarySchema,
   JobSearchCampaignCollectionSchema,
   JobSearchCampaignSchema,
+  JobSearchPreferencesSchema,
   getDefaultCampaignConfiguration,
+  type ApplyJobResult,
   type ApplyRun,
   type ApplicationRecord,
   type JobFinderDashboardSummary,
@@ -16,10 +18,12 @@ import {
   type UserActionRequest,
 } from "@unemployed/contracts";
 import type { JobFinderRepository } from "@unemployed/db";
+import type { SourceAccessPrompt } from "@unemployed/contracts";
 import {
   getApplicationCrmData,
   projectApplicationCrmDashboard,
 } from "./application-crm";
+import { deriveEnabledSourceHealthCounts } from "../source-health";
 
 const FINAL_ACTION_STATES = new Set([
   "resolved",
@@ -27,6 +31,31 @@ const FINAL_ACTION_STATES = new Set([
   "cancelled",
   "expired",
   "superseded",
+]);
+
+/**
+ * Apply-run states that still own live queue work: actively running, staged
+ * for submit approval, or paused at a resumable user-attention checkpoint.
+ * Terminal runs (completed, cancelled, failed) keep their last-known
+ * `pendingJobs` counters forever, so counting them would inflate the campaign
+ * queue with stale historical work; only these states contribute.
+ */
+const ACTIVE_APPLY_RUN_QUEUE_STATES = new Set([
+  "awaiting_submit_approval",
+  "running",
+  "paused_for_user_review",
+  "paused_for_consent",
+]);
+
+/**
+ * Apply-job result states that describe work still being processed by its
+ * run. They only represent queue while the parent run can still advance them.
+ */
+const TRANSIENT_APPLY_JOB_RESULT_STATES = new Set([
+  "planned",
+  "question_capture",
+  "filling",
+  "submitting",
 ]);
 function startOfLocalDay(value: Date): number {
   return new Date(
@@ -39,6 +68,8 @@ function startOfLocalDay(value: Date): number {
 function isAtOrAfter(value: string, threshold: number): boolean {
   return Date.parse(value) >= threshold;
 }
+
+const ADOPTION_HISTORY_ID = "campaign_history_default_created";
 
 function createDefaultCampaign(
   searchPreferences: JobSearchPreferences,
@@ -85,26 +116,130 @@ function createDefaultCampaign(
   });
 }
 
+function hasCommittedDiscoveryRun(campaign: JobSearchCampaign): boolean {
+  return campaign.history.some((entry) => entry.kind === "discovery_run");
+}
+
+/**
+ * True for campaigns produced by adoption (`createDefaultCampaign`). Only
+ * adoption-lineage campaigns may be reconciled: user-created campaigns start
+ * deliberately empty, so backfilling them would fabricate retention and break
+ * the honest zero-sample funnel contract.
+ */
+function isAdoptionLineageCampaign(campaign: JobSearchCampaign): boolean {
+  return campaign.history.some((entry) => entry.id === ADOPTION_HISTORY_ID);
+}
+
+function sameStringValues(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((value, index) => value === right[index])
+  );
+}
+
+/**
+ * Migration-style repair for adoption-lineage campaigns (the default campaign
+ * created for pre-campaign workspaces) that predate their first committed
+ * discovery run. Such a campaign has never made an explicit retention decision
+ * (`jobIds` is only written by adoption and run commits), so stale or empty
+ * retention must not gate saved jobs out of the queues. Re-derives retention
+ * and targeting from current workspace data exactly like adoption does, and
+ * leaves every campaign that already committed a run — including ones that
+ * deliberately retained zero jobs — untouched. Returns `null` when nothing
+ * changed.
+ */
+export function reconcileCampaignState(input: {
+  state: JobSearchCampaignCollection;
+  savedJobs: readonly SavedJob[];
+  searchPreferences: JobSearchPreferences;
+  now: string;
+}): JobSearchCampaignCollection | null {
+  const savedJobIds = input.savedJobs.map((job) => job.id);
+  const searchPreferences = JobSearchPreferencesSchema.parse(
+    input.searchPreferences,
+  );
+  const serializedSearchPreferences = JSON.stringify(searchPreferences);
+  const enabledSourceTargetIds = searchPreferences.discovery.targets
+    .filter((target) => target.enabled)
+    .map((target) => target.id);
+  let changed = false;
+  const campaigns = input.state.campaigns.map((campaign) => {
+    if (campaign.id !== input.state.activeCampaignId) return campaign;
+    if (campaign.status !== "active" && campaign.status !== "paused") {
+      return campaign;
+    }
+    if (!isAdoptionLineageCampaign(campaign)) return campaign;
+    if (hasCommittedDiscoveryRun(campaign)) return campaign;
+
+    const unchanged =
+      sameStringValues(savedJobIds, campaign.jobIds) &&
+      sameStringValues(enabledSourceTargetIds, campaign.sourceTargetIds) &&
+      serializedSearchPreferences ===
+        JSON.stringify(campaign.searchPreferences);
+    if (unchanged) return campaign;
+
+    changed = true;
+    return JobSearchCampaignSchema.parse({
+      ...campaign,
+      jobIds: [...savedJobIds],
+      sourceTargetIds: enabledSourceTargetIds,
+      searchPreferences,
+      updatedAt: input.now,
+      history: [
+        {
+          id: "campaign_history_retention_reconciled",
+          campaignId: campaign.id,
+          kind: "updated" as const,
+          occurredAt: input.now,
+          summary: "Reconciled retention with the current workspace.",
+          discoveryRunId: null,
+        },
+        ...campaign.history,
+      ].slice(0, 100),
+    });
+  });
+
+  if (!changed) return null;
+  return JobSearchCampaignCollectionSchema.parse({
+    ...input.state,
+    campaigns,
+  });
+}
+
 export async function ensureCampaignState(input: {
   repository: JobFinderRepository;
   searchPreferences: JobSearchPreferences;
   now?: string;
 }): Promise<JobSearchCampaignCollection> {
   const existing = await input.repository.getCampaignState();
-  if (existing) return existing;
+  const now = input.now ?? new Date().toISOString();
+  if (!existing) {
+    const campaign = createDefaultCampaign(
+      input.searchPreferences,
+      now,
+      (await input.repository.listSavedJobs()).map((job) => job.id),
+      (await input.repository.getDiscoveryState()).recentRuns,
+    );
+    const created = JobSearchCampaignCollectionSchema.parse({
+      activeCampaignId: campaign.id,
+      campaigns: [campaign],
+    });
+    await input.repository.saveCampaignState(created);
+    return created;
+  }
 
-  const campaign = createDefaultCampaign(
-    input.searchPreferences,
-    input.now ?? new Date().toISOString(),
-    (await input.repository.listSavedJobs()).map((job) => job.id),
-    (await input.repository.getDiscoveryState()).recentRuns,
-  );
-  const created = JobSearchCampaignCollectionSchema.parse({
-    activeCampaignId: campaign.id,
-    campaigns: [campaign],
+  const reconciled = reconcileCampaignState({
+    state: existing,
+    savedJobs: await input.repository.listSavedJobs(),
+    searchPreferences: input.searchPreferences,
+    now,
   });
-  await input.repository.saveCampaignState(created);
-  return created;
+  if (!reconciled) return existing;
+  await input.repository.saveCampaignState(reconciled);
+  return reconciled;
 }
 
 export function createCampaign(input: {
@@ -153,12 +288,57 @@ export function assertCampaignCanRun(campaign: JobSearchCampaign): void {
   }
 }
 
+/**
+ * Truthful outstanding-work count derived from exact apply-job results
+ * instead of run-level `pendingJobs` counters, which terminal runs keep
+ * forever after an interruption. An `awaiting_review` row always counts:
+ * even when its parent run died, the prepared application still waits on a
+ * user decision or recovery. Transient rows (planned, question_capture,
+ * filling, submitting) count only while their parent run sits in a genuinely
+ * active or resumable attention state; under a terminal run they are history,
+ * not queue — this is what keeps stale interrupted-run counters from
+ * inflating the queue. Terminal outcome rows never count: submitted work is
+ * done, skipped/failed rows are exits, and blocked rows are deliberately
+ * excluded too — a blocked application does need the user, but it is
+ * surfaced as needs-you action work rather than queued preparation, so
+ * counting it here would double-report the same blocker.
+ */
+function deriveRemainingApplyQueueSize(input: {
+  applyRuns: readonly ApplyRun[];
+  applyJobResults: readonly ApplyJobResult[];
+}): number {
+  const activeRunIds = new Set(
+    input.applyRuns
+      .filter((run) => ACTIVE_APPLY_RUN_QUEUE_STATES.has(run.state))
+      .map((run) => run.id),
+  );
+  const seenLineages = new Set<string>();
+  let outstanding = 0;
+  for (const result of input.applyJobResults) {
+    // One outstanding item per run/job lineage, even if duplicate rows ever
+    // share one; mirrors the capacity projection's lineage key.
+    const lineage = `${result.runId}\0${result.jobId}`;
+    if (seenLineages.has(lineage)) continue;
+    seenLineages.add(lineage);
+    if (result.state === "awaiting_review") {
+      outstanding += 1;
+    } else if (
+      TRANSIENT_APPLY_JOB_RESULT_STATES.has(result.state) &&
+      activeRunIds.has(result.runId)
+    ) {
+      outstanding += 1;
+    }
+  }
+  return outstanding;
+}
+
 export function deriveCampaignProgress(input: {
   campaign: JobSearchCampaign;
   savedJobs: readonly SavedJob[];
   reviewQueue: readonly ReviewQueueItem[];
   applicationRecords: readonly ApplicationRecord[];
   applyRuns: readonly ApplyRun[];
+  applyJobResults: readonly ApplyJobResult[];
   unresolvedActions: number;
   lastRunAt: string | null;
   now: string;
@@ -190,10 +370,10 @@ export function deriveCampaignProgress(input: {
       : 0,
     currentBatchTotal: activeApplyRun?.totalJobs ?? 0,
     blockedCount: input.unresolvedActions,
-    remainingQueueSize: input.applyRuns.reduce(
-      (total, run) => total + run.pendingJobs,
-      0,
-    ),
+    remainingQueueSize: deriveRemainingApplyQueueSize({
+      applyRuns: input.applyRuns,
+      applyJobResults: input.applyJobResults,
+    }),
     lastRunAt: input.lastRunAt,
     lastUpdatedAt: input.now,
   };
@@ -209,9 +389,25 @@ export function deriveDashboardSummary(input: {
   userActionRequests: readonly UserActionRequest[];
   discovery: JobFinderDiscoveryState;
   searchPreferences: JobSearchPreferences;
+  sourceAccessPrompts?: readonly Pick<
+    SourceAccessPrompt,
+    "targetId" | "state"
+  >[];
 }): JobFinderDashboardSummary {
   const now = new Date(input.generatedAt);
+  const nowMs = now.getTime();
   const today = startOfLocalDay(now);
+  // Applied-day metrics follow the local calendar so they align with the
+  // local-midnight application capacity reset; the weekly metric keeps its
+  // existing rolling seven-day window, only re-anchored at local midnight.
+  const weekStart = today - 6 * 86_400_000;
+  const appliedTimestamps = input.applicationRecords
+    .map((record) => getApplicationCrmData(record).appliedAt)
+    .filter(
+      (appliedAt): appliedAt is string =>
+        appliedAt !== null && Number.isFinite(Date.parse(appliedAt)),
+    )
+    .map((appliedAt) => Date.parse(appliedAt));
   const unresolvedActions = input.userActionRequests.filter(
     (request) => !FINAL_ACTION_STATES.has(request.state),
   ).length;
@@ -227,17 +423,14 @@ export function deriveDashboardSummary(input: {
       .filter((execution) => execution.state === "running")
       .map((execution) => execution.targetId) ?? [],
   );
-  const sourceHealth = enabledTargets.reduce(
-    (summary, target) => {
-      if (runningTargetIds.has(target.id)) summary.running += 1;
-      else if (target.staleReason || !target.lastVerifiedAt)
-        summary.needsAttention += 1;
-      else summary.healthy += 1;
-      summary.total += 1;
-      return summary;
-    },
-    { healthy: 0, needsAttention: 0, running: 0, total: 0 },
-  );
+  const sourceHealth = deriveEnabledSourceHealthCounts(enabledTargets, {
+    runningTargetIds,
+    loginRequiredTargetIds: new Set(
+      (input.sourceAccessPrompts ?? [])
+        .filter((prompt) => prompt.state === "prompt_login_required")
+        .map((prompt) => prompt.targetId),
+    ),
+  });
   const jobsFoundToday = input.savedJobs.filter((job) =>
     job.provenance.some((entry) => isAtOrAfter(entry.discoveredAt, today)),
   ).length;
@@ -270,7 +463,7 @@ export function deriveDashboardSummary(input: {
             }
           : {
               label: "Find jobs",
-              detail: "Run the active campaign to collect relevant openings.",
+              detail: "Run the active search plan to collect relevant openings.",
               route: "/job-finder/discovery",
             };
 
@@ -283,8 +476,12 @@ export function deriveDashboardSummary(input: {
     jobsFoundToday,
     jobsAwaitingReview: input.reviewQueue.length,
     applicationsReadyForApproval: readyForApproval,
-    applicationsAppliedToday: crm.appliedToday,
-    applicationsAppliedThisWeek: crm.appliedThisWeek,
+    applicationsAppliedToday: appliedTimestamps.filter(
+      (appliedAtMs) => appliedAtMs >= today && appliedAtMs <= nowMs,
+    ).length,
+    applicationsAppliedThisWeek: appliedTimestamps.filter(
+      (appliedAtMs) => appliedAtMs >= weekStart && appliedAtMs <= nowMs,
+    ).length,
     needsYouCount: unresolvedActions,
     upcomingInterviews: crm.upcomingInterviews.length,
     upcomingFollowUps: crm.pendingFollowUps.length,

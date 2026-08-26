@@ -188,6 +188,7 @@ export const resumeValidationCategoryValues = [
   "low_confidence_fact",
   "stale_approval",
   "date_quality",
+  "claim_confirmation_needed",
 ] as const;
 
 export const ResumeValidationCategorySchema = z.enum(
@@ -227,6 +228,7 @@ export const resumeClaimAssessmentStatusValues = [
   "exact",
   "paraphrase",
   "review",
+  "confirm_needed",
   "unsupported",
 ] as const;
 export const ResumeClaimAssessmentStatusSchema = z.enum(
@@ -255,6 +257,13 @@ export type ResumeClaimEvidenceRef = z.infer<
   typeof ResumeClaimEvidenceRefSchema
 >;
 
+export const resumeClaimVerifierValues = [
+  "deterministic_candidate_evidence_v1",
+  "deterministic_candidate_evidence_v2",
+] as const;
+export const ResumeClaimVerifierSchema = z.enum(resumeClaimVerifierValues);
+export type ResumeClaimVerifier = z.infer<typeof ResumeClaimVerifierSchema>;
+
 export const ResumeClaimAssessmentSchema = z.object({
   id: NonEmptyStringSchema,
   field: ResumeClaimFieldSchema,
@@ -266,10 +275,85 @@ export const ResumeClaimAssessmentSchema = z.object({
   contentHash: NonEmptyStringSchema,
   status: ResumeClaimAssessmentStatusSchema,
   evidenceRefs: z.array(ResumeClaimEvidenceRefSchema).default([]),
-  verifier: z.literal("deterministic_candidate_evidence_v1"),
+  // Persisted v1 assessments must stay parseable; v2 marks the converged
+  // deterministic evidence verifier without changing the assessment shape.
+  verifier: ResumeClaimVerifierSchema,
   assessedAt: IsoDateTimeSchema,
 });
 export type ResumeClaimAssessment = z.infer<typeof ResumeClaimAssessmentSchema>;
+
+/**
+ * FNV-1a 32-bit hash of the normalized claim text, matching how existing
+ * claim assessments hash candidate content:
+ * `fnv1a32(normalizeText(claim.text))`. Normalization-equivalent text
+ * changes intentionally retain the same hash; substantive wording changes
+ * produce a different hash.
+ */
+export const ResumeClaimContentHashSchema = z
+  .string()
+  .regex(/^fnv1a32:[0-9a-f]{8}$/);
+
+export const resumeClaimOwnershipStatement =
+  "I confirm this content is accurate and my own.";
+
+export const ResumeClaimOwnershipStatementSchema = z.literal(
+  resumeClaimOwnershipStatement,
+);
+
+/**
+ * Explicit user confirmation that a specific draft locator's claim content is
+ * accurate and owned. Strictly bound to the confirmed claim content hash
+ * (normalized, assessment-compatible) and a literal ownership statement so
+ * confirmations fail closed against substantive content changes, malformed
+ * locators, or forged statements.
+ */
+export const ResumeClaimConfirmationSchema = z
+  .object({
+    id: NonEmptyStringSchema,
+    // draftId equality with the parent draft is a service responsibility:
+    // contracts may parse confirmations detached from their draft.
+    draftId: NonEmptyStringSchema,
+    field: ResumeClaimFieldSchema,
+    sectionId: NonEmptyStringSchema,
+    entryId: NonEmptyStringSchema.nullable().default(null),
+    bulletId: NonEmptyStringSchema.nullable().default(null),
+    confirmedClaimContentHash: ResumeClaimContentHashSchema,
+    ownershipStatement: ResumeClaimOwnershipStatementSchema,
+    confirmedAt: IsoDateTimeSchema,
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const expectsEntry =
+      value.field === "entry_summary" || value.field === "entry_bullet";
+    const expectsBullet =
+      value.field === "section_bullet" || value.field === "entry_bullet";
+
+    if ((value.entryId !== null) !== expectsEntry) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["entryId"],
+        message:
+          "Claim confirmation locators require an entryId exactly when field is entry_summary or entry_bullet.",
+      });
+    }
+
+    if ((value.bulletId !== null) !== expectsBullet) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["bulletId"],
+        message:
+          "Claim confirmation locators require a bulletId exactly when field is section_bullet or entry_bullet.",
+      });
+    }
+  });
+export type ResumeClaimConfirmation = z.infer<
+  typeof ResumeClaimConfirmationSchema
+>;
+
+export const ResumeClaimConfirmationsFieldSchema = z
+  .array(ResumeClaimConfirmationSchema)
+  .max(100)
+  .default([]);
 
 export const ResumeDraftIdentitySchema = z.object({
   fullName: NonEmptyStringSchema.nullable().default(null),
@@ -292,6 +376,9 @@ export const ResumeDraftBulletSchema = z.object({
   locked: z.boolean().default(false),
   included: z.boolean().default(true),
   sourceRefs: z.array(ResumeDraftSourceRefSchema).default([]),
+  lastGeneratedContentHash: ResumeClaimContentHashSchema.nullable().default(
+    null,
+  ),
   updatedAt: IsoDateTimeSchema,
 });
 export type ResumeDraftBullet = z.infer<typeof ResumeDraftBulletSchema>;
@@ -380,6 +467,132 @@ export const ResumeDraftSectionSchema = z.object({
 });
 export type ResumeDraftSection = z.output<typeof ResumeDraftSectionSchema>;
 
+export const workHistoryReviewSuggestionKindValues = [
+  "weak_fit",
+  "gap_coverage",
+  "compact_recommended",
+  "date_quality",
+] as const;
+export const WorkHistoryReviewSuggestionKindSchema = z.enum(
+  workHistoryReviewSuggestionKindValues,
+);
+export type WorkHistoryReviewSuggestionKind = z.infer<
+  typeof WorkHistoryReviewSuggestionKindSchema
+>;
+
+export const workHistoryReviewSuggestionActionValues = [
+  "review",
+  "consider_showing",
+  "consider_hiding",
+  "keep_compact",
+  "fix_dates",
+] as const;
+export const WorkHistoryReviewSuggestionActionSchema = z.enum(
+  workHistoryReviewSuggestionActionValues,
+);
+export type WorkHistoryReviewSuggestionAction = z.infer<
+  typeof WorkHistoryReviewSuggestionActionSchema
+>;
+
+/**
+ * FNV-1a 32-bit hash of the exact canonical `WorkHistoryReviewSuggestion.message`
+ * string. No normalization is applied: acknowledgments must hash the exact
+ * canonical message so any suggestion rewrite invalidates prior acknowledgments.
+ */
+export const WorkHistoryReviewMessageContentHashSchema = z
+  .string()
+  .regex(/^fnv1a32:[0-9a-f]{8}$/);
+
+export const WorkHistoryReviewSuggestionSchema = z.object({
+  id: NonEmptyStringSchema,
+  profileRecordId: NonEmptyStringSchema,
+  sectionId: NonEmptyStringSchema.nullable().default(null),
+  entryId: NonEmptyStringSchema.nullable().default(null),
+  kind: WorkHistoryReviewSuggestionKindSchema,
+  action: WorkHistoryReviewSuggestionActionSchema,
+  severity: ResumeValidationSeveritySchema.default("info"),
+  message: NonEmptyStringSchema,
+  messageContentHash: WorkHistoryReviewMessageContentHashSchema,
+});
+export type WorkHistoryReviewSuggestion = z.infer<
+  typeof WorkHistoryReviewSuggestionSchema
+>;
+
+export const workHistoryReviewAcknowledgmentReasonValues = [
+  "intentional_omission",
+  "intentional_compaction",
+] as const;
+export const WorkHistoryReviewAcknowledgmentReasonSchema = z.enum(
+  workHistoryReviewAcknowledgmentReasonValues,
+);
+export type WorkHistoryReviewAcknowledgmentReason = z.infer<
+  typeof WorkHistoryReviewAcknowledgmentReasonSchema
+>;
+
+export const workHistoryReviewAcknowledgmentKindValues = [
+  "weak_fit",
+  "gap_coverage",
+  "compact_recommended",
+] as const;
+export const WorkHistoryReviewAcknowledgmentKindSchema = z.enum(
+  workHistoryReviewAcknowledgmentKindValues,
+);
+export type WorkHistoryReviewAcknowledgmentKind = z.infer<
+  typeof WorkHistoryReviewAcknowledgmentKindSchema
+>;
+
+export const workHistoryReviewAcknowledgmentActionValues = [
+  "consider_showing",
+  "keep_compact",
+] as const;
+export const WorkHistoryReviewAcknowledgmentActionSchema = z.enum(
+  workHistoryReviewAcknowledgmentActionValues,
+);
+export type WorkHistoryReviewAcknowledgmentAction = z.infer<
+  typeof WorkHistoryReviewAcknowledgmentActionSchema
+>;
+
+export const WorkHistoryReviewAcknowledgmentSchema = z
+  .object({
+    id: NonEmptyStringSchema,
+    // draftId equality with the parent draft is a service responsibility:
+    // contracts may parse cross-draft acknowledgments and no persistence path exists yet.
+    draftId: NonEmptyStringSchema,
+    profileRecordId: NonEmptyStringSchema,
+    kind: WorkHistoryReviewAcknowledgmentKindSchema,
+    action: WorkHistoryReviewAcknowledgmentActionSchema,
+    messageContentHash: WorkHistoryReviewMessageContentHashSchema,
+    reason: WorkHistoryReviewAcknowledgmentReasonSchema,
+    acknowledgedAt: IsoDateTimeSchema,
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const isHonestPair =
+      ((value.kind === "weak_fit" || value.kind === "gap_coverage") &&
+        value.action === "consider_showing" &&
+        value.reason === "intentional_omission") ||
+      (value.kind === "compact_recommended" &&
+        value.action === "keep_compact" &&
+        value.reason === "intentional_compaction");
+
+    if (!isHonestPair) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["reason"],
+        message:
+          "Acknowledgments require an honest kind/action/reason pair: weak_fit or gap_coverage with consider_showing and intentional_omission, or compact_recommended with keep_compact and intentional_compaction.",
+      });
+    }
+  });
+export type WorkHistoryReviewAcknowledgment = z.infer<
+  typeof WorkHistoryReviewAcknowledgmentSchema
+>;
+
+export const WorkHistoryReviewAcknowledgmentsFieldSchema = z
+  .array(WorkHistoryReviewAcknowledgmentSchema)
+  .max(100)
+  .default([]);
+
 export const ResumeDraftSchema = z.object({
   id: NonEmptyStringSchema,
   jobId: NonEmptyStringSchema,
@@ -392,6 +605,8 @@ export const ResumeDraftSchema = z.object({
   approvedAt: IsoDateTimeSchema.nullable().default(null),
   approvedExportId: NonEmptyStringSchema.nullable().default(null),
   staleReason: NonEmptyStringSchema.nullable().default(null),
+  workHistoryReviewAcknowledgments: WorkHistoryReviewAcknowledgmentsFieldSchema,
+  claimConfirmations: ResumeClaimConfirmationsFieldSchema,
   createdAt: IsoDateTimeSchema,
   updatedAt: IsoDateTimeSchema,
 });
@@ -479,6 +694,12 @@ export const ResumeValidationIssueSchema = z.object({
 });
 export type ResumeValidationIssue = z.infer<typeof ResumeValidationIssueSchema>;
 
+export function isBlockingResumeValidationIssue(
+  issue: Pick<ResumeValidationIssue, "severity">,
+): boolean {
+  return issue.severity === "error";
+}
+
 export const resumeCoverageRoleStatusValues = [
   "unchanged",
   "rewritten",
@@ -558,47 +779,6 @@ export const ResumeValidationResultSchema = z.object({
 });
 export type ResumeValidationResult = z.infer<
   typeof ResumeValidationResultSchema
->;
-
-export const workHistoryReviewSuggestionKindValues = [
-  "weak_fit",
-  "gap_coverage",
-  "compact_recommended",
-  "date_quality",
-] as const;
-export const WorkHistoryReviewSuggestionKindSchema = z.enum(
-  workHistoryReviewSuggestionKindValues,
-);
-export type WorkHistoryReviewSuggestionKind = z.infer<
-  typeof WorkHistoryReviewSuggestionKindSchema
->;
-
-export const workHistoryReviewSuggestionActionValues = [
-  "review",
-  "consider_showing",
-  "consider_hiding",
-  "keep_compact",
-  "fix_dates",
-] as const;
-export const WorkHistoryReviewSuggestionActionSchema = z.enum(
-  workHistoryReviewSuggestionActionValues,
-);
-export type WorkHistoryReviewSuggestionAction = z.infer<
-  typeof WorkHistoryReviewSuggestionActionSchema
->;
-
-export const WorkHistoryReviewSuggestionSchema = z.object({
-  id: NonEmptyStringSchema,
-  profileRecordId: NonEmptyStringSchema,
-  sectionId: NonEmptyStringSchema.nullable().default(null),
-  entryId: NonEmptyStringSchema.nullable().default(null),
-  kind: WorkHistoryReviewSuggestionKindSchema,
-  action: WorkHistoryReviewSuggestionActionSchema,
-  severity: ResumeValidationSeveritySchema.default("info"),
-  message: NonEmptyStringSchema,
-});
-export type WorkHistoryReviewSuggestion = z.infer<
-  typeof WorkHistoryReviewSuggestionSchema
 >;
 
 export const resumePreviewWarningSourceValues = [

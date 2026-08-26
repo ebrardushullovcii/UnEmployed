@@ -47,6 +47,27 @@ Audio configuration is intentionally not included in this mixed provider routing
 Keep local Whisper or an explicit audio-capable transcription model configured
 for Interview Helper audio.
 
+## Desktop test API precedence for Interview Helper
+
+With `UNEMPLOYED_ENABLE_TEST_API=1`, Interview Helper providers resolve to the
+deterministic runtime regardless of ambient interview or shared credentials.
+Live AI during a test-API run requires the explicit, narrowly named opt-in:
+
+```dotenv
+UNEMPLOYED_INTERVIEW_TEST_USE_LIVE_AI=1
+```
+
+Production runs with the test API absent keep configured behavior unchanged,
+and explicitly configured local STT commands stay available under the test API
+because they execute offline. The release acceptance harness additionally
+strips every `UNEMPLOYED_INTERVIEW_*_API_KEY` variable plus the shared
+`UNEMPLOYED_AI_API_KEY`, `UNEMPLOYED_AI_VISION_API_KEY`, and
+`UNEMPLOYED_RESUME_VISION_API_KEY` keys (and this opt-in) from its launch
+environment, so no ambient developer-shell credential can win. The Job Finder
+resume benchmarks keep their own documented `--use-configured-ai`
+`UNEMPLOYED_TEST_API_USE_LIVE_AI` exceptions; this Interview Helper switch is
+separate and narrower.
+
 ## Local Codex subscription proxy
 
 For local evaluation without a separate OpenAI Platform key, use the pinned

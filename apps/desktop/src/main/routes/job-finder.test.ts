@@ -5,14 +5,24 @@ import type { IpcMain } from "electron";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ApplicationPacketSchema,
+  ApplicationCrmSettingsSchema,
+  AppearanceThemeSchema,
   getDefaultCampaignConfiguration,
+  DiscoveryRunRecordSchema,
+  JobFinderProfileCopilotPatchGroupActionInputSchema,
   JobFinderResumePreviewSchema,
+  JobFinderSetResumeClaimConfirmationInputSchema,
+  JobFinderSetWorkHistoryReviewAcknowledgmentInputSchema,
+  JobFinderUndoProfileRevisionInputSchema,
   ResumeDraftSchema,
   JobFinderWorkspaceSnapshotSchema,
   MarkAllCampaignNotificationsReadInputSchema,
   MarkCampaignNotificationReadInputSchema,
   ResumeQualityBenchmarkReportSchema,
   SaveCampaignRuleRouteInputSchema,
+  UpdateApplicationDefaultsInputSchema,
+  UpdateWorkspaceBehaviorInputSchema,
+  resumeClaimOwnershipStatement,
 } from "@unemployed/contracts";
 import { createEmptyJobFinderRepositoryState } from "../adapters/job-finder-initial-state";
 
@@ -39,9 +49,19 @@ const {
   mockRunCampaignNow,
   mockRunDesktopResumeQualityBenchmark,
   mockSaveCampaignRule,
+  mockSetResumeClaimConfirmation,
+  mockSetWorkHistoryReviewAcknowledgment,
+  mockStartApplyCopilotRun,
+  mockCancelApplyRun,
+  mockGetApplyRunDetails,
+  mockResolveApplyConsentRequest,
   mockShowSaveDialog,
   mockSnoozeGroupedDecision,
   mockToggleCampaignRule,
+  mockUpdateAppearanceTheme,
+  mockUpdateApplicationDefaults,
+  mockUpdateTrackerCrm,
+  mockUpdateWorkspaceBehavior,
 } = vi.hoisted(() => ({
   mockApplyGroupedManualAnswer: vi.fn(),
   mockBuildApplicationPacket: vi.fn(),
@@ -60,9 +80,19 @@ const {
   mockRunCampaignNow: vi.fn(),
   mockRunDesktopResumeQualityBenchmark: vi.fn(),
   mockSaveCampaignRule: vi.fn(),
+  mockSetResumeClaimConfirmation: vi.fn(),
+  mockSetWorkHistoryReviewAcknowledgment: vi.fn(),
+  mockStartApplyCopilotRun: vi.fn(),
+  mockCancelApplyRun: vi.fn(),
+  mockGetApplyRunDetails: vi.fn(),
+  mockResolveApplyConsentRequest: vi.fn(),
   mockShowSaveDialog: vi.fn(),
   mockSnoozeGroupedDecision: vi.fn(),
   mockToggleCampaignRule: vi.fn(),
+  mockUpdateAppearanceTheme: vi.fn(),
+  mockUpdateApplicationDefaults: vi.fn(),
+  mockUpdateTrackerCrm: vi.fn(),
+  mockUpdateWorkspaceBehavior: vi.fn(),
 }));
 
 vi.mock("electron", () => ({
@@ -119,6 +149,7 @@ const packet = ApplicationPacketSchema.parse({
   },
   result: {
     id: "result-1",
+    applicationRecordId: "application-1",
     state: "awaiting_review",
     summary: "Prepared",
     detail: "Stopped before final submit.",
@@ -138,6 +169,128 @@ const packet = ApplicationPacketSchema.parse({
   checkpoints: [],
   privacyReceipt: null,
   submissionOccurred: false,
+});
+
+describe("job-finder profile copilot patch-group routes", () => {
+  const mockApplyProfileCopilotPatchGroup = vi.fn();
+  const mockRejectProfileCopilotPatchGroup = vi.fn();
+  const mockUndoProfileRevision = vi.fn();
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function registerAndFindHandler(channel: string): RegisteredHandler {
+    const handlers = new Map<string, RegisteredHandler>();
+    const ipcMain = {
+      handle: vi.fn((registeredChannel: string, handler: RegisteredHandler) => {
+        handlers.set(registeredChannel, handler);
+      }),
+    } as unknown as IpcMain;
+    registerJobFinderRouteHandlers(ipcMain);
+
+    const handler = handlers.get(channel);
+    if (!handler) {
+      throw new Error(
+        `Profile Copilot patch-group handler was not registered: ${channel}`,
+      );
+    }
+    return handler;
+  }
+
+  it("forwards exact patch-group and revision IDs through apply, reject, and undo routes", async () => {
+    const snapshot = createEmptyWorkspace("2026-08-22T11:00:00.000Z");
+    mockApplyProfileCopilotPatchGroup.mockResolvedValue(snapshot);
+    mockRejectProfileCopilotPatchGroup.mockResolvedValue(snapshot);
+    mockUndoProfileRevision.mockResolvedValue(snapshot);
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      applyProfileCopilotPatchGroup: mockApplyProfileCopilotPatchGroup,
+      rejectProfileCopilotPatchGroup: mockRejectProfileCopilotPatchGroup,
+      undoProfileRevision: mockUndoProfileRevision,
+    });
+
+    const applyInput = JobFinderProfileCopilotPatchGroupActionInputSchema.parse(
+      { patchGroupId: "profile_patch_group_1" },
+    );
+    const applyResult = await registerAndFindHandler(
+      "job-finder:apply-profile-copilot-patch-group",
+    )({ sender: {} }, applyInput);
+    expect(mockApplyProfileCopilotPatchGroup).toHaveBeenCalledWith(
+      "profile_patch_group_1",
+    );
+    expect(applyResult).toEqual(snapshot);
+
+    const rejectInput =
+      JobFinderProfileCopilotPatchGroupActionInputSchema.parse({
+        patchGroupId: "profile_patch_group_2",
+      });
+    const rejectResult = await registerAndFindHandler(
+      "job-finder:reject-profile-copilot-patch-group",
+    )({ sender: {} }, rejectInput);
+    expect(mockRejectProfileCopilotPatchGroup).toHaveBeenCalledWith(
+      "profile_patch_group_2",
+    );
+    expect(rejectResult).toEqual(snapshot);
+
+    const undoInput = JobFinderUndoProfileRevisionInputSchema.parse({
+      revisionId: "profile_revision_3",
+    });
+    const undoResult = await registerAndFindHandler(
+      "job-finder:undo-profile-revision",
+    )({ sender: {} }, undoInput);
+    expect(mockUndoProfileRevision).toHaveBeenCalledWith("profile_revision_3");
+    expect(undoResult).toEqual(snapshot);
+  });
+
+  it("parses strict input schemas before touching the service", async () => {
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      applyProfileCopilotPatchGroup: mockApplyProfileCopilotPatchGroup,
+      rejectProfileCopilotPatchGroup: mockRejectProfileCopilotPatchGroup,
+      undoProfileRevision: mockUndoProfileRevision,
+    });
+
+    const applyHandler = registerAndFindHandler(
+      "job-finder:apply-profile-copilot-patch-group",
+    );
+    const rejectHandler = registerAndFindHandler(
+      "job-finder:reject-profile-copilot-patch-group",
+    );
+    const undoHandler = registerAndFindHandler(
+      "job-finder:undo-profile-revision",
+    );
+
+    await expect(
+      applyHandler({ sender: {} }, { patchGroupId: "" }),
+    ).rejects.toThrow();
+    await expect(
+      applyHandler({ sender: {} }, { patchGroupId: "  " }),
+    ).rejects.toThrow();
+    await expect(rejectHandler({ sender: {} }, {})).rejects.toThrow();
+    await expect(
+      undoHandler({ sender: {} }, { revisionId: 42 }),
+    ).rejects.toThrow();
+
+    expect(mockApplyProfileCopilotPatchGroup).not.toHaveBeenCalled();
+    expect(mockRejectProfileCopilotPatchGroup).not.toHaveBeenCalled();
+    expect(mockUndoProfileRevision).not.toHaveBeenCalled();
+  });
+
+  it("re-parses the service snapshot before returning it to IPC", async () => {
+    mockUndoProfileRevision.mockResolvedValue({
+      module: "job-finder",
+    } as unknown as ReturnType<typeof createEmptyWorkspace>);
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      undoProfileRevision: mockUndoProfileRevision,
+    });
+
+    await expect(
+      registerAndFindHandler("job-finder:undo-profile-revision")(
+        { sender: {} },
+        { revisionId: "profile_revision_4" },
+      ),
+    ).rejects.toThrow();
+    expect(mockUndoProfileRevision).toHaveBeenCalledWith("profile_revision_4");
+  });
 });
 
 function createEmptyWorkspace(generatedAt: string) {
@@ -343,11 +496,19 @@ describe("job-finder application packet export route", () => {
 
     const result = await exportHandler(
       { sender: {} },
-      { runId: "run-1", jobId: "job-1" },
+      {
+        runId: "run-1",
+        jobId: "job-1",
+        applicationRecordId: "application-1",
+      },
     );
 
     expect(result).toEqual({ status: "cancelled" });
-    expect(mockBuildApplicationPacket).toHaveBeenCalledWith("run-1", "job-1");
+    expect(mockBuildApplicationPacket).toHaveBeenCalledWith(
+      "run-1",
+      "job-1",
+      "application-1",
+    );
     await expect(readdir(temporaryDirectory)).resolves.toEqual([]);
   });
 
@@ -360,7 +521,11 @@ describe("job-finder application packet export route", () => {
 
     const result = await exportHandler(
       { sender: {} },
-      { runId: "run-1", jobId: "job-1" },
+      {
+        runId: "run-1",
+        jobId: "job-1",
+        applicationRecordId: "application-1",
+      },
     );
 
     expect(result).toEqual({ status: "saved" });
@@ -483,6 +648,133 @@ describe("job-finder application packet export route", () => {
   });
 });
 
+describe("job-finder employer exclusion routes", () => {
+  it("validates preview and exact reversal payloads across IPC", async () => {
+    const previewEmployerExclusion = vi.fn().mockResolvedValue({
+      status: "available",
+      jobId: "job-1",
+      displayCompanyName: "Example Co",
+      normalizedCompanyName: "example co",
+      employerDomain: "example.test",
+    });
+    const removeEmployerExclusion = vi
+      .fn()
+      .mockResolvedValue(createEmptyWorkspace("2026-08-23T10:00:00.000Z"));
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      previewEmployerExclusion,
+      removeEmployerExclusion,
+    });
+    const handlers = new Map<string, RegisteredHandler>();
+    registerJobFinderRouteHandlers({
+      handle: vi.fn((channel: string, handler: RegisteredHandler) => {
+        handlers.set(channel, handler);
+      }),
+    } as unknown as IpcMain);
+
+    await expect(
+      handlers.get("job-finder:preview-employer-exclusion")?.(
+        { sender: {} },
+        { jobId: "job-1" },
+      ),
+    ).resolves.toMatchObject({ normalizedCompanyName: "example co" });
+    await handlers.get("job-finder:remove-employer-exclusion")?.(
+      { sender: {} },
+      { jobId: "job-1", normalizedCompanyName: "example co" },
+    );
+    expect(removeEmployerExclusion).toHaveBeenCalledWith({
+      jobId: "job-1",
+      normalizedCompanyName: "example co",
+    });
+    await expect(
+      handlers.get("job-finder:remove-employer-exclusion")?.(
+        { sender: {} },
+        { jobId: "job-1", normalizedCompanyName: "" },
+      ),
+    ).rejects.toThrow();
+  });
+});
+
+describe("job-finder exact application lineage routes", () => {
+  it("rejects omitted Applications identity and forwards exact start/cancel/consent targets", async () => {
+    const snapshot = createEmptyWorkspace("2026-08-23T10:00:00.000Z");
+    mockStartApplyCopilotRun.mockResolvedValue(snapshot);
+    mockCancelApplyRun.mockResolvedValue(snapshot);
+    mockResolveApplyConsentRequest.mockResolvedValue(snapshot);
+    mockGetApplyRunDetails.mockResolvedValue({
+      run: {
+        id: "run-1",
+        jobIds: ["job-1"],
+      },
+      consentRequests: [
+        {
+          id: "consent-1",
+          runId: "run-1",
+          jobId: "job-1",
+          applicationRecordId: "application-1",
+        },
+      ],
+    });
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      startApplyCopilotRun: mockStartApplyCopilotRun,
+      cancelApplyRun: mockCancelApplyRun,
+      getApplyRunDetails: mockGetApplyRunDetails,
+      resolveApplyConsentRequest: mockResolveApplyConsentRequest,
+    });
+    const handlers = new Map<string, RegisteredHandler>();
+    registerJobFinderRouteHandlers({
+      handle: vi.fn((channel: string, handler: RegisteredHandler) => {
+        handlers.set(channel, handler);
+      }),
+    } as unknown as IpcMain);
+
+    await expect(
+      handlers.get("job-finder:get-apply-run-details")?.(
+        { sender: {} },
+        { runId: "run-1", jobId: "job-1" },
+      ),
+    ).rejects.toThrow();
+
+    await handlers.get("job-finder:start-apply-copilot-run")?.(
+      { sender: {} },
+      {
+        jobId: "job-1",
+        applicationRecordId: "application-1",
+        visualCheckpointsEnabled: true,
+      },
+    );
+    expect(mockStartApplyCopilotRun).toHaveBeenCalledWith(
+      "job-1",
+      { visualCheckpointsEnabled: true },
+      "application-1",
+    );
+
+    const exactRunTarget = {
+      runId: "run-1",
+      jobId: "job-1",
+      applicationRecordId: "application-1",
+    };
+    await handlers.get("job-finder:cancel-apply-run")?.(
+      { sender: {} },
+      exactRunTarget,
+    );
+    expect(mockGetApplyRunDetails).toHaveBeenCalledWith(
+      "run-1",
+      "job-1",
+      "application-1",
+    );
+    expect(mockCancelApplyRun).toHaveBeenCalledWith("run-1");
+
+    await handlers.get("job-finder:resolve-apply-consent-request")?.(
+      { sender: {} },
+      { ...exactRunTarget, requestId: "consent-1", action: "approve" },
+    );
+    expect(mockResolveApplyConsentRequest).toHaveBeenCalledWith(
+      "consent-1",
+      "approve",
+    );
+  });
+});
+
 describe("job-finder resume preview route", () => {
   const draft = ResumeDraftSchema.parse({
     id: "draft_preview",
@@ -580,6 +872,348 @@ describe("job-finder resume preview route", () => {
     await expect(secondRequest).resolves.toEqual(preview);
     await expect(firstRequest).rejects.toMatchObject({ name: "AbortError" });
     expect(rejecters).toHaveLength(2);
+  });
+});
+
+describe("job-finder work-history review acknowledgment route", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function registerAndFindHandler(): RegisteredHandler {
+    const handlers = new Map<string, RegisteredHandler>();
+    const ipcMain = {
+      handle: vi.fn((channel: string, handler: RegisteredHandler) => {
+        handlers.set(channel, handler);
+      }),
+    } as unknown as IpcMain;
+    registerJobFinderRouteHandlers(ipcMain);
+
+    const handler = handlers.get(
+      "job-finder:set-work-history-review-acknowledgment",
+    );
+    if (!handler) {
+      throw new Error(
+        "Work-history review acknowledgment handler was not registered.",
+      );
+    }
+    return handler;
+  }
+
+  it("parses the typed command, forwards it to the service, and returns a parsed snapshot", async () => {
+    const snapshot = createEmptyWorkspace("2026-08-19T10:05:00.000Z");
+    mockSetWorkHistoryReviewAcknowledgment.mockResolvedValue(snapshot);
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      setWorkHistoryReviewAcknowledgment:
+        mockSetWorkHistoryReviewAcknowledgment,
+    });
+
+    const input = JobFinderSetWorkHistoryReviewAcknowledgmentInputSchema.parse({
+      intent: "acknowledge",
+      jobId: "job_ready",
+      draftId: "resume_draft_job_ready",
+      expectedDraftUpdatedAt: "2026-08-19T10:00:00.000Z",
+      suggestionId: "work_history_review_experience_sales_bridge",
+      profileRecordId: "experience_sales_bridge",
+      kind: "weak_fit",
+      action: "consider_showing",
+      messageContentHash: "fnv1a32:465fc3f2",
+      reason: "intentional_omission",
+    });
+    const result = await registerAndFindHandler()({ sender: {} }, input);
+
+    expect(mockSetWorkHistoryReviewAcknowledgment).toHaveBeenCalledOnce();
+    expect(mockSetWorkHistoryReviewAcknowledgment).toHaveBeenCalledWith(input);
+    expect(result).toEqual(snapshot);
+  });
+
+  it("forwards remove commands by acknowledgment id", async () => {
+    const snapshot = createEmptyWorkspace("2026-08-19T10:06:00.000Z");
+    mockSetWorkHistoryReviewAcknowledgment.mockResolvedValue(snapshot);
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      setWorkHistoryReviewAcknowledgment:
+        mockSetWorkHistoryReviewAcknowledgment,
+    });
+
+    const input = JobFinderSetWorkHistoryReviewAcknowledgmentInputSchema.parse({
+      intent: "remove",
+      jobId: "job_ready",
+      draftId: "resume_draft_job_ready",
+      expectedDraftUpdatedAt: "2026-08-19T10:00:00.000Z",
+      acknowledgmentId: "work_history_ack_experience_sales_bridge_1",
+    });
+    const result = await registerAndFindHandler()({ sender: {} }, input);
+
+    expect(mockSetWorkHistoryReviewAcknowledgment).toHaveBeenCalledWith(input);
+    expect(result).toEqual(snapshot);
+  });
+
+  it("rejects payloads that violate the strict discriminated schema before touching the service", async () => {
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      setWorkHistoryReviewAcknowledgment:
+        mockSetWorkHistoryReviewAcknowledgment,
+    });
+    const handler = registerAndFindHandler();
+
+    await expect(
+      handler({ sender: {} }, { intent: "acknowledge" }),
+    ).rejects.toThrow();
+    await expect(
+      handler(
+        { sender: {} },
+        {
+          intent: "acknowledge",
+          jobId: "job_ready",
+          draftId: "resume_draft_job_ready",
+          expectedDraftUpdatedAt: "2026-08-19T10:00:00.000Z",
+          suggestionId: "work_history_review_x",
+          profileRecordId: "experience_x",
+          kind: "compact_recommended",
+          action: "keep_compact",
+          messageContentHash: "fnv1a32:465fc3f2",
+          reason: "intentional_omission",
+        },
+      ),
+    ).rejects.toThrow(/intentional_omission/);
+
+    expect(mockSetWorkHistoryReviewAcknowledgment).not.toHaveBeenCalled();
+  });
+});
+
+describe("job-finder resume claim confirmation route", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function registerAndFindHandler(): RegisteredHandler {
+    const handlers = new Map<string, RegisteredHandler>();
+    const ipcMain = {
+      handle: vi.fn((channel: string, handler: RegisteredHandler) => {
+        handlers.set(channel, handler);
+      }),
+    } as unknown as IpcMain;
+    registerJobFinderRouteHandlers(ipcMain);
+
+    const handler = handlers.get("job-finder:set-resume-claim-confirmation");
+    if (!handler) {
+      throw new Error(
+        "Resume claim confirmation handler was not registered.",
+      );
+    }
+    return handler;
+  }
+
+  function buildValidAddInput(
+    overrides: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    return {
+      intent: "add",
+      jobId: "job_ready",
+      draftId: "resume_draft_job_ready",
+      expectedDraftUpdatedAt: "2026-08-19T10:00:00.000Z",
+      field: "entry_bullet",
+      sectionId: "section_experience",
+      entryId: "experience_1",
+      bulletId: "experience_1_bullet_1",
+      confirmedClaimContentHash: "fnv1a32:5678efab",
+      ownershipStatement: resumeClaimOwnershipStatement,
+      ...overrides,
+    };
+  }
+
+  it("parses the typed command, forwards it to the service, and returns a parsed snapshot", async () => {
+    const snapshot = createEmptyWorkspace("2026-08-19T10:07:00.000Z");
+    mockSetResumeClaimConfirmation.mockResolvedValue(snapshot);
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      setResumeClaimConfirmation: mockSetResumeClaimConfirmation,
+    });
+
+    const input = JobFinderSetResumeClaimConfirmationInputSchema.parse(
+      buildValidAddInput(),
+    );
+    const result = await registerAndFindHandler()({ sender: {} }, input);
+
+    expect(mockSetResumeClaimConfirmation).toHaveBeenCalledOnce();
+    expect(mockSetResumeClaimConfirmation).toHaveBeenCalledWith(input);
+    expect(result).toEqual(snapshot);
+  });
+
+  it("forwards remove commands by confirmation id", async () => {
+    const snapshot = createEmptyWorkspace("2026-08-19T10:08:00.000Z");
+    mockSetResumeClaimConfirmation.mockResolvedValue(snapshot);
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      setResumeClaimConfirmation: mockSetResumeClaimConfirmation,
+    });
+
+    const input = JobFinderSetResumeClaimConfirmationInputSchema.parse({
+      intent: "remove",
+      jobId: "job_ready",
+      draftId: "resume_draft_job_ready",
+      expectedDraftUpdatedAt: "2026-08-19T10:00:00.000Z",
+      confirmationId: "claim_confirmation_section_experience_abc",
+    });
+    const result = await registerAndFindHandler()({ sender: {} }, input);
+
+    expect(mockSetResumeClaimConfirmation).toHaveBeenCalledWith(input);
+    expect(result).toEqual(snapshot);
+  });
+
+  it("rejects payloads that violate the strict discriminated schema before touching the service", async () => {
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      setResumeClaimConfirmation: mockSetResumeClaimConfirmation,
+    });
+    const handler = registerAndFindHandler();
+
+    await expect(
+      handler({ sender: {} }, { intent: "add" }),
+    ).rejects.toThrow();
+    await expect(
+      handler({ sender: {} }, buildValidAddInput({ bulletId: null })),
+    ).rejects.toThrow(/bulletId/);
+    await expect(
+      handler(
+        { sender: {} },
+        {
+          ...buildValidAddInput(),
+          confirmedAt: "2026-08-19T10:05:00.000Z",
+        },
+      ),
+    ).rejects.toThrow();
+
+    expect(mockSetResumeClaimConfirmation).not.toHaveBeenCalled();
+  });
+});
+
+describe("job-finder scoped settings routes", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function registerAndFindHandler(channel: string): RegisteredHandler {
+    const handlers = new Map<string, RegisteredHandler>();
+    const ipcMain = {
+      handle: vi.fn((registeredChannel: string, handler: RegisteredHandler) => {
+        handlers.set(registeredChannel, handler);
+      }),
+    } as unknown as IpcMain;
+    registerJobFinderRouteHandlers(ipcMain);
+
+    const handler = handlers.get(channel);
+    if (!handler) {
+      throw new Error(`Scoped settings handler was not registered: ${channel}`);
+    }
+    return handler;
+  }
+
+  it("routes application-default payloads to updateApplicationDefaults without whole-object save", async () => {
+    const snapshot = createEmptyWorkspace("2026-08-22T10:00:00.000Z");
+    mockUpdateApplicationDefaults.mockResolvedValue(snapshot);
+    // Only the scoped method exists on the mocked service, so any fallback to
+    // saveSettings or another settings method would fail this route.
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      updateApplicationDefaults: mockUpdateApplicationDefaults,
+    });
+
+    const input = UpdateApplicationDefaultsInputSchema.parse({
+      resumeApplicationMode: "original_resume",
+      resumeTemplateId: "modern_split",
+    });
+    const result = await registerAndFindHandler(
+      "job-finder:update-application-defaults",
+    )({ sender: {} }, input);
+
+    expect(mockUpdateApplicationDefaults).toHaveBeenCalledOnce();
+    expect(mockUpdateApplicationDefaults).toHaveBeenCalledWith(input);
+    expect(result).toEqual(snapshot);
+  });
+
+  it("routes tracker CRM payloads to updateTrackerCrm and never through saveSettings", async () => {
+    const snapshot = createEmptyWorkspace("2026-08-22T10:01:00.000Z");
+    mockUpdateTrackerCrm.mockResolvedValue(snapshot);
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      updateTrackerCrm: mockUpdateTrackerCrm,
+    });
+
+    const input = ApplicationCrmSettingsSchema.parse({
+      noResponseAutomation: { enabled: true, afterDays: 7 },
+    });
+    const result = await registerAndFindHandler(
+      "job-finder:update-tracker-crm",
+    )({ sender: {} }, input);
+
+    expect(mockUpdateTrackerCrm).toHaveBeenCalledOnce();
+    expect(mockUpdateTrackerCrm).toHaveBeenCalledWith(input);
+    expect(result).toEqual(snapshot);
+  });
+
+  it("routes workspace-behavior payloads to updateWorkspaceBehavior", async () => {
+    const snapshot = createEmptyWorkspace("2026-08-22T10:02:00.000Z");
+    mockUpdateWorkspaceBehavior.mockResolvedValue(snapshot);
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      updateWorkspaceBehavior: mockUpdateWorkspaceBehavior,
+    });
+
+    const input = UpdateWorkspaceBehaviorInputSchema.parse({
+      keepSessionAlive: true,
+      discoveryOnly: true,
+    });
+    const result = await registerAndFindHandler(
+      "job-finder:update-workspace-behavior",
+    )({ sender: {} }, input);
+
+    expect(mockUpdateWorkspaceBehavior).toHaveBeenCalledWith(input);
+    expect(result).toEqual(snapshot);
+  });
+
+  it("routes appearance-theme payloads to updateAppearanceTheme with the parsed theme", async () => {
+    const snapshot = createEmptyWorkspace("2026-08-22T10:03:00.000Z");
+    mockUpdateAppearanceTheme.mockResolvedValue(snapshot);
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      updateAppearanceTheme: mockUpdateAppearanceTheme,
+    });
+
+    const theme = AppearanceThemeSchema.parse("dark");
+    const result = await registerAndFindHandler(
+      "job-finder:update-appearance-theme",
+    )({ sender: {} }, theme);
+
+    expect(mockUpdateAppearanceTheme).toHaveBeenCalledWith("dark");
+    expect(result).toEqual(snapshot);
+  });
+
+  it("rejects a malformed application-defaults payload before touching the service", async () => {
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      updateApplicationDefaults: mockUpdateApplicationDefaults,
+    });
+    const handler = registerAndFindHandler(
+      "job-finder:update-application-defaults",
+    );
+
+    await expect(
+      handler({ sender: {} }, { resumeTemplateId: 42 }),
+    ).rejects.toThrow();
+
+    expect(mockUpdateApplicationDefaults).not.toHaveBeenCalled();
+  });
+
+  it("propagates scoped service failures so renderer save state can report them", async () => {
+    mockUpdateTrackerCrm.mockRejectedValue(
+      new Error("Tracker settings could not be committed."),
+    );
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      updateTrackerCrm: mockUpdateTrackerCrm,
+    });
+
+    const handler = registerAndFindHandler("job-finder:update-tracker-crm");
+
+    await expect(
+      handler(
+        { sender: {} },
+        ApplicationCrmSettingsSchema.parse({
+          noResponseAutomation: { enabled: false, afterDays: 30 },
+        }),
+      ),
+    ).rejects.toThrow(/could not be committed/);
   });
 });
 
@@ -1622,5 +2256,130 @@ describe("job-finder application CRM bulk stage route", () => {
       note: null,
     });
     expect(result).toMatchObject({ module: "job-finder" });
+  });
+});
+
+describe("job-finder agent discovery outcome routes", () => {
+  const mockRunAgentDiscovery = vi.fn();
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function registerAndFindDiscoveryHandler(): RegisteredHandler {
+    const handlers = new Map<string, RegisteredHandler>();
+    const ipcMain = {
+      handle: vi.fn((channel: string, handler: RegisteredHandler) => {
+        handlers.set(channel, handler);
+      }),
+      on: vi.fn(),
+      removeListener: vi.fn(),
+    } as unknown as IpcMain;
+    registerJobFinderRouteHandlers(ipcMain);
+
+    const handler = handlers.get("job-finder:run-agent-discovery");
+    if (!handler) {
+      throw new Error("Agent discovery handler was not registered.");
+    }
+    return handler;
+  }
+
+  function workspaceWithRunState(
+    generatedAt: string,
+    runState: "completed" | "cancelled",
+    validJobsFound: number,
+  ) {
+    const cancelledRun = DiscoveryRunRecordSchema.parse({
+      id: `discovery_run_${runState}`,
+      state: runState,
+      startedAt: "2026-08-26T10:00:00.000Z",
+      summary: { validJobsFound },
+    });
+
+    return JobFinderWorkspaceSnapshotSchema.parse({
+      ...createEmptyWorkspace(generatedAt),
+      discoveryRunState: runState,
+      recentDiscoveryRuns: [cancelledRun],
+    });
+  }
+
+  const sender = { id: 7, send: vi.fn() };
+
+  it("classifies a resolved cancel-after-partial-checkpoint run as cancelled", async () => {
+    // The service finalizes a user-cancelled run as state `cancelled`,
+    // persists incrementally committed jobs, and resolves — no rejection.
+    const snapshot = workspaceWithRunState("2026-08-26T10:05:00.000Z", "cancelled", 3);
+    mockRunAgentDiscovery.mockResolvedValue(snapshot);
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      runAgentDiscovery: mockRunAgentDiscovery,
+      getWorkspaceSnapshot: mockGetWorkspaceSnapshot,
+    });
+
+    const result = await registerAndFindDiscoveryHandler()(
+      { sender },
+      { requestId: "agent_discovery_partial", targetId: null },
+    );
+
+    expect(result).toEqual({ outcome: "cancelled", snapshot });
+    // Derivation came from the returned run state; the abort fallback never
+    // ran.
+    expect(mockGetWorkspaceSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("classifies an escaped AbortError before any result as cancelled", async () => {
+    mockRunAgentDiscovery.mockRejectedValue(
+      new DOMException("Aborted", "AbortError"),
+    );
+    const freshSnapshot = createEmptyWorkspace("2026-08-26T10:06:00.000Z");
+    mockGetWorkspaceSnapshot.mockResolvedValue(freshSnapshot);
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      runAgentDiscovery: mockRunAgentDiscovery,
+      getWorkspaceSnapshot: mockGetWorkspaceSnapshot,
+    });
+
+    const result = await registerAndFindDiscoveryHandler()(
+      { sender },
+      { requestId: "agent_discovery_abort", targetId: null },
+    );
+
+    expect(result).toEqual({ outcome: "cancelled", snapshot: freshSnapshot });
+    expect(mockGetWorkspaceSnapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps outcome completed for a normally finished run", async () => {
+    const snapshot = workspaceWithRunState(
+      "2026-08-26T10:07:00.000Z",
+      "completed",
+      12,
+    );
+    mockRunAgentDiscovery.mockResolvedValue(snapshot);
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      runAgentDiscovery: mockRunAgentDiscovery,
+      getWorkspaceSnapshot: mockGetWorkspaceSnapshot,
+    });
+
+    const result = await registerAndFindDiscoveryHandler()(
+      { sender },
+      { requestId: "agent_discovery_done", targetId: null },
+    );
+
+    expect(result).toEqual({ outcome: "completed", snapshot });
+    expect(mockGetWorkspaceSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("rethrows non-abort discovery failures instead of inventing an outcome", async () => {
+    mockRunAgentDiscovery.mockRejectedValue(new Error("fetch failed"));
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      runAgentDiscovery: mockRunAgentDiscovery,
+      getWorkspaceSnapshot: mockGetWorkspaceSnapshot,
+    });
+
+    await expect(
+      registerAndFindDiscoveryHandler()(
+        { sender },
+        { requestId: "agent_discovery_failed", targetId: null },
+      ),
+    ).rejects.toThrow("fetch failed");
+    expect(mockGetWorkspaceSnapshot).not.toHaveBeenCalled();
   });
 });

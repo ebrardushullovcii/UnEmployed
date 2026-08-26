@@ -1,5 +1,10 @@
 # Product Quality Release Audit
 
+> Historical audit: this document records the 2026-08-02 checkpoint and does
+> not establish readiness for the current source. Current release state and
+> gates live in `docs/STATUS.md`, `docs/TRACKS.md`, and the active sealed
+> acceptance/persona plan.
+
 ## Final consolidated checkpoint — 2026-08-02
 
 - Current Computer proof: `11-find-jobs-task-center-header-after.png`, `12-settings-top-cv-save-after.png`, and `13-settings-save-toast-cleared-after.png` close the final reported overlay/save-feedback regressions.
@@ -11,7 +16,10 @@
 - Pnpm reliability: Turbo now runs through repository-pinned `pnpm@10.8.0` rather than inheriting a global pnpm 11 child command.
 - Remaining external evidence: voluntarily signed-in Workday, macOS/Linux Interview Helper hosts, and optional Windows Narrator/physical-audio confirmation.
 
-The release is ready for the user's product review. The concise visual handoff is `PRODUCT_QUALITY_IMPLEMENTATION_REVIEW.html`; the requirement-level disposition is `PRODUCT_QUALITY_RELEASE_READINESS.md`.
+At that historical checkpoint, the release was considered ready for the user's
+product review. The concise visual handoff was
+`PRODUCT_QUALITY_IMPLEMENTATION_REVIEW.html`; the requirement-level disposition
+was `PRODUCT_QUALITY_RELEASE_READINESS.md`.
 
 Updated: 2026-07-31 (clean-v9 repeat-search and feedback follow-up)
 

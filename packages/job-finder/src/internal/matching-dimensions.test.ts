@@ -40,8 +40,8 @@ function createInput(
     matchesRole: true,
     roleFamilyMismatch: false,
     roleFamilyUnclear: false,
-    matchesLocation: true,
-    matchesWorkMode: true,
+    locationCompatibility: "compatible",
+    workModeCompatibility: "compatible",
     isPreferredCompany: true,
     ...overrides,
   };
@@ -151,8 +151,8 @@ describe("match dimensions", () => {
       createInput({
         matchesRole: false,
         roleFamilyMismatch: true,
-        matchesLocation: true,
-        matchesWorkMode: false,
+        locationCompatibility: "compatible",
+        workModeCompatibility: "conflict",
         isPreferredCompany: false,
       }),
     );
@@ -173,8 +173,8 @@ describe("match dimensions", () => {
         employmentTypes: [],
         companyWhitelist: ["Preferred Co"],
       },
-      matchesLocation: true,
-      matchesWorkMode: true,
+      locationCompatibility: "compatible",
+      workModeCompatibility: "compatible",
       isPreferredCompany: false,
     });
 
@@ -228,6 +228,36 @@ describe("match dimensions", () => {
         expect.objectContaining({ label: "Seniority comparison" }),
         expect.objectContaining({ label: "Employment-type comparison" }),
       ]),
+    );
+  });
+
+  test("keeps unspecified listing geography unknown instead of aligned or conflicting", () => {
+    const base = createInput();
+    const dimensions = buildMatchDimensionsAssessment({
+      ...base,
+      locationCompatibility: "unknown",
+      searchPreferences: {
+        ...base.searchPreferences,
+        workModes: [],
+        companyWhitelist: [],
+        seniorityLevels: [],
+        employmentTypes: [],
+      },
+      posting: {
+        ...base.posting,
+        location: "Remote",
+      },
+    });
+
+    expect(dimensions.preferenceAlignment.state).toBe("unknown");
+    expect(dimensions.preferenceAlignment.evidence).toHaveLength(1);
+    const locationEvidence = dimensions.preferenceAlignment.evidence[0];
+    expect(locationEvidence?.label).toBe("Location comparison");
+    expect(locationEvidence?.detail).toMatch(
+      /does not specify enough geography/i,
+    );
+    expect(locationEvidence?.detail).not.toMatch(
+      /aligned|outside the saved areas/i,
     );
   });
 

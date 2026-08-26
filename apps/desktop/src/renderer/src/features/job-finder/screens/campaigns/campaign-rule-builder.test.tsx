@@ -7,13 +7,22 @@ import {
   type JobSearchCampaign,
   type SaveCampaignRuleInput,
 } from "@unemployed/contracts";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { resetJobFinderOverlaysForTests } from "../../lib/job-finder-overlay-ownership";
 import { CampaignRuleBuilder } from "./campaign-rule-builder";
 
 afterEach(() => {
   cleanup();
+  resetJobFinderOverlaysForTests();
+  // Every production rule-builder flow must resolve destructive decisions
+  // in-app; the native confirm stays uncalled for the whole suite.
+  expect(confirmNeverSpy).not.toHaveBeenCalled();
 });
+
+const confirmNeverSpy = vi
+  .spyOn(window, "confirm")
+  .mockImplementation(() => false);
 
 const recordedAt = "2026-08-15T10:00:00.000Z";
 const measuredAt = "2026-08-15T12:00:00.000Z";
@@ -281,6 +290,28 @@ describe("CampaignRuleBuilder", () => {
     expect(screen.getByText("No rules match your search.")).toBeTruthy();
   });
 
+  it("ellipsizes the rule search hint on the input element and keeps it accessible", () => {
+    renderBuilder({ projection: null });
+
+    const search = screen.getByRole("searchbox", { name: "Search rules" });
+    // The full scope stays in the DOM, the accessible name is unchanged, and
+    // narrow widths fade the hint with an ellipsis instead of a hard clip.
+    expect(search.getAttribute("placeholder")).toBe(
+      "Search field, value, or kind",
+    );
+    expect(screen.getByLabelText("Search rules")).toBe(search);
+    for (const className of [
+      "text-ellipsis",
+      "overflow-hidden",
+      "whitespace-nowrap",
+    ]) {
+      expect(search.className).toContain(className);
+    }
+    // The retired ::placeholder-scoped utility cannot paint ellipsis in
+    // Chromium; keep the shared input-level mechanism as the only one.
+    expect(search.className).not.toContain("[&::placeholder]");
+  });
+
   it("submits a new rule from the add form", () => {
     const onSaveRule = vi.fn<(rule: SaveCampaignRuleInput) => void>();
     renderBuilder({ onSaveRule });
@@ -338,5 +369,147 @@ describe("CampaignRuleBuilder", () => {
 
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("labels rule toggles with their rule description", () => {
+    const rules = [
+      createRule({
+        id: "rule_frontend",
+        kind: "must_have",
+        field: "role",
+        operator: "contains",
+        value: "frontend",
+      }),
+      createRule({
+        id: "rule_never_acme",
+        kind: "never",
+        field: "company",
+        operator: "equals",
+        value: "Acme Corp",
+        enabled: false,
+      }),
+    ];
+    renderBuilder({ campaign: createCampaign(rules) });
+
+    const enabledToggle = screen.getByLabelText(
+      "Toggle rule: Role contains frontend",
+    );
+    expect(enabledToggle.getAttribute("type")).toBe("checkbox");
+    expect(enabledToggle.getAttribute("aria-label")).toBe(
+      "Toggle rule: Role contains frontend",
+    );
+    expect(
+      screen.getByLabelText("Toggle rule: Company equals Acme Corp"),
+    ).toBeTruthy();
+  });
+
+  it("removes a rule only through the app-owned confirmation dialog", () => {
+    const onDeleteRule = vi.fn<(ruleId: string) => void>();
+    const onClose = vi.fn();
+    renderBuilder({
+      campaign: createCampaign([
+        createRule({
+          id: "rule_frontend",
+          kind: "must_have",
+          field: "role",
+          operator: "contains",
+          value: "frontend",
+        }),
+      ]),
+      onDeleteRule,
+      onClose,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    expect(onDeleteRule).not.toHaveBeenCalled();
+    expect(confirmNeverSpy).not.toHaveBeenCalled();
+
+    const dialog = screen.getByRole("alertdialog", {
+      name: "Remove this rule?",
+    });
+    // The dialog names the exact rule, the affected plan, and the
+    // consequence instead of a native prompt.
+    expect(dialog.textContent).toContain("Role contains frontend");
+    expect(dialog.textContent).toContain("Remote TypeScript");
+    expect(dialog.textContent).toContain("This cannot be undone.");
+    // Focus moves into the dialog, and staying owns the first (initially
+    // focused) tab position as the safe default.
+    expect(document.activeElement).toBe(dialog);
+    expect(dialog.querySelector("button")?.textContent).toBe("Cancel");
+
+    // Backdrop resolves to staying.
+    fireEvent.click(dialog.parentElement!);
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(onDeleteRule).not.toHaveBeenCalled();
+
+    // Escape belongs to the dialog while open: it resolves to staying and
+    // never closes the builder underneath in the same keypress.
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onDeleteRule).not.toHaveBeenCalled();
+
+    // Explicit confirm removes exactly once and dismisses the dialog.
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    fireEvent.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", {
+        name: "Remove rule",
+      }),
+    );
+    expect(onDeleteRule).toHaveBeenCalledTimes(1);
+    expect(onDeleteRule).toHaveBeenCalledWith("rule_frontend");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  it("styles rule builder selects with canonical tokens, focus hierarchy, and preserved geometry", () => {
+    const { container } = renderBuilder({
+      campaign: createCampaign([
+        createRule({
+          id: "rule_frontend",
+          kind: "must_have",
+          field: "role",
+          operator: "contains",
+          value: "frontend",
+        }),
+      ]),
+    });
+
+    const selects = Array.from(container.querySelectorAll("select"));
+    // Kind, Job field, Operator.
+    expect(selects).toHaveLength(3);
+
+    for (const select of selects) {
+      for (const className of [
+        "border-(--field-border)",
+        "bg-(--field)",
+        "outline-none",
+        "focus-visible:border-(--field-focus-border)",
+        "focus-visible:bg-(--field-strong)",
+        "focus-visible:shadow-[var(--field-focus-shadow)]",
+      ]) {
+        expect(select.className).toContain(className);
+      }
+      expect(select.className).not.toContain("border-input");
+      expect(select.className).not.toContain("--surface-panel-raised");
+      expect(select.className).not.toContain("focus-visible:ring");
+      expect(select.className).toContain("h-11");
+      expect(select.className).toContain("rounded-(--radius-field)");
+      expect(select.className).toContain("px-3");
+    }
+
+    // Protected rule toggles stay bare native checkboxes without field
+    // styling.
+    const toggle = screen.getByLabelText("Toggle rule: Role contains frontend");
+    expect(toggle.getAttribute("type")).toBe("checkbox");
+    expect(toggle.className).not.toContain("field-");
+    expect(toggle.className).not.toContain("focus-visible");
+
+    // Native select behavior is unchanged: choosing a job field drives the
+    // numeric-value affordance.
+    fireEvent.change(screen.getByLabelText("Job field"), {
+      target: { value: "travel" },
+    });
+    expect(screen.getByLabelText("Value (number)")).toBeTruthy();
   });
 });

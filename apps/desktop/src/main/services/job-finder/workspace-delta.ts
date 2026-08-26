@@ -25,6 +25,7 @@ const DELTA_OR_IGNORED_KEYS = new Set<keyof JobFinderWorkspaceSnapshot>([
   "intelligence",
   "discoveryJobs",
   "dismissedDiscoveryJobs",
+  "companyJobs",
   "recentDiscoveryRuns",
   "reviewQueue",
   "applyRuns",
@@ -99,16 +100,31 @@ function buildEntitySlice<T>(
   current: readonly T[],
   getId: (value: T) => string,
 ): EntitySlice<T> {
-  const previousById = new Map(previous.map((value) => [getId(value), value]));
-  const currentIds = new Set(current.map(getId));
+  const previousById = new Map<string, T>();
+  for (const value of previous) {
+    previousById.set(getId(value), value);
+  }
 
-  return {
-    upserts: current.filter((value) => {
-      const previousValue = previousById.get(getId(value));
-      return !previousValue || !sameValue(previousValue, value);
-    }),
-    removedIds: previous.map(getId).filter((id) => !currentIds.has(id)),
-  };
+  const currentIds = new Set<string>();
+  const upserts: T[] = [];
+  for (const value of current) {
+    const id = getId(value);
+    currentIds.add(id);
+    const previousValue = previousById.get(id);
+    if (!previousValue || !sameValue(previousValue, value)) {
+      upserts.push(value);
+    }
+  }
+
+  const removedIds: string[] = [];
+  for (const value of previous) {
+    const id = getId(value);
+    if (!currentIds.has(id)) {
+      removedIds.push(id);
+    }
+  }
+
+  return { upserts, removedIds };
 }
 
 function sameUntrackedValues(
@@ -168,6 +184,11 @@ export function buildJobFinderWorkspaceDelta(input: {
     dismissedDiscoveryJobs: buildEntitySlice(
       input.previous.dismissedDiscoveryJobs,
       input.current.dismissedDiscoveryJobs,
+      (value) => value.id,
+    ),
+    companyJobs: buildEntitySlice(
+      input.previous.companyJobs,
+      input.current.companyJobs,
       (value) => value.id,
     ),
     recentDiscoveryRuns: buildEntitySlice(

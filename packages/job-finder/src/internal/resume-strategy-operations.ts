@@ -600,12 +600,65 @@ export function selectResumeStrategy(input: {
 }
 
 /**
+ * Wraps a user-facing label (an approach name or role family) in typographic
+ * quotes. Unlike straight quotes, the directional pair stays unambiguous when
+ * the label itself contains quote characters. Labels are human names, never
+ * internal ids.
+ */
+function quoteDisplayLabel(value: string): string {
+  return `“${value}”`;
+}
+
+/**
+ * Builds the fallback clause for recommendation reasons that could not use
+ * the campaign/search-plan default. Every clause must be truthful about the
+ * observed state instead of claiming the fallback was never set:
+ *
+ * - no default id was supplied -> none was ever set;
+ * - the id references a saved but disabled approach -> names that approach;
+ * - the id references nothing saved -> the configured fallback is unusable;
+ * - a referenced enabled approach would be a usable fallback and never
+ *   reaches this clause, so the residual wording claims nothing.
+ */
+function searchPlanFallbackClause(
+  state: JobFinderIntelligenceState,
+  campaignDefaultId: string | null,
+): string {
+  if (campaignDefaultId === null) {
+    return "no search plan fallback is set";
+  }
+
+  const configured = state.resumeStrategies.find(
+    (candidate) => candidate.id === campaignDefaultId,
+  );
+
+  if (!configured) {
+    return "the configured search plan fallback is not available";
+  }
+
+  if (!configured.enabled) {
+    return `the configured search plan fallback ${quoteDisplayLabel(configured.name)} is disabled`;
+  }
+
+  // An enabled referenced strategy is always usable, so this clause is not
+  // reachable on any current path; prefer wording that claims nothing.
+  return "no search plan fallback applies";
+}
+
+/**
  * Recommends a strategy id for a job's `roleFamily`. A strategy is recommended
  * only when exactly one enabled strategy has an exact `roleFamily` match.
  * Otherwise the supplied campaign default id is used when it references an
  * enabled strategy; otherwise the recommendation is null. Multiple enabled
  * matches for the same roleFamily are treated as ambiguous and fall through to
  * the campaign default, then null.
+ *
+ * Reasons are user-facing display text and must stay truthful about which
+ * state produced them: they name approaches by their human name (never an
+ * internal id), say "matched this job" when the job family is unmatched or
+ * undetermined, never claim that no enabled strategies exist while enabled
+ * ones do, and distinguish an absent search plan fallback from one that is
+ * configured but disabled or otherwise unusable.
  */
 export function recommendResumeStrategy(input: {
   state: JobFinderIntelligenceState;
@@ -625,6 +678,18 @@ export function recommendResumeStrategy(input: {
   const campaignDefaultId =
     input.campaignDefaultResumeStrategyId?.trim() || null;
 
+  // A usable fallback references an enabled strategy, so whenever any enabled
+  // approach exists at all this state is unreachable; keeping it separate lets
+  // every later reason truthfully speak about matching instead of existence.
+  if (!state.resumeStrategies.some((strategy) => strategy.enabled)) {
+    return {
+      ok: true,
+      strategyId: null,
+      source: "none",
+      reason: `No enabled resume approaches exist yet and ${searchPlanFallbackClause(state, campaignDefaultId)}.`,
+    };
+  }
+
   if (roleFamily !== "") {
     const matches = state.resumeStrategies.filter(
       (strategy) => strategy.enabled && strategy.roleFamily === roleFamily,
@@ -637,7 +702,7 @@ export function recommendResumeStrategy(input: {
         ok: true,
         strategyId: strategy.id,
         source: "role_family",
-        reason: `Exact enabled roleFamily match: "${roleFamily}".`,
+        reason: `Exact enabled role family match: ${quoteDisplayLabel(roleFamily)}.`,
       };
     }
 
@@ -649,7 +714,7 @@ export function recommendResumeStrategy(input: {
           ok: true,
           strategyId: defaultStrategy.id,
           source: "campaign_default",
-          reason: `Multiple enabled strategies match roleFamily "${roleFamily}"; using campaign default "${defaultStrategy.id}".`,
+          reason: `Multiple enabled approaches match role family ${quoteDisplayLabel(roleFamily)}; using search plan fallback ${quoteDisplayLabel(defaultStrategy.name)}.`,
         };
       }
 
@@ -657,7 +722,7 @@ export function recommendResumeStrategy(input: {
         ok: true,
         strategyId: null,
         source: "none",
-        reason: `Multiple enabled strategies match roleFamily "${roleFamily}" and no usable campaign default is available.`,
+        reason: `Multiple enabled approaches match role family ${quoteDisplayLabel(roleFamily)} and ${searchPlanFallbackClause(state, campaignDefaultId)}.`,
       };
     }
   }
@@ -671,8 +736,8 @@ export function recommendResumeStrategy(input: {
       source: "campaign_default",
       reason:
         roleFamily === ""
-          ? `No roleFamily was provided; using campaign default "${defaultStrategy.id}".`
-          : `No exact enabled roleFamily match for "${roleFamily}"; using campaign default "${defaultStrategy.id}".`,
+          ? `No enabled approach matched this job; using search plan fallback ${quoteDisplayLabel(defaultStrategy.name)}.`
+          : `No enabled approach matched role family ${quoteDisplayLabel(roleFamily)}; using search plan fallback ${quoteDisplayLabel(defaultStrategy.name)}.`,
     };
   }
 
@@ -682,8 +747,8 @@ export function recommendResumeStrategy(input: {
     source: "none",
     reason:
       roleFamily === ""
-        ? "No enabled strategy exists and no usable campaign default is available."
-        : `No enabled strategy matches roleFamily "${roleFamily}" and no usable campaign default is available.`,
+        ? `No enabled approach matched this job and ${searchPlanFallbackClause(state, campaignDefaultId)}.`
+        : `No enabled approach matched role family ${quoteDisplayLabel(roleFamily)} and ${searchPlanFallbackClause(state, campaignDefaultId)}.`,
   };
 }
 

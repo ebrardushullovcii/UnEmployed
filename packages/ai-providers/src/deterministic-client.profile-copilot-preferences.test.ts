@@ -84,7 +84,7 @@ describe("deterministic ai client profile copilot preferences", () => {
       context: { surface: "profile", section: "preferences" },
       relevantReviewItems: [],
       request:
-        "make my experience 7 years and my prefered work mode to be remote and make my expected salary to be 2000 and add linkedin, wellfound and kosovajob",
+        "make my experience 7 years and my prefered work mode to be remote and make my expected salary to be 200000 and add linkedin, wellfound and kosovajob",
     });
 
     expect(reply.patchGroups).toHaveLength(4);
@@ -115,6 +115,13 @@ describe("deterministic ai client profile copilot preferences", () => {
         (patchGroup) => patchGroup.summary === "Update expected salary",
       ),
     ).toEqual(expect.objectContaining({ applyMode: "applied" }));
+    const salaryPatchGroup = reply.patchGroups.find(
+      (patchGroup) => patchGroup.summary === "Update expected salary",
+    );
+    expect(salaryPatchGroup?.operations[0]).toEqual({
+      operation: "replace_compensation_preferences_fields",
+      value: { maximum: 200000 },
+    });
     const jobSourcePatchGroup = reply.patchGroups.find(
       (patchGroup) =>
         patchGroup.summary ===
@@ -157,15 +164,18 @@ describe("deterministic ai client profile copilot preferences", () => {
     );
   });
 
-  test("can edit expected salary from a profile preferences request", async () => {
+  test("can edit expected salary from a profile preferences request without touching the saved minimum", async () => {
     const client = createDeterministicJobFinderAiClient();
 
     const reply = await client.reviseCandidateProfile({
       profile: createProfile(),
-      searchPreferences: { ...createPreferences(), targetSalaryUsd: null },
+      searchPreferences: {
+        ...createPreferences(),
+        targetSalaryUsd: null,
+      },
       context: { surface: "profile", section: "preferences" },
       relevantReviewItems: [],
-      request: "make my expected salary to be 2000",
+      request: "make my expected salary to be 180000",
     });
 
     expect(reply.patchGroups[0]).toEqual(
@@ -174,15 +184,11 @@ describe("deterministic ai client profile copilot preferences", () => {
         applyMode: "applied",
       }),
     );
+    // Only the expressed bound is staged: the saved minimum and the saved
+    // interval and currency are preserved by the merge instead of restated.
     expect(reply.patchGroups[0]?.operations[0]).toEqual({
       operation: "replace_compensation_preferences_fields",
-      value: {
-        minimum: null,
-        maximum: 2000,
-        interval: "year",
-        currency: "USD",
-        currencyStatus: "inherited",
-      },
+      value: { maximum: 180000 },
     });
   });
 
@@ -493,7 +499,7 @@ describe("deterministic ai client profile copilot preferences", () => {
       context: { surface: "profile", section: "preferences" },
       relevantReviewItems: [],
       request:
-        "set my expectation minimum to be 2000 so we can ignore all those but im actually expecting more like 3k or 4k",
+        "set my expectation minimum to be 200000 so we can ignore all those but im actually expecting more like 300k or 400k",
     });
 
     expect(salaryReply.patchGroups[0]).toEqual(
@@ -505,11 +511,8 @@ describe("deterministic ai client profile copilot preferences", () => {
     expect(salaryReply.patchGroups[0]?.operations[0]).toEqual({
       operation: "replace_compensation_preferences_fields",
       value: {
-        minimum: 2000,
-        maximum: 4000,
-        interval: "year",
-        currency: "USD",
-        currencyStatus: "inherited",
+        minimum: 200000,
+        maximum: 400000,
       },
     });
   });

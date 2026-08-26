@@ -189,7 +189,7 @@ function inferRegionHint(values: readonly string[]): GeographyToken | null {
 }
 
 function getResidence(profile: CandidateProfile): Residence {
-  const locationParts = profile.currentLocation
+  const locationParts = (profile.currentLocation ?? "")
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
@@ -217,7 +217,7 @@ function getResidence(profile: CandidateProfile): Residence {
   ]);
   const locationValues = uniqueStrings([
     ...directCountryValues,
-    profile.currentLocation,
+    ...(profile.currentLocation ? [profile.currentLocation] : []),
     ...(profile.currentRegion ? [profile.currentRegion] : []),
   ]);
 

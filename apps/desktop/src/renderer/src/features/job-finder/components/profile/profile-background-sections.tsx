@@ -12,6 +12,7 @@ import { candidateLinkKindValues } from '@unemployed/contracts'
 import { CheckboxField } from '../checkbox-field'
 import { FormSelect } from '../form-select'
 import { formatStatusLabel } from '../../lib/job-finder-utils'
+import { useProfileAppendedRecordOpenSignal } from './use-profile-appended-record-open-signal'
 
 export function joinProfileSummaryParts(parts: Array<string | null | undefined>) {
   return parts.map((part) => part?.trim()).filter(Boolean).join(' | ')
@@ -24,6 +25,11 @@ export function ProfileBackgroundSupportingDetailSection(props: {
 }) {
   const { languageArray, linkArray, projectArray } = props.backgroundArrays
   const { control, register, watch } = props.profileForm
+  const {
+    forgetAppendedRecord,
+    getAppendedRecordOpenSignal,
+    markAppendedRecord,
+  } = useProfileAppendedRecordOpenSignal()
 
   function buildProjectFieldId(recordId: string, field: string) {
     return `project-record-${recordId}-${field}`
@@ -37,6 +43,61 @@ export function ProfileBackgroundSupportingDetailSection(props: {
     return `language-record-${recordId}-${field}`
   }
 
+  function handleAddProject() {
+    const recordId = `project_${crypto.randomUUID().slice(0, 8)}`
+    projectArray.append({
+      id: recordId,
+      name: '',
+      projectType: '',
+      summary: '',
+      role: '',
+      skills: '',
+      outcome: '',
+      projectUrl: '',
+      repositoryUrl: '',
+      caseStudyUrl: ''
+    })
+    markAppendedRecord(recordId)
+  }
+
+  function handleAddLink() {
+    const recordId = `link_${crypto.randomUUID().slice(0, 8)}`
+    linkArray.append({
+      id: recordId,
+      label: '',
+      url: '',
+      kind: ''
+    })
+    markAppendedRecord(recordId)
+  }
+
+  function handleAddLanguage() {
+    const recordId = `language_${crypto.randomUUID().slice(0, 8)}`
+    languageArray.append({
+      id: recordId,
+      language: '',
+      proficiency: '',
+      interviewPreference: false,
+      notes: ''
+    })
+    markAppendedRecord(recordId)
+  }
+
+  function handleRemoveProject(index: number) {
+    forgetAppendedRecord(projectArray.fields[index]?.id ?? '')
+    projectArray.remove(index)
+  }
+
+  function handleRemoveLink(index: number) {
+    forgetAppendedRecord(linkArray.fields[index]?.id ?? '')
+    linkArray.remove(index)
+  }
+
+  function handleRemoveLanguage(index: number) {
+    forgetAppendedRecord(languageArray.fields[index]?.id ?? '')
+    languageArray.remove(index)
+  }
+
   return (
     <section className="grid content-start gap-(--gap-card)">
       <ProfileSectionHeader
@@ -48,20 +109,7 @@ export function ProfileBackgroundSupportingDetailSection(props: {
             <Button
               disabled={props.isProfileSetupPending}
               pending={props.isProfileSetupPending}
-              onClick={() =>
-                projectArray.append({
-                  id: `project_${crypto.randomUUID().slice(0, 8)}`,
-                  name: '',
-                  projectType: '',
-                  summary: '',
-                  role: '',
-                  skills: '',
-                  outcome: '',
-                  projectUrl: '',
-                  repositoryUrl: '',
-                  caseStudyUrl: ''
-                })
-              }
+              onClick={handleAddProject}
               type="button"
               variant="secondary"
               className="h-11 px-4"
@@ -71,14 +119,7 @@ export function ProfileBackgroundSupportingDetailSection(props: {
             <Button
               disabled={props.isProfileSetupPending}
               pending={props.isProfileSetupPending}
-              onClick={() =>
-                linkArray.append({
-                  id: `link_${crypto.randomUUID().slice(0, 8)}`,
-                  label: '',
-                  url: '',
-                  kind: ''
-                })
-              }
+              onClick={handleAddLink}
               type="button"
               variant="secondary"
               className="h-11 px-4"
@@ -88,15 +129,7 @@ export function ProfileBackgroundSupportingDetailSection(props: {
             <Button
               disabled={props.isProfileSetupPending}
               pending={props.isProfileSetupPending}
-              onClick={() =>
-                languageArray.append({
-                  id: `language_${crypto.randomUUID().slice(0, 8)}`,
-                  language: '',
-                  proficiency: '',
-                  interviewPreference: false,
-                  notes: ''
-                })
-              }
+              onClick={handleAddLanguage}
               type="button"
               variant="secondary"
               className="h-11 px-4"
@@ -113,6 +146,7 @@ export function ProfileBackgroundSupportingDetailSection(props: {
             id={`project-record-${entry.id}`}
             key={entry.fieldKey}
             defaultOpen={index === 0}
+            forceOpenSignal={getAppendedRecordOpenSignal(entry.id)}
             summary={joinProfileSummaryParts([
               watch(`projects.${index}.name`),
               watch(`projects.${index}.role`),
@@ -122,7 +156,7 @@ export function ProfileBackgroundSupportingDetailSection(props: {
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Project details</p>
-              <Button disabled={props.isProfileSetupPending} pending={props.isProfileSetupPending} onClick={() => projectArray.remove(index)} size="compact" type="button" variant="ghost">
+              <Button disabled={props.isProfileSetupPending} pending={props.isProfileSetupPending} onClick={() => handleRemoveProject(index)} size="compact" type="button" variant="ghost">
                 Remove
               </Button>
             </div>
@@ -145,6 +179,7 @@ export function ProfileBackgroundSupportingDetailSection(props: {
             id={`link-record-${entry.id}`}
             key={entry.fieldKey}
             defaultOpen={index === 0 && projectArray.fields.length === 0}
+            forceOpenSignal={getAppendedRecordOpenSignal(entry.id)}
             summary={joinProfileSummaryParts([
               watch(`links.${index}.label`),
               watch(`links.${index}.kind`) ? formatStatusLabel(watch(`links.${index}.kind`)) : null
@@ -153,7 +188,7 @@ export function ProfileBackgroundSupportingDetailSection(props: {
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Link details</p>
-              <Button disabled={props.isProfileSetupPending} pending={props.isProfileSetupPending} onClick={() => linkArray.remove(index)} size="compact" type="button" variant="ghost">
+              <Button disabled={props.isProfileSetupPending} pending={props.isProfileSetupPending} onClick={() => handleRemoveLink(index)} size="compact" type="button" variant="ghost">
                 Remove
               </Button>
             </div>
@@ -192,6 +227,7 @@ export function ProfileBackgroundSupportingDetailSection(props: {
             id={`language-record-${entry.id}`}
             key={entry.fieldKey}
             defaultOpen={index === 0 && projectArray.fields.length === 0 && linkArray.fields.length === 0}
+            forceOpenSignal={getAppendedRecordOpenSignal(entry.id)}
             summary={joinProfileSummaryParts([
               watch(`languages.${index}.language`),
               watch(`languages.${index}.proficiency`)
@@ -200,7 +236,7 @@ export function ProfileBackgroundSupportingDetailSection(props: {
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Language details</p>
-              <Button disabled={props.isProfileSetupPending} pending={props.isProfileSetupPending} onClick={() => languageArray.remove(index)} size="compact" type="button" variant="ghost">
+              <Button disabled={props.isProfileSetupPending} pending={props.isProfileSetupPending} onClick={() => handleRemoveLanguage(index)} size="compact" type="button" variant="ghost">
                 Remove
               </Button>
             </div>
@@ -237,9 +273,34 @@ export function ProfileBackgroundProofBankSection(props: {
 }) {
   const { proofBankArray } = props.backgroundArrays
   const { register, watch } = props.profileForm
+  const {
+    forgetAppendedRecord,
+    getAppendedRecordOpenSignal,
+    markAppendedRecord,
+  } = useProfileAppendedRecordOpenSignal()
 
   function buildProofFieldId(recordId: string, field: string) {
     return `proof-record-${recordId}-${field}`
+  }
+
+  function handleAddProof() {
+    const recordId = `proof_${crypto.randomUUID().slice(0, 8)}`
+    proofBankArray.append({
+      id: recordId,
+      title: '',
+      claim: '',
+      heroMetric: '',
+      supportingContext: '',
+      roleFamilies: '',
+      projectIds: '',
+      linkIds: ''
+    })
+    markAppendedRecord(recordId)
+  }
+
+  function handleRemoveProof(index: number) {
+    forgetAppendedRecord(proofBankArray.fields[index]?.id ?? '')
+    proofBankArray.remove(index)
   }
 
   return (
@@ -252,18 +313,7 @@ export function ProfileBackgroundProofBankSection(props: {
           <Button
             disabled={props.isProfileSetupPending}
             pending={props.isProfileSetupPending}
-            onClick={() =>
-              proofBankArray.append({
-                id: `proof_${crypto.randomUUID().slice(0, 8)}`,
-                title: '',
-                claim: '',
-                heroMetric: '',
-                supportingContext: '',
-                roleFamilies: '',
-                projectIds: '',
-                linkIds: ''
-              })
-            }
+            onClick={handleAddProof}
             type="button"
             variant="secondary"
             className="h-11 px-4"
@@ -280,6 +330,7 @@ export function ProfileBackgroundProofBankSection(props: {
               id={`proof-record-${entry.id}`}
               key={entry.fieldKey}
               defaultOpen={index === 0}
+              forceOpenSignal={getAppendedRecordOpenSignal(entry.id)}
               summary={joinProfileSummaryParts([
                 watch(`proofBank.${index}.title`),
                 watch(`proofBank.${index}.heroMetric`)
@@ -288,7 +339,7 @@ export function ProfileBackgroundProofBankSection(props: {
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">Proof details</p>
-                <Button disabled={props.isProfileSetupPending} pending={props.isProfileSetupPending} onClick={() => proofBankArray.remove(index)} size="compact" type="button" variant="ghost">
+                <Button disabled={props.isProfileSetupPending} pending={props.isProfileSetupPending} onClick={() => handleRemoveProof(index)} size="compact" type="button" variant="ghost">
                   Remove
                 </Button>
               </div>

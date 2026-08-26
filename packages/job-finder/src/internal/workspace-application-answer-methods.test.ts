@@ -1,5 +1,6 @@
 import {
   ApplicationQuestionRecordSchema,
+  ApplicationRecordSchema,
   ApplyJobResultSchema,
   ApplyRunSchema,
   CandidateAssetSchema,
@@ -23,6 +24,19 @@ function createHarness(
   const now = "2026-08-10T10:00:00.000Z";
   const seed = createSeed();
   const job = seed.savedJobs[0]!;
+  const applicationRecordId = "application-answers";
+  seed.applicationRecords = [
+    ApplicationRecordSchema.parse({
+      id: applicationRecordId,
+      jobId: job.id,
+      title: job.title,
+      company: job.company,
+      status: job.status,
+      lastActionLabel: "Prepared safely",
+      nextActionLabel: "Review answers",
+      lastUpdatedAt: now,
+    }),
+  ];
   seed.applyRuns = [
     ApplyRunSchema.parse({
       id: "run-answers",
@@ -41,6 +55,7 @@ function createHarness(
       id: "result-answers",
       runId: "run-answers",
       jobId: job.id,
+      applicationRecordId,
       state: "awaiting_review",
       summary: "Questions need review",
       detail: "No submission occurred.",
@@ -53,6 +68,7 @@ function createHarness(
       id: "question-sponsorship",
       runId: "run-answers",
       jobId: job.id,
+      applicationRecordId,
       resultId: "result-answers",
       prompt: "Will you now or later require visa sponsorship?",
       kind: options.questionKind ?? "visa_sponsorship",
@@ -110,6 +126,7 @@ describe("workspace application answer methods", () => {
     expect(saved.answerRecords).toEqual([
       expect.objectContaining({
         id: "application_answer_save-1",
+        applicationRecordId: "application-answers",
         text: "No",
         value: { type: "single_choice", value: "No" },
         revision: 1,
@@ -126,6 +143,7 @@ describe("workspace application answer methods", () => {
     expect(replaced.answerRecords.at(-1)).toEqual(
       expect.objectContaining({
         id: "application_answer_save-2",
+        applicationRecordId: "application-answers",
         text: "Yes",
         revision: 2,
         supersedesAnswerId: "application_answer_save-1",
@@ -152,6 +170,7 @@ describe("workspace application answer methods", () => {
     expect(cleared.answerRecords.at(-1)).toEqual(
       expect.objectContaining({
         id: "application_answer_clear-3",
+        applicationRecordId: "application-answers",
         status: "rejected",
         value: null,
         revision: 3,
@@ -310,6 +329,124 @@ describe("workspace application answer methods", () => {
         }),
       ]),
     );
+  });
+
+  it("keeps a profile edit that lands between the question context and the reusable append", async () => {
+    const { job, methods, repository } = createHarness();
+    const commitProfileUpdate = repository.commitProfileUpdate.bind(repository);
+    let interleavedEditLanded = false;
+    vi.spyOn(repository, "commitProfileUpdate").mockImplementation(
+      (updater) => {
+        if (!interleavedEditLanded) {
+          interleavedEditLanded = true;
+          return repository.getProfile().then(async (current) => {
+            await repository.saveProfile({
+              ...current,
+              headline: "Interleaved headline",
+            });
+            return commitProfileUpdate(updater);
+          });
+        }
+        return commitProfileUpdate(updater);
+      },
+    );
+
+    const details = await methods.saveApplicationAnswer({
+      ...saveCommand("save-interleaved", 0),
+      jobId: job.id,
+      saveScope: "reusable_profile",
+    });
+    expect(details.answerRecords).toHaveLength(1);
+
+    const profile = await repository.getProfile();
+    expect(profile.headline).toBe("Interleaved headline");
+    expect(profile.answerBank.customAnswers).toEqual([
+      expect.objectContaining({
+        question: "Will you now or later require visa sponsorship?",
+        answer: "No",
+      }),
+    ]);
+  });
+
+  it("appends once when two identical reusable answers race", async () => {
+    const { job, methods, repository } = createHarness();
+
+    const results = await Promise.allSettled([
+      methods.saveApplicationAnswer({
+        ...saveCommand("race-same-a", 0),
+        jobId: job.id,
+        saveScope: "reusable_profile",
+      }),
+      methods.saveApplicationAnswer({
+        ...saveCommand("race-same-b", 0),
+        jobId: job.id,
+        value: { type: "single_choice" as const, value: "No" },
+        saveScope: "reusable_profile",
+      }),
+    ]);
+
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+
+    const profile = await repository.getProfile();
+    expect(profile.fullName).toBe("Alex Vanguard");
+    expect(profile.answerBank.customAnswers).toHaveLength(1);
+    expect(profile.answerBank.customAnswers[0]).toEqual(
+      expect.objectContaining({
+        question: "Will you now or later require visa sponsorship?",
+        answer: "No",
+      }),
+    );
+
+    const answers = await repository.listApplicationAnswerRecords({
+      questionId: "question-sponsorship",
+    });
+    expect(answers.map((answer) => answer.revision)).toEqual([1]);
+  });
+
+  it("rejects one conflicting reusable answer without losing profile data", async () => {
+    const { job, methods, repository } = createHarness();
+
+    const results = await Promise.allSettled([
+      methods.saveApplicationAnswer({
+        ...saveCommand("race-conflict-a", 0),
+        jobId: job.id,
+        saveScope: "reusable_profile",
+      }),
+      methods.saveApplicationAnswer({
+        ...saveCommand("race-conflict-b", 0),
+        jobId: job.id,
+        value: { type: "single_choice" as const, value: "Yes" },
+        saveScope: "reusable_profile",
+      }),
+    ]);
+
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+    const rejected = results.find((result) => result.status === "rejected");
+    if (rejected?.status === "rejected") {
+      const message =
+        rejected.reason instanceof Error
+          ? rejected.reason.message
+          : String(rejected.reason);
+      expect(message).toMatch(
+        /different reusable answer|changed in another view/i,
+      );
+    }
+
+    const profile = await repository.getProfile();
+    expect(profile.fullName).toBe("Alex Vanguard");
+    expect(profile.answerBank.customAnswers).toHaveLength(1);
+    expect(["No", "Yes"]).toContain(
+      profile.answerBank.customAnswers[0]?.answer,
+    );
+
+    const answers = await repository.listApplicationAnswerRecords({
+      questionId: "question-sponsorship",
+    });
+    expect(answers).toHaveLength(1);
   });
 
   it("keeps command retries idempotent", async () => {

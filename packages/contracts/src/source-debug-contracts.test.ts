@@ -87,6 +87,8 @@ describe("contracts source-debug schemas", () => {
       ],
     });
 
+    expect(discovery.inventoryCompleteness).toBe("unknown");
+
     const attempt = ApplicationAttemptSchema.parse(createSubmittedAttempt());
 
     expect(discovery.jobs[0]?.easyApplyEligible).toBe(true);
@@ -109,6 +111,13 @@ describe("contracts source-debug schemas", () => {
       discovery.agentMetadata?.debugFindings?.reliableControls[0],
     ).toContain("Keyword search box");
     expect(attempt.checkpoints[0]?.state).toBe("submitted");
+    expect(attempt.applicationRecordId).toBeNull();
+    expect(
+      ApplicationAttemptSchema.parse({
+        ...createSubmittedAttempt(),
+        applicationRecordId: "application_record_1",
+      }).applicationRecordId,
+    ).toBe("application_record_1");
   });
 
   test("parses source-debug runs and instruction artifacts", () => {

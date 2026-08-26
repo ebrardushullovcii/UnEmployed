@@ -4,6 +4,7 @@ import {
   AbnormalFailurePauseSchema,
   ApplyGroupedManualAnswerInputSchema,
   CompanyApplicationCapSchema,
+  CompanyAliasSchema,
   CompanyEntitySchema,
   CompanyIntelligenceMutationInputSchema,
   CompanyIntelligenceMutationSchema,
@@ -25,7 +26,10 @@ import {
   ResumeStrategySchema,
   SetCampaignResumeStrategyDefaultInputSchema,
   SetOutcomeSuggestionEnabledInputSchema,
+  genericCompanyNameValues,
   groupedDecisionForbiddenAuthorityValues,
+  isGenericCompanyName,
+  normalizeCompanyName,
   outcomeBucketDimensionValues,
 } from "./job-finder-intelligence";
 
@@ -598,6 +602,100 @@ describe("reusable resume strategies", () => {
 });
 
 describe("conservative company entities", () => {
+  it("uses one canonical company-name normalization with C++ and C# semantics", () => {
+    expect(normalizeCompanyName("  Café C++ Labs  ")).toBe(
+      "cafe cplusplus labs",
+    );
+    expect(normalizeCompanyName("C# Works")).toBe("csharp works");
+    expect(
+      CompanyAliasSchema.parse({
+        alias: "C++ Works",
+        normalized: "cplusplus works",
+      }),
+    ).toMatchObject({
+      alias: "C++ Works",
+      normalized: "cplusplus works",
+      identityAuthority: "unknown",
+    });
+  });
+
+  it("rejects polluted aliases whose persisted normalized key mismatches", () => {
+    for (const identityAuthority of [
+      "unknown",
+      "user_approved_merge",
+    ] as const) {
+      expect(
+        CompanyAliasSchema.safeParse({
+          alias: "C++ Works",
+          normalized: "c works",
+          identityAuthority,
+        }).success,
+      ).toBe(false);
+    }
+  });
+
+  it("bounds generic placeholders without rejecting named agencies", () => {
+    for (const name of genericCompanyNameValues) {
+      expect(isGenericCompanyName(name)).toBe(true);
+    }
+    for (const name of [
+      "Named Staffing Agency",
+      "Recruiting Agency Partners",
+    ]) {
+      expect(isGenericCompanyName(name)).toBe(false);
+    }
+  });
+
+  it("defaults legacy alias identity authority to unknown", () => {
+    const company = CompanyEntitySchema.parse({
+      id: "company-1",
+      canonicalName: "Acme",
+      aliases: [
+        {
+          alias: "Acme Corporation",
+          normalized: "acme corporation",
+          confidence: 1,
+        },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    expect(company.aliases[0]?.identityAuthority).toBe("unknown");
+  });
+
+  it("round-trips explicit alias identity authority values", () => {
+    for (const identityAuthority of [
+      "unknown",
+      "user_approved_merge",
+    ] as const) {
+      expect(
+        CompanyAliasSchema.parse({
+          alias: "Acme Corporation",
+          normalized: "acme corporation",
+          confidence: 1,
+          identityAuthority,
+        }),
+      ).toEqual({
+        alias: "Acme Corporation",
+        normalized: "acme corporation",
+        confidence: 1,
+        identityAuthority,
+      });
+    }
+  });
+
+  it("rejects invalid alias identity authority", () => {
+    expect(
+      CompanyAliasSchema.safeParse({
+        alias: "Acme Corporation",
+        normalized: "acme corporation",
+        confidence: 1,
+        identityAuthority: "automatic",
+      }).success,
+    ).toBe(false);
+  });
+
   it("keeps merge review candidates pending by default", () => {
     const candidate = CompanyMergeReviewCandidateSchema.parse({
       candidateCompanyId: "company-2",
@@ -818,9 +916,9 @@ describe("company intelligence mutations", () => {
       { type: "upsert_salary_offer_evidence", evidence },
       { type: "remove_salary_offer_evidence", evidenceId: "evidence-1" },
     ] as const) {
-      expect(CompanyIntelligenceMutationSchema.safeParse(mutation).success).toBe(
-        true,
-      );
+      expect(
+        CompanyIntelligenceMutationSchema.safeParse(mutation).success,
+      ).toBe(true);
       expect(
         CompanyIntelligenceMutationInputSchema.safeParse({
           companyId: "company-1",
@@ -843,6 +941,43 @@ describe("company intelligence mutations", () => {
         type: "upsert_contact",
         contact: { ...contact, submitAuthorized: true },
       }).success,
+    ).toBe(false);
+  });
+
+  it("requires exact lineage fields for new salary and offer evidence", () => {
+    const mutation = (overrides: Record<string, unknown>) => ({
+      type: "upsert_salary_offer_evidence",
+      evidence: { ...evidence, ...overrides },
+    });
+
+    expect(
+      CompanyIntelligenceMutationSchema.safeParse(
+        mutation({ kind: "listed_salary" }),
+      ).success,
+    ).toBe(false);
+    expect(
+      CompanyIntelligenceMutationSchema.safeParse(
+        mutation({ kind: "listed_salary", jobId: "job-1" }),
+      ).success,
+    ).toBe(true);
+    expect(
+      CompanyIntelligenceMutationSchema.safeParse(
+        mutation({ kind: "offer", jobId: "job-1" }),
+      ).success,
+    ).toBe(false);
+    expect(
+      CompanyIntelligenceMutationSchema.safeParse(
+        mutation({
+          kind: "offer",
+          jobId: "job-1",
+          applicationRecordId: "application-1",
+        }),
+      ).success,
+    ).toBe(true);
+    expect(
+      CompanyIntelligenceMutationSchema.safeParse(
+        mutation({ applicationRecordId: "application-1" }),
+      ).success,
     ).toBe(false);
   });
 

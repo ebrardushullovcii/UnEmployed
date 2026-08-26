@@ -2,8 +2,11 @@ const COPILOT_PANEL_MAX_WIDTH = 480;
 const COPILOT_PANEL_OFFSET = 16;
 const COPILOT_COLLAPSED_WIDTH = 48;
 const COPILOT_COLLAPSED_HEIGHT = 48;
+const COPILOT_SUGGESTION_STACK_GAP = 12;
+const COPILOT_SUGGESTION_PILL_HEIGHT = 44;
 export const COPILOT_BOTTOM_OFFSET = 16;
 export const COPILOT_NAV_SAFE_OFFSET = 112;
+export const COPILOT_LAUNCHER_MIN_INTERACTIVE_GAP = 24;
 export const COPILOT_POSITION_STORAGE_KEY =
   "unemployed.profile-copilot-position-v7";
 
@@ -16,9 +19,70 @@ export interface CopilotPosition {
   y: number;
 }
 
+export interface CopilotRect {
+  bottom: number;
+  left: number;
+  right: number;
+  top: number;
+}
+
 export interface CopilotViewport {
   height: number;
   width: number;
+}
+
+export function getCollapsedLauncherStackSize(input: {
+  showSuggestionPill: boolean;
+}): { height: number; width: number } {
+  return {
+    height:
+      COPILOT_COLLAPSED_HEIGHT +
+      (input.showSuggestionPill
+        ? COPILOT_SUGGESTION_STACK_GAP + COPILOT_SUGGESTION_PILL_HEIGHT
+        : 0),
+    width: COPILOT_COLLAPSED_WIDTH,
+  };
+}
+
+export function getCollapsedLauncherClearance(input: {
+  launcherHeight: number;
+  launcherWidth: number;
+  minTopOffset: number;
+  targets: readonly CopilotRect[];
+  viewportHeight: number;
+  viewportWidth: number;
+}): number {
+  const launcherHeight = Math.max(0, input.launcherHeight);
+  const columnRight = input.viewportWidth - COPILOT_PANEL_OFFSET;
+  const columnLeft = columnRight - Math.max(0, input.launcherWidth);
+  const dockedStackTop =
+    input.viewportHeight - COPILOT_BOTTOM_OFFSET - launcherHeight;
+  const dockedStackBottom = input.viewportHeight - COPILOT_BOTTOM_OFFSET;
+  const maxClearance = Math.max(
+    COPILOT_BOTTOM_OFFSET,
+    input.viewportHeight - launcherHeight - Math.max(0, input.minTopOffset),
+  );
+  let clearance = COPILOT_BOTTOM_OFFSET;
+
+  for (const target of input.targets) {
+    const intersectsLauncherColumn =
+      target.right > columnLeft && target.left < columnRight;
+
+    if (!intersectsLauncherColumn) {
+      continue;
+    }
+
+    if (target.bottom <= dockedStackTop || target.top >= dockedStackBottom) {
+      continue;
+    }
+
+    const needed =
+      input.viewportHeight - target.top + COPILOT_LAUNCHER_MIN_INTERACTIVE_GAP;
+
+    clearance = Math.max(clearance, Math.min(needed, maxClearance));
+  }
+
+  return Math.ceil(clearance);
 }
 
 export interface PersistedCopilotPosition extends CopilotPosition {

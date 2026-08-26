@@ -1,41 +1,77 @@
+import type { ComponentProps, ReactNode } from "react";
+
+import { cn } from "@renderer/lib/cn";
+
 interface PageHeaderProps {
+  /**
+   * @deprecated Ignored. Kept only so un-migrated exception screens
+   * (Profile, Settings, Shortlisted) keep typechecking until they migrate.
+   */
   compact?: boolean;
+  actions?: ReactNode;
   description: string;
-  eyebrow: string;
+  /**
+   * @deprecated Ignored. The visible eyebrow was removed from the page
+   * grammar.
+   */
+  eyebrow?: string;
   title: string;
 }
 
-export function PageHeader({
-  compact = false,
-  description,
-  eyebrow,
-  title,
-}: PageHeaderProps) {
+export function PageHeader({ actions, description, title }: PageHeaderProps) {
   return (
-    <div className={compact ? "grid gap-2" : "grid gap-4"}>
-      <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-page-eyebrow) text-muted-foreground">
-        {eyebrow}
-      </p>
-      <div className={compact ? "grid gap-1" : "grid gap-3"}>
-        <h1
-          className={
-            compact
-              ? "max-w-[18ch] font-display text-(length:--text-page-title-compact) font-semibold leading-[0.98] tracking-(--tracking-page-title-compact) text-(--headline-primary)"
-              : "max-w-[18ch] font-display text-(length:--text-page-title) font-semibold leading-[0.98] tracking-(--tracking-page-title) text-(--headline-primary)"
-          }
-        >
+    <header
+      className="grid min-w-0 gap-1 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-baseline lg:gap-x-4"
+      data-page-header
+    >
+      <div className="grid min-w-0 gap-1">
+        <h1 className="max-w-[24ch] font-display text-(length:--text-page-title-compact) font-semibold leading-none tracking-(--tracking-page-title-compact) text-(--headline-primary)">
           {title}
         </h1>
-        <p
-          className={
-            compact
-              ? "max-w-[62ch] text-(length:--text-page-description-compact) leading-(--leading-page-description-compact) text-foreground-soft"
-              : "max-w-[68ch] text-(length:--text-page-description) leading-(--leading-page-description) text-foreground-soft"
-          }
-        >
+        <p className="max-w-[68ch] text-(length:--text-page-description-compact) leading-5 text-foreground-soft">
           {description}
         </p>
       </div>
+      {actions ? (
+        <div
+          className="flex min-w-0 flex-wrap items-center justify-start gap-2 lg:justify-end"
+          data-page-header-actions
+        >
+          {actions}
+        </div>
+      ) : null}
+    </header>
+  );
+}
+
+export function PageHeaderStack(
+  props: PageHeaderProps & { subnav?: ReactNode },
+) {
+  const { subnav, ...headerProps } = props;
+
+  return (
+    <div className="mb-(--gap-page-header-body)" data-page-header-stack>
+      <PageHeader {...headerProps} />
+      {subnav ? (
+        <div className="mt-(--gap-page-header-aux)" data-page-header-subnav>
+          {subnav}
+        </div>
+      ) : null}
+      <div
+        aria-hidden="true"
+        className="mt-(--gap-page-header-aux) border-b border-(--surface-panel-border)"
+        data-page-header-divider
+      />
     </div>
+  );
+}
+
+export function PageSubnav({ className, ...props }: ComponentProps<"div">) {
+  return (
+    <div
+      className={cn("flex min-w-0 flex-wrap items-center gap-2", className)}
+      data-page-subnav
+      {...props}
+    />
   );
 }

@@ -13,6 +13,7 @@ afterEach(cleanup);
 
 function createRequest(input: {
   actionUrl?: string | null;
+  applicationRecordId?: string | null;
   id: string;
   scope: "application" | "discovery_source";
   attemptCount?: number;
@@ -22,6 +23,7 @@ function createRequest(input: {
     type: "application" as const,
     runId: "run_1",
     jobId: "job_1",
+    applicationRecordId: input.applicationRecordId ?? null,
     resultId: null,
     replayCheckpointId: null,
     source: "target_site" as const,
@@ -71,8 +73,9 @@ function createRequest(input: {
 }
 
 describe("ActionsScreen", () => {
-  it("opens the exact application or source context from an action", () => {
+  it("opens the exact scoped application among sibling records", () => {
     const applicationRequest = createRequest({
+      applicationRecordId: "application-target",
       id: "application-target",
       scope: "application",
     });
@@ -81,21 +84,83 @@ describe("ActionsScreen", () => {
       scope: "discovery_source",
     });
     const applicationRecords = [
+      { id: "application-sibling", jobId: "job_1" },
       { id: "application-target", jobId: "job_1" },
     ] as unknown as Parameters<typeof getUserActionContextRoute>[1];
 
     expect(
       getUserActionContextRoute(applicationRequest, applicationRecords),
-    ).toBe("/job-finder/applications?applicationRecordId=application-target");
+    ).toBe(
+      "/job-finder/applications?applicationRecordId=application-target&jobId=job_1",
+    );
     expect(getUserActionContextRoute(sourceRequest, applicationRecords)).toBe(
       "/job-finder/discovery?targetId=target_1",
     );
+  });
+
+  it("keeps exact identity for downstream job validation and fails legacy ambiguity closed", () => {
+    const wrongJobRequest = createRequest({
+      applicationRecordId: "application-wrong-job",
+      id: "wrong-job",
+      scope: "application",
+    });
+    const records = [
+      { id: "application-wrong-job", jobId: "job_2" },
+      { id: "application-first", jobId: "job_1" },
+      { id: "application-second", jobId: "job_1" },
+    ] as unknown as Parameters<typeof getUserActionContextRoute>[1];
+
+    expect(getUserActionContextRoute(wrongJobRequest, records)).toBe(
+      "/job-finder/applications?applicationRecordId=application-wrong-job&jobId=job_1",
+    );
     expect(
-      getUserActionContextRoute(applicationRequest, [
-        { id: "other-record", jobId: "job-target" },
-        { id: "second-record", jobId: "job-target" },
-      ] as unknown as Parameters<typeof getUserActionContextRoute>[1]),
+      getUserActionContextRoute(
+        createRequest({ id: "legacy", scope: "application" }),
+        records,
+      ),
     ).toBe("/job-finder/applications?jobId=job_1");
+  });
+
+  it("resolves a legacy scope only when its job has exactly one record", () => {
+    expect(
+      getUserActionContextRoute(
+        createRequest({ id: "legacy", scope: "application" }),
+        [{ id: "application-only", jobId: "job_1" }] as unknown as Parameters<
+          typeof getUserActionContextRoute
+        >[1],
+      ),
+    ).toBe(
+      "/job-finder/applications?applicationRecordId=application-only&jobId=job_1",
+    );
+  });
+
+  it("renders the shared page header grammar with a normalized body gap", () => {
+    const { container, getByRole } = render(
+      <ActionsScreen
+        discoveryJobs={[]}
+        isPending={() => false}
+        onCommand={vi.fn()}
+        onNavigate={vi.fn()}
+        requests={[createRequest({ id: "application", scope: "application" })]}
+      />,
+    );
+
+    const page = container.querySelector("section.grid");
+    expect(page?.className).toContain("gap-5");
+    expect(page?.className).not.toContain("gap-8");
+
+    expect(getByRole("heading", { name: "Needs you" })).toBeTruthy();
+    expect(
+      container.querySelectorAll("[data-page-header-divider]"),
+    ).toHaveLength(1);
+    expect(
+      container.querySelector("[data-page-header-stack]")?.className,
+    ).toContain("mb-(--gap-page-header-body)");
+
+    const searchField = getByRole("searchbox").parentElement;
+    const toolbar = searchField?.parentElement?.parentElement;
+    expect(toolbar?.className).not.toContain("border-y");
+    expect(toolbar?.className).not.toContain("px-0");
   });
 
   it("groups unresolved application and source actions and excludes terminal requests", () => {
@@ -263,6 +328,25 @@ describe("ActionsScreen", () => {
     );
   });
 
+  it("gives the empty inbox one clear next action toward discovery", () => {
+    const onNavigate = vi.fn();
+    const { getByRole } = render(
+      <ActionsScreen
+        discoveryJobs={[]}
+        isPending={() => false}
+        onCommand={vi.fn()}
+        onNavigate={onNavigate}
+        requests={[]}
+      />,
+    );
+
+    expect(
+      getByRole("heading", { name: "Nothing needs you right now" }),
+    ).toBeTruthy();
+    fireEvent.click(getByRole("button", { name: "Find jobs" }));
+    expect(onNavigate).toHaveBeenCalledWith("/job-finder/discovery");
+  });
+
   it("offers a clear recovery route when the browser link is unavailable", () => {
     const onCommand = vi.fn<(command: UserActionCommandInput) => void>();
     const onNavigate = vi.fn();
@@ -291,7 +375,9 @@ describe("ActionsScreen", () => {
       "missing-link-missing-browser-link",
     );
     fireEvent.click(recoveryButton);
-    expect(onNavigate).toHaveBeenCalledWith("/job-finder/applications");
+    expect(onNavigate).toHaveBeenCalledWith(
+      "/job-finder/applications?jobId=job_1",
+    );
     expect(onCommand).not.toHaveBeenCalled();
   });
 });

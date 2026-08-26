@@ -22,7 +22,7 @@ export function ResumeThemePickerFull(props: {
   disabled: boolean;
   heroReason: string | null;
   heroTemplate: ResumeTemplateDefinition;
-  id?: string | undefined;
+  labelledBy: string;
   onChange: (themeId: ResumeTemplateId) => void;
   recommendedThemeIds: ReadonlySet<ResumeTemplateId>;
   selectedThemeId: ResumeTemplateId;
@@ -32,7 +32,7 @@ export function ResumeThemePickerFull(props: {
     disabled,
     heroReason,
     heroTemplate,
-    id,
+    labelledBy,
     onChange,
     recommendedThemeIds,
     selectedThemeId,
@@ -80,7 +80,11 @@ export function ResumeThemePickerFull(props: {
   }, [heroTemplate.id]);
 
   return (
-    <div className="grid min-w-0 gap-4" aria-labelledby={id}>
+    <div
+      className="grid min-w-0 gap-4"
+      aria-labelledby={labelledBy}
+      role="group"
+    >
       <section className="surface-panel-shell relative min-w-0 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border)">
         <div className="grid min-w-0 gap-3 p-3.5 xl:gap-3.5">
           <div className="flex min-w-0 flex-wrap items-start justify-between gap-2.5">

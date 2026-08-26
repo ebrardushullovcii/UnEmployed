@@ -13,7 +13,12 @@ import {
 import { JobSearchCampaignScheduleSchema } from "@unemployed/contracts";
 
 import { createWorkspaceServiceHarness } from "./workspace-service.test-harness";
-import { createBrowserRuntime } from "./workspace-service.test-runtimes";
+import {
+  createAiClient,
+  createBrowserRuntime,
+  createDocumentManager,
+} from "./workspace-service.test-runtimes";
+import { createJobFinderWorkspaceService } from "./index";
 
 function createSchedule(
   overrides: Partial<JobSearchCampaignSchedule> = {},
@@ -111,9 +116,14 @@ describe("workspace campaign scheduled runs", () => {
     const base = createBrowserRuntime();
     const browserRuntime: BrowserSessionRuntime = {
       ...base,
-      runDiscovery: async (source, searchPreferences) => {
-        captured.push(structuredClone(searchPreferences));
-        return base.runDiscovery(source, searchPreferences);
+      runAgentDiscovery: async (source, options) => {
+        captured.push(
+          structuredClone({
+            targetRoles: options.searchPreferences.targetRoles,
+            locations: options.searchPreferences.locations,
+          }) as JobSearchPreferences,
+        );
+        return base.runAgentDiscovery!(source, options);
       },
     };
     const harness = createWorkspaceServiceHarness({ browserRuntime });
@@ -484,6 +494,53 @@ describe("workspace campaign scheduled runs", () => {
     expect(strongForPauseCase).toBe(pauseCase.matchAssessment.score >= 86);
   });
 
+  test("retention refresh keeps in-flight jobs beyond the target and views stay coherent after reopen", async () => {
+    const harness = createWorkspaceServiceHarness();
+    const { repository, workspaceService } = harness;
+    const active = await getActiveCampaign(harness);
+
+    // Shrink retention so ranked selection alone could keep only one job.
+    await workspaceService.saveCampaign(
+      toCampaignInput(active, {
+        limits: { ...active.limits, retainedJobTarget: 1 },
+      }),
+    );
+
+    await workspaceService.runCampaignNow();
+
+    // Both seeded jobs carry in-flight work (ready_for_review with a ready
+    // asset; drafting with a generating asset), so both survive the
+    // target-1 refresh even if a fresh arrival outranks them.
+    const state = await repository.getCampaignState();
+    const ran = state?.campaigns.find((campaign) => campaign.id === active.id);
+    expect(ran?.jobIds).toContain("job_ready");
+    expect(ran?.jobIds).toContain("job_generating");
+
+    // Reopening the workspace over the same persisted state (service
+    // restart) keeps the campaign-scoped views coherent: the review queue
+    // still exposes both in-flight jobs.
+    const reopenedService = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime: createBrowserRuntime(),
+      aiClient: createAiClient(),
+      documentManager: createDocumentManager(),
+    });
+    const reopenedSnapshot = await reopenedService.getWorkspaceSnapshot();
+    expect(
+      reopenedSnapshot.reviewQueue.some((item) => item.jobId === "job_ready"),
+    ).toBe(true);
+    expect(
+      reopenedSnapshot.reviewQueue.some(
+        (item) => item.jobId === "job_generating",
+      ),
+    ).toBe(true);
+    const reopenedCampaign = reopenedSnapshot.campaigns.find(
+      (campaign) => campaign.id === active.id,
+    );
+    expect(reopenedCampaign?.jobIds).toContain("job_ready");
+    expect(reopenedCampaign?.jobIds).toContain("job_generating");
+  });
+
   test("records a failed run in run facts and emits a blocked notification", async () => {
     const harness = createWorkspaceServiceHarness();
     const { repository, workspaceService } = harness;
@@ -508,7 +565,7 @@ describe("workspace campaign scheduled runs", () => {
 
     await expect(
       workspaceService.runCampaignNow({ campaignId: campaignC.id }),
-    ).rejects.toThrow("No supported listings matched");
+    ).rejects.toThrow("No catalog jobs matched");
 
     const state = await repository.getCampaignState();
     const ran = state?.campaigns.find(

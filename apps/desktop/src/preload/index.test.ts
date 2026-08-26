@@ -20,6 +20,20 @@ vi.mock("electron", () => ({
 import "./index";
 
 type ExposedJobFinderApi = {
+  dismissDiscoveryJob: (
+    jobId: string,
+    reasons: readonly string[],
+    action?: "hide_job" | "hide_and_exclude_employer",
+    expectedNormalizedCompanyName?: string | null,
+  ) => Promise<unknown>;
+  previewEmployerExclusion: (jobId: string) => Promise<unknown>;
+  removeEmployerExclusion: (input: unknown) => Promise<unknown>;
+  getApplyRunDetails: (input: unknown) => Promise<unknown>;
+  exportApplicationPacket: (input: unknown) => Promise<unknown>;
+  startApplyCopilotRun: (input: unknown) => Promise<unknown>;
+  startAutoApplyRun: (input: unknown) => Promise<unknown>;
+  cancelApplyRun: (input: unknown) => Promise<unknown>;
+  resolveApplyConsentRequest: (input: unknown) => Promise<unknown>;
   markAllCampaignNotificationsRead: () => Promise<unknown>;
   mutateSafeguards: (input: unknown) => Promise<unknown>;
   mutateCompanyIntelligence: (input: unknown) => Promise<unknown>;
@@ -27,12 +41,16 @@ type ExposedJobFinderApi = {
   applyGroupedManualAnswer: (input: unknown) => Promise<unknown>;
   snoozeGroupedDecision: (input: unknown) => Promise<unknown>;
   recordOutcome: (input: unknown) => Promise<unknown>;
+  setResumeClaimConfirmation: (input: unknown) => Promise<unknown>;
   setOutcomeSuggestionEnabled: (input: unknown) => Promise<unknown>;
   recommendResumeStrategy: (input: unknown) => Promise<unknown>;
   setCampaignResumeStrategyDefault: (input: unknown) => Promise<unknown>;
   saveResumeStrategy: (input: unknown) => Promise<unknown>;
   selectResumeStrategy: (input: unknown) => Promise<unknown>;
   disableResumeStrategy: (strategyId: string) => Promise<unknown>;
+  getStartupResetRecovery: () => Promise<unknown>;
+  getStartupDatabaseRecovery: () => Promise<unknown>;
+  dismissStartupDatabaseRecoveryNotice: () => Promise<unknown>;
 };
 
 const exposedJobFinder = (() => {
@@ -134,10 +152,7 @@ describe("preload jobFinder grouped manual-answer boundary", () => {
 
     const result = await exposedJobFinder.recordOutcome(input);
 
-    expect(mockInvoke).toHaveBeenCalledWith(
-      "job-finder:record-outcome",
-      input,
-    );
+    expect(mockInvoke).toHaveBeenCalledWith("job-finder:record-outcome", input);
     expect(result).toEqual(snapshot);
   });
 
@@ -186,9 +201,8 @@ describe("preload jobFinder grouped manual-answer boundary", () => {
       reset: true,
     };
     mockInvoke.mockResolvedValueOnce(snapshot);
-    const resetResult = await exposedJobFinder.setOutcomeSuggestionEnabled(
-      reset,
-    );
+    const resetResult =
+      await exposedJobFinder.setOutcomeSuggestionEnabled(reset);
 
     expect(mockInvoke).toHaveBeenLastCalledWith(
       "job-finder:set-outcome-suggestion-enabled",
@@ -262,9 +276,8 @@ describe("preload jobFinder grouped manual-answer boundary", () => {
     expect(saveResult).toEqual(snapshot);
 
     mockInvoke.mockResolvedValueOnce(snapshot);
-    const disableResult = await exposedJobFinder.disableResumeStrategy(
-      "strategy-1",
-    );
+    const disableResult =
+      await exposedJobFinder.disableResumeStrategy("strategy-1");
     expect(mockInvoke).toHaveBeenLastCalledWith(
       "job-finder:disable-resume-strategy",
       "strategy-1",
@@ -296,5 +309,208 @@ describe("preload jobFinder grouped manual-answer boundary", () => {
       input,
     );
     expect(result).toEqual(snapshot);
+  });
+
+  it("forwards exact application lineage through preparation IPC", async () => {
+    const detailsTarget = {
+      runId: "run-1",
+      jobId: "job-1",
+      applicationRecordId: "application-1",
+    };
+    const startTarget = {
+      jobId: "job-1",
+      applicationRecordId: "application-1",
+      visualCheckpointsEnabled: true,
+    };
+    const consentTarget = {
+      ...detailsTarget,
+      requestId: "consent-1",
+      action: "approve",
+    };
+    mockInvoke.mockResolvedValue({ ok: true });
+
+    await exposedJobFinder.getApplyRunDetails(detailsTarget);
+    await exposedJobFinder.exportApplicationPacket(detailsTarget);
+    await exposedJobFinder.startApplyCopilotRun(startTarget);
+    await exposedJobFinder.startAutoApplyRun({
+      jobId: "job-1",
+      applicationRecordId: "application-1",
+    });
+    await exposedJobFinder.cancelApplyRun(detailsTarget);
+    await exposedJobFinder.resolveApplyConsentRequest(consentTarget);
+
+    expect(mockInvoke.mock.calls).toEqual([
+      ["job-finder:get-apply-run-details", detailsTarget],
+      ["job-finder:export-application-packet", detailsTarget],
+      ["job-finder:start-apply-copilot-run", startTarget],
+      [
+        "job-finder:start-auto-apply-run",
+        { jobId: "job-1", applicationRecordId: "application-1" },
+      ],
+      ["job-finder:cancel-apply-run", detailsTarget],
+      ["job-finder:resolve-apply-consent-request", consentTarget],
+    ]);
+  });
+
+  it("exposes atomic employer exclusion preview, hide, and reversal channels", async () => {
+    await exposedJobFinder.previewEmployerExclusion("job-1");
+    expect(mockInvoke).toHaveBeenLastCalledWith(
+      "job-finder:preview-employer-exclusion",
+      { jobId: "job-1" },
+    );
+    await exposedJobFinder.dismissDiscoveryJob(
+      "job-1",
+      ["company"],
+      "hide_and_exclude_employer",
+      "example co",
+    );
+    expect(mockInvoke).toHaveBeenLastCalledWith(
+      "job-finder:dismiss-discovery-job",
+      {
+        jobId: "job-1",
+        reasons: ["company"],
+        action: "hide_and_exclude_employer",
+        expectedNormalizedCompanyName: "example co",
+      },
+    );
+    await exposedJobFinder.removeEmployerExclusion({
+      jobId: "job-1",
+      normalizedCompanyName: "example co",
+    });
+    expect(mockInvoke).toHaveBeenLastCalledWith(
+      "job-finder:remove-employer-exclusion",
+      { jobId: "job-1", normalizedCompanyName: "example co" },
+    );
+  });
+});
+
+describe("preload jobFinder resume claim confirmation boundary", () => {
+  beforeEach(() => {
+    mockInvoke.mockClear();
+  });
+
+  it("exposes setResumeClaimConfirmation over the typed channel", async () => {
+    const snapshot = { generatedAt: "2026-08-26T10:00:00.000Z" };
+    mockInvoke.mockResolvedValueOnce(snapshot);
+    const removeCommand = {
+      intent: "remove",
+      jobId: "job_1",
+      draftId: "resume_draft_job_1",
+      expectedDraftUpdatedAt: "2026-08-26T09:00:00.000Z",
+      confirmationId: "claim_confirmation_section_experience_abc",
+    };
+
+    const result = await exposedJobFinder.setResumeClaimConfirmation(
+      removeCommand,
+    );
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "job-finder:set-resume-claim-confirmation",
+      removeCommand,
+    );
+    expect(result).toEqual(snapshot);
+  });
+
+  it("exposes the add intent without reshaping the command", async () => {
+    const snapshot = { generatedAt: "2026-08-26T10:01:00.000Z" };
+    mockInvoke.mockResolvedValueOnce(snapshot);
+    const addCommand = {
+      intent: "add",
+      jobId: "job_1",
+      draftId: "resume_draft_job_1",
+      expectedDraftUpdatedAt: "2026-08-26T09:00:00.000Z",
+      field: "entry_bullet",
+      sectionId: "section_experience",
+      entryId: "experience_1",
+      bulletId: "experience_1_bullet_1",
+      confirmedClaimContentHash: "fnv1a32:5678efab",
+      ownershipStatement: "I confirm this content is accurate and my own.",
+    };
+
+    const result = await exposedJobFinder.setResumeClaimConfirmation(
+      addCommand,
+    );
+
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "job-finder:set-resume-claim-confirmation",
+      addCommand,
+    );
+    expect(result).toEqual(snapshot);
+  });
+});
+
+describe("preload startup recovery boundary", () => {
+  beforeEach(() => {
+    mockInvoke.mockClear();
+  });
+
+  it("parses getStartupDatabaseRecovery responses through the contract schema", async () => {
+    const fact = {
+      status: "restored",
+      incidentId: "incident-1",
+      restoredFrom: "backup-prev",
+      lossWindow: {
+        detectedAtIso: "2026-08-20T10:00:00.000Z",
+        quarantinedDatabaseModifiedAtIso: null,
+        restoredSnapshotModifiedAtIso: "2026-08-19T10:00:00.000Z",
+      },
+      quarantinedArtifactBasenames: ["workspace.sqlite.quarantine-1"],
+      restoredAtIso: "2026-08-20T10:05:00.000Z",
+      dismissedAtIso: null,
+    };
+    mockInvoke.mockResolvedValueOnce({ ...fact });
+
+    await expect(exposedJobFinder.getStartupDatabaseRecovery()).resolves.toEqual(
+      fact,
+    );
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "job-finder:get-startup-database-recovery",
+    );
+  });
+
+  it("fails closed when getStartupDatabaseRecovery returns a malformed fact", async () => {
+    mockInvoke.mockResolvedValueOnce({
+      status: "restored",
+      incidentId: "",
+    });
+
+    await expect(exposedJobFinder.getStartupDatabaseRecovery()).rejects.toThrow(
+      /restored/,
+    );
+  });
+
+  it("parses getStartupResetRecovery responses through the contract schema", async () => {
+    const fact = {
+      status: "degraded",
+      reason: "marker_quarantined_malformed",
+      quarantinedFileName: "job-finder-reset-intent.invalid-a.json",
+    };
+    mockInvoke.mockResolvedValueOnce({ ...fact });
+
+    await expect(exposedJobFinder.getStartupResetRecovery()).resolves.toEqual(
+      fact,
+    );
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "job-finder:get-startup-reset-recovery",
+    );
+  });
+
+  it("fails closed when getStartupResetRecovery returns a malformed fact", async () => {
+    mockInvoke.mockResolvedValueOnce({ status: "completed" });
+
+    await expect(exposedJobFinder.getStartupResetRecovery()).rejects.toThrow(
+      /required/i,
+    );
+  });
+
+  it("parses dismissStartupDatabaseRecoveryNotice responses through the contract schema", async () => {
+    const fact = { status: "idle" };
+    mockInvoke.mockResolvedValueOnce({ ...fact });
+
+    await expect(
+      exposedJobFinder.dismissStartupDatabaseRecoveryNotice(),
+    ).resolves.toEqual(fact);
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "job-finder:dismiss-startup-database-recovery-notice",
+    );
   });
 });

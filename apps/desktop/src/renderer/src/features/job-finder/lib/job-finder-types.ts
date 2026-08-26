@@ -6,6 +6,7 @@ import type {
   ApplicationCrmSettings,
   ApplyGroupedManualAnswerInput,
   ApplyRunDetails,
+  AppearanceTheme,
   CampaignRuleFunnelProjection,
   CandidateAnswerKind,
   CandidateLinkKind,
@@ -15,13 +16,20 @@ import type {
   DiscoveryActivityEvent,
   DiscoveryFeedbackReason,
   EditableSourceInstructionArtifact,
+  EmployerExclusionPreview,
   JobFinderApplicationPacketExportResult,
   JobFinderApplyConsentActionInput,
   JobFinderApplyCopilotActionInput,
   JobFinderApplyQueueActionInput,
+  JobFinderApplyRunActionInput,
+  JobFinderApplyRunDetailsQuery,
+  JobFinderApplicationStartTarget,
+  JobFinderAgentDiscoveryResult,
   JobFinderOpenBrowserSessionInput,
   JobFinderResumePreview,
   JobFinderResumeWorkspace,
+  JobFinderSetResumeClaimConfirmationInput,
+  JobFinderSetWorkHistoryReviewAcknowledgmentInput,
   JobFinderSettings,
   JobSearchPreferences,
   RapidReviewMutationInput,
@@ -47,6 +55,7 @@ import type {
   ProjectGroupedManualAnswerCommand,
   ResumeAssistantMessage,
   ResumeApplicationMode,
+  RemoveEmployerExclusionInput,
   ResumeDraft,
   ResumeDraftPatch,
   ResumeTimelineRepairAction,
@@ -55,6 +64,8 @@ import type {
   SourceDebugProgressEvent,
   SourceDebugRunDetails,
   SourceInstructionStatus,
+  UpdateApplicationDefaultsInput,
+  UpdateWorkspaceBehaviorInput,
   WorkMode,
   UserActionCommandInput,
 } from "@unemployed/contracts";
@@ -68,11 +79,31 @@ export type JobFinderScreen =
   | "campaigns"
   | "actions"
   | "analytics"
+  | "documents"
   | "settings"
   | "rapid-review"
   | "resume-strategies"
   | "safeguards"
   | "companies";
+
+/**
+ * Typed result of starting an employer-application batch queue. Curation is
+ * consumed only on `confirmed`; every other status preserves the exact
+ * staged selection so a refusal, handled backend failure, or unknown ending
+ * can never silently discard the user's review work.
+ */
+export type JobFinderAutoApplyQueueStartOutcome =
+  | { status: "confirmed" }
+  | {
+      status: "refused";
+      reason:
+        | "daily_capacity_exhausted"
+        | "empty_selection"
+        | "cancelled_stayed_in_workspace";
+      message: string | null;
+    }
+  | { status: "failed"; message: string | null }
+  | { status: "unknown" };
 
 export interface JobFinderShellActions {
   analyzeProfileFromResume: () => Promise<JobFinderWorkspaceSnapshot>;
@@ -88,15 +119,14 @@ export interface JobFinderShellActions {
   runAgentDiscovery: (
     onActivity?: (event: DiscoveryActivityEvent) => void,
     targetId?: string,
-  ) => Promise<JobFinderWorkspaceSnapshot>;
+  ) => Promise<JobFinderAgentDiscoveryResult>;
   runSourceDebug: (
     targetId: string,
     onProgress?: (event: SourceDebugProgressEvent) => void,
   ) => Promise<JobFinderWorkspaceSnapshot>;
   getSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>;
   getApplyRunDetails: (
-    runId: string,
-    jobId: string,
+    input: JobFinderApplyRunDetailsQuery,
   ) => Promise<ApplyRunDetails>;
   saveApplicationAnswer: (
     command: SaveApplicationAnswerCommandInput,
@@ -114,8 +144,7 @@ export interface JobFinderShellActions {
     input: SnoozeGroupedDecisionInput,
   ) => Promise<JobFinderWorkspaceSnapshot>;
   exportApplicationPacket: (
-    runId: string,
-    jobId: string,
+    input: JobFinderApplyRunDetailsQuery,
   ) => Promise<JobFinderApplicationPacketExportResult>;
   saveSourceInstructionArtifact: (
     targetId: string,
@@ -159,6 +188,7 @@ export interface JobFinderShellActions {
     campaignId: string,
     ruleId: string,
   ) => Promise<JobFinderWorkspaceSnapshot>;
+  deleteCampaign: (campaignId: string) => Promise<boolean>;
   toggleCampaignRule: (
     campaignId: string,
     ruleId: string,
@@ -210,6 +240,18 @@ export interface JobFinderShellActions {
   saveSettings: (
     settings: JobFinderSettings,
   ) => Promise<JobFinderWorkspaceSnapshot>;
+  updateApplicationDefaults: (
+    input: UpdateApplicationDefaultsInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  updateWorkspaceBehavior: (
+    input: UpdateWorkspaceBehaviorInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  updateAppearanceTheme: (
+    appearanceTheme: AppearanceTheme,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  updateTrackerCrm: (
+    applicationCrm: ApplicationCrmSettings,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
   saveProfileSetupState: (
     profileSetupState: ProfileSetupState,
   ) => Promise<JobFinderWorkspaceSnapshot>;
@@ -245,6 +287,14 @@ export interface JobFinderShellActions {
   dismissDiscoveryJob: (
     jobId: string,
     reasons: readonly DiscoveryFeedbackReason[],
+    action?: "hide_job" | "hide_and_exclude_employer",
+    expectedNormalizedCompanyName?: string | null,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  previewEmployerExclusion: (
+    jobId: string,
+  ) => Promise<EmployerExclusionPreview>;
+  removeEmployerExclusion: (
+    input: RemoveEmployerExclusionInput,
   ) => Promise<JobFinderWorkspaceSnapshot>;
   restoreDismissedDiscoveryJob: (
     jobId: string,
@@ -270,6 +320,12 @@ export interface JobFinderShellActions {
     exportId: string,
   ) => Promise<JobFinderWorkspaceSnapshot>;
   clearResumeApproval: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
+  setWorkHistoryReviewAcknowledgment: (
+    input: JobFinderSetWorkHistoryReviewAcknowledgmentInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  setResumeClaimConfirmation: (
+    input: JobFinderSetResumeClaimConfirmationInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
   applyResumePatch: (
     patch: ResumeDraftPatch,
     revisionReason?: string | null,
@@ -289,26 +345,29 @@ export interface JobFinderShellActions {
   ) => Promise<readonly ResumeAssistantMessage[]>;
   generateResume: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
   startApplyCopilotRun: (
-    jobId: string,
-    options?: Pick<
-      JobFinderApplyCopilotActionInput,
-      "visualCheckpointsEnabled"
-    >,
+    input: JobFinderApplyCopilotActionInput,
   ) => Promise<JobFinderWorkspaceSnapshot>;
-  startAutoApplyRun: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
+  startAutoApplyRun: (
+    input: JobFinderApplicationStartTarget,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
   startAutoApplyQueueRun: (
     jobIds: JobFinderApplyQueueActionInput["jobIds"],
   ) => Promise<JobFinderWorkspaceSnapshot>;
-  approveApplyRun: (runId: string) => Promise<JobFinderWorkspaceSnapshot>;
-  cancelApplyRun: (runId: string) => Promise<JobFinderWorkspaceSnapshot>;
+  approveApplyRun: (
+    input: JobFinderApplyRunActionInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
+  cancelApplyRun: (
+    input: JobFinderApplyRunActionInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
   resolveApplyConsentRequest: (
-    requestId: string,
-    action: JobFinderApplyConsentActionInput["action"],
+    input: JobFinderApplyConsentActionInput,
   ) => Promise<JobFinderWorkspaceSnapshot>;
   revokeApplyRunApproval: (
-    runId: string,
+    input: JobFinderApplyRunActionInput,
   ) => Promise<JobFinderWorkspaceSnapshot>;
-  approveApply: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
+  approveApply: (
+    input: JobFinderApplicationStartTarget,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
   mutateApplicationCrm: (
     input: ApplicationCrmMutationInput,
   ) => Promise<JobFinderWorkspaceSnapshot>;
@@ -448,3 +507,14 @@ export type BadgeTone =
 export interface ActionState {
   message: string | null;
 }
+
+/**
+ * Request-local resolution of one Shortlist decision. `onQueueJob` returns
+ * this awaited outcome so the Discovery screen can attribute feedback to the
+ * exact clicked job; the shared route-scoped `ActionState` keeps serving other
+ * surfaces but is never the attribution authority for a shortlist row.
+ */
+export type JobFinderQueuedJobOutcome = {
+  message: string;
+  status: "success" | "failure";
+};

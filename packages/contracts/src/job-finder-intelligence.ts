@@ -616,6 +616,66 @@ export type ResumeStrategySelection = z.infer<
 // (4) Conservative company entities
 // ---------------------------------------------------------------------------
 
+/** Canonical exact-comparison key for company names across service and UI. */
+export function normalizeCompanyName(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/\p{M}+/gu, "")
+    .replace(/(^|[^a-z0-9])c\s*\+\s*\+(?=$|[^a-z0-9])/gi, "$1cplusplus")
+    .replace(/(^|[^a-z0-9])c\s*#(?=$|[^a-z0-9])/gi, "$1csharp")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+export const genericCompanyNameValues = [
+  "agency",
+  "anonymous",
+  "anonymous company",
+  "anonymous employer",
+  "client",
+  "client confidential",
+  "company confidential",
+  "confidential",
+  "confidential client",
+  "confidential company",
+  "confidential employer",
+  "employer confidential",
+  "hiring agency",
+  "multiple companies",
+  "n a",
+  "na",
+  "not applicable",
+  "not available",
+  "not disclosed",
+  "our client",
+  "private company",
+  "recruiting agency",
+  "recruitment agency",
+  "staffing agency",
+  "stealth",
+  "stealth company",
+  "the client",
+  "undisclosed",
+  "undisclosed client",
+  "undisclosed company",
+  "undisclosed employer",
+  "unnamed client",
+  "unknown",
+  "unknown client",
+  "unknown company",
+  "various",
+] as const;
+
+const genericCompanyNameSet: ReadonlySet<string> = new Set(
+  genericCompanyNameValues,
+);
+
+/** Rejects only the bounded source-generic placeholder corpus. */
+export function isGenericCompanyName(value: string): boolean {
+  return genericCompanyNameSet.has(normalizeCompanyName(value));
+}
+
 export const companyPreferenceValues = [
   "neutral",
   "follow",
@@ -626,13 +686,35 @@ export const companyPreferenceValues = [
 export const CompanyPreferenceSchema = z.enum(companyPreferenceValues);
 export type CompanyPreference = z.infer<typeof CompanyPreferenceSchema>;
 
+export const companyAliasIdentityAuthorityValues = [
+  "unknown",
+  "user_approved_merge",
+] as const;
+export const CompanyAliasIdentityAuthoritySchema = z.enum(
+  companyAliasIdentityAuthorityValues,
+);
+export type CompanyAliasIdentityAuthority = z.infer<
+  typeof CompanyAliasIdentityAuthoritySchema
+>;
+
 export const CompanyAliasSchema = z
   .object({
     alias: NonEmptyStringSchema,
     normalized: NonEmptyStringSchema,
     confidence: z.number().min(0).max(1).default(1),
+    identityAuthority: CompanyAliasIdentityAuthoritySchema.default("unknown"),
   })
-  .strict();
+  .strict()
+  .superRefine((companyAlias, context) => {
+    if (companyAlias.normalized !== normalizeCompanyName(companyAlias.alias)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["normalized"],
+        message:
+          "Alias normalized value must equal canonical company-name normalization.",
+      });
+    }
+  });
 export type CompanyAlias = z.infer<typeof CompanyAliasSchema>;
 
 export const CompanyDomainSchema = z
@@ -1715,44 +1797,79 @@ export type ReviewCompanyMergeInput = z.infer<
  * submission, account, credential, or browser authority. Ids and timestamps
  * are supplied by the caller so the service can stamp and validate them.
  */
-export const CompanyIntelligenceMutationSchema = z.discriminatedUnion("type", [
-  z
-    .object({
-      type: z.literal("upsert_contact"),
-      contact: CompanyContactSchema,
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal("remove_contact"),
-      contactId: NonEmptyStringSchema,
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal("add_note"),
-      note: CompanyNoteSchema,
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal("remove_note"),
-      noteId: NonEmptyStringSchema,
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal("upsert_salary_offer_evidence"),
-      evidence: CompanySalaryOfferEvidenceSchema,
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal("remove_salary_offer_evidence"),
-      evidenceId: NonEmptyStringSchema,
-    })
-    .strict(),
-]);
+export const CompanyIntelligenceMutationSchema = z
+  .discriminatedUnion("type", [
+    z
+      .object({
+        type: z.literal("upsert_contact"),
+        contact: CompanyContactSchema,
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("remove_contact"),
+        contactId: NonEmptyStringSchema,
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("add_note"),
+        note: CompanyNoteSchema,
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("remove_note"),
+        noteId: NonEmptyStringSchema,
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("upsert_salary_offer_evidence"),
+        evidence: CompanySalaryOfferEvidenceSchema,
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("remove_salary_offer_evidence"),
+        evidenceId: NonEmptyStringSchema,
+      })
+      .strict(),
+  ])
+  .superRefine((mutation, context) => {
+    if (mutation.type !== "upsert_salary_offer_evidence") return;
+    const { evidence } = mutation;
+    if (evidence.applicationRecordId !== null && evidence.jobId === null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["evidence", "jobId"],
+        message: "Application-derived evidence requires its exact job.",
+      });
+    }
+    if (evidence.kind === "listed_salary" && evidence.jobId === null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["evidence", "jobId"],
+        message: "Listed salary evidence requires an exact saved job.",
+      });
+    }
+    if (evidence.kind === "offer") {
+      if (evidence.jobId === null) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["evidence", "jobId"],
+          message: "Offer evidence requires an exact saved job.",
+        });
+      }
+      if (evidence.applicationRecordId === null) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["evidence", "applicationRecordId"],
+          message: "Offer evidence requires an exact application record.",
+        });
+      }
+    }
+  });
 export type CompanyIntelligenceMutation = z.infer<
   typeof CompanyIntelligenceMutationSchema
 >;

@@ -2,6 +2,7 @@ import {
   ApplicationAnswerRecordSchema,
   ApplicationPrivacyReceiptSchema,
   ApplicationQuestionRecordSchema,
+  ApplicationRecordSchema,
   ApplicationReplayCheckpointSchema,
   ApplyJobResultSchema,
   ApplyRunSchema,
@@ -13,10 +14,111 @@ import { createWorkspaceApplyRunStoreMethods } from "./workspace-apply-run-store
 import type { WorkspaceServiceContext } from "./workspace-service-context";
 
 describe("workspace application packet", () => {
+  it("rejects export for legacy null application lineage", async () => {
+    const now = "2026-07-30T12:00:00.000Z";
+    const seed = createSeed();
+    const job = seed.savedJobs[0]!;
+    seed.applyRuns = [
+      ApplyRunSchema.parse({
+        id: "run-legacy",
+        mode: "copilot",
+        state: "paused_for_user_review",
+        jobIds: [job.id],
+        currentJobId: job.id,
+        summary: "Legacy preparation",
+        detail: "No exact application record lineage was retained.",
+        createdAt: now,
+        updatedAt: now,
+      }),
+    ];
+    seed.applyJobResults = [
+      ApplyJobResultSchema.parse({
+        id: "result-legacy",
+        runId: "run-legacy",
+        jobId: job.id,
+        applicationRecordId: null,
+        state: "awaiting_review",
+        summary: "Legacy prepared result",
+        detail: "This result predates exact application lineage.",
+        startedAt: now,
+        updatedAt: now,
+      }),
+    ];
+    const methods = createWorkspaceApplyRunStoreMethods({
+      repository: createInMemoryJobFinderRepository(seed),
+    } as WorkspaceServiceContext);
+
+    await expect(
+      methods.buildApplicationPacket("run-legacy", job.id),
+    ).rejects.toThrow(/legacy application lineage.*non-actionable/iu);
+  });
+
+  it("orders same-timestamp answer chains by revision", async () => {
+    const now = "2026-07-30T12:00:00.000Z";
+    const seed = createSeed();
+    const job = seed.savedJobs[0]!;
+    seed.applyRuns = [
+      ApplyRunSchema.parse({
+        id: "run-answer-order",
+        mode: "copilot",
+        state: "paused_for_user_review",
+        jobIds: [job.id],
+        currentJobId: job.id,
+        summary: "Prepared answers need review.",
+        detail: "Final submit remains disabled.",
+        createdAt: now,
+        updatedAt: now,
+      }),
+    ];
+    seed.applicationAnswerRecords = [
+      ApplicationAnswerRecordSchema.parse({
+        id: "answer-z-first",
+        runId: "run-answer-order",
+        jobId: job.id,
+        resultId: "result-answer-order",
+        questionId: "question-answer-order",
+        status: "suggested",
+        text: "First",
+        revision: 1,
+        sourceKind: "user",
+        createdAt: now,
+      }),
+      ApplicationAnswerRecordSchema.parse({
+        id: "answer-a-second",
+        runId: "run-answer-order",
+        jobId: job.id,
+        resultId: "result-answer-order",
+        questionId: "question-answer-order",
+        status: "rejected",
+        text: "Answer cleared by the user",
+        value: null,
+        revision: 2,
+        supersedesAnswerId: "answer-z-first",
+        sourceKind: "user",
+        createdAt: now,
+      }),
+    ];
+
+    const repository = createInMemoryJobFinderRepository(seed);
+    const methods = createWorkspaceApplyRunStoreMethods({
+      repository,
+    } as WorkspaceServiceContext);
+
+    const details = await methods.getApplyRunDetails(
+      "run-answer-order",
+      job.id,
+    );
+    expect(details.answerRecords.map((answer) => answer.revision)).toEqual([
+      1, 2,
+    ]);
+    expect(details.answerRecords.at(-1)?.id).toBe("answer-a-second");
+  });
+
   it("exports exact prepared evidence without paths, URL secrets, or false submission", async () => {
     const now = "2026-07-30T12:00:00.000Z";
     const seed = createSeed();
     const job = seed.savedJobs[0]!;
+    const applicationRecordId = "application-record-1";
     seed.savedJobs[0] = {
       ...job,
       canonicalUrl: "https://jobs.example.com/jobs/123?tracking=secret#top",
@@ -36,9 +138,26 @@ describe("workspace application packet", () => {
         updatedAt: now,
       }),
     ];
+    seed.applicationRecords = [
+      ApplicationRecordSchema.parse({
+        id: applicationRecordId,
+        jobId: job.id,
+        title: job.title,
+        company: job.company,
+        status: job.status,
+        lastActionLabel: "Prepared",
+        nextActionLabel: "Review",
+        lastUpdatedAt: now,
+      }),
+    ];
     const privacyReceipt = ApplicationPrivacyReceiptSchema.parse({
       generatedAt: now,
-      lineage: { runId: "run-1", jobId: job.id, resultId: "result-1" },
+      lineage: {
+        runId: "run-1",
+        jobId: job.id,
+        resultId: "result-1",
+        applicationRecordId,
+      },
       destination: {
         origin: "https://apply.example.com",
         safePath: "/applications/123",
@@ -68,6 +187,7 @@ describe("workspace application packet", () => {
         id: "result-1",
         runId: "run-1",
         jobId: job.id,
+        applicationRecordId,
         state: "awaiting_review",
         summary: "Prepared",
         detail: "Stopped before final submit.",
@@ -81,6 +201,7 @@ describe("workspace application packet", () => {
         id: "question-1",
         runId: "run-1",
         jobId: job.id,
+        applicationRecordId,
         resultId: "result-1",
         prompt: "Full name",
         kind: "personal_info",
@@ -96,6 +217,7 @@ describe("workspace application packet", () => {
         id: "question-2",
         runId: "run-1",
         jobId: job.id,
+        applicationRecordId,
         resultId: "result-1",
         prompt: "Resume",
         kind: "resume",
@@ -110,6 +232,7 @@ describe("workspace application packet", () => {
         id: "question-3",
         runId: "run-1",
         jobId: job.id,
+        applicationRecordId,
         resultId: "result-1",
         prompt: "Resume fallback",
         kind: "resume",
@@ -126,6 +249,7 @@ describe("workspace application packet", () => {
         id: "answer-1",
         runId: "run-1",
         jobId: job.id,
+        applicationRecordId,
         resultId: "result-1",
         questionId: "question-1",
         status: "filled",
@@ -137,6 +261,7 @@ describe("workspace application packet", () => {
         id: "answer-unused-model",
         runId: "run-1",
         jobId: job.id,
+        applicationRecordId,
         resultId: "result-1",
         questionId: "question-1",
         status: "suggested",
@@ -148,6 +273,7 @@ describe("workspace application packet", () => {
         id: "answer-resume-selected",
         runId: "run-1",
         jobId: job.id,
+        applicationRecordId,
         resultId: "result-1",
         questionId: "question-2",
         status: "filled",
@@ -159,6 +285,7 @@ describe("workspace application packet", () => {
         id: "answer-resume-fallback",
         runId: "run-1",
         jobId: job.id,
+        applicationRecordId,
         resultId: "result-1",
         questionId: "question-3",
         status: "filled",
@@ -172,6 +299,7 @@ describe("workspace application packet", () => {
         id: "checkpoint-1",
         runId: "run-1",
         jobId: job.id,
+        applicationRecordId,
         resultId: "result-1",
         createdAt: now,
         label: "Paused before final submit",
@@ -185,7 +313,11 @@ describe("workspace application packet", () => {
     const methods = createWorkspaceApplyRunStoreMethods({
       repository,
     } as WorkspaceServiceContext);
-    const packet = await methods.buildApplicationPacket("run-1", job.id);
+    const packet = await methods.buildApplicationPacket(
+      "run-1",
+      job.id,
+      applicationRecordId,
+    );
     const serialized = JSON.stringify(packet);
 
     expect(packet.job.listingDestination).toEqual({
@@ -223,5 +355,198 @@ describe("workspace application packet", () => {
     expect(serialized).not.toContain("C:/Users/private");
     expect(serialized).not.toContain("/tmp/private");
     expect(serialized).not.toContain("A different generated name");
+  });
+
+  function createLineageSeed(options: {
+    runId: string;
+    resultId: string;
+    recordIds: readonly string[];
+    resultRecordId: string | null;
+    rowRecordId: string | null;
+  }) {
+    const now = "2026-07-30T12:00:00.000Z";
+    const seed = createSeed();
+    const job = seed.savedJobs[0]!;
+    seed.applicationRecords = options.recordIds.map((id) =>
+      ApplicationRecordSchema.parse({
+        id,
+        jobId: job.id,
+        title: job.title,
+        company: job.company,
+        status: job.status,
+        lastActionLabel: "Prepared",
+        nextActionLabel: "Review",
+        lastUpdatedAt: now,
+      }),
+    );
+    seed.applyRuns = [
+      ApplyRunSchema.parse({
+        id: options.runId,
+        mode: "copilot",
+        state: "paused_for_user_review",
+        jobIds: [job.id],
+        currentJobId: job.id,
+        summary: "Preparation paused for review.",
+        detail: "Exact application lineage retained where available.",
+        createdAt: now,
+        updatedAt: now,
+      }),
+    ];
+    seed.applyJobResults = [
+      ApplyJobResultSchema.parse({
+        id: options.resultId,
+        runId: options.runId,
+        jobId: job.id,
+        applicationRecordId: options.resultRecordId,
+        state: "awaiting_review",
+        summary: "Prepared",
+        detail: "Stopped before final submit.",
+        startedAt: now,
+        updatedAt: now,
+      }),
+    ];
+    seed.applicationQuestionRecords = [
+      ApplicationQuestionRecordSchema.parse({
+        id: `${options.resultId}-question`,
+        runId: options.runId,
+        jobId: job.id,
+        applicationRecordId: options.rowRecordId,
+        resultId: options.resultId,
+        prompt: "Full name",
+        kind: "personal_info",
+        isRequired: true,
+        detectedAt: now,
+        status: "answered",
+        pageUrl: "https://apply.example.com/applications/123",
+      }),
+    ];
+    seed.applicationReplayCheckpoints = [
+      ApplicationReplayCheckpointSchema.parse({
+        id: `${options.resultId}-checkpoint`,
+        runId: options.runId,
+        jobId: job.id,
+        applicationRecordId: options.rowRecordId,
+        resultId: options.resultId,
+        createdAt: now,
+        label: "Paused before final submit",
+        detail: "Final control remained untouched.",
+        url: job.applicationUrl ?? job.canonicalUrl,
+        jobState: "awaiting_review",
+      }),
+    ];
+    return { seed, job };
+  }
+
+  it("resolves legacy null lineage against the unique scoped application record", async () => {
+    const { seed, job } = createLineageSeed({
+      runId: "run-legacy-unique",
+      resultId: "result-legacy-unique",
+      recordIds: ["application-unique"],
+      resultRecordId: null,
+      rowRecordId: null,
+    });
+    const methods = createWorkspaceApplyRunStoreMethods({
+      repository: createInMemoryJobFinderRepository(seed),
+    } as WorkspaceServiceContext);
+
+    const details = await methods.getApplyRunDetails(
+      "run-legacy-unique",
+      job.id,
+      "application-unique",
+    );
+
+    expect(details.run.id).toBe("run-legacy-unique");
+    expect(details.result?.id).toBe("result-legacy-unique");
+    expect(details.questionRecords.map((entry) => entry.id)).toEqual([
+      "result-legacy-unique-question",
+    ]);
+    expect(details.checkpoints.map((entry) => entry.id)).toEqual([
+      "result-legacy-unique-checkpoint",
+    ]);
+  });
+
+  it("rejects an explicit record that mismatches non-null modern result lineage", async () => {
+    const { seed, job } = createLineageSeed({
+      runId: "run-mismatch",
+      resultId: "result-mismatch",
+      recordIds: ["application-a", "application-b"],
+      resultRecordId: "application-a",
+      rowRecordId: "application-a",
+    });
+    const methods = createWorkspaceApplyRunStoreMethods({
+      repository: createInMemoryJobFinderRepository(seed),
+    } as WorkspaceServiceContext);
+
+    await expect(
+      methods.getApplyRunDetails("run-mismatch", job.id, "application-b"),
+    ).rejects.toThrow(/mismatched application record lineage/iu);
+  });
+
+  it("rejects legacy null lineage when multiple records exist for the job", async () => {
+    const { seed, job } = createLineageSeed({
+      runId: "run-legacy-ambiguous",
+      resultId: "result-legacy-ambiguous",
+      recordIds: ["application-a", "application-b"],
+      resultRecordId: null,
+      rowRecordId: null,
+    });
+    const methods = createWorkspaceApplyRunStoreMethods({
+      repository: createInMemoryJobFinderRepository(seed),
+    } as WorkspaceServiceContext);
+
+    await expect(
+      methods.getApplyRunDetails("run-legacy-ambiguous", job.id, "application-a"),
+    ).rejects.toThrow(/mismatched application record lineage/iu);
+  });
+
+  it("rejects legacy null lineage when no application record exists for the job", async () => {
+    const { seed, job } = createLineageSeed({
+      runId: "run-legacy-orphaned",
+      resultId: "result-legacy-orphaned",
+      recordIds: [],
+      resultRecordId: null,
+      rowRecordId: null,
+    });
+    const methods = createWorkspaceApplyRunStoreMethods({
+      repository: createInMemoryJobFinderRepository(seed),
+    } as WorkspaceServiceContext);
+
+    await expect(
+      methods.getApplyRunDetails(
+        "run-legacy-orphaned",
+        job.id,
+        "application-orphan",
+      ),
+    ).rejects.toThrow(/does not belong to job/iu);
+  });
+
+  it("returns exact lineage details for modern stamped rows with and without an explicit record", async () => {
+    const { seed, job } = createLineageSeed({
+      runId: "run-modern-exact",
+      resultId: "result-modern-exact",
+      recordIds: ["application-a"],
+      resultRecordId: "application-a",
+      rowRecordId: "application-a",
+    });
+    const methods = createWorkspaceApplyRunStoreMethods({
+      repository: createInMemoryJobFinderRepository(seed),
+    } as WorkspaceServiceContext);
+
+    const explicitDetails = await methods.getApplyRunDetails(
+      "run-modern-exact",
+      job.id,
+      "application-a",
+    );
+    expect(explicitDetails.result?.id).toBe("result-modern-exact");
+    expect(explicitDetails.result?.applicationRecordId).toBe("application-a");
+    expect(explicitDetails.questionRecords).toHaveLength(1);
+    expect(explicitDetails.checkpoints).toHaveLength(1);
+
+    const inferredDetails = await methods.getApplyRunDetails(
+      "run-modern-exact",
+      job.id,
+    );
+    expect(inferredDetails.result?.applicationRecordId).toBe("application-a");
+    expect(inferredDetails.questionRecords).toHaveLength(1);
   });
 });

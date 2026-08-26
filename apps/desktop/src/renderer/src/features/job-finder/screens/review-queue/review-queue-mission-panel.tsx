@@ -1,16 +1,23 @@
 import { Pencil } from "lucide-react";
+import { useEffect, useState } from "react";
 import type {
+  ApplicationRecord,
+  JobFinderApplicationStartTarget,
   BrowserSessionState,
+  GlobalDailyApplicationPreparationCapacity,
   ResumeApplicationMode,
+  ResumeSourceDocument,
   ResumeStrategy,
   ResumeStrategyRecommendation,
   ResumeStrategySelection,
   ReviewQueueItem,
   SavedJob,
   SelectResumeStrategyInput,
+  SetCampaignResumeStrategyDefaultInput,
   TailoredAsset,
 } from "@unemployed/contracts";
 import { Button, ProgressBar } from "@renderer/components/ui";
+import { cn } from "@renderer/lib/cn";
 import { EmptyState } from "../../components/empty-state";
 import { PreferenceList } from "../../components/preference-list";
 import { StatusBadge } from "../../components/status-badge";
@@ -24,18 +31,26 @@ import {
   getChecklistTone,
   summarizeSelectedQueueTitles,
 } from "./review-queue-mission-panel-helpers";
+import { APPLICATION_PREPARATION_BATCH_LIMIT } from "./review-queue-status";
+
+const batchLimitDescriptionId = "employer-application-batch-limit";
+const dailyCapacityLimitDescriptionId =
+  "employer-application-daily-capacity-limit";
 
 interface ReviewQueueMissionPanelProps {
   actionMessage: string | null;
+  applicationRecords: readonly ApplicationRecord[];
   browserSession: BrowserSessionState;
   campaignId: string;
+  campaignDefaultResumeStrategyId?: string | null | undefined;
   displayedProgress: number;
+  globalDailyApplicationPreparationCapacity?: GlobalDailyApplicationPreparationCapacity | null;
   isApplyPending: boolean;
   isJobPending: (jobId: string) => boolean;
   isResumeStrategyPending: (jobId: string) => boolean;
   onClearQueueSelection: () => void;
   onStartAutoApplyQueue: (jobIds: string[]) => void;
-  onStartApplyCopilot: (jobId: string) => void;
+  onStartApplyCopilot: (input: JobFinderApplicationStartTarget) => void;
   onEditResumeWorkspace: (jobId: string) => void;
   onGenerateResume: (jobId: string) => Promise<boolean>;
   onOpenBrowserSession: () => void;
@@ -46,10 +61,14 @@ interface ReviewQueueMissionPanelProps {
   }) => Promise<ResumeStrategyRecommendation | null>;
   onRemoveReviewJob: (jobId: string) => void;
   onSelectResumeStrategy: (input: SelectResumeStrategyInput) => void;
+  onSetCampaignResumeStrategyDefault?:
+    | ((input: SetCampaignResumeStrategyDefaultInput) => void)
+    | undefined;
   onSetJobResumeApplicationMode: (
     jobId: string,
     resumeApplicationMode: ResumeApplicationMode,
   ) => void;
+  originalResume?: ResumeSourceDocument;
   queue: readonly ReviewQueueItem[];
   queueSelection: readonly string[];
   resumeStrategies: readonly ResumeStrategy[];
@@ -57,13 +76,17 @@ interface ReviewQueueMissionPanelProps {
   selectedAsset: TailoredAsset | null;
   selectedItem: ReviewQueueItem | null;
   selectedJob: SavedJob | null;
+  embedded?: boolean;
 }
 
 export function ReviewQueueMissionPanel({
   actionMessage,
+  applicationRecords,
   browserSession,
   campaignId,
+  campaignDefaultResumeStrategyId,
   displayedProgress,
+  globalDailyApplicationPreparationCapacity = null,
   isApplyPending,
   isJobPending,
   isResumeStrategyPending,
@@ -78,7 +101,9 @@ export function ReviewQueueMissionPanel({
   onRecommendResumeStrategy,
   onRemoveReviewJob,
   onSelectResumeStrategy,
+  onSetCampaignResumeStrategyDefault,
   onSetJobResumeApplicationMode,
+  originalResume,
   queue,
   queueSelection,
   resumeStrategies,
@@ -86,7 +111,10 @@ export function ReviewQueueMissionPanel({
   selectedAsset,
   selectedItem,
   selectedJob,
+  embedded = false,
 }: ReviewQueueMissionPanelProps) {
+  const [selectedApplicationChoice, setSelectedApplicationChoice] =
+    useState<string>("");
   const {
     applyReadinessStatus,
     canStageSelectedQueue,
@@ -97,7 +125,6 @@ export function ReviewQueueMissionPanel({
     isSelectedQueuePending,
     nextBlockedChecklistItem,
     primaryApplicationAction,
-    queueReadyCount,
     queueSummary,
     readinessFacts,
     readinessDescription,
@@ -113,6 +140,14 @@ export function ReviewQueueMissionPanel({
     selectedItem,
     selectedJob,
   });
+  const selectedJobApplicationRecords = selectedItem
+    ? applicationRecords.filter((record) => record.jobId === selectedItem.jobId)
+    : [];
+  const requiresApplicationChoice = selectedJobApplicationRecords.length > 1;
+
+  useEffect(() => {
+    setSelectedApplicationChoice("");
+  }, [selectedItem?.jobId]);
 
   const runPrimaryRecovery = () => {
     if (!selectedItem || !primaryApplicationAction.recovery) {
@@ -135,16 +170,68 @@ export function ReviewQueueMissionPanel({
     }
   };
 
+  const wantsResumeWorkspace =
+    selectedItem !== null &&
+    selectedItem.resumeApplicationMode !== "original_resume";
+  const workspaceRecoveryActive =
+    wantsResumeWorkspace &&
+    primaryApplicationAction.recovery?.kind === "open_resume_workspace";
+  const showSecondaryActions =
+    primaryApplicationAction.recovery !== null ||
+    (wantsResumeWorkspace && !workspaceRecoveryActive);
+  const queuedApplicationJobIds = Array.from(
+    new Set(selectedQueueReadyItems.map((item) => item.jobId)),
+  ).slice(0, APPLICATION_PREPARATION_BATCH_LIMIT);
+  const isBatchLimitReached =
+    selectedQueueReadyItems.length >= APPLICATION_PREPARATION_BATCH_LIMIT;
+  const dailyCapacityExhausted =
+    globalDailyApplicationPreparationCapacity?.remaining === 0;
+  const selectedBatchExceedsDailyCapacity =
+    globalDailyApplicationPreparationCapacity !== null &&
+    queuedApplicationJobIds.length >
+      globalDailyApplicationPreparationCapacity.remaining;
+  const dailyCapacityDescription = globalDailyApplicationPreparationCapacity
+    ? `${globalDailyApplicationPreparationCapacity.used} exact begun${
+        globalDailyApplicationPreparationCapacity.legacyUncertain > 0
+          ? ` / ${globalDailyApplicationPreparationCapacity.legacyUncertain} older ${globalDailyApplicationPreparationCapacity.legacyUncertain === 1 ? "record may also have begun" : "records may also have begun"}`
+          : ""
+      } of ${globalDailyApplicationPreparationCapacity.limit} / ${globalDailyApplicationPreparationCapacity.remaining} remaining. ${
+        dailyCapacityExhausted
+          ? "More application preparation is available after local midnight."
+          : selectedBatchExceedsDailyCapacity
+            ? ""
+          : `Resets at local midnight (${new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(globalDailyApplicationPreparationCapacity.resetsAt))}).`
+      }`
+    : "Daily safeguard: up to 20 begun employer applications per local day.";
+  const dailyCapacityBatchExceededDescription =
+    selectedBatchExceedsDailyCapacity &&
+    !dailyCapacityExhausted &&
+    globalDailyApplicationPreparationCapacity
+      ? `You selected ${queuedApplicationJobIds.length} jobs for this run, but only ${globalDailyApplicationPreparationCapacity.remaining} of ${globalDailyApplicationPreparationCapacity.limit} daily application slots remain. Resets at local midnight (${new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(globalDailyApplicationPreparationCapacity.resetsAt))}).`
+      : null;
+
   return (
-    <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
-      <div className="order-1 flex flex-wrap items-start justify-between gap-3 px-6 pb-2 pt-6 xl:order-none">
-        <h3 className="font-display text-(length:--text-small) font-bold uppercase tracking-(--tracking-caps) text-primary">
-          Apply Copilot readiness
-        </h3>
-      </div>
-      <div className="order-3 grid min-h-0 min-w-0 flex-1 content-start gap-4 overflow-x-hidden overflow-y-auto px-6 pb-6 pt-4">
+    <section
+      className={cn(
+        "relative flex min-w-0 flex-col overflow-hidden xl:h-full xl:min-h-0",
+        embedded
+          ? "h-full min-h-0"
+          : "surface-panel-shell min-h-124 rounded-(--radius-field) border border-(--surface-panel-border)",
+      )}
+    >
+      {!embedded ? (
+        <div className="order-1 flex flex-wrap items-start justify-between gap-3 px-6 pb-2 pt-6 xl:order-none">
+          <h3 className="font-display text-(length:--text-small) font-bold uppercase tracking-(--tracking-caps) text-primary">
+            Preparation readiness
+          </h3>
+        </div>
+      ) : null}
+      <div
+        className="order-3 grid min-h-0 min-w-0 flex-1 content-start gap-3 overflow-x-hidden overflow-y-auto px-6 pb-5 pt-3"
+        data-locked-pane-scroll-region
+      >
         {readinessDescription ? (
-          <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
+          <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-3">
             <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-2">
               <span className="text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">
                 Current state
@@ -180,7 +267,7 @@ export function ReviewQueueMissionPanel({
                 <legend className="sr-only">CV choice for this job</legend>
                 {(
                   [
-                    ["original_resume", "Original CV unchanged"],
+                    ["original_resume", "Original resume unchanged"],
                     ["tailored_per_job", "Tailor for this job"],
                   ] as const
                 ).map(([mode, label]) => {
@@ -210,7 +297,7 @@ export function ReviewQueueMissionPanel({
                         value={mode}
                       />
                       <span
-                        className={`flex min-h-11 items-center rounded-(--radius-small) border px-3 py-2 text-left text-(length:--text-small) font-semibold transition-colors peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-primary/70 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background ${selected ? "border-primary/70 bg-primary/10 text-(--text-headline)" : "border-(--surface-panel-border) bg-background/30 text-foreground-soft hover:border-primary/35"}`}
+                        className={`flex min-h-11 items-center rounded-(--radius-small) border px-3 py-2 text-left text-(length:--text-small) font-semibold transition-colors peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background ${selected ? "border-primary/70 bg-primary/10 text-(--text-headline)" : "border-(--surface-panel-border) bg-background/30 text-foreground-soft hover:border-primary/35"}`}
                       >
                         {label}
                       </span>
@@ -218,13 +305,28 @@ export function ReviewQueueMissionPanel({
                   );
                 })}
               </fieldset>
+              {selectedItem.resumeApplicationMode === "original_resume" &&
+              originalResume ? (
+                <p
+                  className="rounded-(--radius-small) border border-(--warning-border) bg-(--warning-surface) px-3 py-2 text-(length:--text-small) leading-5 text-(--warning-text)"
+                  role="note"
+                >
+                  Original file: {originalResume.fileName}. It is used unchanged
+                  and may include sensitive contact or personal details. Review
+                  the file before preparing an application.
+                </p>
+              ) : null}
             </div>
             <ResumeStrategyJobPanel
               campaignId={campaignId}
+              campaignDefaultResumeStrategyId={
+                campaignDefaultResumeStrategyId
+              }
               isPending={isResumeStrategyPending(selectedItem.jobId)}
               jobId={selectedItem.jobId}
               onRecommend={onRecommendResumeStrategy}
               onSelect={onSelectResumeStrategy}
+              onSetCampaignDefault={onSetCampaignResumeStrategyDefault}
               selections={resumeStrategySelections}
               strategies={resumeStrategies}
             />
@@ -244,7 +346,7 @@ export function ReviewQueueMissionPanel({
               <dl className="m-0 grid gap-2">
                 {readinessFacts.map((fact) => (
                   <div
-                    className="grid min-w-0 gap-1 rounded-(--radius-small) border border-(--surface-panel-border) bg-background/35 px-3 py-2.5"
+                    className="grid min-w-0 gap-1 rounded-(--radius-small) border border-(--surface-panel-border) bg-background/35 px-3 py-2"
                     key={fact.label}
                   >
                     <dt className="text-(length:--text-label-mono-xs) uppercase tracking-(--tracking-badge) text-muted-foreground">
@@ -272,17 +374,17 @@ export function ReviewQueueMissionPanel({
                     Next: {nextBlockedChecklistItem.label}
                   </StatusBadge>
                 ) : (
-                  <StatusBadge tone="positive">Ready to start</StatusBadge>
+                  <StatusBadge tone="positive">Ready to prepare</StatusBadge>
                 )}
               </div>
-              <ul className="m-0 grid gap-3 list-none p-0" role="list">
+              <ul className="m-0 grid gap-2 list-none p-0" role="list">
                 {checklist.map((item) => {
                   const Icon = getChecklistIcon(item.state);
 
                   return (
                     <li
                       key={item.label}
-                      className="grid gap-2 rounded-(--radius-small) border border-(--surface-panel-border) bg-(--surface-overlay-subtle) px-3 py-3"
+                      className="grid gap-2 rounded-(--radius-small) border border-(--surface-panel-border) bg-(--surface-overlay-subtle) px-3 py-2.5"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex min-w-0 items-center gap-2">
@@ -330,19 +432,19 @@ export function ReviewQueueMissionPanel({
               />
             </div>
             <MatchEvidenceMatrix assessment={selectedJob.matchAssessment} />
-            <div className="surface-card-tint grid min-w-0 gap-3 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
-              <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-                <div className="grid gap-1">
-                  <span className="text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">
-                    Queue staging
-                  </span>
-                  <strong className="text-(length:--text-body) text-(--text-headline)">
-                    {selectedQueueItems.length > 0
-                      ? `${selectedQueueItems.length} selected`
-                      : `${queueReadyCount} ready for queue`}
-                  </strong>
-                </div>
-                {selectedQueueItems.length > 0 ? (
+            {selectedQueueItems.length > 0 ? (
+              <div className="surface-card-tint grid min-w-0 gap-3 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
+                <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                  <div className="grid gap-1">
+                    <span className="text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">
+                      Batch actions
+                    </span>
+                    <strong className="text-(length:--text-body) text-(--text-headline)">
+                      {queuedApplicationJobIds.length} of{" "}
+                      {APPLICATION_PREPARATION_BATCH_LIMIT} selected for this
+                      run
+                    </strong>
+                  </div>
                   <Button
                     onClick={onClearQueueSelection}
                     size="compact"
@@ -351,34 +453,32 @@ export function ReviewQueueMissionPanel({
                   >
                     Clear selection
                   </Button>
-                ) : null}
-              </div>
-              <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                {queueSummary}
-              </p>
-              {selectedQueueReadyItems.length > 0 ? (
+                </div>
+                <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+                  {queueSummary}
+                </p>
+                <p
+                  className="text-(length:--text-small) leading-6 text-foreground-soft"
+                  id={batchLimitDescriptionId}
+                  role="note"
+                >
+                  {`Each employer-application run can include up to ${APPLICATION_PREPARATION_BATCH_LIMIT} jobs.${
+                    isBatchLimitReached
+                      ? " The selection limit is reached; deselect a job before choosing another."
+                      : ""
+                  }`}
+                </p>
                 <p className="text-(length:--text-small) leading-6 text-foreground-soft">
                   {summarizeSelectedQueueTitles(selectedQueueReadyItems)}
                 </p>
-              ) : null}
-            </div>
+              </div>
+            ) : null}
             <div className="grid min-w-0 gap-2.5 scroll-mb-6">
               <details className="group grid gap-1.5 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/20 p-2.5">
                 <summary className="cursor-pointer select-none rounded-(--radius-small) px-1 py-1 text-(length:--text-label-mono-xs) uppercase tracking-(--tracking-badge) text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40">
                   More actions
                 </summary>
                 <div className="grid gap-2">
-                  {selectedQueueReadyItems.length === 0 ? (
-                    <Button
-                      className="h-auto min-h-10 w-full min-w-0 justify-start whitespace-normal break-words px-3.5 py-2.5 text-left text-sm font-medium leading-5 normal-case tracking-normal disabled:bg-transparent disabled:text-foreground-soft"
-                      disabled
-                      size="compact"
-                      type="button"
-                      variant="outline"
-                    >
-                      Stage selected queue
-                    </Button>
-                  ) : null}
                   <Button
                     className="h-auto min-h-10 w-full min-w-0 justify-start whitespace-normal break-words px-3.5 py-2.5 text-left text-sm font-medium leading-5 normal-case tracking-normal disabled:bg-transparent disabled:text-foreground-soft"
                     disabled={isSelectedJobPending}
@@ -401,13 +501,13 @@ export function ReviewQueueMissionPanel({
         ) : (
           <EmptyState
             title="Choose a job"
-            description="Select a shortlisted job to see what its resume needs next and when it is ready to apply."
+            description="Select a shortlisted job to see what its resume needs next and when it is ready to prepare."
           />
         )}
       </div>
       {selectedItem && selectedJob ? (
         <div
-          className="relative order-2 z-10 grid shrink-0 gap-2 border-y border-(--surface-panel-border) bg-(--surface-panel)/95 px-6 py-4 backdrop-blur-sm xl:border-b-0"
+          className="relative order-2 z-10 grid shrink-0 gap-2 border-y border-(--surface-panel-border) bg-(--surface-panel)/95 px-6 py-3 backdrop-blur-sm xl:border-b-0"
           data-testid="apply-copilot-footer"
         >
           {actionMessage ? (
@@ -420,6 +520,23 @@ export function ReviewQueueMissionPanel({
               {actionMessage}
             </p>
           ) : null}
+          <p
+            className="min-w-0 break-words text-(length:--text-small) leading-5 text-foreground-soft"
+            data-testid="daily-application-preparation-capacity"
+            role="note"
+          >
+            {dailyCapacityDescription}
+          </p>
+          {dailyCapacityBatchExceededDescription ? (
+            <p
+              className="min-w-0 break-words rounded-(--radius-small) border border-(--warning-border) bg-(--warning-surface) px-3 py-2 text-(length:--text-small) leading-5 text-(--warning-text)"
+              data-testid="daily-capacity-batch-exceeded-note"
+              id={dailyCapacityLimitDescriptionId}
+              role="note"
+            >
+              {dailyCapacityBatchExceededDescription}
+            </p>
+          ) : null}
           {primaryApplicationAction.blocker ? (
             <p
               className="min-w-0 break-words rounded-(--radius-small) border border-destructive/35 bg-destructive/8 px-3 py-2 text-(length:--text-small) leading-5 text-foreground"
@@ -430,24 +547,61 @@ export function ReviewQueueMissionPanel({
           ) : null}
           {selectedQueueReadyItems.length > 0 ? (
             <Button
+              aria-describedby={
+                dailyCapacityBatchExceededDescription
+                  ? `${batchLimitDescriptionId} ${dailyCapacityLimitDescriptionId}`
+                  : batchLimitDescriptionId
+              }
               className="h-11 w-full justify-start px-4 text-sm font-semibold normal-case tracking-normal"
               pending={isApplyPending || isSelectedQueuePending}
               disabled={
                 isApplyPending ||
                 isSelectedQueuePending ||
-                !canStageSelectedQueue
+                !canStageSelectedQueue ||
+                selectedBatchExceedsDailyCapacity
               }
-              onClick={() =>
-                onStartAutoApplyQueue(
-                  selectedQueueReadyItems.map((item) => item.jobId),
-                )
-              }
+              onClick={() => onStartAutoApplyQueue(queuedApplicationJobIds)}
               type="button"
               variant="secondary"
             >
-              Stage queue for {selectedQueueReadyItems.length} job
-              {selectedQueueReadyItems.length === 1 ? "" : "s"}
+              Queue selected applications ({queuedApplicationJobIds.length})
             </Button>
+          ) : null}
+          {primaryApplicationAction.kind === "start_apply" &&
+          requiresApplicationChoice ? (
+            <fieldset className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/50 p-3">
+              <legend className="px-1 text-sm font-semibold text-foreground">
+                Choose application record
+              </legend>
+              {selectedJobApplicationRecords.map((record) => (
+                <label
+                  className="flex min-h-10 cursor-pointer items-center gap-3 rounded-(--radius-small) px-2 text-sm text-foreground focus-within:ring-[3px] focus-within:ring-ring/30"
+                  key={record.id}
+                >
+                  <input
+                    checked={selectedApplicationChoice === record.id}
+                    name="shortlisted-application-record"
+                    onChange={() => setSelectedApplicationChoice(record.id)}
+                    type="radio"
+                    value={record.id}
+                  />
+                  <span>
+                    {record.title} at {record.company} ·{" "}
+                    {record.status.replaceAll("_", " ")}
+                  </span>
+                </label>
+              ))}
+              <label className="flex min-h-10 cursor-pointer items-center gap-3 rounded-(--radius-small) px-2 text-sm text-foreground focus-within:ring-[3px] focus-within:ring-ring/30">
+                <input
+                  checked={selectedApplicationChoice === "new"}
+                  name="shortlisted-application-record"
+                  onChange={() => setSelectedApplicationChoice("new")}
+                  type="radio"
+                  value="new"
+                />
+                <span>Start new application</span>
+              </label>
+            </fieldset>
           ) : null}
           <Button
             className="h-11 w-full justify-start px-4 text-sm font-semibold normal-case tracking-normal"
@@ -457,7 +611,12 @@ export function ReviewQueueMissionPanel({
                 isPrimaryApplyPending)
             }
             variant="primary"
-            disabled={!primaryApplicationAction.enabled}
+            disabled={
+              !primaryApplicationAction.enabled ||
+              (primaryApplicationAction.kind === "start_apply" &&
+                dailyCapacityExhausted) ||
+              (requiresApplicationChoice && !selectedApplicationChoice)
+            }
             onClick={() => {
               if (primaryApplicationAction.kind === "generate_resume") {
                 void onGenerateResume(selectedItem.jobId);
@@ -465,35 +624,53 @@ export function ReviewQueueMissionPanel({
               }
 
               if (primaryApplicationAction.kind === "start_apply") {
-                onStartApplyCopilot(selectedItem.jobId);
+                onStartApplyCopilot(
+                  requiresApplicationChoice
+                    ? selectedApplicationChoice === "new"
+                      ? {
+                          jobId: selectedItem.jobId,
+                          startNewApplication: true,
+                        }
+                      : {
+                          jobId: selectedItem.jobId,
+                          applicationRecordId: selectedApplicationChoice,
+                        }
+                    : { jobId: selectedItem.jobId },
+                );
               }
             }}
             type="button"
           >
             {primaryApplicationAction.label}
           </Button>
-          {primaryApplicationAction.recovery ? (
-            <Button
-              className="h-10 w-full justify-start px-4 text-sm font-medium normal-case tracking-normal"
-              onClick={runPrimaryRecovery}
-              type="button"
-              variant="secondary"
-            >
-              {primaryApplicationAction.recovery.label}
-            </Button>
-          ) : null}
-          {selectedItem.resumeApplicationMode !== "original_resume" &&
-          primaryApplicationAction.recovery?.kind !==
-            "open_resume_workspace" ? (
-            <Button
-              className="h-10 w-full justify-start px-4 text-sm font-medium normal-case tracking-normal"
-              onClick={() => onEditResumeWorkspace(selectedItem.jobId)}
-              type="button"
-              variant="secondary"
-            >
-              <Pencil aria-hidden="true" className="size-4" focusable="false" />
-              Open resume workspace
-            </Button>
+          {showSecondaryActions ? (
+            <div className="flex flex-wrap gap-2">
+              {primaryApplicationAction.recovery !== null ? (
+                <Button
+                  className="h-10 min-w-0 flex-1 basis-52 justify-start px-4 text-sm font-medium normal-case tracking-normal"
+                  onClick={runPrimaryRecovery}
+                  type="button"
+                  variant="secondary"
+                >
+                  {primaryApplicationAction.recovery.label}
+                </Button>
+              ) : null}
+              {wantsResumeWorkspace && !workspaceRecoveryActive ? (
+                <Button
+                  className="h-10 min-w-0 flex-1 basis-52 justify-start px-4 text-sm font-medium normal-case tracking-normal"
+                  onClick={() => onEditResumeWorkspace(selectedItem.jobId)}
+                  type="button"
+                  variant="secondary"
+                >
+                  <Pencil
+                    aria-hidden="true"
+                    className="size-4"
+                    focusable="false"
+                  />
+                  Open resume workspace
+                </Button>
+              ) : null}
+            </div>
           ) : null}
         </div>
       ) : null}

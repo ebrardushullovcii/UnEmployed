@@ -11,7 +11,7 @@ import {
 } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
 import { Input } from "@renderer/components/ui/input";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CollectionNoMatches,
   CollectionSearchToolbar,
@@ -20,6 +20,7 @@ import {
 } from "../../components/collection-search-toolbar";
 import { PageHeader } from "../../components/page-header";
 import { usePersistedCollectionView } from "../../hooks/use-persisted-collection-view";
+import { CampaignConfirmDialog } from "./campaign-confirm-dialog";
 import { CampaignRuleBuilder } from "./campaign-rule-builder";
 
 const splitList = (value: string) =>
@@ -164,14 +165,37 @@ function newCampaignFrom(
 
 function CampaignEditor(props: {
   campaign: SaveJobSearchCampaignInput;
+  isCurrentPlan: boolean;
   onCancel: () => void;
-  onSave: (campaign: SaveJobSearchCampaignInput) => void;
+  onDirtyChange?: (dirty: boolean) => void;
+  onSave: (campaign: SaveJobSearchCampaignInput) => Promise<boolean>;
   pending: boolean;
 }) {
+  const [initialCampaign] = useState(props.campaign);
   const [draft, setDraft] = useState(props.campaign);
   const [pauseWindowStartsAt, setPauseWindowStartsAt] = useState("");
   const [pauseWindowEndsAt, setPauseWindowEndsAt] = useState("");
   const [pauseWindowReason, setPauseWindowReason] = useState("");
+  const [archiveOutcome, setArchiveOutcome] = useState<
+    "archived" | "failed" | null
+  >(null);
+  const [saveOutcome, setSaveOutcome] = useState<"saved" | null>(null);
+  const [discardConfirmationOpen, setDiscardConfirmationOpen] =
+    useState(false);
+  const dirty = draft !== initialCampaign;
+  useEffect(() => {
+    props.onDirtyChange?.(dirty);
+  }, [dirty, props.onDirtyChange]);
+
+  const requestCancel = () => {
+    if (!dirty) {
+      props.onCancel();
+      return;
+    }
+    // Dirty editors meet an app-owned confirmation instead of a native
+    // window.confirm; staying is the safe default.
+    setDiscardConfirmationOpen(true);
+  };
   const pauseWindowStart = toIsoDateTime(pauseWindowStartsAt);
   const pauseWindowEnd = toIsoDateTime(pauseWindowEndsAt);
   const pauseWindowValidationMessage =
@@ -189,9 +213,12 @@ function CampaignEditor(props: {
     setDraft((current) => ({
       ...current,
       mode,
-      limits: defaults.limits,
-      stopRules: defaults.stopRules,
-      applicationPolicy: defaults.applicationPolicy,
+      limits: {
+        ...current.limits,
+        retainedJobTarget: defaults.limits.retainedJobTarget,
+        analysisConcurrency: defaults.limits.analysisConcurrency,
+        discoveryRunJobBudget: defaults.limits.discoveryRunJobBudget,
+      },
     }));
   };
 
@@ -242,14 +269,37 @@ function CampaignEditor(props: {
     });
   };
 
+  const saveDraft = () => {
+    setSaveOutcome(null);
+    if (!(props.isCurrentPlan && draft.status === "archived")) {
+      void props.onSave(draft).then((saved) => {
+        if (saved && initialCampaign.id !== null) {
+          setSaveOutcome("saved");
+        }
+      });
+      return;
+    }
+    setArchiveOutcome(null);
+    void props.onSave(draft).then((saved) => {
+      setArchiveOutcome(saved ? "archived" : "failed");
+    });
+  };
+
   return (
-    <form
-      className="surface-panel-shell grid gap-5 rounded-(--radius-panel) border border-(--surface-panel-border) p-5"
-      onSubmit={(event) => {
-        event.preventDefault();
-        props.onSave(draft);
-      }}
-    >
+    <>
+      <form
+        className="surface-panel-shell grid gap-5 rounded-(--radius-panel) border border-(--surface-panel-border) p-5"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.stopPropagation();
+            requestCancel();
+          }
+        }}
+        onSubmit={(event) => {
+          event.preventDefault();
+          saveDraft();
+        }}
+      >
       <div>
         <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
           Search plan setup
@@ -275,29 +325,27 @@ function CampaignEditor(props: {
           <span className="font-medium">Volume</span>
           <select
             aria-label="Volume"
-            className="h-10 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
+            className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             onChange={(event) =>
               updateMode(event.target.value as JobSearchCampaignMode)
             }
             value={draft.mode}
           >
             <option value="precision">
-              Precision — a small, deeply reviewed set
+              Precision — a smaller discovery pool
             </option>
-            <option value="scale">
-              Scale — a larger pool processed in controlled batches
-            </option>
+            <option value="scale">Scale — a larger discovery pool</option>
           </select>
           <span className="text-xs text-foreground-muted">
             {draft.mode === "scale"
-              ? "Use Scale when you want more jobs prepared in reviewable batches; safeguards still pause the work when needed."
-              : "Use Precision for a smaller set that gets deeper review before you prepare applications."}
+              ? "Use Scale to discover and retain a larger pool of matching jobs."
+              : "Use Precision for a smaller discovery pool focused on the strongest matches."}
           </span>
         </label>
         <label className="grid gap-1 text-sm">
           <span className="font-medium">Status</span>
           <select
-            className="h-10 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
+            className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             onChange={(event) =>
               setDraft({
                 ...draft,
@@ -314,10 +362,31 @@ function CampaignEditor(props: {
           </select>
         </label>
       </div>
+      {props.isCurrentPlan && draft.status === "archived" ? (
+        <p className="text-sm text-foreground-muted">
+          Archiving your current plan is allowed. When other non-archived plans
+          remain, one of them becomes your current plan automatically.
+        </p>
+      ) : null}
+      {archiveOutcome === "archived" && draft.status === "archived" ? (
+        <p className="text-sm text-foreground" role="status">
+          Search plan archived.
+        </p>
+      ) : null}
+      {archiveOutcome === "failed" && draft.status === "archived" ? (
+        <p className="text-sm text-destructive" role="alert">
+          Archiving failed. Your search plan is unchanged.
+        </p>
+      ) : null}
+      {saveOutcome === "saved" ? (
+        <p className="text-sm text-foreground" role="status">
+          Search plan saved.
+        </p>
+      ) : null}
       <label className="grid gap-1 text-sm">
         <span className="font-medium">Plan purpose</span>
         <textarea
-          className="min-h-20 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) p-3"
+          className="min-h-20 rounded-(--radius-field) border border-(--field-border) bg-(--field) p-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
           maxLength={2_000}
           onChange={(event) =>
             setDraft({ ...draft, description: event.target.value })
@@ -448,17 +517,35 @@ function CampaignEditor(props: {
                   key={target.id}
                 >
                   <input
-                    checked={draft.sourceTargetIds.includes(target.id)}
-                    onChange={(event) =>
+                    checked={target.enabled}
+                    onChange={(event) => {
+                      const nextTargets =
+                        draft.searchPreferences.discovery.targets.map(
+                          (candidate) =>
+                            candidate.id === target.id
+                              ? {
+                                  ...candidate,
+                                  enabled: event.target.checked,
+                                }
+                              : candidate,
+                        );
                       setDraft({
                         ...draft,
-                        sourceTargetIds: event.target.checked
-                          ? [...draft.sourceTargetIds, target.id]
-                          : draft.sourceTargetIds.filter(
-                              (id) => id !== target.id,
-                            ),
-                      })
-                    }
+                        searchPreferences: {
+                          ...draft.searchPreferences,
+                          discovery: {
+                            ...draft.searchPreferences.discovery,
+                            targets: nextTargets,
+                          },
+                        },
+                        // Keep the saved projection aligned with the plan's
+                        // own targets; the service derives the same ids from
+                        // `target.enabled`.
+                        sourceTargetIds: nextTargets
+                          .filter((candidate) => candidate.enabled)
+                          .map((candidate) => candidate.id),
+                      });
+                    }}
                     type="checkbox"
                   />
                   {target.label}
@@ -538,7 +625,7 @@ function CampaignEditor(props: {
             <label className="grid gap-1 text-sm">
               <span>Pay interval</span>
               <select
-                className="h-10 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
+                className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
                 onChange={(event) =>
                   setDraft({
                     ...draft,
@@ -568,14 +655,14 @@ function CampaignEditor(props: {
       <section className="grid gap-3 rounded-(--radius-field) border border-border-subtle p-4">
         <div>
           <h3 className="font-semibold text-(--text-headline)">
-            Volume and review quality
+            Discovery volume and review threshold
           </h3>
           <p className="text-xs text-foreground-muted">
-            Minimum fit, retention, preparation batch, and daily limit are
-            enforced by the search plan runner.
+            Minimum fit and retention shape which discovered jobs stay in this
+            plan.
           </p>
         </div>
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           <label className="grid gap-1 text-sm">
             <span>Minimum fit score</span>
             <Input
@@ -609,24 +696,6 @@ function CampaignEditor(props: {
               value={draft.limits.retainedJobTarget}
             />
           </label>
-          <label className="grid gap-1 text-sm">
-            <span>Preparation batch</span>
-            <Input
-              max={500}
-              min={1}
-              onChange={(event) =>
-                setDraft({
-                  ...draft,
-                  limits: {
-                    ...draft.limits,
-                    preparationBatchSize: Number(event.target.value),
-                  },
-                })
-              }
-              type="number"
-              value={draft.limits.preparationBatchSize}
-            />
-          </label>
         </div>
       </section>
 
@@ -635,26 +704,7 @@ function CampaignEditor(props: {
           Saved safety and automation policy
         </summary>
         <div className="mt-4 grid gap-3">
-          <div className="grid gap-3 sm:grid-cols-3">
-            <label className="grid gap-1 text-sm">
-              <span>Daily preparation limit</span>
-              <Input
-                min={1}
-                onChange={(event) =>
-                  setDraft({
-                    ...draft,
-                    limits: {
-                      ...draft.limits,
-                      dailyPreparationLimit: event.target.value
-                        ? Number(event.target.value)
-                        : null,
-                    },
-                  })
-                }
-                type="number"
-                value={draft.limits.dailyPreparationLimit ?? ""}
-              />
-            </label>
+          <div className="grid gap-3 sm:grid-cols-2">
             <label className="grid gap-1 text-sm">
               <span>Pause above failure rate (%)</span>
               <Input
@@ -724,44 +774,6 @@ function CampaignEditor(props: {
               {label}
             </label>
           ))}
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              checked={draft.applicationPolicy.requireReviewBeforePreparation}
-              onChange={(event) =>
-                setDraft({
-                  ...draft,
-                  applicationPolicy: {
-                    ...draft.applicationPolicy,
-                    requireReviewBeforePreparation: event.target.checked,
-                  },
-                })
-              }
-              type="checkbox"
-            />
-            Require review before preparing application material
-          </label>
-          <label className="grid gap-1 text-sm">
-            <span>Resume policy</span>
-            <select
-              className="h-10 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
-              onChange={(event) =>
-                setDraft({
-                  ...draft,
-                  applicationPolicy: {
-                    ...draft.applicationPolicy,
-                    resumeStrategy: event.target
-                      .value as typeof draft.applicationPolicy.resumeStrategy,
-                  },
-                })
-              }
-              value={draft.applicationPolicy.resumeStrategy}
-            >
-              <option value="job_specific">One resume per job</option>
-              <option value="job_family_variants">
-                Reuse reviewed job-family variants
-              </option>
-            </select>
-          </label>
           <div className="grid gap-3 sm:grid-cols-3">
             <label className="flex items-center gap-2 text-sm">
               <input
@@ -776,7 +788,7 @@ function CampaignEditor(props: {
             <label className="grid gap-1 text-sm">
               <span>Schedule mode</span>
               <select
-                className="h-10 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
+                className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
                 disabled={!draft.schedule.enabled}
                 onChange={(event) =>
                   updateSchedule({
@@ -1010,20 +1022,22 @@ function CampaignEditor(props: {
               </p>
             ) : null}
           </div>
-          <p className="text-xs text-foreground-muted">
-            Final submission remains locked. This search plan can prepare work,
-            but it cannot authorize an external submit.
-          </p>
         </div>
       </details>
 
       <p className="text-xs text-foreground-muted">
-        Uses {draft.sourceTargetIds.length} sources and{" "}
+        Uses{" "}
+        {
+          draft.searchPreferences.discovery.targets.filter(
+            (target) => target.enabled,
+          ).length
+        }{" "}
+        sources and{" "}
         {draft.searchPreferences.targetRoles.length} target roles from its saved
         search scope.
       </p>
       <div className="flex flex-wrap justify-end gap-2">
-        <Button onClick={props.onCancel} type="button" variant="ghost">
+        <Button onClick={requestCancel} type="button" variant="ghost">
           Cancel
         </Button>
         <Button
@@ -1034,14 +1048,31 @@ function CampaignEditor(props: {
           Save search plan
         </Button>
       </div>
-    </form>
+      </form>
+      <CampaignConfirmDialog
+        cancelLabel="Keep editing"
+        confirmLabel="Discard changes"
+        detail={`${draft.name} still has edits that were not saved. Discarding loses them; saving keeps them. This cannot be undone.`}
+        eyebrow="Unsaved search-plan draft"
+        onCancel={() => setDiscardConfirmationOpen(false)}
+        onConfirm={() => {
+          // Close first, then cancel once: the dialog's own guard plus this
+          // ordering make a double activation impossible to repeat.
+          setDiscardConfirmationOpen(false);
+          props.onCancel();
+        }}
+        open={discardConfirmationOpen}
+        title="Discard unsaved search-plan changes?"
+      />
+    </>
   );
 }
 
 export function CampaignsScreen(props: {
   activeCampaignId: string;
   campaigns: readonly JobSearchCampaign[];
-  onSaveCampaign: (campaign: SaveJobSearchCampaignInput) => void;
+  onSaveCampaign: (campaign: SaveJobSearchCampaignInput) => Promise<boolean>;
+  onDeleteCampaign?: (campaignId: string) => Promise<boolean>;
   onSelectCampaign: (campaignId: string) => void;
   onRunCampaignNow?: (campaignId: string) => void;
   runCampaignPending?: (campaignId: string) => boolean;
@@ -1064,6 +1095,94 @@ export function CampaignsScreen(props: {
   const [editing, setEditing] = useState<SaveJobSearchCampaignInput | null>(
     null,
   );
+  const [editorSession, setEditorSession] = useState(0);
+  const [editorDirty, setEditorDirty] = useState(false);
+  const handleEditorDirtyChange = useCallback(
+    (dirty: boolean) => setEditorDirty(dirty),
+    [],
+  );
+  const [createdPlanNotice, setCreatedPlanNotice] = useState<{
+    name: string;
+    knownIds: readonly string[];
+    resolvedId: string | null;
+  } | null>(null);
+  const campaignIdsRef = useRef<readonly string[]>([]);
+  useEffect(() => {
+    campaignIdsRef.current = props.campaigns.map((campaign) => campaign.id);
+  }, [props.campaigns]);
+  useEffect(() => {
+    if (createdPlanNotice === null || createdPlanNotice.resolvedId !== null) {
+      return;
+    }
+    const created = props.campaigns.find(
+      (candidate) =>
+        candidate.name === createdPlanNotice.name &&
+        !createdPlanNotice.knownIds.includes(candidate.id),
+    );
+    if (created) {
+      setCreatedPlanNotice({
+        ...createdPlanNotice,
+        resolvedId: created.id,
+      });
+    }
+  }, [createdPlanNotice, props.campaigns]);
+  const handleEditorSave = useCallback(
+    (campaign: SaveJobSearchCampaignInput): Promise<boolean> =>
+      Promise.resolve(props.onSaveCampaign(campaign)).then((saved) => {
+        if (saved && campaign.id === null) {
+          setCreatedPlanNotice({
+            name: campaign.name,
+            knownIds: campaignIdsRef.current,
+            resolvedId: null,
+          });
+        }
+        return saved;
+      }),
+    [props.onSaveCampaign],
+  );
+
+  const startEditing = useCallback((next: SaveJobSearchCampaignInput) => {
+    setEditing(next);
+    setEditorSession((session) => session + 1);
+    setEditorDirty(false);
+    setCreatedPlanNotice(null);
+  }, []);
+
+  const [pendingEditorSwitch, setPendingEditorSwitch] =
+    useState<SaveJobSearchCampaignInput | null>(null);
+  const beginEditing = (next: SaveJobSearchCampaignInput) => {
+    if (editing !== null && editorDirty) {
+      // Switching away from a dirty editor asks through the app-owned
+      // confirmation dialog instead of window.confirm.
+      setPendingEditorSwitch(next);
+      return;
+    }
+    startEditing(next);
+  };
+  const [deleteCandidateId, setDeleteCandidateId] = useState<string | null>(
+    null,
+  );
+  const [deletePending, setDeletePending] = useState(false);
+  const [deleteFailedId, setDeleteFailedId] = useState<string | null>(null);
+  const confirmDeleteCampaign = (campaignId: string) => {
+    if (!props.onDeleteCampaign) {
+      return;
+    }
+    setDeletePending(true);
+    void props
+      .onDeleteCampaign(campaignId)
+      .then((deleted) => {
+        if (deleted) {
+          setDeleteCandidateId(null);
+          setDeleteFailedId(null);
+        } else {
+          setDeleteFailedId(campaignId);
+        }
+      })
+      .finally(() => {
+        setDeletePending(false);
+      });
+  };
   const [rulesCampaignId, setRulesCampaignId] = useState<string | null>(null);
   const rulesOpenerRef = useRef<HTMLButtonElement | null>(null);
   const wasRulesOpenRef = useRef(false);
@@ -1098,63 +1217,96 @@ export function CampaignsScreen(props: {
 
   return (
     <section className="grid gap-5 pb-8">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <PageHeader
-          compact
-          eyebrow="Job Finder"
-          title="Search plans"
-          description="Optional reusable plans for separating job roles, sources, volume, safety rules, and progress. Your current default plan is enough to start finding jobs."
-        />
-        <Button
-          onClick={() => setEditing(newCampaignFrom(activeCampaign ?? null))}
-          type="button"
-        >
-          New search plan
-        </Button>
-      </div>
+      <PageHeader
+        actions={
+          <Button
+            onClick={() =>
+              beginEditing(newCampaignFrom(activeCampaign ?? null))
+            }
+            type="button"
+          >
+            New search plan
+          </Button>
+        }
+        description="Organize roles, sources, discovery volume, and progress into reusable plans."
+        title="Search plans"
+      />
 
-      <section
+      <details
         aria-labelledby="search-plans-guide"
-        className="grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-4"
+        className="group rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-2.5 [&_summary::-webkit-details-marker]:hidden"
       >
-        <div>
-          <h2
-            className="text-base font-semibold text-(--text-headline)"
+        <summary className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+          <span
+            className="font-semibold text-(--text-headline)"
             id="search-plans-guide"
           >
-            Start without setting up a plan
-          </h2>
-          <p className="mt-1 max-w-3xl text-sm text-foreground-soft">
-            Search plans are optional. The current default plan is already
-            enough to use Find jobs. Create another plan when you want a
-            reusable search setup with its own roles, sources, limits, and
-            progress.
-          </p>
-        </div>
-        <div className="grid gap-3 text-sm text-foreground-soft sm:grid-cols-3">
+            Search plans are optional.
+          </span>
+          <span className="min-w-0 flex-1 text-foreground-soft">
+            The current default plan is already enough to use Find jobs. Create
+            another plan when you want a reusable search setup with its own
+            roles, sources, discovery volume, and progress.
+          </span>
+          <span className="shrink-0 text-xs font-medium text-foreground-muted group-open:hidden">
+            How volumes differ
+          </span>
+          <span className="hidden shrink-0 text-xs font-medium text-foreground-muted group-open:inline">
+            Hide volume differences
+          </span>
+        </summary>
+        <div className="grid gap-2 pt-2.5 text-sm text-foreground-soft sm:grid-cols-2">
           <p>
             <span className="font-medium text-foreground">Precision:</span> a
-            smaller set for deeper review.
+            smaller discovery pool focused on stronger matches.
           </p>
           <p>
             <span className="font-medium text-foreground">Scale:</span> a larger
-            pool prepared in controlled batches with safeguards.
-          </p>
-          <p>
-            <span className="font-medium text-foreground">Prepare only:</span>{" "}
-            neither volume sends applications; every resume and application
-            stays review-controlled.
+            discovery pool with a higher retained-job target.
           </p>
         </div>
-      </section>
+      </details>
 
       {editing ? (
         <CampaignEditor
           campaign={editing}
-          onCancel={() => setEditing(null)}
-          onSave={(campaign) => props.onSaveCampaign(campaign)}
+          isCurrentPlan={
+            editing.id !== null && editing.id === props.activeCampaignId
+          }
+          key={`search-plan-editor-${editorSession}`}
+          onCancel={() => {
+            setEditing(null);
+            setEditorDirty(false);
+          }}
+          onDirtyChange={handleEditorDirtyChange}
+          onSave={handleEditorSave}
           pending={props.pending}
         />
+      ) : null}
+
+      {createdPlanNotice ? (
+        <p
+          className="flex flex-wrap items-center gap-3 rounded-(--radius-field) border border-border-subtle px-4 py-3 text-sm text-foreground"
+          role="status"
+        >
+          {`Search plan "${createdPlanNotice.name}" created.`}
+          {createdPlanNotice.resolvedId !== null ? (
+            <Button
+              onClick={() => {
+                const resolvedId = createdPlanNotice.resolvedId;
+                if (resolvedId !== null) {
+                  props.onSelectCampaign(resolvedId);
+                }
+                setCreatedPlanNotice(null);
+              }}
+              size="xs"
+              type="button"
+              variant="outline"
+            >
+              Switch to it
+            </Button>
+          ) : null}
+        </p>
       ) : null}
 
       {rulesCampaign ? (
@@ -1179,26 +1331,25 @@ export function CampaignsScreen(props: {
         />
       ) : null}
 
-      <div className="flex flex-wrap items-end gap-2">
-        <div className="min-w-[min(100%,24rem)] flex-1">
-          <CollectionSearchToolbar
-            density={view.density}
-            label="Search plans"
-            onDensityChange={view.setDensity}
-            onQueryChange={view.setQuery}
-            placeholder="Search plan name, volume, or status"
-            query={view.query}
-            totalCount={props.campaigns.length}
-            visibleCount={filteredCampaigns.length}
+      <CollectionSearchToolbar
+        className="border-y-0 px-0"
+        density={view.density}
+        label="Search plans"
+        onDensityChange={view.setDensity}
+        onQueryChange={view.setQuery}
+        placeholder="Search plan name, volume, or status"
+        query={view.query}
+        totalCount={props.campaigns.length}
+        viewActions={
+          <CollectionSavedViews
+            onApply={view.applySavedView}
+            onDelete={view.deleteSavedView}
+            onSave={(name) => view.saveCurrentView(name)}
+            views={view.savedViews}
           />
-        </div>
-        <CollectionSavedViews
-          onApply={view.applySavedView}
-          onDelete={view.deleteSavedView}
-          onSave={(name) => view.saveCurrentView(name)}
-          views={view.savedViews}
-        />
-      </div>
+        }
+        visibleCount={filteredCampaigns.length}
+      />
 
       {filteredCampaigns.length === 0 ? (
         <CollectionNoMatches
@@ -1207,12 +1358,19 @@ export function CampaignsScreen(props: {
           query={view.query}
         />
       ) : (
-        <div className="grid gap-3 xl:grid-cols-2">
+        <div
+          className={
+            filteredCampaigns.length === 1
+              ? "grid gap-3"
+              : "grid gap-3 xl:grid-cols-2"
+          }
+        >
           {filteredCampaigns.map((campaign) => {
             const active = campaign.id === props.activeCampaignId;
+            const archived = campaign.status === "archived";
             return (
               <article
-                className={`surface-panel-shell grid min-w-0 gap-4 rounded-(--radius-panel) border p-5 ${active ? "border-accent/60" : "border-(--surface-panel-border)"}`}
+                className={`surface-panel-shell grid min-w-0 gap-4 rounded-(--radius-panel) border p-5 ${active ? "border-accent/60" : "border-(--surface-panel-border)"} ${archived ? "opacity-60" : ""}`}
                 key={campaign.id}
               >
                 <div className="flex min-w-0 items-start justify-between gap-3">
@@ -1225,8 +1383,13 @@ export function CampaignsScreen(props: {
                         {campaign.name}
                       </h2>
                       {active ? (
-                        <span className="rounded-full border border-accent/45 px-2 py-0.5 text-xs text-accent">
+                        <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">
                           Current
+                        </span>
+                      ) : null}
+                      {archived ? (
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                          Archived
                         </span>
                       ) : null}
                     </div>
@@ -1356,6 +1519,57 @@ export function CampaignsScreen(props: {
                     </ol>
                   </details>
                 ) : null}
+                {deleteCandidateId === campaign.id ? (
+                  <div
+                    aria-label={`Confirm deleting ${campaign.name}`}
+                    className="grid gap-2 rounded-(--radius-field) border border-destructive/40 bg-destructive/10 p-3"
+                    role="group"
+                  >
+                    <p className="text-sm text-foreground">
+                      Permanently delete “{campaign.name}”? This cannot be
+                      undone.
+                    </p>
+                    {active ? (
+                      <p className="text-sm text-foreground-muted">
+                        {props.campaigns.some(
+                          (candidate) =>
+                            candidate.id !== campaign.id &&
+                            candidate.status !== "archived",
+                        )
+                          ? "This is your current plan. Your current plan switches automatically to another non-archived plan."
+                          : "This is your current plan and no other non-archived plan exists. Deleting it leaves no current plan until you switch to or create one."}
+                      </p>
+                    ) : null}
+                    {deleteFailedId === campaign.id ? (
+                      <p className="text-sm text-destructive" role="alert">
+                        Deleting this search plan failed. It was not removed.
+                      </p>
+                    ) : null}
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <Button
+                        disabled={deletePending}
+                        onClick={() => {
+                          setDeleteCandidateId(null);
+                          setDeleteFailedId(null);
+                        }}
+                        size="compact"
+                        type="button"
+                        variant="ghost"
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        onClick={() => confirmDeleteCampaign(campaign.id)}
+                        pending={deletePending}
+                        size="compact"
+                        type="button"
+                        variant="destructive"
+                      >
+                        Delete plan
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
                 <div className="flex flex-wrap justify-end gap-2">
                   {props.onRunCampaignNow ? (
                     <Button
@@ -1379,13 +1593,13 @@ export function CampaignsScreen(props: {
                     Rules
                   </Button>
                   <Button
-                    onClick={() => setEditing(campaignToInput(campaign))}
+                    onClick={() => beginEditing(campaignToInput(campaign))}
                     type="button"
                     variant="ghost"
                   >
                     Edit
                   </Button>
-                  {!active ? (
+                  {!active && !archived ? (
                     <Button
                       onClick={() => props.onSelectCampaign(campaign.id)}
                       pending={props.pending}
@@ -1395,12 +1609,45 @@ export function CampaignsScreen(props: {
                       Make current
                     </Button>
                   ) : null}
+                  {props.onDeleteCampaign ? (
+                    <Button
+                      onClick={() => {
+                        setDeleteCandidateId(campaign.id);
+                        setDeleteFailedId(null);
+                      }}
+                      type="button"
+                      variant="ghost"
+                      className="text-destructive hover:text-destructive"
+                    >
+                      Delete
+                    </Button>
+                  ) : null}
                 </div>
               </article>
             );
           })}
         </div>
       )}
+
+      <CampaignConfirmDialog
+        cancelLabel="Keep editing"
+        confirmLabel="Discard changes"
+        detail={`The open search-plan editor still has unsaved edits. Switching to "${
+          pendingEditorSwitch?.name ?? "another plan"
+        }" now discards them. This cannot be undone.`}
+        eyebrow="Unsaved search-plan draft"
+        onCancel={() => setPendingEditorSwitch(null)}
+        onConfirm={() => {
+          const next = pendingEditorSwitch;
+          // Close first so the switch runs exactly once per explicit confirm.
+          setPendingEditorSwitch(null);
+          if (next !== null) {
+            startEditing(next);
+          }
+        }}
+        open={pendingEditorSwitch !== null}
+        title="Discard unsaved search-plan changes?"
+      />
     </section>
   );
 }

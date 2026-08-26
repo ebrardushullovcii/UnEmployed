@@ -1,5 +1,5 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CollectionNoMatches,
   CollectionColumnPicker,
@@ -9,6 +9,146 @@ import {
 } from "./collection-search-toolbar";
 
 afterEach(cleanup);
+
+describe("CollectionSavedViews dialog semantics", () => {
+  const requestAnimationFrameMock = vi.fn((callback: FrameRequestCallback) => {
+    callback(0);
+    return 1;
+  });
+  const cancelAnimationFrameMock = vi.fn();
+
+  beforeEach(() => {
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(
+      requestAnimationFrameMock,
+    );
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(
+      cancelAnimationFrameMock,
+    );
+    // jsdom reports zero geometry; positioning math still runs.
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      bottom: 100,
+      height: 32,
+      left: 200,
+      right: 280,
+      toJSON: () => ({}),
+      top: 68,
+      width: 80,
+      x: 200,
+      y: 68,
+    } as DOMRect);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function renderSavedViews() {
+    return render(
+      <>
+        <button type="button">Before saved views</button>
+        <CollectionSavedViews
+          onApply={vi.fn()}
+          onDelete={vi.fn()}
+          onSave={vi.fn()}
+          views={[
+            {
+              density: "compact",
+              id: "remote",
+              name: "Remote",
+              query: "remote",
+            },
+          ]}
+        />
+        <button type="button">After saved views</button>
+      </>,
+    );
+  }
+
+  function openMenu() {
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Saved views/ }),
+    );
+  }
+
+  it("announces a dialog and receives focus in its naming field when opened", () => {
+    renderSavedViews();
+
+    const trigger = screen.getByRole("button", { name: /^Saved views/ });
+    expect(trigger.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+
+    openMenu();
+
+    const dialog = screen.getByRole("dialog", { name: "Saved views" });
+    expect(dialog.getAttribute("data-saved-views-menu")).toBe("true");
+    const nameField = screen.getByLabelText("Saved view name");
+    expect(document.activeElement).toBe(nameField);
+  });
+
+  it("closes through Escape and restores focus to the trigger", () => {
+    renderSavedViews();
+
+    const trigger = screen.getByRole("button", { name: /^Saved views/ });
+    openMenu();
+    expect(screen.getByRole("dialog", { name: "Saved views" }));
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(screen.queryByRole("dialog", { name: "Saved views" })).toBeNull();
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("keeps the menu open while focus moves inside it", () => {
+    renderSavedViews();
+
+    openMenu();
+    const nameField = screen.getByLabelText("Saved view name");
+    const applyButton = screen.getByRole("button", { name: "Remote" });
+
+    fireEvent.blur(nameField, { relatedTarget: applyButton });
+    expect(screen.getByRole("dialog", { name: "Saved views" }));
+  });
+
+  it("closes on ordinary Tab-out without dragging focus back", async () => {
+    renderSavedViews();
+
+    openMenu();
+    const deleteButton = screen.getByRole("button", {
+      name: "Delete saved view Remote",
+    });
+    const afterButton = screen.getByRole("button", { name: "After saved views" });
+    deleteButton.focus();
+
+    // Native Tab traversal lands outside; no preventDefault, no focus steal.
+    fireEvent.blur(deleteButton, { relatedTarget: afterButton });
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Saved views" }),
+      ).toBeNull(),
+    );
+    // Closing on focusout must not yank focus back to the trigger.
+    expect(document.activeElement).not.toBe(
+      screen.getByRole("button", { name: /^Saved views/ }),
+    );
+  });
+
+  it("ignores Escape that another handler already consumed", () => {
+    renderSavedViews();
+
+    openMenu();
+    const blocked = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Escape",
+    });
+    blocked.preventDefault();
+    document.dispatchEvent(blocked);
+
+    expect(screen.getByRole("dialog", { name: "Saved views" }));
+  });
+});
 
 describe("CollectionSearchToolbar", () => {
   it("reports filtered counts and keeps clear and density actions accessible", () => {
@@ -53,6 +193,180 @@ describe("CollectionSearchToolbar", () => {
     expect(searchField?.className).toContain("min-w-0");
     expect(searchField?.className).toContain("sm:min-w-56");
     expect(toolbar?.className).toContain("min-w-0");
+  });
+
+  it("ellipsizes overflowing placeholder hints without weakening the accessible label", () => {
+    const onQueryChange = vi.fn();
+    render(
+      <CollectionSearchToolbar
+        label="Find a shortlisted job"
+        onQueryChange={onQueryChange}
+        placeholder="Search jobs, companies, contacts, stages, or tags"
+        query=""
+        totalCount={4}
+        visibleCount={4}
+      />,
+    );
+
+    const expandedInput = screen.getByRole("searchbox");
+    // The hint stays truthful in the DOM; narrow fields fade its rendering
+    // with an ellipsis instead of slicing glyphs mid-character.
+    expect(expandedInput.getAttribute("placeholder")).toBe(
+      "Search jobs, companies, contacts, stages, or tags",
+    );
+    // Chromium ignores text-overflow on ::placeholder itself, so the
+    // ellipsis must ride on the input element via the shared field class.
+    expect(expandedInput.className).toContain("text-ellipsis");
+    expect(expandedInput.className).toContain("overflow-hidden");
+    expect(expandedInput.className).toContain("whitespace-nowrap");
+    expect(expandedInput.className).not.toContain("[&::placeholder]");
+    expect(screen.getByLabelText("Find a shortlisted job")).toBe(expandedInput);
+    fireEvent.change(expandedInput, {
+      target: { value: "senior platform engineer" },
+    });
+    expect(onQueryChange).toHaveBeenCalledWith("senior platform engineer");
+
+    cleanup();
+    render(
+      <CollectionSearchToolbar
+        compact
+        label="Find a shortlisted job"
+        onQueryChange={vi.fn()}
+        placeholder="Search jobs, companies, contacts, stages, or tags"
+        query=""
+        totalCount={4}
+        visibleCount={4}
+      />,
+    );
+
+    const compactInput = screen.getByRole("searchbox");
+    expect(compactInput.getAttribute("placeholder")).toBe(
+      "Search jobs, companies, contacts, stages, or tags",
+    );
+    expect(compactInput.className).toContain("text-ellipsis");
+    expect(compactInput.className).toContain("overflow-hidden");
+    expect(compactInput.className).toContain("whitespace-nowrap");
+    expect(compactInput.className).not.toContain("[&::placeholder]");
+    // Compact row geometry stays intact next to the shared ellipsis classes:
+    // the desktop width floor and flex shrinking are unchanged.
+    expect(compactInput.className).toContain("h-9");
+    expect(compactInput.className).toContain("min-w-48");
+    expect(compactInput.className).toContain("flex-1");
+    expect(screen.getByLabelText("Find a shortlisted job")).toBe(compactInput);
+  });
+
+  it("packs compact collection controls into one owned toolbar row", () => {
+    render(
+      <CollectionSearchToolbar
+        compact
+        density="comfortable"
+        hideCompactCount
+        label="Find a job"
+        onDensityChange={vi.fn()}
+        onQueryChange={vi.fn()}
+        placeholder="Search jobs"
+        query=""
+        totalCount={510}
+        viewActions={
+          <CollectionSavedViews
+            onApply={vi.fn()}
+            onDelete={vi.fn()}
+            onSave={vi.fn()}
+            views={[]}
+          />
+        }
+        visibleCount={510}
+      />,
+    );
+
+    expect(screen.getByRole("searchbox").className).toContain("h-9");
+    expect(
+      screen.getByRole("button", { name: "Comfortable" }).textContent,
+    ).toBe("Comfort");
+    expect(screen.queryByText("510 results")).toBeNull();
+    expect(
+      document.querySelector("[data-collection-toolbar-compact]"),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByText("Saved views"));
+    const menu = document.querySelector("[data-saved-views-menu]");
+    expect(menu?.className).toContain("fixed");
+    expect(menu?.className).toContain("z-100");
+  });
+
+  it("keeps both seams by default so un-migrated callers keep their chrome", () => {
+    render(
+      <CollectionSearchToolbar
+        label="Find a job"
+        onQueryChange={vi.fn()}
+        placeholder="Search jobs"
+        query=""
+        totalCount={3}
+        visibleCount={3}
+      />,
+    );
+
+    const searchField = screen.getByRole("searchbox").parentElement;
+    const toolbar = searchField?.parentElement?.parentElement;
+    expect(toolbar?.className).toContain("border-y");
+    expect(toolbar?.className).toContain("px-5");
+
+    cleanup();
+    const compactView = render(
+      <CollectionSearchToolbar
+        compact
+        label="Find a job"
+        onQueryChange={vi.fn()}
+        placeholder="Search jobs"
+        query=""
+        totalCount={3}
+        visibleCount={3}
+      />,
+    );
+    const compactToolbar = compactView.container.querySelector(
+      "[data-collection-toolbar-compact]",
+    );
+    expect(compactToolbar?.className).toContain("border-b");
+    expect(compactToolbar?.className).toContain("border-t");
+  });
+
+  it("renders the page placement with no borders or horizontal padding", () => {
+    render(
+      <CollectionSearchToolbar
+        label="Find an action"
+        onQueryChange={vi.fn()}
+        placement="page"
+        placeholder="Search actions"
+        query=""
+        totalCount={3}
+        visibleCount={3}
+      />,
+    );
+
+    const searchField = screen.getByRole("searchbox").parentElement;
+    const toolbar = searchField?.parentElement?.parentElement;
+    expect(toolbar?.className).not.toContain("border-y");
+    expect(toolbar?.className).not.toContain("border-t");
+    expect(toolbar?.className).not.toContain("px-5");
+    expect(toolbar?.className).toContain("py-3");
+  });
+
+  it("lets a panel header own the top seam for compact toolbars", () => {
+    render(
+      <CollectionSearchToolbar
+        compact
+        label="Find a job"
+        onQueryChange={vi.fn()}
+        placement="panel"
+        placeholder="Search roles or companies"
+        query=""
+        totalCount={3}
+        visibleCount={3}
+      />,
+    );
+
+    const toolbar = document.querySelector("[data-collection-toolbar-compact]");
+    expect(toolbar?.className).toContain("border-b");
+    expect(toolbar?.className).not.toContain("border-t");
   });
 
   it("matches normalized text across multiple fields", () => {
@@ -111,7 +425,10 @@ describe("CollectionSearchToolbar", () => {
       target: { value: "Strong fits" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    // Metadata-less consumers keep the historical single-argument contract:
+    // no implicit trailing undefined may leak into their callbacks.
     expect(onSave).toHaveBeenCalledWith("Strong fits");
+    expect(onSave.mock.calls[0]).toHaveLength(1);
 
     fireEvent.click(screen.getByText("Columns"));
     fireEvent.click(screen.getByRole("checkbox", { name: "Salary" }));
@@ -124,6 +441,33 @@ describe("CollectionSearchToolbar", () => {
       screen.getByRole("button", { name: "Delete saved view Remote" }),
     );
     expect(onDelete).toHaveBeenCalledWith("remote");
+  });
+
+  it("forwards optional saved-view metadata to onSave only when provided", () => {
+    const onSave = vi.fn();
+    const metadata = {
+      recommendation: ["strong_fit"],
+      workMode: ["remote"],
+    } as const;
+    render(
+      <CollectionSavedViews
+        onApply={vi.fn()}
+        onDelete={vi.fn()}
+        onSave={onSave}
+        savedViewMetadata={metadata}
+        views={[]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /^Saved views$/u }));
+    fireEvent.change(screen.getByLabelText("Saved view name"), {
+      target: { value: "Facet focus" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSave).toHaveBeenCalledOnce();
+    expect(onSave).toHaveBeenCalledWith("Facet focus", metadata);
+    expect(onSave.mock.calls[0]).toHaveLength(2);
   });
 });
 // @vitest-environment jsdom

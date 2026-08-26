@@ -38,6 +38,10 @@ function listRequests(
     clauses.push("scope_type = ?");
     params.push(options.scopeType);
   }
+  if (options?.applicationRecordId !== undefined) {
+    clauses.push("application_record_id = ?");
+    params.push(options.applicationRecordId);
+  }
   if (options?.states !== undefined) {
     clauses.push(`state IN (${options.states.map(() => "?").join(", ")})`);
     params.push(...options.states);
@@ -91,8 +95,9 @@ function insertUserActionRequest(
     .prepare(
       `
       INSERT INTO user_action_requests (
-        id, dedupe_key, revision, kind, state, scope_type, updated_at, value
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        id, dedupe_key, revision, kind, state, scope_type,
+        application_record_id, updated_at, value
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     )
     .run(request.id, ...columns.getColumns(request), JSON.stringify(request));
@@ -107,14 +112,16 @@ function updateUserActionRequest(
     .prepare(
       `
       INSERT INTO user_action_requests (
-        id, dedupe_key, revision, kind, state, scope_type, updated_at, value
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        id, dedupe_key, revision, kind, state, scope_type,
+        application_record_id, updated_at, value
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         dedupe_key = excluded.dedupe_key,
         revision = excluded.revision,
         kind = excluded.kind,
         state = excluded.state,
         scope_type = excluded.scope_type,
+        application_record_id = excluded.application_record_id,
         updated_at = excluded.updated_at,
         value = excluded.value
     `,

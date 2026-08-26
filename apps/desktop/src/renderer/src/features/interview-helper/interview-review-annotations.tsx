@@ -47,7 +47,7 @@ export function TranscriptAnnotationPanel(props: {
   }
 
   return (
-    <div className="grid gap-3 rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
+    <div className="grid gap-3 rounded-(--radius-small) border border-border-subtle bg-(--surface-fill-subtle) p-3">
       <div className="flex items-center gap-2">
         <MessageSquarePlus className="size-4 text-(--info-text)" />
         <h3 className="text-[0.78rem] uppercase tracking-(--tracking-badge) text-muted-foreground">
@@ -56,7 +56,7 @@ export function TranscriptAnnotationPanel(props: {
       </div>
       <div className="grid gap-2 sm:grid-cols-[0.55fr_1fr]">
         <select
-          className="h-9 rounded-sm border border-border-subtle bg-black/30 px-2 text-[0.78rem]"
+          className="h-9 rounded-sm border border-border-subtle bg-(--field) px-2 text-[0.78rem]"
           onChange={(event) => {
             setKind(
               event.target.value as InterviewTranscriptAnnotationInput["kind"],
@@ -68,7 +68,7 @@ export function TranscriptAnnotationPanel(props: {
           <option value="note">Note</option>
         </select>
         <select
-          className="h-9 rounded-sm border border-border-subtle bg-black/30 px-2 text-[0.78rem]"
+          className="h-9 rounded-sm border border-border-subtle bg-(--field) px-2 text-[0.78rem]"
           onChange={(event) => {
             setSegmentId(
               event.target.value === "session" ? null : event.target.value,
@@ -85,7 +85,7 @@ export function TranscriptAnnotationPanel(props: {
         </select>
       </div>
       <textarea
-        className="min-h-20 resize-y rounded-sm border border-border-subtle bg-black/30 p-2 text-[0.8rem] leading-5 outline-none focus:border-(--info-border)"
+        className="min-h-20 resize-y rounded-sm border border-border-subtle bg-(--field) p-2 text-[0.8rem] leading-5 outline-none focus:border-(--info-border)"
         onChange={(event) => {
           setBody(event.target.value);
         }}

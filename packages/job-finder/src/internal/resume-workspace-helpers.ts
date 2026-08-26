@@ -1,5 +1,7 @@
 import {
   buildCandidateSkillBank,
+  classifyResumeClaimGrounding,
+  type ResumeGenerationEvidenceItem,
   type TailoredResumeDraft,
 } from "@unemployed/ai-providers";
 import type { ResumeGenerationStrategyPolicy } from "@unemployed/ai-providers";
@@ -27,8 +29,10 @@ import {
   type ResumeValidationResult,
   type SavedJob,
   type TailoredAsset,
+  type WorkHistoryReviewAcknowledgment,
   type WorkHistoryReviewSuggestion,
 } from "@unemployed/contracts";
+import { fnv1a32 } from "@unemployed/core";
 import { createLocalKnowledgeIndex } from "@unemployed/knowledge-base";
 import {
   createUniqueId,
@@ -50,6 +54,7 @@ import {
   buildResumeEntryDateQualityIssues,
   normalizeResumeDraftEntryOrdering,
 } from "./resume-entry-ordering";
+import { projectWorkHistoryReviewSuggestionIdentities } from "./resume-work-history-review-identity";
 
 export interface ResumeWorkspaceEvidence {
   summary: readonly string[];
@@ -112,6 +117,7 @@ export function buildResumeDraftFromTailoredDraft(input: {
   profile?: CandidateProfile;
   research?: readonly ResumeResearchArtifact[];
   headline?: string | null | undefined;
+  previousWorkHistoryReviewAcknowledgments?: readonly WorkHistoryReviewAcknowledgment[];
 }): ResumeDraft {
   return buildStructuredResumeDraftFromTailoredDraft(input);
 }
@@ -604,6 +610,13 @@ function isProfessionalExperienceSummaryText(
 interface ResumeClaimCandidateEvidence {
   ref: ResumeClaimAssessment["evidenceRefs"][number];
   text: string;
+  /**
+   * Classifier scope for `classifyResumeClaimGrounding`. The canonical
+   * classifier only reads `id` and `text`, but scope keeps the mapped items
+   * honest about their candidate-evidence provenance.
+   */
+  classifierScope: ResumeGenerationEvidenceItem["scope"];
+  profileRecordId: string | null;
 }
 
 interface ResumeClaimDescriptor {
@@ -613,15 +626,6 @@ interface ResumeClaimDescriptor {
   bulletId: string | null;
   text: string;
   origin: ResumeDraft["sections"][number]["origin"];
-}
-
-function stableContentHash(value: string): string {
-  let hash = 0x811c9dc5;
-  for (const character of value) {
-    hash ^= character.codePointAt(0) ?? 0;
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return `fnv1a32:${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }
 
 function buildResumeClaimDescriptors(
@@ -688,7 +692,10 @@ function omitResumeVersionTimestamps(value: unknown): unknown {
   if (value && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value)
-        .filter(([key]) => key !== "updatedAt")
+        .filter(
+          ([key]) =>
+            key !== "updatedAt" && key !== "lastGeneratedContentHash",
+        )
         .map(([key, entry]) => [key, omitResumeVersionTimestamps(entry)]),
     );
   }
@@ -700,7 +707,7 @@ function stringifyResumeVersionState(value: unknown): string {
 }
 
 export function buildResumeDraftStateHash(draft: ResumeDraft): string {
-  return stableContentHash(
+  return fnv1a32(
     stringifyResumeVersionState({
       templateId: draft.templateId,
       identity: draft.identity,
@@ -752,7 +759,7 @@ function buildResumeDraftRevisionDiff(before: ResumeDraft, after: ResumeDraft) {
   };
 }
 export function buildResumeDraftContentHash(draft: ResumeDraft): string {
-  return stableContentHash(
+  return fnv1a32(
     buildResumeClaimDescriptors(draft)
       .map((claim) =>
         [
@@ -792,6 +799,8 @@ function buildResumeClaimEvidenceBank(
     sourceId: string,
     value: string | null | undefined,
     minimumTokenCount = 2,
+    classifierScope: ResumeGenerationEvidenceItem["scope"] = "profile",
+    profileRecordId: string | null = null,
   ) => {
     if (!value?.trim()) {
       return;
@@ -802,6 +811,8 @@ function buildResumeClaimEvidenceBank(
     ).entries()) {
       evidence.push({
         text,
+        classifierScope,
+        profileRecordId,
         ref: {
           id: `claim_evidence_${sourceKind}_${sourceId}_${index + 1}`,
           sourceKind,
@@ -812,7 +823,13 @@ function buildResumeClaimEvidenceBank(
     }
   };
 
-  add("resume", profile.baseResume.id, profile.baseResume.textContent);
+  add(
+    "resume",
+    profile.baseResume.id,
+    profile.baseResume.textContent,
+    2,
+    "import_evidence",
+  );
   add("profile", "profile:summary", profile.summary);
   add("profile", "profile:headline", profile.headline);
   add("profile", "profile:current-location", profile.currentLocation);
@@ -846,13 +863,22 @@ function buildResumeClaimEvidenceBank(
     add("profile", `profile:skill:${index + 1}`, skill, 1);
   }
   for (const experience of profile.experiences) {
-    add("profile", `experience:${experience.id}:summary`, experience.summary);
+    add(
+      "profile",
+      `experience:${experience.id}:summary`,
+      experience.summary,
+      2,
+      "experience",
+      experience.id,
+    );
     for (const [index, skill] of experience.skills.entries()) {
       add(
         "profile",
         `experience:${experience.id}:skill:${index + 1}`,
         skill,
         1,
+        "experience",
+        experience.id,
       );
     }
     for (const [index, achievement] of experience.achievements.entries()) {
@@ -860,20 +886,44 @@ function buildResumeClaimEvidenceBank(
         "profile",
         `experience:${experience.id}:achievement:${index + 1}`,
         achievement,
+        2,
+        "experience",
+        experience.id,
       );
     }
   }
   for (const project of profile.projects) {
-    add("profile", `project:${project.id}:summary`, project.summary);
-    add("profile", `project:${project.id}:outcome`, project.outcome);
+    add("profile", `project:${project.id}:summary`, project.summary, 2, "project", project.id);
+    add("profile", `project:${project.id}:outcome`, project.outcome, 2, "project", project.id);
     for (const [index, skill] of project.skills.entries()) {
-      add("profile", `project:${project.id}:skill:${index + 1}`, skill, 1);
+      add(
+        "profile",
+        `project:${project.id}:skill:${index + 1}`,
+        skill,
+        1,
+        "project",
+        project.id,
+      );
     }
   }
   for (const proof of profile.proofBank) {
-    add("proof", `proof:${proof.id}:claim`, proof.claim);
-    add("proof", `proof:${proof.id}:metric`, proof.heroMetric);
-    add("proof", `proof:${proof.id}:context`, proof.supportingContext);
+    add("proof", `proof:${proof.id}:claim`, proof.claim, 2, "proof", proof.id);
+    add(
+      "proof",
+      `proof:${proof.id}:metric`,
+      proof.heroMetric,
+      2,
+      "proof",
+      proof.id,
+    );
+    add(
+      "proof",
+      `proof:${proof.id}:context`,
+      proof.supportingContext,
+      2,
+      "proof",
+      proof.id,
+    );
   }
   for (const education of profile.education) {
     add("profile", `education:${education.id}:summary`, education.summary);
@@ -889,6 +939,131 @@ function buildResumeClaimEvidenceBank(
   return evidence;
 }
 
+/**
+ * Claim-grounding gap types that assert the claim invents or misappropriates
+ * candidate facts (metrics, named technologies, job-only language, absolute
+ * claims, leadership/credential claims, or fail-closed elaborations). They
+ * block regardless of claim origin. Remaining classifier gaps are style or
+ * vacuum signals (voice, length bounds, missing content) and never upgrade a
+ * user-authored claim to unsupported on their own.
+ */
+const resumeClaimIntegrityGapTypes: ReadonlySet<string> = new Set([
+  "fabricated_metric",
+  "unknown_named_word",
+  "job_only_term",
+  "unsupported_absolute_claim",
+  "unevidenced_leadership_claim",
+  "unevidenced_credential_claim",
+  "unsafe_elaboration",
+  "inference_not_allowed",
+]);
+
+function isGeneratedResumeClaimOrigin(
+  origin: ResumeDraft["sections"][number]["origin"],
+): boolean {
+  return (
+    origin === "ai_generated" ||
+    origin === "assistant_edited" ||
+    origin === "deterministic_fallback"
+  );
+}
+
+/**
+ * Mirrors the canonical classifier's own exact definition: the trimmed claim
+ * appears verbatim at word boundaries inside the normalized support text.
+ * Only used when the classifier declines to grade grounding because of
+ * style-only gaps, so grounded atomic content (single-skill bullets) keeps
+ * its legacy `exact` assessment instead of degrading to review.
+ */
+function claimTextIsVerbatimInSupport(
+  claimText: string,
+  supportText: string,
+): boolean {
+  const normalizeComparable = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  const normalizedClaim = normalizeComparable(claimText.trim());
+
+  return (
+    normalizedClaim.length > 0 &&
+    ` ${normalizeComparable(supportText)} `.includes(` ${normalizedClaim} `)
+  );
+}
+
+function resolveResumeClaimAssessmentStatus(input: {
+  verdict: ReturnType<typeof classifyResumeClaimGrounding>["verdict"];
+  gaps: readonly { type: string }[];
+  hasSupportEvidence: boolean;
+  supportText: string;
+  claimText: string;
+  generatedClaim: boolean;
+}): ResumeClaimAssessment["status"] {
+  if (input.gaps.some((gap) => resumeClaimIntegrityGapTypes.has(gap.type))) {
+    return "unsupported";
+  }
+
+  if (input.verdict === "weakly_supported") {
+    // Weak support is a human-confirmation state for generated claims and an
+    // informational review state for genuine user-authored prose.
+    return input.generatedClaim ? "confirm_needed" : "review";
+  }
+
+  if (input.verdict === "exact") {
+    return "exact";
+  }
+
+  if (input.verdict === "covered" || input.verdict === "elaborated") {
+    return "paraphrase";
+  }
+
+  // Verdict "unsupported" driven only by style/vacuum gaps (first-person
+  // voice, length bounds, no relevant evidence). Legacy behavior is preserved:
+  // generated claims without any relevant candidate evidence stay unsupported,
+  // everything else lands in review where the shared blocking predicate keeps
+  // gating generated claims while user-authored prose stays informational.
+  if (!input.hasSupportEvidence) {
+    return input.generatedClaim ? "unsupported" : "review";
+  }
+
+  if (claimTextIsVerbatimInSupport(input.claimText, input.supportText)) {
+    return "exact";
+  }
+
+  return "review";
+}
+
+/**
+ * Relevance union for the canonical grounding classifier: every bank entry
+ * with whole-phrase containment or at least 0.25 token overlap with the
+ * claim. The classifier then selects its own bounded support union from this
+ * pool, so generation-accepted claims (whose cited evidence is highly
+ * relevant) re-assess against a superset of the evidence that authorized
+ * them and keep their accepted verdict.
+ */
+function buildRelevantResumeClaimSupport(
+  claimText: string,
+  evidenceBank: readonly ResumeClaimCandidateEvidence[],
+): ResumeClaimCandidateEvidence[] {
+  const ranked = evidenceBank
+    .map((evidence) => ({
+      evidence,
+      overlap: calculateTokenOverlap(claimText, evidence.text),
+      exact:
+        normalizeText(claimText) === normalizeText(evidence.text) ||
+        matchesWholePhrase(evidence.text, claimText),
+    }))
+    .filter((entry) => entry.exact || entry.overlap >= 0.25)
+    .sort(
+      (left, right) =>
+        Number(right.exact) - Number(left.exact) ||
+        right.overlap - left.overlap,
+    );
+
+  return ranked.map((entry) => entry.evidence);
+}
+
 function assessResumeClaims(input: {
   draft: ResumeDraft;
   job: SavedJob;
@@ -898,23 +1073,30 @@ function assessResumeClaims(input: {
   profileSupportBank: readonly string[];
 }): ResumeClaimAssessment[] {
   const evidenceBank = buildResumeClaimEvidenceBank(input.profile);
+  const evidenceRefById = new Map(
+    evidenceBank.map((entry) => [entry.ref.id, entry.ref] as const),
+  );
 
   return buildResumeClaimDescriptors(input.draft).map((claim) => {
-    const rankedEvidence = evidenceBank
-      .map((evidence) => ({
-        ...evidence,
-        overlap: calculateTokenOverlap(claim.text, evidence.text),
-        exact:
-          normalizeText(claim.text) === normalizeText(evidence.text) ||
-          matchesWholePhrase(evidence.text, claim.text),
-      }))
-      .filter((evidence) => evidence.exact || evidence.overlap >= 0.25)
-      .sort(
-        (left, right) =>
-          Number(right.exact) - Number(left.exact) ||
-          right.overlap - left.overlap,
-      );
-    const unsupported =
+    const support = buildRelevantResumeClaimSupport(claim.text, evidenceBank);
+    // Inference stays enabled to match the most permissive legitimate
+    // generation posture: conservative generations only emit fully covered
+    // wording (unaffected by this flag), aggressive generations emit safe
+    // elaborations that must not flip to unsupported after acceptance. Hard
+    // integrity gaps fire mode-independently either way.
+    const grounding = classifyResumeClaimGrounding({
+      text: claim.text,
+      evidence: support.map((entry) => ({
+        id: entry.ref.id,
+        text: entry.text,
+        scope: entry.classifierScope,
+        profileRecordId: entry.profileRecordId,
+      })),
+      jobCompany: input.job.company,
+      jobSkills: input.job.keySkills,
+      allowReasonableInference: true,
+    });
+    const legacyIntegrityOverride =
       hasUnsupportedQuantifiedClaim(claim.text, input.profileSupportBank) ||
       looksLikeUnsupportedAbsoluteClaim(claim.text, input.profileSupportBank) ||
       isJobDescriptionBleed(
@@ -923,20 +1105,22 @@ function assessResumeClaims(input: {
         input.profileSupportBank,
       ) ||
       isShortJobTermBleed(claim.text, input.job, input.profileSupportBank);
-    const bestEvidence = rankedEvidence[0] ?? null;
-    const generatedClaim =
-      claim.origin === "ai_generated" ||
-      claim.origin === "assistant_edited" ||
-      claim.origin === "deterministic_fallback";
-    const status: ResumeClaimAssessment["status"] = unsupported
+    const generatedClaim = isGeneratedResumeClaimOrigin(claim.origin);
+    const status = legacyIntegrityOverride
       ? "unsupported"
-      : bestEvidence?.exact
-        ? "exact"
-        : (bestEvidence?.overlap ?? 0) >= 0.72
-          ? "paraphrase"
-          : generatedClaim && !bestEvidence
-            ? "unsupported"
-            : "review";
+      : resolveResumeClaimAssessmentStatus({
+          verdict: grounding.verdict,
+          gaps: grounding.gaps,
+          hasSupportEvidence: grounding.supportEvidenceIds.length > 0,
+          supportText: support
+            .filter((entry) =>
+              grounding.supportEvidenceIds.includes(entry.ref.id),
+            )
+            .map((entry) => entry.text)
+            .join(" "),
+          claimText: claim.text,
+          generatedClaim,
+        });
     const locator = [
       claim.field,
       claim.sectionId,
@@ -945,17 +1129,20 @@ function assessResumeClaims(input: {
     ].join(":");
 
     return {
-      id: `claim_${stableContentHash(locator).replace(":", "_")}`,
+      id: `claim_${fnv1a32(locator).replace(":", "_")}`,
       field: claim.field,
       sectionId: claim.sectionId,
       entryId: claim.entryId,
       bulletId: claim.bulletId,
       claimText: claim.text,
       claimOrigin: claim.origin,
-      contentHash: stableContentHash(normalizeText(claim.text)),
+      contentHash: fnv1a32(normalizeText(claim.text)),
       status,
-      evidenceRefs: rankedEvidence.slice(0, 3).map((evidence) => evidence.ref),
-      verifier: "deterministic_candidate_evidence_v1",
+      evidenceRefs: grounding.supportEvidenceIds.flatMap((supportId) => {
+        const ref = evidenceRefById.get(supportId);
+        return ref ? [ref] : [];
+      }),
+      verifier: "deterministic_candidate_evidence_v2",
       assessedAt: input.assessedAt,
     };
   });
@@ -1653,10 +1840,21 @@ export function validateResumeDraft(input: {
     profileSupportBank,
   });
   for (const assessment of claimAssessments) {
-    const generatedClaim =
-      assessment.claimOrigin === "ai_generated" ||
-      assessment.claimOrigin === "assistant_edited" ||
-      assessment.claimOrigin === "deterministic_fallback";
+    const generatedClaim = isGeneratedResumeClaimOrigin(
+      assessment.claimOrigin,
+    );
+    if (assessment.status === "confirm_needed") {
+      issues.push({
+        id: `issue_claim_confirmation_${assessment.id}`,
+        severity: "warning",
+        category: "claim_confirmation_needed",
+        sectionId: assessment.sectionId,
+        entryId: assessment.entryId,
+        bulletId: assessment.bulletId,
+        message:
+          "This claim goes beyond the stored candidate evidence. Confirm it is accurate and the candidate's own before export.",
+      });
+    }
     const blocksExport =
       assessment.status === "unsupported" ||
       (assessment.status === "review" && generatedClaim);
@@ -1726,13 +1924,58 @@ export function validateResumeDraft(input: {
   });
 }
 
-function buildCoverageMetadataMap(draft: TailoredResumeDraft) {
-  return new Map(
-    draft.coverageMetadata.map((metadata) => [
-      metadata.profileRecordId,
-      metadata,
-    ]),
-  );
+/**
+ * Single confirmation-aware gate over persisted resume claim assessments for
+ * export, approve, and validate call sites. A draft has a blocking claim when:
+ *
+ * - the assessment was produced by the stale v1 verifier (fail-closed
+ *   currency: generated claims must be revalidated under v2 before they can
+ *   gate-pass, while user-authored rows keep their legacy semantics where
+ *   only hard unsupported verdicts blocked), or
+ * - the claim is unsupported — including every hard integrity gap regardless
+ * of claim origin — so origin flips alone can never clear the block, or
+ * - the claim needs confirmation (`confirm_needed`) and no stored
+ *   confirmation matches the exact draft id, locator (field, section, entry,
+ *   bullet), and confirmed normalized-content hash. Reworded claims change
+ *   the content hash and block again.
+ *
+ * Review-status user-authored prose stays informational here, matching the
+ * assessment mapping; review-status generated claims keep gating until they
+ * are rewritten, confirmed, or reclassified by a fresh validation.
+ */
+export function hasBlockingResumeClaimAssessment(input: {
+  validation: Pick<ResumeValidationResult, "claimAssessments">;
+  draft: Pick<ResumeDraft, "id" | "claimConfirmations">;
+}): boolean {
+  return input.validation.claimAssessments.some((assessment) => {
+    if (assessment.verifier !== "deterministic_candidate_evidence_v2") {
+      return (
+        isGeneratedResumeClaimOrigin(assessment.claimOrigin) ||
+        assessment.status === "unsupported"
+      );
+    }
+
+    if (assessment.status === "unsupported") {
+      return true;
+    }
+
+    if (assessment.status === "confirm_needed") {
+      return !input.draft.claimConfirmations.some(
+        (confirmation) =>
+          confirmation.draftId === input.draft.id &&
+          confirmation.field === assessment.field &&
+          confirmation.sectionId === assessment.sectionId &&
+          confirmation.entryId === assessment.entryId &&
+          confirmation.bulletId === assessment.bulletId &&
+          confirmation.confirmedClaimContentHash === assessment.contentHash,
+      );
+    }
+
+    return (
+      assessment.status === "review" &&
+      isGeneratedResumeClaimOrigin(assessment.claimOrigin)
+    );
+  });
 }
 
 function compareResumeTextSets(
@@ -1944,7 +2187,6 @@ export function buildWorkHistoryReviewSuggestions(input: {
   draft: ResumeDraft;
   tailoredDraft: TailoredResumeDraft;
 }): WorkHistoryReviewSuggestion[] {
-  const coverageByRecordId = buildCoverageMetadataMap(input.tailoredDraft);
   const experienceSection =
     input.draft.sections.find((section) => section.kind === "experience") ??
     null;
@@ -1954,55 +2196,75 @@ export function buildWorkHistoryReviewSuggestions(input: {
       .map((entry) => [entry.profileRecordId as string, entry]),
   );
 
-  return input.tailoredDraft.coverageMetadata
-    .flatMap((metadata) => {
-      const guidance =
-        metadata.reviewGuidance[0] ?? metadata.reasons[0] ?? null;
-      const entry = entriesByRecordId.get(metadata.profileRecordId) ?? null;
+  return projectWorkHistoryReviewSuggestionIdentities(
+    input.tailoredDraft.coverageMetadata,
+  ).map((identity) => {
+    const isHiddenRecommendation = identity.action === "consider_showing";
+    const entry = entriesByRecordId.get(identity.profileRecordId) ?? null;
 
-      if (!guidance) {
-        return [];
-      }
+    return {
+      id: identity.id,
+      profileRecordId: identity.profileRecordId,
+      sectionId: experienceSection?.id ?? null,
+      entryId: isHiddenRecommendation ? null : (entry?.id ?? null),
+      kind: identity.kind,
+      action: identity.action,
+      severity: "info",
+      message: identity.message,
+      messageContentHash: identity.messageContentHash,
+    } satisfies WorkHistoryReviewSuggestion;
+  });
+}
 
-      if (metadata.classification === "detailed") {
-        return [];
-      }
+export function isWorkHistoryOmissionReviewSuggestion(
+  suggestion: Pick<WorkHistoryReviewSuggestion, "kind" | "action">,
+): boolean {
+  return (
+    (suggestion.kind === "weak_fit" || suggestion.kind === "gap_coverage") &&
+    suggestion.action === "consider_showing"
+  );
+}
 
-      const isHiddenRecommendation =
-        metadata.classification === "suggested_hidden" ||
-        metadata.classification === "omitted";
+/**
+ * Exact-match lookup of the stored acknowledgment that satisfies a projected
+ * work-history review suggestion. Every identity field must match the current
+ * projection, including the FNV-1a hash of the exact canonical message, so a
+ * stale or cross-draft acknowledgment never satisfies a review gate.
+ */
+export function matchWorkHistoryReviewAcknowledgment(input: {
+  draftId: string;
+  suggestion: Pick<
+    WorkHistoryReviewSuggestion,
+    "profileRecordId" | "kind" | "action" | "message"
+  >;
+  acknowledgments: readonly WorkHistoryReviewAcknowledgment[];
+}): WorkHistoryReviewAcknowledgment | null {
+  return (
+    input.acknowledgments.find(
+      (acknowledgment) =>
+        acknowledgment.draftId === input.draftId &&
+        acknowledgment.profileRecordId === input.suggestion.profileRecordId &&
+        acknowledgment.kind === input.suggestion.kind &&
+        acknowledgment.action === input.suggestion.action &&
+        acknowledgment.messageContentHash === fnv1a32(input.suggestion.message),
+    ) ?? null
+  );
+}
 
-      const kind = metadata.coversMeaningfulGap
-        ? "gap_coverage"
-        : metadata.classification === "compact"
-          ? "compact_recommended"
-          : "weak_fit";
-      const action = isHiddenRecommendation
-        ? "consider_showing"
-        : "keep_compact";
-
-      return [
-        {
-          id: `work_history_review_${metadata.profileRecordId}`,
-          profileRecordId: metadata.profileRecordId,
-          sectionId: experienceSection?.id ?? null,
-          entryId: isHiddenRecommendation ? null : (entry?.id ?? null),
-          kind,
-          action,
-          severity: "info",
-          message: guidance,
-        } satisfies WorkHistoryReviewSuggestion,
-      ];
-    })
-    .filter((suggestion, index, suggestions) => {
-      const existingIndex = suggestions.findIndex(
-        (entry) => entry.id === suggestion.id,
-      );
-      return (
-        existingIndex === index &&
-        coverageByRecordId.has(suggestion.profileRecordId)
-      );
-    });
+export function listUnresolvedWorkHistoryOmissionSuggestions(input: {
+  draftId: string;
+  suggestions: readonly WorkHistoryReviewSuggestion[];
+  acknowledgments: readonly WorkHistoryReviewAcknowledgment[];
+}): WorkHistoryReviewSuggestion[] {
+  return input.suggestions.filter(
+    (suggestion) =>
+      isWorkHistoryOmissionReviewSuggestion(suggestion) &&
+      !matchWorkHistoryReviewAcknowledgment({
+        draftId: input.draftId,
+        suggestion,
+        acknowledgments: input.acknowledgments,
+      }),
+  );
 }
 
 export { applyPatchToResumeDraft } from "./resume-workspace-patches";
@@ -2080,20 +2342,23 @@ export function buildTailoredAssetBridge(input: {
   const resolvedStoragePath = shouldClearStoragePath
     ? null
     : (input.storagePath ?? input.existingAsset?.storagePath ?? null);
-  const isApprovalStale =
-    input.draft.status === "stale" || !resolvedStoragePath;
-  const fallbackStatus = isApprovalStale
-    ? "failed"
-    : (input.existingAsset?.status ?? "queued");
-  const fallbackProgressPercent = isApprovalStale
-    ? 0
-    : (input.existingAsset?.progressPercent ?? 0);
+  // A cleared or missing export file is a review state, not a generation
+  // outcome: the tailored draft still exists, so the nearest recovery is a
+  // fresh review plus export, never an invented "failed" claim. Real
+  // generation failures stay owned by generateResume's failure handler, which
+  // writes status "failed" together with a sanitized failureMessage; such a
+  // durable failure row is carried forward unchanged until a successful
+  // generation or export supersedes it.
+  const preservedFailure =
+    resolvedStoragePath === null && input.existingAsset?.status === "failed"
+      ? input.existingAsset
+      : null;
 
   return TailoredAssetSchema.parse({
     id: input.existingAsset?.id ?? `resume_${input.job.id}`,
     jobId: input.job.id,
     kind: "resume",
-    status: resolvedStoragePath ? "ready" : fallbackStatus,
+    status: preservedFailure ? "failed" : "ready",
     label: input.existingAsset?.label ?? "Tailored Resume",
     version: input.existingAsset?.version ?? "v1",
     templateName: resolveResumeTemplateLabel({
@@ -2105,7 +2370,9 @@ export function buildTailoredAssetBridge(input: {
       input.compatibilityScore ??
       input.existingAsset?.compatibilityScore ??
       input.job.matchAssessment.score,
-    progressPercent: resolvedStoragePath ? 100 : fallbackProgressPercent,
+    progressPercent: preservedFailure
+      ? (input.existingAsset?.progressPercent ?? 0)
+      : 100,
     updatedAt,
     storagePath: resolvedStoragePath,
     contentText: buildTailoredResumeTextFromResumeDraft(
@@ -2123,6 +2390,10 @@ export function buildTailoredAssetBridge(input: {
         ? [`Generated PDF page count: ${input.pageCount}.`]
         : []),
     ]),
+    // A ready or review-pending asset supersedes any earlier failure detail,
+    // mirroring the authoritative clear after a successful generation.
+    failureMessage: preservedFailure?.failureMessage ?? null,
+    failedAt: preservedFailure?.failedAt ?? null,
   });
 }
 

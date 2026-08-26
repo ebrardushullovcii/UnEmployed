@@ -26,7 +26,11 @@ import { getJobFinderWorkspaceService } from "../services/job-finder";
 interface ApplicationDocumentRouteDependencies {
   library: ApplicationDocumentLibrary;
   getWorkspaceSnapshot: () => Promise<JobFinderWorkspaceSnapshot>;
-  getApplyRunDetails: (runId: string, jobId: string) => Promise<ApplyRunDetails>;
+  getApplyRunDetails: (
+    runId: string,
+    jobId: string,
+    applicationRecordId: string,
+  ) => Promise<ApplyRunDetails>;
   selectExportPath: (
     event: IpcMainInvokeEvent,
     defaultFileName: string,
@@ -64,134 +68,164 @@ export function registerApplicationDocumentRouteHandlers(
       const workspace = await getJobFinderWorkspaceService();
       return workspace.getWorkspaceSnapshot();
     },
-    getApplyRunDetails: async (runId, jobId) => {
+    getApplyRunDetails: async (runId, jobId, applicationRecordId) => {
       const workspace = await getJobFinderWorkspaceService();
-      return workspace.getApplyRunDetails(runId, jobId);
+      return workspace.getApplyRunDetails(runId, jobId, applicationRecordId);
     },
     selectExportPath,
   },
 ) {
-  ipcMain.handle("job-finder:list-application-documents", async (_event, payload) => {
-    try {
-      const input = ListApplicationDocumentsInputSchema.parse(payload);
-      return ApplicationDocumentListResultSchema.parse(
-        await dependencies.library.list(input),
-      );
-    } catch (error) {
-      return wrapStorageError(error);
-    }
-  });
-
-  ipcMain.handle("job-finder:propose-application-document", async (_event, payload) => {
-    try {
-      const input = ProposeApplicationDocumentInputSchema.parse(payload);
-      const snapshot = await dependencies.getWorkspaceSnapshot();
-      const job = snapshot.discoveryJobs.find((entry) => entry.id === input.jobId);
-      const applicationRecord = snapshot.applicationRecords.find(
-        (entry) => entry.id === input.applicationRecordId,
-      );
-      if (!job || !applicationRecord || applicationRecord.jobId !== job.id) {
-        throw new ApplicationDocumentLibraryError(
-          "The selected application no longer matches this job.",
+  ipcMain.handle(
+    "job-finder:list-application-documents",
+    async (_event, payload) => {
+      try {
+        const input = ListApplicationDocumentsInputSchema.parse(payload);
+        return ApplicationDocumentListResultSchema.parse(
+          await dependencies.library.list(input),
         );
+      } catch (error) {
+        return wrapStorageError(error);
       }
-      let question: ApplicationQuestionRecord | null = null;
-      if (input.question) {
-        const details = await dependencies.getApplyRunDetails(
-          input.question.runId,
-          job.id,
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:propose-application-document",
+    async (_event, payload) => {
+      try {
+        const input = ProposeApplicationDocumentInputSchema.parse(payload);
+        const snapshot = await dependencies.getWorkspaceSnapshot();
+        const job = snapshot.discoveryJobs.find(
+          (entry) => entry.id === input.jobId,
         );
-        question =
-          details.questionRecords.find(
-            (entry) =>
-              entry.id === input.question?.questionId &&
-              entry.runId === input.question.runId &&
-              entry.jobId === job.id,
-          ) ?? null;
-        if (!question) {
+        const applicationRecord = snapshot.applicationRecords.find(
+          (entry) => entry.id === input.applicationRecordId,
+        );
+        if (!job || !applicationRecord || applicationRecord.jobId !== job.id) {
           throw new ApplicationDocumentLibraryError(
-            "The selected attachment question is stale or belongs to another application.",
+            "The selected application no longer matches this job.",
           );
         }
+        let question: ApplicationQuestionRecord | null = null;
+        if (input.question) {
+          const details = await dependencies.getApplyRunDetails(
+            input.question.runId,
+            job.id,
+            applicationRecord.id,
+          );
+          const result = details.result;
+          const hasExactRunResultLineage =
+            details.run.id === input.question.runId &&
+            details.run.jobIds.includes(job.id) &&
+            result?.runId === input.question.runId &&
+            result.jobId === job.id &&
+            result.applicationRecordId === applicationRecord.id;
+          question = hasExactRunResultLineage
+            ? (details.questionRecords.find(
+                (entry) =>
+                  entry.id === input.question?.questionId &&
+                  entry.runId === input.question.runId &&
+                  entry.jobId === job.id &&
+                  entry.applicationRecordId === applicationRecord.id &&
+                  entry.resultId === result?.id,
+              ) ?? null)
+            : null;
+          if (!question) {
+            throw new ApplicationDocumentLibraryError(
+              "The selected attachment question is stale or belongs to another application.",
+            );
+          }
+        }
+        return ApplicationDocumentRevisionSchema.parse(
+          await dependencies.library.propose({
+            kind: input.kind,
+            ...(input.documentId ? { documentId: input.documentId } : {}),
+            ...(input.expectedRevision
+              ? { expectedRevision: input.expectedRevision }
+              : {}),
+            grounding: {
+              profile: snapshot.profile,
+              job,
+              applicationRecord,
+              question,
+            },
+          }),
+        );
+      } catch (error) {
+        return wrapStorageError(error);
       }
-      return ApplicationDocumentRevisionSchema.parse(
-        await dependencies.library.propose({
-          kind: input.kind,
-          ...(input.documentId ? { documentId: input.documentId } : {}),
-          ...(input.expectedRevision
-            ? { expectedRevision: input.expectedRevision }
-            : {}),
-          grounding: {
-            profile: snapshot.profile,
-            job,
-            applicationRecord,
-            question,
-          },
-        }),
-      );
-    } catch (error) {
-      return wrapStorageError(error);
-    }
-  });
+    },
+  );
 
-  ipcMain.handle("job-finder:approve-application-document", async (_event, payload) => {
-    try {
-      const input = ApproveApplicationDocumentInputSchema.parse(payload);
-      return ApplicationDocumentRevisionSchema.parse(
-        await dependencies.library.approve(
+  ipcMain.handle(
+    "job-finder:approve-application-document",
+    async (_event, payload) => {
+      try {
+        const input = ApproveApplicationDocumentInputSchema.parse(payload);
+        return ApplicationDocumentRevisionSchema.parse(
+          await dependencies.library.approve(
+            input.documentId,
+            input.expectedRevision,
+          ),
+        );
+      } catch (error) {
+        return wrapStorageError(error);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:edit-application-document",
+    async (_event, payload) => {
+      try {
+        const input = EditApplicationDocumentInputSchema.parse(payload);
+        return ApplicationDocumentRevisionSchema.parse(
+          await dependencies.library.edit(
+            input.documentId,
+            input.expectedRevision,
+            input.content,
+          ),
+        );
+      } catch (error) {
+        return wrapStorageError(error);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:export-application-document",
+    async (event, payload) => {
+      try {
+        const input = ExportApplicationDocumentInputSchema.parse(payload);
+        const document = await dependencies.library.getApproved(
           input.documentId,
           input.expectedRevision,
-        ),
-      );
-    } catch (error) {
-      return wrapStorageError(error);
-    }
-  });
-
-  ipcMain.handle("job-finder:edit-application-document", async (_event, payload) => {
-    try {
-      const input = EditApplicationDocumentInputSchema.parse(payload);
-      return ApplicationDocumentRevisionSchema.parse(
-        await dependencies.library.edit(
+        );
+        const filePath = await dependencies.selectExportPath(
+          event,
+          dependencies.library.buildDefaultFileName(document),
+        );
+        if (!filePath) {
+          return ApplicationDocumentExportResultSchema.parse({
+            status: "cancelled",
+          });
+        }
+        const bytes = Buffer.from(document.content, "utf8");
+        await writeFile(filePath, bytes, { flag: "w", mode: 0o600 });
+        const updated = await dependencies.library.recordExport(
           input.documentId,
           input.expectedRevision,
-          input.content,
-        ),
-      );
-    } catch (error) {
-      return wrapStorageError(error);
-    }
-  });
-
-  ipcMain.handle("job-finder:export-application-document", async (event, payload) => {
-    try {
-      const input = ExportApplicationDocumentInputSchema.parse(payload);
-      const document = await dependencies.library.getApproved(
-        input.documentId,
-        input.expectedRevision,
-      );
-      const filePath = await dependencies.selectExportPath(
-        event,
-        dependencies.library.buildDefaultFileName(document),
-      );
-      if (!filePath) {
-        return ApplicationDocumentExportResultSchema.parse({ status: "cancelled" });
+        );
+        return ApplicationDocumentExportResultSchema.parse({
+          status: "exported",
+          document: updated,
+          fileName: path.basename(filePath),
+          sha256: createHash("sha256").update(bytes).digest("hex"),
+          byteSize: bytes.byteLength,
+        });
+      } catch (error) {
+        return wrapStorageError(error);
       }
-      const bytes = Buffer.from(document.content, "utf8");
-      await writeFile(filePath, bytes, { flag: "w", mode: 0o600 });
-      const updated = await dependencies.library.recordExport(
-        input.documentId,
-        input.expectedRevision,
-      );
-      return ApplicationDocumentExportResultSchema.parse({
-        status: "exported",
-        document: updated,
-        fileName: path.basename(filePath),
-        sha256: createHash("sha256").update(bytes).digest("hex"),
-        byteSize: bytes.byteLength,
-      });
-    } catch (error) {
-      return wrapStorageError(error);
-    }
-  });
+    },
+  );
 }

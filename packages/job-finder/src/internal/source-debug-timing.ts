@@ -25,7 +25,9 @@ export function buildSourceDebugTimingSummary(
     return eventAtMs >= startedAtMs && eventAtMs <= completedAtMs;
   });
   const timelineStartedAt =
-    hasEventWithinWindow || events.length === 0 ? startedAt : events[0]!.timestamp;
+    hasEventWithinWindow || events.length === 0
+      ? startedAt
+      : events[0]!.timestamp;
   const timelineCompletedAt =
     hasEventWithinWindow || events.length === 0
       ? completedAt
@@ -56,6 +58,7 @@ export function buildSourceDebugTimingSummary(
         waitReason,
         durationMs,
       }),
+      { includeZero: true },
     ),
   });
 }
@@ -76,7 +79,10 @@ export function buildSourceDebugRunTimingSummary(input: {
 
   return SourceDebugRunTimingSummarySchema.parse({
     ...baseTiming,
-    totalDurationMs: calculateDurationMs(input.run.startedAt, input.completedAt),
+    totalDurationMs: calculateDurationMs(
+      input.run.startedAt,
+      input.completedAt,
+    ),
     browserSetupMs: input.browserSetupMs,
     finalReviewMs: input.finalReviewMs,
     finalizationMs: input.finalizationMs,

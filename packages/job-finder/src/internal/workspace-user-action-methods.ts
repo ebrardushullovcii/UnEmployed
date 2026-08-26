@@ -16,6 +16,8 @@ import {
   isApplicationAuthenticationUserActionKind,
   isApplicationPrepareOnlyUserAction,
 } from "./workspace-application-user-action";
+import type { JobFinderRepository } from "@unemployed/db";
+
 import type { WorkspaceServiceContext } from "./workspace-service-context";
 import type { JobFinderWorkspaceService } from "./workspace-service-contracts";
 import {
@@ -30,6 +32,66 @@ type WorkspaceUserActionMethods = Pick<
 > & {
   resumeVerifyingUserActions(): Promise<void>;
 };
+
+/**
+ * Fixed upper bound for concurrently running user-action resumption flights
+ * (source-access probes and prepare-only application retries). A small bound
+ * keeps snapshot-triggered fan-out deterministic and consistent with the
+ * prepare-only safety model instead of launching every resolved action at
+ * once.
+ */
+export const USER_ACTION_RESUMPTION_CONCURRENCY = 2;
+
+/**
+ * Fail-closed activity gate: while global activity is paused, or when the
+ * activity control cannot be read, no browser or application work may be
+ * launched. Callers must skip the work and leave the affected user actions in
+ * their current state so they stay resumable after activity resumes.
+ */
+export async function isWorkspaceActivityPaused(
+  repository: Pick<JobFinderRepository, "getActivityControl">,
+): Promise<boolean> {
+  try {
+    return (await repository.getActivityControl()).paused;
+  } catch {
+    // An unreadable control surface must never open the gate.
+    return true;
+  }
+}
+
+/**
+ * Deterministic bounded-concurrency runner: items are processed in list order
+ * by at most `concurrency` workers. The first task error stops scheduling new
+ * tasks; in-flight tasks drain before the error is rethrown so no rejection is
+ * dropped and unstarted items simply stay resumable.
+ */
+async function runBounded<T>(
+  items: readonly T[],
+  concurrency: number,
+  task: (item: T) => Promise<void>,
+): Promise<void> {
+  let cursor = 0;
+  let firstError: unknown = null;
+  const worker = async (): Promise<void> => {
+    while (cursor < items.length && firstError === null) {
+      const item = items[cursor];
+      cursor += 1;
+      if (item === undefined) continue;
+      try {
+        await task(item);
+      } catch (error) {
+        firstError ??= error;
+        return;
+      }
+    }
+  };
+  const workerCount = Math.min(concurrency, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  if (firstError instanceof Error) throw firstError;
+  if (firstError !== null && firstError !== undefined) {
+    throw new Error("User-action resumption failed with an unknown error.");
+  }
+}
 
 function isApplicationResumptionAction(request: UserActionRequest): boolean {
   if (request.scope.type !== "application") return false;
@@ -117,6 +179,11 @@ async function persistManualAnswer(input: {
   }
 
   const scope = input.request.scope;
+  if (!scope.applicationRecordId) {
+    throw new Error(
+      "This manual answer is missing its exact application record scope.",
+    );
+  }
   if (!scope.resultId) {
     throw new Error(
       "This manual answer is missing its exact application result scope.",
@@ -127,6 +194,7 @@ async function persistManualAnswer(input: {
       runId: scope.runId,
       jobId: scope.jobId,
       resultId: scope.resultId,
+      applicationRecordId: scope.applicationRecordId,
     })
   ).filter((question) => question.status === "detected");
   if (questions.length !== 1) {
@@ -175,7 +243,12 @@ async function persistManualAnswer(input: {
   }
 
   const recordId = `manual_answer_${input.request.id}_${input.resultingRevision}`;
-  const records = await input.ctx.repository.listApplicationAnswerRecords();
+  const records = await input.ctx.repository.listApplicationAnswerRecords({
+    runId: scope.runId,
+    jobId: scope.jobId,
+    resultId: scope.resultId,
+    applicationRecordId: scope.applicationRecordId,
+  });
   const existingById = records.find((record) => record.id === recordId) ?? null;
   // The exact retry reuses the already-persisted record as the basis of the
   // revision chain, so the deterministic id stays idempotent: the retry never
@@ -189,6 +262,7 @@ async function persistManualAnswer(input: {
     id: recordId,
     runId: scope.runId,
     jobId: scope.jobId,
+    applicationRecordId: scope.applicationRecordId,
     resultId: scope.resultId,
     questionId: question.id,
     status: "suggested",
@@ -249,7 +323,13 @@ export function createWorkspaceUserActionMethods(
     const existing = applicationResumptionFlights.get(key);
     if (existing) return existing;
 
-    const flight = ctx.resumeApplicationUserAction(request).finally(() => {
+    const flight = (async () => {
+      // Fail-closed activity gate immediately before any application flow
+      // work: a paused or unreadable workspace must not launch flows. The
+      // skipped action keeps its persisted state and stays resumable.
+      if (await isWorkspaceActivityPaused(ctx.repository)) return;
+      await ctx.resumeApplicationUserAction(request);
+    })().finally(() => {
       if (applicationResumptionFlights.get(key) === flight) {
         applicationResumptionFlights.delete(key);
       }
@@ -264,6 +344,10 @@ export function createWorkspaceUserActionMethods(
     if (existing) return existing;
 
     const flight = (async () => {
+      // Same fail-closed gate as application resumption: source-access
+      // verification drives the browser, so it must not start while global
+      // activity is paused or unreadable.
+      if (await isWorkspaceActivityPaused(ctx.repository)) return;
       const resolvedRequest = await verifySourceAccessUserAction({
         browserRuntime: ctx.browserRuntime,
         repository: ctx.repository,
@@ -282,29 +366,43 @@ export function createWorkspaceUserActionMethods(
   }
 
   async function resumeVerifyingUserActions(): Promise<void> {
+    // Fail closed before listing or launching anything: while global activity
+    // is paused (or unreadable) no verification probe or application flow may
+    // start, and every action below simply stays resumable.
+    if (await isWorkspaceActivityPaused(ctx.repository)) return;
+
     const verifyingRequests = await ctx.repository.listUserActionRequests({
       states: ["verifying"],
     });
-    await Promise.all(
-      verifyingRequests.map((request) => {
+    await runBounded(
+      verifyingRequests,
+      USER_ACTION_RESUMPTION_CONCURRENCY,
+      (request) => {
         if (isSourceAccessUserAction(request)) {
           return verifySingleFlight(request);
         }
         return isApplicationResumptionAction(request)
           ? resumeApplicationSingleFlight(request)
           : Promise.resolve();
-      }),
+      },
     );
+
+    // Recheck between phases so a pause that lands mid-run cannot start the
+    // next phase's application flows.
+    if (await isWorkspaceActivityPaused(ctx.repository)) return;
 
     const resolvedApplicationRequests =
       await ctx.repository.listUserActionRequests({
         states: ["resolved"],
         scopeType: "application",
       });
-    await Promise.all(
-      resolvedApplicationRequests
-        .filter(isApplicationResumptionAction)
-        .map((request) => resumeApplicationSingleFlight(request)),
+    const resumableResolvedRequests = resolvedApplicationRequests.filter(
+      isApplicationResumptionAction,
+    );
+    await runBounded(
+      resumableResolvedRequests,
+      USER_ACTION_RESUMPTION_CONCURRENCY,
+      (request) => resumeApplicationSingleFlight(request),
     );
   }
 

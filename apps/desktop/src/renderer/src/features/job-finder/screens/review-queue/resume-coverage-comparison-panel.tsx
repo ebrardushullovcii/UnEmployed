@@ -44,7 +44,7 @@ export function ResumeCoverageComparisonPanel(props: {
       className="rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-fill-soft)"
       open={hasReviewItems}
     >
-      <summary className="cursor-pointer list-none px-3 py-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50">
+      <summary className="cursor-pointer list-none px-3 py-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="grid gap-0.5">
             <strong className="text-sm text-(--text-headline)">

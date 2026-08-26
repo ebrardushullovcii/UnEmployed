@@ -7,6 +7,8 @@ import {
   JobFinderApplyRunActionInputSchema,
   JobFinderApplyRunDetailsQuerySchema,
   JobFinderAgentDiscoveryActionInputSchema,
+  JobFinderAgentDiscoveryOutcomeSchema,
+  JobFinderAgentDiscoveryResultSchema,
   JobFinderOpenBrowserSessionInputSchema,
   JobFinderJobResumeApplicationModeInputSchema,
   JobFinderResumeWorkspaceStrategyContextSchema,
@@ -15,10 +17,65 @@ import {
   JobFinderWorkspaceSnapshotSchema,
   JobSearchCampaignSchema,
   getDefaultCampaignConfiguration,
+  JobFinderDashboardSummarySchema,
 } from "./index";
 import { createApplyRunFixture, createSubmittedAttempt } from "./test-fixtures";
 
 describe("contracts workspace snapshot schema", () => {
+  test("defaults daily preparation capacity to unknown and enforces remaining", () => {
+    const base = {
+      generatedAt: "2026-03-20T10:05:00.000Z",
+      activeCampaignId: "campaign-test",
+      activeCampaignCount: 1,
+      jobsFoundToday: 0,
+      jobsAwaitingReview: 0,
+      applicationsReadyForApproval: 0,
+      applicationsAppliedToday: 0,
+      applicationsAppliedThisWeek: 0,
+      needsYouCount: 0,
+      upcomingInterviews: 0,
+      upcomingFollowUps: 0,
+      responseRate: null,
+      interviewRate: null,
+      sourceHealth: { healthy: 0, needsAttention: 0, running: 0, total: 0 },
+      backgroundOperationCount: 0,
+      recommendedNextAction: {
+        label: "Find jobs",
+        detail: "Start the active campaign.",
+        route: "/job-finder/discovery",
+      },
+    };
+
+    expect(
+      JobFinderDashboardSummarySchema.parse(base)
+        .globalDailyApplicationPreparationCapacity,
+    ).toBeNull();
+    expect(
+      JobFinderDashboardSummarySchema.parse({
+        ...base,
+        globalDailyApplicationPreparationCapacity: {
+          limit: 20,
+          used: 7,
+          remaining: 13,
+          localDate: "2026-03-20",
+          resetsAt: "2026-03-21T00:00:00.000Z",
+        },
+      }).globalDailyApplicationPreparationCapacity?.legacyUncertain,
+    ).toBe(0);
+    expect(
+      JobFinderDashboardSummarySchema.safeParse({
+        ...base,
+        globalDailyApplicationPreparationCapacity: {
+          limit: 20,
+          used: 7,
+          legacyUncertain: 0,
+          remaining: 12,
+          localDate: "2026-03-20",
+          resetsAt: "2026-03-21T00:00:00.000Z",
+        },
+      }).success,
+    ).toBe(false);
+  });
   test("strategy context is advisory and cannot carry approval or readiness", () => {
     expect(
       JobFinderResumeWorkspaceStrategyContextSchema.parse({
@@ -586,6 +643,7 @@ describe("contracts workspace snapshot schema", () => {
     });
 
     expect(workspace.discoveryJobs).toHaveLength(1);
+    expect(workspace.companyJobs).toEqual([]);
     expect(workspace.profile.experiences[0]?.workMode).toEqual(["hybrid"]);
     expect(workspace.discoveryJobs[0]?.workMode).toEqual(["remote"]);
     expect(workspace.reviewQueue[0]?.assetStatus).toBe("ready");
@@ -633,25 +691,65 @@ describe("contracts workspace snapshot schema", () => {
     });
   });
 
+  test("keeps the agent discovery outcome closed to completed or cancelled", () => {
+    expect(JobFinderAgentDiscoveryOutcomeSchema.options).toEqual([
+      "completed",
+      "cancelled",
+    ]);
+    expect(
+      JobFinderAgentDiscoveryOutcomeSchema.safeParse("failed").success,
+    ).toBe(false);
+    expect(
+      JobFinderAgentDiscoveryOutcomeSchema.safeParse("running").success,
+    ).toBe(false);
+  });
+
+  test("requires both outcome and snapshot on agent discovery results", () => {
+    expect(
+      JobFinderAgentDiscoveryResultSchema.safeParse({
+        outcome: "completed",
+      }).success,
+    ).toBe(false);
+    expect(
+      JobFinderAgentDiscoveryResultSchema.safeParse({
+        outcome: "failed",
+        snapshot: {},
+      }).success,
+    ).toBe(false);
+  });
+
   test("parses apply run details query payloads", () => {
     expect(
       JobFinderApplyRunDetailsQuerySchema.parse({
         runId: "apply_run_1",
         jobId: "job_1",
+        applicationRecordId: "application_1",
       }),
     ).toEqual({
       runId: "apply_run_1",
       jobId: "job_1",
+      applicationRecordId: "application_1",
     });
+
+    expect(() =>
+      JobFinderApplyRunDetailsQuerySchema.parse({
+        runId: "apply_run_1",
+        jobId: "job_1",
+      }),
+    ).toThrow();
   });
 
   test("parses apply run action payloads", () => {
     expect(
       JobFinderApplyRunActionInputSchema.parse({
         runId: "apply_run_1",
+        jobId: "job_1",
+        applicationRecordId: "application_1",
       }),
     ).toEqual({
       runId: "apply_run_1",
+      jobId: "job_1",
+      applicationRecordId: "application_1",
     });
   });
 
@@ -674,6 +772,24 @@ describe("contracts workspace snapshot schema", () => {
       jobId: "job_1",
       visualCheckpointsEnabled: true,
     });
+
+    expect(
+      JobFinderApplyCopilotActionInputSchema.parse({
+        jobId: "job_1",
+        startNewApplication: true,
+      }),
+    ).toMatchObject({
+      jobId: "job_1",
+      startNewApplication: true,
+    });
+
+    expect(() =>
+      JobFinderApplyCopilotActionInputSchema.parse({
+        jobId: "job_1",
+        applicationRecordId: "application_1",
+        startNewApplication: true,
+      }),
+    ).toThrow();
   });
 
   test("parses apply queue action payloads", () => {
@@ -690,20 +806,32 @@ describe("contracts workspace snapshot schema", () => {
     expect(
       JobFinderApplyConsentActionInputSchema.parse({
         requestId: "consent_1",
+        runId: "apply_run_1",
+        jobId: "job_1",
+        applicationRecordId: "application_1",
         action: "approve",
       }),
     ).toEqual({
       requestId: "consent_1",
+      runId: "apply_run_1",
+      jobId: "job_1",
+      applicationRecordId: "application_1",
       action: "approve",
     });
 
     expect(
       JobFinderApplyConsentActionInputSchema.parse({
         requestId: "consent_1",
+        runId: "apply_run_1",
+        jobId: "job_1",
+        applicationRecordId: "application_1",
         action: "decline",
       }),
     ).toEqual({
       requestId: "consent_1",
+      runId: "apply_run_1",
+      jobId: "job_1",
+      applicationRecordId: "application_1",
       action: "decline",
     });
   });

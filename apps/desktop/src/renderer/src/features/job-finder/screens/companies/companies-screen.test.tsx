@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import type { CompanyEntity } from "@unemployed/contracts";
+import {
+  SavedJobSchema,
+  type CompanyEntity,
+  type DiscoveryJobView,
+} from "@unemployed/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CompaniesScreen } from "./companies-screen";
 
@@ -33,31 +37,40 @@ function makeCompany(overrides: Partial<CompanyEntity> = {}): CompanyEntity {
 function renderScreen(
   overrides: {
     companies?: readonly CompanyEntity[];
+    discoveryJobs?: readonly DiscoveryJobView[];
+    onRefresh?: ReturnType<typeof vi.fn>;
     onReviewCompanyMerge?: ReturnType<typeof vi.fn>;
     onSetCompanyPreference?: ReturnType<typeof vi.fn>;
     onNavigate?: ReturnType<typeof vi.fn>;
   } = {},
 ) {
+  const onRefresh = overrides.onRefresh ?? vi.fn();
   const onReviewCompanyMerge = overrides.onReviewCompanyMerge ?? vi.fn();
   const onSetCompanyPreference = overrides.onSetCompanyPreference ?? vi.fn();
   const onNavigate = overrides.onNavigate ?? vi.fn();
-  render(
+  const view = render(
     <CompaniesScreen
       actionMessage={null}
       companies={overrides.companies ?? [makeCompany()]}
-      discoveryJobs={[]}
+      discoveryJobs={overrides.discoveryJobs ?? []}
       isMergePending={() => false}
       isMutationPending={() => false}
       isPreferencePending={() => false}
       isRefreshPending={false}
       onMutateCompanyIntelligence={vi.fn()}
       onNavigate={onNavigate}
-      onRefresh={vi.fn()}
+      onRefresh={onRefresh}
       onReviewCompanyMerge={onReviewCompanyMerge}
       onSetCompanyPreference={onSetCompanyPreference}
     />,
   );
-  return { onNavigate, onReviewCompanyMerge, onSetCompanyPreference };
+  return {
+    container: view.container,
+    onNavigate,
+    onRefresh,
+    onReviewCompanyMerge,
+    onSetCompanyPreference,
+  };
 }
 
 describe("CompaniesScreen", () => {
@@ -65,6 +78,36 @@ describe("CompaniesScreen", () => {
     renderScreen({ companies: [] });
 
     expect(screen.getByText("No companies yet")).toBeTruthy();
+  });
+
+  it("makes refresh the primary inline action while no companies are reconciled", async () => {
+    const { onRefresh } = renderScreen({
+      companies: [],
+      onRefresh: vi.fn(async () => {}),
+    });
+
+    const refreshButtons = screen.getAllByRole("button", {
+      name: "Refresh from jobs and applications",
+    });
+    expect(refreshButtons).toHaveLength(1);
+
+    fireEvent.click(refreshButtons[0]!);
+    await vi.waitFor(() => {
+      expect(onRefresh).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("keeps the persistent header refresh action once companies exist", () => {
+    const { onRefresh } = renderScreen({
+      onRefresh: vi.fn(async () => {}),
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Refresh from jobs and applications",
+      }),
+    );
+    expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 
   it("searches companies by name, alias, and domain and keeps the count visible", () => {
@@ -78,6 +121,7 @@ describe("CompaniesScreen", () => {
               alias: "Acme Corporation",
               normalized: "acme corporation",
               confidence: 1,
+              identityAuthority: "unknown",
             },
           ],
           domains: [{ domain: "acme.com", primary: true, verifiedAt: null }],
@@ -195,19 +239,119 @@ describe("CompaniesScreen", () => {
     });
   });
 
-  it("records an explicit user preference for a company", () => {
+  it("labels company preferences as local tracking without changing persistence", () => {
     const onSetCompanyPreference = vi.fn();
     renderScreen({
+      companies: [
+        makeCompany({
+          id: "c1",
+          canonicalName: "Acme Inc",
+          preference: "exclude",
+        }),
+      ],
+      onSetCompanyPreference,
+    });
+
+    expect(
+      screen.getAllByText("Company tracking: exclude").length,
+    ).toBeGreaterThanOrEqual(1);
+    expect(
+      screen.getByText(
+        "Local company tracking only. This does not change job search or matching.",
+      ),
+    ).toBeTruthy();
+
+    fireEvent.change(
+      screen.getByLabelText("Company tracking preference for Acme Inc"),
+      {
+        target: { value: "prefer" },
+      },
+    );
+    expect(onSetCompanyPreference).toHaveBeenCalledWith({
+      companyId: "c1",
+      preference: "prefer",
+    });
+  });
+
+  it("summarizes listing activity separately from workflow status", () => {
+    const baseJob = SavedJobSchema.parse({
+      id: "job_1",
+      source: "target_site",
+      sourceJobId: "source-job-1",
+      canonicalUrl: "https://jobs.example.test/1",
+      title: "Engineer",
+      company: "Acme Inc",
+      location: "Remote",
+      workMode: ["remote"],
+      applyPath: "external_redirect",
+      easyApplyEligible: false,
+      discoveredAt: now,
+      salaryText: null,
+      description: "A role.",
+      status: "rejected",
+      matchAssessment: { score: 80, reasons: [], gaps: [] },
+      provenance: [],
+    });
+    renderScreen({
+      companies: [makeCompany({ jobIds: ["job_1"] })],
+      discoveryJobs: [
+        {
+          ...baseJob,
+          listingActivity: {
+            status: "active",
+            observedAt: now,
+            evidence: "last_seen_at",
+          },
+        },
+      ],
+    });
+
+    expect(screen.getByText("Last seen available")).toBeTruthy();
+    expect(screen.getByText("Needs verification")).toBeTruthy();
+    expect(screen.getByText("Reported closed")).toBeTruthy();
+    expect(screen.getAllByText("1").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("styles company tracking selects with canonical tokens, focus hierarchy, and preserved geometry", () => {
+    const onSetCompanyPreference = vi.fn();
+    const { container } = renderScreen({
       companies: [makeCompany({ id: "c1", canonicalName: "Acme Inc" })],
       onSetCompanyPreference,
     });
 
-    fireEvent.change(screen.getByLabelText("Preference for Acme Inc"), {
-      target: { value: "exclude" },
-    });
+    const selects = Array.from(container.querySelectorAll("select"));
+    expect(selects.length).toBeGreaterThanOrEqual(1);
+
+    for (const select of selects) {
+      for (const className of [
+        "border-(--field-border)",
+        "bg-(--field)",
+        "outline-none",
+        "focus-visible:border-(--field-focus-border)",
+        "focus-visible:bg-(--field-strong)",
+        "focus-visible:shadow-[var(--field-focus-shadow)]",
+      ]) {
+        expect(select.className).toContain(className);
+      }
+      expect(select.className).not.toContain("border-input");
+      expect(select.className).not.toContain("--surface-panel-raised");
+      expect(select.className).not.toContain("focus-visible:ring");
+      // Compact card geometry is preserved.
+      expect(select.className).toContain("h-9");
+      expect(select.className).toContain("px-2");
+      expect(select.className).toContain("text-sm");
+      expect(select.className).toContain("rounded-(--radius-field)");
+    }
+    expect(container.innerHTML).not.toContain("border-input");
+
+    // Native select behavior is unchanged.
+    fireEvent.change(
+      screen.getByLabelText("Company tracking preference for Acme Inc"),
+      { target: { value: "prefer" } },
+    );
     expect(onSetCompanyPreference).toHaveBeenCalledWith({
       companyId: "c1",
-      preference: "exclude",
+      preference: "prefer",
     });
   });
 });

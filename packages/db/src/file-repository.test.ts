@@ -123,6 +123,9 @@ describe("createFileJobFinderRepository", () => {
           },
         }),
       );
+      const committed = current.map((record, index) =>
+        ApplicationRecordSchema.parse({ ...record, crm: next[index]?.crm }),
+      );
 
       await expect(
         repository.commitApplicationRecordBatch({
@@ -148,9 +151,9 @@ describe("createFileJobFinderRepository", () => {
           ],
           records: next,
         }),
-      ).resolves.toMatchObject({
+      ).resolves.toEqual({
         status: "applied",
-        committedRecordIds: ["application_1", "application_2"],
+        committedRecords: committed,
       });
 
       await repository.close();
@@ -167,6 +170,100 @@ describe("createFileJobFinderRepository", () => {
     } finally {
       await repository?.close();
       await reopened?.close();
+      await temp.cleanup();
+    }
+  });
+
+  test("merges CRM onto current records and validates unchanged selected rows in file storage", async () => {
+    const temp = await createTempRepository("unemployed-db-crm-merge-");
+    const seed = createSeed();
+    const first = ApplicationRecordSchema.parse({
+      id: "application_1",
+      jobId: "job_1",
+      title: "Frontend Engineer",
+      company: "Acme",
+      status: "submitted",
+      lastActionLabel: "Applied",
+      nextActionLabel: null,
+      lastUpdatedAt: "2026-08-15T10:00:00.000Z",
+      crm: {
+        revision: 2,
+        stage: "applied",
+        stageChangedAt: "2026-08-15T10:00:00.000Z",
+      },
+    });
+    const second = ApplicationRecordSchema.parse({
+      ...first,
+      id: "application_2",
+      jobId: "job_2",
+      title: "Backend Engineer",
+      company: "Beta",
+      crm: { ...first.crm, revision: 1 },
+    });
+    seed.applicationRecords = [first, second];
+    let repository: FileRepository | null = null;
+    try {
+      repository = await createFileJobFinderRepository({
+        filePath: temp.filePath,
+        seed,
+      });
+      const proposedFirst = ApplicationRecordSchema.parse({
+        ...first,
+        crm: {
+          ...first.crm,
+          revision: 3,
+          stage: "reviewing",
+          stageChangedAt: "2026-08-15T10:05:00.000Z",
+        },
+      });
+      const concurrentFirst = ApplicationRecordSchema.parse({
+        ...first,
+        lastActionLabel: "Application flow resumed",
+        nextActionLabel: "Answer employer question",
+        lastUpdatedAt: "2026-08-15T10:04:00.000Z",
+      });
+      await repository.upsertApplicationRecord(concurrentFirst);
+
+      const applied = await repository.commitApplicationRecordBatch({
+        expectedRevisions: [
+          { applicationRecordId: first.id, expectedRevision: 2 },
+          { applicationRecordId: second.id, expectedRevision: 1 },
+        ],
+        records: [proposedFirst],
+      });
+      const committedFirst = ApplicationRecordSchema.parse({
+        ...concurrentFirst,
+        crm: proposedFirst.crm,
+      });
+      expect(applied).toEqual({
+        status: "applied",
+        committedRecords: [committedFirst],
+      });
+
+      const nextFirst = ApplicationRecordSchema.parse({
+        ...committedFirst,
+        crm: { ...committedFirst.crm, revision: 4, stage: "interview" },
+      });
+      await repository.upsertApplicationRecord(
+        ApplicationRecordSchema.parse({
+          ...second,
+          crm: { ...second.crm, revision: 2, stage: "recruiter_contact" },
+        }),
+      );
+      await expect(
+        repository.commitApplicationRecordBatch({
+          expectedRevisions: [
+            { applicationRecordId: first.id, expectedRevision: 3 },
+            { applicationRecordId: second.id, expectedRevision: 1 },
+          ],
+          records: [nextFirst],
+        }),
+      ).resolves.toEqual({ status: "stale", recordIds: [second.id] });
+      expect((await repository.listApplicationRecords())[0]).toEqual(
+        committedFirst,
+      );
+    } finally {
+      await repository?.close();
       await temp.cleanup();
     }
   });
@@ -708,6 +805,170 @@ describe("createFileJobFinderRepository", () => {
     }
   });
 
+  test("atomically marks application preparation once and retains it after restart", async () => {
+    const temp = await createTempRepository("unemployed-db-preparation-start-");
+    let firstRepository: FileRepository | null = null;
+    let secondRepository: FileRepository | null = null;
+
+    try {
+      firstRepository = await temp.createRepository();
+      secondRepository = await temp.createRepository();
+      const baseline = ApplyJobResultSchema.parse({
+        id: "result_preparation",
+        runId: "run_preparation",
+        jobId: "job_1",
+        state: "planned",
+        summary: "Application planned.",
+        detail: "Waiting to prepare.",
+        startedAt: "2026-08-23T09:00:00.000Z",
+        updatedAt: "2026-08-23T09:00:00.000Z",
+        applicationPreparationStartedAt: null,
+        applicationPreparationStartedLocalDate: null,
+      });
+      await firstRepository.upsertApplyJobResult(baseline);
+
+      expect(() =>
+        firstRepository!.markApplicationPreparationStarted({
+          resultId: "missing_result",
+          runId: baseline.runId,
+          jobId: baseline.jobId,
+          startedAt: "2026-08-23T10:00:00.000Z",
+          startedLocalDate: "2026-08-23",
+        }),
+      ).toThrow("does not exist");
+
+      const outcomes = await Promise.all([
+        firstRepository.markApplicationPreparationStarted({
+          resultId: baseline.id,
+          runId: baseline.runId,
+          jobId: baseline.jobId,
+          startedAt: "2026-08-23T10:00:00.000Z",
+          startedLocalDate: "2026-08-23",
+        }),
+        secondRepository.markApplicationPreparationStarted({
+          resultId: baseline.id,
+          runId: baseline.runId,
+          jobId: baseline.jobId,
+          startedAt: "2026-08-24T10:00:00.000Z",
+          startedLocalDate: "2026-08-24",
+        }),
+      ]);
+      expect(outcomes.filter((outcome) => outcome.didStart)).toHaveLength(1);
+      expect(outcomes[0]?.result).toEqual(outcomes[1]?.result);
+
+      expect(() =>
+        firstRepository!.markApplicationPreparationStarted({
+          resultId: baseline.id,
+          runId: "wrong_run",
+          jobId: baseline.jobId,
+          startedAt: "2026-08-25T10:00:00.000Z",
+          startedLocalDate: "2026-08-25",
+        }),
+      ).toThrow("lineage");
+      expect(() =>
+        firstRepository!.upsertApplyJobResult({
+          ...outcomes[0].result,
+          applicationPreparationStartedAt: null,
+          applicationPreparationStartedLocalDate: null,
+        }),
+      ).toThrow("immutable");
+      expect(() =>
+        firstRepository!.compareAndSwapApplyJobResult({
+          expected: outcomes[0].result,
+          result: {
+            ...outcomes[0].result,
+            applicationPreparationStartedAt: "2026-08-25T10:00:00.000Z",
+            applicationPreparationStartedLocalDate: "2026-08-25",
+          },
+        }),
+      ).toThrow("immutable");
+      await expect(
+        firstRepository.compareAndSwapApplyJobResult({
+          expected: baseline,
+          result: {
+            ...baseline,
+            state: "failed",
+            completedAt: "2026-08-23T10:04:00.000Z",
+            updatedAt: "2026-08-23T10:04:00.000Z",
+          },
+        }),
+      ).resolves.toBe(false);
+      await expect(
+        firstRepository.compareAndSwapApplyJobResult({
+          expected: outcomes[0].result,
+          result: {
+            ...outcomes[0].result,
+            state: "failed",
+            completedAt: "2026-08-23T10:05:00.000Z",
+            updatedAt: "2026-08-23T10:05:00.000Z",
+          },
+        }),
+      ).resolves.toBe(true);
+
+      await secondRepository.close();
+      secondRepository = null;
+      await firstRepository.close();
+      firstRepository = null;
+      firstRepository = await temp.createRepository();
+      const persisted = (await firstRepository.listApplyJobResults())[0]!;
+      expect(persisted.applicationPreparationStartedAt).toBe(
+        outcomes[0]?.result.applicationPreparationStartedAt,
+      );
+      expect(persisted.state).toBe("failed");
+    } finally {
+      if (secondRepository) await secondRepository.close();
+      if (firstRepository) await firstRepository.close();
+      await temp.cleanup();
+    }
+  });
+
+  test("filters persisted results by exact application record lineage", async () => {
+    const temp = await createTempRepository("unemployed-db-lineage-filter-");
+    let repository: FileRepository | null = null;
+    try {
+      repository = await temp.createRepository();
+      const base = {
+        jobId: "job_shared",
+        queuePosition: 0,
+        state: "planned" as const,
+        summary: "Application planned.",
+        detail: "Waiting to prepare.",
+        startedAt: "2026-08-23T10:00:00.000Z",
+        updatedAt: "2026-08-23T10:00:00.000Z",
+      };
+      await repository.upsertApplyJobResult({
+        ...base,
+        id: "result_a",
+        runId: "run_a",
+        applicationRecordId: "application_a",
+      });
+      await repository.upsertApplyJobResult({
+        ...base,
+        id: "result_b",
+        runId: "run_b",
+        applicationRecordId: "application_b",
+      });
+
+      await expect(
+        repository.listApplyJobResults({
+          applicationRecordId: "application_b",
+        }),
+      ).resolves.toEqual([expect.objectContaining({ id: "result_b" })]);
+      const raw = new DatabaseSync(temp.filePath);
+      expect(
+        raw
+          .prepare(
+            "SELECT application_record_id FROM apply_job_results WHERE id = ?",
+          )
+          .get("result_b"),
+      ).toEqual({ application_record_id: "application_b" });
+      raw.close();
+    } finally {
+      if (repository) await repository.close();
+      await temp.cleanup();
+    }
+  });
+
   test("persists profile setup state across sqlite reloads", async () => {
     const temp = await createTempRepository("unemployed-db-setup-");
     let firstRepository: FileRepository | null = null;
@@ -1116,6 +1377,8 @@ describe("createFileJobFinderRepository", () => {
         approvedAt: "2026-03-20T10:07:00.000Z",
         approvedExportId: "resume_export_old",
         staleReason: null,
+        workHistoryReviewAcknowledgments: [],
+        claimConfirmations: [],
         createdAt: "2026-03-20T10:00:00.000Z",
         updatedAt: "2026-03-20T10:07:00.000Z",
       });
@@ -1153,6 +1416,8 @@ describe("createFileJobFinderRepository", () => {
           approvedExportId: null,
           staleReason:
             "Saved job details changed after approval and the resume needs a fresh review.",
+          workHistoryReviewAcknowledgments: [],
+          claimConfirmations: [],
           createdAt: "2026-03-20T10:00:00.000Z",
           updatedAt: "2026-03-20T10:08:00.000Z",
         },
@@ -1174,6 +1439,8 @@ describe("createFileJobFinderRepository", () => {
           previewSections: [],
           generationMethod: "deterministic",
           notes: [],
+          failureMessage: null,
+          failedAt: null,
         },
       });
 
@@ -2018,6 +2285,121 @@ describe("createFileJobFinderRepository", () => {
       ).toEqual([revision]);
     } finally {
       await repository?.close();
+      await cleanupTempDirectoryWithRetry(temp.tempDirectory);
+    }
+  });
+});
+
+describe("persisted row corruption handling", () => {
+  function captureReadFailure(read: () => unknown): Promise<unknown> {
+    return Promise.resolve()
+      .then(read)
+      .then(
+        () => {
+          throw new Error("Expected the persisted read to fail loudly.");
+        },
+        (error: unknown) => error,
+      );
+  }
+
+  test("fails loudly instead of silently dropping a corrupted saved job row", async () => {
+    const sensitiveMarker = "CONFIDENTIAL-salary-band-9f31";
+    const temp = await createTempRepository("unemployed-db-corrupt-job-row-");
+    let repository: FileRepository | null = null;
+    try {
+      repository = await temp.createRepository();
+      await repository.replaceSavedJobs([
+        createSavedJob({ id: "job_secret", title: sensitiveMarker }),
+      ]);
+      await repository.close();
+      repository = null;
+
+      const corruptedDatabase = new DatabaseSync(temp.filePath);
+      try {
+        corruptedDatabase
+          .prepare("UPDATE saved_jobs SET value = ? WHERE id = ?")
+          .run('{"id":"job_secret","title":"CONFIDENTIAL-salary', "job_secret");
+      } finally {
+        corruptedDatabase.close();
+      }
+
+      let reopened: FileRepository | null = null;
+      try {
+        reopened = await temp.createRepository();
+        const failure = await captureReadFailure(() =>
+          reopened!.listSavedJobs(),
+        );
+
+        expect(failure).toBeInstanceOf(Error);
+        const failureMessage = failure instanceof Error ? failure.message : "";
+        expect(failureMessage).toContain('table "saved_jobs"');
+        expect(failureMessage).toContain('row "job_secret"');
+        expect(failureMessage).toContain("not valid JSON");
+        expect(failureMessage).not.toContain(sensitiveMarker);
+
+        const verificationDatabase = new DatabaseSync(temp.filePath);
+        try {
+          const survivingRow = verificationDatabase
+            .prepare("SELECT COUNT(*) AS count FROM saved_jobs WHERE id = ?")
+            .get("job_secret") as { count: number };
+          expect(Number(survivingRow.count)).toBe(1);
+        } finally {
+          verificationDatabase.close();
+        }
+      } finally {
+        await reopened?.close().catch(() => undefined);
+      }
+    } finally {
+      await repository?.close().catch(() => undefined);
+      await cleanupTempDirectoryWithRetry(temp.tempDirectory);
+    }
+  });
+
+  test("fails loudly instead of falling back to the seed when a settings singleton is corrupted", async () => {
+    const sensitiveMarker = "SECRET-TOKEN-4c2e";
+    const temp = await createTempRepository("unemployed-db-corrupt-settings-");
+    let repository: FileRepository | null = null;
+    try {
+      repository = await temp.createRepository();
+      await repository.close();
+      repository = null;
+
+      const corruptedDatabase = new DatabaseSync(temp.filePath);
+      try {
+        corruptedDatabase
+          .prepare("UPDATE singleton_state SET value = ? WHERE key = ?")
+          .run(`{"resumeFormat":"pdf","note":"${sensitiveMarker}`, "settings");
+      } finally {
+        corruptedDatabase.close();
+      }
+
+      let reopened: FileRepository | null = null;
+      try {
+        reopened = await temp.createRepository();
+        const failure = await captureReadFailure(() => reopened!.getSettings());
+
+        expect(failure).toBeInstanceOf(Error);
+        const failureMessage = failure instanceof Error ? failure.message : "";
+        expect(failureMessage).toContain('table "singleton_state"');
+        expect(failureMessage).toContain('row "settings"');
+        expect(failureMessage).not.toContain(sensitiveMarker);
+
+        const verificationDatabase = new DatabaseSync(temp.filePath);
+        try {
+          const survivingRow = verificationDatabase
+            .prepare(
+              "SELECT COUNT(*) AS count FROM singleton_state WHERE key = ?",
+            )
+            .get("settings") as { count: number };
+          expect(Number(survivingRow.count)).toBe(1);
+        } finally {
+          verificationDatabase.close();
+        }
+      } finally {
+        await reopened?.close().catch(() => undefined);
+      }
+    } finally {
+      await repository?.close().catch(() => undefined);
       await cleanupTempDirectoryWithRetry(temp.tempDirectory);
     }
   });

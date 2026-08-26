@@ -87,7 +87,8 @@ const runtimeDefinitions = [
   createDefinition(
     {
       name: "list_needs_you",
-      description: "List unresolved user-action requests without resolving them.",
+      description:
+        "List unresolved user-action requests without resolving them.",
       inputJsonSchema: emptyJsonSchema,
       confirmationPolicy: {
         mode: "not_required",
@@ -116,7 +117,8 @@ const runtimeDefinitions = [
   createDefinition(
     {
       name: "propose_profile_change",
-      description: "Create reviewable Profile Copilot patch groups from a normal-language request without applying them.",
+      description:
+        "Create reviewable Profile Copilot patch groups from a normal-language request without applying them.",
       inputJsonSchema: {
         type: "object",
         additionalProperties: false,
@@ -159,7 +161,8 @@ const runtimeDefinitions = [
       },
       confirmationPolicy: {
         mode: "not_required",
-        reason: "This only creates a proposal; every patch remains awaiting review.",
+        reason:
+          "This only creates a proposal; every patch remains awaiting review.",
       },
     },
     ProposeProfileChangeToolInputSchema,
@@ -201,7 +204,8 @@ const runtimeDefinitions = [
       },
       confirmationPolicy: {
         mode: "required",
-        reason: "This hides a job and records a local preference, but it can be restored.",
+        reason:
+          "This hides a job and records a local preference, but it can be restored.",
       },
     },
     DismissJobToolInputSchema,
@@ -218,7 +222,8 @@ const runtimeDefinitions = [
       },
       confirmationPolicy: {
         mode: "not_required",
-        reason: "This reverses a prior local dismissal and does not apply externally.",
+        reason:
+          "This reverses a prior local dismissal and does not apply externally.",
       },
     },
     JobIdProductActionToolInputSchema,
@@ -226,7 +231,8 @@ const runtimeDefinitions = [
   createDefinition(
     {
       name: "open_user_action",
-      description: "Open the existing safe browser page for one unresolved Needs you request.",
+      description:
+        "Open the existing safe browser page for one unresolved Needs you request.",
       inputJsonSchema: {
         type: "object",
         additionalProperties: false,
@@ -235,7 +241,8 @@ const runtimeDefinitions = [
       },
       confirmationPolicy: {
         mode: "required",
-        reason: "This opens an external page but grants no credentials, account creation, or submit authority.",
+        reason:
+          "This opens an external page but grants no credentials, account creation, or submit authority.",
       },
     },
     OpenUserActionToolInputSchema,
@@ -269,7 +276,13 @@ function buildReceipt(input: {
 
 function failure(
   tool: JobFinderProductActionToolName | null,
-  code: "unknown_tool" | "invalid_input" | "confirmation_required" | "not_found" | "conflict" | "execution_failed",
+  code:
+    | "unknown_tool"
+    | "invalid_input"
+    | "confirmation_required"
+    | "not_found"
+    | "conflict"
+    | "execution_failed",
   message: string,
   retryable = false,
 ): ProductActionExecutionResult {
@@ -283,12 +296,33 @@ function failure(
 function toSafeFailure(tool: JobFinderProductActionToolName, error: unknown) {
   const message = error instanceof Error ? error.message.toLowerCase() : "";
   if (message.includes("unknown") || message.includes("not found")) {
-    return failure(tool, "not_found", "The requested Job Finder entity was not found.");
+    return failure(
+      tool,
+      "not_found",
+      "The requested Job Finder entity was not found.",
+    );
   }
   if (message.includes("stale") || message.includes("conflict")) {
-    return failure(tool, "conflict", "The workspace changed. Refresh it before retrying.", true);
+    return failure(
+      tool,
+      "conflict",
+      "The workspace changed. Refresh it before retrying.",
+      true,
+    );
   }
-  return failure(tool, "execution_failed", "Job Finder could not complete this product action.", true);
+  if (message.includes("closed")) {
+    return failure(
+      tool,
+      "conflict",
+      "This listing is explicitly closed and cannot be shortlisted.",
+    );
+  }
+  return failure(
+    tool,
+    "execution_failed",
+    "Job Finder could not complete this product action.",
+    true,
+  );
 }
 
 export function createJobFinderProductActionToolRegistry(
@@ -298,7 +332,8 @@ export function createJobFinderProductActionToolRegistry(
   const now = options.now ?? (() => new Date().toISOString());
   const createReceiptId =
     options.createReceiptId ??
-    (() => `product_action_receipt_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
+    (() =>
+      `product_action_receipt_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
 
   async function execute(
     rawName: string,
@@ -307,22 +342,38 @@ export function createJobFinderProductActionToolRegistry(
   ): Promise<ProductActionExecutionResult> {
     const parsedName = JobFinderProductActionToolNameSchema.safeParse(rawName);
     if (!parsedName.success) {
-      return failure(null, "unknown_tool", "This Job Finder product action is not available.");
+      return failure(
+        null,
+        "unknown_tool",
+        "This Job Finder product action is not available.",
+      );
     }
     const tool = parsedName.data;
     const runtime = runtimeByName.get(tool);
     if (!runtime) {
-      return failure(null, "unknown_tool", "This Job Finder product action is not available.");
+      return failure(
+        null,
+        "unknown_tool",
+        "This Job Finder product action is not available.",
+      );
     }
     const parsedInput = runtime.inputSchema.safeParse(rawInput);
     if (!parsedInput.success) {
-      return failure(tool, "invalid_input", "The product action input is invalid.");
+      return failure(
+        tool,
+        "invalid_input",
+        "The product action input is invalid.",
+      );
     }
     if (
       runtime.definition.confirmationPolicy.mode === "required" &&
       context.confirmed !== true
     ) {
-      return failure(tool, "confirmation_required", "Confirm this scoped product action before it runs.");
+      return failure(
+        tool,
+        "confirmation_required",
+        "Confirm this scoped product action before it runs.",
+      );
     }
 
     try {
@@ -346,7 +397,8 @@ export function createJobFinderProductActionToolRegistry(
               shortlistedJobs: snapshot.reviewQueue.length,
               applications: snapshot.applicationRecords.length,
               unresolvedUserActions: snapshot.userActionRequests.filter(
-                (request) => !["resolved", "cancelled", "skipped"].includes(request.state),
+                (request) =>
+                  !["resolved", "cancelled", "skipped"].includes(request.state),
               ).length,
               discoveryRunState: snapshot.discoveryRunState,
             },
@@ -355,7 +407,8 @@ export function createJobFinderProductActionToolRegistry(
         case "list_needs_you": {
           const snapshot = await capabilities.getWorkspaceSnapshot();
           const requests = snapshot.userActionRequests.filter(
-            (request) => !["resolved", "cancelled", "skipped"].includes(request.state),
+            (request) =>
+              !["resolved", "cancelled", "skipped"].includes(request.state),
           );
           return ProductActionExecutionResultSchema.parse({
             ok: true,
@@ -430,6 +483,15 @@ export function createJobFinderProductActionToolRegistry(
         }
         case "shortlist_job": {
           const input = JobIdProductActionToolInputSchema.parse(rawInput);
+          const currentSnapshot = await capabilities.getWorkspaceSnapshot();
+          const currentJob = currentSnapshot.discoveryJobs.find(
+            (job) => job.id === input.jobId,
+          );
+          if (currentJob?.listingActivity.status === "closed") {
+            throw new Error(
+              `Unable to shortlist closed job '${input.jobId}'. The listing has explicit closed evidence.`,
+            );
+          }
           const snapshot = await capabilities.queueJobForReview(input.jobId);
           return ProductActionExecutionResultSchema.parse({
             ok: true,
@@ -464,7 +526,9 @@ export function createJobFinderProductActionToolRegistry(
         }
         case "restore_job": {
           const input = JobIdProductActionToolInputSchema.parse(rawInput);
-          const snapshot = await capabilities.restoreDismissedDiscoveryJob(input.jobId);
+          const snapshot = await capabilities.restoreDismissedDiscoveryJob(
+            input.jobId,
+          );
           return ProductActionExecutionResultSchema.parse({
             ok: true,
             tool,

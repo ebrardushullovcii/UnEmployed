@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "rule": "branded-identifier",
+      "file": "packages/browser-agent/src/agent.test-fixtures.ts",
+      "context": "createProfile",
+      "hash": "0deb263417adfa802c4b4ca22ac7883feb2c4049f336157281d7639a4b80cb11",
+      "count": 1
+    },
+    {
+      "rule": "import-direction:runtime-to-agent-import",
+      "file": "packages/browser-runtime/src/playwright-browser-runtime.ts",
+      "context": "@unemployed/browser-agent",
+      "hash": "d8a5ceeb9c06abbeb91f4b456b4b9f191bfab4a232251a8c1c46ea5dd43eb65b",
+      "count": 1
+    },
+    {
+      "rule": "provider-host-literal",
+      "file": "packages/browser-agent/src/agent.test-fixtures.ts",
+      "context": "createConfig",
+      "hash": "077af68a6c172523223bf403112a81913163e945a55ad1460b2928482712dee1",
+      "count": 1
+    },
+    {
+      "rule": "provider-host-literal",
+      "file": "packages/browser-agent/src/agent.test-fixtures.ts",
+      "context": "createConfig",
+      "hash": "eef6d0f15c97a6272449040df18cd4ae01ff91b73d7303adb68751c30402fe32",
+      "count": 1
+    }
+  ]
+}

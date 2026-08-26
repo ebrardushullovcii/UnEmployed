@@ -5,8 +5,10 @@ import type {
   ResumeStrategyRecommendation,
   ResumeStrategySelection,
   SelectResumeStrategyInput,
+  SetCampaignResumeStrategyDefaultInput,
 } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
+import { formatPersistedStrategyReason } from "../resume-strategies/resume-strategy-presentation";
 
 function buildResumeStrategiesRoute(jobId: string): string {
   const returnTo = `/job-finder/review-queue?${new URLSearchParams({ jobId }).toString()}`;
@@ -15,12 +17,17 @@ function buildResumeStrategiesRoute(jobId: string): string {
 
 interface ResumeStrategyJobPanelProps {
   campaignId: string;
+  /** Persisted default approach for this job's search plan, when one is set. */
+  campaignDefaultResumeStrategyId?: string | null | undefined;
   isPending: boolean;
   jobId: string;
   onRecommend: (input: {
     jobId: string;
   }) => Promise<ResumeStrategyRecommendation | null>;
   onSelect: (input: SelectResumeStrategyInput) => void;
+  onSetCampaignDefault?:
+    | ((input: SetCampaignResumeStrategyDefaultInput) => void)
+    | undefined;
   selections: readonly ResumeStrategySelection[];
   strategies: readonly ResumeStrategy[];
 }
@@ -32,7 +39,7 @@ function describeSelectionSource(
     case "user":
       return "Your choice";
     case "campaign_default":
-      return "Campaign default";
+      return "Search plan default";
     case "rule_match":
       return "Role-family match";
     default:
@@ -47,12 +54,19 @@ export function ResumeStrategyJobPanel(props: ResumeStrategyJobPanelProps) {
     "loading" | "ready" | "error"
   >("loading");
   const [recommendError, setRecommendError] = useState<string | null>(null);
+  const [retryNonce, setRetryNonce] = useState(0);
   const onRecommendRef = useRef(props.onRecommend);
   const recommendationRequestRef = useRef<{
     jobId: string;
+    searchPlanDefaultId: string | null;
     promise: Promise<ResumeStrategyRecommendation | null>;
   } | null>(null);
   onRecommendRef.current = props.onRecommend;
+  // The persisted search-plan default is part of the recommendation inputs:
+  // when it changes (for example after an explicit fallback assignment), the
+  // recommendation must be re-requested so its source stays truthful.
+  const campaignDefaultResumeStrategyId =
+    props.campaignDefaultResumeStrategyId ?? null;
 
   useEffect(() => {
     let cancelled = false;
@@ -61,14 +75,18 @@ export function ResumeStrategyJobPanel(props: ResumeStrategyJobPanelProps) {
     setRecommendError(null);
 
     const existingRequest = recommendationRequestRef.current;
-    const request =
-      existingRequest?.jobId === props.jobId
-        ? existingRequest.promise
-        : Promise.resolve().then(() =>
-            onRecommendRef.current({ jobId: props.jobId }),
-          );
+    const shouldReuse =
+      retryNonce === 0 &&
+      existingRequest?.jobId === props.jobId &&
+      existingRequest.searchPlanDefaultId === campaignDefaultResumeStrategyId;
+    const request = shouldReuse
+      ? existingRequest.promise
+      : Promise.resolve().then(() =>
+          onRecommendRef.current({ jobId: props.jobId }),
+        );
     recommendationRequestRef.current = {
       jobId: props.jobId,
+      searchPlanDefaultId: campaignDefaultResumeStrategyId,
       promise: request,
     };
 
@@ -84,14 +102,14 @@ export function ResumeStrategyJobPanel(props: ResumeStrategyJobPanelProps) {
         setRecommendError(
           error instanceof Error
             ? error.message
-            : "The strategy recommendation could not be loaded.",
+            : "The recommendation could not be loaded.",
         );
       });
 
     return () => {
       cancelled = true;
     };
-  }, [props.jobId]);
+  }, [props.jobId, campaignDefaultResumeStrategyId, retryNonce]);
 
   const selection = useMemo(
     () => props.selections.find((entry) => entry.jobId === props.jobId) ?? null,
@@ -109,6 +127,15 @@ export function ResumeStrategyJobPanel(props: ResumeStrategyJobPanelProps) {
   const selectionStrategy = selection
     ? (strategyById.get(selection.strategyId) ?? null)
     : null;
+  // Only an explicit per-job choice counts as "chosen" here. A rule match or a
+  // search-plan default was applied by the product, not picked by the user.
+  const chosenStrategy =
+    selection && selection.source === "user" ? selectionStrategy : null;
+  const fallbackCandidate =
+    chosenStrategy && chosenStrategy.enabled ? chosenStrategy : null;
+  const isFallbackAlreadyDefault =
+    fallbackCandidate != null &&
+    campaignDefaultResumeStrategyId === fallbackCandidate.id;
 
   const handleSelect = (strategyId: string) => {
     if (!strategyId) {
@@ -120,10 +147,10 @@ export function ResumeStrategyJobPanel(props: ResumeStrategyJobPanelProps) {
     }
     const reason =
       recommendedId === strategyId
-        ? `User accepted the recommended strategy "${strategy.name}"${
+        ? `User accepted the recommended approach "${strategy.name}"${
             recommendation?.reason ? ` (${recommendation.reason})` : ""
           }.`
-        : `User chose strategy "${strategy.name}" for this job instead of the recommendation.`;
+        : `User chose approach "${strategy.name}" for this job instead of the recommendation.`;
     props.onSelect({
       jobId: props.jobId,
       campaignId: props.campaignId,
@@ -140,9 +167,8 @@ export function ResumeStrategyJobPanel(props: ResumeStrategyJobPanelProps) {
           Resume approach
         </span>
         <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-          Choosing or reusing a strategy never approves this résumé and never
-          makes an artifact application-ready. Approval and staleness checks for
-          this job stay authoritative.
+          Choosing or reusing an approach never approves this resume. You
+          review and approve each resume for this job before it is applied.
         </p>
       </div>
 
@@ -153,7 +179,7 @@ export function ResumeStrategyJobPanel(props: ResumeStrategyJobPanelProps) {
           className="text-(length:--text-small) leading-6 text-foreground-soft"
           role="status"
         >
-          Checking strategies for this job…
+          Checking approaches for this job…
         </p>
       ) : null}
 
@@ -163,11 +189,30 @@ export function ResumeStrategyJobPanel(props: ResumeStrategyJobPanelProps) {
           role="alert"
         >
           <p className="text-(length:--text-small) font-semibold text-foreground">
-            Strategy recommendation unavailable
+            Recommendation unavailable
           </p>
           <p className="text-(length:--text-small) leading-5 text-foreground-soft">
             {recommendError}
           </p>
+          <p className="text-(length:--text-small) leading-5 text-foreground-soft">
+            Nothing was changed. You can retry the recommendation or manage
+            your approaches directly.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              onClick={() => setRetryNonce((current) => current + 1)}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Try again
+            </Button>
+            <Button asChild size="sm" type="button" variant="ghost">
+              <a href={buildResumeStrategiesRoute(props.jobId)}>
+                Manage resume approaches
+              </a>
+            </Button>
+          </div>
         </div>
       ) : null}
 
@@ -185,12 +230,20 @@ export function ResumeStrategyJobPanel(props: ResumeStrategyJobPanelProps) {
           ) : (
             <div className="grid gap-1 rounded-(--radius-small) border border-border-subtle px-3 py-2.5">
               <p className="text-(length:--text-small) font-semibold text-(--text-headline)">
-                No strategy recommended
+                No resume approach recommended
               </p>
               <p className="text-(length:--text-small) leading-5 text-foreground-soft">
                 {recommendation?.reason ??
-                  "No enabled strategy matches this job's role family and no campaign default is set."}
+                  "No enabled approach matches this job's role family and no search plan default is set."}
               </p>
+              {enabledStrategies.length > 0 ? (
+                <p className="text-(length:--text-small) leading-5 text-foreground-soft">
+                  None of your enabled approaches matched this job. Creating a
+                  new approach never applies it automatically — you can use it
+                  for this job only below, or choose it first and then make it
+                  this search plan&apos;s default.
+                </p>
+              ) : null}
             </div>
           )}
 
@@ -201,8 +254,14 @@ export function ResumeStrategyJobPanel(props: ResumeStrategyJobPanelProps) {
                 {selectionStrategy.name}
               </p>
               <p className="text-(length:--text-small) leading-5 text-foreground-soft">
-                {selection.reason}
+                {formatPersistedStrategyReason(selection.reason)}
               </p>
+              {selection.source === "user" ? (
+                <p className="text-(length:--text-small) leading-5 text-foreground-soft">
+                  Applies to this job only — other jobs and the search plan
+                  default are unchanged.
+                </p>
+              ) : null}
               {selection.selectedAt ? (
                 <p className="text-(length:--text-tiny) leading-5 text-foreground-muted">
                   Selected {new Date(selection.selectedAt).toLocaleString()}
@@ -212,22 +271,21 @@ export function ResumeStrategyJobPanel(props: ResumeStrategyJobPanelProps) {
           ) : null}
 
           {enabledStrategies.length > 0 ? (
-            <label className="grid gap-1 text-sm">
-              <span className="font-medium">
-                Choose a strategy for this job
-              </span>
+            <div className="grid gap-1 text-sm">
+              <span className="font-medium">Use for this job only</span>
               <select
-                className="h-10 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
+                aria-label="Choose a resume approach for this job"
+                className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
                 disabled={props.isPending}
                 onChange={(event) => handleSelect(event.target.value)}
                 value=""
               >
                 <option disabled value="">
                   {selection
-                    ? "Change strategy…"
+                    ? "Change approach…"
                     : recommendedId
                       ? "Apply the recommendation…"
-                      : "Choose a strategy…"}
+                      : "Choose a resume approach…"}
                 </option>
                 {enabledStrategies.map((strategy) => (
                   <option key={strategy.id} value={strategy.id}>
@@ -237,13 +295,16 @@ export function ResumeStrategyJobPanel(props: ResumeStrategyJobPanelProps) {
                   </option>
                 ))}
               </select>
-            </label>
+              <span className="text-(length:--text-tiny) leading-5 text-foreground-muted">
+                Affects the tailored resumes for this job alone. Other jobs and
+                this search plan&apos;s default stay unchanged.
+              </span>
+            </div>
           ) : (
             <div className="grid gap-2">
               <p className="text-(length:--text-small) leading-5 text-foreground-soft">
-                No enabled resume approach is available yet. Create a reusable
-                role-family strategy, then return here to tailor this job with
-                it.
+                No enabled resume approach is available yet. Create one for
+                this role family, then return here to tailor this job with it.
               </p>
               <Button asChild size="sm" type="button" variant="outline">
                 <Link to={buildResumeStrategiesRoute(props.jobId)}>
@@ -253,6 +314,66 @@ export function ResumeStrategyJobPanel(props: ResumeStrategyJobPanelProps) {
             </div>
           )}
 
+          {fallbackCandidate ? (
+            isFallbackAlreadyDefault ? (
+              <div className="grid gap-1 rounded-(--radius-small) border border-border-subtle bg-background/35 px-3 py-2.5">
+                <p className="text-(length:--text-small) font-semibold text-(--text-headline)">
+                  Search plan default: {fallbackCandidate.name}
+                </p>
+                <p className="text-(length:--text-small) leading-5 text-foreground-soft">
+                  Future jobs in this search plan are recommended this approach
+                  whenever no enabled approach matches their role family more
+                  closely. This job keeps your explicit choice.
+                </p>
+                <Button asChild size="sm" type="button" variant="ghost">
+                  <a href={buildResumeStrategiesRoute(props.jobId)}>
+                    Manage search plan default
+                  </a>
+                </Button>
+              </div>
+            ) : props.onSetCampaignDefault && props.campaignId ? (
+              <div className="grid gap-2 rounded-(--radius-small) border border-border-subtle bg-background/35 px-3 py-2.5">
+                <p className="text-(length:--text-small) font-semibold text-(--text-headline)">
+                  Set as search plan default
+                </p>
+                <p className="text-(length:--text-small) leading-5 text-foreground-soft">
+                  &quot;{fallbackCandidate.name}&quot; would be recommended for
+                  future jobs in this search plan whenever no enabled approach
+                  matches their role family more closely — not just jobs like
+                  this one. Nothing is approved by this, and this job keeps your
+                  explicit choice.
+                </p>
+                <Button
+                  onClick={() =>
+                    props.onSetCampaignDefault?.({
+                      campaignId: props.campaignId,
+                      strategyId: fallbackCandidate.id,
+                    })
+                  }
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  Set as search plan default
+                </Button>
+              </div>
+            ) : (
+              <div className="grid gap-1 rounded-(--radius-small) border border-border-subtle bg-background/35 px-3 py-2.5">
+                <p className="text-(length:--text-small) leading-5 text-foreground-soft">
+                  You can make {fallbackCandidate.name} the default for future
+                  jobs in this search plan — used whenever no enabled approach
+                  matches their role family more closely — from your resume
+                  approaches.
+                </p>
+                <Button asChild size="sm" type="button" variant="ghost">
+                  <a href={buildResumeStrategiesRoute(props.jobId)}>
+                    Manage search plan default
+                  </a>
+                </Button>
+              </div>
+            )
+          ) : null}
+
           {props.isPending ? (
             <p
               aria-atomic="true"
@@ -260,7 +381,7 @@ export function ResumeStrategyJobPanel(props: ResumeStrategyJobPanelProps) {
               className="text-(length:--text-tiny) leading-5 text-foreground-muted"
               role="status"
             >
-              Saving your strategy choice…
+              Saving your choice…
             </p>
           ) : null}
         </div>

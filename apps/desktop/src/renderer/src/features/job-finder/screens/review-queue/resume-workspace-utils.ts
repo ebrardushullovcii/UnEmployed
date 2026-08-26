@@ -1,4 +1,27 @@
-import type { ResumeDraft } from "@unemployed/contracts";
+import type {
+  ResumeDraft,
+  ResumeDraftBullet,
+  ResumeDraftOrigin,
+} from "@unemployed/contracts";
+
+const generatedResumeOrigins = new Set<ResumeDraftOrigin>([
+  "ai_generated",
+  "assistant_edited",
+  "deterministic_fallback",
+]);
+
+export function isGeneratedResumeOrigin(origin: ResumeDraftOrigin): boolean {
+  return generatedResumeOrigins.has(origin);
+}
+
+export function listGeneratedResumeBullets(
+  draft: ResumeDraft,
+): ResumeDraftBullet[] {
+  return draft.sections.flatMap((section) => [
+    ...section.bullets,
+    ...section.entries.flatMap((entry) => entry.bullets),
+  ]);
+}
 
 export function formatTimestamp(value: string | null): string {
   if (!value) {

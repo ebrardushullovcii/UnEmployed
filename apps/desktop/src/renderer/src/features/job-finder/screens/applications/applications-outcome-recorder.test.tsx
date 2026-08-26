@@ -5,6 +5,24 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RecordOutcomeInput } from "@unemployed/contracts";
 import { ApplicationsOutcomeRecorder } from "./applications-outcome-recorder";
 
+const canonicalFieldTokens = [
+  "border-(--field-border)",
+  "bg-(--field)",
+  "outline-none",
+  "focus-visible:border-(--field-focus-border)",
+  "focus-visible:bg-(--field-strong)",
+  "focus-visible:shadow-[var(--field-focus-shadow)]",
+];
+
+function expectCanonicalFieldClasses(control: HTMLElement) {
+  for (const token of canonicalFieldTokens) {
+    expect(control.className).toContain(token);
+  }
+  expect(control.className).not.toContain("border-input");
+  expect(control.className).not.toContain("bg-background");
+  expect(control.className).not.toContain("ring-[3px]");
+}
+
 function getOutcomeSelect(): HTMLSelectElement {
   const element = screen.getByLabelText(/Outcome/);
   if (!(element instanceof HTMLSelectElement)) {
@@ -201,6 +219,26 @@ describe("ApplicationsOutcomeRecorder", () => {
     );
 
     expect(getOutcomeSelect().disabled).toBe(true);
-    expect(getRecordOutcomeButton().disabled).toBe(true);
+    // Pending keeps the record button exposed but inert instead of natively
+    // disabled, so focus survives the in-flight record.
+    expect(getRecordOutcomeButton().hasAttribute("disabled")).toBe(false);
+    expect(getRecordOutcomeButton().getAttribute("aria-disabled")).toBe("true");
+    expect(getRecordOutcomeButton().getAttribute("aria-busy")).toBe("true");
+  });
+
+  it("applies the canonical field recipe to editable controls", () => {
+    render(
+      <ApplicationsOutcomeRecorder
+        isPending={false}
+        jobId="job-1"
+        campaignId={null}
+        applicationRecordId="application-1"
+        onRecordOutcome={() => Promise.resolve()}
+        resumeStrategyId={null}
+      />,
+    );
+
+    expectCanonicalFieldClasses(getOutcomeSelect());
+    expectCanonicalFieldClasses(screen.getByLabelText(/Note \(optional\)/));
   });
 });

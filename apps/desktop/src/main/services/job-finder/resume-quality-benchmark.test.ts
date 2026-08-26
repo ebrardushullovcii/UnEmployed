@@ -3,54 +3,170 @@ import os from 'node:os'
 import path from 'node:path'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import type { ResumeQualityBenchmarkMetrics, ResumeTemplateDefinition } from '@unemployed/contracts'
-import { deriveResumeCoveragePlan } from '@unemployed/ai-providers'
+import { deriveResumeCoveragePlan, type TailoredResumeDraft } from '@unemployed/ai-providers'
 
 import {
+  applyFixtureDraftOverride,
   calculateFragmentFreeExperienceBulletRate,
+  calculateGroundedVisibleSkillRate,
+  calculateKeywordCoverageRate,
+  calculatePageTargetPassRate,
   calculateProfessionalExperienceSummaryRate,
   calculateVisibleWorkHistoryCoverageRate,
   calculateWorkHistoryRepresentationRate,
   defaultResumeQualityBenchmarkCases,
   isProfessionalExperienceSummary,
   isSuspiciousExperienceBulletFragment,
+  looksAtsSafeFromStructure,
   passesResumeQualityAcceptance,
   runDesktopResumeQualityBenchmark,
   selectBenchmarkTemplateIds,
 } from './resume-quality-benchmark'
 
+const pageTargetUnevaluatedNote =
+  'Page target unevaluated: no measured page count for the rendered artifact, so the page-target gate cannot pass.'
+
+function buildCompleteMetrics(): ResumeQualityBenchmarkMetrics {
+  return {
+    groundedVisibleSkillRate: 1,
+    workHistoryRepresentationRate: 1,
+    visibleWorkHistoryCoverageRate: 1,
+    fragmentFreeExperienceBulletRate: 1,
+    professionalExperienceSummaryRate: 1,
+    bleedFreeCaseRate: 1,
+    keywordCoverageRate: 1,
+    duplicateIssueFreeRate: 1,
+    thinOutputFreeRate: 1,
+    pageTargetPassRate: 1,
+    atsRenderPassRate: 1,
+    issueFreeCaseRate: 1,
+  }
+}
+
 describe('desktop resume quality benchmark', () => {
-  test('requires complete visible work history and an issue-free result for acceptance', () => {
-    const metrics: ResumeQualityBenchmarkMetrics = {
-      groundedVisibleSkillRate: 1,
-      workHistoryRepresentationRate: 1,
-      visibleWorkHistoryCoverageRate: 1,
-      fragmentFreeExperienceBulletRate: 1,
-      professionalExperienceSummaryRate: 1,
-      bleedFreeCaseRate: 1,
-      keywordCoverageRate: 1,
-      duplicateIssueFreeRate: 1,
-      thinOutputFreeRate: 1,
-      pageTargetPassRate: 1,
-      atsRenderPassRate: 1,
-      issueFreeCaseRate: 1,
-    }
+  test('requires every acceptance gate to clear with evidence, including page and ATS gates', () => {
+    const metrics = buildCompleteMetrics()
 
     expect(passesResumeQualityAcceptance(metrics)).toBe(true)
 
-    for (const metric of [
-      'workHistoryRepresentationRate',
-      'visibleWorkHistoryCoverageRate',
-      'fragmentFreeExperienceBulletRate',
-      'professionalExperienceSummaryRate',
-      'issueFreeCaseRate',
-    ] as const) {
+    const metricKeys = Object.keys(metrics) as (keyof ResumeQualityBenchmarkMetrics)[]
+    expect(metricKeys).toHaveLength(12)
+
+    for (const metric of metricKeys) {
       expect(
         passesResumeQualityAcceptance({
           ...metrics,
-          [metric]: 0,
+          [metric]: metrics[metric] === 1 ? 0 : metrics[metric],
         }),
       ).toBe(false)
     }
+  })
+
+  test('fails the ATS render gate unless measurable structural criteria hold', () => {
+    expect(looksAtsSafeFromStructure('')).toBe(false)
+
+    const markerOnlyHtml =
+      '<!doctype html><article data-ats-safe="true"><table><tr><td>Targeted Keywords</td></tr></table></article>'
+    expect(markerOnlyHtml).toContain('data-ats-safe="true"')
+    expect(looksAtsSafeFromStructure(markerOnlyHtml)).toBe(false)
+
+    expect(looksAtsSafeFromStructure('<style>@page { size: Letter; }</style>')).toBe(false)
+    expect(looksAtsSafeFromStructure('<style>.body-grid { display: grid; grid-template-columns: 1fr; }</style>')).toBe(
+      false,
+    )
+    expect(looksAtsSafeFromStructure('<style>@page {} .a { grid-template-columns: 1fr; }</style>Targeted Keywords')).toBe(
+      false,
+    )
+    expect(looksAtsSafeFromStructure('@page {} grid-template-columns: 1fr; <table></table>')).toBe(false)
+
+    const structuralHtml =
+      '<!doctype html><style>@page { size: Letter; margin: 0; } .body-grid { display: grid; grid-template-columns: 1fr; }</style><article data-ats-safe="true"></article>'
+    expect(looksAtsSafeFromStructure(structuralHtml)).toBe(true)
+  })
+
+  test('computes supported keyword coverage as a ratio instead of an existential match', () => {
+    const job = {
+      keySkills: ['Figma', 'Design Systems'],
+      keywordSignals: [
+        { id: 'signal_figma', label: 'Figma', kind: 'skill' as const, weight: 5 },
+        { id: 'signal_platform', label: 'Workflow platform', kind: 'domain' as const, weight: 4 },
+      ],
+    }
+
+    // Distinct targets after dedupe: Figma, Design Systems, Workflow platform.
+    expect(calculateKeywordCoverageRate('Ships design systems in Figma daily.', job)).toBe(2 / 3)
+    expect(
+      calculateKeywordCoverageRate('Owns the workflow platform with Figma and Design Systems expertise.', job),
+    ).toBe(1)
+    expect(calculateKeywordCoverageRate('Unrelated content only.', job)).toBe(0)
+    expect(calculateKeywordCoverageRate('', job)).toBe(0)
+
+    const keywordLessJob = { keySkills: [], keywordSignals: [] }
+    expect(calculateKeywordCoverageRate('Anything at all.', keywordLessJob)).toBe(0)
+    expect(passesResumeQualityAcceptance({ ...buildCompleteMetrics(), keywordCoverageRate: 0.5 })).toBe(false)
+  })
+
+  test('fails skill grounding when visible skills are absent or unsupported', () => {
+    const profile = {
+      skills: ['Figma'],
+      skillGroups: {
+        coreSkills: [],
+        tools: [],
+        languagesAndFrameworks: [],
+        softSkills: [],
+        highlightedSkills: [],
+      },
+      experiences: [],
+      projects: [],
+    }
+    const job = {
+      keySkills: ['Figma'],
+      keywordSignals: [{ id: 'signal_figma', label: 'Figma', kind: 'skill' as const, weight: 5 }],
+    }
+
+    expect(calculateGroundedVisibleSkillRate({ visibleSkills: [], job, profile })).toBe(0)
+    expect(calculateGroundedVisibleSkillRate({ visibleSkills: ['Figma'], job, profile })).toBe(1)
+    expect(calculateGroundedVisibleSkillRate({ visibleSkills: ['Figma', 'Invented Tooling'], job, profile })).toBe(0)
+    expect(passesResumeQualityAcceptance({ ...buildCompleteMetrics(), groundedVisibleSkillRate: 0 })).toBe(false)
+  })
+
+  test('fails the page-target gate when the page count was never measured', () => {
+    expect(calculatePageTargetPassRate({ measuredPageCount: null, hasPageOverflowIssue: false })).toBe(0)
+    expect(calculatePageTargetPassRate({ measuredPageCount: undefined, hasPageOverflowIssue: false })).toBe(0)
+    expect(calculatePageTargetPassRate({ measuredPageCount: 0, hasPageOverflowIssue: false })).toBe(0)
+    expect(calculatePageTargetPassRate({ measuredPageCount: 4, hasPageOverflowIssue: true })).toBe(0)
+    expect(calculatePageTargetPassRate({ measuredPageCount: 1, hasPageOverflowIssue: false })).toBe(1)
+    expect(passesResumeQualityAcceptance({ ...buildCompleteMetrics(), pageTargetPassRate: 0 })).toBe(false)
+  })
+
+  test('applies controlled fixture overrides regardless of provider lane', () => {
+    const baseDraft: TailoredResumeDraft = {
+      label: 'Base draft',
+      summary: 'Base summary.',
+      experienceHighlights: [],
+      coreSkills: ['Figma'],
+      targetedKeywords: [],
+      experienceEntries: [],
+      projectEntries: [],
+      educationEntries: [],
+      certificationEntries: [],
+      additionalSkills: [],
+      languages: [],
+      coverageMetadata: [],
+      fullText: 'Base summary.',
+      compatibilityScore: 50,
+      notes: [],
+    }
+
+    const overridden = applyFixtureDraftOverride({
+      overrideDraft: ({ baseDraft: draft, job }) => ({ ...draft, coreSkills: [job.company] }),
+      baseDraft,
+      job: { company: 'Signal Systems' },
+    })
+    expect(overridden.coreSkills).toEqual(['Signal Systems'])
+    expect(overridden.summary).toBe('Base summary.')
+
+    expect(applyFixtureDraftOverride({ baseDraft, job: { company: 'Signal Systems' } })).toEqual(baseDraft)
   })
 
   test('requires visible canonical work history outside conservative tailoring mode', () => {
@@ -237,7 +353,15 @@ describe('desktop resume quality benchmark', () => {
     expect(report.aggregate.fragmentFreeExperienceBulletRate).toBe(1)
     expect(report.aggregate.professionalExperienceSummaryRate).toBe(1)
     expect(report.aggregate.atsRenderPassRate).toBe(1)
+    expect(report.aggregate.keywordCoverageRate).toBeGreaterThan(0)
     expect(report.providerMode).toBe('deterministic')
+    // HTML benchmark renders carry no measured page count, so acceptance honestly
+    // reports failure instead of passing the page gate on missing evidence.
+    for (const result of report.cases) {
+      expect(result.passed).toBe(false)
+      expect(result.metrics.pageTargetPassRate).toBe(0)
+      expect(result.notes).toContain(pageTargetUnevaluatedNote)
+    }
     expect(
       report.cases.every((entry) => entry.generationDurationMs >= 0),
     ).toBe(true)
@@ -272,10 +396,13 @@ describe('desktop resume quality benchmark', () => {
 
     expect(report.cases).toHaveLength(8)
     for (const result of report.cases) {
-      expect(result.passed).toBe(true)
       expect(result.issueCategories).not.toContain('thin_output')
       expect(result.metrics.thinOutputFreeRate).toBe(1)
       expect(result.metrics.atsRenderPassRate).toBe(1)
+      // Acceptance stays honest: the page gate has no measured page count in HTML renders.
+      expect(result.metrics.pageTargetPassRate).toBe(0)
+      expect(result.notes).toContain(pageTargetUnevaluatedNote)
+      expect(result.passed).toBe(false)
     }
   }, 10_000)
 
@@ -314,10 +441,14 @@ describe('desktop resume quality benchmark', () => {
     expect(report.cases).toHaveLength(16)
 
     for (const result of report.cases) {
-      expect(result.passed).toBe(true)
       expect(result.metrics.issueFreeCaseRate).toBe(1)
       expect(result.metrics.atsRenderPassRate).toBe(1)
+      expect(result.metrics.groundedVisibleSkillRate).toBe(1)
       expect(result.visibleSkills.length).toBeGreaterThan(0)
+      // Acceptance stays honest: the page gate has no measured page count in HTML renders.
+      expect(result.metrics.pageTargetPassRate).toBe(0)
+      expect(result.notes).toContain(pageTargetUnevaluatedNote)
+      expect(result.passed).toBe(false)
     }
   }, 20_000)
 
@@ -347,7 +478,10 @@ describe('desktop resume quality benchmark', () => {
     for (const result of report.cases) {
       expect(result.metrics.workHistoryRepresentationRate).toBe(1)
       expect(result.metrics.visibleWorkHistoryCoverageRate).toBe(1)
-      expect(result.passed).toBe(result.metrics.issueFreeCaseRate === 1)
+      // Acceptance stays honest: the page gate has no measured page count in HTML renders.
+      expect(result.metrics.pageTargetPassRate).toBe(0)
+      expect(result.notes).toContain(pageTargetUnevaluatedNote)
+      expect(result.passed).toBe(false)
       expect(result.metrics.fragmentFreeExperienceBulletRate).toBe(1)
       expect(result.metrics.professionalExperienceSummaryRate).toBe(1)
       expect(result.metrics.atsRenderPassRate).toBe(1)

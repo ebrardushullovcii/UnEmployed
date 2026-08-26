@@ -24,6 +24,8 @@ import type {
   ActionState,
   JobFinderShellActions,
 } from "@renderer/features/job-finder/lib/job-finder-types";
+import type { DiscoveryRunFeedback } from "@renderer/features/job-finder/screens/discovery/discovery-run-feedback";
+import type { TailoredDraftPreparationViewState } from "@renderer/features/job-finder/screens/review-queue/review-queue-status";
 import { safeguardMutationKey } from "@renderer/features/job-finder/screens/safeguards/safeguards-presentation";
 import type {
   PendingActionScope,
@@ -47,7 +49,9 @@ type BuildJobFinderPageContextArgs = {
   activeRouteResumeAssistantPending: boolean;
   activeRouteResumeWorkspace: JobFinderResumeWorkspace | null;
   canImportResume: boolean;
-  confirmLeaveDirtyResumeWorkspace: () => boolean;
+  confirmLeaveDirtyResumeWorkspace: (
+    pendingAction: string,
+  ) => Promise<boolean>;
   importResumeGuardMessage: string | null;
   isAnyPendingAction: (scopes: readonly PendingActionScope[]) => boolean;
   isPendingAction: (scope: PendingActionScope) => boolean;
@@ -56,7 +60,9 @@ type BuildJobFinderPageContextArgs = {
     requestToken: number,
   ) => boolean;
   isCurrentResumeWorkspaceJob: (jobId: string) => boolean;
+  discoveryRunFeedback: DiscoveryRunFeedback | null;
   liveDiscoveryEvents: readonly DiscoveryActivityEvent[];
+  latestWorkspaceRef: MutableRefObject<JobFinderWorkspaceSnapshot | null>;
   locationPathname: string;
   navigate: (
     path: string,
@@ -89,6 +95,9 @@ type BuildJobFinderPageContextArgs = {
   selectedTailoredAsset: JobFinderPageContext["selectedTailoredAsset"];
   setPendingActionState: Dispatch<SetStateAction<PendingActionState>>;
   setActionState: Dispatch<SetStateAction<ActionState>>;
+  setDiscoveryRunFeedback: Dispatch<
+    SetStateAction<DiscoveryRunFeedback | null>
+  >;
   setLiveDiscoveryEvents: Dispatch<SetStateAction<DiscoveryActivityEvent[]>>;
   setOptimisticProfileCopilotMessages: Dispatch<
     SetStateAction<readonly ProfileCopilotMessage[]>
@@ -103,10 +112,23 @@ type BuildJobFinderPageContextArgs = {
   setResumeWorkspace: Dispatch<SetStateAction<JobFinderResumeWorkspace | null>>;
   clearResumeWorkspaceState: () => void;
   setResumeWorkspaceDirty: Dispatch<SetStateAction<boolean>>;
+  /** Notifies the save coordinator that a staged settings draft changed. */
+  onSettingsDraftEdited: () => void;
+  /** Notifies the save coordinator that a profile/setup draft was edited. */
+  onProfileSurfaceDraftEdited: () => void;
+  /** Notifies the save coordinator that a Resume Studio draft was edited. */
+  onResumeWorkspaceDraftEdited: () => void;
   setSelectedApplicationRecordId: (recordId: string) => void;
   setSelectedDiscoveryJobId: (jobId: string) => void;
   setSelectedReviewJobId: (jobId: string) => void;
+  setTailoredDraftPreparation: Dispatch<
+    SetStateAction<TailoredDraftPreparationViewState>
+  >;
   sourceDebugRunIdRef: MutableRefObject<number>;
+  tailoredDraftPreparation: TailoredDraftPreparationViewState;
+  tailoredDraftPreparationRunRef: MutableRefObject<boolean>;
+  tailoredDraftPreparationStopRequestedRef: MutableRefObject<boolean>;
+  tailoredDraftPreparationDisposedRef: MutableRefObject<boolean>;
   workspace: JobFinderWorkspaceSnapshot;
 };
 
@@ -126,7 +148,9 @@ export function buildJobFinderPageContext(
     isPendingAction,
     isCurrentResumeAssistantRequest,
     isCurrentResumeWorkspaceJob,
+    discoveryRunFeedback,
     liveDiscoveryEvents,
+    latestWorkspaceRef,
     locationPathname,
     navigate,
     navigateSafely,
@@ -148,6 +172,7 @@ export function buildJobFinderPageContext(
     selectedTailoredAsset,
     setPendingActionState,
     setActionState,
+    setDiscoveryRunFeedback,
     setLiveDiscoveryEvents,
     setOptimisticProfileCopilotMessages,
     setProfileCopilotBusy,
@@ -158,10 +183,18 @@ export function buildJobFinderPageContext(
     setResumeWorkspace,
     clearResumeWorkspaceState,
     setResumeWorkspaceDirty,
+    onSettingsDraftEdited,
+    onProfileSurfaceDraftEdited,
+    onResumeWorkspaceDraftEdited,
     setSelectedApplicationRecordId,
     setSelectedDiscoveryJobId,
     setSelectedReviewJobId,
+    setTailoredDraftPreparation,
     sourceDebugRunIdRef,
+    tailoredDraftPreparation,
+    tailoredDraftPreparationRunRef,
+    tailoredDraftPreparationStopRequestedRef,
+    tailoredDraftPreparationDisposedRef,
     workspace,
   } = args;
 
@@ -198,6 +231,7 @@ export function buildJobFinderPageContext(
     withPendingScope,
     setPendingActionState,
     setActionState,
+    setDiscoveryRunFeedback,
     setLiveDiscoveryEvents,
     setOptimisticProfileCopilotMessages,
     setProfileCopilotBusy,
@@ -208,13 +242,19 @@ export function buildJobFinderPageContext(
     clearResumeWorkspaceState,
     setResumeWorkspaceDirty,
     setSelectedReviewJobId,
+    setTailoredDraftPreparation,
     sourceDebugRunIdRef,
+    tailoredDraftPreparationRunRef,
+    tailoredDraftPreparationStopRequestedRef,
+    tailoredDraftPreparationDisposedRef,
+    latestWorkspaceRef,
     workspace,
   });
 
   return {
     actionState,
     canImportResume,
+    discoveryRunFeedback,
     importResumeGuardMessage,
     isAnyPending: isAnyPendingAction,
     isPending: isPendingAction,
@@ -223,6 +263,8 @@ export function buildJobFinderPageContext(
     saveState,
     ...primaryActions,
     onProfileSurfaceDirtyChange: setProfileSurfaceDirty,
+    onProfileSurfaceDraftEdited,
+    onSettingsDraftEdited,
     onNavigateSafely: navigateSafely,
     profileCopilotPendingContextKey,
     onApplyGroupedManualAnswer: (input: ApplyGroupedManualAnswerInput) =>
@@ -262,15 +304,17 @@ export function buildJobFinderPageContext(
           ),
         },
       ),
+    tailoredDraftPreparation,
     onApplyResumeTimelineRepairAction: async (runId, proposalId, action) => {
       await actions.applyResumeTimelineRepairAction(runId, proposalId, action);
     },
     onGetApplyRunDetails: actions.getApplyRunDetails,
     onSaveApplicationAnswer: actions.saveApplicationAnswer,
     onClearApplicationAnswer: actions.clearApplicationAnswer,
-    onExportApplicationPacket: async (runId, jobId) => {
+    onSetResumeClaimConfirmation: actions.setResumeClaimConfirmation,
+    onExportApplicationPacket: async (input) => {
       await runAction(
-        () => actions.exportApplicationPacket(runId, jobId),
+        () => actions.exportApplicationPacket(input),
         () => undefined,
         (result) =>
           result.status === "saved"
@@ -405,7 +449,7 @@ export function buildJobFinderPageContext(
       const completed = await runAction(
         () => actions.recordOutcome(input),
         () => undefined,
-        "Outcome recorded. Analytics update only from outcomes you record here — nothing was submitted.",
+        "Outcome recorded. Analytics use only outcomes you record here; this stays local tracking and is not submission evidence.",
         {
           rethrowError: true,
           scope: jobFinderPendingActions.recordOutcome(input.jobId),
@@ -445,21 +489,28 @@ export function buildJobFinderPageContext(
       runAction(
         () => actions.saveCampaign(campaign),
         () => undefined,
-        campaign.id === null ? "Campaign created." : "Campaign updated.",
+        campaign.id === null ? "Search plan created." : "Search plan updated.",
       ),
     onRunCampaignNow: (campaignId?: string | null) => {
       const resolvedCampaignId = campaignId ?? workspace.activeCampaignId;
       return runAction(
         () => actions.runCampaignNow(campaignId),
         () => undefined,
-        "Campaign run started. Discovery runs safely and never submits an application.",
+        "Search plan run started. Discovery searches and reads listings; it does not fill application forms or perform submits.",
         {
           scope: jobFinderPendingActions.campaignRun(resolvedCampaignId),
           startMessage:
-            "Running this campaign now. Discovery will stop before any final submit control.",
+            "Running this search plan now. Discovery only searches and reads listings, and stops before any final submit control.",
         },
       );
     },
+    onDeleteCampaign: (campaignId: string) =>
+      runAction(
+        () => actions.deleteCampaign(campaignId),
+        () => undefined,
+        // A refused deletion is reported inline by the campaigns screen.
+        (deleted) => (deleted ? "Search plan deleted." : null),
+      ),
     onMarkCampaignNotificationRead: (notificationId: string) =>
       void runAction(
         () => actions.markCampaignNotificationRead(notificationId),
@@ -473,7 +524,7 @@ export function buildJobFinderPageContext(
       void runAction(
         () => actions.markAllCampaignNotificationsRead(),
         () => undefined,
-        "All campaign notifications marked as read.",
+        "All search plan notifications marked as read.",
         {
           scope: jobFinderPendingActions.campaignNotificationAll(),
         },
@@ -482,14 +533,14 @@ export function buildJobFinderPageContext(
       runAction(
         () => actions.saveCampaignRule(campaignId, rule),
         () => undefined,
-        rule.id === null ? "Campaign rule added." : "Campaign rule updated.",
+        rule.id === null ? "Search plan rule added." : "Search plan rule updated.",
         { scope: jobFinderPendingActions.campaignRule(campaignId, rule.id) },
       ),
     onDeleteCampaignRule: (campaignId: string, ruleId: string) =>
       runAction(
         () => actions.deleteCampaignRule(campaignId, ruleId),
         () => undefined,
-        "Campaign rule removed.",
+        "Search plan rule removed.",
         { scope: jobFinderPendingActions.campaignRule(campaignId, ruleId) },
       ),
     onToggleCampaignRule: (
@@ -500,22 +551,15 @@ export function buildJobFinderPageContext(
       runAction(
         () => actions.toggleCampaignRule(campaignId, ruleId, enabled),
         () => undefined,
-        enabled ? "Campaign rule enabled." : "Campaign rule disabled.",
+        enabled
+          ? "Search plan rule enabled."
+          : "Search plan rule disabled.",
         { scope: jobFinderPendingActions.campaignRule(campaignId, ruleId) },
       ),
     onProjectCampaignRuleFunnel: (
       campaignId: string,
     ): Promise<CampaignRuleFunnelProjection> =>
       actions.projectCampaignRuleFunnel(campaignId),
-    onSaveApplicationCrmSettings: async (settings) => {
-      const completed = await primaryActions.onSaveSettings({
-        ...workspace.settings,
-        applicationCrm: settings,
-      });
-      if (!completed) {
-        throw new Error("The application tracker settings could not be saved.");
-      }
-    },
     onSaveSourceInstructionArtifact: (targetId, artifact) =>
       void runAction(
         () => actions.saveSourceInstructionArtifact(targetId, artifact),
@@ -533,37 +577,44 @@ export function buildJobFinderPageContext(
         },
       ),
     onResetWorkspace: () => {
-      if (!confirmLeaveDirtyResumeWorkspace()) {
-        return;
-      }
+      // Stay resolves false: take no action and keep every draft. Leave
+      // resolves true after the controller discarded only the named draft
+      // state, so the reset — and its success navigation — runs exactly once.
+      void confirmLeaveDirtyResumeWorkspace("reset the workspace").then(
+        (mayLeave) => {
+          if (!mayLeave) {
+            return;
+          }
 
-      void runAction(
-        actions.resetWorkspace,
-        (snapshot) => {
-          saveCoordinator.clearReceipt();
-          navigate(
-            snapshot.profileSetupState.status === "not_started"
-              ? "/job-finder/profile/setup"
-              : "/job-finder/profile",
+          void runAction(
+            actions.resetWorkspace,
+            (snapshot) => {
+              saveCoordinator.clearReceipt();
+              navigate(
+                snapshot.profileSetupState.status === "not_started"
+                  ? "/job-finder/profile/setup"
+                  : "/job-finder/profile",
+              );
+            },
+            "Workspace reset. Your profile, resume, jobs, and browser session were cleared on this device.",
+            { scope: jobFinderPendingActions.workspaceReset() },
           );
         },
-        "Workspace reset. Your profile, resume, jobs, and browser session were cleared on this device.",
-        { scope: jobFinderPendingActions.workspaceReset() },
       );
     },
     onResumeWorkspaceDirtyChange: setResumeWorkspaceDirty,
+    onResumeWorkspaceDraftEdited,
     onSelectApplicationRecord: setSelectedApplicationRecordId,
-    onSelectCampaign: (campaignId: string) => {
-      if (!confirmLeaveDirtyResumeWorkspace()) {
-        return Promise.resolve(false);
-      }
-
-      return runAction(
-        () => actions.selectCampaign(campaignId),
-        () => undefined,
-        "Active campaign updated.",
-      );
-    },
+    onSelectCampaign: (campaignId: string) =>
+      confirmLeaveDirtyResumeWorkspace("switch search plans").then((mayLeave) =>
+        mayLeave
+          ? runAction(
+              () => actions.selectCampaign(campaignId),
+              () => undefined,
+              "Active search plan updated.",
+            )
+          : false,
+      ),
     onSelectDiscoveryJob: setSelectedDiscoveryJobId,
     onSelectReviewItem: setSelectedReviewJobId,
     onSetActivityControl: (input: SetJobFinderActivityControlInput) =>

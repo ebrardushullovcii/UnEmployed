@@ -20,6 +20,7 @@ import {
 import type {
   ResumeAssistantMessage,
   ResumeDraft,
+  ResumeValidationResult,
 } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
 import { FieldLabel } from "@renderer/components/ui/field";
@@ -34,6 +35,8 @@ import {
   getCopilotPanelDimensions,
 } from "../../components/profile/profile-copilot-rail-layout";
 import { ThinkingDots } from "../../components/profile/profile-copilot-rail-sections";
+import { isImeComposingEvent } from "../../lib/job-finder-shortcuts";
+import { useJobFinderOverlayOwnership } from "../../lib/job-finder-overlay-ownership";
 import { formatTimestamp } from "./resume-workspace-utils";
 import { ResumeAssistantProposalCard } from "./resume-assistant-proposal-card";
 
@@ -48,10 +51,20 @@ export function ResumeGuidedEditsPopup(props: {
     action: "accept" | "reject",
     patchIds: readonly string[],
   ) => void;
+  validation?: ResumeValidationResult | null;
 }) {
   const [input, setInput] = useState("");
   const [isOpen, setIsOpen] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
+  // The floating assistant dialog joins the app-wide LIFO overlay stack so
+  // stacked surfaces close one per Escape and shell aliases stay blocked.
+  const { isTopmost: isPopupTopmost } = useJobFinderOverlayOwnership({
+    active: isOpen,
+    close: () => {
+      setIsMaximized(false);
+      setIsOpen(false);
+    },
+  });
   const [safeTopOffset, setSafeTopOffset] = useState(COPILOT_NAV_SAFE_OFFSET);
   const [position, setPosition] = useState(() => getDefaultCopilotPosition());
   const [hasCustomPosition, setHasCustomPosition] = useState(false);
@@ -149,17 +162,21 @@ export function ResumeGuidedEditsPopup(props: {
     }
 
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.defaultPrevented || event.key !== "Escape") {
+      if (event.defaultPrevented || isImeComposingEvent(event)) {
+        return;
+      }
+      if (event.key !== "Escape" || !isPopupTopmost()) {
         return;
       }
 
+      event.preventDefault();
       setIsMaximized(false);
       setIsOpen(false);
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen]);
+  }, [isPopupTopmost, isOpen]);
 
   useEffect(() => {
     const wasOpen = wasOpenRef.current;
@@ -528,6 +545,7 @@ export function ResumeGuidedEditsPopup(props: {
                               isPending={props.isWorkspacePending}
                               message={message}
                               onResolve={props.onResolveProposal}
+                              validation={props.validation ?? null}
                             />
                           ) : null}
                         </div>

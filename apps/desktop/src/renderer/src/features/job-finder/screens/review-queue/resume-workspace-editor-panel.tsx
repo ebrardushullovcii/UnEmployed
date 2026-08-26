@@ -9,9 +9,15 @@ import type {
 import { ResumeCoverageComparisonPanel } from "./resume-coverage-comparison-panel";
 import { ResumeIdentityEditor } from "./resume-identity-editor";
 import { ResumeSectionEditor } from "./resume-section-editor";
+import { ResumeWorkHistoryDecisions } from "./resume-workspace-work-history-decisions";
 import { createResumeDraftPatch } from "./resume-section-editor-helpers";
+import {
+  isGeneratedResumeOrigin,
+  listGeneratedResumeBullets,
+} from "./resume-workspace-utils";
 
 type ResumeDraftSection = ResumeDraft["sections"][number];
+type DraftAcknowledgments = ResumeDraft["workHistoryReviewAcknowledgments"];
 
 interface ResumeWorkspaceEditorPanelProps {
   actionMessage: string | null;
@@ -20,12 +26,16 @@ interface ResumeWorkspaceEditorPanelProps {
   hasUnsavedChanges: boolean;
   isWorkspacePending: boolean;
   jobId: string;
+  onAcknowledgeWorkHistoryOmission: (
+    suggestion: WorkHistoryReviewSuggestion,
+  ) => void;
   onApplyPatch: (
     patch: ResumeDraftPatch,
     revisionReason?: string | null,
   ) => void;
   onDraftChange: (draft: ResumeDraft) => void;
   onRegenerateSection: (jobId: string, sectionId: string) => void;
+  onRemoveWorkHistoryOmissionAcknowledgment: (acknowledgmentId: string) => void;
   onSectionChange: (section: ResumeDraftSection) => void;
   onSelectEntry: (sectionId: string, entryId: string) => void;
   onSelectSection: (sectionId: string) => void;
@@ -37,6 +47,8 @@ interface ResumeWorkspaceEditorPanelProps {
   selectedEntryId: string | null;
   selectedSectionId: string | null;
   selectedTargetId: string | null;
+  showGeneratedLineMarkers?: boolean;
+  workHistoryAcknowledgments: DraftAcknowledgments;
   workHistoryReviewSuggestions: readonly WorkHistoryReviewSuggestion[];
 }
 
@@ -46,6 +58,11 @@ export function ResumeWorkspaceEditorPanel(
   const helperMessage = props.hasUnsavedChanges
     ? "Live preview already shows these unsaved edits. Save before export or approval."
     : "Click the live page to jump to the matching structured field.";
+  const generatedBulletCount = props.showGeneratedLineMarkers
+    ? listGeneratedResumeBullets(props.draft).filter((bullet) =>
+        isGeneratedResumeOrigin(bullet.origin),
+      ).length
+    : 0;
 
   const restoreClaim = (
     role: ResumeCoverageRoleComparison,
@@ -117,12 +134,44 @@ export function ResumeWorkspaceEditorPanel(
           <p className="text-(length:--text-small) leading-5 text-foreground-soft xl:hidden">
             {helperMessage}
           </p>
+          {props.draft.generationMethod === "ai" ? (
+            <div
+              className="rounded-(--radius-field) border border-(--surface-panel-border) bg-background/45 px-3 py-2 text-(length:--text-small) leading-5 text-foreground-soft"
+              data-resume-ai-assistance-disclosure
+              role="note"
+            >
+              This draft was created with AI assistance. Review the full draft
+              against your experience and saved evidence before approval.
+            </div>
+          ) : null}
+          {props.showGeneratedLineMarkers && generatedBulletCount > 0 ? (
+            <div
+              className="rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) px-3 py-2 text-(length:--text-small) leading-5 text-(--warning-text)"
+              data-resume-inference-disclosure
+              role="note"
+            >
+              Aggressive tailoring generated {generatedBulletCount} bullet{" "}
+              {generatedBulletCount === 1 ? "line" : "lines"} in this draft
+              instead of reusing your resume wording. Marked lines below need a
+              check against your saved evidence before approval.
+            </div>
+          ) : null}
         </div>
         <ResumeCoverageComparisonPanel
           comparison={props.coverageComparison}
           disabled={props.isWorkspacePending}
           onRestoreClaim={restoreClaim}
           onRestoreRole={restoreRole}
+        />
+        <ResumeWorkHistoryDecisions
+          acknowledgments={props.workHistoryAcknowledgments}
+          disabled={props.isWorkspacePending}
+          draftId={props.draft.id}
+          suggestions={props.workHistoryReviewSuggestions}
+          onAcknowledge={props.onAcknowledgeWorkHistoryOmission}
+          onRemoveAcknowledgment={
+            props.onRemoveWorkHistoryOmissionAcknowledgment
+          }
         />
         <ResumeIdentityEditor
           disabled={props.isWorkspacePending}
@@ -151,14 +200,11 @@ export function ResumeWorkspaceEditorPanel(
                 : null
             }
             section={section}
+            showGeneratedMarkers={Boolean(props.showGeneratedLineMarkers)}
             onChange={props.onSectionChange}
             onPatch={(patch, revisionReason) =>
               props.runWithSavedDraft(
-                () =>
-                  props.onApplyPatch(
-                    patch,
-                    revisionReason,
-                  ),
+                () => props.onApplyPatch(patch, revisionReason),
                 "Saved your draft before applying this update.",
               )
             }

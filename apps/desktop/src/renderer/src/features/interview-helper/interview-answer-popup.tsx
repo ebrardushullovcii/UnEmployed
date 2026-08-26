@@ -20,6 +20,7 @@ import {
   interviewPopupThemeStyle,
   ProtectionBadge,
 } from "./interview-overlays";
+import { InterviewMarkdownContent } from "./interview-markdown-content";
 
 interface PendingImage {
   id: string;
@@ -184,7 +185,9 @@ export function InterviewAnswerPopup(props: InterviewAnswerPopupProps) {
       );
     } catch (error) {
       setErrorMessage(
-        error instanceof Error ? error.message : "Could not capture the screen.",
+        error instanceof Error
+          ? error.message
+          : "Could not capture the screen.",
       );
     }
   }
@@ -208,8 +211,8 @@ export function InterviewAnswerPopup(props: InterviewAnswerPopupProps) {
 
   const canSend = Boolean(
     session &&
-      !sending &&
-      (draft.trim().length > 0 || pendingImages.length > 0),
+    !sending &&
+    (draft.trim().length > 0 || pendingImages.length > 0),
   );
   const canCopy = getCopyableAnswer(props.workspace).length > 0;
 
@@ -281,11 +284,15 @@ export function InterviewAnswerPopup(props: InterviewAnswerPopupProps) {
             key={message.id}
           >
             {message.role === "assistant" ? (
-              <p className="mb-1.5 text-[10px] font-bold uppercase tracking-(--tracking-badge) text-(--warning-text)">
-                Suggested answer
-              </p>
-            ) : null}
-            <p className="whitespace-pre-wrap">{message.content}</p>
+              <>
+                <p className="mb-1.5 text-[10px] font-bold uppercase tracking-(--tracking-badge) text-(--warning-text)">
+                  Suggested answer
+                </p>
+                <InterviewMarkdownContent content={message.content} />
+              </>
+            ) : (
+              <p className="whitespace-pre-wrap">{message.content}</p>
+            )}
             {message.attachments.length > 0 ? (
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {message.attachments.map((attachment) => (
@@ -321,7 +328,7 @@ export function InterviewAnswerPopup(props: InterviewAnswerPopupProps) {
         ) : null}
       </div>
 
-      <div className="border-t border-border-subtle bg-black/20 p-3">
+      <div className="border-t border-border-subtle bg-(--surface-fill-subtle) p-3">
         {pendingImages.length > 0 ? (
           <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
             {pendingImages.map((image) => (

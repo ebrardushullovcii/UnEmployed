@@ -69,6 +69,139 @@ export class ApplicationCrmBulkStageRevisionConflictError extends ApplicationCrm
   }
 }
 
+const applicationRecordTransitionTails = new WeakMap<
+  object,
+  Map<string, Promise<void>>
+>();
+
+export async function withApplicationRecordTransition<T>(
+  repository: object,
+  applicationRecordId: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  let tails = applicationRecordTransitionTails.get(repository);
+  if (!tails) {
+    tails = new Map<string, Promise<void>>();
+    applicationRecordTransitionTails.set(repository, tails);
+  }
+  const previous = tails.get(applicationRecordId) ?? Promise.resolve();
+  let releaseCurrent!: () => void;
+  const current = new Promise<void>((resolve) => {
+    releaseCurrent = resolve;
+  });
+  const tail = previous.catch(() => undefined).then(() => current);
+  tails.set(applicationRecordId, tail);
+
+  await previous.catch(() => undefined);
+  try {
+    return await operation();
+  } finally {
+    releaseCurrent();
+    if (tails.get(applicationRecordId) === tail) {
+      tails.delete(applicationRecordId);
+    }
+  }
+}
+
+const applicationRecordResolutionTails = new WeakMap<
+  object,
+  Map<string, Promise<void>>
+>();
+
+async function withApplicationRecordResolution<T>(
+  repository: object,
+  jobId: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  let tails = applicationRecordResolutionTails.get(repository);
+  if (!tails) {
+    tails = new Map<string, Promise<void>>();
+    applicationRecordResolutionTails.set(repository, tails);
+  }
+  const previous = tails.get(jobId) ?? Promise.resolve();
+  let releaseCurrent!: () => void;
+  const current = new Promise<void>((resolve) => {
+    releaseCurrent = resolve;
+  });
+  const tail = previous.catch(() => undefined).then(() => current);
+  tails.set(jobId, tail);
+
+  await previous.catch(() => undefined);
+  try {
+    return await operation();
+  } finally {
+    releaseCurrent();
+    if (tails.get(jobId) === tail) tails.delete(jobId);
+  }
+}
+
+export async function resolveApplicationRecordForJob(input: {
+  repository: ApplicationCrmRepository;
+  job: {
+    id: string;
+    title: string;
+    company: string;
+    status: ApplicationRecord["status"];
+  };
+  applicationRecordId?: string | null;
+  now?: string;
+}): Promise<ApplicationRecord> {
+  return withApplicationRecordResolution(
+    input.repository,
+    input.job.id,
+    async () => {
+      const records = await input.repository.listApplicationRecords();
+      if (
+        input.applicationRecordId !== undefined &&
+        input.applicationRecordId !== null
+      ) {
+        const selected = records.find(
+          (record) => record.id === input.applicationRecordId,
+        );
+        if (!selected) {
+          throw new Error(
+            `Unknown Job Finder application record '${input.applicationRecordId}'.`,
+          );
+        }
+        if (selected.jobId !== input.job.id) {
+          throw new Error(
+            `Application record '${selected.id}' does not belong to job '${input.job.id}'.`,
+          );
+        }
+        return selected;
+      }
+
+      const matches = records.filter((record) => record.jobId === input.job.id);
+      if (matches.length > 1) {
+        throw new Error(
+          `Job '${input.job.id}' has multiple application records; explicit application selection is required.`,
+        );
+      }
+      if (matches[0]) return matches[0];
+
+      const id = `application_${input.job.id}`;
+      if (records.some((record) => record.id === id)) {
+        throw new Error(
+          `Canonical application record id '${id}' is already owned by another job.`,
+        );
+      }
+      const now = input.now ?? new Date().toISOString();
+      const created = ApplicationRecordSchema.parse({
+        id,
+        jobId: input.job.id,
+        title: input.job.title,
+        company: input.job.company,
+        status: input.job.status,
+        lastActionLabel: "Application record created for safe preparation.",
+        nextActionLabel: "Prepare the application when you are ready.",
+        lastUpdatedAt: now,
+      });
+      await input.repository.upsertApplicationRecord(created);
+      return created;
+    },
+  );
+}
+
 function normalizeTag(value: string): string {
   return value.trim().replace(/\s+/gu, " ");
 }
@@ -130,6 +263,16 @@ export function getApplicationCrmData(
     stageChangedAt: record.lastUpdatedAt,
     appliedAt: record.status === "submitted" ? record.lastUpdatedAt : null,
   });
+}
+
+type ApplicationCrmProvenance =
+  | "user_recorded_local"
+  | "local_historical_inference";
+
+function applicationCrmProvenance(
+  record: Pick<ApplicationRecord, "crm">,
+): ApplicationCrmProvenance {
+  return record.crm ? "user_recorded_local" : "local_historical_inference";
 }
 
 function replaceById<T extends { id: string }>(
@@ -439,68 +582,120 @@ export async function mutateApplicationCrm(input: {
   } | null>;
 }): Promise<ApplicationRecord> {
   const command = ApplicationCrmMutationInputSchema.parse(input.command);
-  const records = await input.repository.listApplicationRecords();
-  const record = records.find(
+  const listedRecords = await input.repository.listApplicationRecords();
+  const listedRecord = listedRecords.find(
     (candidate) => candidate.id === command.applicationRecordId,
   );
-  if (!record) throw new Error("Application record not found.");
+  if (!listedRecord) throw new Error("Application record not found.");
 
-  const crm = getApplicationCrmData(record);
-  if (crm.revision !== command.expectedRevision) {
-    throw new ApplicationCrmRevisionConflictError();
-  }
-
-  if (command.mutation.type === "add_attachment") {
-    if (!input.validateCandidateAsset) {
-      throw new Error(
-        "The selected Candidate Asset could not be verified. Refresh and try again.",
+  return withApplicationRecordTransition(
+    input.repository,
+    listedRecord.id,
+    async () => {
+      const records = await input.repository.listApplicationRecords();
+      const record = records.find(
+        (candidate) => candidate.id === command.applicationRecordId,
       );
-    }
-    const asset = await input.validateCandidateAsset(
-      command.mutation.attachment.candidateAssetId,
-    );
-    if (
-      !asset ||
-      asset.id !== command.mutation.attachment.candidateAssetId ||
-      asset.deletedAt !== null ||
-      asset.consentScope !== "job_application_attachment"
-    ) {
-      throw new Error(
-        "The selected Candidate Asset is unavailable or is not approved for application attachment.",
-      );
-    }
-  }
+      if (!record) throw new Error("Application record not found.");
 
-  const now = input.now?.() ?? new Date().toISOString();
-  const createId =
-    input.createId ??
-    (() => `crm_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
+      const crm = getApplicationCrmData(record);
+      if (crm.revision !== command.expectedRevision) {
+        throw new ApplicationCrmRevisionConflictError();
+      }
+
+      if (command.mutation.type === "add_attachment") {
+        if (!input.validateCandidateAsset) {
+          throw new Error(
+            "The selected Candidate Asset could not be verified. Refresh and try again.",
+          );
+        }
+        const asset = await input.validateCandidateAsset(
+          command.mutation.attachment.candidateAssetId,
+        );
+        if (
+          !asset ||
+          asset.id !== command.mutation.attachment.candidateAssetId ||
+          asset.deletedAt !== null ||
+          asset.consentScope !== "job_application_attachment"
+        ) {
+          throw new Error(
+            "The selected Candidate Asset is unavailable or is not approved for application attachment.",
+          );
+        }
+      }
+
+      const now = input.now?.() ?? new Date().toISOString();
+      const createId =
+        input.createId ??
+        (() => `crm_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
+      const mutated = applyMutation({
+        crm,
+        mutation: command.mutation,
+        now,
+        createId,
+      });
+      if (mutated === crm) {
+        return record;
+      }
+      const nextCrm = ApplicationCrmDataSchema.parse({
+        ...mutated,
+        revision: crm.revision + 1,
+      });
+      const nextRecord = ApplicationRecordSchema.parse({
+        ...record,
+        status: record.status,
+        lastActionLabel:
+          command.mutation.type === "set_stage"
+            ? `Stage changed to ${nextCrm.stage.replaceAll("_", " ")}`
+            : record.lastActionLabel,
+        lastUpdatedAt: now,
+        crm: nextCrm,
+      });
+
+      await input.repository.upsertApplicationRecord(nextRecord);
+      return nextRecord;
+    },
+  );
+}
+
+function applyBulkStageMutationToRecord(input: {
+  record: ApplicationRecord;
+  stage: ApplicationCrmStage;
+  customStageId: string | null;
+  note: string | null;
+  now: string;
+  createId: () => string;
+}): { record: ApplicationRecord; changed: boolean } {
+  const crm = getApplicationCrmData(input.record);
   const mutated = applyMutation({
     crm,
-    mutation: command.mutation,
-    now,
-    createId,
+    mutation: {
+      type: "set_stage",
+      stage: input.stage,
+      customStageId: input.customStageId,
+      note: input.note,
+    },
+    now: input.now,
+    createId: input.createId,
   });
   if (mutated === crm) {
-    return record;
+    return { record: input.record, changed: false };
   }
+
   const nextCrm = ApplicationCrmDataSchema.parse({
     ...mutated,
     revision: crm.revision + 1,
   });
-  const nextRecord = ApplicationRecordSchema.parse({
-    ...record,
-    status: record.status,
-    lastActionLabel:
-      command.mutation.type === "set_stage"
-        ? `Stage changed to ${nextCrm.stage.replaceAll("_", " ")}`
-        : record.lastActionLabel,
-    lastUpdatedAt: now,
-    crm: nextCrm,
-  });
-
-  await input.repository.upsertApplicationRecord(nextRecord);
-  return nextRecord;
+  return {
+    changed: true,
+    record: ApplicationRecordSchema.parse({
+      ...input.record,
+      status: input.record.status,
+      lastActionLabel: `Stage changed to ${nextCrm.stage.replaceAll("_", " ")}`,
+      lastUpdatedAt: input.now,
+      crm: nextCrm,
+    }),
+  };
 }
 
 export function prepareApplicationCrmBulkStageMutation(input: {
@@ -547,33 +742,18 @@ export function prepareApplicationCrmBulkStageMutation(input: {
     (() => `crm_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
   const changedRecordIds: string[] = [];
   const nextRecords = command.items.map(({ applicationRecordId }) => {
-    const record = recordsById.get(applicationRecordId)!;
-    const crm = getApplicationCrmData(record);
-    const mutated = applyMutation({
-      crm,
-      mutation: {
-        type: "set_stage",
-        stage: command.stage,
-        customStageId: command.customStageId,
-        note: command.note,
-      },
+    const prepared = applyBulkStageMutationToRecord({
+      record: recordsById.get(applicationRecordId)!,
+      stage: command.stage,
+      customStageId: command.customStageId,
+      note: command.note,
       now,
       createId,
     });
-    if (mutated === crm) return record;
+    if (!prepared.changed) return prepared.record;
 
-    changedRecordIds.push(record.id);
-    const nextCrm = ApplicationCrmDataSchema.parse({
-      ...mutated,
-      revision: crm.revision + 1,
-    });
-    return ApplicationRecordSchema.parse({
-      ...record,
-      status: record.status,
-      lastActionLabel: `Stage changed to ${nextCrm.stage.replaceAll("_", " ")}`,
-      lastUpdatedAt: now,
-      crm: nextCrm,
-    });
+    changedRecordIds.push(applicationRecordId);
+    return prepared.record;
   });
 
   return { nextRecords, changedRecordIds };
@@ -588,31 +768,89 @@ export async function mutateApplicationCrmBulkStage(input: {
   const command = ApplicationCrmBulkStageMutationInputSchema.parse(
     input.command,
   );
-  const records = await input.repository.listApplicationRecords();
-  const prepared = prepareApplicationCrmBulkStageMutation({
-    records,
-    command,
-    ...(input.now ? { now: input.now } : {}),
-    ...(input.createId ? { createId: input.createId } : {}),
-  });
-  if (prepared.changedRecordIds.length === 0) {
-    return prepared.nextRecords;
-  }
-
-  const result = await input.repository.commitApplicationRecordBatch({
-    expectedRevisions: command.items,
-    records: prepared.nextRecords,
-  });
-  if (result.status === "missing") {
+  const listedRecords = await input.repository.listApplicationRecords();
+  const listedRecordsById = new Map(
+    listedRecords.map((record) => [record.id, record]),
+  );
+  const missingRecordIds = command.items
+    .map((item) => item.applicationRecordId)
+    .filter((recordId) => !listedRecordsById.has(recordId));
+  if (missingRecordIds.length > 0) {
     throw new ApplicationCrmBulkStageValidationError(
-      "One or more selected applications no longer exist. Refresh and try again.",
-      result.recordIds,
+      missingRecordIds.length === 1
+        ? "The selected application no longer exists. Refresh and try again."
+        : `${missingRecordIds.length} selected applications no longer exist. Refresh and try again.`,
+      missingRecordIds,
     );
   }
-  if (result.status === "stale") {
+
+  const now = input.now?.() ?? new Date().toISOString();
+  const createId =
+    input.createId ??
+    (() => `crm_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`);
+  const staleRecordIds: string[] = [];
+  const changedRecordIds: string[] = [];
+  const nextRecordsById = new Map<string, ApplicationRecord>();
+
+  for (const item of command.items) {
+    const listedRecord = listedRecordsById.get(item.applicationRecordId)!;
+    await withApplicationRecordTransition(
+      input.repository,
+      listedRecord.id,
+      async () => {
+        const freshRecord = (
+          await input.repository.listApplicationRecords()
+        ).find((candidate) => candidate.id === item.applicationRecordId);
+        if (!freshRecord) {
+          throw new ApplicationCrmBulkStageValidationError(
+            "The selected application no longer exists. Refresh and try again.",
+            [item.applicationRecordId],
+          );
+        }
+        if (
+          getApplicationCrmData(freshRecord).revision !== item.expectedRevision
+        ) {
+          staleRecordIds.push(item.applicationRecordId);
+          return;
+        }
+        const prepared = applyBulkStageMutationToRecord({
+          record: freshRecord,
+          stage: command.stage,
+          customStageId: command.customStageId,
+          note: command.note,
+          now,
+          createId,
+        });
+        if (!prepared.changed) return;
+
+        changedRecordIds.push(prepared.record.id);
+        nextRecordsById.set(prepared.record.id, prepared.record);
+      },
+    );
+  }
+
+  if (staleRecordIds.length > 0) {
+    throw new ApplicationCrmBulkStageRevisionConflictError(staleRecordIds);
+  }
+  const result = await input.repository.commitApplicationRecordBatch({
+    expectedRevisions: command.items,
+    records: changedRecordIds.map((recordId) => nextRecordsById.get(recordId)!),
+  });
+  if (result.status !== "applied") {
+    if (result.status === "missing") {
+      throw new ApplicationCrmBulkStageValidationError(
+        "One or more selected applications no longer exist. Refresh and try again.",
+        result.recordIds,
+      );
+    }
     throw new ApplicationCrmBulkStageRevisionConflictError(result.recordIds);
   }
-  return prepared.nextRecords;
+  const committedRecordsById = new Map(
+    result.committedRecords.map((record) => [record.id, record]),
+  );
+  return listedRecords.map(
+    (record) => committedRecordsById.get(record.id) ?? record,
+  );
 }
 
 export async function runApplicationNoResponseAutomation(input: {
@@ -630,44 +868,70 @@ export async function runApplicationNoResponseAutomation(input: {
   const records = await input.repository.listApplicationRecords();
   const updated: ApplicationRecord[] = [];
 
-  for (const record of records) {
-    const crm = getApplicationCrmData(record);
-    if (crm.stage !== "applied" || !crm.appliedAt) continue;
-    const appliedAtMs = Date.parse(crm.appliedAt);
-    if (!Number.isFinite(appliedAtMs) || nowMs - appliedAtMs < thresholdMs) {
+  for (const snapshotRecord of records) {
+    const snapshotCrm = getApplicationCrmData(snapshotRecord);
+    if (
+      snapshotCrm.stage !== "applied" ||
+      !snapshotCrm.appliedAt ||
+      !Number.isFinite(Date.parse(snapshotCrm.appliedAt)) ||
+      nowMs - Date.parse(snapshotCrm.appliedAt) < thresholdMs
+    ) {
       continue;
     }
 
-    const nextCrm = ApplicationCrmDataSchema.parse({
-      ...crm,
-      revision: crm.revision + 1,
-      stage: "no_response",
-      stageChangedAt: now,
-      events: [
-        ...crm.events,
-        {
-          id: input.createId?.() ?? `crm_automation_${record.id}_${Date.now()}`,
-          at: now,
-          kind: "automation",
-          title: `No response after ${settings.noResponseAutomation.afterDays} days`,
-          detail:
-            "The application was marked for follow-up. No external action was taken.",
-          fromStage: "applied",
-          toStage: "no_response",
-          source: "automation",
-        },
-      ],
-    });
-    const nextRecord = ApplicationRecordSchema.parse({
-      ...record,
-      status: record.status,
-      lastActionLabel: `No response after ${settings.noResponseAutomation.afterDays} days`,
-      nextActionLabel: "Follow up with the employer",
-      lastUpdatedAt: now,
-      crm: nextCrm,
-    });
-    await input.repository.upsertApplicationRecord(nextRecord);
-    updated.push(nextRecord);
+    await withApplicationRecordTransition(
+      input.repository,
+      snapshotRecord.id,
+      async () => {
+        const freshRecords = await input.repository.listApplicationRecords();
+        const record = freshRecords.find(
+          (candidate) => candidate.id === snapshotRecord.id,
+        );
+        if (!record) return;
+        const crm = getApplicationCrmData(record);
+        if (crm.stage !== "applied" || !crm.appliedAt) return;
+        const appliedAtMs = Date.parse(crm.appliedAt);
+        if (
+          !Number.isFinite(appliedAtMs) ||
+          nowMs - appliedAtMs < thresholdMs
+        ) {
+          return;
+        }
+
+        const nextCrm = ApplicationCrmDataSchema.parse({
+          ...crm,
+          revision: crm.revision + 1,
+          stage: "no_response",
+          stageChangedAt: now,
+          events: [
+            ...crm.events,
+            {
+              id:
+                input.createId?.() ??
+                `crm_automation_${record.id}_${Date.now()}`,
+              at: now,
+              kind: "automation",
+              title: `No response after ${settings.noResponseAutomation.afterDays} days`,
+              detail:
+                "The application was marked for follow-up. No external action was taken.",
+              fromStage: "applied",
+              toStage: "no_response",
+              source: "automation",
+            },
+          ],
+        });
+        const nextRecord = ApplicationRecordSchema.parse({
+          ...record,
+          status: record.status,
+          lastActionLabel: `No response after ${settings.noResponseAutomation.afterDays} days`,
+          nextActionLabel: "Follow up with the employer",
+          lastUpdatedAt: now,
+          crm: nextCrm,
+        });
+        await input.repository.upsertApplicationRecord(nextRecord);
+        updated.push(nextRecord);
+      },
+    );
   }
 
   return updated;
@@ -863,6 +1127,7 @@ export function recommendApplicationCrmAction(input: {
 }
 
 export interface ApplicationCrmDashboardProjection {
+  trackingProvenance: "user_recorded_local";
   appliedToday: number;
   appliedThisWeek: number;
   responseRate: number | null;
@@ -919,6 +1184,7 @@ export function projectApplicationCrmDashboard(input: {
   const calendar = buildApplicationCrmCalendar(input.records);
 
   return {
+    trackingProvenance: "user_recorded_local",
     appliedToday,
     appliedThisWeek,
     responseRate: hasEnoughRateData
@@ -967,14 +1233,23 @@ export function exportApplicationCrm(input: {
       content: JSON.stringify(
         {
           exportedAt,
-          applications: records.map((record) => ({
-            id: record.id,
-            jobId: record.jobId,
-            title: record.title,
-            company: record.company,
-            lastUpdatedAt: record.lastUpdatedAt,
-            crm: getApplicationCrmData(record),
-          })),
+          applications: records.map((record) => {
+            const crm = getApplicationCrmData(record);
+            const provenance = applicationCrmProvenance(record);
+            return {
+              id: record.id,
+              jobId: record.jobId,
+              title: record.title,
+              company: record.company,
+              lastUpdatedAt: record.lastUpdatedAt,
+              crm: {
+                ...crm,
+                stageProvenance: provenance,
+                appliedAtProvenance: crm.appliedAt ? provenance : null,
+                externalVerification: "not_verified_with_employer_or_ats",
+              },
+            };
+          }),
         },
         null,
         2,
@@ -989,14 +1264,18 @@ export function exportApplicationCrm(input: {
     "Title",
     "Company",
     "Stage",
+    "Stage provenance",
     "Tags",
     "Applied at",
+    "Applied at provenance",
+    "External verification",
     "Next reminder",
     "Next interview",
     "Last updated",
   ];
   const rows = records.map((record) => {
     const crm = getApplicationCrmData(record);
+    const provenance = applicationCrmProvenance(record);
     const nextReminder = crm.reminders
       .filter((reminder) => reminder.status === "pending")
       .sort((left, right) => left.dueAt.localeCompare(right.dueAt))[0];
@@ -1009,8 +1288,11 @@ export function exportApplicationCrm(input: {
       record.title,
       record.company,
       crm.stage,
+      provenance,
       crm.tags.join("; "),
       crm.appliedAt,
+      crm.appliedAt ? provenance : null,
+      "not_verified_with_employer_or_ats",
       nextReminder?.dueAt ?? null,
       nextInterview?.startsAt ?? null,
       record.lastUpdatedAt,

@@ -10,6 +10,7 @@ import type {
   ResumeStrategy,
   SetOutcomeSuggestionEnabledInput,
 } from "@unemployed/contracts";
+import { MemoryRouter } from "react-router-dom";
 import { OutcomeAnalyticsScreen } from "./outcome-analytics-screen";
 
 const now = "2026-08-15T10:00:00.000Z";
@@ -113,7 +114,8 @@ function renderScreen(props: {
   actionMessage?: string | null;
 }) {
   return render(
-    <OutcomeAnalyticsScreen
+    <MemoryRouter>
+      <OutcomeAnalyticsScreen
       actionMessage={props.actionMessage ?? null}
       activeCampaignId="campaign-1"
       campaigns={campaigns}
@@ -124,8 +126,9 @@ function renderScreen(props: {
         props.onSetOutcomeSuggestionEnabled ?? (() => Promise.resolve(true))
       }
       overview={props.overview ?? null}
-      resumeStrategies={resumeStrategies}
-    />,
+        resumeStrategies={resumeStrategies}
+      />
+    </MemoryRouter>,
   );
 }
 
@@ -142,7 +145,30 @@ describe("OutcomeAnalyticsScreen", () => {
       screen.getByRole("heading", { name: "No outcomes recorded yet" }),
     ).toBeTruthy();
     expect(screen.getByText(/never applied automatically/i)).toBeTruthy();
-    expect(screen.getByText(/Analytics/)).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Outcomes" })).toBeTruthy();
+  });
+
+  it("links the all-time empty state to the Applications Tracker", () => {
+    renderScreen({});
+
+    const link = screen.getByRole("link", {
+      name: "Open Applications Tracker",
+    });
+    expect(link.getAttribute("href")).toBe("/job-finder/applications");
+  });
+
+  it("links the campaign-scoped empty state to the Applications Tracker", () => {
+    renderScreen({
+      events: [event({ campaignId: "campaign-2", id: "event-other" })],
+    });
+
+    const link = screen.getByRole("link", {
+      name: "Open Applications Tracker",
+    });
+    expect(link.getAttribute("href")).toBe("/job-finder/applications");
+    expect(
+      screen.getByRole("heading", { name: "No outcomes in this search plan" }),
+    ).toBeTruthy();
   });
 
   it("shows rates, sample sizes, and uncertainty from the durable overview", () => {
@@ -156,7 +182,7 @@ describe("OutcomeAnalyticsScreen", () => {
     renderScreen({ events, overview: overviewWith() });
 
     expect(screen.getAllByText("Fall campaign").length).toBeGreaterThan(0);
-    expect(screen.getByText("Current campaign")).toBeTruthy();
+    expect(screen.getByText("Current search plan")).toBeTruthy();
     expect(screen.getAllByText(/30 applications/).length).toBeGreaterThan(0);
     expect(screen.getByText("100%")).toBeTruthy();
     expect(screen.getByText("33%")).toBeTruthy();
@@ -260,15 +286,15 @@ describe("OutcomeAnalyticsScreen", () => {
     );
     renderScreen({ events, overview: overviewWith() });
 
-    const search = screen.getByLabelText(/Search campaigns/i);
+    const search = screen.getByLabelText(/Filter search plans/i);
     fireEvent.change(search, { target: { value: "Fall campaign" } });
     expect(screen.getAllByText("Fall campaign").length).toBeGreaterThan(0);
 
     fireEvent.change(search, { target: { value: "no-such-campaign" } });
-    expect(screen.getByText(/No campaigns match/i)).toBeTruthy();
+    expect(screen.getByText(/No search plans match/i)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
-    expect(screen.queryByText(/No campaigns match/i)).toBeNull();
+    expect(screen.queryByText(/No search plans match/i)).toBeNull();
   });
 
   it("switches dimensions with keyboard-accessible tab buttons", () => {
@@ -371,8 +397,13 @@ describe("OutcomeAnalyticsScreen", () => {
         dimension === "campaign" && key === "campaign-1",
     });
 
-    expect(getAnalyticsButton("Disable").disabled).toBe(true);
-    expect(getAnalyticsButton("Reset").disabled).toBe(true);
+    // Pending keeps the suggestion controls exposed but inert.
+    expect(getAnalyticsButton("Disable").getAttribute("aria-disabled")).toBe(
+      "true",
+    );
+    expect(getAnalyticsButton("Reset").getAttribute("aria-disabled")).toBe(
+      "true",
+    );
   });
 
   it("shows the action message as a live status region", () => {
@@ -397,20 +428,45 @@ describe("OutcomeAnalyticsScreen", () => {
 
   it("shows an honest loading state while analytics inputs are loading", () => {
     render(
-      <OutcomeAnalyticsScreen
-        actionMessage={null}
-        activeCampaignId="campaign-1"
-        campaigns={campaigns}
-        events={[]}
-        generatedAt={now}
-        isSuggestionPending={() => false}
-        loading
-        onSetOutcomeSuggestionEnabled={() => Promise.resolve(true)}
-        overview={null}
-        resumeStrategies={resumeStrategies}
-      />,
+      <MemoryRouter>
+        <OutcomeAnalyticsScreen
+          actionMessage={null}
+          activeCampaignId="campaign-1"
+          campaigns={campaigns}
+          events={[]}
+          generatedAt={now}
+          isSuggestionPending={() => false}
+          loading
+          onSetOutcomeSuggestionEnabled={() => Promise.resolve(true)}
+          overview={null}
+          resumeStrategies={resumeStrategies}
+        />
+      </MemoryRouter>,
     );
 
     expect(screen.getByText(/Loading outcome analytics/i)).toBeTruthy();
+  });
+
+  it("styles the campaign scope select with canonical field tokens and focus hierarchy", () => {
+    const { container } = renderScreen({});
+
+    const select = screen.getByLabelText("Search plan scope");
+    for (const className of [
+      "h-10",
+      "w-full",
+      "rounded-(--radius-field)",
+      "border-(--field-border)",
+      "bg-(--field)",
+      "outline-none",
+      "focus-visible:border-(--field-focus-border)",
+      "focus-visible:bg-(--field-strong)",
+      "focus-visible:shadow-[var(--field-focus-shadow)]",
+    ]) {
+      expect(select.classList.contains(className)).toBe(true);
+    }
+    expect(select.className).not.toContain("border-input");
+    expect(select.className).not.toContain("bg-background");
+    expect(select.className).not.toContain("focus-visible:ring");
+    expect(container.innerHTML).not.toContain("border-input");
   });
 });

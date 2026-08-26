@@ -1,6 +1,8 @@
 import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@renderer/components/ui/button";
+import { isImeComposingEvent } from "../job-finder/lib/job-finder-shortcuts";
+import { useJobFinderOverlayOwnership } from "../job-finder/lib/job-finder-overlay-ownership";
 
 interface InterviewDeleteSessionDialogProps {
   error: string | null;
@@ -35,6 +37,18 @@ export function InterviewDeleteSessionDialog(
     pendingRef.current = props.pending;
   }, [props.onCancel, props.pending]);
 
+  // The delete confirmation joins the app-wide LIFO overlay stack so stacked
+  // surfaces (global search, Task Center, screen modals) unwind one Escape at
+  // a time and shell aliases stay blocked while it owns the surface.
+  const { isTopmost } = useJobFinderOverlayOwnership({
+    active: props.open,
+    close: () => {
+      if (!pendingRef.current) {
+        onCancelRef.current();
+      }
+    },
+  });
+
   useEffect(() => {
     if (!props.open) return;
 
@@ -51,7 +65,15 @@ export function InterviewDeleteSessionDialog(
     cancelButtonRef.current?.focus();
 
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape" && !pendingRef.current) {
+      if (event.key === "Escape") {
+        if (
+          event.defaultPrevented ||
+          isImeComposingEvent(event) ||
+          pendingRef.current ||
+          !isTopmost()
+        ) {
+          return;
+        }
         event.preventDefault();
         onCancelRef.current();
         return;
@@ -100,7 +122,7 @@ export function InterviewDeleteSessionDialog(
 
       if (previousFocus?.isConnected) previousFocus.focus();
     };
-  }, [props.open]);
+  }, [isTopmost, props.open]);
 
   if (!props.open) return null;
 

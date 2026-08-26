@@ -1,5 +1,6 @@
 import {
   ProfileCopilotReplySchema,
+  STARTER_JOB_SOURCES,
   type ProfileCopilotContext,
   type ProfileCopilotPatchGroup,
   type ProfileCopilotRelevantReviewItem,
@@ -52,6 +53,30 @@ export function getMatchingResolutionStatus(
 
 export function normalizeCompanyName(value: string | null | undefined): string {
   return normalizeFactText(value).replace(/[^a-z0-9]/g, "");
+}
+
+function escapeRegExpLiteral(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Matches a compacted name (see normalizeCompanyName) inside free text with
+ * whole-word boundaries on both ends. Internal separators stay flexible so
+ * "AutomatedPros" matches "automated pros" and "Meta, Inc." matches "meta inc",
+ * but a short name can never match as a substring of a longer word: "Meta"
+ * does not match "metadata" because there is no word boundary inside it.
+ */
+function compactNameMatchesText(text: string, compactName: string): boolean {
+  if (!text || !compactName) {
+    return false;
+  }
+
+  const pattern = new RegExp(
+    `\\b${[...compactName].map((char) => escapeRegExpLiteral(char)).join("[^a-z0-9]*")}\\b`,
+    "i",
+  );
+
+  return pattern.test(text);
 }
 
 export function parseIsoLikeMonth(
@@ -154,14 +179,13 @@ export function buildDateRangeLabel(
 }
 
 export function findMentionedExperience(input: ReviseCandidateProfileInput) {
-  const normalizedRequest = normalizeCompanyName(input.request);
   return (
     input.profile.experiences.find((experience) => {
       const company = normalizeCompanyName(experience.companyName);
       const title = normalizeCompanyName(experience.title);
       return Boolean(
-        (company && normalizedRequest.includes(company)) ||
-        (title && normalizedRequest.includes(title)),
+        (company && compactNameMatchesText(input.request, company)) ||
+        (title && compactNameMatchesText(input.request, title)),
       );
     }) ?? null
   );
@@ -552,27 +576,9 @@ export function formatPatchGroupSummaryList(
   return `${summaries.slice(0, -1).join(", ")}, and ${summaries[summaries.length - 1]}`;
 }
 
-const jobSourcePresets = [
-  {
-    aliases: ["linkedin", "linkedin jobs"],
-    label: "LinkedIn Jobs",
-    startingUrl: "https://www.linkedin.com/jobs/search/",
-  },
-  {
-    aliases: ["wellfound", "angellist", "angel list"],
-    label: "Wellfound",
-    startingUrl: "https://wellfound.com/jobs",
-  },
-  {
-    aliases: ["kosovajob", "kosova job"],
-    label: "KosovaJob",
-    startingUrl: "https://kosovajob.com/",
-  },
-] as const;
-
 export function inferRequestedJobSources(request: string) {
   const normalized = normalizeSourceLabel(request);
-  const mentionsKnownSource = jobSourcePresets.some((preset) =>
+  const mentionsKnownSource = STARTER_JOB_SOURCES.some((preset) =>
     preset.aliases.some((alias) =>
       normalized.includes(normalizeSourceLabel(alias)),
     ),
@@ -598,7 +604,7 @@ export function inferRequestedJobSources(request: string) {
     { label: string; startingUrl: string }
   >();
 
-  for (const preset of jobSourcePresets) {
+  for (const preset of STARTER_JOB_SOURCES) {
     if (
       preset.aliases.some((alias) =>
         normalized.includes(normalizeSourceLabel(alias)),
@@ -638,61 +644,6 @@ export function requestLooksLikeLocationListEdit(request: string): boolean {
   return /preferred locations|locations to search|target locations|excluded locations/.test(
     normalized,
   );
-}
-
-function parseSalaryAmount(
-  rawValue: string,
-  thousandsSuffix: string | undefined,
-): number | null {
-  const normalizedValue = rawValue.replaceAll(",", "");
-  const parsedValue = Number.parseFloat(normalizedValue);
-
-  if (!Number.isFinite(parsedValue) || parsedValue < 0) {
-    return null;
-  }
-
-  const value = thousandsSuffix ? parsedValue * 1_000 : parsedValue;
-  return Number.isInteger(value) ? value : Math.round(value);
-}
-
-function extractSalaryAmounts(request: string): number[] {
-  return [...request.matchAll(/(?:€|\$|£)?\s*([\d,.]+)\s*(k)?\b/gi)]
-    .map((match) => parseSalaryAmount(match[1] ?? "", match[2]))
-    .filter((value): value is number => value !== null);
-}
-
-export function detectRequestedMinimumSalary(request: string): number | null {
-  const match = request.match(
-    /\b(?:minimum|min|floor)(?:\s+(?:salary|expectation))?(?:\s+(?:to\s+be|should\s+be|of|at|is|be))?\s*(?:€|\$|£)?\s*([\d,.]+)\s*(k)?\b/i,
-  );
-
-  return match ? parseSalaryAmount(match[1] ?? "", match[2]) : null;
-}
-
-export function detectRequestedTargetSalary(request: string): number | null {
-  const normalized = normalizeFactText(request);
-
-  if (
-    !/\b(expected salary|target salary|salary expectation|salary expectations|salary|expecting|expectation)\b/.test(
-      normalized,
-    )
-  ) {
-    return null;
-  }
-
-  const explicitTargetIndex = normalized.search(
-    /\b(?:actually\s+)?expect(?:ed|ing)?|target salary|expected salary|salary expectation/,
-  );
-  const targetSource =
-    explicitTargetIndex >= 0 ? request.slice(explicitTargetIndex) : request;
-  const targetAmounts = extractSalaryAmounts(targetSource);
-
-  if (targetAmounts.length > 0) {
-    return Math.max(...targetAmounts);
-  }
-
-  const allAmounts = extractSalaryAmounts(request);
-  return allAmounts.length > 0 ? Math.max(...allAmounts) : null;
 }
 
 export function deriveRequestedDetail(request: string): string | null {

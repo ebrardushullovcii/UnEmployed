@@ -8,10 +8,16 @@ import {
 import {
   filterProfileSetupSources,
   formatProfileSetupReviewValue,
+  getProfileSetupSourceGuidance,
+  getProfileSetupSourceHost,
+  getProfileSetupStarterAccessNote,
   isValidProfileSetupSourceUrl,
   PROFILE_SETUP_SOURCE_PAGE_SIZE,
 } from "./profile-setup-screen-helpers";
 import {
+  PROFILE_SETUP_PLACEHOLDER_HEADLINE,
+  PROFILE_SETUP_PLACEHOLDER_LOCATION,
+  PROFILE_SETUP_PLACEHOLDER_SUMMARY,
   type CandidateProfile,
   type JobSearchPreferences,
   type ProfileSetupStep,
@@ -150,8 +156,25 @@ export function ProfileSetupImportStep(props: {
   onSaveAndGoToStep: (step: ProfileSetupStep) => void;
   profile: CandidateProfile;
   renderFooter: RenderFooter;
+  /** Still passed by the shared step editor; the footer below already reports this count for every step. */
   reviewItemCount: number;
 }) {
+  // The visible import guard reason is associated with the import control so
+  // assistive tech reads why the control cannot be used right now.
+  const importDisabledReasonId = useId();
+  const needsReadableText =
+    props.profile.baseResume.extractionStatus === "needs_text";
+  // Truthful detail straight from the persisted extraction warnings: deduped
+  // and capped so recovery stays compact instead of turning into a log.
+  const importRecoveryWarnings = needsReadableText
+    ? Array.from(
+        new Set(
+          props.profile.baseResume.analysisWarnings
+            .map((warning) => warning.trim())
+            .filter(Boolean),
+        ),
+      ).slice(0, 2)
+    : [];
   return (
     <Card className="rounded-(--radius-panel) border-border/40">
       <CardHeader className="gap-2 border-b border-border/30 pb-5">
@@ -163,7 +186,7 @@ export function ProfileSetupImportStep(props: {
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4 pt-6">
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           <div className="rounded-(--radius-field) border border-border/30 bg-background/60 p-4">
             <p className="text-(length:--text-tiny) uppercase tracking-[0.2em] text-muted-foreground">
               Imported file
@@ -180,15 +203,32 @@ export function ProfileSetupImportStep(props: {
               {formatStatusLabel(props.profile.baseResume.extractionStatus)}
             </p>
           </div>
-          <div className="rounded-(--radius-field) border border-border/30 bg-background/60 p-4">
-            <p className="text-(length:--text-tiny) uppercase tracking-[0.2em] text-muted-foreground">
-              Review items
-            </p>
-            <p className="mt-2 text-sm font-medium text-foreground">
-              {props.reviewItemCount} in this step
-            </p>
-          </div>
         </div>
+
+        {needsReadableText ? (
+          <div
+            className="rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) p-3 text-sm leading-6 text-(--warning-text)"
+            role="status"
+          >
+            <p className="font-semibold">
+              The file was saved, but Job Finder could not read text from it, so
+              nothing was extracted into your profile yet.
+            </p>
+            <p className="mt-1">
+              Choose Import resume to try again — text-based PDFs, TXT, or
+              Markdown files read most reliably — or continue by entering your
+              details manually. You can also paste plain text into the resume
+              from the full Profile screen.
+            </p>
+            {importRecoveryWarnings.length > 0 ? (
+              <ul className="mt-2 grid list-none gap-1 border-t border-(--warning-border) pt-2 text-xs leading-5">
+                {importRecoveryWarnings.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="rounded-(--radius-field) border border-dashed border-border/40 bg-background/50 p-4 text-sm leading-6 text-foreground-soft">
           {props.latestResumeImportReviewCandidates.length > 0
@@ -239,6 +279,9 @@ export function ProfileSetupImportStep(props: {
             pending={props.isImportResumePending}
             onClick={props.onImportResume}
             type="button"
+            aria-describedby={
+              props.importDisabledReason ? importDisabledReasonId : undefined
+            }
             variant={
               props.profile.baseResume.extractionStatus === "ready"
                 ? "secondary"
@@ -250,20 +293,6 @@ export function ProfileSetupImportStep(props: {
               : "Import resume"}
           </Button>
           <Button
-            pending={props.isProfileSetupPending}
-            onClick={() => props.onSaveAndGoToStep("essentials")}
-            type="button"
-            variant={
-              props.profile.baseResume.extractionStatus === "ready"
-                ? "primary"
-                : "secondary"
-            }
-          >
-            {props.profile.baseResume.extractionStatus === "ready"
-              ? "Review profile details"
-              : "Continue without resume"}
-          </Button>
-          <Button
             onClick={props.onContinueToProfile}
             type="button"
             variant="ghost"
@@ -272,7 +301,10 @@ export function ProfileSetupImportStep(props: {
           </Button>
         </div>
         {props.importDisabledReason ? (
-          <p className="text-sm leading-6 text-foreground-soft">
+          <p
+            className="text-sm leading-6 text-foreground-soft"
+            id={importDisabledReasonId}
+          >
             {props.importDisabledReason}
           </p>
         ) : null}
@@ -332,6 +364,7 @@ export function ProfileSetupEssentialsStep(props: {
             <FieldLabel htmlFor={headlineId}>Headline</FieldLabel>
             <ProfileInput
               id={headlineId}
+              placeholder={PROFILE_SETUP_PLACEHOLDER_HEADLINE}
               {...props.profileForm.register("identity.headline")}
             />
           </Field>
@@ -339,6 +372,7 @@ export function ProfileSetupEssentialsStep(props: {
             <FieldLabel htmlFor={firstNameId}>First name</FieldLabel>
             <ProfileInput
               id={firstNameId}
+              placeholder="Your first name"
               {...props.profileForm.register("identity.firstName")}
             />
           </Field>
@@ -346,6 +380,7 @@ export function ProfileSetupEssentialsStep(props: {
             <FieldLabel htmlFor={lastNameId}>Last name</FieldLabel>
             <ProfileInput
               id={lastNameId}
+              placeholder="Your last name"
               {...props.profileForm.register("identity.lastName")}
             />
           </Field>
@@ -367,6 +402,7 @@ export function ProfileSetupEssentialsStep(props: {
             </FieldLabel>
             <ProfileInput
               id={currentLocationId}
+              placeholder={PROFILE_SETUP_PLACEHOLDER_LOCATION}
               {...props.profileForm.register("identity.currentLocation")}
             />
             <p className="text-xs leading-5 text-foreground-muted">
@@ -406,6 +442,7 @@ export function ProfileSetupEssentialsStep(props: {
             <FieldLabel htmlFor={summaryId}>Short summary</FieldLabel>
             <ProfileTextarea
               id={summaryId}
+              placeholder={PROFILE_SETUP_PLACEHOLDER_SUMMARY}
               rows={4}
               {...props.profileForm.register("identity.summary")}
             />
@@ -435,6 +472,7 @@ export function ProfileSetupTargetingStep(props: {
   const targetRolesId = "profile-setup-field-search-preferences-target-roles";
   const locationsId = "profile-setup-field-search-preferences-locations";
   const workModesGroupId = "profile-setup-field-search-preferences-work-modes";
+  const workModesGuidanceId = `${workModesGroupId}-guidance`;
   const tailoringModeGroupId =
     "profile-setup-field-search-preferences-tailoring-mode";
   const tailoringModeGuidanceId =
@@ -461,6 +499,13 @@ export function ProfileSetupTargetingStep(props: {
   const [sourceQuery, setSourceQuery] = useState("");
   const deferredSourceQuery = useDeferredValue(sourceQuery);
   const [sourcePage, setSourcePage] = useState(0);
+  const [editingTargetId, setEditingTargetId] = useState<string | null>(null);
+  const [isManualSourceOpen, setIsManualSourceOpen] = useState(false);
+  const [manualSourceLabel, setManualSourceLabel] = useState("");
+  const [manualSourceUrl, setManualSourceUrl] = useState("");
+  const manualSourceLabelId = "profile-setup-field-manual-source-label";
+  const manualSourceUrlId = "profile-setup-field-manual-source-url";
+  const manualSourceUrlErrorId = "profile-setup-field-manual-source-url-error";
 
   const updateDiscoveryTargets = (
     nextTargets: SearchPreferencesEditorValues["discoveryTargets"],
@@ -496,6 +541,15 @@ export function ProfileSetupTargetingStep(props: {
     filteredSources.length,
     firstVisibleSourceNumber + visibleSources.length - 1,
   );
+  const enabledSourceCount = discoveryTargets.filter(
+    (target) => target.enabled,
+  ).length;
+  const isManualSourceComplete =
+    manualSourceLabel.trim().length > 0 &&
+    isValidProfileSetupSourceUrl(manualSourceUrl);
+  const isManualSourceUrlInvalid =
+    manualSourceUrl.trim().length > 0 &&
+    !isValidProfileSetupSourceUrl(manualSourceUrl);
 
   const setSourceLibraryView = (nextQuery: string) => {
     setSourceQuery(nextQuery);
@@ -509,8 +563,15 @@ export function ProfileSetupTargetingStep(props: {
       const listHeading = document.getElementById(
         "profile-setup-job-sources-list-heading",
       );
-      listHeading?.focus();
-      listHeading?.scrollIntoView?.({ behavior: "auto", block: "start" });
+      if (!listHeading) {
+        return;
+      }
+      // Scroll with the full responsive header margins first (the heading
+      // carries the shared scroll-margin trio), then claim focus with
+      // preventScroll so the browser never lands it beneath the fixed shell
+      // header or performs an uncontrolled ancestor jump.
+      listHeading.scrollIntoView?.({ behavior: "auto", block: "start" });
+      listHeading.focus({ preventScroll: true });
     };
     if (typeof window.requestAnimationFrame === "function") {
       window.requestAnimationFrame(revealSourceList);
@@ -519,14 +580,29 @@ export function ProfileSetupTargetingStep(props: {
     }
   };
 
-  const addDiscoveryTarget = () => {
+  // Every enablement is an explicit user action; searching or paging never
+  // flips a source on.
+  const setTargetEnabled = (targetId: string, enabled: boolean) => {
+    updateDiscoveryTargets(
+      discoveryTargets.map((entry) =>
+        entry.id === targetId ? { ...entry, enabled } : entry,
+      ),
+    );
+  };
+
+  const addManualDiscoveryTarget = () => {
+    if (!isManualSourceComplete) {
+      return;
+    }
+
+    const targetId = createDiscoveryTargetId();
     updateDiscoveryTargets([
       ...discoveryTargets,
       {
-        id: createDiscoveryTargetId(),
-        label: "",
-        startingUrl: "",
-        enabled: true,
+        id: targetId,
+        label: manualSourceLabel.trim(),
+        startingUrl: manualSourceUrl.trim(),
+        enabled: false,
         adapterKind: "auto",
         customInstructions: "",
         instructionStatus: "missing",
@@ -537,7 +613,11 @@ export function ProfileSetupTargetingStep(props: {
         staleReason: null,
       },
     ]);
-    setSourceQuery("");
+    setManualSourceLabel("");
+    setManualSourceUrl("");
+    setIsManualSourceOpen(false);
+    setEditingTargetId(null);
+    setSourceLibraryView("");
     setSourcePage(
       Math.floor(discoveryTargets.length / PROFILE_SETUP_SOURCE_PAGE_SIZE),
     );
@@ -735,7 +815,7 @@ export function ProfileSetupTargetingStep(props: {
           />
         </div>
         <fieldset
-          aria-describedby={workModesGroupId}
+          aria-describedby={workModesGuidanceId}
           className="grid gap-(--gap-field)"
           id={workModesGroupId}
         >
@@ -769,6 +849,7 @@ export function ProfileSetupTargetingStep(props: {
           {props.preferencesForm.watch("workModes").length === 0 ? (
             <p
               className="text-sm leading-6 text-(--warning-text)"
+              id={workModesGuidanceId}
               role="status"
             >
               Choose at least one work mode before relying on discovery results.
@@ -777,13 +858,17 @@ export function ProfileSetupTargetingStep(props: {
             props.profileForm.watch("eligibility.remoteEligible") === "" ? (
             <p
               className="text-sm leading-6 text-(--warning-text)"
+              id={workModesGuidanceId}
               role="status"
             >
               Remote is preferred, but Remote eligible is unanswered. Confirm
               whether you can legally work remotely from your location.
             </p>
           ) : (
-            <p className="text-sm leading-6 text-foreground-muted">
+            <p
+              className="text-sm leading-6 text-foreground-muted"
+              id={workModesGuidanceId}
+            >
               Work-mode preference describes what you want; eligibility
               describes what you can accept legally.
             </p>
@@ -794,26 +879,18 @@ export function ProfileSetupTargetingStep(props: {
           aria-labelledby="profile-setup-job-sources-heading"
           className="grid gap-4 rounded-(--radius-field) border border-border/35 bg-background/45 p-4"
         >
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="grid gap-1">
-              <h3
-                className="text-sm font-semibold text-foreground"
-                id="profile-setup-job-sources-heading"
-              >
-                Job sources
-              </h3>
-              <p className="max-w-2xl text-sm leading-6 text-foreground-soft">
-                Add at least one public careers page or job-board URL. Job
-                Finder cannot search until one valid source is included.
-              </p>
-            </div>
-            <Button
-              onClick={addDiscoveryTarget}
-              type="button"
-              variant="secondary"
+          <div className="grid gap-1">
+            <h3
+              className="text-sm font-semibold text-foreground"
+              id="profile-setup-job-sources-heading"
             >
-              Add source
-            </Button>
+              Job sources
+            </h3>
+            <p className="max-w-2xl text-sm leading-6 text-foreground-soft">
+              Find a public careers page or job board you already know and
+              enable it here. Sources stay off until you enable them, and Job
+              Finder cannot search until at least one valid source is enabled.
+            </p>
           </div>
 
           {discoveryTargets.length === 0 ? (
@@ -821,11 +898,21 @@ export function ProfileSetupTargetingStep(props: {
               className="rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) p-3 text-sm leading-6 text-(--warning-text)"
               role="status"
             >
-              No job source is configured. Add the public page where you would
-              normally browse open roles.
+              No job source is configured yet. Add the public page where you
+              would normally browse open roles.
             </div>
           ) : (
             <>
+              {enabledSourceCount === 0 ? (
+                <div
+                  className="rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) p-3 text-sm leading-6 text-(--warning-text)"
+                  role="status"
+                >
+                  All {discoveryTargets.length} saved sources are turned off.
+                  Enable at least one source below so Job Finder has somewhere
+                  to search.
+                </div>
+              ) : null}
               <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
                 <div className="grid gap-(--gap-field)">
                   <FieldLabel htmlFor={sourceSearchInputId}>
@@ -856,11 +943,11 @@ export function ProfileSetupTargetingStep(props: {
 
               <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/30 pt-3">
                 <h4
-                  className="scroll-mt-4 text-sm font-semibold text-foreground outline-none"
+                  className="scroll-mt-4 sm:scroll-mt-[8.25rem] min-[1440px]:scroll-mt-[4.5rem] text-sm font-semibold text-foreground outline-none"
                   id="profile-setup-job-sources-list-heading"
                   tabIndex={-1}
                 >
-                  Source library
+                  Source catalog
                 </h4>
                 {filteredSources.length > 0 ? (
                   <p className="text-xs text-foreground-muted">
@@ -869,6 +956,15 @@ export function ProfileSetupTargetingStep(props: {
                   </p>
                 ) : null}
               </div>
+              <p
+                aria-atomic="true"
+                aria-live="polite"
+                className="-mt-2 text-xs leading-5 text-foreground-muted"
+                role="status"
+              >
+                {enabledSourceCount} of {discoveryTargets.length} sources
+                enabled for search
+              </p>
 
               {filteredSources.length === 0 ? (
                 <div className="rounded-(--radius-field) border border-border/30 px-4 py-5 text-center">
@@ -876,7 +972,7 @@ export function ProfileSetupTargetingStep(props: {
                     No sources match this search
                   </p>
                   <p className="mt-1 text-sm text-foreground-muted">
-                    Clear the search to return to the complete source library.
+                    Clear the search to return to the complete source catalog.
                   </p>
                   <Button
                     className="mt-3"
@@ -890,7 +986,7 @@ export function ProfileSetupTargetingStep(props: {
                 </div>
               ) : (
                 <>
-                  <div className="grid gap-3" data-profile-setup-source-page>
+                  <div className="grid gap-2" data-profile-setup-source-page>
                     {visibleSources.map(({ target, index }) => {
                       const validUrl = isValidProfileSetupSourceUrl(
                         target.startingUrl,
@@ -898,120 +994,206 @@ export function ProfileSetupTargetingStep(props: {
                       const sourceUrlInvalid =
                         target.startingUrl.trim().length > 0 && !validUrl;
                       const sourceUrlErrorId = `profile-setup-source-url-error-${target.id}`;
+                      const isEditing = editingTargetId === target.id;
+                      const guidance = getProfileSetupSourceGuidance(target);
+                      const starterAccessNote =
+                        getProfileSetupStarterAccessNote(target.startingUrl);
                       const sourceLabel =
                         target.label.trim() || `Source ${index + 1}`;
 
                       return (
-                        <div
-                          className="grid gap-3 rounded-(--radius-field) border border-border/30 bg-background/65 p-4"
-                          data-profile-setup-source-card={target.id}
-                          key={target.id}
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <p className="text-sm font-semibold text-foreground">
-                              {sourceLabel}
-                            </p>
-                            <Button
-                              aria-label={`Remove ${sourceLabel}`}
-                              onClick={() =>
-                                updateDiscoveryTargets(
-                                  discoveryTargets.filter(
-                                    (entry) => entry.id !== target.id,
-                                  ),
-                                )
-                              }
-                              size="sm"
-                              type="button"
-                              variant="ghost"
-                            >
-                              Remove
-                            </Button>
-                          </div>
-                          <div className="grid gap-3 md:grid-cols-2">
-                            <div className="grid gap-(--gap-field)">
-                              <FieldLabel
-                                htmlFor={`profile-setup-source-label-${target.id}`}
+                        <div className="grid gap-2" key={target.id}>
+                          <article
+                            className="grid gap-3 rounded-(--radius-field) border border-border/30 bg-background/65 p-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center"
+                            data-profile-setup-source-card={target.id}
+                          >
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p
+                                  className="min-w-0 max-w-full truncate text-sm font-semibold text-foreground"
+                                  title={sourceLabel}
+                                >
+                                  {sourceLabel}
+                                </p>
+                                {target.enabled ? (
+                                  <Badge variant="default">Enabled</Badge>
+                                ) : (
+                                  <Badge variant="outline">Disabled</Badge>
+                                )}
+                              </div>
+                              <p
+                                className="mt-1 truncate text-sm text-foreground-muted"
+                                title={target.startingUrl}
                               >
-                                Source name
-                              </FieldLabel>
-                              <ProfileInput
-                                id={`profile-setup-source-label-${target.id}`}
-                                onChange={(event) =>
-                                  updateDiscoveryTargets(
-                                    discoveryTargets.map((entry) =>
-                                      entry.id === target.id
-                                        ? {
-                                            ...entry,
-                                            label: event.target.value,
-                                          }
-                                        : entry,
-                                    ),
+                                {getProfileSetupSourceHost(target.startingUrl)}
+                              </p>
+                              <p className="mt-1 text-xs leading-5 text-foreground-muted">
+                                {guidance.label}
+                              </p>
+                              {guidance.detail ? (
+                                <p className="text-xs leading-5 text-foreground-muted">
+                                  {guidance.detail}
+                                </p>
+                              ) : null}
+                              {starterAccessNote ? (
+                                <p className="text-xs leading-5 text-foreground-muted">
+                                  {starterAccessNote}
+                                </p>
+                              ) : null}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                              {target.enabled ? (
+                                <Button
+                                  aria-label={`Disable ${sourceLabel} in searches`}
+                                  onClick={() =>
+                                    setTargetEnabled(target.id, false)
+                                  }
+                                  size="sm"
+                                  type="button"
+                                  variant="ghost"
+                                >
+                                  Disable
+                                </Button>
+                              ) : (
+                                <Button
+                                  aria-label={`Enable ${sourceLabel} in searches`}
+                                  disabled={!validUrl}
+                                  onClick={() =>
+                                    setTargetEnabled(target.id, true)
+                                  }
+                                  size="sm"
+                                  type="button"
+                                  variant="secondary"
+                                >
+                                  Enable
+                                </Button>
+                              )}
+                              <Button
+                                aria-expanded={isEditing}
+                                aria-label={
+                                  isEditing
+                                    ? `Close editor for ${sourceLabel}`
+                                    : `Edit ${sourceLabel}`
+                                }
+                                onClick={() =>
+                                  setEditingTargetId(
+                                    isEditing ? null : target.id,
                                   )
                                 }
-                                placeholder="Example: Acme careers"
-                                value={target.label}
-                              />
-                            </div>
-                            <div className="grid gap-(--gap-field)">
-                              <FieldLabel
-                                htmlFor={`profile-setup-source-url-${target.id}`}
+                                size="sm"
+                                type="button"
+                                variant="outline"
                               >
-                                Careers or job-board URL
-                              </FieldLabel>
-                              <ProfileInput
-                                aria-describedby={
-                                  sourceUrlInvalid
-                                    ? sourceUrlErrorId
-                                    : undefined
-                                }
-                                aria-invalid={sourceUrlInvalid}
-                                id={`profile-setup-source-url-${target.id}`}
-                                onChange={(event) =>
-                                  updateDiscoveryTargets(
-                                    discoveryTargets.map((entry) =>
-                                      entry.id === target.id
-                                        ? {
-                                            ...entry,
-                                            startingUrl: event.target.value,
-                                            instructionStatus: "missing",
-                                            validatedInstructionId: null,
-                                            draftInstructionId: null,
-                                            lastDebugRunId: null,
-                                            lastVerifiedAt: null,
-                                            staleReason: null,
-                                          }
-                                        : entry,
-                                    ),
-                                  )
-                                }
-                                placeholder="https://company.example/careers"
-                                type="url"
-                                value={target.startingUrl}
-                              />
+                                Edit
+                              </Button>
                             </div>
-                          </div>
-                          <CheckboxField
-                            checked={target.enabled}
-                            label="Include this source in searches"
-                            onCheckedChange={(checked) =>
-                              updateDiscoveryTargets(
-                                discoveryTargets.map((entry) =>
-                                  entry.id === target.id
-                                    ? { ...entry, enabled: checked }
-                                    : entry,
-                                ),
-                              )
-                            }
-                          />
-                          {sourceUrlInvalid ? (
+                          </article>
+                          {sourceUrlInvalid && !isEditing ? (
                             <p
                               className="text-sm leading-6 text-(--warning-text)"
                               id={sourceUrlErrorId}
                               role="status"
                             >
-                              Enter a complete http or https URL before this
-                              source can be used.
+                              This source needs a complete http or https URL.
+                              Choose Edit to fix it before enabling it.
                             </p>
+                          ) : null}
+                          {isEditing ? (
+                            <div className="grid gap-3 rounded-(--radius-field) border border-dashed border-border/40 bg-background/70 p-4">
+                              <div className="grid gap-3 md:grid-cols-2">
+                                <div className="grid gap-(--gap-field)">
+                                  <FieldLabel
+                                    htmlFor={`profile-setup-source-label-${target.id}`}
+                                  >
+                                    Source name
+                                  </FieldLabel>
+                                  <ProfileInput
+                                    id={`profile-setup-source-label-${target.id}`}
+                                    onChange={(event) =>
+                                      updateDiscoveryTargets(
+                                        discoveryTargets.map((entry) =>
+                                          entry.id === target.id
+                                            ? {
+                                                ...entry,
+                                                label: event.target.value,
+                                              }
+                                            : entry,
+                                        ),
+                                      )
+                                    }
+                                    placeholder="Example: Acme careers"
+                                    value={target.label}
+                                  />
+                                </div>
+                                <div className="grid gap-(--gap-field)">
+                                  <FieldLabel
+                                    htmlFor={`profile-setup-source-url-${target.id}`}
+                                  >
+                                    Careers or job-board URL
+                                  </FieldLabel>
+                                  <ProfileInput
+                                    aria-describedby={
+                                      sourceUrlInvalid
+                                        ? sourceUrlErrorId
+                                        : undefined
+                                    }
+                                    aria-invalid={sourceUrlInvalid}
+                                    id={`profile-setup-source-url-${target.id}`}
+                                    onChange={(event) =>
+                                      updateDiscoveryTargets(
+                                        discoveryTargets.map((entry) =>
+                                          entry.id === target.id
+                                            ? {
+                                                ...entry,
+                                                startingUrl: event.target.value,
+                                                instructionStatus: "missing",
+                                                validatedInstructionId: null,
+                                                draftInstructionId: null,
+                                                lastDebugRunId: null,
+                                                lastVerifiedAt: null,
+                                                staleReason: null,
+                                              }
+                                            : entry,
+                                        ),
+                                      )
+                                    }
+                                    placeholder="https://company.example/careers"
+                                    type="url"
+                                    value={target.startingUrl}
+                                  />
+                                </div>
+                              </div>
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                {sourceUrlInvalid ? (
+                                  <p
+                                    className="text-sm leading-6 text-(--warning-text)"
+                                    id={sourceUrlErrorId}
+                                    role="status"
+                                  >
+                                    Enter a complete http or https URL before
+                                    this source can be used.
+                                  </p>
+                                ) : (
+                                  <span />
+                                )}
+                                <Button
+                                  aria-label={`Remove ${sourceLabel}`}
+                                  onClick={() => {
+                                    updateDiscoveryTargets(
+                                      discoveryTargets.filter(
+                                        (entry) => entry.id !== target.id,
+                                      ),
+                                    );
+                                    setEditingTargetId(null);
+                                  }}
+                                  size="sm"
+                                  type="button"
+                                  variant="ghost"
+                                >
+                                  Remove
+                                </Button>
+                              </div>
+                            </div>
                           ) : null}
                         </div>
                       );
@@ -1053,6 +1235,106 @@ export function ProfileSetupTargetingStep(props: {
               )}
             </>
           )}
+
+          <div className="grid gap-3 border-t border-border/30 pt-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="grid gap-0.5">
+                <p className="text-sm font-semibold text-foreground">
+                  Know the exact web address?
+                </p>
+                <p className="text-xs leading-5 text-foreground-muted">
+                  Advanced option for a public careers page that is not in the
+                  list above.
+                </p>
+              </div>
+              <Button
+                aria-expanded={isManualSourceOpen}
+                onClick={() => setIsManualSourceOpen((open) => !open)}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Add a source URL manually
+              </Button>
+            </div>
+            {isManualSourceOpen ? (
+              <form
+                className="grid gap-3 rounded-(--radius-field) border border-border/30 bg-background/65 p-4"
+                data-profile-setup-manual-source-form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  addManualDiscoveryTarget();
+                }}
+              >
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="grid gap-(--gap-field)">
+                    <FieldLabel htmlFor={manualSourceLabelId}>
+                      Source name
+                    </FieldLabel>
+                    <ProfileInput
+                      id={manualSourceLabelId}
+                      onChange={(event) =>
+                        setManualSourceLabel(event.target.value)
+                      }
+                      placeholder="Example: Acme careers"
+                      value={manualSourceLabel}
+                    />
+                  </div>
+                  <div className="grid gap-(--gap-field)">
+                    <FieldLabel htmlFor={manualSourceUrlId}>
+                      Careers or job-board URL
+                    </FieldLabel>
+                    <ProfileInput
+                      aria-describedby={
+                        isManualSourceUrlInvalid
+                          ? manualSourceUrlErrorId
+                          : undefined
+                      }
+                      aria-invalid={isManualSourceUrlInvalid}
+                      id={manualSourceUrlId}
+                      onChange={(event) =>
+                        setManualSourceUrl(event.target.value)
+                      }
+                      placeholder="https://company.example/careers"
+                      type="url"
+                      value={manualSourceUrl}
+                    />
+                  </div>
+                </div>
+                {isManualSourceUrlInvalid ? (
+                  <p
+                    className="text-sm leading-6 text-(--warning-text)"
+                    id={manualSourceUrlErrorId}
+                    role="status"
+                  >
+                    Enter a complete http or https URL before this source can be
+                    used.
+                  </p>
+                ) : null}
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button disabled={!isManualSourceComplete} type="submit">
+                    Add source
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setIsManualSourceOpen(false);
+                      setManualSourceLabel("");
+                      setManualSourceUrl("");
+                    }}
+                    type="button"
+                    variant="ghost"
+                  >
+                    Cancel
+                  </Button>
+                  {!isManualSourceComplete && !isManualSourceUrlInvalid ? (
+                    <p className="text-xs leading-5 text-foreground-muted">
+                      Add a short name and a complete http or https URL.
+                    </p>
+                  ) : null}
+                </div>
+              </form>
+            ) : null}
+          </div>
         </section>
 
         {props.renderFooter({

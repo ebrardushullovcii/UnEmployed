@@ -95,17 +95,12 @@ function Panel(props: {
   return (
     <section
       className={cn(
-        "surface-card-tint relative scroll-mt-32 overflow-hidden rounded-(--radius-panel) border p-4 shadow-[0_18px_70px_rgba(0,0,0,0.22)]",
+        "surface-panel-shell relative scroll-mt-32 overflow-hidden rounded-(--radius-panel) border border-(--surface-panel-border) p-4",
         props.className,
       )}
       id={props.id}
     >
       <header className="mb-4 flex items-center gap-2">
-        {props.index ? (
-          <span className="grid size-5 place-items-center rounded-sm bg-white/10 font-mono text-[10px] text-muted-foreground">
-            {props.index}
-          </span>
-        ) : null}
         <h2 className="text-[0.78rem] font-bold uppercase tracking-(--tracking-badge)">
           {props.title}
         </h2>
@@ -195,6 +190,69 @@ export function shouldApplyInterviewWorkspaceSnapshot(
   return nextTimestamp >= currentTimestamp;
 }
 
+const LAST_JOB_FINDER_ROUTE_STORAGE_KEY =
+  "unemployed.interview-helper.last-job-finder-route";
+const JOB_FINDER_ROUTE_FALLBACK = "/job-finder";
+const JOB_FINDER_ROUTE_PATTERN = /^\/job-finder(?:$|[/?#])/;
+
+type RouteRecordingHistory = Pick<History, "pushState" | "replaceState">;
+
+export function recordLastJobFinderRoute(
+  storage: Storage,
+  url: string | URL | null | undefined,
+) {
+  if (!url) return;
+
+  const raw = String(url);
+  const hashIndex = raw.indexOf("#");
+  const route = hashIndex === -1 ? raw : raw.slice(hashIndex + 1);
+
+  if (!JOB_FINDER_ROUTE_PATTERN.test(route)) return;
+
+  storage.setItem(LAST_JOB_FINDER_ROUTE_STORAGE_KEY, route);
+}
+
+export function getLastJobFinderRoute(storage?: Storage) {
+  const stored = (storage ?? window.sessionStorage).getItem(
+    LAST_JOB_FINDER_ROUTE_STORAGE_KEY,
+  );
+
+  if (stored && JOB_FINDER_ROUTE_PATTERN.test(stored)) {
+    return stored;
+  }
+
+  return JOB_FINDER_ROUTE_FALLBACK;
+}
+
+const patchedJobFinderRecorderHistories = new WeakSet<RouteRecordingHistory>();
+
+function patchHistoryRouteMethod(
+  history: RouteRecordingHistory,
+  method: "pushState" | "replaceState",
+  storage: Storage,
+) {
+  const original = history[method].bind(history);
+  history[method] = (
+    data: Parameters<History["pushState"]>[0],
+    unused: string,
+    url?: string | URL | null,
+  ) => {
+    recordLastJobFinderRoute(storage, url);
+    original(data, unused, url);
+  };
+}
+
+export function installJobFinderRouteRecorder(
+  history: RouteRecordingHistory,
+  storage: Storage,
+): void {
+  if (patchedJobFinderRecorderHistories.has(history)) return;
+  patchedJobFinderRecorderHistories.add(history);
+
+  patchHistoryRouteMethod(history, "pushState", storage);
+  patchHistoryRouteMethod(history, "replaceState", storage);
+}
+
 export function InterviewHelperPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -272,6 +330,12 @@ export function InterviewHelperPage() {
       });
     }
   }
+
+  const jobFinderReturnRoute = getLastJobFinderRoute();
+
+  useEffect(() => {
+    installJobFinderRouteRecorder(window.history, window.sessionStorage);
+  }, []);
 
   useEffect(() => {
     void loadWorkspace();
@@ -575,6 +639,11 @@ export function InterviewHelperPage() {
           detail:
             "Open the visible chat and begin listening for interview context.",
         };
+  const setupPrimaryStage = !consentAccepted
+    ? "Accept the required notices"
+    : !rehearsalReady
+      ? "Check your readiness"
+      : "Ready to start";
 
   async function acceptSetup() {
     await updateWorkspace("accept_setup", () =>
@@ -680,6 +749,7 @@ export function InterviewHelperPage() {
         "h-screen overflow-hidden bg-canvas text-foreground",
         `platform-${platform}`,
       )}
+      data-interview-helper-shell
     >
       <header
         className="fixed inset-x-0 top-0 z-50 border-b border-border/15 bg-(--shell-header-bg) backdrop-blur-sm"
@@ -697,10 +767,10 @@ export function InterviewHelperPage() {
             <div className="flex min-w-0 flex-col">
               <Link
                 className={cn(
-                  "truncate font-display text-[1.45rem] font-black leading-none tracking-[-0.08em] text-(var(--headline-primary)) sm:text-[2rem]",
+                  "font-display text-[1.45rem] font-black leading-none tracking-[-0.08em] text-(var(--headline-primary)) sm:text-[1.75rem]",
                 )}
                 style={noDragRegionStyle}
-                to="/job-finder/profile"
+                to={jobFinderReturnRoute}
               >
                 UNEMPLOYED
               </Link>
@@ -732,25 +802,28 @@ export function InterviewHelperPage() {
                       className="h-4 w-px bg-border/50"
                     />
                   ) : null}
-                  <button
-                    aria-current={
-                      moduleName === "interview-helper" ? "page" : undefined
-                    }
-                    className={cn(
-                      "h-auto rounded-none border-0 bg-transparent px-0 py-0 text-[14px] font-semibold tracking-(--tracking-badge) shadow-none sm:text-[15px]",
-                      moduleName === "job-finder"
-                        ? "cursor-pointer text-muted-foreground hover:text-foreground"
-                        : "text-(--text-headline)",
-                    )}
-                    onClick={() => {
-                      if (moduleName === "job-finder") {
-                        void navigate("/job-finder/profile");
-                      }
-                    }}
-                    type="button"
-                  >
-                    {formatModuleLabel(moduleName)}
-                  </button>
+                  {moduleName === "interview-helper" ? (
+                    // Mirrors the Job Finder shell: the current module is a
+                    // non-interactive aria-current marker, not a dead button.
+                    <span
+                      aria-current="page"
+                      className="text-[14px] font-semibold tracking-(--tracking-badge) text-(--text-headline) sm:text-[15px]"
+                    >
+                      {formatModuleLabel(moduleName)}
+                    </span>
+                  ) : (
+                    <button
+                      className="h-auto cursor-pointer rounded-none border-0 bg-transparent px-0 py-0 text-[14px] font-semibold tracking-(--tracking-badge) text-muted-foreground shadow-none outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:text-[15px]"
+                      onClick={() => {
+                        if (moduleName === "job-finder") {
+                          void navigate(jobFinderReturnRoute);
+                        }
+                      }}
+                      type="button"
+                    >
+                      {formatModuleLabel(moduleName)}
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -812,14 +885,14 @@ export function InterviewHelperPage() {
             className="col-span-2 col-start-1 row-start-2 flex min-w-0 items-center overflow-x-auto px-2 lg:absolute lg:inset-x-0 lg:top-10 lg:z-10 lg:h-16 lg:justify-center lg:overflow-visible lg:px-52"
             style={noDragRegionStyle}
           >
-            <div className="inline-flex min-w-max items-center gap-1 rounded-full border border-(--surface-panel-border) bg-(--surface-panel) p-1 lg:max-w-full lg:min-w-0">
+            <div className="inline-flex min-w-max items-center gap-1 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel) p-1 lg:max-w-full lg:min-w-0">
               <span className="shrink-0 px-2 text-[0.68rem] font-semibold uppercase tracking-(--tracking-badge) text-foreground lg:hidden">
                 Interview Helper
               </span>
               <Link
                 aria-label="Open Job Finder"
-                className="shrink-0 rounded-full border border-border px-3 py-2 text-[0.68rem] font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground lg:hidden"
-                to="/job-finder/profile"
+                className="shrink-0 rounded-(--radius-button) border border-border px-3 py-2 text-[0.68rem] font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground lg:hidden"
+                to={jobFinderReturnRoute}
               >
                 Job Finder
               </Link>
@@ -827,31 +900,23 @@ export function InterviewHelperPage() {
                 aria-hidden="true"
                 className="mx-1 h-4 w-px shrink-0 bg-border/50 lg:hidden"
               />
-              {activeTabDefinitions.map((tab, index) => (
-                <span className="contents" key={tab.id}>
-                  {tab.id === "settings" && index > 0 ? (
-                    <span
-                      aria-hidden="true"
-                      className="mx-1 h-4 w-px bg-border/50"
-                    />
+              {activeTabDefinitions.map((tab) => (
+                <button
+                  aria-current={activeTab === tab.id ? "page" : undefined}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-(--radius-button) px-3 py-2 text-[0.72rem] font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground sm:gap-2 sm:px-3.5 sm:text-[0.76rem] xl:px-4 xl:text-(length:--text-small)",
+                    activeTab === tab.id &&
+                      "bg-accent font-semibold text-accent-foreground ring-1 ring-inset ring-(--surface-panel-border-active)",
+                  )}
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  type="button"
+                >
+                  {tab.id === "settings" ? (
+                    <Settings2 className="size-4" />
                   ) : null}
-                  <button
-                    aria-current={activeTab === tab.id ? "page" : undefined}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-[0.72rem] font-medium text-muted-foreground transition-colors hover:text-foreground sm:gap-2 sm:px-3.5 sm:text-[0.76rem] xl:px-4 xl:text-(length:--text-small)",
-                      activeTab === tab.id
-                        ? "bg-secondary text-foreground"
-                        : "",
-                    )}
-                    onClick={() => setActiveTab(tab.id)}
-                    type="button"
-                  >
-                    {tab.id === "settings" ? (
-                      <Settings2 className="size-4" />
-                    ) : null}
-                    <span>{tab.label}</span>
-                  </button>
-                </span>
+                  <span>{tab.label}</span>
+                </button>
               ))}
             </div>
           </nav>
@@ -866,12 +931,18 @@ export function InterviewHelperPage() {
         <div className="mx-auto grid max-w-[118rem] gap-4">
           {activeTab !== "assist" ? (
             <section
-              className="surface-panel-shell relative overflow-hidden rounded-(--radius-panel) border p-4 shadow-[0_24px_90px_rgba(0,0,0,0.2)]"
+              className="relative border-b border-(--surface-panel-border) px-1 py-2"
               id="setup"
             >
-              <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
-                <div className="grid min-w-0 gap-3">
-                  <div className="flex flex-wrap items-center gap-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
+                <h1 className="text-[1.75rem] leading-none font-semibold tracking-[-0.04em]">
+                  Interview conversation
+                </h1>
+                <p className="min-w-64 flex-1 text-[0.8rem] leading-5 text-muted-foreground">
+                  Prepare, test audio, and keep live assistance visible.
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <StatusPill
                       label={interviewModeLabel}
                       tone={isLiveSession ? "success" : "info"}
@@ -886,25 +957,6 @@ export function InterviewHelperPage() {
                       {targetLabel}
                     </span>
                   </div>
-                  <div className="grid gap-2">
-                    <h1 className="text-[clamp(2rem,3.2vw,3.25rem)]">
-                      Interview conversation
-                    </h1>
-                    <p className="max-w-3xl text-[0.9rem] leading-6 text-muted-foreground">
-                      Talk to the assistant in this window, attach screenshots,
-                      and bring in microphone or system-audio context as needed.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    onClick={() => setActiveTab("settings")}
-                    size="compact"
-                    variant="secondary"
-                  >
-                    <Settings2 className="size-4" />
-                    Settings
-                  </Button>
                 </div>
               </div>
             </section>
@@ -917,7 +969,7 @@ export function InterviewHelperPage() {
                   <div className="grid gap-5">
                     <div className="grid gap-2">
                       <p className="text-[1.25rem] font-semibold text-foreground">
-                        {setupPrimaryAction.label}
+                        {setupPrimaryStage}
                       </p>
                       <p className="max-w-2xl text-[0.9rem] leading-6 text-muted-foreground">
                         {setupPrimaryAction.detail}
@@ -934,7 +986,7 @@ export function InterviewHelperPage() {
                       <Play className="size-4" />
                       {setupPrimaryAction.label}
                     </Button>
-                    <div className="grid gap-2 rounded-(--radius-small) border border-border-subtle bg-black/20 p-3 sm:grid-cols-3">
+                    <div className="grid border-y border-border-subtle sm:grid-cols-3">
                       {[
                         {
                           key: "microphoneCapture" as const,
@@ -956,7 +1008,7 @@ export function InterviewHelperPage() {
                         },
                       ].map((option) => (
                         <label
-                          className="flex items-start gap-3 rounded-(--radius-small) border border-border-subtle bg-black/20 p-3 text-[0.82rem]"
+                          className="flex items-start gap-3 p-3 text-[0.82rem] [&:not(:last-child)]:border-b [&:not(:last-child)]:border-border-subtle sm:[&:not(:last-child)]:border-r sm:[&:not(:last-child)]:border-b-0"
                           key={option.key}
                         >
                           <input
@@ -985,8 +1037,8 @@ export function InterviewHelperPage() {
                         </label>
                       ))}
                     </div>
-                    <div className="grid gap-3 text-[0.84rem] text-muted-foreground sm:grid-cols-3">
-                      <div className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
+                    <div className="grid border-t border-border-subtle text-[0.84rem] text-muted-foreground sm:grid-cols-3">
+                      <div className="p-3 sm:border-r sm:border-border-subtle">
                         <CheckCircle2 className="mb-2 size-4 text-(--success-text)" />
                         <p className="font-semibold text-foreground">
                           1. Accept notices
@@ -996,7 +1048,7 @@ export function InterviewHelperPage() {
                           notices.
                         </p>
                       </div>
-                      <div className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
+                      <div className="border-t border-border-subtle p-3 sm:border-t-0 sm:border-r">
                         <Shield className="mb-2 size-4 text-(--info-text)" />
                         <p className="font-semibold text-foreground">
                           2. Quick check
@@ -1006,7 +1058,7 @@ export function InterviewHelperPage() {
                           response paths before the interview.
                         </p>
                       </div>
-                      <div className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
+                      <div className="border-t border-border-subtle p-3 sm:border-t-0">
                         <Sparkles className="mb-2 size-4 text-(--warning-text)" />
                         <p className="font-semibold text-foreground">
                           3. Start
@@ -1018,7 +1070,7 @@ export function InterviewHelperPage() {
                       </div>
                     </div>
                   </div>
-                  <aside className="grid gap-3 rounded-(--radius-small) border border-border-subtle bg-black/20 p-4">
+                  <aside className="grid gap-3 rounded-(--radius-small) border border-border-subtle bg-(--surface-fill-subtle) p-4">
                     <div className="grid gap-1">
                       <span className="text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">
                         Interview target
@@ -1281,10 +1333,10 @@ export function InterviewHelperPage() {
                             audioTranscriptionAvailable
                           }
                         />
-                        <div className="grid gap-2 rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
+                        <div className="grid gap-2 rounded-(--radius-small) border border-border-subtle bg-(--surface-fill-subtle) p-3">
                           <p className="text-[0.82rem]">Send a question</p>
                           <textarea
-                            className="min-h-24 resize-y rounded-(--radius-small) border border-border-subtle bg-black/30 p-3 text-[0.82rem] leading-5 text-foreground outline-none focus:border-(--info-border)"
+                            className="min-h-24 resize-y rounded-(--radius-small) border border-border-subtle bg-(--field) p-3 text-[0.82rem] leading-5 text-foreground outline-none focus:border-(--info-border)"
                             onChange={(event) => {
                               setTranscriptDraft(event.target.value);
                             }}
@@ -1293,7 +1345,7 @@ export function InterviewHelperPage() {
                           />
                           <div className="grid gap-2 sm:grid-cols-[0.62fr_1fr]">
                             <select
-                              className="h-9 rounded-(--radius-small) border border-border-subtle bg-black/30 px-2 text-[0.78rem] text-foreground"
+                              className="h-9 rounded-(--radius-small) border border-border-subtle bg-(--field) px-2 text-[0.78rem] text-foreground"
                               onChange={(event) => {
                                 setTranscriptSource(
                                   event.target
@@ -1326,7 +1378,7 @@ export function InterviewHelperPage() {
                             </Button>
                           </div>
                         </div>
-                        <div className="grid gap-2 rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
+                        <div className="grid gap-2 rounded-(--radius-small) border border-border-subtle bg-(--surface-fill-subtle) p-3">
                           <p className="text-[0.82rem]">
                             Other transcript sources
                           </p>
@@ -1345,7 +1397,7 @@ export function InterviewHelperPage() {
                         </div>
                       </div>
                     ) : (
-                      <div className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3 text-[0.82rem] text-muted-foreground">
+                      <div className="rounded-(--radius-small) border border-border-subtle bg-(--surface-fill-subtle) p-3 text-[0.82rem] text-muted-foreground">
                         Start the interview to use audio and send questions.
                       </div>
                     )}
@@ -1359,7 +1411,7 @@ export function InterviewHelperPage() {
                     <div className="grid gap-3">
                       {liveOverlaySummaries.map(({ label, overlay }) => (
                         <div
-                          className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3"
+                          className="rounded-(--radius-small) border border-border-subtle bg-(--surface-fill-subtle) p-3"
                           key={label}
                         >
                           <div className="flex items-center justify-between gap-2">
@@ -1463,10 +1515,10 @@ export function InterviewHelperPage() {
                       </p>
                     </div>
                   ) : !reviewSession ? (
-                    <div className="grid min-h-[18rem] place-items-center rounded-(--radius-small) border border-border-subtle bg-black/20 p-6 text-center">
-                      <div className="grid max-w-md gap-3">
-                        <Archive className="mx-auto size-7 text-muted-foreground" />
-                        <div className="grid gap-2">
+                    <div className="grid min-h-[12rem] place-items-center rounded-(--radius-small) border border-border-subtle bg-(--surface-fill-subtle) p-5 text-center">
+                      <div className="grid max-w-md gap-2.5">
+                        <Archive className="mx-auto size-6 text-muted-foreground" />
+                        <div className="grid gap-1.5">
                           <h3 className="text-[0.95rem] font-semibold text-foreground">
                             No saved interview session yet
                           </h3>
@@ -1491,7 +1543,7 @@ export function InterviewHelperPage() {
                         <h3 className="text-[0.78rem] uppercase tracking-(--tracking-badge) text-muted-foreground">
                           Transcript
                         </h3>
-                        <div className="max-h-64 overflow-y-auto rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
+                        <div className="max-h-64 overflow-y-auto rounded-(--radius-small) border border-border-subtle bg-(--surface-fill-subtle) p-3">
                           {transcriptSegments.map((segment) => (
                             <p
                               className="mb-2 text-[0.82rem] leading-5 text-foreground-soft"
@@ -1511,7 +1563,7 @@ export function InterviewHelperPage() {
                         <h3 className="text-[0.78rem] uppercase tracking-(--tracking-badge) text-muted-foreground">
                           Latest cue
                         </h3>
-                        <div className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3">
+                        <div className="rounded-(--radius-small) border border-border-subtle bg-(--surface-fill-subtle) p-3">
                           <p className="text-[0.86rem]">
                             {latestCue?.question ?? "No cue generated."}
                           </p>
@@ -1583,7 +1635,7 @@ export function InterviewHelperPage() {
                               Mark interviewed
                             </Button>
                             <textarea
-                              className="min-h-20 resize-none rounded-(--radius-small) border border-border-subtle bg-black/20 p-2 text-[0.8rem] text-foreground outline-none transition focus:border-primary"
+                              className="min-h-20 resize-none rounded-(--radius-small) border border-border-subtle bg-(--surface-fill-subtle) p-2 text-[0.8rem] text-foreground outline-none transition focus:border-primary"
                               onChange={(event) => {
                                 setFollowUpDraft(event.target.value);
                               }}
@@ -1653,7 +1705,7 @@ export function InterviewHelperPage() {
                         <div className="grid gap-3">
                           {liveOverlaySummaries.map(({ label, overlay }) => (
                             <div
-                              className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3"
+                              className="rounded-(--radius-small) border border-border-subtle bg-(--surface-fill-subtle) p-3"
                               key={label}
                             >
                               <div className="flex items-center justify-between gap-2">
@@ -1699,7 +1751,7 @@ export function InterviewHelperPage() {
                             key={keys}
                           >
                             <span className="text-[0.82rem]">{label}</span>
-                            <kbd className="rounded-sm border border-border-subtle bg-black/30 px-2 py-1 font-mono text-[0.7rem] text-muted-foreground">
+                            <kbd className="rounded-sm border border-border-subtle bg-(--field) px-2 py-1 font-mono text-[0.7rem] text-muted-foreground">
                               {keys}
                             </kbd>
                           </div>
@@ -1788,7 +1840,7 @@ export function InterviewHelperPage() {
                       <div className="grid gap-3">
                         {liveOverlaySummaries.map(({ label, overlay }) => (
                           <div
-                            className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3"
+                            className="rounded-(--radius-small) border border-border-subtle bg-(--surface-fill-subtle) p-3"
                             key={label}
                           >
                             <div className="flex items-center justify-between gap-2">
@@ -1829,7 +1881,7 @@ export function InterviewHelperPage() {
                             key={keys}
                           >
                             <span className="text-[0.82rem]">{label}</span>
-                            <kbd className="rounded-sm border border-border-subtle bg-black/30 px-2 py-1 font-mono text-[0.7rem] text-muted-foreground">
+                            <kbd className="rounded-sm border border-border-subtle bg-(--field) px-2 py-1 font-mono text-[0.7rem] text-muted-foreground">
                               {keys}
                             </kbd>
                           </div>
@@ -1846,7 +1898,7 @@ export function InterviewHelperPage() {
                       </p>
                       {liveOverlaySummaries.map(({ label, overlay }) => (
                         <div
-                          className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3"
+                          className="rounded-(--radius-small) border border-border-subtle bg-(--surface-fill-subtle) p-3"
                           key={label}
                         >
                           <div className="flex items-center justify-between gap-3">

@@ -29,15 +29,26 @@ Read `docs/ARCHITECTURE.md` before changing discovery or source-debug behavior.
 - `docs/exec-plans/active/`: detailed active plans
 - `docs/exec-plans/queued/`: detailed ready plans
 
-The active implementation plan is
-`docs/exec-plans/active/job-finder-campaigns-dashboard-crm-scale.md`. The
-campaign/dashboard/CRM phase-two behavior is implemented and has passed the
-focused checks plus the hardened production-Electron harness. The broad
-repository gate remains unpassed because the single attempt stopped before
-repository scripts ran when Corepack could not verify/fetch the pinned pnpm
-10.8 package; the exact state is recorded in `docs/STATUS.md` and
-`docs/TRACKS.md`. The
-completed AI capability reliability work is recorded in `docs/HISTORY.md`, the
+The active acceptance plan is
+`docs/exec-plans/active/job-finder-sealed-acceptance-and-blind-personas.md`.
+It owns the remaining chain for the current source: hard freeze, broad-gate and
+source-bound evidence reruns, one immutable-snapshot sealed acceptance run,
+external seal custody, strict post-seal ATS binding checks, the 14-persona blind
+wave, and evidence synthesis. Current truth lives in `docs/STATUS.md` and
+`docs/TRACKS.md`.
+
+`docs/exec-plans/active/job-finder-campaigns-dashboard-crm-scale.md` remains
+the implementation baseline: campaign/dashboard/CRM phase-two behavior is
+implemented and passed its focused checks plus the hardened
+production-Electron harness, but that plan is no longer the current acceptance
+driver. Its initial broad-gate attempt stopped before repository scripts ran
+when Corepack could not verify/fetch the pinned pnpm 10.8 package; that
+environment failure was superseded by the later passing integrated `pnpm
+verify` run recorded in `docs/STATUS.md` and `docs/TESTING.md`. The current
+source still owes fresh `pnpm verify` and `pnpm test:evidence` runs under the
+hard freeze.
+
+The completed AI capability reliability work is recorded in `docs/HISTORY.md`, the
 model-routing ADRs, and
 `docs/audits/LUNA_HIGH_AND_PRODUCTION_ACCEPTANCE_2026-08-12.html`. The approved
 Candidate Asset lifecycle and résumé visual/export refinement remain integrated.

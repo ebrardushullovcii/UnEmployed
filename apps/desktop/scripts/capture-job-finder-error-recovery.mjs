@@ -7,14 +7,20 @@ import {
   acceptanceEnvironment,
   assertFileRenderer,
   assertPrepareOnly,
+  assertViewportEvidence,
   attachProcessOutput,
   cleanupDirectory,
+  createOwnedProcessLedger,
   ensureFreshOutputDir,
   finalizeProcessOutput,
   loadAcceptanceContext,
   makeIsolatedUserDataDirectory,
   installPrepareOnlySafetyProbe,
+  PLAYWRIGHT_INSPECTOR_DISCONNECT_STDERR_PATTERN,
+  resolvePrimaryRunError,
+  resolveStartupBrowserWindow,
   screenshotMetadata,
+  stopAndVerifyOwnedElectron,
   verifyAcceptanceArtifacts,
 } from "./release-acceptance-harness.mjs";
 
@@ -24,8 +30,14 @@ const acceptance = loadAcceptanceContext("error-recovery");
 const outputDir = acceptance.outputDir;
 const REQUIRED_SCENARIO_COMPLETION_IDS = Object.freeze([
   "error-preview-1440",
+  "error-preview-recovered-native125",
   "error-preview-recovered-minimum",
 ]);
+const LIVE_PREVIEW_IFRAME_SELECTOR = 'iframe[title="Live resume preview"]';
+const MINIMUM_VISIBLE_PREVIEW_CSS_PX = 96;
+const PREVIEW_LAYOUT_SETTLE_TIMEOUT_MS = 5_000;
+const PREVIEW_LAYOUT_SETTLE_RETRY_MS = 100;
+const PREVIEW_SAMPLE_TIMEOUT_MS = 2_000;
 const report = {
   startedAt: new Date().toISOString(),
   outputDir,
@@ -44,6 +56,12 @@ const report = {
   scenarioCompletionIds: [],
   runtimeErrors: [],
   mainProcess: { pid: null, stdout: "", stderr: "" },
+  processOwnership: {
+    trackedProcesses: [],
+    verifications: [],
+    leftoverPids: [],
+    verified: false,
+  },
   safety: {
     syntheticTestDataOnly: true,
     browserAgentEnabled: false,
@@ -60,6 +78,10 @@ const report = {
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+function describeTeardownFailure(error) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function writeReport() {
@@ -103,10 +125,42 @@ async function inspectCaptureViewport(page) {
         rect.height > 0
       );
     });
-    const clipped = visibleInteractive
-      .map((element) => {
-        const rect = element.getBoundingClientRect();
-        return {
+    const clipped = visibleInteractive.flatMap((element) => {
+      const rect = element.getBoundingClientRect();
+      const intersects =
+        rect.bottom > 0 &&
+        rect.right > 0 &&
+        rect.top < viewport.height &&
+        rect.left < viewport.width;
+      if (
+        !intersects ||
+        (rect.left >= -1 &&
+          rect.right <= viewport.width + 1 &&
+          rect.top >= -1 &&
+          rect.bottom <= viewport.height + 1)
+      ) {
+        return [];
+      }
+      let scrollableAncestor = element.parentElement;
+      while (scrollableAncestor) {
+        const style = getComputedStyle(scrollableAncestor);
+        if (
+          /(auto|scroll)/.test(style.overflowY) &&
+          scrollableAncestor.scrollHeight > scrollableAncestor.clientHeight + 2
+        ) {
+          break;
+        }
+        scrollableAncestor = scrollableAncestor.parentElement;
+      }
+      const verticallyClipped =
+        rect.top < -1 || rect.bottom > viewport.height + 1;
+      const horizontallyClipped =
+        rect.left < -1 || rect.right > viewport.width + 1;
+      if (verticallyClipped && !horizontallyClipped && scrollableAncestor) {
+        return [];
+      }
+      return [
+        {
           tag: element.tagName.toLowerCase(),
           label:
             element.getAttribute("aria-label") ??
@@ -116,15 +170,9 @@ async function inspectCaptureViewport(page) {
           right: rect.right,
           top: rect.top,
           bottom: rect.bottom,
-        };
-      })
-      .filter(
-        (rect) =>
-          rect.left < -1 ||
-          rect.right > viewport.width + 1 ||
-          rect.top < -viewport.height - 1 ||
-          rect.bottom > viewport.height * 2 + 1,
-      );
+        },
+      ];
+    });
     return {
       viewport,
       documentOverflow,
@@ -135,11 +183,206 @@ async function inspectCaptureViewport(page) {
   if (layout.documentOverflow > 0)
     failures.push(`document horizontal overflow ${layout.documentOverflow}`);
   if (layout.clipped.length > 0)
-    failures.push(`clipped interactive surfaces ${JSON.stringify(layout.clipped)}`);
+    failures.push(
+      `clipped interactive surfaces ${JSON.stringify(layout.clipped)}`,
+    );
   return {
     insideViewport: failures.length === 0,
     noClip: failures.length === 0,
     failures,
+  };
+}
+
+function evaluatePreviewContentEvidence(facts, minimumVisibleCssPx) {
+  const rect = facts?.rect ?? null;
+  const viewport = facts?.viewport ?? null;
+  const visibleBounds = (() => {
+    const finiteRect =
+      rect !== null &&
+      [rect.left, rect.top, rect.right, rect.bottom].every(
+        (value) => typeof value === "number" && Number.isFinite(value),
+      );
+    const finiteViewport =
+      viewport !== null &&
+      [viewport.width, viewport.height].every(
+        (value) => typeof value === "number" && Number.isFinite(value),
+      );
+    if (!finiteRect || !finiteViewport) return null;
+    return {
+      visibleHeight: Math.max(
+        0,
+        Math.min(viewport.height, rect.bottom) - Math.max(0, rect.top),
+      ),
+      visibleWidth: Math.max(
+        0,
+        Math.min(viewport.width, rect.right) - Math.max(0, rect.left),
+      ),
+    };
+  })();
+  const horizontallyContained =
+    visibleBounds !== null &&
+    rect.left >= -1 &&
+    rect.right <= viewport.width + 1;
+  const renderedContentHeight =
+    typeof facts?.renderedContentHeight === "number" &&
+    Number.isFinite(facts.renderedContentHeight)
+      ? facts.renderedContentHeight
+      : null;
+  const contentElementCount = Number.isInteger(facts?.contentElementCount)
+    ? facts.contentElementCount
+    : 0;
+  const layoutStableAcrossAnimationFrames =
+    facts?.layoutStableAcrossAnimationFrames === true;
+  const failures = [];
+  if (facts?.found !== true) {
+    failures.push("recovered live preview iframe was not found");
+  } else {
+    if (!layoutStableAcrossAnimationFrames)
+      failures.push(
+        "preview geometry did not settle across two animation frames",
+      );
+    if (facts.displayVisible !== true)
+      failures.push("recovered live preview iframe is hidden");
+    if (facts.boxRendered !== true)
+      failures.push("recovered live preview iframe has no rendered box");
+    if (visibleBounds === null)
+      failures.push("preview rect/viewport were not measurable");
+    else {
+      if (visibleBounds.visibleHeight < minimumVisibleCssPx)
+        failures.push(
+          `only ${visibleBounds.visibleHeight}px of the recovered preview intersects the CSS viewport; required >= ${minimumVisibleCssPx}px`,
+        );
+      if (!horizontallyContained)
+        failures.push(
+          `preview rect ${JSON.stringify(rect)} is not horizontally contained in viewport ${JSON.stringify(viewport)}`,
+        );
+    }
+    if (renderedContentHeight === null || renderedContentHeight <= 0)
+      failures.push(
+        "same-origin preview document exposes no positive rendered content height",
+      );
+    if (contentElementCount <= 0)
+      failures.push("preview document body has no rendered elements");
+  }
+  return {
+    found: facts?.found === true,
+    rect,
+    viewport,
+    visibleWidth: visibleBounds?.visibleWidth ?? 0,
+    visibleHeight: visibleBounds?.visibleHeight ?? 0,
+    horizontallyContained,
+    renderedContentHeight,
+    contentElementCount,
+    minimumVisibleCssPx,
+    layoutStableAcrossAnimationFrames,
+    failures,
+    pass: failures.length === 0,
+  };
+}
+
+function withinPreviewSampleBudget(samplePromise, timeoutMs) {
+  let sampleTimer = undefined;
+  return Promise.race([
+    samplePromise,
+    new Promise((_, reject) => {
+      sampleTimer = setTimeout(() => {
+        reject(
+          new Error(
+            `recovered preview two-animation-frame sample did not settle within ${timeoutMs}ms`,
+          ),
+        );
+      }, timeoutMs);
+    }),
+  ]).finally(() => {
+    clearTimeout(sampleTimer);
+  });
+}
+
+function sampleRecoveredPreviewFacts(page) {
+  return page.evaluate(
+    (selector) =>
+      new Promise((resolve) => {
+        const readFacts = () => {
+          const iframe = document.querySelector(selector);
+          if (!(iframe instanceof HTMLIFrameElement)) return { found: false };
+          const style = getComputedStyle(iframe);
+          const rect = iframe.getBoundingClientRect();
+          const frameDocument = iframe.contentDocument;
+          return {
+            found: true,
+            displayVisible:
+              style.display !== "none" &&
+              style.visibility !== "hidden" &&
+              Number.parseFloat(style.opacity || "1") !== 0,
+            boxRendered: rect.width > 0 && rect.height > 0,
+            rect: {
+              left: rect.left,
+              top: rect.top,
+              right: rect.right,
+              bottom: rect.bottom,
+            },
+            viewport: { width: window.innerWidth, height: window.innerHeight },
+            renderedContentHeight:
+              frameDocument?.documentElement?.scrollHeight ?? null,
+            contentElementCount: frameDocument?.body?.childElementCount ?? 0,
+          };
+        };
+        requestAnimationFrame(() => {
+          const firstFrame = readFacts();
+          requestAnimationFrame(() => {
+            const secondFrame = readFacts();
+            resolve({
+              ...secondFrame,
+              layoutStableAcrossAnimationFrames:
+                JSON.stringify(firstFrame) === JSON.stringify(secondFrame),
+            });
+          });
+        });
+      }),
+    LIVE_PREVIEW_IFRAME_SELECTOR,
+  );
+}
+
+async function collectPreviewContentEvidence(page) {
+  await page
+    .locator(LIVE_PREVIEW_IFRAME_SELECTOR)
+    .first()
+    .scrollIntoViewIfNeeded();
+  const settleDeadline = Date.now() + PREVIEW_LAYOUT_SETTLE_TIMEOUT_MS;
+  let facts = null;
+  let lastSampleError = null;
+  for (;;) {
+    try {
+      facts = await withinPreviewSampleBudget(
+        sampleRecoveredPreviewFacts(page),
+        PREVIEW_SAMPLE_TIMEOUT_MS,
+      );
+      if (facts.layoutStableAcrossAnimationFrames === true) break;
+      lastSampleError = null;
+    } catch (error) {
+      facts = null;
+      lastSampleError = error instanceof Error ? error.message : String(error);
+    }
+    if (Date.now() >= settleDeadline) break;
+    await page.waitForTimeout(PREVIEW_LAYOUT_SETTLE_RETRY_MS);
+  }
+  const evidence = evaluatePreviewContentEvidence(
+    facts ?? { found: false },
+    MINIMUM_VISIBLE_PREVIEW_CSS_PX,
+  );
+  const failures =
+    lastSampleError === null
+      ? evidence.failures
+      : [
+          ...evidence.failures,
+          `bounded recovered-preview sample failed: ${lastSampleError}`,
+        ];
+  return {
+    selector: LIVE_PREVIEW_IFRAME_SELECTOR,
+    scrolledIntoView: true,
+    ...evidence,
+    failures,
+    pass: failures.length === 0,
   };
 }
 
@@ -150,12 +393,29 @@ async function capture(
 ) {
   const fileName = `${String(report.captures.length + 1).padStart(2, "0")}-${label}.png`;
   const fullPath = path.join(outputDir, fileName);
+  const previewContentEvidence =
+    scenario === "recovery" ? await collectPreviewContentEvidence(page) : null;
   await page.screenshot({ path: fullPath, animations: "disabled" });
   const evidence = await screenshotMetadata(page, browserWindow, fullPath, {
     viewport,
     seedDigest: acceptance.seedDigest,
   });
+  assertViewportEvidence(evidence.viewport, viewport);
   const inspection = await inspectCaptureViewport(page);
+  if (evidence.clickablePointEvidence.pass !== true) {
+    inspection.failures.push(
+      `interactive controls have no unobscured clickable point: ${JSON.stringify(evidence.clickablePointEvidence.failures)}`,
+    );
+    inspection.insideViewport = false;
+    inspection.noClip = false;
+  }
+  if (previewContentEvidence && previewContentEvidence.pass !== true) {
+    inspection.failures.push(
+      `recovered live preview content evidence failed: ${JSON.stringify(previewContentEvidence.failures)}`,
+    );
+    inspection.insideViewport = false;
+    inspection.noClip = false;
+  }
   const entry = {
     label,
     scenario,
@@ -164,6 +424,8 @@ async function capture(
     seedDigest: evidence.seedDigest,
     viewportMetadata: evidence.viewport,
     screenshot: evidence.screenshot,
+    clickablePointEvidence: evidence.clickablePointEvidence,
+    previewContentEvidence,
     ...inspection,
     pass: inspection.failures.length === 0,
     scenarioId,
@@ -171,26 +433,13 @@ async function capture(
   };
   report.captures.push(entry);
   await writeReport();
-  assert(entry.pass === true, `Error/recovery capture failed: ${JSON.stringify(entry)}`);
+  assert(
+    entry.pass === true,
+    `Error/recovery capture failed: ${JSON.stringify(entry)}`,
+  );
   completeScenario(scenarioId);
   await writeReport();
   return entry;
-}
-
-async function stopApp(app) {
-  const processHandle = app?.process();
-  if (!processHandle?.pid) return;
-  if (process.platform === "win32") {
-    const { execFile } = await import("node:child_process");
-    const { promisify } = await import("node:util");
-    await promisify(execFile)(
-      "taskkill",
-      ["/PID", String(processHandle.pid), "/T", "/F"],
-      { windowsHide: true },
-    ).catch(() => {});
-  } else {
-    processHandle.kill("SIGTERM");
-  }
 }
 
 async function run() {
@@ -202,6 +451,10 @@ async function run() {
   report.safety.isolatedUserDataDir = userDataDirectory;
   let app = null;
   let processOutputState = null;
+  let scenarioSucceeded = false;
+  let primaryScenarioError = null;
+  let postTeardownFailure = null;
+  const ownedProcesses = createOwnedProcessLedger();
   const observedSafetyEvents = [];
   try {
     app = await electron.launch({
@@ -235,7 +488,7 @@ async function run() {
     await page.evaluate(() =>
       window.unemployed.jobFinder.test.setSystemThemeOverride("dark"),
     );
-    const browserWindow = await app.browserWindow(page);
+    const browserWindow = await resolveStartupBrowserWindow(app, page);
     const baseSnapshot = await page.evaluate(async () => {
       await window.unemployed.jobFinder.test.setResumePreviewMode("fail_once");
       return window.unemployed.jobFinder.test.loadResumeWorkspaceDemo();
@@ -258,12 +511,14 @@ async function run() {
       window.location.hash = `#${nextRoute}`;
     }, `/job-finder/review-queue/${jobId}/resume`);
     await page
-      .getByLabel("Preview")
-      .getByText("Resume preview", { exact: true })
+      .locator("p:visible")
+      .filter({ hasText: /^Resume preview$/ })
       .first()
       .waitFor({ state: "visible", timeout: 20_000 });
     await page
-      .getByRole("heading", { name: "Preview unavailable" })
+      .locator(":is(h1,h2,h3,h4,h5,h6):visible")
+      .filter({ hasText: "Preview unavailable" })
+      .first()
       .waitFor({ state: "visible", timeout: 20_000 });
     const previewEditor = page
       .locator("[data-resume-workspace-scroll-region]:visible")
@@ -289,10 +544,28 @@ async function run() {
       editorRemainsAvailable: true,
       viewport: "desktop",
     };
-    await page.getByRole("button", { name: "Refresh preview" }).click();
+    await page
+      .locator("button:visible")
+      .filter({ hasText: "Refresh preview" })
+      .first()
+      .click();
     await page
       .locator('iframe[title="Live resume preview"]:visible')
       .waitFor({ state: "visible", timeout: 20_000 });
+    await page.setViewportSize({ width: 1440, height: 920 });
+    await browserWindow.evaluate((win) => win.webContents.setZoomFactor(1.25));
+    await page.waitForTimeout(250);
+    await capture(page, browserWindow, {
+      label: "preview-recovered-native125",
+      scenario: "recovery",
+      scenarioId: "error-preview-recovered-native125",
+      viewport: {
+        slug: "native-125",
+        width: 1440,
+        height: 920,
+        zoomFactor: 1.25,
+      },
+    });
     await page.setViewportSize({ width: 1024, height: 768 });
     await browserWindow.evaluate((win) => win.webContents.setZoomFactor(1));
     await page.waitForTimeout(250);
@@ -323,7 +596,10 @@ async function run() {
     report.safety.finalSubmissionClicked = observedSafetyEvents.some((event) =>
       /submit|application|apply|account|sign[ -]?in/i.test(event.label ?? ""),
     );
-    assertPrepareOnly(finalWorkspace, observedSafetyEvents);
+    report.safety.authoritativePersistedFacts = assertPrepareOnly(
+      finalWorkspace,
+      observedSafetyEvents,
+    );
     report.safety.prepareOnlyVerified = true;
     assert(
       report.safety.applicationActionsExecuted === false &&
@@ -346,22 +622,51 @@ async function run() {
       `Runtime errors detected: ${JSON.stringify(report.runtimeErrors)}`,
     );
     report.summary = {
-      pass: true,
-      errorStateCaptured: true,
-      recoveryStateCaptured: true,
+      pass: false,
+      errorStateCaptured:
+        report.scenarioCompletionIds.includes("error-preview-1440"),
+      recoveryStateCaptured: [
+        "error-preview-recovered-native125",
+        "error-preview-recovered-minimum",
+      ].every((scenarioId) =>
+        report.scenarioCompletionIds.includes(scenarioId),
+      ),
       screenshotCount: report.captures.length,
       runtimeErrorCount: report.runtimeErrors.length,
     };
-    report.pass = true;
-    report.completedAt = new Date().toISOString();
+    scenarioSucceeded = true;
     await writeReport();
+  } catch (error) {
+    primaryScenarioError = error;
   } finally {
-    if (app) await stopApp(app);
     let finalizationError = null;
+    let ownershipError = null;
+    if (app) {
+      try {
+        const verification = await stopAndVerifyOwnedElectron(
+          app,
+          ownedProcesses,
+          "error-recovery",
+        );
+        report.processOwnership.verifications.push(verification);
+      } catch (error) {
+        ownershipError = error;
+      }
+    }
+    report.processOwnership.trackedProcesses = ownedProcesses.entries();
+    report.processOwnership.leftoverPids =
+      report.processOwnership.verifications.flatMap(
+        (verification) => verification.leftoverPids,
+      );
+    report.processOwnership.verified =
+      !ownershipError &&
+      report.processOwnership.trackedProcesses.length > 0 &&
+      report.processOwnership.leftoverPids.length === 0;
     if (processOutputState) {
       try {
         finalizeProcessOutput(processOutputState, report, {
           acceptedStderrPatterns: [
+            PLAYWRIGHT_INSPECTOR_DISCONNECT_STDERR_PATTERN,
             {
               name: "expected-preview-render-failure",
               pattern:
@@ -373,23 +678,70 @@ async function run() {
         finalizationError = error;
       }
     }
-    const cleanupError = await cleanupDirectory(userDataDirectory);
+    let cleanupError = null;
+    try {
+      cleanupError = await cleanupDirectory(userDataDirectory);
+    } catch (error) {
+      cleanupError = error;
+    }
     report.safety.cleanedUp = !cleanupError;
     if (cleanupError) report.safety.cleanupError = String(cleanupError);
+    const secondaryTeardownFailures = [
+      ...(ownershipError
+        ? [`owned-process teardown: ${describeTeardownFailure(ownershipError)}`]
+        : []),
+      ...(cleanupError
+        ? [
+            `isolated user-data cleanup: ${describeTeardownFailure(cleanupError)}`,
+          ]
+        : []),
+    ];
+    report.teardownSecondaryFailures = secondaryTeardownFailures;
+    if (
+      scenarioSucceeded &&
+      !finalizationError &&
+      !ownershipError &&
+      !cleanupError
+    ) {
+      report.pass = true;
+      report.summary.pass = true;
+      report.completedAt = new Date().toISOString();
+    }
     await writeReport();
-    if (finalizationError) throw finalizationError;
-    if (cleanupError)
-      throw new Error(
-        `Unable to clean isolated user data directory: ${cleanupError}`,
-      );
+    const teardownFailure = resolvePrimaryRunError(
+      primaryScenarioError,
+      finalizationError,
+    );
+    if (teardownFailure && secondaryTeardownFailures.length > 0)
+      teardownFailure.secondaryTeardownFailures = [
+        ...secondaryTeardownFailures,
+      ];
+    postTeardownFailure =
+      teardownFailure ??
+      ownershipError ??
+      (cleanupError
+        ? new Error(
+            `Unable to clean isolated user data directory: ${cleanupError}`,
+          )
+        : null);
   }
+  if (postTeardownFailure) throw postTeardownFailure;
 }
 
 run().catch(async (error) => {
   report.failedAt = new Date().toISOString();
   report.failure =
     error instanceof Error ? (error.stack ?? error.message) : String(error);
-  await writeReport();
+  report.pass = false;
+  delete report.completedAt;
+  report.summary = { ...(report.summary ?? {}), pass: false };
+  try {
+    await writeReport();
+  } catch (writeError) {
+    process.stderr.write(
+      `Unable to persist the failed error/recovery report: ${describeTeardownFailure(writeError)}\n`,
+    );
+  }
   process.stderr.write(`${report.failure}\n`);
   process.exitCode = 1;
 });

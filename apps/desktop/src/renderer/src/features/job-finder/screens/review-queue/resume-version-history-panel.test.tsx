@@ -196,6 +196,17 @@ describe("ResumeVersionHistoryPanel", () => {
     expect(onRestore).toHaveBeenCalledWith(restorable.id);
   });
 
+  it("styles revision articles as read-only wells instead of editable field surfaces", () => {
+    renderPanel({ revisions: [createRevision(1)] });
+
+    const row = container?.querySelector<HTMLElement>(
+      "[data-resume-revision-row]",
+    );
+    expect(row?.className).toContain("bg-(--surface-well)");
+    expect(row?.className).toContain("border-(--surface-well-border)");
+    expect(row?.className).not.toContain("--field");
+  });
+
   it("disables restore and history paging while a revision action is pending", () => {
     renderPanel({
       isPending: true,

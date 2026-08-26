@@ -133,16 +133,15 @@ function StrategyForm(props: {
     >
       <div>
         <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-          Resume strategy
+          Resume approach
         </p>
         <h2 className="mt-1 text-xl font-semibold text-(--text-headline)">
-          {isEdit ? "Edit strategy" : "Create strategy"}
+          {isEdit ? "Edit resume approach" : "Create resume approach"}
         </h2>
         <p className="mt-1 text-(length:--text-small) leading-6 text-foreground-soft">
-          A strategy is a saved targeting preference. Reusing one never approves
-          a resume, never makes an artifact application-ready, and never marks a
-          document current. Per-job approval, digest, and staleness checks stay
-          authoritative.
+          An approach saves your targeting preferences for a role family.
+          Saving or reusing one never approves a resume — you review and
+          approve each resume before it is applied.
         </p>
       </div>
 
@@ -186,15 +185,15 @@ function StrategyForm(props: {
               ))}
           </datalist>
           <span className="text-(length:--text-tiny) leading-5 text-foreground-muted">
-            The saved document this strategy starts from. This reference is
-            opaque: it is never treated as approval, and the exact approved
-            artifact and digest still decide application readiness.
+            The saved resume this approach starts from. Picking it here is not
+            an approval — you still review each generated resume before it is
+            applied.
           </span>
         </label>
         <label className="grid gap-1 text-sm">
           <span className="font-medium">Template</span>
           <select
-            className="h-10 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
+            className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             onChange={(event) =>
               update({
                 templateId: event.target
@@ -213,7 +212,7 @@ function StrategyForm(props: {
         <label className="grid gap-1 text-sm">
           <span className="font-medium">Tailoring strength</span>
           <select
-            className="h-10 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
+            className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             onChange={(event) =>
               update({
                 tailoringStrength: event.target
@@ -234,7 +233,7 @@ function StrategyForm(props: {
         <label className="grid gap-1 text-sm">
           <span className="font-medium">Headline policy</span>
           <select
-            className="h-10 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
+            className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             onChange={(event) =>
               update({
                 headlinePolicy: event.target
@@ -255,7 +254,7 @@ function StrategyForm(props: {
         <label className="grid gap-1 text-sm">
           <span className="font-medium">Skills policy</span>
           <select
-            className="h-10 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
+            className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             onChange={(event) =>
               update({
                 skillsPolicy: event.target
@@ -274,7 +273,7 @@ function StrategyForm(props: {
         <label className="grid gap-1 text-sm">
           <span className="font-medium">Coverage policy</span>
           <select
-            className="h-10 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
+            className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             onChange={(event) =>
               update({
                 coveragePolicy: event.target
@@ -296,12 +295,11 @@ function StrategyForm(props: {
 
       <fieldset className="grid gap-2 rounded-(--radius-field) border border-border-subtle p-4">
         <legend className="text-sm font-semibold text-(--text-headline)">
-          Approved evidence boundaries
+          Evidence boundaries
         </legend>
         <p className="text-(length:--text-small) leading-5 text-foreground-soft">
-          These bound what generated wording may cite. They are presentation
-          guidance: the deterministic claim verifier and per-job validation
-          still decide what is supported.
+          These control what generated wording may cite from your saved
+          evidence. Your per-job review and approval always have the final say.
         </p>
         {evidenceBoundaryOptions.map((option) => (
           <label className="flex items-center gap-2 text-sm" key={option.key}>
@@ -346,7 +344,7 @@ function StrategyForm(props: {
           pending={props.isPending}
           type="submit"
         >
-          {isEdit ? "Save strategy" : "Create strategy"}
+          {isEdit ? "Save changes" : "Create resume approach"}
         </Button>
       </div>
     </form>
@@ -468,8 +466,8 @@ function StrategyCard(props: {
         {boundaries}
       </p>
       <p className="text-(length:--text-tiny) leading-5 text-foreground-muted">
-        Reusing this strategy never approves a résumé or makes an artifact
-        application-ready. Updated {strategy.updatedAt.slice(0, 10)}.
+        Reusing this approach never approves a resume — you review before
+        applying. Updated {strategy.updatedAt.slice(0, 10)}.
       </p>
     </article>
   );
@@ -489,11 +487,11 @@ function CampaignDefaultsSection(props: {
     return (
       <section className="grid gap-3 rounded-(--radius-field) border border-border-subtle p-4">
         <h3 className="font-semibold text-(--text-headline)">
-          Campaign defaults
+          Search plan defaults
         </h3>
         <p className="text-(length:--text-small) leading-5 text-foreground-soft">
-          No campaigns yet. Create a campaign first, then assign its default
-          resume strategy here.
+          No search plans yet. Create one first, then assign its default resume
+          approach here.
         </p>
       </section>
     );
@@ -503,12 +501,12 @@ function CampaignDefaultsSection(props: {
     <section className="grid gap-3 rounded-(--radius-field) border border-border-subtle p-4">
       <div>
         <h3 className="font-semibold text-(--text-headline)">
-          Campaign defaults
+          Search plan defaults
         </h3>
         <p className="mt-1 text-(length:--text-small) leading-5 text-foreground-soft">
-          Each campaign can name one enabled strategy as its fallback
-          recommendation. Assigning a default never changes an existing job's
-          approval or readiness.
+          Each search plan can name one enabled approach as its fallback
+          recommendation. Assigning a default never approves anything on its
+          own.
         </p>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
@@ -525,7 +523,7 @@ function CampaignDefaultsSection(props: {
               <label className="grid gap-1">
                 <span className="font-medium">{campaign.name}</span>
                 <select
-                  className="h-10 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-3"
+                  className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
                   disabled={props.isPending(campaign.id)}
                   onChange={(event) =>
                     props.onSetDefault({
@@ -562,9 +560,9 @@ function CampaignDefaultsSection(props: {
                   <div className="flex flex-wrap items-center gap-2">
                     <StatusBadge tone="critical">Disabled default</StatusBadge>
                     <span className="text-(length:--text-small) leading-5 text-foreground-soft">
-                      {currentDefaultStrategy.name} remains persisted as this
-                      campaign&apos;s default, but it will not be recommended
-                      while disabled.
+                      {currentDefaultStrategy.name} is still this search
+                      plan&apos;s default, but it will not be recommended while
+                      disabled.
                     </span>
                   </div>
                   <Button
@@ -601,7 +599,9 @@ export function ResumeStrategiesScreen(props: {
   isDisablePending: (strategyId: string) => boolean;
   isLoading: boolean;
   isSavePending: boolean;
+  loadError?: string | null;
   onDisableStrategy: (strategyId: string) => void;
+  onRetry?: () => void;
   onSaveStrategy: (input: SaveResumeStrategyInput) => Promise<boolean>;
   onSetCampaignDefault: (input: SetCampaignResumeStrategyDefaultInput) => void;
   strategies: readonly ResumeStrategy[];
@@ -625,8 +625,8 @@ export function ResumeStrategiesScreen(props: {
     return (
       <main className="grid min-h-full place-items-center px-6 py-10">
         <EmptyState
-          title="Loading resume strategies"
-          description="Loading saved strategies, campaigns, and defaults."
+          title="Loading resume approaches"
+          description="Loading saved approaches, search plans, and defaults."
         />
       </main>
     );
@@ -634,29 +634,27 @@ export function ResumeStrategiesScreen(props: {
 
   return (
     <section className="grid gap-5 pb-8">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <PageHeader
-          compact
-          eyebrow="Resume approaches"
-          title="Resume approaches"
-          description="Save reusable resume strategies for a role family. Strong rewrite can substantially edit supported experience, but you review every line before anything is applied."
-        />
-        <div className="flex flex-wrap justify-end gap-2">
-          {shortlistedReturnPath ? (
-            <Button asChild size="sm" type="button" variant="outline">
-              <Link to={shortlistedReturnPath}>Back to shortlisted job</Link>
+      <PageHeader
+        actions={
+          <>
+            {shortlistedReturnPath ? (
+              <Button asChild size="sm" type="button" variant="outline">
+                <Link to={shortlistedReturnPath}>Back to shortlisted job</Link>
+              </Button>
+            ) : null}
+            <Button
+              onClick={() =>
+                setEditing(emptyFormInput(props.baseResumeDocumentId))
+              }
+              type="button"
+            >
+              New resume approach
             </Button>
-          ) : null}
-          <Button
-            onClick={() =>
-              setEditing(emptyFormInput(props.baseResumeDocumentId))
-            }
-            type="button"
-          >
-            New strategy
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+        description="Save reusable resume approaches and review every change before applying them."
+        title="Resume approaches"
+      />
 
       {props.actionMessage ? (
         <p
@@ -667,6 +665,40 @@ export function ResumeStrategiesScreen(props: {
         >
           {props.actionMessage}
         </p>
+      ) : null}
+
+      {props.loadError ? (
+        <div
+          className="grid gap-2 rounded-(--radius-small) border border-destructive/35 bg-destructive/8 px-3 py-2"
+          role="alert"
+        >
+          <p className="text-(length:--text-small) font-semibold text-foreground">
+            Resume approaches unavailable
+          </p>
+          <p className="text-(length:--text-small) leading-5 text-foreground-soft">
+            {props.loadError}
+          </p>
+          <p className="text-(length:--text-small) leading-5 text-foreground-soft">
+            Your saved approaches are safe. You can retry loading them now.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {props.onRetry ? (
+              <Button
+                onClick={props.onRetry}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Try again
+              </Button>
+            ) : null}
+            {shortlistedReturnPath ? (
+              <Button asChild size="sm" type="button" variant="ghost">
+                <Link to={shortlistedReturnPath}>Back to shortlisted job</Link>
+              </Button>
+            ) : null}
+          </div>
+        </div>
       ) : null}
 
       {editing ? (
@@ -694,7 +726,8 @@ export function ResumeStrategiesScreen(props: {
 
       <div className="min-w-[min(100%,24rem)] flex-1">
         <CollectionSearchToolbar
-          label="Search strategies"
+          className="px-0"
+          label="Search approaches"
           onQueryChange={setQuery}
           placeholder="Search name, role family, template, or policy"
           query={query}
@@ -703,18 +736,32 @@ export function ResumeStrategiesScreen(props: {
         />
       </div>
 
-      {props.strategies.length === 0 ? (
-        <EmptyState
-          title="No resume strategies yet"
-          description="Create a named role-family strategy to reuse its targeting preferences. Reusing one never approves a résumé or makes an artifact application-ready."
-        />
-      ) : filteredStrategies.length === 0 ? (
+      {!props.loadError && props.strategies.length === 0 ? (
+        <div className="grid gap-3">
+          <EmptyState
+            className="min-h-40 px-5 py-6"
+            description="Create a named approach for a role family to reuse its targeting preferences. Nothing is approved until you review it."
+            title="No resume approaches yet"
+          />
+          <div className="flex justify-center">
+            <Button
+              onClick={() =>
+                setEditing(emptyFormInput(props.baseResumeDocumentId))
+              }
+              size="sm"
+              type="button"
+            >
+              New resume approach
+            </Button>
+          </div>
+        </div>
+      ) : !props.loadError && filteredStrategies.length === 0 ? (
         <CollectionNoMatches
-          noun="strategies"
+          noun="approaches"
           onClear={() => setQuery("")}
           query={query}
         />
-      ) : (
+      ) : props.loadError && props.strategies.length === 0 ? null : (
         <div className="grid gap-3 xl:grid-cols-2">
           {filteredStrategies.map((strategy) => (
             <StrategyCard

@@ -166,6 +166,7 @@ describe("workspace service bootstrap hydration", () => {
     });
     expect(bootstrap.discoveryJobs).toEqual([]);
     expect(bootstrap.dismissedDiscoveryJobs).toEqual([]);
+    expect(bootstrap.companyJobs).toEqual([]);
     expect(bootstrap.reviewQueue).toEqual([]);
     expect(bootstrap.applicationRecords).toEqual([]);
     expect(bootstrap.recentDiscoveryRuns).toEqual([]);
@@ -183,6 +184,9 @@ describe("workspace service bootstrap hydration", () => {
     expect(bootstrap.intelligence).toEqual(
       JobFinderIntelligenceStateSchema.parse({}),
     );
+    expect(
+      bootstrap.dashboard.globalDailyApplicationPreparationCapacity,
+    ).toBeNull();
 
     expect(bootstrap.profile).toEqual(fixture.seed.profile);
     expect(bootstrap.profileSetupState).toEqual(fixture.seed.profileSetupState);
@@ -236,6 +240,10 @@ describe("workspace service bootstrap hydration", () => {
       fixture.seed.tailoredAssets.map((asset) => asset.id),
     );
     expect(full.intelligence.companies).toEqual([fixture.company]);
+    expect(full.companyJobs.map((job) => job.id)).toEqual(["job_ready"]);
+    expect(
+      full.dashboard.globalDailyApplicationPreparationCapacity,
+    ).toMatchObject({ limit: 20, remaining: 20, used: 0 });
 
     // Full hydration keeps the shell facts returned by bootstrap and the
     // persisted campaign notification; only derived progress may be updated.

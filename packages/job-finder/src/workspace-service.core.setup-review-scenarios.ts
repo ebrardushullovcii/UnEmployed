@@ -915,6 +915,51 @@ describe("createJobFinderWorkspaceService", () => {
     ).rejects.toThrow("Years of experience cannot be cleared");
   });
 
+  test("clearing an identity review item persists null instead of a placeholder string", async () => {
+    const seed = createSeed();
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...seed,
+        profileSetupState: {
+          status: "in_progress",
+          currentStep: "essentials",
+          completedAt: null,
+          reviewItems: [
+            {
+              id: "review_headline_clear",
+              step: "essentials",
+              target: {
+                domain: "identity",
+                key: "headline",
+                recordId: null,
+              },
+              label: "Headline",
+              reason: "Confirm the imported headline before setup is complete.",
+              severity: "critical",
+              status: "pending",
+              proposedValue: seed.profile.headline,
+              sourceSnippet: seed.profile.headline,
+              sourceCandidateId: null,
+              sourceRunId: null,
+              createdAt: "2026-04-14T09:00:00.000Z",
+              resolvedAt: null,
+            },
+          ],
+          lastResumedAt: null,
+        },
+      },
+    });
+
+    const snapshot = await workspaceService.applyProfileSetupReviewAction(
+      "review_headline_clear",
+      "clear_value",
+    );
+
+    // The cleared identity fact stays empty; no instructional placeholder is
+    // re-persisted as a candidate fact.
+    expect(snapshot.profile.headline).toBeNull();
+  });
+
   test("marks pending portfolio review items as confirmed after an explicit save matches the proposed value", async () => {
     const seed = createSeed();
     const latestRunId = "resume_import_run_portfolio_resolution";

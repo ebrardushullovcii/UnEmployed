@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import type { JobFinderWorkspaceSnapshot } from "@unemployed/contracts";
 import {
+  selectCampaignApplicationsScope,
   selectOutcomeAnalyticsScope,
   selectRapidReviewScope,
 } from "./job-finder-page-routes";
@@ -113,5 +114,115 @@ describe("selectOutcomeAnalyticsScope", () => {
     expect(scope.events).toEqual([]);
     expect(scope.overview).toBeNull();
     expect(scope.resumeStrategies).toEqual([]);
+  });
+});
+
+describe("selectCampaignApplicationsScope", () => {
+  function applicationWorkspace(activeCampaignId: string) {
+    return {
+      activeCampaignId,
+      campaigns: [
+        { id: "campaign_1", jobIds: ["job_shared", "job_unique"] },
+        { id: "campaign_2", jobIds: ["job_shared"] },
+      ],
+      discoveryJobs: [{ id: "job_shared" }, { id: "job_unique" }],
+      applicationRecords: [
+        { id: "record_a", jobId: "job_shared" },
+        { id: "record_b", jobId: "job_shared" },
+        { id: "record_legacy_unique", jobId: "job_unique" },
+        { id: "record_legacy_ambiguous", jobId: "job_shared" },
+      ],
+      applyRuns: [
+        { id: "run_1", campaignId: "campaign_1", jobIds: ["job_shared"] },
+        { id: "run_2", campaignId: "campaign_2", jobIds: ["job_shared"] },
+        { id: "run_legacy_unique", campaignId: null, jobIds: ["job_unique"] },
+        {
+          id: "run_legacy_ambiguous",
+          campaignId: null,
+          jobIds: ["job_shared"],
+        },
+      ],
+      applyJobResults: [
+        {
+          id: "result_1",
+          runId: "run_1",
+          jobId: "job_shared",
+          applicationRecordId: "record_a",
+        },
+        {
+          id: "result_2",
+          runId: "run_2",
+          jobId: "job_shared",
+          applicationRecordId: "record_b",
+        },
+        {
+          id: "result_legacy_unique",
+          runId: "run_legacy_unique",
+          jobId: "job_unique",
+          applicationRecordId: "record_legacy_unique",
+        },
+        {
+          id: "result_legacy_ambiguous",
+          runId: "run_legacy_ambiguous",
+          jobId: "job_shared",
+          applicationRecordId: "record_legacy_ambiguous",
+        },
+      ],
+      applicationAttempts: [
+        {
+          id: "attempt_a",
+          jobId: "job_shared",
+          applicationRecordId: "record_a",
+        },
+        {
+          id: "attempt_b",
+          jobId: "job_shared",
+          applicationRecordId: "record_b",
+        },
+        {
+          id: "attempt_legacy_unique",
+          jobId: "job_unique",
+          applicationRecordId: "record_legacy_unique",
+        },
+      ],
+      selectedApplyRunId: "run_1",
+    } as unknown as JobFinderWorkspaceSnapshot;
+  }
+
+  it("switches exact shared-job application lineage with the active campaign", () => {
+    const campaignOne = selectCampaignApplicationsScope(
+      applicationWorkspace("campaign_1"),
+    );
+    expect(campaignOne.applicationRecords.map((record) => record.id)).toEqual([
+      "record_a",
+      "record_legacy_unique",
+    ]);
+    expect(campaignOne.applyRuns.map((run) => run.id)).toEqual([
+      "run_1",
+      "run_legacy_unique",
+    ]);
+    expect(campaignOne.applyJobResults.map((result) => result.id)).toEqual([
+      "result_1",
+      "result_legacy_unique",
+    ]);
+    expect(
+      campaignOne.applicationAttempts.map((attempt) => attempt.id),
+    ).toEqual(["attempt_a", "attempt_legacy_unique"]);
+    expect(campaignOne.selectedApplyRunId).toBe("run_1");
+
+    const campaignTwo = selectCampaignApplicationsScope(
+      applicationWorkspace("campaign_2"),
+    );
+    expect(campaignTwo.applicationRecords.map((record) => record.id)).toEqual([
+      "record_b",
+    ]);
+    expect(campaignTwo.applyRuns.map((run) => run.id)).toEqual(["run_2"]);
+    expect(campaignTwo.applyJobResults.map((result) => result.id)).toEqual([
+      "result_2",
+    ]);
+    expect(
+      campaignTwo.applicationAttempts.map((attempt) => attempt.id),
+    ).toEqual(["attempt_b"]);
+    expect(campaignTwo.selectedApplyRunId).toBeNull();
   });
 });

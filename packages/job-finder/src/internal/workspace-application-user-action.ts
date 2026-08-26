@@ -165,10 +165,23 @@ export function mapApplicationBlockerToUserActionKind(
     case "external_redirect":
     case "unsupported_apply_path":
       return "external_redirect";
+    case "application_page_unreachable":
+      // Technical failure: never surfaced as a user-owned browser step.
+      return "other";
     case "requires_manual_review":
     case "unknown":
       return "other";
   }
+}
+
+/**
+ * True for runtime technical failures that are not the user's responsibility.
+ * These blockers must never create a Needs-you user-action request.
+ */
+export function isApplicationTechnicalFailureBlocker(
+  blocker: ApplicationAttemptBlocker,
+): boolean {
+  return blocker.code === "application_page_unreachable";
 }
 
 export function isApplicationAuthenticationUserActionKind(
@@ -227,20 +240,20 @@ async function commitApplicationActionSuperseded(input: {
 
 async function keepOnlyLatestApplicationActionable(input: {
   repository: JobFinderRepository;
-  jobId: string;
+  applicationRecordId: string;
   occurredAt: string;
 }): Promise<void> {
-  const sameJobRequests = (await input.repository.listUserActionRequests())
+  const sameRecordRequests = (await input.repository.listUserActionRequests())
     .filter(
       (request) =>
         request.scope.type === "application" &&
-        request.scope.jobId === input.jobId,
+        request.scope.applicationRecordId === input.applicationRecordId,
     )
     .sort(compareApplicationActionRecency);
-  const latest = sameJobRequests[0];
+  const latest = sameRecordRequests[0];
   if (!latest) return;
 
-  for (const candidate of sameJobRequests.slice(1)) {
+  for (const candidate of sameRecordRequests.slice(1)) {
     await commitApplicationActionSuperseded({
       repository: input.repository,
       request: candidate,
@@ -252,7 +265,7 @@ async function keepOnlyLatestApplicationActionable(input: {
 
 async function supersedeActionsClearedByNewerResult(input: {
   repository: JobFinderRepository;
-  jobId: string;
+  applicationRecordId: string;
   resultId: string;
   resultStartedAt: string;
   occurredAt: string;
@@ -262,7 +275,7 @@ async function supersedeActionsClearedByNewerResult(input: {
   ).filter(
     (request) =>
       request.scope.type === "application" &&
-      request.scope.jobId === input.jobId &&
+      request.scope.applicationRecordId === input.applicationRecordId &&
       request.createdAt <= input.resultStartedAt &&
       !isUserActionTerminal(request.state),
   );
@@ -279,6 +292,7 @@ async function supersedeActionsClearedByNewerResult(input: {
 
 export async function persistApplicationUserAction(input: {
   repository: JobFinderRepository;
+  applicationRecordId: string;
   job: SavedJob;
   runId: string;
   resultId: string | null;
@@ -293,12 +307,17 @@ export async function persistApplicationUserAction(input: {
     if (input.resultState === "awaiting_review" && input.resultStartedAt) {
       await supersedeActionsClearedByNewerResult({
         repository: input.repository,
-        jobId: input.job.id,
+        applicationRecordId: input.applicationRecordId,
         resultId: input.resultId,
         resultStartedAt: input.resultStartedAt,
         occurredAt: input.occurredAt,
       });
     }
+    return;
+  }
+  // Technical failures own no browser step. The employer page never opened,
+  // so there is nothing for the user to do and no request is created.
+  if (isApplicationTechnicalFailureBlocker(input.blocker)) {
     return;
   }
 
@@ -314,6 +333,7 @@ export async function persistApplicationUserAction(input: {
     [
       input.runId,
       input.job.id,
+      input.applicationRecordId,
       input.resultId,
       input.replayCheckpointId,
       kind,
@@ -331,6 +351,7 @@ export async function persistApplicationUserAction(input: {
       existingRequest.scope.type !== "application" ||
       existingRequest.scope.runId !== input.runId ||
       existingRequest.scope.jobId !== input.job.id ||
+      existingRequest.scope.applicationRecordId !== input.applicationRecordId ||
       existingRequest.scope.resultId !== input.resultId ||
       existingRequest.scope.replayCheckpointId !== input.replayCheckpointId ||
       existingRequest.scope.source !== input.job.source ||
@@ -343,7 +364,7 @@ export async function persistApplicationUserAction(input: {
     }
     await keepOnlyLatestApplicationActionable({
       repository: input.repository,
-      jobId: input.job.id,
+      applicationRecordId: input.applicationRecordId,
       occurredAt: input.occurredAt,
     });
     return;
@@ -360,6 +381,7 @@ export async function persistApplicationUserAction(input: {
       type: "application",
       runId: input.runId,
       jobId: input.job.id,
+      applicationRecordId: input.applicationRecordId,
       resultId: input.resultId,
       replayCheckpointId: input.replayCheckpointId,
       source: input.job.source,
@@ -401,7 +423,7 @@ export async function persistApplicationUserAction(input: {
   await input.repository.createUserActionRequest(request);
   await keepOnlyLatestApplicationActionable({
     repository: input.repository,
-    jobId: input.job.id,
+    applicationRecordId: input.applicationRecordId,
     occurredAt: input.occurredAt,
   });
 }

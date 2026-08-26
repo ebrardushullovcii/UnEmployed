@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from "react";
 import {
+  evaluateProfileSetupReadiness,
   type CandidateProfile,
   type JobFinderWorkspaceSnapshot,
   type JobSearchPreferences,
@@ -9,8 +10,8 @@ import {
   type ProfileSetupStep,
   type ResumeImportFieldCandidateSummary,
   type ResumeImportProgressEvent,
-  isRunnableJobDiscoveryTarget,
 } from "@unemployed/contracts";
+import { Button } from "@renderer/components/ui/button";
 import { LockedScreenLayout } from "../../locked-screen-layout";
 import { PageHeader } from "../../page-header";
 import { ProfileCopilotRail } from "../profile-copilot-rail";
@@ -18,6 +19,7 @@ import { COPILOT_BOTTOM_OFFSET } from "../profile-copilot-rail-layout";
 import { buildCopilotStarterQuestion } from "../profile-copilot-prompts";
 import { ProfileSetupStepEditor } from "./profile-setup-step-editor";
 import {
+  buildProfileSetupSummaryCards,
   buildSetupCopilotPlaceholder,
   isBlockingPendingReviewItem,
   isOptionalPendingReviewItem,
@@ -90,6 +92,11 @@ export function ProfileSetupScreen(props: {
   onContinueToProfile: () => void;
   onImportResume: () => void;
   onProfileSurfaceDirtyChange: (dirty: boolean) => void;
+  /**
+   * Reports each user-authored draft edit so the shell can retire an
+   * exact-request save retry captured before the edit.
+   */
+  onProfileSurfaceDraftEdited?: () => void;
   profileCopilotPendingContextKey: string | null;
   onRejectProfileCopilotPatchGroup: (patchGroupId: string) => void;
   onResumeSetup: (step: ProfileSetupStep) => void;
@@ -98,6 +105,7 @@ export function ProfileSetupScreen(props: {
     searchPreferences: JobSearchPreferences,
     nextStep: ProfileSetupStep,
     options?: {
+      finishSetup?: boolean;
       message?: string;
       openProfile?: boolean;
       stayOnCurrentStep?: boolean;
@@ -128,6 +136,7 @@ export function ProfileSetupScreen(props: {
     onContinueToProfile,
     onImportResume,
     onProfileSurfaceDirtyChange,
+    onProfileSurfaceDraftEdited,
     profileCopilotPendingContextKey,
     onRejectProfileCopilotPatchGroup,
     onResumeSetup,
@@ -143,10 +152,13 @@ export function ProfileSetupScreen(props: {
 
   const {
     backgroundArrays,
+    backgroundMergeNotice,
+    discardEditsAndReloadCanonical,
     draftAwareReviewItems,
     draftProfile,
     draftSearchPreferences,
     experienceArray,
+    hasBackgroundConflict,
     hasUserDraftChanges,
     hasUnsavedChanges,
     preferencesForm,
@@ -155,15 +167,18 @@ export function ProfileSetupScreen(props: {
     validationMessage,
   } = useProfileSetupForms({
     latestResumeImportReviewCandidates,
+    ...(onProfileSurfaceDraftEdited
+      ? { onDraftEdited: onProfileSurfaceDraftEdited }
+      : {}),
     profile,
     profileSetupState,
     searchPreferences,
   });
 
   useEffect(() => {
-    onProfileSurfaceDirtyChange(hasUserDraftChanges);
+    onProfileSurfaceDirtyChange(hasUnsavedChanges);
     return () => onProfileSurfaceDirtyChange(false);
-  }, [hasUserDraftChanges, onProfileSurfaceDirtyChange]);
+  }, [hasUnsavedChanges, onProfileSurfaceDirtyChange]);
 
   useEffect(() => {
     const frameId = window.requestAnimationFrame(() => {
@@ -232,7 +247,7 @@ export function ProfileSetupScreen(props: {
           ? "profile-setup-review-queue"
           : "profile-setup-step-editor",
       );
-      target?.scrollIntoView({
+      target?.scrollIntoView?.({
         behavior: getProfileSetupScrollBehavior(),
         block: "start",
       });
@@ -240,68 +255,62 @@ export function ProfileSetupScreen(props: {
     });
   }
 
-  const readinessCards = useMemo(() => {
-    const hasSearchTarget =
-      draftSearchPreferences.targetRoles.length > 0 ||
-      draftSearchPreferences.jobFamilies.length > 0;
-    const hasDiscoverySource = draftSearchPreferences.discovery.targets.some(
-      isRunnableJobDiscoveryTarget,
-    );
+  // Canonical readiness derivation: summary cards must agree with the ready
+  // check and derived setup state, so they read the shared evaluation.
+  const readinessCards = useMemo(
+    () =>
+      buildProfileSetupSummaryCards({
+        draftProfile,
+        draftSearchPreferences,
+        hasImportedResume,
+        profileSetupStateStatus: profileSetupState.status,
+      }),
+    [
+      draftProfile,
+      draftSearchPreferences,
+      hasImportedResume,
+      profileSetupState.status,
+    ],
+  );
 
-    return [
-      {
-        label: "Discovery",
-        value:
-          !hasImportedResume && profileSetupState.status === "not_started"
-            ? "Not provided yet"
-            : hasSearchTarget && hasDiscoverySource
-              ? "Ready to search"
-              : !hasSearchTarget
-                ? "Needs a target role"
-                : "Needs a job source",
-      },
-      {
-        label: "Resume quality",
-        value:
-          !hasImportedResume && profileSetupState.status === "not_started"
-            ? "Not analyzed yet"
-            : draftProfile.experiences.length > 0
-              ? "Structured background available"
-              : "Needs stronger work history",
-      },
-      {
-        label: "Apply readiness",
-        value:
-          !hasImportedResume && profileSetupState.status === "not_started"
-            ? "Not provided yet"
-            : draftProfile.email?.trim() || draftProfile.phone?.trim()
-              ? "Contact path ready"
-              : "Missing contact details",
-      },
-    ];
-  }, [
-    draftProfile.email,
-    draftProfile.experiences.length,
-    draftProfile.phone,
-    draftSearchPreferences.discovery.targets,
-    draftSearchPreferences.jobFamilies.length,
-    draftSearchPreferences.targetRoles.length,
-    hasImportedResume,
-    profileSetupState.status,
-  ]);
+  // Setup path rows reuse the same canonical evaluation so a row can only
+  // read Complete when its own domain evidence actually exists.
+  const pathReadiness = useMemo(
+    () => evaluateProfileSetupReadiness(draftProfile, draftSearchPreferences),
+    [draftProfile, draftSearchPreferences],
+  );
 
   return (
     <LockedScreenLayout
       contentClassName="pb-8 xl:pb-10"
       lockTopContent={!isPristineSetup}
-      topClassName="grid gap-6 pb-8 pt-8"
+      topClassName="grid gap-4 pb-4 pt-4"
       topContent={
         <>
           <PageHeader
             eyebrow="Profile setup"
             title="Guided setup"
-            description="Import a resume, resolve the important missing details, and keep every change in sync with your full profile."
+            description="Import a resume, fill important gaps, and keep your profile in sync."
           />
+
+          {backgroundMergeNotice ? (
+            <div
+              className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 rounded-(--radius-field) border border-(--info-border) bg-(--info-surface) px-4 py-3 text-sm leading-6 text-(--info-text)"
+              role="status"
+            >
+              <span>{backgroundMergeNotice}</span>
+              {hasBackgroundConflict ? (
+                <Button
+                  onClick={discardEditsAndReloadCanonical}
+                  size="compact"
+                  type="button"
+                  variant="outline"
+                >
+                  Discard my edits and reload
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
 
           <div
             className={profileSetupLayoutClassNames.summary}
@@ -339,7 +348,7 @@ export function ProfileSetupScreen(props: {
           }
         >
           <div
-            className="grid gap-6 min-h-0"
+            className="grid gap-6 min-h-0 scroll-mt-4 sm:scroll-mt-[8.25rem] min-[1440px]:scroll-mt-[4.5rem]"
             id="profile-setup-step-editor"
             tabIndex={-1}
           >
@@ -354,8 +363,10 @@ export function ProfileSetupScreen(props: {
             <ProfileSetupPathCard
               currentStep={profileSetupState.currentStep}
               disabled={setupMutationPending}
+              hasImportedResume={hasImportedResume}
               onGoToStep={goToStep}
               profileSetupState={profileSetupState}
+              readiness={pathReadiness}
             />
 
             <fieldset
@@ -383,7 +394,10 @@ export function ProfileSetupScreen(props: {
                 onImportResume={onImportResume}
                 onSaveCurrentStep={handleSaveCurrentStep}
                 onSaveAndFinish={() =>
-                  handleSaveStep("ready_check", { openProfile: true })
+                  handleSaveStep("ready_check", {
+                    finishSetup: true,
+                    openProfile: true,
+                  })
                 }
                 onSaveAndGoToStep={(step) => handleSaveStep(step)}
                 profile={profile}

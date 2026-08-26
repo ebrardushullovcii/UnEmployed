@@ -87,11 +87,15 @@ export function buildProfileScreenViewModel(
       input.identityValues?.lastName,
     ]
       .filter(Boolean)
-      .join(" ") || input.profile.fullName;
+      .join(" ") ||
+    input.profile.fullName ||
+    null;
   const snapshotHeadline =
-    input.identityValues?.headline || input.profile.headline;
+    input.identityValues?.headline || input.profile.headline || null;
   const snapshotLocation =
-    input.identityValues?.currentLocation || input.profile.currentLocation;
+    input.identityValues?.currentLocation ||
+    input.profile.currentLocation ||
+    null;
   const snapshotYearsExperience = input.identityValues?.yearsExperience;
   const parsedSnapshotYearsExperience = Number.parseInt(
     snapshotYearsExperience ?? "",

@@ -9,6 +9,7 @@ import type {
   ApplicationCrmExportResult,
   ApplicationCrmMutationInput,
   ApplicationCrmSettings,
+  AppearanceTheme,
   ApplicationPacket,
   CampaignRuleFunnelProjection,
   CandidateAsset,
@@ -17,10 +18,12 @@ import type {
   ApplyRunDetails,
   ApplyGroupedManualAnswerInput,
   DeleteCampaignRuleInput,
+  DeleteJobSearchCampaignInput,
   DiscoveryRunScope,
   CandidateProfile,
   DiscoveryActivityEvent,
   EditableSourceInstructionArtifact,
+  EmployerExclusionPreview,
   JobFinderApplyCopilotActionInput,
   JobFinderDismissDiscoveryJobInput,
   JobFinderOpenBrowserSessionInput,
@@ -36,6 +39,8 @@ import type {
   JobFinderResumeWorkspace,
   JobFinderSettings,
   JobFinderWorkspaceSnapshot,
+  JobFinderSetWorkHistoryReviewAcknowledgmentInput,
+  JobFinderSetResumeClaimConfirmationInput,
   JobSearchPreferences,
   MarkAllCampaignNotificationsReadInput,
   MarkCampaignNotificationReadInput,
@@ -48,6 +53,7 @@ import type {
   RapidReviewMutationInput,
   RecommendResumeStrategyInput,
   RecordOutcomeInput,
+  RemoveEmployerExclusionInput,
   ResumeStrategyRecommendation,
   ReviewCompanyMergeInput,
   RunCampaignNowInput,
@@ -75,6 +81,8 @@ import type {
   SourceDebugRunDetails,
   SourceDebugRunRecord,
   ToggleCampaignRuleInput,
+  UpdateApplicationDefaultsInput,
+  UpdateWorkspaceBehaviorInput,
   UserActionCommandInput,
 } from "@unemployed/contracts";
 import type {
@@ -179,10 +187,52 @@ export interface JobFinderWorkspaceService {
   saveSettings(
     settings: JobFinderSettings,
   ): Promise<JobFinderWorkspaceSnapshot>;
+  /**
+   * Merges only the provided application-default fields (per-job CV mode,
+   * default resume template, font preset) into the transaction-current
+   * settings. A resume-affecting change stales approved drafts first, and a
+   * default mode change pins the previous default onto active null-mode jobs
+   * in the same repository commit. Never runs CRM automation.
+   */
+  updateApplicationDefaults(
+    input: UpdateApplicationDefaultsInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  /**
+   * Merges only the provided workspace-behavior fields (session keep-alive,
+   * discovery-only) into the transaction-current settings. Theme, CRM, and
+   * application defaults are never touched.
+   */
+  updateWorkspaceBehavior(
+    input: UpdateWorkspaceBehaviorInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  /**
+   * Replaces the tracker CRM settings in the transaction-current settings and
+   * only then offers the due-based no-response automation run. Automation
+   * failures are reported separately and never roll the committed settings
+   * back.
+   */
+  updateTrackerCrm(
+    applicationCrm: ApplicationCrmSettings,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  /**
+   * Replaces the appearance theme in the transaction-current settings without
+   * touching any other settings field.
+   */
+  updateAppearanceTheme(
+    appearanceTheme: AppearanceTheme,
+  ): Promise<JobFinderWorkspaceSnapshot>;
   saveCampaign(
     campaign: SaveJobSearchCampaignInput,
   ): Promise<JobFinderWorkspaceSnapshot>;
   selectCampaign(campaignId: string): Promise<JobFinderWorkspaceSnapshot>;
+  /**
+   * Deletes one campaign. Returns `true` when the campaign was removed and
+   * `false` when the id is unknown or the campaign is the last remaining one
+   * (the persisted collection schema requires an existing active campaign).
+   * An active pointer moves to the first remaining non-archived campaign,
+   * mirroring the archive hand-off.
+   */
+  deleteCampaign(input: DeleteJobSearchCampaignInput): Promise<boolean>;
   setActivityControl(
     input: SetJobFinderActivityControlInput,
   ): Promise<JobFinderWorkspaceSnapshot>;
@@ -283,6 +333,10 @@ export interface JobFinderWorkspaceService {
   dismissDiscoveryJob(
     input: JobFinderDismissDiscoveryJobInput,
   ): Promise<JobFinderWorkspaceSnapshot>;
+  previewEmployerExclusion(jobId: string): Promise<EmployerExclusionPreview>;
+  removeEmployerExclusion(
+    input: RemoveEmployerExclusionInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
   restoreDismissedDiscoveryJob(
     jobId: string,
   ): Promise<JobFinderWorkspaceSnapshot>;
@@ -368,6 +422,27 @@ export interface JobFinderWorkspaceService {
     exportId: string,
   ): Promise<JobFinderWorkspaceSnapshot>;
   clearResumeApproval(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
+  /**
+   * Acknowledges or removes one server-owned work-history review decision as
+   * a real draft mutation. The command validates the exact projected
+   * suggestion identity (including the FNV-1a message hash) under the per-job
+   * draft transition lock and never starts an export, approval, preparation,
+   * or submission.
+   */
+  setWorkHistoryReviewAcknowledgment(
+    input: JobFinderSetWorkHistoryReviewAcknowledgmentInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  /**
+   * Adds or removes one server-owned resume claim confirmation as a real
+   * draft mutation. The command validates the exact projected `confirm_needed`
+   * assessment identity (locator plus normalized content hash) or the stored
+   * confirmation id under the per-job draft transition lock, never accepts
+   * hard unsupported claims, and never starts an export, approval,
+   * preparation, or submission.
+   */
+  setResumeClaimConfirmation(
+    input: JobFinderSetResumeClaimConfirmationInput,
+  ): Promise<JobFinderWorkspaceSnapshot>;
   applyResumePatch(
     patch: ResumeDraftPatch,
     revisionReason?: string | null,
@@ -385,10 +460,15 @@ export interface JobFinderWorkspaceService {
     action: "accept" | "reject",
     patchIds: readonly string[],
   ): Promise<readonly ResumeAssistantMessage[]>;
-  getApplyRunDetails(runId: string, jobId: string): Promise<ApplyRunDetails>;
+  getApplyRunDetails(
+    runId: string,
+    jobId: string,
+    applicationRecordId?: string | null,
+  ): Promise<ApplyRunDetails>;
   buildApplicationPacket(
     runId: string,
     jobId: string,
+    applicationRecordId?: string | null,
   ): Promise<ApplicationPacket>;
   startApplyCopilotRun(
     jobId: string,
@@ -396,8 +476,12 @@ export interface JobFinderWorkspaceService {
       JobFinderApplyCopilotActionInput,
       "visualCheckpointsEnabled"
     >,
+    applicationRecordId?: string | null,
   ): Promise<JobFinderWorkspaceSnapshot>;
-  startAutoApplyRun(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
+  startAutoApplyRun(
+    jobId: string,
+    applicationRecordId?: string | null,
+  ): Promise<JobFinderWorkspaceSnapshot>;
   startAutoApplyQueueRun(
     jobIds: readonly string[],
   ): Promise<JobFinderWorkspaceSnapshot>;
@@ -408,7 +492,10 @@ export interface JobFinderWorkspaceService {
     action: "approve" | "decline",
   ): Promise<JobFinderWorkspaceSnapshot>;
   revokeApplyRunApproval(runId: string): Promise<JobFinderWorkspaceSnapshot>;
-  approveApply(jobId: string): Promise<JobFinderWorkspaceSnapshot>;
+  approveApply(
+    jobId: string,
+    applicationRecordId?: string | null,
+  ): Promise<JobFinderWorkspaceSnapshot>;
   recordInterviewHelperApplicationAction(
     input: JobFinderInterviewFollowUpInput,
   ): Promise<JobFinderWorkspaceSnapshot>;
@@ -460,10 +547,16 @@ export interface RenderedResumeArtifact {
  * Explicit campaign discovery context: run the pipeline against a specific
  * campaign's preferences and tag the run record with that campaign id without
  * changing the active campaign or the global search preferences.
+ *
+ * `runJobBudget` carries the campaign's explicit discovery run budget (from
+ * `limits.discoveryRunJobBudget`). When omitted or null the pipeline falls back
+ * to the campaign search preferences' `discovery.runJobBudget`, then to the
+ * interactive precision default.
  */
 export interface CampaignRunContext {
   campaignId: string;
   searchPreferences: JobSearchPreferences;
+  runJobBudget?: number | null;
 }
 
 export interface JobFinderDocumentManager {

@@ -64,19 +64,26 @@ describe("ApplicationsDetailPanelSubmitApprovalSection", () => {
         onCancelApplyRun={vi.fn()}
         onRevokeApplyRunApproval={vi.fn()}
         selectedApplyRunDetails={createAwaitingApprovalDetails()}
+        selectedApplicationTarget={{
+          jobId: "job-1",
+          applicationRecordId: "application-1",
+        }}
       />,
     );
 
     expect(
-      screen.getByRole("heading", { name: "Safe application preparation" }),
+      screen.getByRole("heading", { name: "Preparation approval" }),
     ).toBeTruthy();
     expect(
       screen.getByText(/does not authorize account creation/i),
     ).toBeTruthy();
     expect(
       screen.getByText(
-        /final submission and account creation remain disabled/i,
+        /Job Finder cannot create accounts or submit applications/i,
       ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/submit on each employer site yourself/i),
     ).toBeTruthy();
     expect(
       screen.queryByText(/automatic application authorization/i),
@@ -85,6 +92,35 @@ describe("ApplicationsDetailPanelSubmitApprovalSection", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Approve safe preparation" }),
     );
-    expect(onApproveApplyRun).toHaveBeenCalledWith("run_1");
+    expect(onApproveApplyRun).toHaveBeenCalledWith({
+      runId: "run_1",
+      jobId: "job-1",
+      applicationRecordId: "application-1",
+    });
+  });
+
+  it("never teaches submit-approval or copilot wording at the approval decision point", () => {
+    render(
+      <ApplicationsDetailPanelSubmitApprovalSection
+        approvalScopeEntries={[{ jobId: "job_1", label: "Engineer at Acme" }]}
+        isApplyRunPending={() => false}
+        isSelectedRunPending={false}
+        onApproveApplyRun={vi.fn()}
+        onCancelApplyRun={vi.fn()}
+        onRevokeApplyRunApproval={vi.fn()}
+        selectedApplyRunDetails={createAwaitingApprovalDetails()}
+        selectedApplicationTarget={{
+          jobId: "job-1",
+          applicationRecordId: "application-1",
+        }}
+      />,
+    );
+
+    expect(document.body.textContent ?? "").toMatch(
+      /Preparation approval applies only to these jobs/,
+    );
+    expect(document.body.textContent ?? "").not.toMatch(
+      /submit approval|apply copilot|restage/i,
+    );
   });
 });

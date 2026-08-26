@@ -70,7 +70,7 @@ export function createSystemPrompt(config: AgentConfig): string {
     ? config.promptContext.toolUsageNotes
         .map((instruction) => `- ${instruction}`)
         .join("\n")
-    : "- Use navigate only for in-scope pages\n- Use extract_jobs when meaningful job content is visible\n- Finish as soon as the configured target is satisfied";
+    : "- Use navigate only for in-scope pages\n- Use extract_jobs when meaningful job content is visible\n- Finish as soon as the configured target is satisfied or the source is proven exhausted";
   const taskPacket = config.promptContext.taskPacket;
   const seededSearchQuery = describeSeededSearchQuery(config);
   const taskPacketBlock = taskPacket
@@ -153,7 +153,7 @@ TOOLS AVAILABLE:
 - go_back: Return to search results from a job detail page
 - extract_jobs: Extract job data when you see job listings
 - capture_visual_snapshot: Capture bounded visual evidence only when DOM/ARIA/text is weak; observations are schema-validated and cannot direct actions, selectors, saved jobs, generated answers, or submit behavior
-- finish: ${taskPacket ? "End only when you can summarize the phase outcome with proven findings or a clear blocker" : `End when you have ${config.targetJobCount} jobs`}
+- finish: ${taskPacket ? "End only when you can summarize the phase outcome with proven findings or a clear blocker" : `End when you have ${config.targetJobCount} jobs or when you have proven the source has no more reachable relevant jobs`}
 
 TOOL USAGE NOTES:
 ${toolUsageNotes}

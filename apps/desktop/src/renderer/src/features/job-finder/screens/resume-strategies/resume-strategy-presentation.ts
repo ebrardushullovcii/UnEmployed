@@ -88,3 +88,19 @@ export function strategySearchTokens(strategy: ResumeStrategy): string[] {
     strategy.baseResumeDocumentId,
   ];
 }
+
+/**
+ * Display-only normalization for persisted selection/recommendation reasons.
+ * Older records were stored with the word "strategy"; the product now calls
+ * the same object a "resume approach". Stored history is never rewritten —
+ * this only rewords provenance text at render time.
+ */
+export function formatPersistedStrategyReason(reason: string): string {
+  return reason
+    .replace(/\bstrategies\b/gi, (match) =>
+      match.startsWith("S") ? "Approaches" : "approaches",
+    )
+    .replace(/\bstrategy\b/gi, (match) =>
+      match.startsWith("S") ? "Approach" : "approach",
+    );
+}

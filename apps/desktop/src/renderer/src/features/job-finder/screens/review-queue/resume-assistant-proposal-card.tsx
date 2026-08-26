@@ -3,19 +3,32 @@ import type {
   ResumeAssistantMessage,
   ResumeDraft,
   ResumeDraftPatch,
+  ResumeValidationResult,
 } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
+import {
+  findProposalPatchTarget,
+  PROPOSED_WORDING_CHECK_NOTE,
+  resolveProposalProvenance,
+} from "./resume-assistant-proposal-provenance";
+import type {
+  ProposalProvenance,
+  ProposalProvenanceTone,
+} from "./resume-assistant-proposal-provenance";
+import { SourceRefsList } from "./source-refs-list";
+
+const provenanceToneClassNames: Record<ProposalProvenanceTone, string> = {
+  attention: "text-destructive",
+  neutral: "text-foreground-soft",
+  positive: "text-(--success-text)",
+  warning: "text-(--warning-text)",
+};
 
 function readCurrentValue(draft: ResumeDraft, patch: ResumeDraftPatch): string {
-  const section = draft.sections.find(
-    (entry) => entry.id === patch.targetSectionId,
-  );
-  const entry = section?.entries.find(
-    (candidate) => candidate.id === patch.targetEntryId,
-  );
-  const bullet = (entry?.bullets ?? section?.bullets ?? []).find(
-    (candidate) => candidate.id === patch.targetBulletId,
-  );
+  const target = findProposalPatchTarget(draft, patch);
+  const section = target.section;
+  const entry = target.entry;
+  const bullet = target.bullet;
 
   switch (patch.operation) {
     case "replace_section_text":
@@ -69,6 +82,48 @@ function operationLabel(operation: ResumeDraftPatch["operation"]): string {
   return operation.replaceAll("_", " ");
 }
 
+/**
+ * Display-only provenance for one proposed change. Saved validation never
+ * describes proposed wording, so the disclosure only reports the current saved
+ * text and always points out that new wording is checked after accepting and
+ * saving.
+ */
+function ProposalGroundingDisclosure(props: { provenance: ProposalProvenance }) {
+  const provenance = props.provenance;
+
+  return (
+    <details className="min-w-0">
+      <summary className="cursor-pointer list-none select-none text-(length:--text-tiny) font-medium uppercase tracking-(--tracking-caps) text-muted-foreground transition hover:text-foreground [&::-webkit-details-marker]:hidden">
+        Why this edit is grounded
+      </summary>
+      <div className="mt-2 grid min-w-0 gap-2 border-t border-(--surface-panel-border) pt-2 text-xs leading-5">
+        {provenance.savedTextCheck ? (
+          <p
+            className={`font-medium ${provenanceToneClassNames[provenance.savedTextCheck.tone]}`}
+          >
+            {provenance.savedTextCheck.label}
+          </p>
+        ) : null}
+        {provenance.targetFound ? (
+          <SourceRefsList
+            sourceRefs={provenance.sourceRefs}
+            variant="compact"
+          />
+        ) : (
+          <p className="text-foreground-soft">
+            This edit points at a target that is no longer in the draft.
+          </p>
+        )}
+        {provenance.savedTextCheck ? (
+          <p className="text-(length:--text-tiny) text-muted-foreground">
+            {PROPOSED_WORDING_CHECK_NOTE}
+          </p>
+        ) : null}
+      </div>
+    </details>
+  );
+}
+
 export function ResumeAssistantProposalCard(props: {
   draft: ResumeDraft;
   isPending: boolean;
@@ -78,6 +133,7 @@ export function ResumeAssistantProposalCard(props: {
     action: "accept" | "reject",
     patchIds: readonly string[],
   ) => void;
+  validation?: ResumeValidationResult | null;
 }) {
   const [selectedPatchIds, setSelectedPatchIds] = useState<readonly string[]>(
     () => props.message.patches.map((patch) => patch.id),
@@ -100,6 +156,11 @@ export function ResumeAssistantProposalCard(props: {
       <div className="grid gap-3">
         {props.message.patches.map((patch, index) => {
           const selected = selectedPatchIds.includes(patch.id);
+          const provenance = resolveProposalProvenance({
+            claimAssessments: props.validation?.claimAssessments ?? [],
+            draft: props.draft,
+            patch,
+          });
           const comparison = (
             <>
               <span className="flex items-center gap-2 text-xs font-semibold capitalize text-foreground">
@@ -129,6 +190,9 @@ export function ResumeAssistantProposalCard(props: {
                   </span>
                 ) : null}
               </span>
+              <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
+                {provenance.targetLabel}
+              </span>
               <span className="grid gap-1 text-xs leading-5">
                 {pending ? (
                   <>
@@ -148,19 +212,19 @@ export function ResumeAssistantProposalCard(props: {
             </>
           );
 
-          return pending ? (
-            <label
-              className="grid cursor-pointer gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-fill-soft) p-3"
-              key={patch.id}
-            >
-              {comparison}
-            </label>
-          ) : (
+          return (
             <div
               className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-fill-soft) p-3"
               key={patch.id}
             >
-              {comparison}
+              {pending ? (
+                // The disclosure stays outside this label so toggling it never
+                // flips the proposal selection checkbox.
+                <label className="grid cursor-pointer gap-2">{comparison}</label>
+              ) : (
+                <div className="grid gap-2">{comparison}</div>
+              )}
+              <ProposalGroundingDisclosure provenance={provenance} />
             </div>
           );
         })}

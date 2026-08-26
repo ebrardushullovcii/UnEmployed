@@ -320,12 +320,19 @@ export function finalizeDiscoveryState(
   const historyLimit =
     searchPreferences.discovery.historyLimit || DEFAULT_DISCOVERY_HISTORY_LIMIT;
 
+  // A running run lives solely in activeRun. Mirroring it into recentRuns on
+  // every mid-run persistence duplicated the full run payload (activity
+  // included) inside the same singleton write and let one run occupy two
+  // places at once. History receives the run exactly once, when it reaches a
+  // terminal state; the id filter also retires any legacy running copy that
+  // older versions left in stored history.
+  const isRunning = run.state === "running";
   return JobFinderDiscoveryStateSchema.parse({
     ...current,
     runState: run.state,
-    activeRun: run.state === "running" ? run : null,
+    activeRun: isRunning ? run : null,
     recentRuns: [
-      run,
+      ...(isRunning ? [] : [run]),
       ...current.recentRuns.filter((entry) => entry.id !== run.id),
     ].slice(0, historyLimit),
   });

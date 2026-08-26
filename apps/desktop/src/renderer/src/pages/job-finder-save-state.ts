@@ -11,6 +11,12 @@ export type JobFinderSaveState =
       message: string
       canRetry: boolean
       savedAt?: string
+      /**
+       * Present only on a failed state whose exact-request retry was retired
+       * because the protected surface changed after the failure. Explains why
+       * the Retry action is gone and points at the surface Save action.
+       */
+      retryBlockedReason?: string
     }
 
 export const initialJobFinderSaveState: JobFinderSaveState = {
@@ -19,6 +25,15 @@ export const initialJobFinderSaveState: JobFinderSaveState = {
 }
 
 const SAVE_RECEIPT_STORAGE_KEY = 'unemployed.job-finder.save-receipt.v1'
+
+/**
+ * Shown in place of the Retry action when the protected surface changed after
+ * the save failed: an exact-request retry would resubmit the pre-edit payload
+ * and a later refresh could then overwrite the user's newer content. The
+ * guidance names the safe alternative instead of leaving a silent gap.
+ */
+export const JOB_FINDER_STALE_RETRY_GUIDANCE =
+  'This form changed after the save failed, so Retry was removed to keep it from saving your older edits. Use Save on the form to submit your current changes.'
 
 export type JobFinderSaveReceipt = {
   schemaVersion: 1
@@ -90,20 +105,31 @@ export function getJobFinderSaveStateFromReceipt(receipt: JobFinderSaveReceipt |
       }
     : initialJobFinderSaveState
 }
+export type JobFinderSaveOperationFence = { isCurrent: () => boolean }
+
 export type JobFinderSaveRequest<TResult> = {
   dedupeKey: string
-  execute: () => Promise<TResult>
+  execute: (fence?: JobFinderSaveOperationFence) => Promise<TResult>
   failedMessage: (error: unknown) => string
   label: string
   savedMessage: string
   surface: JobFinderSaveSurface
 }
 
-export type JobFinderSaveResult<TResult> = { status: 'saved'; result: TResult } | { status: 'failed'; error: unknown }
+export type JobFinderSaveResult<TResult> =
+  | { status: 'saved'; result: TResult; superseded: boolean }
+  | { status: 'failed'; error: unknown; superseded: boolean }
 
 export type JobFinderSaveCoordinator = {
   clearReceipt: () => void
   dismissSaved: () => void
+  /**
+   * Record that the user revised a protected surface's draft. Any exact-request
+   * retry captured for that surface becomes stale: it would resubmit the
+   * pre-edit payload, so it is retired and the failed state swaps its Retry
+   * action for explicit guidance to save from the form instead.
+   */
+  markSurfaceRevised: (surface: JobFinderSaveSurface) => void
   retry: () => Promise<JobFinderSaveResult<unknown> | null>
   run: <TResult>(request: JobFinderSaveRequest<TResult>) => Promise<JobFinderSaveResult<TResult>>
 }
@@ -133,9 +159,21 @@ export function createJobFinderSaveCoordinator(input: {
   let operationToken = 0
   let latestOperationToken = 0
   let latestDedupeKey: string | null = input.initialReceipt?.dedupeKey ?? null
-  let retryRequest: JobFinderSaveRequest<unknown> | null = null
+  // The exact request a Retry would resubmit, tagged with the revision epoch
+  // of its surface at run time. A later `markSurfaceRevised` bumps the epoch,
+  // so an epoch mismatch proves the draft changed after this request ran and
+  // the captured payload must never be silently resubmitted.
+  let retryCandidate: {
+    request: JobFinderSaveRequest<unknown>
+    revision: number
+  } | null = null
   let currentState = getJobFinderSaveStateFromReceipt(input.initialReceipt ?? null)
   const inFlight = new Map<string, Promise<JobFinderSaveResult<unknown>>>()
+  const surfaceRevisionEpochs = new Map<JobFinderSaveSurface, number>()
+  const currentRevision = (surface: JobFinderSaveSurface): number =>
+    surfaceRevisionEpochs.get(surface) ?? 0
+  const isRetryStale = (): boolean =>
+    retryCandidate !== null && retryCandidate.revision !== currentRevision(retryCandidate.request.surface)
   const emitState = (state: JobFinderSaveState) => {
     currentState = state
     input.onStateChange(state)
@@ -159,7 +197,10 @@ export function createJobFinderSaveCoordinator(input: {
     const currentOperationToken = operationToken
     const operationVersion = version
     const operationAttempt = attempt
-    retryRequest = request as JobFinderSaveRequest<unknown>
+    retryCandidate = {
+      request: request as JobFinderSaveRequest<unknown>,
+      revision: currentRevision(request.surface)
+    }
     emitState({
       state: 'saving',
       version: operationVersion,
@@ -171,11 +212,15 @@ export function createJobFinderSaveCoordinator(input: {
     })
 
     const operation = request
-      .execute()
+      .execute({ isCurrent: () => currentOperationToken === latestOperationToken })
       .then((result): JobFinderSaveResult<TResult> => {
-        if (currentOperationToken === latestOperationToken) {
+        const superseded = currentOperationToken !== latestOperationToken
+        if (!superseded) {
           const savedAt = new Date().toISOString()
-          retryRequest = null
+          retryCandidate = null
+          // The persisted baseline moved to this save's content, so revision
+          // history for the surface starts fresh from here.
+          surfaceRevisionEpochs.delete(request.surface)
           emitState({
             state: 'saved',
             version: operationVersion,
@@ -197,10 +242,18 @@ export function createJobFinderSaveCoordinator(input: {
           })
         }
 
-        return { status: 'saved', result }
+        return { status: 'saved', result, superseded }
       })
       .catch((error: unknown): JobFinderSaveResult<TResult> => {
-        if (currentOperationToken === latestOperationToken) {
+        const superseded = currentOperationToken !== latestOperationToken
+        if (!superseded) {
+          const retryStale = isRetryStale()
+          if (retryStale) {
+            // Edits landed between run start and this failure; the captured
+            // payload no longer matches the draft, so retire it instead of
+            // offering a Retry that would save stale data.
+            retryCandidate = null
+          }
           emitState({
             state: 'failed',
             version: operationVersion,
@@ -208,11 +261,12 @@ export function createJobFinderSaveCoordinator(input: {
             surface: request.surface,
             label: request.label,
             message: request.failedMessage(error),
-            canRetry: true
+            canRetry: !retryStale,
+            ...(retryStale ? { retryBlockedReason: JOB_FINDER_STALE_RETRY_GUIDANCE } : {})
           })
         }
 
-        return { status: 'failed', error }
+        return { status: 'failed', error, superseded }
       })
       .finally(() => {
         if (inFlight.get(request.dedupeKey) === operation) {
@@ -231,8 +285,13 @@ export function createJobFinderSaveCoordinator(input: {
       version = 0
       attempt = 0
       latestDedupeKey = null
-      retryRequest = null
-      inFlight.clear()
+      retryCandidate = null
+      surfaceRevisionEpochs.clear()
+      // Deliberately keeps `inFlight`: clearing it would let a duplicate
+      // same-key operation start while the original still executes, so the
+      // map stays authoritative until each operation removes itself on
+      // settle. Late state/receipt writes from those operations stay fenced
+      // by the bumped operation token above.
       input.onReceiptChange?.(null)
       emitState(initialJobFinderSaveState)
     },
@@ -240,11 +299,44 @@ export function createJobFinderSaveCoordinator(input: {
       if (currentState.state !== 'saved') {
         return
       }
-      retryRequest = null
+      retryCandidate = null
       input.onReceiptChange?.(null)
       emitState(initialJobFinderSaveState)
     },
-    retry: () => (retryRequest ? run(retryRequest) : Promise.resolve(null)),
+    markSurfaceRevised: (surface: JobFinderSaveSurface) => {
+      surfaceRevisionEpochs.set(surface, currentRevision(surface) + 1)
+      if (
+        currentState.state === 'failed' &&
+        currentState.surface === surface &&
+        currentState.canRetry &&
+        isRetryStale()
+      ) {
+        // Swap the live Retry action for explicit guidance so the toast never
+        // offers to resubmit a payload older than the user's draft.
+        retryCandidate = null
+        emitState({ ...currentState, canRetry: false, retryBlockedReason: JOB_FINDER_STALE_RETRY_GUIDANCE })
+      }
+    },
+    retry: () => {
+      if (!retryCandidate) {
+        return Promise.resolve(null)
+      }
+      if (isRetryStale()) {
+        // Defense in depth: presentation should already show the blocked
+        // guidance, but a stale request must also refuse to execute here.
+        const revisedSurface = retryCandidate.request.surface
+        if (
+          currentState.state === 'failed' &&
+          currentState.canRetry &&
+          currentState.surface === revisedSurface
+        ) {
+          retryCandidate = null
+          emitState({ ...currentState, canRetry: false, retryBlockedReason: JOB_FINDER_STALE_RETRY_GUIDANCE })
+        }
+        return Promise.resolve(null)
+      }
+      return run(retryCandidate.request)
+    },
     run
   }
 }

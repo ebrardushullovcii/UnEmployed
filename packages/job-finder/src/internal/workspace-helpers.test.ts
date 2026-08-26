@@ -1,9 +1,13 @@
 import { describe, expect, test } from "vitest";
 
+import type { ApplicationEvent } from "@unemployed/contracts";
+
 import {
+  MAX_APPLICATION_EVENT_HISTORY,
   buildDiscoveryInstructionGuidance,
   enrichSearchPreferencesFromProfile,
   invalidateChangedSourceGuidance,
+  mergeEvents,
 } from "./workspace-helpers";
 import {
   createSeed,
@@ -192,6 +196,132 @@ describe("workspace discovery instruction guidance", () => {
       "[Search] Apply button appears on job detail side panels",
       "[Detail] Job listings are clickable and open detail side panels/modals",
       '[Apply] LinkedIn jobs expose a stable apply path: click a job listing to open the side detail panel, then click the "Apply" button on that panel.',
+    ]);
+  });
+});
+
+function createApplicationEvent(
+  id: string,
+  at: string,
+  overrides: Partial<ApplicationEvent> = {},
+): ApplicationEvent {
+  return {
+    id,
+    at,
+    title: `Event ${id}`,
+    detail: `Detail for ${id}`,
+    emphasis: "neutral",
+    ...overrides,
+  };
+}
+
+function eventTimestamp(index: number): string {
+  return new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString();
+}
+
+describe("mergeEvents application event history bound", () => {
+  test("keeps every event below the history limit", () => {
+    const existing = [
+      createApplicationEvent("event_old", eventTimestamp(0)),
+      createApplicationEvent("event_mid", eventTimestamp(1)),
+    ];
+    const additional = [
+      createApplicationEvent("event_new", eventTimestamp(2), {
+        emphasis: "positive",
+      }),
+    ];
+
+    expect(mergeEvents(existing, additional)).toHaveLength(3);
+  });
+
+  test("keeps every event exactly at the history limit", () => {
+    const events = Array.from(
+      { length: MAX_APPLICATION_EVENT_HISTORY },
+      (_, index) =>
+        createApplicationEvent(`event_${index}`, eventTimestamp(index)),
+    );
+
+    const merged = mergeEvents(events, []);
+
+    expect(merged).toHaveLength(MAX_APPLICATION_EVENT_HISTORY);
+    expect(merged[0]?.id).toBe(`event_${MAX_APPLICATION_EVENT_HISTORY - 1}`);
+  });
+
+  test("keeps only the newest events above the history limit", () => {
+    const total = MAX_APPLICATION_EVENT_HISTORY + 3;
+    const existing = Array.from({ length: total }, (_, index) =>
+      createApplicationEvent(`event_${index}`, eventTimestamp(index)),
+    );
+
+    const merged = mergeEvents(existing, []);
+
+    expect(merged).toHaveLength(MAX_APPLICATION_EVENT_HISTORY);
+    expect(merged[0]?.id).toBe(`event_${total - 1}`);
+    expect(merged.at(-1)?.id).toBe(
+      `event_${total - MAX_APPLICATION_EVENT_HISTORY}`,
+    );
+    for (const dropped of [0, 1, 2]) {
+      expect(merged.some((event) => event.id === `event_${dropped}`)).toBe(
+        false,
+      );
+    }
+  });
+
+  test("replaces duplicate ids without growing history or consuming extra slots", () => {
+    const existing = Array.from(
+      { length: MAX_APPLICATION_EVENT_HISTORY },
+      (_, index) =>
+        createApplicationEvent(`event_${index}`, eventTimestamp(index)),
+    );
+    const retried = createApplicationEvent("event_5", eventTimestamp(5), {
+      title: "Retry outcome",
+      emphasis: "warning",
+    });
+    const fresh = createApplicationEvent(
+      "event_fresh",
+      eventTimestamp(MAX_APPLICATION_EVENT_HISTORY),
+    );
+
+    const merged = mergeEvents(existing, [fresh, retried]);
+
+    expect(merged).toHaveLength(MAX_APPLICATION_EVENT_HISTORY);
+    expect(merged.find((event) => event.id === "event_5")).toMatchObject({
+      title: "Retry outcome",
+      emphasis: "warning",
+    });
+    expect(merged.some((event) => event.id === "event_0")).toBe(false);
+  });
+
+  test("orders timestamp ties deterministically by input order", () => {
+    const sameTime = eventTimestamp(0);
+    const existing = [
+      createApplicationEvent("existing_a", sameTime),
+      createApplicationEvent("existing_b", sameTime),
+    ];
+    const additional = [createApplicationEvent("additional_c", sameTime)];
+
+    const merged = mergeEvents(existing, additional);
+
+    expect(merged.map((event) => event.id)).toEqual([
+      "existing_a",
+      "existing_b",
+      "additional_c",
+    ]);
+  });
+
+  test("returns a stable newest-first order regardless of input order", () => {
+    const merged = mergeEvents(
+      [createApplicationEvent("mid", eventTimestamp(1))],
+      [
+        createApplicationEvent("newest", eventTimestamp(2)),
+        createApplicationEvent("oldest", eventTimestamp(0)),
+      ],
+    );
+
+    expect(merged.map((event) => event.id)).toEqual([
+      "newest",
+      "mid",
+      "oldest",
     ]);
   });
 });

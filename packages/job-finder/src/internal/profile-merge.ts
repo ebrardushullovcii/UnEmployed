@@ -54,7 +54,7 @@ ${section.lines.join("\n")}`,
     )
     .join("\n\n");
 
-  return `${profile.fullName}\n${profile.headline}\n${profile.currentLocation}\n\nTarget Role: ${job.title} at ${job.company}\n\n${sections}\n`;
+  return `${profile.fullName ?? ""}\n${profile.headline ?? ""}\n${profile.currentLocation ?? ""}\n\nTarget Role: ${job.title} at ${job.company}\n\n${sections}\n`;
 }
 
 export function buildPreviewSectionsFromDraft(draft: TailoredResumeDraft) {
@@ -570,7 +570,9 @@ export function mergeResumeExtractionIntoWorkspace(
       ? uniqueStrings(extraction.preferredLocations)
       : profile.locations.length > 0
         ? profile.locations
-        : uniqueStrings([locationFallback]);
+        : locationFallback
+          ? uniqueStrings([locationFallback])
+          : [];
   const preferenceLocations =
     extraction.preferredLocations.length > 0
       ? uniqueStrings(extraction.preferredLocations)

@@ -1,13 +1,22 @@
 import {
   useCallback,
   useDeferredValue,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type KeyboardEvent,
 } from "react";
-import type { BrowserSessionState, SavedJob } from "@unemployed/contracts";
+import type {
+  BrowserSessionState,
+  DiscoveryJobView,
+  JobDiscoveryTarget,
+  ListingActivity,
+  SavedJob,
+  WorkMode,
+} from "@unemployed/contracts";
+import { fitRecommendationValues, workModeValues } from "@unemployed/contracts";
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
 import { EmptyState } from "@renderer/features/job-finder/components/empty-state";
@@ -18,40 +27,64 @@ import {
   matchesCollectionSearch,
 } from "@renderer/features/job-finder/components/collection-search-toolbar";
 import { StatusBadge } from "@renderer/features/job-finder/components/status-badge";
-import { usePersistedCollectionView } from "@renderer/features/job-finder/hooks/use-persisted-collection-view";
+import {
+  usePersistedCollectionView,
+  type SavedViewMetadata,
+} from "@renderer/features/job-finder/hooks/use-persisted-collection-view";
 import {
   focusCollectionItem,
   getAdjacentCollectionItemId,
 } from "@renderer/features/job-finder/lib/collection-keyboard-navigation";
-import { JOB_FINDER_ROUTE_HREFS } from "@renderer/features/job-finder/lib/job-finder-route-hrefs";
+import { Link } from "react-router-dom";
+import { JOB_FINDER_ROUTE_PATHS } from "@renderer/features/job-finder/lib/job-finder-route-hrefs";
 import { cn } from "@renderer/lib/cn";
 import {
-  formatOptionalDateOnly,
   formatStatusLabel,
   getApplicationTone,
+  getPostedDateLabel,
 } from "@renderer/features/job-finder/lib/job-finder-utils";
 import { fitRecommendationCopy } from "@renderer/features/job-finder/lib/match-assessment-presentation";
 import {
+  listingActivityStatuses,
+  presentListingActivity,
+} from "@renderer/features/job-finder/lib/listing-activity-presentation";
+import {
   DISCOVERY_DETAIL_REGION_ID,
   focusDiscoveryDetailAfterKeyboardSelection,
+  revealDiscoveryDetailAfterPointerSelection,
 } from "./discovery-accessibility";
+import {
+  compareDiscoveryResults,
+  type DiscoveryResultsSortField,
+  useDiscoveryResultsSort,
+} from "./discovery-results-sort";
+import { getDiscoveryListingRecencyKey } from "@unemployed/job-finder/discovery-ordering";
+import type { DiscoveryLatestRunVerdict } from "./discovery-run-feedback";
+import { getDiscoverySourceLabels } from "./discovery-source-attribution";
 
 interface DiscoveryResultsPanelProps {
+  areHiddenJobsShown?: boolean;
   browserSession: BrowserSessionState;
+  discoveryTargets?: readonly JobDiscoveryTarget[];
   emptyClassName?: string;
+  // Active search plan/campaign identity from the discovery screen. Facet
+  // snapshots are scoped by it so switching plans restores each plan's own
+  // filters instead of leaking them across plans.
+  facetScopeId?: string | null;
   hasCompletedSearch?: boolean;
   hiddenJobCount?: number;
   isSearchInProgress?: boolean;
   jobs: readonly SavedJob[];
+  latestRunVerdict?: DiscoveryLatestRunVerdict | null;
+  mismatchJobCount?: number;
+  onDisplayedSelectedJobIdChange?: (selectedJobId: string | null) => void;
   onRecoveryAction?: (() => void) | null;
-  onSearchAgain?: (() => void) | null;
   onShowHiddenJobs?: (() => void) | null;
+  onToggleHiddenJobs?: (() => void) | null;
   onSelectJob: (jobId: string) => void;
   recoveryActionLabel?: string | null;
   recoveryActionNextStep?: string | null;
   recoveryActionPending?: boolean;
-  searchAgainDisabled?: boolean;
-  searchAgainPending?: boolean;
   searchSetupBlocker?: {
     title: string;
     description: string;
@@ -59,10 +92,277 @@ interface DiscoveryResultsPanelProps {
     actionHref?: string | null;
     nextStep?: string | null;
   } | null;
-  selectedJob: SavedJob | null;
+  selectedJob: DiscoveryResultJob | null;
 }
 
+type DiscoveryResultJob = SavedJob &
+  Partial<Pick<DiscoveryJobView, "listingActivity">>;
+
 export const DISCOVERY_RESULTS_PAGE_SIZE = 50;
+
+const DISCOVERY_RESULTS_SORT_OPTIONS = [
+  { field: "fit", label: "Best match" },
+  { field: "recent", label: "Newest listing date" },
+  { field: "company", label: "Company" },
+] as const satisfies readonly {
+  readonly field: DiscoveryResultsSortField;
+  readonly label: string;
+}[];
+
+const SOURCE_UNAVAILABLE_FILTER = "Source unavailable";
+const WORK_MODE_UNSPECIFIED_FILTER = "Not specified";
+
+// Facet selections survive route remounts per active search plan in one
+// bounded, versioned local snapshot following the results-sort persistence
+// convention. The storage key stays constant; each plan's last-used facets
+// live in a capped most-recently-used scope list inside the payload, so
+// storage can never grow with plan count and plans never see each other's
+// filters.
+const FACET_FILTERS_STORAGE_KEY =
+  "unemployed.job-finder.discovery.result-filters.v2";
+// Legacy unscoped snapshot from before plan scoping existed. Read once as
+// the migrating value for whichever plan is active, then removed after the
+// first successful scoped write.
+const LEGACY_FACET_FILTERS_STORAGE_KEY =
+  "unemployed.job-finder.discovery.result-filters.v1";
+const FACET_SCOPE_FALLBACK = "default";
+const MAX_FACET_SCOPES = 8;
+const MAX_PERSISTED_FACET_VALUES = 24;
+const MAX_PERSISTED_FACET_VALUE_LENGTH = 200;
+
+interface PersistedDiscoveryFacetFilters {
+  readonly activity: readonly string[];
+  readonly recommendation: readonly string[];
+  readonly source: readonly string[];
+  readonly workMode: readonly string[];
+}
+
+interface PersistedFacetScope extends PersistedDiscoveryFacetFilters {
+  readonly id: string;
+}
+
+const EMPTY_PERSISTED_FACET_FILTERS: PersistedDiscoveryFacetFilters = {
+  activity: [],
+  recommendation: [],
+  source: [],
+  workMode: [],
+};
+
+// Static validity domains: a stored value outside its facet's known value
+// space is discarded at read time instead of silently hiding every result.
+const ACTIVITY_FILTER_DOMAIN = new Set<string>(listingActivityStatuses);
+const RECOMMENDATION_FILTER_DOMAIN = new Set<string>(fitRecommendationValues);
+const WORK_MODE_FILTER_DOMAIN = new Set<string>([
+  WORK_MODE_UNSPECIFIED_FILTER,
+  ...workModeValues,
+]);
+
+function normalizeFacetScopeKey(
+  facetScopeId: string | null | undefined,
+): string {
+  const trimmed = (facetScopeId ?? "").trim().slice(0, 120);
+  return trimmed.length > 0 ? trimmed : FACET_SCOPE_FALLBACK;
+}
+
+function readBoundedFacetValues(
+  value: unknown,
+  validDomain?: ReadonlySet<string>,
+): readonly string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.slice(0, MAX_PERSISTED_FACET_VALUE_LENGTH))
+    .filter((entry) => !validDomain || validDomain.has(entry))
+    .slice(0, MAX_PERSISTED_FACET_VALUES);
+}
+
+/**
+ * Validates any stored facet payload (legacy global snapshot or a scoped
+ * entry) into the four bounded facet lists. Source labels depend on the
+ * loaded result set, so they get no static domain here; they are validated
+ * dynamically against the visible options after render instead.
+ */
+function parseFacetPayload(
+  value: unknown,
+): PersistedDiscoveryFacetFilters | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const candidate = value as Record<string, unknown>;
+  return {
+    activity: readBoundedFacetValues(candidate.activity, ACTIVITY_FILTER_DOMAIN),
+    recommendation: readBoundedFacetValues(
+      candidate.recommendation,
+      RECOMMENDATION_FILTER_DOMAIN,
+    ),
+    source: readBoundedFacetValues(candidate.source),
+    workMode: readBoundedFacetValues(candidate.workMode, WORK_MODE_FILTER_DOMAIN),
+  };
+}
+
+function parsePersistedFacetScopes(raw: string): readonly PersistedFacetScope[] {
+  const parsed = JSON.parse(raw) as { scopes?: unknown };
+  if (!Array.isArray(parsed.scopes)) return [];
+  return parsed.scopes
+    .flatMap((entry) => {
+      if (!entry || typeof entry !== "object") return [];
+      const candidate = entry as Record<string, unknown>;
+      if (typeof candidate.id !== "string") return [];
+      const facets = parseFacetPayload(entry);
+      if (!facets) return [];
+      return [{ ...facets, id: candidate.id.slice(0, 120) } as const];
+    })
+    .slice(0, MAX_FACET_SCOPES);
+}
+
+function readScopedFacetFilters(
+  scopeKey: string,
+): PersistedDiscoveryFacetFilters {
+  try {
+    const raw = window.localStorage.getItem(FACET_FILTERS_STORAGE_KEY);
+    if (raw) {
+      const match = parsePersistedFacetScopes(raw).find(
+        (scope) => scope.id === scopeKey,
+      );
+      return match
+        ? {
+            activity: match.activity,
+            recommendation: match.recommendation,
+            source: match.source,
+            workMode: match.workMode,
+          }
+        : EMPTY_PERSISTED_FACET_FILTERS;
+    }
+    // One-time migration: the legacy global snapshot belonged to whatever
+    // plan is active right now; every other plan starts clean instead of
+    // inheriting cross-plan filters.
+    const legacyRaw = window.localStorage.getItem(
+      LEGACY_FACET_FILTERS_STORAGE_KEY,
+    );
+    if (legacyRaw) {
+      return parseFacetPayload(JSON.parse(legacyRaw)) ?? EMPTY_PERSISTED_FACET_FILTERS;
+    }
+  } catch {
+    // Unreadable snapshots fall back to unfiltered results.
+  }
+  return EMPTY_PERSISTED_FACET_FILTERS;
+}
+
+function writeScopedFacetFilters(
+  scopeKey: string,
+  filters: PersistedDiscoveryFacetFilters,
+): void {
+  const bound = (values: readonly string[]) =>
+    values
+      .slice(0, MAX_PERSISTED_FACET_VALUES)
+      .map((value) => value.slice(0, MAX_PERSISTED_FACET_VALUE_LENGTH));
+  try {
+    const raw = window.localStorage.getItem(FACET_FILTERS_STORAGE_KEY);
+    const previous = raw ? parsePersistedFacetScopes(raw) : [];
+    const entry: PersistedFacetScope = {
+      activity: bound(filters.activity),
+      id: scopeKey,
+      recommendation: bound(filters.recommendation),
+      source: bound(filters.source),
+      workMode: bound(filters.workMode),
+    };
+    const scopes = [
+      entry,
+      ...previous.filter((scope) => scope.id !== scopeKey),
+    ].slice(0, MAX_FACET_SCOPES);
+    window.localStorage.setItem(
+      FACET_FILTERS_STORAGE_KEY,
+      JSON.stringify({ version: 2, scopes }),
+    );
+    // The scoped snapshot supersedes the legacy global one.
+    window.localStorage.removeItem(LEGACY_FACET_FILTERS_STORAGE_KEY);
+  } catch {
+    // Filters still work when durable renderer preferences are unavailable.
+  }
+}
+
+/**
+ * Reads the facet selections captured in a named view's optional metadata.
+ * Keys other than the four known facets are ignored, and unknown or invalid
+ * values drop out per facet; facets absent from the metadata are left
+ * untouched by the caller.
+ */
+function getFacetSelectionFromMetadata(
+  metadata: SavedViewMetadata | undefined,
+): PersistedDiscoveryFacetFilters | null {
+  if (!metadata) return null;
+  const hasAnyFacet =
+    metadata.activity !== undefined ||
+    metadata.recommendation !== undefined ||
+    metadata.source !== undefined ||
+    metadata.workMode !== undefined;
+  if (!hasAnyFacet) return null;
+  return {
+    activity: readBoundedFacetValues(metadata.activity, ACTIVITY_FILTER_DOMAIN),
+    recommendation: readBoundedFacetValues(
+      metadata.recommendation,
+      RECOMMENDATION_FILTER_DOMAIN,
+    ),
+    source: readBoundedFacetValues(metadata.source),
+    workMode: readBoundedFacetValues(metadata.workMode, WORK_MODE_FILTER_DOMAIN),
+  };
+}
+
+function getFacetMetadata(filters: {
+  readonly activity: ReadonlySet<string>;
+  readonly recommendation: ReadonlySet<string>;
+  readonly source: ReadonlySet<string>;
+  readonly workMode: ReadonlySet<string>;
+}): SavedViewMetadata {
+  return {
+    activity: [...filters.activity],
+    recommendation: [...filters.recommendation],
+    source: [...filters.source],
+    workMode: [...filters.workMode],
+  };
+}
+
+/**
+ * Drops selected values that no longer appear among the visible options, so a
+ * restored (or surviving) selection can never reference a value no current
+ * result offers and silently blank the list. Returns the original reference
+ * when nothing changed to avoid needless re-renders and storage churn. The
+ * options come from the unfiltered scoped job collection, so another active
+ * facet temporarily hiding every row that offers a value never erases it.
+ */
+function pruneFilterSelection(
+  current: ReadonlySet<string>,
+  presentOptions: ReadonlySet<string>,
+): ReadonlySet<string> {
+  if (current.size === 0) return current;
+  const kept = [...current].filter((value) => presentOptions.has(value));
+  // Same size means nothing was dropped: returning the original reference
+  // keeps the pruning effect from re-rendering (Sets have no .length).
+  return kept.length === current.size ? current : new Set(kept);
+}
+
+function getListingActivity(job: DiscoveryResultJob): ListingActivity {
+  return job.listingActivity ?? { status: "unknown" };
+}
+
+function formatWorkModeLabel(workMode: WorkMode): string {
+  return workMode === "onsite"
+    ? "On-site"
+    : `${workMode.charAt(0).toUpperCase()}${workMode.slice(1)}`;
+}
+
+function toggleFilterValue(
+  values: ReadonlySet<string>,
+  value: string,
+): Set<string> {
+  const next = new Set(values);
+  if (next.has(value)) {
+    next.delete(value);
+  } else {
+    next.add(value);
+  }
+  return next;
+}
 
 export function getDiscoveryResultsPage(
   jobs: readonly SavedJob[],
@@ -76,6 +376,49 @@ export function getDiscoveryResultsPage(
   const startIndex = boundedPage * DISCOVERY_RESULTS_PAGE_SIZE;
 
   return jobs.slice(startIndex, startIndex + DISCOVERY_RESULTS_PAGE_SIZE);
+}
+
+/**
+ * Truthful streaming-progress count: reports what is actually visible after
+ * the user's persisted search query and filters, never the raw saved total.
+ */
+export function getDiscoveryProgressCountLabel(
+  visibleCount: number,
+  totalCount: number,
+): string {
+  const noun = totalCount === 1 ? "match" : "matches";
+  return visibleCount === totalCount
+    ? `${totalCount} ${noun} ready to review.`
+    : `${visibleCount} of ${totalCount} ${noun} ready to review.`;
+}
+
+/**
+ * Truthful listing-date badge for a results row, kept consistent with the
+ * shared recency key: when the only posting evidence is a relative source
+ * label ("2 days ago"), the badge keeps the provider's wording but marks the
+ * row as "not date-ranked" instead of implying that Newest sort ranked it by
+ * a posting date it cannot derive (and never by the hidden provider-update
+ * time either).
+ */
+export function getDiscoveryListingDateBadge(input: {
+  postedAt: string | null;
+  postedAtText: string | null;
+  providerUpdatedAt: string | null;
+}): { rankable: boolean; shown: boolean; text: string } {
+  if (!input.postedAt && !input.postedAtText && !input.providerUpdatedAt) {
+    return { rankable: false, shown: false, text: "" };
+  }
+
+  const listingDate = getPostedDateLabel(input);
+  const recency = getDiscoveryListingRecencyKey(input);
+  const unrankedRelativeLabel =
+    recency.basis === null && Boolean(input.postedAtText?.trim());
+
+  return {
+    rankable: recency.basis !== null,
+    shown: true,
+    text: `${listingDate.label} ${listingDate.value}${unrankedRelativeLabel ? " · not date-ranked" : ""}`,
+  };
 }
 
 function getSelectedJobPage(
@@ -153,7 +496,7 @@ export function ResultsEmptyState(props: {
   const actionButton = props.recoveryActionLabel ? (
     props.actionHref ? (
       <Button asChild size="sm" type="button" variant="primary">
-        <a href={props.actionHref}>{props.recoveryActionLabel}</a>
+        <Link to={props.actionHref}>{props.recoveryActionLabel}</Link>
       </Button>
     ) : (
       <Button
@@ -203,30 +546,179 @@ function getApplyPathLabel(applyPath: SavedJob["applyPath"]): string {
 }
 
 export function DiscoveryResultsPanel({
+  areHiddenJobsShown = false,
   browserSession,
+  discoveryTargets = [],
   emptyClassName,
+  facetScopeId = null,
   hasCompletedSearch = false,
   hiddenJobCount = 0,
   isSearchInProgress = false,
   jobs,
+  latestRunVerdict = null,
+  mismatchJobCount = 0,
+  onDisplayedSelectedJobIdChange,
   onRecoveryAction,
-  onSearchAgain,
   onShowHiddenJobs,
+  onToggleHiddenJobs,
   onSelectJob,
   recoveryActionLabel,
   recoveryActionNextStep,
   recoveryActionPending = false,
-  searchAgainDisabled = false,
-  searchAgainPending = false,
   searchSetupBlocker = null,
   selectedJob,
 }: DiscoveryResultsPanelProps) {
   const resultsScrollRegionRef = useRef<HTMLDivElement | null>(null);
   const view = usePersistedCollectionView("discovery-results", "comfortable");
   const deferredQuery = useDeferredValue(view.query);
-  const filteredJobs = useMemo(
+  // One bounded snapshot read per mount feeds every facet's initial value;
+  // route remounts re-read it, which is what makes selections survive
+  // navigation and restarts. The scope key keeps each search plan's filters
+  // separate.
+  const facetScopeKey = normalizeFacetScopeKey(facetScopeId);
+  const [persistedFacetFilters] = useState(() =>
+    readScopedFacetFilters(facetScopeKey),
+  );
+  const [recommendationFilters, setRecommendationFilters] = useState<
+    ReadonlySet<string>
+  >(() => new Set(persistedFacetFilters.recommendation));
+  const [sourceFilters, setSourceFilters] = useState<ReadonlySet<string>>(
+    () => new Set(persistedFacetFilters.source),
+  );
+  const [workModeFilters, setWorkModeFilters] = useState<ReadonlySet<string>>(
+    () => new Set(persistedFacetFilters.workMode),
+  );
+  const [activityFilters, setActivityFilters] = useState<ReadonlySet<string>>(
+    () => new Set(persistedFacetFilters.activity),
+  );
+  const sourceLabelsByJobId = useMemo(
     () =>
-      jobs.filter((job) =>
+      new Map(
+        jobs.map((job) => {
+          const labels = getDiscoverySourceLabels(
+            job.provenance ?? [],
+            discoveryTargets,
+          );
+          return [
+            job.id,
+            labels.length > 0 ? labels : [SOURCE_UNAVAILABLE_FILTER],
+          ] as const;
+        }),
+      ),
+    [discoveryTargets, jobs],
+  );
+  const recommendationOptions = useMemo(
+    () =>
+      fitRecommendationValues.filter((value) =>
+        jobs.some(
+          (job) =>
+            (job.matchAssessment.recommendation ?? "review_before_applying") ===
+            value,
+        ),
+      ),
+    [jobs],
+  );
+  const sourceOptions = useMemo(
+    () =>
+      [...new Set([...sourceLabelsByJobId.values()].flat())].sort(
+        (left, right) =>
+          left.localeCompare(right, "en", { sensitivity: "base" }),
+      ),
+    [sourceLabelsByJobId],
+  );
+  const workModeOptions = useMemo(
+    () => [
+      ...workModeValues.filter((value) =>
+        jobs.some((job) => job.workMode.includes(value)),
+      ),
+      ...(jobs.some((job) => job.workMode.length === 0)
+        ? [WORK_MODE_UNSPECIFIED_FILTER]
+        : []),
+    ],
+    [jobs],
+  );
+  // Restored selections stay active only while they name an option still
+  // present in the current result set ("restore only what is still valid").
+  // An empty result set defines no scope, so pruning waits until results
+  // exist rather than wiping restored selections during transient loads.
+  // Options derive from the unfiltered scoped collection, and re-running on
+  // facet changes heals values restored by a plan switch or named view; the
+  // same-reference no-op keeps this from looping.
+  useEffect(() => {
+    if (jobs.length === 0) return;
+    const recommendationScope = new Set(recommendationOptions);
+    const sourceScope = new Set(sourceOptions);
+    const workModeScope = new Set(workModeOptions);
+    setRecommendationFilters((current) =>
+      pruneFilterSelection(current, recommendationScope),
+    );
+    setSourceFilters((current) => pruneFilterSelection(current, sourceScope));
+    setWorkModeFilters((current) =>
+      pruneFilterSelection(current, workModeScope),
+    );
+  }, [
+    jobs.length,
+    recommendationFilters,
+    recommendationOptions,
+    sourceFilters,
+    sourceOptions,
+    workModeFilters,
+    workModeOptions,
+  ]);
+  // The scoped snapshot mirrors state on every change, so Clear filters and
+  // plan switches stay truthful: what is active is exactly what is stored
+  // for the current scope. The ref guard skips the transient commit between
+  // a scope change and its restore, so one plan's facets can never flash
+  // into another plan's stored snapshot.
+  useEffect(() => {
+    if (lastFacetScopeRef.current !== facetScopeKey) return;
+    writeScopedFacetFilters(facetScopeKey, {
+      activity: [...activityFilters],
+      recommendation: [...recommendationFilters],
+      source: [...sourceFilters],
+      workMode: [...workModeFilters],
+    });
+  }, [
+    activityFilters,
+    facetScopeKey,
+    recommendationFilters,
+    sourceFilters,
+    workModeFilters,
+  ]);
+  const activeFilterCount =
+    recommendationFilters.size +
+    sourceFilters.size +
+    workModeFilters.size +
+    activityFilters.size;
+  const filteredJobs = useMemo(() => {
+    if (
+      deferredQuery.trim() === "" &&
+      recommendationFilters.size === 0 &&
+      sourceFilters.size === 0 &&
+      workModeFilters.size === 0 &&
+      activityFilters.size === 0
+    ) {
+      return jobs;
+    }
+
+    return jobs.filter((job) => {
+      const recommendation =
+        job.matchAssessment.recommendation ?? "review_before_applying";
+      const sourceLabels = sourceLabelsByJobId.get(job.id) ?? [
+        SOURCE_UNAVAILABLE_FILTER,
+      ];
+      const workModes =
+        job.workMode.length > 0 ? job.workMode : [WORK_MODE_UNSPECIFIED_FILTER];
+      const activity = getListingActivity(job);
+
+      return (
+        (recommendationFilters.size === 0 ||
+          recommendationFilters.has(recommendation)) &&
+        (sourceFilters.size === 0 ||
+          sourceLabels.some((label) => sourceFilters.has(label))) &&
+        (workModeFilters.size === 0 ||
+          workModes.some((workMode) => workModeFilters.has(workMode))) &&
+        (activityFilters.size === 0 || activityFilters.has(activity.status)) &&
         matchesCollectionSearch(deferredQuery, [
           job.title,
           job.company,
@@ -235,13 +727,42 @@ export function DiscoveryResultsPanel({
           job.status,
           job.applyPath,
           ...job.workMode,
-          fitRecommendationCopy[
-            job.matchAssessment.recommendation ?? "review_before_applying"
-          ].label,
-        ]),
-      ),
-    [deferredQuery, jobs],
-  );
+          fitRecommendationCopy[recommendation].label,
+          presentListingActivity(activity).label,
+        ])
+      );
+    });
+  }, [
+    activityFilters,
+    deferredQuery,
+    jobs,
+    recommendationFilters,
+    sourceFilters,
+    sourceLabelsByJobId,
+    workModeFilters,
+  ]);
+  const resultsSort = useDiscoveryResultsSort();
+  const sortDirection = resultsSort.sort.direction;
+  const sortField = resultsSort.sort.field;
+  // The default fit ranking arrives pre-sorted from the discovery screen, so
+  // skip re-sorting (and re-allocating) the full result set entirely.
+  const orderedJobs = useMemo(() => {
+    if (sortDirection === "desc" && sortField === "fit") {
+      return filteredJobs;
+    }
+    return filteredJobs
+      .map((job, sourceIndex) => ({ job, sourceIndex }))
+      .sort((left, right) =>
+        compareDiscoveryResults(
+          left.job,
+          right.job,
+          resultsSort.sort,
+          left.sourceIndex,
+          right.sourceIndex,
+        ),
+      )
+      .map((entry) => entry.job);
+  }, [filteredJobs, resultsSort.sort, sortDirection, sortField]);
   const jobCount = filteredJobs.length;
   const pageCount = Math.max(
     1,
@@ -249,18 +770,35 @@ export function DiscoveryResultsPanel({
   );
   const selectedJobId = selectedJob?.id ?? null;
   const [pagination, setPagination] = useState(() => ({
-    page: getSelectedJobPage(filteredJobs, selectedJobId),
+    page: getSelectedJobPage(orderedJobs, selectedJobId),
     selectedJobId,
   }));
   const [showComparison, setShowComparison] = useState(false);
+  // Tracks which plan scope the facet state currently mirrors so the restore
+  // effect above only fires on real scope changes.
+  const lastFacetScopeRef = useRef(facetScopeKey);
   const currentPage = Math.min(Math.max(0, pagination.page), pageCount - 1);
+  const visibleJobs = useMemo(
+    () => getDiscoveryResultsPage(orderedJobs, currentPage),
+    [currentPage, orderedJobs],
+  );
+  // The inspector is a sibling pane, so this panel owns the truth about which
+  // job is actually on screen. When the selection falls off the visible page
+  // through pagination, search, or sorting, the displayed (inspected) job
+  // synchronizes to the top of what is actually shown instead of silently
+  // describing a row the user cannot see.
+  const displayedSelectedJobId = visibleJobs.some(
+    (job) => job.id === selectedJobId,
+  )
+    ? selectedJobId
+    : (visibleJobs[0]?.id ?? null);
 
   useLayoutEffect(() => {
     if (pagination.selectedJobId === selectedJobId) {
       return;
     }
 
-    const selectedJobPage = getSelectedJobPage(filteredJobs, selectedJobId);
+    const selectedJobPage = getSelectedJobPage(orderedJobs, selectedJobId);
     setPagination({
       page: selectedJobPage,
       selectedJobId,
@@ -268,9 +806,22 @@ export function DiscoveryResultsPanel({
     if (selectedJobPage !== currentPage && resultsScrollRegionRef.current) {
       resultsScrollRegionRef.current.scrollTop = 0;
     }
-  }, [currentPage, filteredJobs, pagination.selectedJobId, selectedJobId]);
+  }, [currentPage, orderedJobs, pagination.selectedJobId, selectedJobId]);
 
-  const visibleJobs = getDiscoveryResultsPage(filteredJobs, currentPage);
+  // Report after the page-snap effect so a freshly opened deep-linked page is
+  // reported in its final position.
+  const reportedDisplayedSelectionRef = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (!onDisplayedSelectedJobIdChange) {
+      return;
+    }
+    if (reportedDisplayedSelectionRef.current === displayedSelectedJobId) {
+      return;
+    }
+    reportedDisplayedSelectionRef.current = displayedSelectedJobId;
+    onDisplayedSelectedJobIdChange(displayedSelectedJobId);
+  }, [displayedSelectedJobId, onDisplayedSelectedJobIdChange]);
+
   const firstVisibleJobNumber =
     jobCount === 0 ? 0 : currentPage * DISCOVERY_RESULTS_PAGE_SIZE + 1;
   const lastVisibleJobNumber = Math.min(
@@ -287,6 +838,27 @@ export function DiscoveryResultsPanel({
       resultsScrollRegionRef.current.scrollTop = 0;
     }
   }, []);
+  const clearFilters = useCallback(() => {
+    setRecommendationFilters(new Set());
+    setSourceFilters(new Set());
+    setWorkModeFilters(new Set());
+    setActivityFilters(new Set());
+    moveToPage(0);
+  }, [moveToPage]);
+
+  // Switching the active search plan swaps in that plan's own facets; the
+  // prune and snapshot effects then validate and persist them under the new
+  // scope, so nothing leaks between plans.
+  useEffect(() => {
+    if (lastFacetScopeRef.current === facetScopeKey) return;
+    lastFacetScopeRef.current = facetScopeKey;
+    const scoped = readScopedFacetFilters(facetScopeKey);
+    setRecommendationFilters(new Set(scoped.recommendation));
+    setSourceFilters(new Set(scoped.source));
+    setWorkModeFilters(new Set(scoped.workMode));
+    setActivityFilters(new Set(scoped.activity));
+    moveToPage(0);
+  }, [facetScopeKey, moveToPage]);
 
   const sessionNeedsAttention =
     browserSession.status === "login_required" ||
@@ -296,8 +868,16 @@ export function DiscoveryResultsPanel({
     browserSession.driver !== "catalog_seed" &&
     recoveryActionPending;
   const allResultsHidden = jobs.length === 0 && hiddenJobCount > 0;
+  // Terminal empty-state truth: prefer the explicit newest-run verdict; when a
+  // caller does not provide one, fall back to the legacy completed-search flag
+  // so existing behavior is unchanged.
+  const emptyRunVerdict: DiscoveryLatestRunVerdict =
+    latestRunVerdict ??
+    (hasCompletedSearch ? { kind: "completed" } : { kind: "none" });
+  const showSearchingEmptyState =
+    isSearchInProgress || emptyRunVerdict.kind === "running";
   const baseButtonClasses =
-    "grid rounded-(--radius-panel) border border-(--surface-panel-border) text-left transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30";
+    "grid border-b border-(--surface-panel-border) text-left transition-colors outline-none focus-visible:z-10 focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/30";
   const densityClasses =
     view.density === "compact"
       ? "gap-2 p-3"
@@ -307,91 +887,306 @@ export function DiscoveryResultsPanel({
   const handleListKeyDown = useCallback(
     (event: KeyboardEvent<HTMLButtonElement>, jobId: string) => {
       const nextId = getAdjacentCollectionItemId(
-        filteredJobs.map((job) => job.id),
+        orderedJobs.map((job) => job.id),
         jobId,
         event.key,
       );
       if (!nextId) return;
 
-      const nextIndex = filteredJobs.findIndex((job) => job.id === nextId);
+      const nextIndex = orderedJobs.findIndex((job) => job.id === nextId);
       const nextPage = Math.floor(nextIndex / DISCOVERY_RESULTS_PAGE_SIZE);
       event.preventDefault();
       if (nextPage !== currentPage) {
         moveToPage(nextPage);
       }
       onSelectJob(nextId);
-      focusCollectionItem(nextId);
+      // Scoped to the results scroll region so the deferred frame can never
+      // land focus in another surface's rows.
+      focusCollectionItem(nextId, {
+        region: resultsScrollRegionRef.current,
+      });
     },
-    [currentPage, filteredJobs, moveToPage, onSelectJob],
+    [currentPage, moveToPage, onSelectJob, orderedJobs],
   );
 
   return (
     <section
       aria-labelledby="discovery-job-results-heading"
-      className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0"
+      className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-panel) border border-(--surface-panel-border) xl:h-full xl:min-h-0"
     >
-      <header className="flex flex-wrap items-center justify-between gap-3 px-5 pb-2 pt-5">
-        <h2
-          className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted"
-          id="discovery-job-results-heading"
-        >
-          Job results
-        </h2>
+      <header className="flex min-h-14 flex-wrap items-center justify-between gap-2 border-b border-(--surface-panel-border) px-4 py-3">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h2
+            className="text-base font-semibold text-(--text-headline)"
+            id="discovery-job-results-heading"
+          >
+            Job results
+          </h2>
+          <span
+            aria-atomic="true"
+            aria-live="polite"
+            className="text-xs tabular-nums text-foreground-muted"
+          >
+            {deferredQuery.trim().length > 0 || activeFilterCount > 0
+              ? `${filteredJobs.length} of ${jobs.length} results`
+              : hiddenJobCount > 0
+                ? `${jobs.length} shown · ${hiddenJobCount} mismatches hidden`
+                : `${jobs.length} ${jobs.length === 1 ? "job" : "jobs"}`}
+          </span>
+        </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           {filteredJobs.length >= 2 ? (
             <Button
               aria-expanded={showComparison}
               onClick={() => setShowComparison((current) => !current)}
-              size="sm"
+              size="xs"
               type="button"
               variant="ghost"
             >
-              {showComparison ? "Hide comparison" : "Compare top jobs"}
+              {showComparison ? "Hide comparison" : "Compare"}
             </Button>
           ) : null}
-          {(jobs.length > 0 || hiddenJobCount > 0) && onSearchAgain ? (
+          {mismatchJobCount > 0 && jobs.length > 0 && onToggleHiddenJobs ? (
             <Button
-              className="xl:hidden"
-              disabled={searchAgainDisabled}
-              onClick={onSearchAgain}
-              pending={searchAgainPending}
-              size="sm"
+              aria-label={`${mismatchJobCount} clear mismatch${mismatchJobCount === 1 ? "" : "es"}. ${areHiddenJobsShown ? "Hide mismatches" : "Show mismatches"}`}
+              aria-pressed={areHiddenJobsShown}
+              className="shrink-0 whitespace-nowrap"
+              onClick={onToggleHiddenJobs}
+              size="xs"
               type="button"
-              variant="secondary"
+              variant="ghost"
             >
-              {searchAgainPending ? "Searching" : "Search again"}
+              {areHiddenJobsShown ? "Hide mismatches" : "Show mismatches"}
             </Button>
           ) : null}
-          <Badge variant="section">
-            {hiddenJobCount > 0
-              ? `${jobs.length} shown · ${hiddenJobCount} hidden`
-              : `${jobs.length} ${jobs.length === 1 ? "job" : "jobs"}`}
-          </Badge>
         </div>
       </header>
 
       {jobs.length > 0 ? (
-        <CollectionSearchToolbar
-          density={view.density}
-          label="Find a job"
-          onDensityChange={view.setDensity}
-          onQueryChange={(query) => {
-            view.setQuery(query);
-            moveToPage(0);
-          }}
-          placeholder="Search role, company, location, skill, or status"
-          query={view.query}
-          totalCount={jobs.length}
-          viewActions={
-            <CollectionSavedViews
-              onApply={view.applySavedView}
-              onDelete={view.deleteSavedView}
-              onSave={view.saveCurrentView}
-              views={view.savedViews}
-            />
-          }
-          visibleCount={filteredJobs.length}
-        />
+        <>
+          <CollectionSearchToolbar
+            compact
+            density={view.density}
+            hideCompactCount
+            label="Find a job"
+            onDensityChange={view.setDensity}
+            onQueryChange={(query) => {
+              view.setQuery(query);
+              moveToPage(0);
+            }}
+            placeholder="Search roles or companies"
+            placement="panel"
+            query={view.query}
+            totalCount={jobs.length}
+            viewActions={
+              <div className="flex min-w-0 items-center gap-1">
+                <select
+                  aria-label="Sort results"
+                  className="h-8 rounded-(--radius-button) border border-(--field-border) bg-(--field) px-2 text-xs text-foreground-soft outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+                  onChange={(event) => {
+                    const match = DISCOVERY_RESULTS_SORT_OPTIONS.find(
+                      (option) => option.field === event.target.value,
+                    );
+                    if (!match) return;
+                    resultsSort.setSortField(match.field);
+                    moveToPage(0);
+                  }}
+                  value={sortField}
+                >
+                  {DISCOVERY_RESULTS_SORT_OPTIONS.map((option) => (
+                    <option key={option.field} value={option.field}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  aria-label={
+                    sortDirection === "desc"
+                      ? "Sort descending"
+                      : "Sort ascending"
+                  }
+                  onClick={() => {
+                    resultsSort.toggleSortDirection();
+                    moveToPage(0);
+                  }}
+                  size="xs"
+                  type="button"
+                  variant="ghost"
+                >
+                  {sortDirection === "desc" ? "↓" : "↑"}
+                </Button>
+                <CollectionSavedViews
+                  onApply={(id) => {
+                    // Restores query and density via the hook; facets come
+                    // back from the view's optional metadata payload when
+                    // this panel captured them at save time.
+                    const restoredFacets = getFacetSelectionFromMetadata(
+                      view.applySavedView(id),
+                    );
+                    if (!restoredFacets) return;
+                    setRecommendationFilters(
+                      new Set(restoredFacets.recommendation),
+                    );
+                    setSourceFilters(new Set(restoredFacets.source));
+                    setWorkModeFilters(new Set(restoredFacets.workMode));
+                    setActivityFilters(new Set(restoredFacets.activity));
+                    moveToPage(0);
+                  }}
+                  onDelete={view.deleteSavedView}
+                  onSave={view.saveCurrentView}
+                  savedViewMetadata={getFacetMetadata({
+                    activity: activityFilters,
+                    recommendation: recommendationFilters,
+                    source: sourceFilters,
+                    workMode: workModeFilters,
+                  })}
+                  views={view.savedViews}
+                />
+              </div>
+            }
+            visibleCount={filteredJobs.length}
+          />
+          <div className="border-b border-(--surface-panel-border) px-4 py-2">
+            <details className="group relative">
+              <summary className="flex min-h-8 w-fit cursor-pointer list-none items-center gap-2 rounded-(--radius-button) border border-(--surface-panel-border) px-3 text-xs font-medium text-foreground-soft outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/30 [&::-webkit-details-marker]:hidden">
+                Filters
+                {activeFilterCount > 0 ? (
+                  <span
+                    aria-label={`${activeFilterCount} active ${activeFilterCount === 1 ? "filter" : "filters"}`}
+                    className="rounded-full bg-accent px-1.5 py-0.5 tabular-nums text-accent-foreground"
+                  >
+                    {activeFilterCount}
+                  </span>
+                ) : null}
+              </summary>
+              <div className="mt-2 grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) p-3 sm:grid-cols-2 xl:grid-cols-4">
+                <fieldset className="min-w-0">
+                  <legend className="mb-2 text-xs font-semibold text-foreground">
+                    Recommendation
+                  </legend>
+                  <div className="grid gap-2">
+                    {recommendationOptions.map((recommendation) => (
+                      <label
+                        className="flex min-w-0 items-start gap-2 text-xs leading-6 text-foreground-soft"
+                        key={recommendation}
+                      >
+                        <input
+                          checked={recommendationFilters.has(recommendation)}
+                          className="size-6 shrink-0 accent-current"
+                          onChange={() => {
+                            setRecommendationFilters((current) =>
+                              toggleFilterValue(current, recommendation),
+                            );
+                            moveToPage(0);
+                          }}
+                          type="checkbox"
+                        />
+                        <span className="min-w-0 break-words">
+                          {fitRecommendationCopy[recommendation].label}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+                <fieldset className="min-w-0">
+                  <legend className="mb-2 text-xs font-semibold text-foreground">
+                    Source
+                  </legend>
+                  <div className="grid max-h-32 gap-2 overflow-y-auto">
+                    {sourceOptions.map((source) => (
+                      <label
+                        className="flex min-w-0 items-start gap-2 text-xs leading-6 text-foreground-soft"
+                        key={source}
+                        title={source}
+                      >
+                        <input
+                          checked={sourceFilters.has(source)}
+                          className="size-6 shrink-0 accent-current"
+                          onChange={() => {
+                            setSourceFilters((current) =>
+                              toggleFilterValue(current, source),
+                            );
+                            moveToPage(0);
+                          }}
+                          type="checkbox"
+                        />
+                        <span className="min-w-0 break-words">{source}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+                <fieldset className="min-w-0">
+                  <legend className="mb-2 text-xs font-semibold text-foreground">
+                    Work mode
+                  </legend>
+                  <div className="grid gap-2">
+                    {workModeOptions.map((workMode) => (
+                      <label
+                        className="flex min-w-0 items-start gap-2 text-xs leading-6 text-foreground-soft"
+                        key={workMode}
+                      >
+                        <input
+                          checked={workModeFilters.has(workMode)}
+                          className="size-6 shrink-0 accent-current"
+                          onChange={() => {
+                            setWorkModeFilters((current) =>
+                              toggleFilterValue(current, workMode),
+                            );
+                            moveToPage(0);
+                          }}
+                          type="checkbox"
+                        />
+                        <span className="min-w-0 break-words">
+                          {workMode === WORK_MODE_UNSPECIFIED_FILTER
+                            ? workMode
+                            : formatWorkModeLabel(workMode as WorkMode)}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+                <fieldset className="min-w-0">
+                  <legend className="mb-2 text-xs font-semibold text-foreground">
+                    Listing activity
+                  </legend>
+                  <div className="grid gap-2">
+                    {listingActivityStatuses.map((status) => (
+                      <label
+                        className="flex min-w-0 items-start gap-2 text-xs leading-6 text-foreground-soft"
+                        key={status}
+                      >
+                        <input
+                          checked={activityFilters.has(status)}
+                          className="size-6 shrink-0 accent-current"
+                          onChange={() => {
+                            setActivityFilters((current) =>
+                              toggleFilterValue(current, status),
+                            );
+                            moveToPage(0);
+                          }}
+                          type="checkbox"
+                        />
+                        <span>{formatStatusLabel(status)}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+                {activeFilterCount > 0 ? (
+                  <div className="sm:col-span-2 xl:col-span-4">
+                    <Button
+                      onClick={clearFilters}
+                      size="xs"
+                      type="button"
+                      variant="ghost"
+                    >
+                      Clear filters
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            </details>
+          </div>
+        </>
       ) : null}
 
       {showComparison && filteredJobs.length >= 2 ? (
@@ -456,7 +1251,7 @@ export function DiscoveryResultsPanel({
         <div className="px-5 pt-4">
           <ResultsEmptyState
             actionHref={
-              searchSetupBlocker.actionHref ?? JOB_FINDER_ROUTE_HREFS.profile
+              searchSetupBlocker.actionHref ?? JOB_FINDER_ROUTE_PATHS.profile
             }
             className={emptyClassName ?? "min-h-72"}
             description={searchSetupBlocker.description}
@@ -473,7 +1268,7 @@ export function DiscoveryResultsPanel({
 
       {!allResultsHidden &&
       !searchSetupBlocker &&
-      isSearchInProgress &&
+      showSearchingEmptyState &&
       jobs.length === 0 ? (
         <div className="px-5 pt-4">
           <ResultsEmptyState
@@ -559,8 +1354,7 @@ export function DiscoveryResultsPanel({
             role="status"
           >
             <strong>
-              {jobs.length} {jobs.length === 1 ? "match" : "matches"} ready to
-              review.
+              {getDiscoveryProgressCountLabel(filteredJobs.length, jobs.length)}
             </strong>{" "}
             Search is still checking the remaining sources; stronger matches may
             move to the top.
@@ -570,30 +1364,53 @@ export function DiscoveryResultsPanel({
 
       {!allResultsHidden &&
       !searchSetupBlocker &&
-      !isSearchInProgress &&
+      !showSearchingEmptyState &&
       !sessionNeedsAttention &&
       !sessionWaitingOnRuntime &&
-      !hasCompletedSearch &&
+      emptyRunVerdict.kind === "interrupted" &&
       jobs.length === 0 ? (
         <div className="px-5 pt-4">
           <ResultsEmptyState
             className={emptyClassName ?? "min-h-72"}
-            description="Your search setup is ready. Select Search jobs to check every enabled source."
-            title="Ready for your first search"
+            description={
+              emptyRunVerdict.interruptState === "cancelled"
+                ? "The newest search was cancelled before every enabled source was checked. An empty list here does not prove your sources have no matches. Select Search now to try again."
+                : emptyRunVerdict.interruptState === "sources_failed"
+                  ? "The newest search finished, but at least one enabled source failed, so an empty list here does not prove your sources have no matches. Select Search now to try again."
+                  : "The newest search stopped before every enabled source was checked. An empty list here does not prove your sources have no matches. Select Search now to try again."
+            }
+            title={
+              emptyRunVerdict.interruptState === "cancelled"
+                ? "The last search was cancelled"
+                : emptyRunVerdict.interruptState === "sources_failed"
+                  ? "The last search finished, but sources failed"
+                  : "The last search stopped before finishing"
+            }
           />
+          {emptyRunVerdict.hasEarlierCompleted ? (
+            <div
+              aria-atomic="true"
+              aria-live="polite"
+              className="mt-3 rounded-(--radius-field) border border-(--info-border) bg-(--info-surface) px-3 py-2.5 text-(length:--text-description) leading-6 text-(--info-text)"
+              role="status"
+            >
+              An earlier completed search exists behind this stopped attempt,
+              but it is not on screen right now.
+            </div>
+          ) : null}
         </div>
       ) : null}
 
       {!allResultsHidden &&
       !searchSetupBlocker &&
-      !isSearchInProgress &&
+      !showSearchingEmptyState &&
       !sessionNeedsAttention &&
       !sessionWaitingOnRuntime &&
-      hasCompletedSearch &&
+      emptyRunVerdict.kind === "completed" &&
       jobs.length === 0 ? (
         <div className="px-5 pt-4">
           <ResultsEmptyState
-            actionHref={JOB_FINDER_ROUTE_HREFS.profileTargetRoles}
+            actionHref={JOB_FINDER_ROUTE_PATHS.profileTargetRoles}
             className={emptyClassName ?? "min-h-72"}
             description="No saved source returned a role that met this search. Broaden a role or location, enable another source, then run it again."
             recoveryActionLabel="Broaden search"
@@ -603,7 +1420,34 @@ export function DiscoveryResultsPanel({
         </div>
       ) : null}
 
-      {jobs.length > 0 && filteredJobs.length === 0 ? (
+      {!allResultsHidden &&
+      !searchSetupBlocker &&
+      !showSearchingEmptyState &&
+      !sessionNeedsAttention &&
+      !sessionWaitingOnRuntime &&
+      emptyRunVerdict.kind === "none" &&
+      jobs.length === 0 ? (
+        <div className="px-5 pt-4">
+          <ResultsEmptyState
+            className={emptyClassName ?? "min-h-72"}
+            description="Your search setup is ready. Select Search now to check every enabled source."
+            title="Ready for your first search"
+          />
+        </div>
+      ) : null}
+
+      {jobs.length > 0 && filteredJobs.length === 0 && activeFilterCount > 0 ? (
+        <div className="px-5 pt-4">
+          <ResultsEmptyState
+            className={emptyClassName ?? "min-h-48"}
+            description="No saved result meets every active filter. Nothing was removed."
+            onRecoveryAction={clearFilters}
+            recoveryActionLabel="Clear filters"
+            recoveryActionNextStep="Review the complete result list, then apply a broader filter if needed."
+            title="No jobs match these filters"
+          />
+        </div>
+      ) : jobs.length > 0 && filteredJobs.length === 0 ? (
         <CollectionNoMatches
           noun="jobs"
           onClear={() => view.setQuery("")}
@@ -617,22 +1461,42 @@ export function DiscoveryResultsPanel({
           data-job-results-stack
         >
           <div
-            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-5 pt-4"
+            aria-label="Job results list"
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
             data-locked-pane-scroll-region
             data-job-results-scroll-region
             ref={resultsScrollRegionRef}
+            role="region"
+            tabIndex={0}
           >
             <ul
               aria-label="Results"
-              className="m-0 grid min-h-full list-none content-start gap-3 p-0"
+              className="m-0 grid min-h-full list-none content-start p-0"
             >
               {visibleJobs.map((job) => {
-                const isSelected = selectedJob?.id === job.id;
+                const isSelected = displayedSelectedJobId === job.id;
                 const recommendation =
                   fitRecommendationCopy[
                     job.matchAssessment.recommendation ??
                       "review_before_applying"
                   ];
+                const listingDateBadge = getDiscoveryListingDateBadge(job);
+                const listingDateExplanation = listingDateBadge.shown
+                  ? listingDateBadge.rankable
+                    ? undefined
+                    : "The source shows a posting label without a full date, so Newest cannot rank this listing by its posting date."
+                  : undefined;
+                const sourceLabels = sourceLabelsByJobId.get(job.id) ?? [];
+                const sourceText =
+                  sourceLabels.length > 0
+                    ? sourceLabels.join(", ")
+                    : "Source unavailable";
+                const listingActivity = getListingActivity(job);
+                const activity = presentListingActivity(listingActivity);
+                const activityDescription =
+                  listingActivity.status === "inactive"
+                    ? `Not found in a source inventory observation on ${activity.observedDate}. This does not prove the listing is closed. ${listingActivity.explanation}`
+                    : activity.description;
 
                 return (
                   <li key={job.id} className="min-w-0">
@@ -645,7 +1509,7 @@ export function DiscoveryResultsPanel({
                         densityClasses,
                         "w-full min-w-0",
                         isSelected
-                          ? "surface-card-tint"
+                          ? "bg-accent"
                           : "bg-transparent hover:bg-(--surface-panel-raised)",
                       )}
                       aria-keyshortcuts="ArrowUp ArrowDown Home End"
@@ -654,6 +1518,8 @@ export function DiscoveryResultsPanel({
                         onSelectJob(job.id);
                         if (event.detail === 0) {
                           focusDiscoveryDetailAfterKeyboardSelection();
+                        } else {
+                          revealDiscoveryDetailAfterPointerSelection();
                         }
                       }}
                       onKeyDown={(event) => handleListKeyDown(event, job.id)}
@@ -678,6 +1544,21 @@ export function DiscoveryResultsPanel({
                           >
                             {job.company} • {job.location}
                           </span>
+                          <span
+                            className="flex min-w-0 max-w-full text-(length:--text-tiny) text-foreground-muted"
+                            data-testid={`discovery-result-source-${job.id}`}
+                            title={`Found on ${sourceText}`}
+                          >
+                            <span className="sr-only">
+                              Found on {sourceText}
+                            </span>
+                            <span
+                              aria-hidden="true"
+                              className="min-w-0 truncate"
+                            >
+                              Source: {sourceText}
+                            </span>
+                          </span>
                         </div>
                         <span className="grid min-w-0 shrink-0 justify-items-end gap-0.5">
                           {view.density === "detailed" ? (
@@ -698,6 +1579,16 @@ export function DiscoveryResultsPanel({
                         <StatusBadge tone={recommendation.tone}>
                           {recommendation.label}
                         </StatusBadge>
+                        <Badge
+                          aria-label={`${activity.label} listing status${activity.observedDate ? ` observed ${activity.observedDate}` : ""}. ${activityDescription}`}
+                          title={activityDescription}
+                          variant="outline"
+                        >
+                          {activity.label}
+                          {activity.observedDate
+                            ? ` · ${activity.observedDate}`
+                            : ""}
+                        </Badge>
                         {job.status === "shortlisted" ||
                         job.status === "submitted" ? (
                           <StatusBadge tone={getApplicationTone(job.status)}>
@@ -715,13 +1606,14 @@ export function DiscoveryResultsPanel({
                             {job.workMode.join(", ")}
                           </Badge>
                         ) : null}
-                        {job.postedAt || job.postedAtText ? (
-                          <Badge variant="outline">
-                            Posted{" "}
-                            {formatOptionalDateOnly(
-                              job.postedAt,
-                              job.postedAtText,
-                            )}
+                        {listingDateBadge.shown ? (
+                          <Badge
+                            {...(listingDateExplanation
+                              ? { title: listingDateExplanation }
+                              : {})}
+                            variant="outline"
+                          >
+                            {listingDateBadge.text}
                           </Badge>
                         ) : null}
                       </div>

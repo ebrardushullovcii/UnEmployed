@@ -38,10 +38,10 @@ export function SettingsWorkspaceControls({
             Reset this device workspace
           </h2>
           <p className="text-sm leading-6 text-foreground-soft">
-            Your workspace and résumé stay on this device until you choose to
-            reset them. Reset permanently removes your profile, imported résumé,
-            saved jobs, tailored résumés, application history, and browser
-            session data from this device.
+            Your workspace and resume stay on this device until you choose to
+            reset them. Reset permanently removes your profile, imported
+            resume, saved jobs, tailored resumes, application history, and
+            browser session data from this device.
           </p>
         </div>
         <div className="grid justify-items-start gap-2">
@@ -94,8 +94,8 @@ export function SettingsWorkspaceControls({
                     className="text-sm leading-6 text-foreground-soft"
                     id={dialogDescriptionId}
                   >
-                    This permanently deletes your profile, imported résumé,
-                    saved jobs, tailored résumés, application history, and
+                    This permanently deletes your profile, imported resume,
+                    saved jobs, tailored resumes, application history, and
                     browser session data from this device. This cannot be
                     undone.
                   </p>

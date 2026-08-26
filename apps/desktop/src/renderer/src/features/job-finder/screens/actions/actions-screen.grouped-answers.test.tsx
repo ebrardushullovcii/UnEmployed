@@ -20,6 +20,7 @@ import { deriveGroupedAnswerGroupKey } from "./answer-memory-editor";
 afterEach(cleanup);
 
 function createManualAnswerRequest(input: {
+  applicationRecordId?: string;
   id: string;
   jobId: string;
   revision?: number;
@@ -35,6 +36,8 @@ function createManualAnswerRequest(input: {
       type: "application",
       runId: "run_1",
       jobId: input.jobId,
+      applicationRecordId:
+        input.applicationRecordId ?? `application_${input.jobId}`,
       source: "target_site",
     },
     verification: {
@@ -150,6 +153,7 @@ describe("ActionsScreen persisted grouped reusable answers", () => {
     } as unknown as CandidateProfile;
     const applicationAttempts = [
       {
+        applicationRecordId: "application_job_a",
         jobId: "job_a",
         blocker: { code: "missing_candidate_answer" },
         questions: [
@@ -254,6 +258,12 @@ describe("ActionsScreen persisted grouped reusable answers", () => {
       expectedRequestRevisions: { request_a: 1, request_b: 1 },
       answer: { type: "text", value: "5 years" },
     });
+    expect(document.body.textContent ?? "").toMatch(
+      /Job Finder cannot create an account or submit an application/i,
+    );
+    expect(document.body.textContent ?? "").not.toMatch(
+      /later explicit confirmation/i,
+    );
   });
 
   it("snoozes with the decision revision and a future note-free payload", () => {

@@ -1,22 +1,37 @@
 import {
   PROFILE_SETUP_PLACEHOLDER_HEADLINE,
   PROFILE_SETUP_PLACEHOLDER_LOCATION,
+  PROFILE_SETUP_PLACEHOLDER_SUMMARY,
   type JobSource,
   type SourceDebugPhase,
 } from "@unemployed/contracts";
 
-// Profile placeholder strings - must stay in sync with UI defaults
-// These are set when no resume has been imported yet
+// Profile placeholder strings - canonical definitions live in contracts.
+// These aliases remain for legacy-workspace detection in import reconciliation.
 export const PROFILE_PLACEHOLDER_HEADLINE = PROFILE_SETUP_PLACEHOLDER_HEADLINE;
 export const PROFILE_PLACEHOLDER_LOCATION = PROFILE_SETUP_PLACEHOLDER_LOCATION;
-export const PROFILE_PLACEHOLDER_SUMMARY =
-  "Import a resume or paste resume text to build your profile, targeting, and tailored documents.";
+export const PROFILE_PLACEHOLDER_SUMMARY = PROFILE_SETUP_PLACEHOLDER_SUMMARY;
 
 // Agent discovery defaults
 export const DEFAULT_ROLE = "software engineer";
 export const DEFAULT_TARGET_JOB_COUNT = 100;
 export const DEFAULT_MAX_STEPS = 60;
 export const DEFAULT_MAX_TARGET_ROLES = 4;
+/**
+ * Hard step ceiling for explicitly budgeted (scaled) discovery targets. The
+ * interactive precision ceilings stay at 36 steps for a single target and 60
+ * steps for multi-target runs; explicit run budgets raise the crawl ceiling
+ * proportionally without removing it.
+ */
+export const SCALED_DISCOVERY_MAX_STEPS = 240;
+/**
+ * Hard wall-clock ceiling per browser-backed target, regardless of the
+ * configured step count. Cancellation and progress checks stay active inside
+ * this window.
+ */
+export const MAX_DISCOVERY_TARGET_TIME_BUDGET_MS = 30 * 60_000;
+/** Bounded no-progress allowance so scaled runs cannot drift indefinitely. */
+export const MAX_DISCOVERY_AGENT_NO_PROGRESS_STEPS = 24;
 export const DEFAULT_DISCOVERY_HISTORY_LIMIT = 5;
 export const LEGACY_DEFAULT_TARGET_STARTING_URL =
   "https://www.linkedin.com/jobs/search/";

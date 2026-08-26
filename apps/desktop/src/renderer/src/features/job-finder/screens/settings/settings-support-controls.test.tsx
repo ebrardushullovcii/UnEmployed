@@ -94,7 +94,8 @@ describe("SettingsSupportControls", () => {
     });
 
     const pendingButton = document.querySelector("button");
-    expect(pendingButton?.disabled).toBe(true);
+    expect(pendingButton?.hasAttribute("disabled")).toBe(false);
+    expect(pendingButton?.getAttribute("aria-disabled")).toBe("true");
     expect(pendingButton?.getAttribute("aria-busy")).toBe("true");
     expect(document.querySelector('[role="status"]')?.textContent).toBe(
       "Preparing a local diagnostic report…",

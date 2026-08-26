@@ -3,14 +3,19 @@ import { describe, expect, test } from "vitest";
 import {
   appendDiscoveryLiveActivityEvent,
   DISCOVERY_LIVE_ACTIVITY_EVENT_LIMIT,
+  DISCOVERY_RUN_JOB_BUDGET_MAX,
   DiscoveryActivityEventSchema,
+  DiscoveryJobViewSchema,
   DiscoveryLedgerEntrySchema,
   DiscoveryRunRecordSchema,
   DiscoveryRunSummarySchema,
   DiscoveryTargetExecutionSchema,
   DiscoveryTimingSummarySchema,
+  JobDiscoveryPreferencesSchema,
   JobPostingSchema,
   MatchAssessmentSchema,
+  SavedJobSchema,
+  TailoredAssetSchema,
   type DiscoveryActivityEvent,
 } from "./discovery";
 
@@ -29,7 +34,59 @@ const postingInput = {
   description: "Software Engineer role at Acme",
 };
 
+const tailoredAssetInput = {
+  id: "resume_job_1",
+  jobId: "job_1",
+  kind: "resume" as const,
+  status: "ready" as const,
+  label: "Tailored Resume",
+  version: "v2",
+  templateName: "Chronology Classic",
+  compatibilityScore: 92,
+  progressPercent: 100,
+  updatedAt: "2026-08-23T10:00:00.000Z",
+};
+
 describe("discovery contracts", () => {
+  test("keeps listing activity snapshot-only with legacy unknown compatibility", () => {
+    const savedJobInput = {
+      ...postingInput,
+      id: "job_1",
+      status: "discovered" as const,
+      matchAssessment: {
+        score: 80,
+        reasons: [],
+        gaps: [],
+      },
+    };
+
+    expect(DiscoveryJobViewSchema.parse(savedJobInput).listingActivity).toEqual(
+      {
+        status: "unknown",
+      },
+    );
+    expect(
+      DiscoveryJobViewSchema.parse({
+        ...savedJobInput,
+        listingActivity: {
+          status: "closed",
+          observedAt: "2026-08-23T10:00:00.000Z",
+          signalId: "signal-1",
+          provenance: "provider",
+          explanation: "The provider explicitly reported the listing closed.",
+          detail: null,
+          confidence: 1,
+        },
+      }).listingActivity,
+    ).toMatchObject({
+      status: "closed",
+      provenance: "provider",
+    });
+    expect(
+      Object.hasOwn(SavedJobSchema.parse(savedJobInput), "listingActivity"),
+    ).toBe(false);
+  });
+
   test("defaults legacy target executions to empty fairness evidence", () => {
     const execution = DiscoveryTargetExecutionSchema.parse({
       targetId: "target_1",
@@ -141,6 +198,41 @@ describe("discovery contracts", () => {
     expect(JobPostingSchema.parse(postingInput).detailQuality).toBe(
       "card_only",
     );
+  });
+
+  test("defaults legacy tailored assets to null failure detail", () => {
+    const asset = TailoredAssetSchema.parse(tailoredAssetInput);
+
+    expect(asset.failureMessage).toBeNull();
+    expect(asset.failedAt).toBeNull();
+  });
+
+  test("parses a durable failed tailored asset with bounded failure detail", () => {
+    const failedAt = "2026-08-23T10:05:00.000Z";
+    const asset = TailoredAssetSchema.parse({
+      ...tailoredAssetInput,
+      status: "failed",
+      progressPercent: null,
+      storagePath: null,
+      contentText: null,
+      failureMessage: "Resume generation failed at the provider.",
+      failedAt,
+    });
+
+    expect(asset.status).toBe("failed");
+    expect(asset.failureMessage).toBe(
+      "Resume generation failed at the provider.",
+    );
+    expect(asset.failedAt).toBe(failedAt);
+  });
+
+  test("rejects malformed failure timestamps on tailored assets", () => {
+    expect(
+      TailoredAssetSchema.safeParse({
+        ...tailoredAssetInput,
+        failedAt: "yesterday",
+      }).success,
+    ).toBe(false);
   });
 
   test("defaults legacy postings and ledger entries to unknown provider freshness", () => {
@@ -505,5 +597,28 @@ describe("discovery contracts", () => {
     expect(persistedActivity.activity).toHaveLength(511);
     expect(persistedActivity.activity[0]?.id).toBe("history_0");
     expect(persistedActivity.activity.at(-1)?.id).toBe("history_510");
+  });
+
+  test("keeps the discovery run budget optional and hard-capped", () => {
+    const preferences = JobDiscoveryPreferencesSchema.parse({});
+
+    expect(preferences.runJobBudget).toBeUndefined();
+    expect(
+      JobDiscoveryPreferencesSchema.parse({ runJobBudget: null }).runJobBudget,
+    ).toBeNull();
+    expect(
+      JobDiscoveryPreferencesSchema.parse({
+        runJobBudget: DISCOVERY_RUN_JOB_BUDGET_MAX,
+      }).runJobBudget,
+    ).toBe(DISCOVERY_RUN_JOB_BUDGET_MAX);
+
+    expect(() =>
+      JobDiscoveryPreferencesSchema.parse({
+        runJobBudget: DISCOVERY_RUN_JOB_BUDGET_MAX + 1,
+      }),
+    ).toThrow();
+    expect(() =>
+      JobDiscoveryPreferencesSchema.parse({ runJobBudget: 0 }),
+    ).toThrow();
   });
 });

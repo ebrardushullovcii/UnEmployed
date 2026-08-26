@@ -24,14 +24,71 @@ function buildAssessment(input: {
       responsibilities: [],
       ...input.posting,
     },
-    matchesLocation: true,
-    matchesWorkMode: true,
+    locationCompatibility: "compatible",
+    workModeCompatibility: "compatible",
     hasLocationPreferences: false,
     hasWorkModePreferences: false,
   });
 }
 
 describe("structured requirement evidence extraction", () => {
+  test("maps location compatibility states onto truthful requirement evidence", () => {
+    const seed = createSeed();
+    const buildLocationRequirement = (
+      locationCompatibility: "compatible" | "incompatible" | "unknown",
+      profileOverrides?: Partial<CandidateProfile>,
+    ) =>
+      buildRequirementEvidenceAssessment({
+        profile: { ...seed.profile, ...profileOverrides },
+        posting: {
+          ...seed.savedJobs[0]!,
+          title: "Senior Software Engineer",
+          description: "Build reliable software for customers.",
+          keySkills: [],
+          minimumQualifications: [],
+          preferredQualifications: [],
+          responsibilities: [],
+        },
+        locationCompatibility,
+        workModeCompatibility: "compatible",
+        hasLocationPreferences: true,
+        hasWorkModePreferences: false,
+      }).find(
+        (requirement) =>
+          requirement.category === "location" &&
+          requirement.label.startsWith("Location:"),
+      )!;
+
+    const compatible = buildLocationRequirement("compatible");
+    expect(compatible.status).toBe("supported");
+    expect(compatible.explanation).toContain(
+      "is compatible with the saved search area",
+    );
+
+    const unknownFit = buildLocationRequirement("unknown");
+    expect(unknownFit.status).toBe("unknown");
+    expect(unknownFit.explanation).toContain(
+      "does not specify enough geographic detail to verify it against the saved search areas",
+    );
+
+    const relocatableConflict = buildLocationRequirement("incompatible");
+    expect(relocatableConflict.status).toBe("unknown");
+    expect(relocatableConflict.explanation).toBe(
+      "The listing location is outside the saved search area; relocation needs confirmation.",
+    );
+
+    const settledConflict = buildLocationRequirement("incompatible", {
+      workEligibility: {
+        ...seed.profile.workEligibility,
+        willingToRelocate: false,
+      },
+    });
+    expect(settledConflict.status).toBe("conflict");
+    expect(settledConflict.explanation).toBe(
+      "The listing location is outside the saved search area and the profile rules out relocation.",
+    );
+  });
+
   test("preserves Go when a structured qualification lists Go with another technology", () => {
     const requirements = buildAssessment({
       profile: {

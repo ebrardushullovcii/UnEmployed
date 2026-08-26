@@ -1,15 +1,22 @@
 import { describe, expect, test } from "vitest";
 
 import type { ResumeDraft, ResumeDraftEntry } from "@unemployed/contracts";
-import { ResumeDraftSchema } from "@unemployed/contracts";
+import {
+  ResumeClaimConfirmationSchema,
+  ResumeDraftSchema,
+  resumeClaimOwnershipStatement,
+} from "@unemployed/contracts";
+import { fnv1a32 } from "@unemployed/core";
 import { ResumeGenerationStrategyPolicySchema } from "@unemployed/ai-providers";
 import {
   buildResumeCoverageComparison,
   buildResumeDraftContentHash,
+  hasBlockingResumeClaimAssessment,
   sanitizeResumeDraft,
   validateResumeDraft,
 } from "./resume-workspace-helpers";
 import { createEntry } from "./resume-workspace-primitives";
+import { normalizeText } from "./shared";
 import { createSeed } from "../workspace-service.test-support";
 
 function createBullets(prefix: string, texts: string[]) {
@@ -20,6 +27,7 @@ function createBullets(prefix: string, texts: string[]) {
     locked: false,
     included: true,
     sourceRefs: [],
+    lastGeneratedContentHash: null,
     updatedAt: "2026-03-20T10:04:00.000Z",
   }));
 }
@@ -109,6 +117,8 @@ function createBaseDraft(): ResumeDraft {
     approvedAt: null,
     approvedExportId: null,
     staleReason: null,
+    workHistoryReviewAcknowledgments: [],
+    claimConfirmations: [],
     createdAt: "2026-03-20T10:04:00.000Z",
     updatedAt: "2026-03-20T10:04:00.000Z",
   };
@@ -1102,7 +1112,7 @@ describe("resume workspace quality helpers", () => {
     expect(grounded).toMatchObject({
       claimOrigin: "ai_generated",
       status: "exact",
-      verifier: "deterministic_candidate_evidence_v1",
+      verifier: "deterministic_candidate_evidence_v2",
     });
     expect(grounded?.evidenceRefs.length).toBeGreaterThan(0);
     expect(grounded?.evidenceRefs.map((ref) => ref.sourceKind)).toEqual(
@@ -1171,5 +1181,205 @@ describe("resume workspace quality helpers", () => {
     expect(buildResumeDraftContentHash(originOnlyEdit)).not.toBe(
       buildResumeDraftContentHash(userEditedDraft),
     );
+  });
+
+  test("maps classifier verdicts to statuses and gates confirmations by locator and hash", () => {
+    const { profile, job } = getSeedContext();
+    // Every other generated claim in this fixture must be fully grounded so
+    // the single weak-supported bullet below is the only confirmation-gated
+    // row: confirming one row can never clear a second unconfirmed weak row,
+    // so the gate would stay closed after its confirmation. The summary text
+    // is verbatim stored-profile evidence, which classifies as exact.
+    const groundedDraft = updateSection(
+      createBaseDraft(),
+      "section_summary",
+      (section) => ({
+        ...section,
+        text: profile.summary ?? "",
+      }),
+    );
+    const draft = updateSection(
+      groundedDraft,
+      "section_experience",
+      (section) => ({
+        ...section,
+        entries: section.entries.map((entry) => ({
+          ...entry,
+          bullets: createBullets("grounding_confirm", [
+            // Shares only one meaningful token with candidate evidence: weak
+            // support that a generated claim must confirm before export.
+            "Championed resilient delivery improvements across organizations.",
+            // Multi-anchor paraphrase of grounded achievements: accepted.
+            "Delivered the design system rollout across core product surfaces.",
+          ]),
+        })),
+      }),
+    );
+
+    const validation = validateResumeDraft({ draft, job, profile });
+    const weakClaim = validation.claimAssessments.find(
+      (assessment) => assessment.bulletId === "grounding_confirm_1",
+    );
+    const paraphraseClaim = validation.claimAssessments.find(
+      (assessment) => assessment.bulletId === "grounding_confirm_2",
+    );
+
+    expect(weakClaim).toMatchObject({
+      claimOrigin: "ai_generated",
+      status: "confirm_needed",
+      verifier: "deterministic_candidate_evidence_v2",
+    });
+    expect(
+      validation.issues.some(
+        (issue) =>
+          issue.category === "claim_confirmation_needed" &&
+          issue.severity === "warning" &&
+          issue.bulletId === "grounding_confirm_1",
+      ),
+    ).toBe(true);
+    expect(paraphraseClaim).toMatchObject({
+      claimOrigin: "ai_generated",
+      status: "paraphrase",
+    });
+    expect(paraphraseClaim?.evidenceRefs.length).toBeGreaterThan(0);
+    expect(hasBlockingResumeClaimAssessment({ validation, draft })).toBe(true);
+
+    const confirmation = ResumeClaimConfirmationSchema.parse({
+      id: "claim_confirmation_grounding_1",
+      draftId: draft.id,
+      field: weakClaim?.field ?? "section_bullet",
+      sectionId: weakClaim?.sectionId ?? "",
+      entryId: weakClaim?.entryId ?? null,
+      bulletId: weakClaim?.bulletId ?? null,
+      confirmedClaimContentHash: fnv1a32(
+        normalizeText(weakClaim?.claimText ?? ""),
+      ),
+      ownershipStatement: resumeClaimOwnershipStatement,
+      confirmedAt: "2026-08-26T10:00:00.000Z",
+    });
+    const confirmedDraft = { ...draft, claimConfirmations: [confirmation] };
+    expect(
+      hasBlockingResumeClaimAssessment({ validation, draft: confirmedDraft }),
+    ).toBe(false);
+
+    // A cross-draft confirmation never satisfies the gate.
+    const foreignConfirmation = {
+      ...confirmation,
+      id: "claim_confirmation_foreign_draft",
+      draftId: "resume_draft_elsewhere",
+    };
+    expect(
+      hasBlockingResumeClaimAssessment({
+        validation,
+        draft: { ...draft, claimConfirmations: [foreignConfirmation] },
+      }),
+    ).toBe(true);
+
+    // A content-hash change re-blocks even with a stored confirmation:
+    // origin flips or wording edits alone cannot clear the gate.
+    const rewordedValidation = {
+      ...validation,
+      claimAssessments: validation.claimAssessments.map((assessment) =>
+        assessment.id === weakClaim?.id
+          ? { ...assessment, contentHash: fnv1a32("reworded claim") }
+          : assessment,
+      ),
+    };
+    expect(
+      hasBlockingResumeClaimAssessment({
+        validation: rewordedValidation,
+        draft: confirmedDraft,
+      }),
+    ).toBe(true);
+
+    const originFlippedRow = {
+      ...(weakClaim as NonNullable<typeof weakClaim>),
+      claimOrigin: "user_edited" as const,
+    };
+    expect(
+      hasBlockingResumeClaimAssessment({
+        validation: { claimAssessments: [originFlippedRow] },
+        draft,
+      }),
+    ).toBe(true);
+  });
+
+  test("fails closed on stale verifier currency while keeping user prose informational", () => {
+    const { profile, job } = getSeedContext();
+    const baseDraft = createBaseDraft();
+    const validation = validateResumeDraft({ draft: baseDraft, job, profile });
+    const generatedRow =
+      validation.claimAssessments.find(
+        (assessment) =>
+          assessment.claimOrigin === "ai_generated" &&
+          assessment.status !== "unsupported",
+      ) ?? validation.claimAssessments[0];
+
+    if (!generatedRow) {
+      throw new Error("Expected at least one claim assessment.");
+    }
+
+    // v1 rows predate the converged verifier: generated claims stay blocked
+    // pending revalidation regardless of their recorded status.
+    const staleGeneratedRow = {
+      ...generatedRow,
+      verifier: "deterministic_candidate_evidence_v1" as const,
+    };
+    expect(
+      hasBlockingResumeClaimAssessment({
+        validation: { claimAssessments: [staleGeneratedRow] },
+        draft: baseDraft,
+      }),
+    ).toBe(true);
+
+    // User-authored v1 rows keep legacy semantics: only hard unsupported
+    // verdicts blocked before v2 existed.
+    const staleUserExactRow = {
+      ...generatedRow,
+      claimOrigin: "user_edited" as const,
+      status: "exact" as const,
+      verifier: "deterministic_candidate_evidence_v1" as const,
+    };
+    const staleUserUnsupportedRow = {
+      ...staleUserExactRow,
+      status: "unsupported" as const,
+    };
+    expect(
+      hasBlockingResumeClaimAssessment({
+        validation: { claimAssessments: [staleUserExactRow] },
+        draft: baseDraft,
+      }),
+    ).toBe(false);
+    expect(
+      hasBlockingResumeClaimAssessment({
+        validation: { claimAssessments: [staleUserUnsupportedRow] },
+        draft: baseDraft,
+      }),
+    ).toBe(true);
+
+    // Under v2, hard unsupported gaps block regardless of origin, while
+    // review-status user prose stays informational.
+    const v2UserReviewRow = {
+      ...generatedRow,
+      claimOrigin: "user_edited" as const,
+      status: "review" as const,
+      verifier: "deterministic_candidate_evidence_v2" as const,
+    };
+    const v2UserUnsupportedRow = {
+      ...v2UserReviewRow,
+      status: "unsupported" as const,
+    };
+    expect(
+      hasBlockingResumeClaimAssessment({
+        validation: { claimAssessments: [v2UserReviewRow] },
+        draft: baseDraft,
+      }),
+    ).toBe(false);
+    expect(
+      hasBlockingResumeClaimAssessment({
+        validation: { claimAssessments: [v2UserUnsupportedRow] },
+        draft: baseDraft,
+      }),
+    ).toBe(true);
   });
 });

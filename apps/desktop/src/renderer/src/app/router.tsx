@@ -7,6 +7,7 @@ import {
   JobFinderCompaniesRoute,
   JobFinderCompanyDetailRoute,
   JobFinderDiscoveryRoute,
+  JobFinderDocumentsRoute,
   JobFinderPage,
   JobFinderProfileRoute,
   JobFinderProfileSetupRoute,
@@ -47,9 +48,7 @@ function InterviewRouteFallback() {
 }
 
 function withInterviewFallback(element: ReactNode) {
-  return (
-    <Suspense fallback={<InterviewRouteFallback />}>{element}</Suspense>
-  );
+  return <Suspense fallback={<InterviewRouteFallback />}>{element}</Suspense>;
 }
 
 export const appRouter = createHashRouter([
@@ -132,6 +131,11 @@ export const appRouter = createHashRouter([
         path: "applications",
         errorElement: <JobFinderRouteErrorBoundary scope="route" />,
         element: <JobFinderApplicationsRoute />,
+      },
+      {
+        path: "documents",
+        errorElement: <JobFinderRouteErrorBoundary scope="route" />,
+        element: <JobFinderDocumentsRoute />,
       },
       {
         path: "settings",

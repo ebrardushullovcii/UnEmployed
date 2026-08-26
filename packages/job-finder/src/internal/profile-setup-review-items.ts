@@ -3,6 +3,7 @@ import {
   ProfileSetupStateSchema,
   evaluateProfileSetupReadiness,
   hasProfileSetupPlaceholderValue,
+  isFreshStartCandidateProfile,
   type CandidateProfile,
   type JobSearchPreferences,
   type ProfileReviewItem,
@@ -412,6 +413,37 @@ function hasPlaceholderAwareIdentityValue(
   );
 }
 
+/**
+ * True when the stored full name is a real fact rather than missing or a
+ * stale first-run placeholder. Split name fields only count as covered when
+ * this real assembled identity exists.
+ */
+function hasPlaceholderAwareFullNameValue(profile: CandidateProfile): boolean {
+  return Boolean(
+    hasMeaningfulText(profile.fullName) &&
+      !hasProfileSetupPlaceholderValue("fullName", profile.fullName),
+  );
+}
+
+/**
+ * A split name field needs its own critical review item when no real assembled
+ * full name already carries identity and this field is either missing or only
+ * feeds the stale first-run placeholder name.
+ */
+function needsSplitIdentityNameDraft(
+  profile: CandidateProfile,
+  partValue: string | null,
+): boolean {
+  if (hasPlaceholderAwareFullNameValue(profile)) {
+    return false;
+  }
+
+  return (
+    !hasMeaningfulText(partValue) ||
+    hasProfileSetupPlaceholderValue("fullName", profile.fullName)
+  );
+}
+
 function hasDraftForTarget(
   candidateDrafts: readonly DerivedReviewDraft[],
   domain: TargetDomain,
@@ -501,6 +533,45 @@ function buildMissingFieldDrafts(
 ): DerivedReviewDraft[] {
   const drafts: DerivedReviewDraft[] = [];
 
+  // Canonical readiness requires a real full name assembled from the split
+  // name fields, so missing first or last names are critical field-targeted
+  // gaps. Separate first and last names let Job Finder prepare profile and
+  // application fields; a preferred display name only controls how the app
+  // may address or show the person.
+  if (
+    !hasDraftForTarget(candidateDrafts, "identity", "fullName") &&
+    !hasDraftForTarget(candidateDrafts, "identity", "firstName") &&
+    needsSplitIdentityNameDraft(profile, profile.firstName)
+  ) {
+    drafts.push({
+      step: "essentials",
+      target: { domain: "identity", key: "firstName", recordId: null },
+      label: "First name",
+      reason:
+        "Add your first name so profile and application fields can be prepared correctly; your preferred display name remains how Job Finder addresses you.",
+      severity: "critical",
+      proposedValue: null,
+      sourceSnippet: null,
+    });
+  }
+
+  if (
+    !hasDraftForTarget(candidateDrafts, "identity", "fullName") &&
+    !hasDraftForTarget(candidateDrafts, "identity", "lastName") &&
+    needsSplitIdentityNameDraft(profile, profile.lastName)
+  ) {
+    drafts.push({
+      step: "essentials",
+      target: { domain: "identity", key: "lastName", recordId: null },
+      label: "Last name",
+      reason:
+        "Add your last name so profile and application fields can be prepared correctly; your preferred display name remains how Job Finder addresses you.",
+      severity: "critical",
+      proposedValue: null,
+      sourceSnippet: null,
+    });
+  }
+
   if (
     !hasPlaceholderAwareIdentityValue(profile.headline, "headline") &&
     !hasDraftForTarget(candidateDrafts, "identity", "headline")
@@ -540,13 +611,17 @@ function buildMissingFieldDrafts(
     profile.yearsExperience <= 0 &&
     !hasDraftForTarget(candidateDrafts, "identity", "yearsExperience")
   ) {
+    // Fresh-start profiles cannot complete setup without a real seniority
+    // signal, so the copy and severity must say that requirement out loud.
+    const freshStart = isFreshStartCandidateProfile(profile);
     drafts.push({
       step: "essentials",
       target: { domain: "identity", key: "yearsExperience", recordId: null },
       label: "Years of experience",
-      reason:
-        "Add your years of experience so setup, search targeting, and resume outputs have a grounded seniority signal.",
-      severity: "recommended",
+      reason: freshStart
+        ? "Add your years of experience so setup, search targeting, and resume outputs have a grounded seniority signal. A fresh-start profile stays blocked until this is added."
+        : "Add your years of experience so setup, search targeting, and resume outputs have a grounded seniority signal.",
+      severity: freshStart ? "critical" : "recommended",
       proposedValue: null,
       sourceSnippet: null,
     });

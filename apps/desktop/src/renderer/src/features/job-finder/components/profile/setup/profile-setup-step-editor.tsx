@@ -1,7 +1,9 @@
 import {
   evaluateProfileSetupReadiness,
+  getProfileSetupReadinessBlockers,
   type CandidateProfile,
   type JobSearchPreferences,
+  type ProfileSetupReadinessBlocker,
   type ProfileSetupStep,
   type ResumeImportFieldCandidateSummary,
   type ResumeImportProgressEvent,
@@ -36,6 +38,8 @@ import {
 import {
   isBlockingPendingReviewItem,
   isOptionalPendingReviewItem,
+  buildProfileSetupIdentityBlockerReason,
+  PROFILE_SETUP_VALIDATION_ALERT_ID,
   type ProfileSetupReviewItemDisplay,
 } from "./profile-setup-screen-helpers";
 
@@ -112,45 +116,48 @@ export function ProfileSetupStepEditor(props: {
   const currentStep = props.currentStep;
   const nextStep = getNextProfileSetupStep(currentStep);
   const previousStep = getPreviousProfileSetupStep(currentStep);
+  // One canonical blocker list decides both the Finish gate and the visible
+  // blockers so the ready check can never disagree with other surfaces.
   const canFinishSetup =
     readiness.materiallyComplete && blockingPendingItems.length === 0;
-  const readinessBlockers: Array<{
-    label: string;
-    reason: string;
-    step: ProfileSetupStep;
-  }> = [];
-
-  if (!readiness.hasCoreIdentity || !readiness.hasContactPath) {
-    readinessBlockers.push({
-      label: "Complete your essentials",
-      reason: "Add a real identity, location, and at least one contact method.",
-      step: "essentials",
-    });
-  }
-  if (!readiness.hasMeaningfulBackground) {
-    readinessBlockers.push({
+  const readinessBlockerCopy: Record<
+    ProfileSetupReadinessBlocker["id"],
+    { label: string; reason: string }
+  > = {
+    background: {
       label: "Add work history",
       reason:
         "Add at least one meaningful role or project so job fit can use real evidence.",
-      step: "background",
-    });
-  }
-  if (!readiness.hasEligibilityPreferences) {
-    readinessBlockers.push({
-      label: "Confirm work constraints",
-      reason:
-        "Set the locations, work modes, or eligibility rules that discovery should respect.",
-      step: "targeting",
-    });
-  }
-  if (!readiness.hasDiscoverySource) {
-    readinessBlockers.push({
+    },
+    discovery_source: {
       label: "Add a job source",
       reason:
         "Include at least one valid public careers or job-board URL so Find jobs has somewhere to search.",
-      step: "targeting",
-    });
-  }
+    },
+    eligibility_preferences: {
+      label: "Confirm work constraints",
+      reason:
+        "Set the locations, work modes, or eligibility rules that discovery should respect.",
+    },
+    identity_contact: {
+      label: "Complete your essentials",
+      // Enumerates exactly what identity still needs (full name, location,
+      // contact, and fresh-start years when applicable) from the shared
+      // helper so the visible blocker never hides a requirement.
+      reason: buildProfileSetupIdentityBlockerReason(props.draftProfile),
+    },
+    work_mode_preference: {
+      label: "Choose your work mode",
+      reason:
+        "Select at least one work mode (remote, hybrid, onsite, or flexible) so search results match how you want to work.",
+    },
+  };
+  const readinessBlockers = getProfileSetupReadinessBlockers(readiness).map(
+    (blocker) => ({
+      ...readinessBlockerCopy[blocker.id],
+      step: blocker.step,
+    }),
+  );
   const currentStepReviewItems = props.currentStepReviewItems.filter(
     (item) => item.status === "pending",
   );
@@ -168,17 +175,18 @@ export function ProfileSetupStepEditor(props: {
         isBlockingPendingReviewItem(item),
     ),
   });
-  const hasChosenWorkMode = props.draftSearchPreferences.workModes.length > 0;
-  const needsRemoteEligibilityAnswer =
-    props.draftSearchPreferences.workModes.includes("remote") &&
-    props.draftProfile.workEligibility.remoteEligible === null;
+  // Badge readiness reuses the canonical blocker list; no local rule may
+  // declare a surface ready while the shared evaluation still reports one of
+  // its blockers.
+  const readinessBlockerIds = new Set(
+    getProfileSetupReadinessBlockers(readiness).map((blocker) => blocker.id),
+  );
   const discoveryStatus = getReadinessStatus({
     hasSignal:
       readiness.hasTargeting &&
-      readiness.hasEligibilityPreferences &&
-      readiness.hasDiscoverySource &&
-      hasChosenWorkMode &&
-      !needsRemoteEligibilityAnswer,
+      !readinessBlockerIds.has("eligibility_preferences") &&
+      !readinessBlockerIds.has("work_mode_preference") &&
+      !readinessBlockerIds.has("discovery_source"),
     hasReviewItems: props.profileSetupReviewItems.some(
       (item) =>
         (item.step === "essentials" || item.step === "targeting") &&
@@ -188,7 +196,8 @@ export function ProfileSetupStepEditor(props: {
   const applyStatus = getReadinessStatus({
     hasSignal:
       readiness.hasContactPath &&
-      readiness.hasEligibilityPreferences &&
+      !readinessBlockerIds.has("eligibility_preferences") &&
+      !readinessBlockerIds.has("work_mode_preference") &&
       readiness.hasAnswerBank,
     hasReviewItems: props.profileSetupReviewItems.some(
       (item) =>
@@ -234,7 +243,11 @@ export function ProfileSetupStepEditor(props: {
             </p>
           ) : null}
           {props.validationMessage ? (
-            <p className="text-sm leading-6 text-destructive" role="status">
+            <p
+              className="text-sm leading-6 text-destructive"
+              id={PROFILE_SETUP_VALIDATION_ALERT_ID}
+              role="alert"
+            >
               {props.validationMessage}
             </p>
           ) : null}
@@ -331,6 +344,11 @@ export function ProfileSetupStepEditor(props: {
             focusRecordId={focusExperienceRecordId}
             focusRecordOpenSignal={focusExperienceOpenSignal}
             profileForm={props.profileForm}
+            // Skipping only navigates after saving the draft; readiness and
+            // review items keep reporting the missing work history honestly.
+            onContinueWithoutWorkHistory={
+              nextStep ? () => props.onSaveAndGoToStep(nextStep) : undefined
+            }
           />
           <ProfileBackgroundTab
             backgroundArrays={props.backgroundArrays}

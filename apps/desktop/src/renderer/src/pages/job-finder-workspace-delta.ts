@@ -13,27 +13,98 @@ export type WorkspaceDeltaApplyResult =
   | { status: "stale" }
   | { status: "gap" };
 
+const STRUCTURAL_EQUAL_MAX_DEPTH = 24;
+
+function structuralEqual(left: unknown, right: unknown, depth = 0): boolean {
+  if (Object.is(left, right)) {
+    return true;
+  }
+  if (depth >= STRUCTURAL_EQUAL_MAX_DEPTH) {
+    return false;
+  }
+  if (isReadonlyArray(left)) {
+    if (!isReadonlyArray(right) || left.length !== right.length) {
+      return false;
+    }
+    return left.every((item, index) =>
+      structuralEqual(item, right[index], depth + 1),
+    );
+  }
+  if (!isPlainObject(left) || !isPlainObject(right)) {
+    return false;
+  }
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) {
+    return false;
+  }
+  return leftKeys.every(
+    (key) =>
+      Object.prototype.hasOwnProperty.call(right, key) &&
+      structuralEqual(left[key], right[key], depth + 1),
+  );
+}
+
+function isReadonlyArray(value: unknown): value is readonly unknown[] {
+  return Array.isArray(value);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null || isReadonlyArray(value)) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value) as object | null;
+  return prototype === Object.prototype || prototype === null;
+}
+
 function applyEntitySlice<T>(
   current: readonly T[],
   upserts: readonly T[],
   removedIds: readonly string[],
   getId: (value: T) => string,
 ): T[] {
-  const removed = new Set(removedIds);
-  const upsertsById = new Map(upserts.map((value) => [getId(value), value]));
-  const next = current
-    .filter((value) => !removed.has(getId(value)))
-    .map((value) => upsertsById.get(getId(value)) ?? value);
-  const existingIds = new Set(next.map(getId));
-
-  for (const value of upserts) {
-    if (!removed.has(getId(value)) && !existingIds.has(getId(value))) {
-      next.push(value);
-      existingIds.add(getId(value));
-    }
+  if (upserts.length === 0 && removedIds.length === 0) {
+    return current as T[];
   }
 
-  return next;
+  let changed = false;
+  const removed = new Set(removedIds);
+  const upsertsById = new Map(upserts.map((value) => [getId(value), value]));
+  const next: T[] = [];
+  const existingIds = new Set<string>();
+
+  for (const value of current) {
+    const id = getId(value);
+    if (removed.has(id)) {
+      changed = true;
+      continue;
+    }
+    const upsert = upsertsById.get(id);
+    if (upsert === undefined) {
+      next.push(value);
+      existingIds.add(id);
+      continue;
+    }
+    if (upsert !== value && !structuralEqual(upsert, value)) {
+      changed = true;
+      next.push(upsert);
+    } else {
+      next.push(value);
+    }
+    existingIds.add(id);
+  }
+
+  for (const value of upserts) {
+    const id = getId(value);
+    if (removed.has(id) || existingIds.has(id)) {
+      continue;
+    }
+    next.push(value);
+    existingIds.add(id);
+    changed = true;
+  }
+
+  return changed ? next : (current as T[]);
 }
 
 function preserveValidSelection<T>(input: {
@@ -118,6 +189,12 @@ export function applyJobFinderWorkspaceDelta(input: {
         input.workspace.dismissedDiscoveryJobs,
         input.delta.dismissedDiscoveryJobs.upserts,
         input.delta.dismissedDiscoveryJobs.removedIds,
+        (value) => value.id,
+      ),
+      companyJobs: applyEntitySlice(
+        input.workspace.companyJobs,
+        input.delta.companyJobs.upserts,
+        input.delta.companyJobs.removedIds,
         (value) => value.id,
       ),
       recentDiscoveryRuns: applyEntitySlice(

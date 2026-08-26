@@ -4,14 +4,15 @@ import {
   parseNullableText,
 } from "./profile-copilot-field-updates-shared";
 
-export const contentFieldDescriptors: ReadonlyArray<FieldDescriptor<unknown>> = [
+export const contentFieldDescriptors = [
   {
     aliases: ["short value proposition", "value proposition"],
     applyMode: "applied",
     key: "shortValueProposition",
     operation: "replace_professional_summary_fields",
     parseValue: parseNullableText,
-    readCurrentValue: (input) => input.profile.professionalSummary.shortValueProposition,
+    readCurrentValue: (input) =>
+      input.profile.professionalSummary.shortValueProposition,
     reviewDomain: "professional_summary",
     title: "short value proposition",
   },
@@ -41,7 +42,8 @@ export const contentFieldDescriptors: ReadonlyArray<FieldDescriptor<unknown>> = 
     key: "leadershipSummary",
     operation: "replace_professional_summary_fields",
     parseValue: parseNullableText,
-    readCurrentValue: (input) => input.profile.professionalSummary.leadershipSummary,
+    readCurrentValue: (input) =>
+      input.profile.professionalSummary.leadershipSummary,
     reviewDomain: "professional_summary",
     title: "leadership summary",
   },
@@ -51,7 +53,8 @@ export const contentFieldDescriptors: ReadonlyArray<FieldDescriptor<unknown>> = 
     key: "domainFocusSummary",
     operation: "replace_professional_summary_fields",
     parseValue: parseNullableText,
-    readCurrentValue: (input) => input.profile.professionalSummary.domainFocusSummary,
+    readCurrentValue: (input) =>
+      input.profile.professionalSummary.domainFocusSummary,
     reviewDomain: "professional_summary",
     title: "domain focus summary",
   },
@@ -91,7 +94,8 @@ export const contentFieldDescriptors: ReadonlyArray<FieldDescriptor<unknown>> = 
     key: "careerTransitionSummary",
     operation: "replace_narrative_fields",
     parseValue: parseNullableText,
-    readCurrentValue: (input) => input.profile.narrative.careerTransitionSummary,
+    readCurrentValue: (input) =>
+      input.profile.narrative.careerTransitionSummary,
     reviewDomain: "narrative",
     title: "career transition summary",
   },
@@ -176,9 +180,16 @@ export const contentFieldDescriptors: ReadonlyArray<FieldDescriptor<unknown>> = 
     title: "availability answer",
   },
   {
-    aliases: ["salary expectations answer", "salary expectations"],
+    aliases: ["salary expectations answer"],
     applyMode: "applied",
     key: "salaryExpectations",
+    matchesRequest: (normalizedRequest) =>
+      /\bsalary (?:expectations?|expectation)\s+answer\b/.test(
+        normalizedRequest,
+      ) ||
+      /\banswer (?:for|to)(?: my)? salary expectations?\b/.test(
+        normalizedRequest,
+      ),
     operation: "replace_answer_bank_fields",
     parseValue: parseNullableText,
     readCurrentValue: (input) => input.profile.answerBank.salaryExpectations,
@@ -205,4 +216,4 @@ export const contentFieldDescriptors: ReadonlyArray<FieldDescriptor<unknown>> = 
     reviewDomain: "answer_bank",
     title: "career transition answer",
   },
-];
+] as const satisfies ReadonlyArray<FieldDescriptor<unknown>>;

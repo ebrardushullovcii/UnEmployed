@@ -176,13 +176,9 @@ export function InterviewMediaStreamProbes(props: {
   workspace?: InterviewWorkspaceSnapshot;
 }) {
   const [microphoneStatus, setMicrophoneStatus] = useState<ProbeStatus>("idle");
-  const [microphoneDetail, setMicrophoneDetail] = useState(
-    "Not checked yet.",
-  );
+  const [microphoneDetail, setMicrophoneDetail] = useState("Not checked yet.");
   const [displayStatus, setDisplayStatus] = useState<ProbeStatus>("idle");
-  const [displayDetail, setDisplayDetail] = useState(
-    "Not checked yet.",
-  );
+  const [displayDetail, setDisplayDetail] = useState("Not checked yet.");
   const [captionEnabled, setCaptionEnabled] = useState(false);
   const [captionStatus, setCaptionStatus] = useState<CaptureStatus>("idle");
   const [captionDetail, setCaptionDetail] = useState("Mic captions are off.");
@@ -366,7 +362,9 @@ export function InterviewMediaStreamProbes(props: {
   async function checkMicrophoneStream() {
     if (!props.microphoneCaptureAllowed) {
       setMicrophoneStatus("unavailable");
-      setMicrophoneDetail("Enable microphone capture in setup before testing it.");
+      setMicrophoneDetail(
+        "Enable microphone capture in setup before testing it.",
+      );
       return;
     }
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -412,7 +410,9 @@ export function InterviewMediaStreamProbes(props: {
   async function checkDisplayAudioStream() {
     if (!props.meetingAudioCaptureAllowed) {
       setDisplayStatus("unavailable");
-      setDisplayDetail("Enable system-audio capture in setup before testing it.");
+      setDisplayDetail(
+        "Enable system-audio capture in setup before testing it.",
+      );
       return;
     }
     if (!navigator.mediaDevices?.getDisplayMedia) {
@@ -474,7 +474,9 @@ export function InterviewMediaStreamProbes(props: {
       getBrowserSpeechRecognitionConstructor();
     if (!SpeechRecognitionConstructor) {
       setCaptionStatus("failed");
-      setCaptionDetail("Audio test unavailable. Your browser does not support speech recognition.");
+      setCaptionDetail(
+        "Audio test unavailable. Your browser does not support speech recognition.",
+      );
       return;
     }
 
@@ -688,10 +690,7 @@ export function InterviewMediaStreamProbes(props: {
 
     if (!("MediaRecorder" in window)) {
       setRecorderStatus(source, "failed");
-      setRecorderDetail(
-        source,
-        "Audio test unavailable.",
-      );
+      setRecorderDetail(source, "Audio test unavailable.");
       return;
     }
 
@@ -781,8 +780,7 @@ export function InterviewMediaStreamProbes(props: {
             const savedSpeech =
               workspace.activeSession?.transcriptSegments.some(
                 (segment) =>
-                  segment.source === source &&
-                  segment.endedAt === chunkEndedAt,
+                  segment.source === source && segment.endedAt === chunkEndedAt,
               ) ?? false;
             setRecorderDetail(
               source,
@@ -830,10 +828,7 @@ export function InterviewMediaStreamProbes(props: {
               source,
               `${sourceLabel} stopped after two consecutive transcription failures. Open diagnostics for technical details.`,
             );
-            if (
-              currentRecorder &&
-              currentRecorder.state !== "inactive"
-            ) {
+            if (currentRecorder && currentRecorder.state !== "inactive") {
               currentRecorder.stop();
             } else {
               stopStream(stream);
@@ -1023,154 +1018,162 @@ export function InterviewMediaStreamProbes(props: {
         />
       ) : null}
       <div className="grid gap-2 rounded-(--radius-small) border border-border-subtle bg-(--surface-fill-soft) p-3">
-      <div className="grid gap-1">
-        <p className="text-[0.82rem]">
-          {props.sessionId ? "Live audio" : "Audio test"}
-        </p>
-        <p className="text-[0.72rem] leading-5 text-muted-foreground">
-          {props.sessionId
-            ? "Start mic and system audio to save temporary speech-to-text segments into the visible transcript."
-            : "Test mic captions and capture readiness before the interview. Preview text stays local here."}{" "}
-          Local speech-to-text keeps audio transcription free when configured.
-        </p>
-      </div>
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-        <Button
-          disabled={
-            !props.microphoneCaptureAllowed || microphoneStatus === "checking"
-          }
-          onClick={() => {
-            void checkMicrophoneStream();
-          }}
-          pending={microphoneStatus === "checking"}
-          size="compact"
-          variant="secondary"
-        >
-          <Mic className="size-4" />
-          Test mic
-        </Button>
-        <Button
-          disabled={
-            !props.meetingAudioCaptureAllowed || displayStatus === "checking"
-          }
-          onClick={() => {
-            void checkDisplayAudioStream();
-          }}
-          pending={displayStatus === "checking"}
-          size="compact"
-          variant="secondary"
-        >
-          <Monitor className="size-4" />
-          Test system
-        </Button>
-      </div>
-      <div className="grid gap-1 text-[0.72rem] leading-5 text-muted-foreground">
-        <p>{describeStatus(microphoneStatus, microphoneDetail)}</p>
-        <p>{describeStatus(displayStatus, displayDetail)}</p>
-      </div>
-      <div className="grid gap-2 border-t border-border-subtle pt-2">
-        {props.sessionId ? (
-          <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
-            <Button
-              disabled={
-                !props.microphoneCaptureAllowed ||
-                !props.listening ||
-                !props.audioTranscriptionAvailable ||
-                microphoneRecorderStatus === "starting" ||
-                microphoneRecorderStatus === "recording"
-              }
-              onClick={() => {
-                void startAudioTranscription("microphone");
-              }}
-              pending={microphoneRecorderStatus === "starting"}
-              size="compact"
-              variant="secondary"
-            >
-              <Mic className="size-4" />
-              Start mic audio
-            </Button>
-            <Button
-              disabled={
-                !props.meetingAudioCaptureAllowed ||
-                !props.listening ||
-                !props.audioTranscriptionAvailable ||
-                systemRecorderStatus === "starting" ||
-                systemRecorderStatus === "recording"
-              }
-              onClick={() => {
-                void startAudioTranscription("meeting_audio");
-              }}
-              pending={systemRecorderStatus === "starting"}
-              size="compact"
-              variant="secondary"
-            >
-              <Monitor className="size-4" />
-              Start system audio
-            </Button>
-            <Button
-              disabled={
-                (!captionEnabled && !anyRecorderActive) || anyRecorderBusy
-              }
-              onClick={stopLiveAudio}
-              pending={captionStatus === "stopping" || anyRecorderBusy}
-              size="compact"
-              variant="outline"
-            >
-              {captionEnabled || anyRecorderActive ? (
-                <MicOff className="size-4" />
-              ) : (
-                <Mic className="size-4" />
-              )}
-              Stop audio
-            </Button>
-          </div>
-        ) : null}
+        <div className="grid gap-1">
+          <p className="text-[0.82rem]">
+            {props.sessionId ? "Live audio" : "Audio test"}
+          </p>
+          <p className="text-[0.72rem] leading-5 text-muted-foreground">
+            {props.sessionId
+              ? "Start mic and system audio to save temporary speech-to-text segments into the visible transcript."
+              : "Test mic captions and capture readiness before the interview. Preview text stays local here."}{" "}
+            Local speech-to-text keeps audio transcription free when configured.
+          </p>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+          <Button
+            disabled={
+              !props.microphoneCaptureAllowed || microphoneStatus === "checking"
+            }
+            onClick={() => {
+              void checkMicrophoneStream();
+            }}
+            pending={microphoneStatus === "checking"}
+            size="compact"
+            variant="secondary"
+          >
+            <Mic className="size-4" />
+            Test mic
+          </Button>
+          <Button
+            disabled={
+              !props.meetingAudioCaptureAllowed || displayStatus === "checking"
+            }
+            onClick={() => {
+              void checkDisplayAudioStream();
+            }}
+            pending={displayStatus === "checking"}
+            size="compact"
+            variant="secondary"
+          >
+            <Monitor className="size-4" />
+            Test system
+          </Button>
+        </div>
         <div className="grid gap-1 text-[0.72rem] leading-5 text-muted-foreground">
+          <p>
+            <span className="font-semibold text-foreground">Microphone:</span>{" "}
+            {describeStatus(microphoneStatus, microphoneDetail)}
+          </p>
+          <p>
+            <span className="font-semibold text-foreground">System audio:</span>{" "}
+            {describeStatus(displayStatus, displayDetail)}
+          </p>
+        </div>
+        <div className="grid gap-2 border-t border-border-subtle pt-2">
           {props.sessionId ? (
-            <>
-              <p>{microphoneRecorderDetail}</p>
-              <p>{systemRecorderDetail}</p>
-              {audioQueueSnapshot.active || audioQueueSnapshot.pending > 0 ? (
-                <p>
-                  Transcription queue:{" "}
-                  {audioQueueSnapshot.active ? "1 transcribing" : "idle"}
-                  {audioQueueSnapshot.pending > 0
-                    ? `, ${audioQueueSnapshot.pending} waiting (maximum ${audioQueueSnapshot.maxPending})`
-                    : ", no chunks waiting"}
-                  .
-                </p>
-              ) : null}
-            </>
+            <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
+              <Button
+                disabled={
+                  !props.microphoneCaptureAllowed ||
+                  !props.listening ||
+                  !props.audioTranscriptionAvailable ||
+                  microphoneRecorderStatus === "starting" ||
+                  microphoneRecorderStatus === "recording"
+                }
+                onClick={() => {
+                  void startAudioTranscription("microphone");
+                }}
+                pending={microphoneRecorderStatus === "starting"}
+                size="compact"
+                variant="secondary"
+              >
+                <Mic className="size-4" />
+                Start mic audio
+              </Button>
+              <Button
+                disabled={
+                  !props.meetingAudioCaptureAllowed ||
+                  !props.listening ||
+                  !props.audioTranscriptionAvailable ||
+                  systemRecorderStatus === "starting" ||
+                  systemRecorderStatus === "recording"
+                }
+                onClick={() => {
+                  void startAudioTranscription("meeting_audio");
+                }}
+                pending={systemRecorderStatus === "starting"}
+                size="compact"
+                variant="secondary"
+              >
+                <Monitor className="size-4" />
+                Start system audio
+              </Button>
+              <Button
+                disabled={
+                  (!captionEnabled && !anyRecorderActive) || anyRecorderBusy
+                }
+                onClick={stopLiveAudio}
+                pending={captionStatus === "stopping" || anyRecorderBusy}
+                size="compact"
+                variant="outline"
+              >
+                {captionEnabled || anyRecorderActive ? (
+                  <MicOff className="size-4" />
+                ) : (
+                  <Mic className="size-4" />
+                )}
+                Stop audio
+              </Button>
+            </div>
           ) : null}
-          <div className="grid gap-2 pt-1 sm:grid-cols-[minmax(0,1fr)_auto] xl:grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_auto]">
-            <p>
-              Browser captions are a mic-only fallback when your browser
-              supports speech recognition.
-            </p>
-            <Button
-              disabled={
-                !props.listening ||
-                captionStatus === "starting" ||
-                captionStatus === "recording"
-              }
-              onClick={startMicCaptions}
-              pending={captionStatus === "starting"}
-              size="compact"
-              variant="secondary"
-            >
-              <Radio className="size-4" />
-              {props.sessionId ? "Start browser captions" : "Test mic captions"}
-            </Button>
+          <div className="grid gap-1 text-[0.72rem] leading-5 text-muted-foreground">
+            {props.sessionId ? (
+              <>
+                <p>{microphoneRecorderDetail}</p>
+                <p>{systemRecorderDetail}</p>
+                {audioQueueSnapshot.active || audioQueueSnapshot.pending > 0 ? (
+                  <p>
+                    Transcription queue:{" "}
+                    {audioQueueSnapshot.active ? "1 transcribing" : "idle"}
+                    {audioQueueSnapshot.pending > 0
+                      ? `, ${audioQueueSnapshot.pending} waiting (maximum ${audioQueueSnapshot.maxPending})`
+                      : ", no chunks waiting"}
+                    .
+                  </p>
+                ) : null}
+              </>
+            ) : null}
+            <div className="grid gap-2 pt-1 sm:grid-cols-[minmax(0,1fr)_auto] xl:grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_auto]">
+              <p>
+                Browser captions are a mic-only fallback when your browser
+                supports speech recognition.
+              </p>
+              <Button
+                disabled={
+                  !props.listening ||
+                  captionStatus === "starting" ||
+                  captionStatus === "recording"
+                }
+                onClick={startMicCaptions}
+                pending={captionStatus === "starting"}
+                size="compact"
+                variant="secondary"
+              >
+                <Radio className="size-4" />
+                {props.sessionId
+                  ? "Start browser captions"
+                  : "Test mic captions"}
+              </Button>
+            </div>
+            <p>{captionDetail}</p>
+            {captionPreview ? (
+              <p className="rounded-(--radius-small) border border-(--info-border) bg-(--info-surface) p-2 text-(--info-text)">
+                {captionPreview}
+              </p>
+            ) : null}
           </div>
-          <p>{captionDetail}</p>
-          {captionPreview ? (
-            <p className="rounded-(--radius-small) border border-(--info-border) bg-(--info-surface) p-2 text-(--info-text)">
-              {captionPreview}
-            </p>
-          ) : null}
         </div>
       </div>
-    </div>
     </>
   );
 }

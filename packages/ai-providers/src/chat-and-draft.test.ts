@@ -1535,6 +1535,7 @@ describe("openai-compatible chat and draft behavior", () => {
               locked: false,
               included: true,
               sourceRefs: [],
+              lastGeneratedContentHash: null,
               updatedAt: "2026-03-20T10:00:00.000Z",
             })),
             entries: Array.from({ length: 10 }, (_, entryIndex) => ({
@@ -1555,6 +1556,7 @@ describe("openai-compatible chat and draft behavior", () => {
                 locked: false,
                 included: true,
                 sourceRefs: [],
+                lastGeneratedContentHash: null,
                 updatedAt: "2026-03-20T10:00:00.000Z",
               })),
               origin: "ai_generated",
@@ -1575,6 +1577,8 @@ describe("openai-compatible chat and draft behavior", () => {
             updatedAt: "2026-03-20T10:00:00.000Z",
           })),
           targetPageCount: 2,
+          workHistoryReviewAcknowledgments: [],
+          claimConfirmations: [],
           generationMethod: "ai",
           approvedAt: null,
           approvedExportId: null,
@@ -1734,6 +1738,7 @@ describe("openai-compatible chat and draft behavior", () => {
         evidence?: unknown;
         groundingEvidence?: {
           items?: Array<{ id?: string; text?: string }>;
+          compaction?: { applied?: boolean };
         };
         researchContext?: { companyNotes?: unknown[] };
         targetJob?: { description?: string; title?: string; company?: string };
@@ -1744,11 +1749,19 @@ describe("openai-compatible chat and draft behavior", () => {
       expect(userPayload).not.toHaveProperty("searchPreferences");
       expect(userPayload).not.toHaveProperty("resumeText");
       expect(userPayload).not.toHaveProperty("evidence");
+      // Candidate-safe compaction keeps the original resume and imported
+      // evidence ahead of generic profile items under item pressure.
       expect(
         userPayload.groundingEvidence?.items?.some(
-          (item) => item.id === "profile:summary" && Boolean(item.text),
+          (item) => item.id === "baseResume:text" && Boolean(item.text),
         ),
       ).toBe(true);
+      expect(
+        userPayload.groundingEvidence?.items?.some(
+          (item) => item.id === "importEvidence:summary:0",
+        ),
+      ).toBe(true);
+      expect(userPayload.groundingEvidence?.compaction?.applied).toBe(true);
       expect(Array.isArray(userPayload.researchContext?.companyNotes)).toBe(
         true,
       );

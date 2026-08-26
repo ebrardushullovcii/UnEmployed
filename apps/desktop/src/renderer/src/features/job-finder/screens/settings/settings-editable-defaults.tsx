@@ -100,12 +100,12 @@ export function SettingsEditableDefaults({
       : null;
   const cvSaveButtonLabel =
     settingsSaveState?.state === "saving"
-      ? "Saving CV preference"
+      ? "Saving resume preference"
       : settingsSaveState?.state === "failed"
-        ? "Retry CV preference"
+        ? "Retry resume preference"
         : settingsSaveState?.state === "saved" && !hasUnsavedChanges
-          ? "CV preference saved"
-          : "Save CV preference";
+          ? "Resume preference saved"
+          : "Save resume preference";
   const saveSettings = () => {
     onSaveSettings({
       ...settingsForm,
@@ -157,16 +157,16 @@ export function SettingsEditableDefaults({
             <div className="grid min-w-0 max-w-[72ch] flex-1 gap-1">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <h2 className="min-w-0 text-[1.02rem] font-semibold text-(--text-headline)">
-                  CV used for applications
+                  Resume used for applications
                 </h2>
                 <Badge variant="section">
                   Default for newly shortlisted jobs
                 </Badge>
               </div>
               <p className="text-(length:--text-description) leading-5 text-foreground-soft">
-                Choose whether each job gets a tailored CV or the exact file you
-                imported in Profile. You still decide job by job before Apply
-                Copilot opens the application.
+                Choose whether each job gets a tailored resume or the exact
+                file you imported in Profile. You still decide job by job
+                before Apply Copilot opens the application.
               </p>
             </div>
             <div className="grid min-w-0 max-w-full justify-items-end gap-1.5">
@@ -198,7 +198,7 @@ export function SettingsEditableDefaults({
           <div
             className="grid min-w-0 gap-2.5 md:grid-cols-2"
             role="radiogroup"
-            aria-label="CV application mode"
+            aria-label="Resume application mode"
           >
             <button
               aria-checked={
@@ -216,7 +216,7 @@ export function SettingsEditableDefaults({
               type="button"
             >
               <span className="font-semibold text-foreground">
-                Tailor a CV for each job
+                Tailor a resume for each job
               </span>
               <span className="text-(length:--text-description) leading-5 text-foreground-soft">
                 Create, review, and approve a job-specific PDF before it can be
@@ -244,11 +244,11 @@ export function SettingsEditableDefaults({
               type="button"
             >
               <span className="font-semibold text-foreground">
-                Use my original CV unchanged
+                Use my original resume unchanged
               </span>
               <span className="text-(length:--text-description) leading-5 text-foreground-soft">
-                Skip CV generation. Review Queue shows the imported file and
-                Apply Copilot attaches that same file.
+                Skip resume generation. Shortlisted shows the imported file and
+                Job Finder attaches that same file.
               </span>
               <span className="label-mono-xs">
                 {selectedResumeApplicationMode === "original_resume"
@@ -267,14 +267,14 @@ export function SettingsEditableDefaults({
             >
               <strong className="text-foreground">
                 {savedResumeApplicationMode === "original_resume"
-                  ? "Original CV is the saved application default."
+                  ? "Original resume is the saved application default."
                   : "Save this preference before leaving Settings."}
               </strong>
               <p>
-                Original-CV mode preserves the imported file byte for byte.
+                Original-resume mode preserves the imported file byte for byte.
                 Newly shortlisted jobs start with this choice, while every
                 current job keeps its own selection. Template and font choices
-                below only apply when tailored-CV mode is selected.
+                below only apply when tailored-resume mode is selected.
               </p>
             </div>
           ) : null}
@@ -293,7 +293,7 @@ export function SettingsEditableDefaults({
           </div>
 
           <Field>
-            <FieldLabel htmlFor={resumeTemplateDomId}>
+            <FieldLabel id={resumeTemplateDomId}>
               Default resume template
             </FieldLabel>
             <div className="grid min-w-0 gap-2.5">
@@ -303,7 +303,7 @@ export function SettingsEditableDefaults({
               </div>
               <ResumeThemePicker
                 disabled={isSavePending}
-                id={resumeTemplateDomId}
+                labelledBy={resumeTemplateDomId}
                 onChange={(value) =>
                   updateSettingsForm((current) => ({
                     ...current,
@@ -380,8 +380,8 @@ export function SettingsEditableDefaults({
               <span className="label-mono-xs">Workflow defaults</span>
               <strong className="mt-1.5 block text-(length:--text-body) font-semibold text-foreground">
                 {selectedResumeApplicationMode === "original_resume"
-                  ? "Original CV"
-                  : "Tailored CV"}{" "}
+                  ? "Original resume"
+                  : "Tailored resume"}{" "}
                 ·{" "}
                 {settingsForm.keepSessionAlive
                   ? "Keep browser open"

@@ -1124,6 +1124,12 @@ function createBenchmarkContext(input: {
     activeApplyRunAbortControllers: new Map<string, AbortController>(),
     activeApplyRunPromises: new Map<string, Promise<void>>(),
     applyRunTransitionTails: new Map<string, Promise<void>>(),
+    markApplicationPreparationStarted: () =>
+      Promise.reject(
+        new Error(
+          "Application preparation is not available in the benchmark harness.",
+        ),
+      ),
     withApplicationCrmTransition: (operation) => operation(),
     withIntelligenceTransition: (operation) => operation(),
     withCampaignTransition: (operation) => operation(),
@@ -1140,21 +1146,8 @@ function createBenchmarkContext(input: {
       Promise.reject(
         new Error("Source debug is not available in the benchmark harness."),
       ),
-    persistDiscoveryState: async (updater) => {
-      const current = await repository.getDiscoveryState();
-      const next = updater(current);
-      await repository.saveDiscoveryState(next);
-      return next;
-    },
-    persistSavedJobsAndDiscoveryState: async ({
-      savedJobs,
-      discoveryState,
-    }) => {
-      await repository.replaceSavedJobsAndDiscoveryState({
-        savedJobs,
-        discoveryState,
-      });
-    },
+    persistDiscoveryState: (updater) =>
+      repository.commitDiscoveryStateUpdate(updater),
     refreshDiscoverySessions: () => Promise.resolve([]),
     saveDiscoveryTargetUpdate: async () => {
       return repository.getSearchPreferences();

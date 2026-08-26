@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import type * as childProcess from "node:child_process";
 import net from "node:net";
@@ -11,6 +12,12 @@ import {
 } from "@unemployed/contracts";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { ApplicationAttachmentArtifact } from "./runtime-types";
+import {
+  createApplicationRunServiceWorkerSentinel,
+  getLatestBlockedPrepareOnlyAttempt,
+  recordPrepareOnlyRunInterruption,
+  runGenericApplicationPreparation,
+} from "./playwright-application-flow";
 
 interface FakeFormControl {
   index: number;
@@ -81,6 +88,8 @@ interface FakeApplicationState {
   intermediateMutationsAuthorized: boolean;
   guardAuthorizationHistory: boolean[];
   networkGuardInstallCount: number;
+  initScriptRegistrationCount: number;
+  websocketListenerRegistrationCount: number;
   waitCount: number;
   controlInspectionCount: number;
   actionInspectionCount: number;
@@ -92,6 +101,15 @@ interface FakeApplicationState {
     url: string | null;
     at: string;
   }>;
+  injectedServiceWorkerScan: {
+    controllerUrl: string | null;
+    registrations: Array<{
+      scope: string;
+      installingUrl: string | null;
+      waitingUrl: string | null;
+      activeUrl: string | null;
+    }>;
+  };
 }
 
 type FakeUploadedFile =
@@ -102,9 +120,11 @@ type FakeUploadedFile =
       buffer: Buffer;
     };
 
-const execFileMock = vi.fn();
-const spawnMock = vi.fn();
-const connectOverCDPMock = vi.fn();
+const { execFileMock, spawnMock, connectOverCDPMock } = vi.hoisted(() => ({
+  execFileMock: vi.fn(),
+  spawnMock: vi.fn(),
+  connectOverCDPMock: vi.fn(),
+}));
 
 vi.mock("node:child_process", async () => {
   const actual =
@@ -170,7 +190,10 @@ function createFakeChildProcess() {
   return child;
 }
 
-function createFakeApplicationPage(stepsInput: readonly FakeApplicationStep[]) {
+function createFakeApplicationPage(
+  stepsInput: readonly FakeApplicationStep[],
+  options?: { unverifiableFrameUrls?: readonly string[] },
+) {
   const steps = stepsInput.map((step) => ({
     bodyText: step.bodyText ?? "Job application",
     frameHints: [...(step.frameHints ?? [])],
@@ -233,12 +256,18 @@ function createFakeApplicationPage(stepsInput: readonly FakeApplicationStep[]) {
     intermediateMutationsAuthorized: false,
     guardAuthorizationHistory: [],
     networkGuardInstallCount: 0,
+    initScriptRegistrationCount: 0,
+    websocketListenerRegistrationCount: 0,
     waitCount: 0,
     controlInspectionCount: 0,
     actionInspectionCount: 0,
     bodyInspectionCount: 0,
     frameInspectionCount: 0,
     guardBlockedAttempts: [],
+    injectedServiceWorkerScan: {
+      controllerUrl: null,
+      registrations: [],
+    },
   };
   let stepIndex = 0;
   let activeComboboxIndex: number | null = null;
@@ -471,6 +500,36 @@ function createFakeApplicationPage(stepsInput: readonly FakeApplicationStep[]) {
       state.networkGuardInstallCount += 1;
       return Promise.resolve(undefined);
     }),
+    on: vi.fn((event: string) => {
+      if (event === "websocket") {
+        state.websocketListenerRegistrationCount += 1;
+      }
+      return page;
+    }),
+    off: vi.fn(() => {
+      return page;
+    }),
+    addInitScript: vi.fn(() => {
+      state.initScriptRegistrationCount += 1;
+      return Promise.resolve(undefined);
+    }),
+    frames: () => [
+      {
+        url: () => currentUrl,
+        evaluate: (
+          callback: (argument?: unknown) => unknown,
+          argument?: unknown,
+        ) =>
+          Promise.resolve(
+            page.evaluate(callback as { name?: string }, argument),
+          ),
+      },
+      ...(options?.unverifiableFrameUrls ?? []).map((frameUrl) => ({
+        url: () => frameUrl,
+        evaluate: () =>
+          Promise.reject(new Error(`Simulated unverifiable frame ${frameUrl}`)),
+      })),
+    ],
     evaluate: vi.fn((callback: { name?: string }, argument?: unknown) => {
       if (callback.name === "installPrepareOnlyMutationGuardInPage") {
         state.guardInstallCount += 1;
@@ -484,6 +543,28 @@ function createFakeApplicationPage(stepsInput: readonly FakeApplicationStep[]) {
         return Promise.resolve({
           installed: state.guardInstallCount > 0,
           blockedAttempts: [...state.guardBlockedAttempts],
+        });
+      }
+      if (callback.name === "installServiceWorkerRegisterGuardInPage") {
+        return Promise.resolve(undefined);
+      }
+      if (callback.name === "readServiceWorkerRegisterGuardInPage") {
+        return Promise.resolve({
+          supported: true,
+          prototypeGuardInstalled: false,
+          instanceGuardInstalled: false,
+          integrityVerified: false,
+          guardStatePresent: false,
+          blockedRegistrationAttempts: 0,
+        });
+      }
+      if (
+        callback.name === "collectApplicationOriginServiceWorkerStateInPage"
+      ) {
+        return Promise.resolve({
+          scanned: true,
+          controllerUrl: state.injectedServiceWorkerScan.controllerUrl,
+          registrations: [...state.injectedServiceWorkerScan.registrations],
         });
       }
       throw new Error(
@@ -742,6 +823,7 @@ async function runApplicationScenario(input: {
   profile?: ReturnType<typeof createTestProfile>;
   resumeSource?: "original_upload" | "tailored_export";
   resumeFileName?: string;
+  unverifiableFrameUrls?: readonly string[];
   applicationAttachment?: Omit<
     ApplicationAttachmentArtifact,
     "loadVerifiedBytes"
@@ -749,6 +831,7 @@ async function runApplicationScenario(input: {
     contents: string;
   };
   applicationAttachmentLoadVerifiedBytes?: () => Promise<Uint8Array>;
+  beforeExecute?: (input: { resumeFilePath: string }) => Promise<void>;
 }): Promise<{
   result: ApplyExecutionResult;
   state: FakeApplicationState;
@@ -763,10 +846,15 @@ async function runApplicationScenario(input: {
     await writeFile(resumeFilePath, "approved resume", "utf8");
     const applicationAttachment = input.applicationAttachment ?? null;
     const debugPort = await reserveFreePort();
-    const fakeApplication = createFakeApplicationPage(input.steps);
+    const fakeApplication = createFakeApplicationPage(input.steps, {
+      ...(input.unverifiableFrameUrls
+        ? { unverifiableFrameUrls: input.unverifiableFrameUrls }
+        : {}),
+    });
     const fakeContext = {
       pages: () => [fakeApplication.page],
       newPage: () => Promise.resolve(fakeApplication.page),
+      serviceWorkers: () => [],
     };
     const fakeBrowser = {
       contexts: () => [fakeContext],
@@ -812,6 +900,9 @@ async function runApplicationScenario(input: {
         exportArtifactId: "resume_export_prepare_runtime",
         fileName: input.resumeFileName ?? "resume.pdf",
         filePath: resumeFilePath,
+        sha256: createHash("sha256")
+          .update("approved resume", "utf8")
+          .digest("hex"),
         approvedAt: "2026-03-20T10:00:00.000Z",
       },
       profile: input.profile ?? createTestProfile(),
@@ -852,6 +943,7 @@ async function runApplicationScenario(input: {
         : {}),
     };
 
+    await input.beforeExecute?.({ resumeFilePath });
     const result = await runtime.executeApplicationFlow(
       "target_site",
       executionInput,
@@ -919,11 +1011,42 @@ describe("Playwright prepare-only application flow", () => {
       Promise.resolve(new Response("ok", { status: 200 })),
     );
     const originalSendBeacon = vi.fn(() => true);
-    const fakeWindow = {
+    const popupTarget = { closed: false } as unknown as Window;
+    const originalWindowOpen = vi.fn(() => popupTarget);
+
+    class FakeWebSocket {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static CLOSING = 2;
+      static CLOSED = 3;
+
+      url: string;
+
+      constructor(url: string | URL) {
+        this.url = String(url);
+      }
+    }
+
+    class FakeEventSource {
+      url: string;
+
+      constructor(url: string | URL) {
+        this.url = String(url);
+      }
+    }
+
+    type FakePageWindow = {
+      location: { href: string };
+      fetch: typeof window.fetch;
+      open: typeof window.open;
+    } & Record<string, unknown>;
+
+    const fakeWindow: FakePageWindow = {
       location: {
         href: "https://apply.example.com/jobs/job_prepare_runtime",
       },
-      fetch: originalFetch as unknown as typeof window.fetch,
+      fetch: originalFetch,
+      open: originalWindowOpen as unknown as typeof window.open,
     };
     const fakeDocument = {
       addEventListener(
@@ -950,6 +1073,11 @@ describe("Playwright prepare-only application flow", () => {
       FakeXmlHttpRequest as unknown as typeof XMLHttpRequest,
     );
     vi.stubGlobal("navigator", fakeNavigator);
+    vi.stubGlobal("WebSocket", FakeWebSocket as unknown as typeof WebSocket);
+    vi.stubGlobal(
+      "EventSource",
+      FakeEventSource as unknown as typeof EventSource,
+    );
 
     const {
       installPrepareOnlyMutationGuardInPage,
@@ -980,8 +1108,28 @@ describe("Playwright prepare-only application flow", () => {
       fakeWindow.fetch("https://apply.example.com/jobs/job_prepare_runtime", {
         method: "GET",
       }),
-    ).resolves.toBeInstanceOf(Response);
-    expect(originalFetch).toHaveBeenCalledTimes(1);
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(originalFetch).not.toHaveBeenCalled();
+
+    expect(
+      () =>
+        new (fakeWindow.WebSocket as typeof WebSocket)(
+          "wss://apply.example.com/live",
+        ),
+    ).toThrow(/Prepare-only mode blocked a new WebSocket/u);
+    expect(
+      () =>
+        new (fakeWindow.EventSource as typeof EventSource)("/progress-stream"),
+    ).toThrow(/Prepare-only mode blocked a new EventSource/u);
+    expect(
+      fakeWindow.open("https://tracker.example.com/popup", "_blank"),
+    ).toBeNull();
+    expect(originalWindowOpen).not.toHaveBeenCalled();
+
+    const xhrGet = new FakeXmlHttpRequest();
+    xhrGet.open("GET", "https://apply.example.com/jobs/job_prepare_runtime");
+    expect(() => xhrGet.send()).toThrow(/Prepare-only mode blocked/u);
+    expect(originalXhrSendCalls).toBe(0);
 
     const xhr = new FakeXmlHttpRequest();
     xhr.open(
@@ -1012,6 +1160,9 @@ describe("Playwright prepare-only application flow", () => {
         "fetch",
         "xhr",
         "dom_submit",
+        "websocket",
+        "eventsource",
+        "window_open",
       ]),
     );
 
@@ -1021,6 +1172,11 @@ describe("Playwright prepare-only application flow", () => {
         "https://apply.example.com/jobs/job_prepare_runtime/autosave",
         { method: "POST" },
       ),
+    ).resolves.toBeInstanceOf(Response);
+    await expect(
+      fakeWindow.fetch("https://apply.example.com/jobs/job_prepare_runtime", {
+        method: "GET",
+      }),
     ).resolves.toBeInstanceOf(Response);
     expect(
       fakeNavigator.sendBeacon(
@@ -1035,6 +1191,14 @@ describe("Playwright prepare-only application flow", () => {
     );
     expect(() => authorizedXhr.send("payload")).not.toThrow();
 
+    const authorizedWebSocket = new (fakeWindow.WebSocket as typeof WebSocket)(
+      "wss://apply.example.com/live",
+    );
+    expect(authorizedWebSocket).toBeInstanceOf(FakeWebSocket);
+    expect(
+      fakeWindow.open("https://apply.example.com/next-step", "_blank"),
+    ).toBe(popupTarget);
+
     form.submit();
     form.requestSubmit();
     expect(originalFormSubmitCalls).toBe(0);
@@ -1042,6 +1206,7 @@ describe("Playwright prepare-only application flow", () => {
     expect(originalFetch).toHaveBeenCalledTimes(2);
     expect(originalSendBeacon).toHaveBeenCalledOnce();
     expect(originalXhrSendCalls).toBe(1);
+    expect(originalWindowOpen).toHaveBeenCalledTimes(1);
   });
 
   test("fills exact grounded fields, uploads the approved resume, advances non-final steps, and never clicks final submit", async () => {
@@ -1148,6 +1313,40 @@ describe("Playwright prepare-only application flow", () => {
     );
     expect(state.guardInstallCount).toBeGreaterThan(0);
     expect(state.networkGuardInstallCount).toBe(1);
+    expect(state.initScriptRegistrationCount).toBe(2);
+    expect(state.websocketListenerRegistrationCount).toBe(1);
+  }, 10_000);
+
+  test("refuses resume bytes mutated after prerequisite verification and records no upload", async () => {
+    const { result, state } = await runApplicationScenario({
+      submitAuthorized: false,
+      beforeExecute: ({ resumeFilePath }) =>
+        writeFile(resumeFilePath, "mutated resume", "utf8"),
+      steps: [
+        {
+          controls: [
+            {
+              label: "Resume / CV",
+              name: "candidate[resume]",
+              inputType: "file",
+              required: true,
+              visible: false,
+            },
+          ],
+          actions: [{ label: "Submit application", type: "submit" }],
+        },
+      ],
+    });
+
+    expect(state.uploadedFiles.has("Resume / CV")).toBe(false);
+    expect(state.clickedLabels).not.toContain("Submit application");
+    expect(result.state).toBe("paused");
+    expect(result.submittedAt).toBeNull();
+    expect(result.externalWrites).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ category: "resume_attachment" }),
+      ]),
+    );
   }, 10_000);
 
   test("uploads one exact user-approved supporting asset and still stops before final submit", async () => {
@@ -1224,9 +1423,7 @@ describe("Playwright prepare-only application flow", () => {
           suggestedAnswers: [
             expect.objectContaining({
               text: "resume.pdf",
-              provenance: [
-                expect.objectContaining({ snippet: "resume.pdf" }),
-              ],
+              provenance: [expect.objectContaining({ snippet: "resume.pdf" })],
             }),
           ],
         }),
@@ -2483,6 +2680,126 @@ describe("Playwright prepare-only application flow", () => {
     );
   });
 
+  test("a blocked resume autosave keeps the attachment unclaimed and offers a manual-or-cancel remedy", async () => {
+    const { result, state } = await runApplicationScenario({
+      submitAuthorized: false,
+      steps: [
+        {
+          controls: [
+            {
+              label: "Resume",
+              inputType: "file",
+              required: true,
+            },
+          ],
+          actions: [
+            { label: "Next" },
+            { label: "Submit application", type: "submit" },
+          ],
+          mutationTriggerLabel: "Resume",
+          blockedAttemptAfterMutation: {
+            kind: "fetch",
+            method: "POST",
+          },
+        },
+      ],
+    });
+
+    // The local DOM file selection happened, but the site-side save stayed
+    // blocked and recorded.
+    expect(state.uploadedFiles.has("Resume")).toBe(true);
+    expect(state.guardBlockedAttempts).toEqual([
+      expect.objectContaining({ kind: "fetch", method: "POST" }),
+    ]);
+    expect(state.clickedLabels).toEqual([]);
+
+    expect(result.state).toBe("paused");
+    expect(result.submittedAt).toBeNull();
+    expect(result.outcome).toBeNull();
+    expect(result.summary).toBe("Resume attachment needs your help");
+    expect(result.checkpoints.at(-1)?.label).toBe(
+      "Paused before the resume could be attached",
+    );
+
+    // Nothing claims a server-side field or file write: no receipt, no
+    // answered question, and no approved resume-use consent decision.
+    expect(result.externalWrites ?? []).toEqual([]);
+    expect(
+      result.questions.every((question) => question.status !== "answered"),
+    ).toBe(true);
+    expect(
+      result.consentDecisions.filter(
+        (decision) => decision.kind === "resume_use",
+      ),
+    ).toEqual([]);
+
+    // The remedy is user-owned and truthful: no approval toggle and no retry
+    // promise that production's always-false authorization would repeat.
+    const nextAction = result.nextActionLabel ?? "";
+    expect(nextAction).toBe(
+      "Complete the resume step manually in the open application, or cancel",
+    );
+    expect(nextAction).not.toMatch(/approv|retry/i);
+    expect(result.blocker?.detail).toContain(
+      "did not have permission for that external save",
+    );
+    expect(result.blocker?.detail).toContain("transmitted nothing");
+    expect(result.blocker?.detail).toContain("or cancel");
+    expect(result.blocker?.detail).not.toContain("Approve");
+  });
+
+  test("a blocked non-resume autosave stop offers the same truthful manual-or-cancel remedy", async () => {
+    const { result, state } = await runApplicationScenario({
+      submitAuthorized: false,
+      steps: [
+        {
+          controls: [
+            {
+              label: "Email address",
+              inputType: "email",
+              autocomplete: "email",
+              required: true,
+            },
+          ],
+          actions: [{ label: "Next" }],
+          mutationTriggerLabel: "Email address",
+          blockedAttemptAfterMutation: {
+            kind: "xhr",
+            method: "POST",
+          },
+        },
+      ],
+    });
+
+    expect(state.guardBlockedAttempts).toEqual([
+      expect.objectContaining({ kind: "xhr", method: "POST" }),
+    ]);
+    expect(state.clickedLabels).toEqual([]);
+    expect(result.state).toBe("paused");
+    expect(result.submittedAt).toBeNull();
+    expect(result.outcome).toBeNull();
+    expect(result.summary).toBe(
+      "The application page could not safely save a prepared field",
+    );
+    expect(result.checkpoints.at(-1)?.label).toBe(
+      "Paused before the application field could be saved",
+    );
+    expect(result.externalWrites ?? []).toEqual([]);
+    expect(
+      result.questions.every((question) => question.status !== "answered"),
+    ).toBe(true);
+
+    const nextAction = result.nextActionLabel ?? "";
+    expect(nextAction).toBe(
+      "Complete the affected step manually in the open application, or cancel",
+    );
+    expect(nextAction).not.toMatch(/approv|retry/i);
+    expect(result.blocker?.detail).toContain(
+      "did not have permission for that external save",
+    );
+    expect(result.blocker?.detail).not.toContain("Approve");
+  });
+
   test("stops after a Continue handler attempts a guarded form submission", async () => {
     const { result, state } = await runApplicationScenario({
       submitAuthorized: false,
@@ -2543,6 +2860,34 @@ describe("Playwright prepare-only application flow", () => {
     ]);
     expect(result.submittedAt).toBeNull();
     expect(result.outcome).toBeNull();
+  });
+
+  test("fails closed when an application frame cannot verify the prepare-only guard", async () => {
+    const { result } = await runApplicationScenario({
+      submitAuthorized: false,
+      unverifiableFrameUrls: ["https://cross-origin.example.com/widget"],
+      steps: [
+        {
+          controls: [
+            {
+              label: "Email address",
+              inputType: "email",
+              autocomplete: "email",
+              required: true,
+            },
+          ],
+          actions: [{ label: "Next" }],
+        },
+      ],
+    });
+
+    expect(result.state).toBe("paused");
+    expect(result.blocker?.code).toBe("requires_manual_review");
+    expect(result.summary).toBe("Prepare-only guard is unavailable");
+    expect(result.detail).toContain("https://cross-origin.example.com/widget");
+    expect(result.checkpoints.at(-1)?.label).toBe(
+      "Stopped before an unguarded page mutation",
+    );
   });
   test("falls back to the saved canonical URL when no application URL is available", async () => {
     const { result, state } = await runApplicationScenario({
@@ -3059,6 +3404,285 @@ describe("Playwright prepare-only application flow", () => {
         "Paused before final submit",
       );
       expect(result.detail).toContain("did not click the control");
+    },
+  );
+});
+
+describe("Service worker sentinel and containment unit fixtures", () => {
+  function createSentinelContext(input: {
+    targetUrl: string;
+    serviceWorkers?: () => Array<{ url: () => string }>;
+  }) {
+    const listeners = new Map<string, Array<unknown>>();
+    const routedPatterns: string[] = [];
+    const unroutedPatterns: string[] = [];
+    const fakeContext = {
+      on(event: string, handler: unknown) {
+        const bucket = listeners.get(event) ?? [];
+        bucket.push(handler);
+        listeners.set(event, bucket);
+        return fakeContext;
+      },
+      off(event: string, handler: unknown) {
+        const bucket = listeners.get(event) ?? [];
+        const index = bucket.indexOf(handler);
+        if (index >= 0) {
+          bucket.splice(index, 1);
+        }
+        return fakeContext;
+      },
+      route(pattern: string) {
+        routedPatterns.push(pattern);
+        return Promise.resolve();
+      },
+      unroute(pattern: string) {
+        unroutedPatterns.push(pattern);
+        return Promise.resolve();
+      },
+      pages: () => [] as unknown[],
+      ...(input.serviceWorkers ? { serviceWorkers: input.serviceWorkers } : {}),
+    };
+    return { fakeContext, listeners, routedPatterns, unroutedPatterns };
+  }
+
+  async function createResumeFile(): Promise<{
+    directory: string;
+    filePath: string;
+  }> {
+    const directory = await mkdtemp(join(tmpdir(), "unemployed-sw-unit-"));
+    const filePath = join(directory, "approved-resume.pdf");
+    await writeFile(filePath, "approved resume", "utf8");
+    return { directory, filePath };
+  }
+
+  test(
+    "a same-origin worker appearing mid-flow stops preparation with zero fills and zero clicks",
+    { timeout: 20_000 },
+    async () => {
+      let enumerationCalls = 0;
+      const steps: FakeApplicationStep[] = [
+        {
+          controls: [
+            { label: "Email address", autocomplete: "email", required: true },
+          ],
+          actions: [{ label: "Next" }],
+        },
+      ];
+      const { page, state } = createFakeApplicationPage(steps);
+      page.url = () => "https://apply.example.com/apply/job_prepare_runtime";
+      const { directory, filePath } = await createResumeFile();
+      const context = {
+        pages: () => [page],
+        serviceWorkers: () => {
+          enumerationCalls += 1;
+          return enumerationCalls >= 2
+            ? [{ url: () => "https://apply.example.com/late-activated.js" }]
+            : [];
+        },
+      };
+
+      try {
+        const result = await runGenericApplicationPreparation({
+          context: context as never,
+          page: page as never,
+          executionInput: {
+            job: createTestJob(),
+            resumeArtifact: {
+              id: "application_resume_sw_unit",
+              jobId: "job_prepare_runtime",
+              source: "tailored_export" as const,
+              sourceDocumentId: null,
+              exportArtifactId: "resume_export_sw_unit",
+              fileName: "resume.pdf",
+              filePath,
+              sha256: createHash("sha256")
+                .update("approved resume", "utf8")
+                .digest("hex"),
+              approvedAt: "2026-03-20T10:00:00.000Z",
+            },
+            profile: createTestProfile(),
+            settings: createTestSettings(),
+            mode: "prepare_only" as const,
+            submitAuthorized: false,
+          },
+          startedAt: new Date().toISOString(),
+        });
+
+        expect(result.state).toBe("paused");
+        expect(result.summary).toBe(
+          "A service worker can influence this application origin",
+        );
+        expect(result.blocker?.detail).toContain("/late-activated.js");
+        expect(state.filledValues.size).toBe(0);
+        expect(state.clickedLabels).toHaveLength(0);
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
+  test(
+    "recorded download and popup interruptions escalate with truthful containment wording",
+    { timeout: 20_000 },
+    async () => {
+      for (const attempt of [
+        {
+          kind: "download" as const,
+          method: "GET",
+          url: "https://example.com/force-download",
+          at: new Date().toISOString(),
+        },
+        {
+          kind: "popup_open" as const,
+          method: "GET",
+          url: "https://example.com/popup-target",
+          at: new Date().toISOString(),
+        },
+      ]) {
+        const steps: FakeApplicationStep[] = [
+          {
+            controls: [
+              { label: "Email address", autocomplete: "email", required: true },
+            ],
+          },
+        ];
+        const { page, state } = createFakeApplicationPage(steps);
+        page.url = () => "https://example.com/apply/job_prepare_runtime";
+        recordPrepareOnlyRunInterruption(page as never, attempt);
+
+        const result = await runGenericApplicationPreparation({
+          context: {
+            pages: () => [page],
+            serviceWorkers: () => [],
+          } as never,
+          page: page as never,
+          executionInput: {
+            job: createTestJob(),
+            resumeArtifact: {
+              id: "application_resume_sw_unit",
+              jobId: "job_prepare_runtime",
+              source: "tailored_export" as const,
+              sourceDocumentId: null,
+              exportArtifactId: "resume_export_sw_unit",
+              fileName: "resume.pdf",
+              filePath: "/unused/resume.pdf",
+              sha256: createHash("sha256")
+                .update("approved resume", "utf8")
+                .digest("hex"),
+              approvedAt: "2026-03-20T10:00:00.000Z",
+            },
+            profile: createTestProfile(),
+            settings: createTestSettings(),
+            mode: "prepare_only" as const,
+            submitAuthorized: false,
+          },
+          startedAt: new Date().toISOString(),
+        });
+
+        if (attempt.kind === "download") {
+          expect(result.summary).toBe(
+            "The application page attempted an unexpected file download",
+          );
+          expect(result.checkpoints.at(-1)?.label).toBe(
+            "Paused before an unexpected download",
+          );
+          expect(result.blocker?.detail).toContain("/force-download");
+        } else {
+          expect(result.summary).toBe(
+            "The application page attempted to open an unexpected popup",
+          );
+          expect(result.checkpoints.at(-1)?.label).toBe(
+            "Paused before an unexpected popup",
+          );
+          expect(result.blocker?.detail).toContain("/popup-target");
+        }
+        expect(state.clickedLabels).toHaveLength(0);
+        expect(state.filledValues.size).toBe(0);
+      }
+    },
+  );
+
+  test(
+    "sentinel containment cancels downloads, denies non-safe context requests, and detaches every listener",
+    { timeout: 20_000 },
+    async () => {
+      const { fakeContext, listeners, routedPatterns, unroutedPatterns } =
+        createSentinelContext({ targetUrl: "https://example.com/apply/x" });
+      const steps: FakeApplicationStep[] = [{ controls: [] }];
+      const { page, state } = createFakeApplicationPage(steps);
+      page.url = () => "https://example.com/apply/job_prepare_runtime";
+      const cancelSpy = vi.fn().mockResolvedValue(undefined);
+
+      const sentinel = createApplicationRunServiceWorkerSentinel({
+        context: fakeContext as never,
+        targetUrl: "https://example.com/apply/job_prepare_runtime",
+      });
+      sentinel.attachPage(page as never);
+
+      const downloadHandlers = (page.on as ReturnType<typeof vi.fn>).mock.calls
+        .filter(([event]) => event === "download")
+        .map(
+          ([, handler]) =>
+            handler as (download: {
+              url(): string;
+              cancel(): Promise<void>;
+            }) => void | Promise<void>,
+        );
+      expect(downloadHandlers.length).toBeGreaterThan(0);
+      await downloadHandlers[0]!({
+        url: () => "https://example.com/force-download",
+        cancel: cancelSpy,
+      });
+      expect(cancelSpy).toHaveBeenCalledTimes(1);
+      expect(
+        await getLatestBlockedPrepareOnlyAttempt(page as never),
+      ).toMatchObject({
+        kind: "download",
+        url: "https://example.com/force-download",
+      });
+
+      sentinel.detach();
+
+      expect(routedPatterns).toEqual(["**/*"]);
+      expect(unroutedPatterns).toEqual(["**/*"]);
+      expect(listeners.get("serviceworker") ?? []).toHaveLength(0);
+      expect(listeners.get("page") ?? []).toHaveLength(0);
+      const downloadListenersAfterDetach = (
+        page.off as ReturnType<typeof vi.fn>
+      ).mock.calls.filter(([event]) => event === "download").length;
+      expect(downloadListenersAfterDetach).toBeGreaterThan(0);
+      expect(state.guardInstallCount).toBe(0);
+    },
+  );
+
+  test(
+    "a broken service-worker event subscription fails the sentinel closed",
+    { timeout: 20_000 },
+    async () => {
+      const fakeContext = {
+        on() {
+          throw new Error("cdp event subscribe failed");
+        },
+        off() {
+          return undefined;
+        },
+        route: () => Promise.resolve(),
+        unroute: () => Promise.resolve(),
+        pages: () => [],
+        serviceWorkers: () => [],
+      };
+
+      const sentinel = createApplicationRunServiceWorkerSentinel({
+        context: fakeContext as never,
+        targetUrl: "https://example.com/apply/x",
+      });
+      const finding = await sentinel.check("guard_ensure");
+
+      expect(finding).not.toBeNull();
+      expect(finding?.reason).toBe("service_worker_safety_channel_unavailable");
+      expect(finding?.channel).toBe("context_serviceworker_event");
+      expect(finding?.detail).toContain("failed to subscribe");
+      sentinel.detach();
     },
   );
 });

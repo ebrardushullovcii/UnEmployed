@@ -13,8 +13,10 @@ import {
   type SourceInstructionArtifact,
 } from "@unemployed/contracts";
 import {
+  assessLocationCompatibility,
   getBroadLocationCompatibility,
   matchesAnyPhrase,
+  matchesExcludedLocation,
   matchesLocationPreference,
   matchesTitlePreference,
 } from "./matching";
@@ -139,6 +141,7 @@ type PublicApiResponseAdapter = {
     additionalDescription?: PublicApiFieldSelector;
     descriptionSections?: PublicApiFieldPath;
     postedAt?: PublicApiFieldSelector;
+    updatedAt?: PublicApiFieldSelector;
     workplaceType?: PublicApiFieldSelector;
     employmentType?: PublicApiFieldSelector;
     department?: PublicApiFieldSelector;
@@ -155,6 +158,7 @@ type NormalizedPublicApiJobRecord = {
   description: string | null;
   workplaceType: string | null;
   postedAtValue: string | number | null;
+  providerUpdatedAtValue: string | number | null;
   employmentType: string | null;
   department: string | null;
   team: string | null;
@@ -202,7 +206,11 @@ const PUBLIC_API_RESPONSE_ADAPTERS = {
       applicationUrl: [["absolute_url"]],
       location: [["location", "name"]],
       description: [["content"]],
-      postedAt: [["updated_at"]],
+      // Greenhouse board feeds only expose `updated_at` (last provider touch),
+      // never the original first-published date, so it maps to
+      // `providerUpdatedAt` and `postedAt` stays null instead of mislabeling
+      // an update time as a posting date.
+      updatedAt: [["updated_at"]],
     },
   },
   lever: {
@@ -518,13 +526,25 @@ function getFirstValueAtPaths(
   return undefined;
 }
 
+type ParsedPublicApiRecordArray = {
+  records: Record<string, unknown>[];
+  skippedMalformedCount: number;
+};
+
+/**
+ * Parses the provider item collection one entry at a time: isolated malformed
+ * records are skipped and counted so a single bad entry cannot hide an entire
+ * board, while a wrong payload shape (or a payload where nothing usable
+ * remains) still fails loudly. No partial-skip threshold is applied beyond
+ * that; any number of usable records is worth returning.
+ */
 function parsePublicApiRecordArray(
   value: unknown,
   adapter: PublicApiResponseAdapter,
-): Record<string, unknown>[] {
+): ParsedPublicApiRecordArray {
   const itemsValue = getValueAtPath(value, adapter.itemsPath);
   if (itemsValue == null) {
-    return [];
+    return { records: [], skippedMalformedCount: 0 };
   }
 
   if (adapter.itemsShape === "single") {
@@ -535,88 +555,116 @@ function parsePublicApiRecordArray(
     ) {
       throw new Error(adapter.invalidPayloadMessage);
     }
-    return [itemsValue as Record<string, unknown>];
+    return {
+      records: [itemsValue as Record<string, unknown>],
+      skippedMalformedCount: 0,
+    };
   }
 
   if (!Array.isArray(itemsValue)) {
     throw new Error(adapter.invalidPayloadMessage);
   }
 
-  return itemsValue.map((item) => {
-    if (!item || typeof item !== "object") {
-      throw new Error(adapter.invalidPayloadMessage);
+  const records: Record<string, unknown>[] = [];
+  let skippedMalformedCount = 0;
+  for (const item of itemsValue) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      skippedMalformedCount += 1;
+      continue;
     }
 
-    return item as Record<string, unknown>;
-  });
+    records.push(item as Record<string, unknown>);
+  }
+
+  if (records.length === 0 && skippedMalformedCount > 0) {
+    throw new Error(adapter.invalidPayloadMessage);
+  }
+
+  return { records, skippedMalformedCount };
 }
 
 function parsePublicApiJobRecords(
   value: unknown,
   adapter: PublicApiResponseAdapter,
-): NormalizedPublicApiJobRecord[] {
-  return parsePublicApiRecordArray(value, adapter).map((record) => {
-    const sourceJobIdValue = getFirstValueAtPaths(
-      record,
-      adapter.fields.sourceJobId,
-    );
-    const sourceJobId =
-      typeof sourceJobIdValue === "string" ||
-      typeof sourceJobIdValue === "number"
-        ? String(sourceJobIdValue)
-        : null;
+): {
+  records: NormalizedPublicApiJobRecord[];
+  skippedMalformedCount: number;
+} {
+  const { records, skippedMalformedCount } = parsePublicApiRecordArray(
+    value,
+    adapter,
+  );
 
-    const descriptionParts = [
-      parseNullableString(
-        getFirstValueAtPaths(record, adapter.fields.description),
-      )?.value ?? null,
-      parseNullableString(
-        getFirstValueAtPaths(record, adapter.fields.additionalDescription),
-      )?.value ?? null,
-      ...parsePublicApiDescriptionSections(
-        getValueAtPath(record, adapter.fields.descriptionSections ?? null),
-      ),
-    ].filter((part): part is string => Boolean(part?.trim()));
+  return {
+    records: records.map((record) => {
+      const sourceJobIdValue = getFirstValueAtPaths(
+        record,
+        adapter.fields.sourceJobId,
+      );
+      const sourceJobId =
+        typeof sourceJobIdValue === "string" ||
+        typeof sourceJobIdValue === "number"
+          ? String(sourceJobIdValue)
+          : null;
 
-    return {
-      sourceJobId,
-      title:
-        parseOptionalString(getFirstValueAtPaths(record, adapter.fields.title))
-          ?.value ?? null,
-      canonicalUrl:
-        parseOptionalString(
-          getFirstValueAtPaths(record, adapter.fields.canonicalUrl),
-        )?.value ?? null,
-      applicationUrl:
+      const descriptionParts = [
         parseNullableString(
-          getFirstValueAtPaths(record, adapter.fields.applicationUrl),
+          getFirstValueAtPaths(record, adapter.fields.description),
         )?.value ?? null,
-      location:
         parseNullableString(
-          getFirstValueAtPaths(record, adapter.fields.location),
+          getFirstValueAtPaths(record, adapter.fields.additionalDescription),
         )?.value ?? null,
-      description: descriptionParts.join("\n\n") || null,
-      workplaceType:
-        parseNullableString(
-          getFirstValueAtPaths(record, adapter.fields.workplaceType),
-        )?.value ?? null,
-      postedAtValue:
-        parseNullableStringOrNumber(
-          getFirstValueAtPaths(record, adapter.fields.postedAt),
-        )?.value ?? null,
-      employmentType:
-        parseNullableString(
-          getFirstValueAtPaths(record, adapter.fields.employmentType),
-        )?.value ?? null,
-      department:
-        parseNullableString(
-          getFirstValueAtPaths(record, adapter.fields.department),
-        )?.value ?? null,
-      team:
-        parseNullableString(getFirstValueAtPaths(record, adapter.fields.team))
-          ?.value ?? null,
-    };
-  });
+        ...parsePublicApiDescriptionSections(
+          getValueAtPath(record, adapter.fields.descriptionSections ?? null),
+        ),
+      ].filter((part): part is string => Boolean(part?.trim()));
+
+      return {
+        sourceJobId,
+        title:
+          parseOptionalString(
+            getFirstValueAtPaths(record, adapter.fields.title),
+          )?.value ?? null,
+        canonicalUrl:
+          parseOptionalString(
+            getFirstValueAtPaths(record, adapter.fields.canonicalUrl),
+          )?.value ?? null,
+        applicationUrl:
+          parseNullableString(
+            getFirstValueAtPaths(record, adapter.fields.applicationUrl),
+          )?.value ?? null,
+        location:
+          parseNullableString(
+            getFirstValueAtPaths(record, adapter.fields.location),
+          )?.value ?? null,
+        description: descriptionParts.join("\n\n") || null,
+        workplaceType:
+          parseNullableString(
+            getFirstValueAtPaths(record, adapter.fields.workplaceType),
+          )?.value ?? null,
+        postedAtValue:
+          parseNullableStringOrNumber(
+            getFirstValueAtPaths(record, adapter.fields.postedAt),
+          )?.value ?? null,
+        providerUpdatedAtValue:
+          parseNullableStringOrNumber(
+            getFirstValueAtPaths(record, adapter.fields.updatedAt),
+          )?.value ?? null,
+        employmentType:
+          parseNullableString(
+            getFirstValueAtPaths(record, adapter.fields.employmentType),
+          )?.value ?? null,
+        department:
+          parseNullableString(
+            getFirstValueAtPaths(record, adapter.fields.department),
+          )?.value ?? null,
+        team:
+          parseNullableString(getFirstValueAtPaths(record, adapter.fields.team))
+            ?.value ?? null,
+      };
+    }),
+    skippedMalformedCount,
+  };
 }
 
 function parsePublicApiDescriptionSections(value: unknown): string[] {
@@ -1215,17 +1263,8 @@ export function buildDiscoveryStartingUrls(
   artifact: SourceInstructionArtifact | null,
   searchPreferences?: JobSearchPreferences | null,
 ): string[] {
-  const providerSearchRoute = buildKnownProviderDiscoverySearchUrl(
-    target,
-    searchPreferences,
-  );
-
   if (!artifact) {
-    return uniqueStrings(
-      [providerSearchRoute, target.startingUrl].filter(
-        (value): value is string => Boolean(value),
-      ),
-    );
+    return [target.startingUrl];
   }
 
   const anchorUrl = tryParseUrl(target.startingUrl);
@@ -1302,7 +1341,6 @@ export function buildDiscoveryStartingUrls(
   const routes = uniqueStrings(
     (synthesizedSearchRoute && !isDeniedRoute(synthesizedSearchRoute)
       ? [
-          providerSearchRoute,
           synthesizedSearchRoute,
           ...overrideRoutes,
           ...searchRoutes,
@@ -1311,14 +1349,12 @@ export function buildDiscoveryStartingUrls(
         ]
       : preferredMethod === "careers_page"
         ? [
-            providerSearchRoute,
             ...overrideRoutes,
             ...learnedStartingRoutes,
             ...searchRoutes,
             ...startingUrlRoute,
           ]
         : [
-            providerSearchRoute,
             ...overrideRoutes,
             ...searchRoutes,
             ...learnedStartingRoutes,
@@ -1332,54 +1368,6 @@ export function buildDiscoveryStartingUrls(
   }
 
   return startingUrlRoute;
-}
-
-function buildKnownProviderDiscoverySearchUrl(
-  target: JobDiscoveryTarget,
-  searchPreferences?: JobSearchPreferences | null,
-): string | null {
-  if (!searchPreferences) {
-    return null;
-  }
-
-  const anchorUrl = tryParseUrl(target.startingUrl);
-  if (
-    !anchorUrl ||
-    !(
-      anchorUrl.hostname.toLowerCase() === "linkedin.com" ||
-      anchorUrl.hostname.toLowerCase().endsWith(".linkedin.com")
-    )
-  ) {
-    return null;
-  }
-
-  const keyword =
-    searchPreferences.targetRoles.find((value) => value.trim().length > 0) ??
-    searchPreferences.jobFamilies.find((value) => value.trim().length > 0) ??
-    null;
-  if (!keyword) {
-    return null;
-  }
-
-  const searchUrl = new URL("/jobs/search/", anchorUrl);
-  searchUrl.searchParams.set("keywords", keyword.trim());
-  const explicitLocation =
-    searchPreferences.locations.find((value) => value.trim().length > 0) ??
-    null;
-  if (explicitLocation) {
-    searchUrl.searchParams.set("location", explicitLocation.trim());
-  } else {
-    searchUrl.searchParams.set("location", "Worldwide");
-    searchUrl.searchParams.set("geoId", "92000000");
-  }
-  if (
-    searchPreferences.workModes.length === 1 &&
-    searchPreferences.workModes[0] === "remote"
-  ) {
-    searchUrl.searchParams.set("f_WT", "2");
-  }
-
-  return canonicalizeRouteForReuse(searchUrl.toString(), anchorUrl);
 }
 
 function resolveDeniedDiscoveryRoutes(
@@ -1918,10 +1906,11 @@ export async function collectPublicProviderJobs(input: {
           throw new Error(`Public provider API returned ${response.status}.`);
         }
 
-        const jobs = parsePublicApiJobRecords(
+        const parsedPublicApiRecords = parsePublicApiJobRecords(
           await response.json(),
           responseAdapter,
-        ).sort(
+        );
+        const jobs = parsedPublicApiRecords.records.sort(
           (left, right) =>
             Number(isExactProviderJobTarget(right, input.target.startingUrl)) -
             Number(isExactProviderJobTarget(left, input.target.startingUrl)),
@@ -1964,6 +1953,9 @@ export async function collectPublicProviderJobs(input: {
                 easyApplyEligible: false,
                 postedAt: normalizeProviderDateTime(job.postedAtValue),
                 postedAtText: null,
+                providerUpdatedAt: normalizeProviderDateTime(
+                  job.providerUpdatedAtValue,
+                ),
                 discoveredAt: new Date().toISOString(),
                 salaryText: null,
                 summary: description.slice(0, SUMMARY_MAX_LENGTH) || null,
@@ -1977,7 +1969,9 @@ export async function collectPublicProviderJobs(input: {
                 department: job.department,
                 team: job.team,
                 employerWebsiteUrl: null,
-                employerDomain: tryParseUrl(canonicalUrl)?.hostname ?? null,
+                // Provider listing URLs identify the source/ATS, not the employer.
+                // This adapter has no independently employer-owned domain field.
+                employerDomain: null,
                 atsProvider: provider.label,
                 providerKey: provider.key,
                 providerBoardToken: provider.boardToken,
@@ -1990,7 +1984,10 @@ export async function collectPublicProviderJobs(input: {
               }),
             ];
           }),
-          warning: null,
+          warning:
+            parsedPublicApiRecords.skippedMalformedCount > 0
+              ? `Skipped ${parsedPublicApiRecords.skippedMalformedCount} malformed ${provider.label} job record${parsedPublicApiRecords.skippedMalformedCount === 1 ? "" : "s"} from the public API response.`
+              : null,
         };
       } finally {
         composedSignal.cleanup();
@@ -2047,7 +2044,7 @@ export function applyDiscoveryTitleTriage(input: {
 
   if (
     searchPreferences.excludedLocations.length > 0 &&
-    matchesLocationPreference(
+    matchesExcludedLocation(
       posting.location,
       searchPreferences.excludedLocations,
     )
@@ -2095,7 +2092,10 @@ export function applyDiscoveryTitleTriage(input: {
 
   if (
     searchPreferences.locations.length > 0 &&
-    !matchesLocationPreference(posting.location, searchPreferences.locations) &&
+    assessLocationCompatibility(
+      posting.location,
+      searchPreferences.locations,
+    ) === "incompatible" &&
     !matchesRemoteFriendlyTechnicalLocationFallback({
       posting,
       postingEvidenceText,

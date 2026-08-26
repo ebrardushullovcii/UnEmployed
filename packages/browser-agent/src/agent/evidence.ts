@@ -9,10 +9,7 @@ import {
 } from "@unemployed/contracts";
 import type { AgentResult, AgentState } from "../types";
 import { uniqueStrings } from "../utils/string";
-import {
-  getSearchSurfaceRouteRuleForUrl,
-  isSearchSurfaceResultPath,
-} from "./search-surface-routes";
+import { findDetailRouteIdSegment } from "./job-extraction";
 
 const NOISE_TOKEN_RE =
   /\bdismiss\b|\bviewed\b|\bpromoted\b|\bwith verification\b/i;
@@ -681,8 +678,28 @@ function normalizeJobWorkMode(
   return validWorkModes.length > 0 ? validWorkModes : ["flexible"];
 }
 
+function collectSharedSurfaceUrls(
+  jobs: readonly ExtractedJobInput[],
+): Set<string> {
+  const counts = new Map<string, number>();
+  for (const job of jobs) {
+    const canonicalUrl = job.canonicalUrl.trim();
+    if (!canonicalUrl) {
+      continue;
+    }
+    counts.set(canonicalUrl, (counts.get(canonicalUrl) ?? 0) + 1);
+  }
+
+  return new Set(
+    [...counts.entries()]
+      .filter(([, count]) => count >= 2)
+      .map(([canonicalUrl]) => canonicalUrl),
+  );
+}
+
 function shouldDeduplicateByCanonicalUrl(
   value: string | null | undefined,
+  sharedSurfaceUrls: ReadonlySet<string>,
 ): boolean {
   const canonicalUrl = value?.trim();
   if (!canonicalUrl) {
@@ -691,18 +708,14 @@ function shouldDeduplicateByCanonicalUrl(
 
   try {
     const parsed = new URL(canonicalUrl);
-    const rule = getSearchSurfaceRouteRuleForUrl(parsed);
-    if (
-      rule &&
-      isSearchSurfaceResultPath(rule, parsed.pathname.toLowerCase())
-    ) {
-      return false;
+    if (findDetailRouteIdSegment(parsed.pathname)) {
+      return true;
     }
-
-    return true;
   } catch {
     return true;
   }
+
+  return !sharedSurfaceUrls.has(canonicalUrl);
 }
 
 export function addExtractedJobsToState(
@@ -712,13 +725,23 @@ export function addExtractedJobsToState(
 ): number {
   let addedCount = 0;
   const discoveredAt = new Date().toISOString();
+  const sharedSurfaceUrls = collectSharedSurfaceUrls([
+    ...state.collectedJobs,
+    ...extractedJobs,
+  ]);
 
   for (const job of extractedJobs) {
     const existingIndex = state.collectedJobs.findIndex(
       (existingJob) =>
         existingJob.sourceJobId === job.sourceJobId ||
-        (shouldDeduplicateByCanonicalUrl(existingJob.canonicalUrl) &&
-          shouldDeduplicateByCanonicalUrl(job.canonicalUrl) &&
+        (shouldDeduplicateByCanonicalUrl(
+          existingJob.canonicalUrl,
+          sharedSurfaceUrls,
+        ) &&
+          shouldDeduplicateByCanonicalUrl(
+            job.canonicalUrl,
+            sharedSurfaceUrls,
+          ) &&
           existingJob.canonicalUrl === job.canonicalUrl),
     );
 

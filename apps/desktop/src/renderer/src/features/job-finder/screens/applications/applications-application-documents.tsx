@@ -9,14 +9,17 @@ import { Button } from "@renderer/components/ui";
 import { formatStatusLabel } from "@renderer/features/job-finder/lib/job-finder-utils";
 import { StatusBadge } from "../../components/status-badge";
 
-export const CANDIDATE_ASSETS_CHANGED_EVENT = "unemployed:candidate-assets-changed";
+export const CANDIDATE_ASSETS_CHANGED_EVENT =
+  "unemployed:candidate-assets-changed";
 
 export function ApplicationsApplicationDocuments(props: {
   applicationRecord: ApplicationRecord;
   applyRunDetails: ApplyRunDetails | null;
 }) {
   const { applicationRecord, applyRunDetails } = props;
-  const [documents, setDocuments] = useState<readonly ApplicationDocumentRevision[]>([]);
+  const [documents, setDocuments] = useState<
+    readonly ApplicationDocumentRevision[]
+  >([]);
   const [selectedDocumentId, setSelectedDocumentId] = useState("");
   const [kind, setKind] = useState<ApplicationDocumentKind>("cover_letter");
   const attachmentQuestions = useMemo(
@@ -40,15 +43,21 @@ export function ApplicationsApplicationDocuments(props: {
 
   useEffect(() => {
     setDraftContent(selectedDocument?.content ?? "");
-  }, [selectedDocument?.content, selectedDocument?.id, selectedDocument?.revision]);
+  }, [
+    selectedDocument?.content,
+    selectedDocument?.id,
+    selectedDocument?.revision,
+  ]);
 
   async function refresh() {
     setStatus("loading");
     try {
-      const result = await window.unemployed.jobFinder.listApplicationDocuments({
-        jobId: applicationRecord.jobId,
-        applicationRecordId: applicationRecord.id,
-      });
+      const result = await window.unemployed.jobFinder.listApplicationDocuments(
+        {
+          jobId: applicationRecord.jobId,
+          applicationRecordId: applicationRecord.id,
+        },
+      );
       setDocuments(result.documents);
       setSelectedDocumentId((current) =>
         result.documents.some((document) => document.id === current)
@@ -87,22 +96,25 @@ export function ApplicationsApplicationDocuments(props: {
   async function propose(revise: boolean) {
     setStatus("working");
     setMessage(null);
-    const question = attachmentQuestions.find((entry) => entry.id === questionId);
+    const question = attachmentQuestions.find(
+      (entry) => entry.id === questionId,
+    );
     try {
-      const document = await window.unemployed.jobFinder.proposeApplicationDocument({
-        kind,
-        jobId: applicationRecord.jobId,
-        applicationRecordId: applicationRecord.id,
-        question: question
-          ? { runId: question.runId, questionId: question.id }
-          : null,
-        ...(revise && selectedDocument
-          ? {
-              documentId: selectedDocument.id,
-              expectedRevision: selectedDocument.revision,
-            }
-          : {}),
-      });
+      const document =
+        await window.unemployed.jobFinder.proposeApplicationDocument({
+          kind,
+          jobId: applicationRecord.jobId,
+          applicationRecordId: applicationRecord.id,
+          question: question
+            ? { runId: question.runId, questionId: question.id }
+            : null,
+          ...(revise && selectedDocument
+            ? {
+                documentId: selectedDocument.id,
+                expectedRevision: selectedDocument.revision,
+              }
+            : {}),
+        });
       await refresh();
       setSelectedDocumentId(document.id);
       setMessage(
@@ -110,7 +122,9 @@ export function ApplicationsApplicationDocuments(props: {
       );
     } catch (error) {
       setStatus("error");
-      setMessage(error instanceof Error ? error.message : "The proposal failed.");
+      setMessage(
+        error instanceof Error ? error.message : "The proposal failed.",
+      );
     }
   }
 
@@ -119,10 +133,11 @@ export function ApplicationsApplicationDocuments(props: {
     setStatus("working");
     setMessage(null);
     try {
-      const approved = await window.unemployed.jobFinder.approveApplicationDocument({
-        documentId: selectedDocument.id,
-        expectedRevision: selectedDocument.revision,
-      });
+      const approved =
+        await window.unemployed.jobFinder.approveApplicationDocument({
+          documentId: selectedDocument.id,
+          expectedRevision: selectedDocument.revision,
+        });
       await refresh();
       setSelectedDocumentId(approved.id);
       window.dispatchEvent(new Event(CANDIDATE_ASSETS_CHANGED_EVENT));
@@ -166,7 +181,9 @@ export function ApplicationsApplicationDocuments(props: {
       );
     } catch (error) {
       setStatus("error");
-      setMessage(error instanceof Error ? error.message : "The edit could not be saved.");
+      setMessage(
+        error instanceof Error ? error.message : "The edit could not be saved.",
+      );
     }
   }
 
@@ -175,10 +192,11 @@ export function ApplicationsApplicationDocuments(props: {
     setStatus("working");
     setMessage(null);
     try {
-      const result = await window.unemployed.jobFinder.exportApplicationDocument({
-        documentId: selectedDocument.id,
-        expectedRevision: selectedDocument.revision,
-      });
+      const result =
+        await window.unemployed.jobFinder.exportApplicationDocument({
+          documentId: selectedDocument.id,
+          expectedRevision: selectedDocument.revision,
+        });
       if (result.status === "cancelled") {
         setStatus("ready");
         setMessage("Export cancelled. The approved document was not changed.");
@@ -199,11 +217,16 @@ export function ApplicationsApplicationDocuments(props: {
         <div>
           <h3 className="label-mono-xs text-primary">Application documents</h3>
           <p className="mt-1 text-(length:--text-small) leading-6 text-foreground-soft">
-            Create a cover letter or short response from approved profile evidence,
-            review it, then approve or export that exact revision. This never submits.
+            Create a cover letter or short response from approved profile
+            evidence, review it, then approve or export that exact revision.
+            This never submits.
           </p>
         </div>
-        <StatusBadge tone={status === "error" ? "critical" : isWorking ? "active" : "neutral"}>
+        <StatusBadge
+          tone={
+            status === "error" ? "critical" : isWorking ? "active" : "neutral"
+          }
+        >
           {status === "working" ? "Working" : formatStatusLabel(status)}
         </StatusBadge>
       </div>
@@ -212,9 +235,11 @@ export function ApplicationsApplicationDocuments(props: {
         <label className="grid gap-1 text-(length:--text-small)">
           Document type
           <select
-            className="h-10 rounded-(--radius-field) border border-input bg-background px-3"
+            className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             disabled={isWorking}
-            onChange={(event) => setKind(event.target.value as ApplicationDocumentKind)}
+            onChange={(event) =>
+              setKind(event.target.value as ApplicationDocumentKind)
+            }
             value={kind}
           >
             <option value="cover_letter">Cover letter</option>
@@ -224,7 +249,7 @@ export function ApplicationsApplicationDocuments(props: {
         <label className="grid gap-1 text-(length:--text-small)">
           Exact attachment question
           <select
-            className="h-10 rounded-(--radius-field) border border-input bg-background px-3"
+            className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             disabled={isWorking}
             onChange={(event) => setQuestionId(event.target.value)}
             value={questionId}
@@ -239,7 +264,11 @@ export function ApplicationsApplicationDocuments(props: {
         </label>
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button disabled={isWorking} onClick={() => void propose(false)} size="compact">
+        <Button
+          disabled={isWorking}
+          onClick={() => void propose(false)}
+          size="compact"
+        >
           Generate grounded proposal
         </Button>
         {selectedDocument ? (
@@ -258,13 +287,14 @@ export function ApplicationsApplicationDocuments(props: {
         <label className="grid gap-1 text-(length:--text-small)">
           Saved document
           <select
-            className="h-10 rounded-(--radius-field) border border-input bg-background px-3"
+            className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             onChange={(event) => setSelectedDocumentId(event.target.value)}
             value={selectedDocument?.id ?? ""}
           >
             {documents.map((document) => (
               <option key={document.id} value={document.id}>
-                {formatStatusLabel(document.kind)} · revision {document.revision} · {formatStatusLabel(document.status)}
+                {formatStatusLabel(document.kind)} · revision{" "}
+                {document.revision} · {formatStatusLabel(document.status)}
               </option>
             ))}
           </select>
@@ -274,13 +304,21 @@ export function ApplicationsApplicationDocuments(props: {
       {selectedDocument ? (
         <div className="grid gap-3 rounded-(--radius-field) border border-border/40 bg-background/50 p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <strong>{formatStatusLabel(selectedDocument.kind)} · revision {selectedDocument.revision}</strong>
-            <StatusBadge tone={selectedDocument.status === "proposed" ? "active" : "positive"}>
+            <strong>
+              {formatStatusLabel(selectedDocument.kind)} · revision{" "}
+              {selectedDocument.revision}
+            </strong>
+            <StatusBadge
+              tone={
+                selectedDocument.status === "proposed" ? "active" : "positive"
+              }
+            >
               {formatStatusLabel(selectedDocument.status)}
             </StatusBadge>
           </div>
           <p className="text-(length:--text-small) text-foreground-soft">
-            Exact job: {selectedDocument.job.title} at {selectedDocument.job.company}
+            Exact job: {selectedDocument.job.title} at{" "}
+            {selectedDocument.job.company}
           </p>
           {selectedDocument.question ? (
             <p className="text-(length:--text-small) text-foreground-soft">
@@ -292,7 +330,7 @@ export function ApplicationsApplicationDocuments(props: {
               <label className="grid gap-1 text-(length:--text-small) font-semibold">
                 Edit proposed text
                 <textarea
-                  className="min-h-64 w-full resize-y rounded-(--radius-field) border border-input bg-background p-3 font-sans text-(length:--text-small) font-normal leading-6"
+                  className="min-h-64 w-full resize-y rounded-(--radius-field) border border-(--field-border) bg-(--field) p-3 font-sans text-(length:--text-small) font-normal leading-6 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
                   disabled={isWorking}
                   maxLength={12_000}
                   onChange={(event) => setDraftContent(event.target.value)}
@@ -300,9 +338,10 @@ export function ApplicationsApplicationDocuments(props: {
                 />
               </label>
               <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                Generated text is evidence-linked. Any manual changes are user-authored
-                and may add claims the grounding checker cannot verify; save them as a
-                new revision and review every claim before approval.
+                Generated text is evidence-linked. Any manual changes are
+                user-authored and may add claims the grounding checker cannot
+                verify; save them as a new revision and review every claim
+                before approval.
               </p>
               <Button
                 disabled={
@@ -324,8 +363,8 @@ export function ApplicationsApplicationDocuments(props: {
           )}
           {selectedDocument.requiresGroundingReview ? (
             <p className="rounded-(--radius-field) border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-(length:--text-small) leading-6 text-foreground">
-              User-authored revision: verify every edited claim against your profile and
-              source documents before approval.
+              User-authored revision: verify every edited claim against your
+              profile and source documents before approval.
             </p>
           ) : null}
           <details>
@@ -335,18 +374,28 @@ export function ApplicationsApplicationDocuments(props: {
             <ul className="mt-2 grid gap-2 text-(length:--text-small) leading-6 text-foreground-soft">
               {selectedDocument.evidence.map((evidence) => (
                 <li key={evidence.id}>
-                  <strong className="text-foreground">{evidence.label}:</strong> {evidence.text}
+                  <strong className="text-foreground">{evidence.label}:</strong>{" "}
+                  {evidence.text}
                 </li>
               ))}
             </ul>
           </details>
           <div className="flex flex-wrap gap-2">
             {selectedDocument.status === "proposed" ? (
-              <Button disabled={isWorking} onClick={() => void approve()} size="compact">
+              <Button
+                disabled={isWorking}
+                onClick={() => void approve()}
+                size="compact"
+              >
                 Approve exact revision
               </Button>
             ) : (
-              <Button disabled={isWorking} onClick={() => void exportDocument()} size="compact" variant="secondary">
+              <Button
+                disabled={isWorking}
+                onClick={() => void exportDocument()}
+                size="compact"
+                variant="secondary"
+              >
                 Export .txt
               </Button>
             )}
@@ -358,7 +407,13 @@ export function ApplicationsApplicationDocuments(props: {
         </p>
       ) : null}
       {message ? (
-        <p className={status === "error" ? "text-(length:--text-small) text-destructive" : "text-(length:--text-small) text-foreground-soft"}>
+        <p
+          className={
+            status === "error"
+              ? "text-(length:--text-small) text-destructive"
+              : "text-(length:--text-small) text-foreground-soft"
+          }
+        >
           {message}
         </p>
       ) : null}

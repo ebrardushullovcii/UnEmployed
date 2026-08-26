@@ -2,17 +2,21 @@ import type { TailoredResumeDraft } from "@unemployed/ai-providers";
 import type {
   CandidateProfile,
   ResumeDraft,
+  ResumeDraftBullet,
   ResumeDraftIdentity,
   ResumeDraftOrigin,
-  ResumeResearchArtifact,
   ResumeDraftSection,
+  ResumeResearchArtifact,
   ResumeDraftSourceRef,
   ResumePreviewIdentityField,
   ResumeTemplateId,
   SavedJob,
   TailoredAsset,
+  TailoredResumeCoverageMetadata,
+  WorkHistoryReviewAcknowledgment,
 } from "@unemployed/contracts";
 import { ResumeDraftSchema } from "@unemployed/contracts";
+import { fnv1a32 } from "@unemployed/core";
 import {
   createEntry,
   createSection,
@@ -24,6 +28,7 @@ import {
   normalizeResumeDraftEntryOrdering,
   orderEntriesNewestFirst,
 } from "./resume-entry-ordering";
+import { projectWorkHistoryReviewSuggestionIdentities } from "./resume-work-history-review-identity";
 import { buildJobContextText } from "./resume-workspace-primitives";
 import { normalizeText, uniqueStrings } from "./shared";
 
@@ -35,6 +40,59 @@ function joinCompact(
     Boolean(value && value.trim()),
   );
   return values.length > 0 ? values.join(separator) : null;
+}
+
+/**
+ * Mirrors the canonical generated-class origin set used by resume claim
+ * assessment: content produced by generation or assistant edits is
+ * generated-class and carries a stamped normalized-content hash, while
+ * genuinely imported or user-authored content stays unstamped (null).
+ */
+const generatedClassResumeOrigins: readonly ResumeDraftOrigin[] = [
+  "ai_generated",
+  "assistant_edited",
+  "deterministic_fallback",
+];
+
+export function isGeneratedClassResumeOrigin(origin: ResumeDraftOrigin): boolean {
+  return generatedClassResumeOrigins.includes(origin);
+}
+
+/**
+ * Stamps `lastGeneratedContentHash` as `fnv1a32(normalizeText(text))` for
+ * generated-class bullets so confirmation gating can bind confirmations to
+ * the exact normalized claim text that generation produced. User-authored and
+ * imported bullets are returned untouched (hash stays null/default).
+ */
+export function stampGeneratedBulletContentHash(
+  bullet: ResumeDraftBullet,
+): ResumeDraftBullet {
+  if (!isGeneratedClassResumeOrigin(bullet.origin)) {
+    return bullet;
+  }
+
+  return {
+    ...bullet,
+    lastGeneratedContentHash: fnv1a32(normalizeText(bullet.text)),
+  };
+}
+
+/**
+ * Applies the generated-bullet stamp across a section list, covering both
+ * section-level bullets and entry bullets, without touching any other
+ * metadata.
+ */
+export function stampGeneratedSectionBulletHashes(
+  sections: readonly ResumeDraftSection[],
+): ResumeDraftSection[] {
+  return sections.map((section) => ({
+    ...section,
+    bullets: section.bullets.map(stampGeneratedBulletContentHash),
+    entries: section.entries.map((entry) => ({
+      ...entry,
+      bullets: entry.bullets.map(stampGeneratedBulletContentHash),
+    })),
+  }));
 }
 
 function normalizeUrl(value: string | null | undefined): string | null {
@@ -1085,11 +1143,13 @@ function buildDraftSectionsFromStructuredTailoredDraft(input: {
     });
   }
 
-  return sections.filter(
-    (section) =>
-      Boolean(section.text) ||
-      section.bullets.length > 0 ||
-      section.entries.length > 0,
+  return stampGeneratedSectionBulletHashes(
+    sections.filter(
+      (section) =>
+        Boolean(section.text) ||
+        section.bullets.length > 0 ||
+        section.entries.length > 0,
+    ),
   );
 }
 
@@ -1147,7 +1207,7 @@ export function buildResumeRenderDocument(
   const includePreviewAnchors = options?.includePreviewAnchors ?? false;
 
   return {
-    fullName: identity.fullName ?? profile.fullName,
+    fullName: identity.fullName ?? profile.fullName ?? "",
     headline: identity.headline ?? profile.headline ?? null,
     location: identity.location ?? profile.currentLocation ?? null,
     contactItems: buildResumeContactItems(identity),
@@ -1209,6 +1269,40 @@ export function buildResumeRenderDocument(
   };
 }
 
+/**
+ * Keeps prior work-history review acknowledgments alive across a full resume
+ * regeneration. An acknowledgment survives only when it still exactly matches
+ * a freshly projected suggestion identity — the same field set
+ * `matchWorkHistoryReviewAcknowledgment` requires (draft, profile record,
+ * kind, action, and the FNV-1a hash of the exact canonical message) — so
+ * unchanged omissions stay acknowledged while changed or removed suggestions
+ * reset to unacknowledged and re-enter the review gate.
+ */
+function carryForwardWorkHistoryReviewAcknowledgments(input: {
+  nextDraftId: string;
+  coverageMetadata: readonly TailoredResumeCoverageMetadata[];
+  previousAcknowledgments: readonly WorkHistoryReviewAcknowledgment[];
+}): WorkHistoryReviewAcknowledgment[] {
+  if (input.previousAcknowledgments.length === 0) {
+    return [];
+  }
+
+  const freshIdentities = projectWorkHistoryReviewSuggestionIdentities(
+    input.coverageMetadata,
+  );
+
+  return input.previousAcknowledgments.filter((acknowledgment) =>
+    freshIdentities.some(
+      (identity) =>
+        acknowledgment.draftId === input.nextDraftId &&
+        acknowledgment.profileRecordId === identity.profileRecordId &&
+        acknowledgment.kind === identity.kind &&
+        acknowledgment.action === identity.action &&
+        acknowledgment.messageContentHash === identity.messageContentHash,
+    ),
+  );
+}
+
 export function buildResumeDraftFromTailoredDraft(input: {
   job: SavedJob;
   templateId: ResumeTemplateId;
@@ -1220,6 +1314,7 @@ export function buildResumeDraftFromTailoredDraft(input: {
   profile?: CandidateProfile;
   research?: readonly ResumeResearchArtifact[];
   headline?: string | null | undefined;
+  previousWorkHistoryReviewAcknowledgments?: readonly WorkHistoryReviewAcknowledgment[];
 }): ResumeDraft {
   const {
     createdAt,
@@ -1257,10 +1352,18 @@ export function buildResumeDraftFromTailoredDraft(input: {
   );
   const origin =
     generationMethod === "ai" ? "ai_generated" : "deterministic_fallback";
+  const nextDraftId = existingDraftId ?? `resume_draft_${job.id}`;
+  const workHistoryReviewAcknowledgments =
+    carryForwardWorkHistoryReviewAcknowledgments({
+      nextDraftId,
+      coverageMetadata: draft.coverageMetadata,
+      previousAcknowledgments:
+        input.previousWorkHistoryReviewAcknowledgments ?? [],
+    });
 
   return ResumeDraftSchema.parse(
     normalizeResumeDraftEntryOrdering({
-      id: existingDraftId ?? `resume_draft_${job.id}`,
+      id: nextDraftId,
       jobId: job.id,
       status: "needs_review",
       templateId,
@@ -1285,6 +1388,8 @@ export function buildResumeDraftFromTailoredDraft(input: {
       approvedAt: null,
       approvedExportId: null,
       staleReason: null,
+      workHistoryReviewAcknowledgments,
+      claimConfirmations: [],
       createdAt,
       updatedAt,
     }),
@@ -1343,7 +1448,7 @@ export function seedResumeDraft(input: {
           status: "draft",
           templateId: input.templateId,
           identity: buildResumeDraftIdentity(input.profile),
-          sections: seededSections,
+          sections: stampGeneratedSectionBulletHashes(seededSections),
           targetPageCount: 1,
           generationMethod:
             tailoredAsset.generationMethod === "ai_assisted"
@@ -1352,6 +1457,8 @@ export function seedResumeDraft(input: {
           approvedAt: null,
           approvedExportId: null,
           staleReason: null,
+          workHistoryReviewAcknowledgments: [],
+          claimConfirmations: [],
           createdAt: now,
           updatedAt: now,
         }),
@@ -1588,6 +1695,8 @@ export function seedResumeDraft(input: {
       approvedAt: null,
       approvedExportId: null,
       staleReason: null,
+      workHistoryReviewAcknowledgments: [],
+      claimConfirmations: [],
       createdAt: now,
       updatedAt: now,
     }),

@@ -15,9 +15,10 @@ import {
 const DEFAULT_PARSER_TIMEOUT_MS = 45_000;
 const MAX_SIDECAR_OUTPUT_BYTES = 512_000;
 const MAX_VISION_IMAGE_OUTPUT_BYTES = 64_000_000;
-const SIDECAR_BINARY_NAME = process.platform === "win32"
-  ? "resume_parser_sidecar.exe"
-  : "resume_parser_sidecar";
+const SIDECAR_BINARY_NAME =
+  process.platform === "win32"
+    ? "resume_parser_sidecar.exe"
+    : "resume_parser_sidecar";
 const SIDECAR_PLATFORM_DIR = `${process.platform}-${process.arch}`;
 
 type SidecarCommandCandidate = {
@@ -30,14 +31,17 @@ type SidecarCommandCandidate = {
 type SidecarBundleManifest = {
   signature?: string;
   bundledRequirements?: string[];
-  targets?: Record<string, {
-    ready?: boolean;
-    platform?: string;
-    arch?: string;
-    binaryPath?: string;
-    pythonRoot?: string;
-    pythonCommand?: string;
-  }>;
+  targets?: Record<
+    string,
+    {
+      ready?: boolean;
+      platform?: string;
+      arch?: string;
+      binaryPath?: string;
+      pythonRoot?: string;
+      pythonCommand?: string;
+    }
+  >;
 };
 
 function uniquePaths(values: readonly string[]): string[] {
@@ -49,9 +53,8 @@ function uniquePaths(values: readonly string[]): string[] {
       return false;
     }
 
-    const normalized = process.platform === "win32"
-      ? trimmed.toLowerCase()
-      : trimmed;
+    const normalized =
+      process.platform === "win32" ? trimmed.toLowerCase() : trimmed;
 
     if (seen.has(normalized)) {
       return false;
@@ -64,9 +67,8 @@ function uniquePaths(values: readonly string[]): string[] {
 
 function getGeneratedSidecarRootCandidates(): string[] {
   const currentDir = path.dirname(fileURLToPath(import.meta.url));
-  const resourcesPath = typeof process.resourcesPath === "string"
-    ? process.resourcesPath
-    : null;
+  const resourcesPath =
+    typeof process.resourcesPath === "string" ? process.resourcesPath : null;
 
   return uniquePaths(
     [
@@ -78,7 +80,10 @@ function getGeneratedSidecarRootCandidates(): string[] {
   );
 }
 
-function readBundledSidecarManifest(): { manifestPath: string; manifest: SidecarBundleManifest } | null {
+function readBundledSidecarManifest(): {
+  manifestPath: string;
+  manifest: SidecarBundleManifest;
+} | null {
   for (const root of getGeneratedSidecarRootCandidates()) {
     const manifestPath = path.join(root, "manifest.json");
 
@@ -89,7 +94,9 @@ function readBundledSidecarManifest(): { manifestPath: string; manifest: Sidecar
     try {
       return {
         manifestPath,
-        manifest: JSON.parse(readFileSync(manifestPath, "utf8")) as SidecarBundleManifest,
+        manifest: JSON.parse(
+          readFileSync(manifestPath, "utf8"),
+        ) as SidecarBundleManifest,
       };
     } catch {
       continue;
@@ -103,7 +110,9 @@ function logBundledSidecarAvailability() {
   const manifestEntry = readBundledSidecarManifest();
 
   if (!manifestEntry) {
-    console.warn("[ResumeImport] No bundled resume parser sidecar manifest was found. The app may rely on Python fallback paths.");
+    console.warn(
+      "[ResumeImport] No bundled resume parser sidecar manifest was found. The app may rely on Python fallback paths.",
+    );
     return;
   }
 
@@ -131,11 +140,12 @@ export function _resetSidecarAvailabilityLogged(): void {
 }
 
 function getBundledSidecarBinaryPath(): string | null {
-  const override = process.env.UNEMPLOYED_RESUME_PARSER_SIDECAR_BINARY_PATH?.trim();
+  const override =
+    process.env.UNEMPLOYED_RESUME_PARSER_SIDECAR_BINARY_PATH?.trim();
   const candidates = uniquePaths([
     override ?? "",
     ...getGeneratedSidecarRootCandidates().map((root) =>
-      path.join(root, "bin", SIDECAR_PLATFORM_DIR, SIDECAR_BINARY_NAME)
+      path.join(root, "bin", SIDECAR_PLATFORM_DIR, SIDECAR_BINARY_NAME),
     ),
   ]);
 
@@ -152,22 +162,25 @@ function getPythonPathEntriesForScript(scriptPath: string): string[] {
   const override = process.env.UNEMPLOYED_RESUME_PARSER_PYTHONPATH?.trim();
   const scriptDir = path.dirname(scriptPath);
 
-  return uniquePaths([
-    override ?? "",
-    path.join(scriptDir, "site-packages"),
-    path.join(scriptDir, ".python-packages"),
-  ].filter((candidate) => Boolean(candidate) && existsSync(candidate)));
+  return uniquePaths(
+    [
+      override ?? "",
+      path.join(scriptDir, "site-packages"),
+      path.join(scriptDir, ".python-packages"),
+    ].filter((candidate) => Boolean(candidate) && existsSync(candidate)),
+  );
 }
 
-function buildCandidateEnv(extraPythonPaths: readonly string[] = []): NodeJS.ProcessEnv | undefined {
+function buildCandidateEnv(
+  extraPythonPaths: readonly string[] = [],
+): NodeJS.ProcessEnv | undefined {
   if (extraPythonPaths.length === 0) {
     return undefined;
   }
 
-  const combinedPythonPath = uniquePaths([
-    ...extraPythonPaths,
-    process.env.PYTHONPATH ?? "",
-  ].filter(Boolean)).join(path.delimiter);
+  const combinedPythonPath = uniquePaths(
+    [...extraPythonPaths, process.env.PYTHONPATH ?? ""].filter(Boolean),
+  ).join(path.delimiter);
 
   return {
     ...process.env,
@@ -205,9 +218,13 @@ function buildPythonCommandCandidate(
 
 function getResumeParserSidecarScriptPath(): string {
   const currentDir = path.dirname(fileURLToPath(import.meta.url));
-  const builtCandidate = path.join(currentDir, "scripts", "resume_parser_sidecar.py");
+  const builtCandidate = path.join(
+    currentDir,
+    "scripts",
+    "resume_parser_sidecar.py",
+  );
   const generatedCandidates = getGeneratedSidecarRootCandidates().map((root) =>
-    path.join(root, "python", "resume_parser_sidecar.py")
+    path.join(root, "python", "resume_parser_sidecar.py"),
   );
   const repoCandidateA = path.join(
     process.cwd(),
@@ -217,7 +234,8 @@ function getResumeParserSidecarScriptPath(): string {
     process.cwd(),
     "../src/main/adapters/scripts/resume_parser_sidecar.py",
   );
-  const overrideCandidate = process.env.UNEMPLOYED_RESUME_PARSER_SIDECAR_PATH?.trim();
+  const overrideCandidate =
+    process.env.UNEMPLOYED_RESUME_PARSER_SIDECAR_PATH?.trim();
 
   const candidates = [
     overrideCandidate,
@@ -225,8 +243,7 @@ function getResumeParserSidecarScriptPath(): string {
     builtCandidate,
     repoCandidateA,
     repoCandidateB,
-  ]
-    .filter((value): value is string => Boolean(value));
+  ].filter((value): value is string => Boolean(value));
 
   for (const candidate of candidates) {
     if (existsSync(candidate)) {
@@ -242,19 +259,35 @@ function getResumeParserSidecarScriptPath(): string {
 function resolveBundledScriptPathFromManifest(): string | null {
   const manifestEntry = readBundledSidecarManifest();
   const currentTarget = manifestEntry?.manifest.targets?.[SIDECAR_PLATFORM_DIR];
-  const pythonRoot = typeof currentTarget?.pythonRoot === "string"
-    ? currentTarget.pythonRoot
-    : null;
+  const pythonRoot =
+    typeof currentTarget?.pythonRoot === "string"
+      ? currentTarget.pythonRoot
+      : null;
 
-  if (!pythonRoot) {
+  if (!manifestEntry || !pythonRoot) {
     return null;
   }
 
-  const candidate = path.join(pythonRoot, "resume_parser_sidecar.py");
+  const manifestRoot = path.dirname(manifestEntry.manifestPath);
+  const resolvedPythonRoot = path.isAbsolute(pythonRoot)
+    ? pythonRoot
+    : path.resolve(manifestRoot, pythonRoot);
+  const relativePythonRoot = path.relative(manifestRoot, resolvedPythonRoot);
+  if (
+    !path.isAbsolute(pythonRoot) &&
+    (relativePythonRoot === ".." ||
+      relativePythonRoot.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relativePythonRoot))
+  ) {
+    return null;
+  }
+  const candidate = path.join(resolvedPythonRoot, "resume_parser_sidecar.py");
   return existsSync(candidate) ? candidate : null;
 }
 
-function getSidecarCommandCandidates(scriptPath: string): SidecarCommandCandidate[] {
+function getSidecarCommandCandidates(
+  scriptPath: string,
+): SidecarCommandCandidate[] {
   const override = process.env.UNEMPLOYED_RESUME_PARSER_PYTHON?.trim();
   const bundledBinaryPath = getBundledSidecarBinaryPath();
   const candidates: SidecarCommandCandidate[] = [];
@@ -272,11 +305,16 @@ function getSidecarCommandCandidates(scriptPath: string): SidecarCommandCandidat
     return candidates;
   }
 
-  const commands = process.platform === "win32"
-    ? ["py", "python", "python3"]
-    : ["python3", "python", "py"];
+  const commands =
+    process.platform === "win32"
+      ? ["py", "python", "python3"]
+      : ["python3", "python", "py"];
 
-  candidates.push(...commands.map((command) => buildPythonCommandCandidate(command, scriptPath)));
+  candidates.push(
+    ...commands.map((command) =>
+      buildPythonCommandCandidate(command, scriptPath),
+    ),
+  );
   return candidates;
 }
 
@@ -368,11 +406,17 @@ function appendSidecarOutput(current: string, chunk: Buffer | string): string {
     : next;
 }
 
-export function appendBoundedSidecarOutputForTest(current: string, chunk: Buffer | string, maxBytes: number): string {
+export function appendBoundedSidecarOutputForTest(
+  current: string,
+  chunk: Buffer | string,
+  maxBytes: number,
+): string {
   const next = current + chunk.toString();
 
   if (next.length > maxBytes) {
-    throw new Error(`Python resume parser sidecar output exceeded ${maxBytes} bytes.`);
+    throw new Error(
+      `Python resume parser sidecar output exceeded ${maxBytes} bytes.`,
+    );
   }
 
   return next;
@@ -424,14 +468,22 @@ async function invokeSidecarCandidate<TResult>(input: {
     child.stdout.on("data", (chunk: Buffer | string) => {
       if (input.maxOutputBytes) {
         try {
-          stdout = appendBoundedSidecarOutputForTest(stdout, chunk, input.maxOutputBytes);
+          stdout = appendBoundedSidecarOutputForTest(
+            stdout,
+            chunk,
+            input.maxOutputBytes,
+          );
         } catch (error) {
           child.kill();
-          finish(() => reject(
-            error instanceof Error
-              ? error
-              : new Error("Python resume parser sidecar output exceeded the configured limit."),
-          ));
+          finish(() =>
+            reject(
+              error instanceof Error
+                ? error
+                : new Error(
+                    "Python resume parser sidecar output exceeded the configured limit.",
+                  ),
+            ),
+          );
         }
         return;
       }
@@ -463,13 +515,7 @@ async function invokeSidecarCandidate<TResult>(input: {
               ? error.message
               : "Python resume parser sidecar returned invalid output.";
 
-          reject(
-            new Error(
-              details
-                ? `${message} ${details}`
-                : message,
-            ),
-          );
+          reject(new Error(details ? `${message} ${details}` : message));
         }
       });
     });
@@ -486,19 +532,25 @@ export type ResumeVisionImageSidecarResponse = {
   errorMessage: string | null;
 };
 
-function parseVisionImageSidecarResponse(value: unknown): ResumeVisionImageSidecarResponse {
-  const record = value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : {};
+function parseVisionImageSidecarResponse(
+  value: unknown,
+): ResumeVisionImageSidecarResponse {
+  const record =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
   return {
     ok: record.ok === true,
     artifact: ResumeImportVisionArtifactSchema.parse(record.artifact),
     warnings: Array.isArray(record.warnings)
-      ? record.warnings.flatMap((entry) => typeof entry === "string" && entry.trim() ? [entry.trim()] : [])
+      ? record.warnings.flatMap((entry) =>
+          typeof entry === "string" && entry.trim() ? [entry.trim()] : [],
+        )
       : [],
-    errorMessage: typeof record.errorMessage === "string" && record.errorMessage.trim()
-      ? record.errorMessage.trim()
-      : null,
+    errorMessage:
+      typeof record.errorMessage === "string" && record.errorMessage.trim()
+        ? record.errorMessage.trim()
+        : null,
   };
 }
 
@@ -546,7 +598,13 @@ export async function runResumeParserSidecar(
   const candidates = scriptPath
     ? getSidecarCommandCandidates(scriptPath)
     : bundledBinaryPath
-      ? [{ command: bundledBinaryPath, args: [], label: path.basename(bundledBinaryPath) }]
+      ? [
+          {
+            command: bundledBinaryPath,
+            args: [],
+            label: path.basename(bundledBinaryPath),
+          },
+        ]
       : [];
   let lastError: unknown = null;
 
@@ -569,9 +627,10 @@ export async function runResumeParserSidecar(
     }
   }
 
-  const fallbackMessage = lastError instanceof Error
-    ? lastError.message
-    : "Python resume parser sidecar could not be started.";
+  const fallbackMessage =
+    lastError instanceof Error
+      ? lastError.message
+      : "Python resume parser sidecar could not be started.";
 
   return createSidecarFailureResponse({
     request,
@@ -637,7 +696,13 @@ export async function runResumeVisionImageSidecar(input: {
   const candidates = scriptPath
     ? getSidecarCommandCandidates(scriptPath)
     : bundledBinaryPath
-      ? [{ command: bundledBinaryPath, args: [], label: path.basename(bundledBinaryPath) }]
+      ? [
+          {
+            command: bundledBinaryPath,
+            args: [],
+            label: path.basename(bundledBinaryPath),
+          },
+        ]
       : [];
   const request = {
     operation: "render_vision_images",
@@ -672,9 +737,10 @@ export async function runResumeVisionImageSidecar(input: {
     }
   }
 
-  const fallbackMessage = lastError instanceof Error
-    ? lastError.message
-    : "Python resume parser sidecar could not render local resume page images.";
+  const fallbackMessage =
+    lastError instanceof Error
+      ? lastError.message
+      : "Python resume parser sidecar could not render local resume page images.";
 
   return createVisionImageFailureResponse({
     artifactId: input.artifactId,

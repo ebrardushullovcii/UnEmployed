@@ -1,4 +1,5 @@
 export * from "./base";
+export * from "./application-authority";
 export * from "./candidate-assets";
 export * from "./application-documents";
 export * from "./apply";
@@ -14,6 +15,7 @@ export * from "./agent-task";
 export * from "./visual";
 export * from "./source-debug";
 export * from "./discovery";
+export * from "./starter-job-sources";
 export * from "./diagnostic-export";
 export * from "./performance";
 export * from "./workspace";
@@ -24,3 +26,4 @@ export * from "./campaign-operations";
 export * from "./user-action";
 export * from "./interview-helper";
 export * from "./interview-chat";
+export * from "./startup-recovery";

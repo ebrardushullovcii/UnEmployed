@@ -1,187 +1,208 @@
-import type { ApplicationRecord } from '@unemployed/contracts'
-import { formatStatusLabel, getApplicationTone } from '../../lib/job-finder-utils'
-import type { BadgeTone } from '../../lib/job-finder-types'
+import type { ApplicationRecord } from "@unemployed/contracts";
+import {
+  formatStatusLabel,
+  getApplicationTone,
+} from "../../lib/job-finder-utils";
+import type { BadgeTone } from "../../lib/job-finder-types";
 
 function shouldPresentConsentState(record: ApplicationRecord): boolean {
   return (
-    record.status === 'drafting' ||
-    record.status === 'ready_for_review' ||
-    record.status === 'approved'
-  )
+    record.status === "drafting" ||
+    record.status === "ready_for_review" ||
+    record.status === "approved"
+  );
 }
 
-export function getApplicationLatestActivityLabel(record: ApplicationRecord): string {
-  if (record.lastAttemptState === 'unsupported') {
-    return 'Manual apply only'
+export function getApplicationLatestActivityLabel(
+  record: ApplicationRecord,
+): string {
+  if (record.lastAttemptState === "unsupported") {
+    return "Manual apply only";
   }
 
-  if (record.lastAttemptState === 'failed') {
-    return 'Attempt failed'
+  if (record.lastAttemptState === "failed") {
+    return "Attempt failed";
   }
 
-  if (record.lastAttemptState === 'submitted') {
-    return record.lastActionLabel || 'Submitted'
+  if (record.lastAttemptState === "submitted") {
+    return record.lastActionLabel || "Submitted";
   }
 
   if (
     shouldPresentConsentState(record) &&
-    record.lastAttemptState === 'paused'
+    record.lastAttemptState === "paused"
   ) {
-    return record.nextActionLabel ?? 'Needs follow-up'
+    return record.nextActionLabel ?? "Needs follow-up";
   }
 
   if (
     shouldPresentConsentState(record) &&
-    record.consentSummary.status === 'requested'
+    record.consentSummary.status === "requested"
   ) {
     return record.consentSummary.pendingCount > 1
       ? `${record.consentSummary.pendingCount} consent decisions waiting`
-      : 'Consent decision waiting'
+      : "Consent decision waiting";
   }
 
   if (
     shouldPresentConsentState(record) &&
-    record.consentSummary.status === 'approved'
+    record.consentSummary.status === "approved"
   ) {
-    return 'Consent approved'
+    return "Consent approved";
   }
 
   if (
     shouldPresentConsentState(record) &&
-    record.consentSummary.status === 'declined'
+    record.consentSummary.status === "declined"
   ) {
-    return 'Consent declined'
+    return "Consent declined";
   }
 
   if (!shouldPresentConsentState(record)) {
-    return record.lastActionLabel
+    return record.lastActionLabel;
   }
 
-  return record.lastActionLabel
+  return record.lastActionLabel;
 }
 
 export function getApplicationStagePresentation(record: ApplicationRecord): {
-  label: string
-  tone: BadgeTone
+  label: string;
+  tone: BadgeTone;
 } {
   if (
     shouldPresentConsentState(record) &&
-    record.lastAttemptState === 'unsupported'
+    record.lastAttemptState === "unsupported"
   ) {
-    return { label: 'Manual apply only', tone: 'critical' }
+    return { label: "Manual apply only", tone: "critical" };
   }
 
   if (
     shouldPresentConsentState(record) &&
-    record.lastAttemptState === 'failed'
+    record.lastAttemptState === "failed"
   ) {
-    return { label: 'Needs recovery', tone: 'critical' }
+    return { label: "Needs recovery", tone: "critical" };
   }
 
   if (
     shouldPresentConsentState(record) &&
-    record.consentSummary.status === 'requested'
+    record.consentSummary.status === "requested"
   ) {
-    return { label: 'Waiting on consent', tone: 'active' }
+    return { label: "Waiting on consent", tone: "active" };
   }
 
   if (
     shouldPresentConsentState(record) &&
-    record.lastAttemptState === 'paused' &&
-    record.consentSummary.status !== 'declined'
+    record.lastAttemptState === "paused" &&
+    record.consentSummary.status !== "declined"
   ) {
-    return { label: 'Needs action', tone: 'active' }
+    return { label: "Needs you", tone: "active" };
   }
 
   if (
     shouldPresentConsentState(record) &&
-    record.consentSummary.status === 'approved'
+    record.consentSummary.status === "approved"
   ) {
-    if (record.lastAttemptState === 'submitted') {
-      return { label: 'Submitted', tone: getApplicationTone('submitted') }
+    if (record.lastAttemptState === "submitted") {
+      return { label: "Submitted", tone: getApplicationTone("submitted") };
     }
 
-    return { label: 'Ready after consent', tone: 'active' }
+    return { label: "Ready after consent", tone: "active" };
   }
 
   if (
     shouldPresentConsentState(record) &&
-    record.consentSummary.status === 'declined'
+    record.consentSummary.status === "declined"
   ) {
-    return { label: 'Consent declined', tone: 'critical' }
+    return { label: "Consent declined", tone: "critical" };
   }
 
   return {
     label: formatStatusLabel(record.status),
-    tone: getApplicationTone(record.status)
-  }
+    tone: getApplicationTone(record.status),
+  };
 }
 
 export function getApplicationNextStepLabel(record: ApplicationRecord): string {
-  if (record.lastAttemptState === 'submitted') {
-    return record.nextActionLabel ?? 'No next step saved'
+  if (record.lastAttemptState === "submitted") {
+    return record.nextActionLabel ?? "No next step saved";
   }
 
   if (
     shouldPresentConsentState(record) &&
-    record.lastAttemptState === 'unsupported'
+    record.lastAttemptState === "unsupported"
   ) {
-    return record.nextActionLabel ?? 'Manual apply only'
+    return record.nextActionLabel ?? "Manual apply only";
   }
 
   if (
     shouldPresentConsentState(record) &&
-    record.lastAttemptState === 'failed'
+    record.lastAttemptState === "failed"
   ) {
-    return record.nextActionLabel ?? 'Needs recovery'
+    return record.nextActionLabel ?? "Needs recovery";
   }
 
   if (
     shouldPresentConsentState(record) &&
-    record.consentSummary.status === 'requested'
+    record.consentSummary.status === "requested"
   ) {
-    return 'Choose continue or skip in Consent requests below.'
+    return "Choose continue or skip in Consent requests below.";
   }
 
   if (
     shouldPresentConsentState(record) &&
-    record.consentSummary.status === 'approved'
+    record.consentSummary.status === "approved"
   ) {
-    return record.nextActionLabel ?? 'Review the prepared application before any later execution step.'
+    return (
+      record.nextActionLabel ??
+      "Review the prepared application before any later execution step."
+    );
   }
 
   if (
     shouldPresentConsentState(record) &&
-    record.consentSummary.status === 'declined'
+    record.consentSummary.status === "declined"
   ) {
-    return record.nextActionLabel ?? 'Restart the run if you want to try again later.'
+    return (
+      record.nextActionLabel ??
+      "Restart the run if you want to try again later."
+    );
   }
 
-  return record.nextActionLabel ?? 'No next step saved'
+  return record.nextActionLabel ?? "No next step saved";
 }
 
-export function getApplicationReadableNextStepLabel(label: string | null | undefined): string | null {
-  const trimmed = label?.trim()
+export function getApplicationReadableNextStepLabel(
+  label: string | null | undefined,
+): string | null {
+  const trimmed = label?.trim();
 
   if (!trimmed) {
-    return null
+    return null;
   }
 
-  if (/review the prepared application and submit manually when ready/i.test(trimmed)) {
-    return 'Submit the prepared application manually'
+  if (
+    /review the prepared application and submit manually when ready/i.test(
+      trimmed,
+    )
+  ) {
+    return "Submit the prepared application manually";
   }
 
-  if (/review the prepared application before any later execution step/i.test(trimmed)) {
-    return 'Submit the prepared application manually'
+  if (
+    /review the prepared application before any later execution step/i.test(
+      trimmed,
+    )
+  ) {
+    return "Submit the prepared application manually";
   }
 
   if (/review the pending submit approval in applications/i.test(trimmed)) {
-    return 'Review the pending safe preparation approval'
+    return "Review the pending safe preparation approval";
   }
 
   if (/review the queued run approval in applications/i.test(trimmed)) {
-    return 'Review the queued run approval'
+    return "Review the prepared run approval";
   }
 
-  return trimmed
+  return trimmed;
 }

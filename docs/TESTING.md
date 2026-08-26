@@ -5,6 +5,7 @@
 - broad repo check: `pnpm verify`
 - correctness suite: `pnpm test:correctness`
 - timing-sensitive release checks, always serial and without coverage: `pnpm test:performance`
+- source-bound release evidence manifests for both canonical suites: `pnpm test:evidence`
 - coverage report, separate from correctness and timing: `pnpm test:coverage`
 - fast preflight: `pnpm verify:quick`
 - affected-only check: `pnpm verify:affected`
@@ -21,6 +22,261 @@ for correctness or performance evidence. The repeated-source discovery check
 must satisfy both CPU and wall-clock budgets below 2,000 ms; the 10,000-entry
 ledger check retains its hard wall-clock budget below 2,000 ms.
 
+## Release Evidence Manifests
+
+- `pnpm test:evidence` runs the canonical `test:correctness` then
+  `test:performance` scripts exactly as declared in the root `package.json`,
+  adding only default/json/junit Vitest reporters with explicit output files,
+  and records one versioned evidence manifest for the run.
+- Raw evidence (exact executed argv, command line, repo-relative cwd, start and
+  completion timestamps, exit status, signal, spawn errors, stdout/stderr logs,
+  structured JSON/JUnit results, Vitest counts, explicit skip/todo lists,
+  JUnit summaries, JSON/JUnit consistency results, and per-file bytes plus
+  SHA-256) is written to the ignored
+  `test-artifacts/release/<runId>/evidence-manifest.json` next to those files.
+  A compact tracked mirror is written to
+  `docs/audits/evidence-manifests/<runId>.manifest.json` and independently
+  retains that same per-stage command, timing, outcome, count, skip, and hash
+  evidence so it can be verified without the raw run directory.
+- Each manifest binds the run to a SHA-256 source fingerprint computed
+  immediately before and after the stages using the same enumeration as the
+  release acceptance harness; before/after equality compares every scalar
+  field (recipe, digest, file/symlink/deletion counts), so a divergence in any
+  of them fails the run's outcome even when both stages pass. Fingerprint
+  digests are strict 64-character lowercase hex or `null`; when a digest is
+  unavailable the reason is stored in a separate `unavailableReason` field
+  instead of being mixed into the digest value.
+- Source enumeration is NUL-safe and kind-bound:
+  `git ls-files -z -co --exclude-standard` enumerates candidate paths and
+  `git ls-files -z -d` separately declares tracked worktree deletions, both
+  read-only — staging, restoring, or otherwise mutating user-owned work or the
+  index is never required, so an intentionally dirty tree (including many
+  unstaged deletions) fingerprints stably. Every enumerated path is
+  classified explicitly: ordinary files record path/mode/bytes/sha256; a
+  contained symlink that resolves back to an enumerated ordinary file records
+  its target, resolved path, and mode; and an ENOENT becomes an explicit
+  deleted record only when Git declares that deletion — otherwise it is a
+  named race failure. Directories, special entries, broken symlinks, escaping
+  symlinks, and symlinks whose target falls outside the enumerated
+  ordinary-file set abort collection with a named-path error instead of being
+  silently skipped, sentinel-hashed, or mis-splitting a quoted filename. The
+  digest folds one stable-JSON line per path under a named `recipe` id (there
+  is no magic digest sentinel), and each result reports `fileCount`,
+  `symlinkCount`, and `deletedCount`; the declared deletion set must
+  additionally stay a defensive subset of the enumerated paths. Since recipe
+  `nul-enumerated-stable-json-lines-v3`, ordinary-file and symlink records
+  bind permission bits (`mode`, 0o777): a chmod-only mutation changes the
+  digest while leaving every count identical, and restoring the exact bits
+  restores the exact prior digest. The versioned recipe id must be bumped
+  whenever record shape or classification semantics change, so evidence from
+  different recipes is never comparable by digest value alone.
+- Retention is truthful by construction: the run directory is reserved only
+  after the before-fingerprint succeeds, and an after-fingerprint failure is
+  wrapped so completed stage evidence is finalized into a failed manifest
+  whose `after` fingerprint carries `digest: null` plus `unavailableReason` —
+  never a misleading identical-digest "changed" reason — while the run exits
+  nonzero.
+- Mirror writes are contained: a mirror is written or rebuilt only after its
+  `runId` matches the exact release pattern and the destination resolves
+  inside `docs/audits/evidence-manifests/`. The canonical artifact-root and
+  evidence-path containment hardening in the acceptance wrapper is unchanged.
+- Both fingerprint implementations deliberately exclude the generated mirror
+  directory `docs/audits/evidence-manifests/` (exact anchor
+  `^docs/audits/evidence-manifests(?:/|$)` after `/`-normalization) in addition
+  to dependencies, build output, test artifacts, and `.git`. Mirrors are
+  durable release evidence once an authorized Git commit lands them, but they
+  are not product input: excluding them prevents the recursion where writing
+  `<runId>.manifest.json` would change the very source fingerprint it
+  evidences. Every other human-authored source or doc — including everything
+  else under `docs/audits/` — remains fully bound. Mirror integrity is
+  protected separately by its own self-hash (`mirrorManifestSha256`) and the
+  stored raw-manifest binding, never by the source fingerprint. Exclusion
+  parity between the collector and the acceptance inventory plus the
+  ignore-mirror/detect-adjacent-edit behavior are enforced by the collector
+  self-check (`node scripts/collect-release-evidence.mjs --self-check`) and by
+  `pnpm --filter @unemployed/desktop
+test:job-finder-production-acceptance:static`.
+- Digests use one canonical recipe: recursively sort object keys (array order
+  is preserved), serialize with `JSON.stringify` without extra whitespace,
+  encode UTF-8, and take lowercase SHA-256 hex. New manifests carry
+  `schemaVersion: 4`; older committed mirrors keep their original
+  point-in-time schema version and are never rewritten in place. Two
+  different subjects are hashed separately and never
+  share a digest value:
+  - `manifestSha256` on the raw manifest has subject
+    `raw_full_manifest_without_manifestSha256` (the full raw manifest minus its
+    own digest fields).
+  - `mirrorManifestSha256` on the tracked mirror has subject
+    `mirror_manifest_without_mirrorManifestSha256`: since schemaVersion 3 it
+    covers the full mirror minus only that one field, so both subject strings,
+    `rawManifestSha256`, outcome, failure reasons, stage commands, counts, and
+    artifact hashes all sit inside the self-hash scope. Rewriting the stored
+    raw-manifest pointer or its subject therefore invalidates the mirror
+    digest instead of silently rebinding durable evidence to other raw
+    output. The mirror also stores `rawManifestSha256` with the raw subject so
+    either artifact can be re-derived and checked independently.
+- The outcome fails closed: a stage whose parsed results report
+  `success=false`, any failed test, zero total tests, a missing or unparsable
+  required JSON/JUnit output, or totals/failures/errors/skips that diverge
+  between the JSON and JUnit reports fails the run even when every exit code
+  is zero. Schema or parser failures remain failures.
+- Stages are spawned shell-free through the pnpm JavaScript entry point
+  resolved from `npm_execpath`, a vendored `pnpm/bin/pnpm.cjs`, or a PATH
+  `pnpm` Node script, executed via the current Node executable; `.cmd` shims
+  are never spawned, and script strings containing shell metacharacters are
+  rejected before execution.
+- Stage exit codes are the only budget gate. Benchmark milliseconds appearing
+  in logs or reports are diagnostic context and never authoritative acceptance
+  values. Host basics are recorded without secrets.
+- A failing stage or changed source still retains truthful failed evidence and
+  exits nonzero; a passing manifest is never written for a failing run.
+- Artifact lifecycle: raw run directories are local-only QA output and may be
+  deleted at any time. The mirror records `gitTrackingStatus`
+  (`tracked`/`untracked`) as point-in-time state observed at generation; the
+  collector never commits anything, so the flag can go stale after the fact
+  and actual durability comes from Git history, not the recorded value.
+  Evidence becomes durable only once the mirror file is committed to Git; an
+  untracked mirror is still local-only state. Release closeouts must
+  therefore cite the manifest `runId` plus its digests from a committed
+  mirror, and new release claims require a fresh run whose fingerprint
+  matches the released source rather than reuse of an older manifest.
+- If a raw manifest exists but its mirror predates the current schema, regenerate
+  the mirror without rerunning tests:
+  `node scripts/collect-release-evidence.mjs --rebuild-mirror test-artifacts/release/<runId>/evidence-manifest.json`.
+  The rebuild validates the source-manifest schema it reads (kind, run id,
+  outcome, host/git facts, and fingerprint side shapes) and preserves the
+  recorded schema version, outcome, and failure reasons verbatim; legacy
+  manifests without the kind-bound fingerprint fields project with explicit
+  nulls instead of invented values. Before anything is rebuilt, the raw
+  subject digest is recomputed and, when the raw manifest stores a
+  `manifestSha256`, it must match exactly — a mismatch proves the raw bytes
+  were altered after collection and aborts the rebuild as tampered output.
+  Legacy raw manifests written before that digest field existed remain
+  explicitly supported: they rebuild with the freshly recomputed digest bound
+  in the mirror. Both digests are recomputed under the current recipe, and a
+  failed outcome is never upgraded to passed.
+
+## Acceptance Freeze And Durability Rules (2026-08-24)
+
+- Before the hard freeze begins, a simplification pass and live dogfooding of
+  the current-source Electron app complete outside the freeze; accepted
+  changes land before freezing starts.
+- Evidence hierarchy for the chain: live current-source Electron sessions are
+  the primary UX evidence. The `pnpm verify` and `pnpm test:evidence` reruns
+  under the freeze remain mandatory guardrails and integrity checks; passing
+  them never substitutes for live use. As of 2026-08-24 the sealed acceptance
+  tooling is static-green — its static contract validation passes — while its
+  runtime sealed run remains unexecuted for the current source; do not cite a
+  runtime or seal result that has not run.
+- Hard freeze: before the final `pnpm verify` and `pnpm test:evidence` runs,
+  stop every source, documentation, and dependency writer. Keep that freeze
+  through the accepted sealed run and persona preparation. Only explicitly
+  generated output may appear where a command writes it by design: desktop
+  test artifacts under `apps/desktop/test-artifacts/`, build output, and the
+  excluded evidence mirror
+  `docs/audits/evidence-manifests/`. Any other changed byte invalidates
+  everything downstream and forces regeneration from the earliest invalidated
+  step.
+- Never clean user-owned untracked files. Inventory and preserve them;
+  generated QA output is the only removable class, and only when an explicit
+  instruction calls for its removal.
+- Local evidence can execute without any commit: uncommitted local runs are
+  valid execution evidence for the chain. Durable Git release closeout
+  requires explicit user authorization of that exact repository action; agents
+  must neither ask for nor perform commits during the acceptance chain.
+
+## Native OS dialogs in automated replays (2026-08-25)
+
+- Browser/CDP automation cannot operate native OS Save As/Open dialogs: they
+  live outside the renderer, and CDP-synthesized input does not drive
+  Electron's native input pipeline (the same limitation that makes CDP key
+  events useless for native zoom). No timeout-based claim substitutes for
+  observing the dialog outcome.
+- Automated product replay may use the existing explicit desktop test API
+  (`UNEMPLOYED_ENABLE_TEST_API`) to bypass only the save chooser — tailored
+  PDF export then writes to its default destination without showing a dialog.
+  That proves export/approval wiring, never the human dialog decision.
+- The human Save/Cancel side must be observed separately in production mode
+  (test API absent) through genuine OS interaction with the frontmost
+  dialog. Never relabel an automated bypass run as covering the dialog leg.
+- Résumé import/replacement replays that cross a native open dialog are gated
+  on genuine OS keyboard/mouse selection of the exact file — navigate to or
+  type the exact path in the frontmost dialog and confirm; renderer events,
+  CDP keys, or fixture mutation never substitute for that selection.
+
+## Strict ATS wrapper policy (2026-08-23)
+
+- The Greenhouse, Ashby, and Workday acceptance wrappers
+  (`pnpm --filter @unemployed/desktop test:job-finder-complete-flow`,
+  `pnpm --filter @unemployed/desktop test:job-finder-ashby-flow`, and
+  `pnpm --filter @unemployed/desktop test:job-finder-workday-flow`) force
+  `JOB_FINDER_PREPARE_ONLY_AUTHORIZE_INTERMEDIATE_WRITES=0` by default, even
+  when an ambient authorized-write value is exported. Intermediate ATS writes
+  such as resume-upload autosave therefore stay blocked in every default run.
+- Strict runs may end in a truthful manual handoff when upload/autosave writes
+  are blocked: Greenhouse and Ashby still target the named final control
+  without submit, anonymous Workday targets its expected `site_login_required`
+  human handoff, and any unreachable step is reported as a truthful blocker
+  rather than papered over. `resumeUploadVerified` is not required evidence in
+  strict mode; a missing upload verification is the honest strict-mode outcome,
+  never grounds to relabel a run or to demand an authorized-write rerun.
+- `JOB_FINDER_COMPLETE_FLOW_AUTHORIZED_WRITE_DIAGNOSTIC=1` is diagnostic-only.
+  It authorizes intermediate writes, suffixes the run label with
+  `-diagnostic-only` (never double-suffixing an already diagnostic label), and
+  deletes all four acceptance-binding variables (`RUN_DIR`, `MANIFEST`,
+  `MANIFEST_SHA256`, and `EXPECTED_SEAL_SHA256`), so the report stays unbound
+  (`acceptanceMode: unbound_diagnostic`, `releaseEvidence: false`).
+  Authorized-write diagnostics are categorically not release evidence and must
+  never be cited in release claims or closeouts.
+- Bound release evidence requires all of: the exact source/build manifest with
+  fingerprints verified unchanged before and after the run
+  (`acceptanceMode: bound_to_exact_build_manifest`), strict intermediate-write
+  mode, `submittedNeverOccurred: true`, final-submit and account-creation
+  authority false, isolation cleanup of the temporary user-data directory, and
+  an accepted per-ATS outcome (Greenhouse/Ashby final checkpoint without submit
+  or a classified strict intermediate-write blocker; anonymous Workday
+  `site_login_required`). Cite the command plus the manifest `runId` and
+  `manifestSha256`; never pin a volatile artifact path as the evidence anchor.
+- Automated evidence must never include credentials, CAPTCHA solving, MFA,
+  legal consent, account creation, or final submission; these remain per-job,
+  user-owned actions.
+- Wrapper strictness itself is enforced by
+  `apps/desktop/scripts/ats-flow-wrappers-policy.test.ts`.
+
+### Post-seal bound runs (2026-08-24)
+
+- After the sealed production acceptance run exists, run the strict ATS
+  wrappers only in bound mode and only through the `:built` variants. The
+  non-suffixed wrappers start with a rebuild, which would violate the freeze
+  and invalidate the sealed build identity. Export the four acceptance
+  variables, then invoke the wrappers:
+  ```sh
+  export JOB_FINDER_ACCEPTANCE_RUN_DIR="<sealed production-acceptance run directory>"
+  export JOB_FINDER_ACCEPTANCE_MANIFEST="$JOB_FINDER_ACCEPTANCE_RUN_DIR/build-manifest.json"
+  export JOB_FINDER_ACCEPTANCE_MANIFEST_SHA256="<manifest SHA-256 recorded by the sealed run>"
+  export JOB_FINDER_ACCEPTANCE_EXPECTED_SEAL_SHA256="<externally custodied acceptance seal SHA-256>"
+  pnpm --filter @unemployed/desktop test:job-finder-complete-flow:built
+  pnpm --filter @unemployed/desktop test:job-finder-ashby-flow:built
+  pnpm --filter @unemployed/desktop test:job-finder-workday-flow:built
+  ```
+- Bound mode verifies the whole sealed bootstrap before anything launches —
+  manifest digest and live-worktree source inventory equality, final report
+  custody, accepted-app inventory and Electron identity, and the expected seal
+  digest against the externally custodied value — and then launches the sealed
+  accepted app instead of worktree output. Missing or mismatched binding fails
+  closed as `failed_acceptance_binding`.
+- Expected strict outcomes stay distinct: Greenhouse and Ashby may end at
+  `passed_final_checkpoint_without_submit` or at the truthful classified
+  intermediate-write guard `passed_safe_blocker_without_submit`; the latter is
+  never relabeled as reaching the final checkpoint. Anonymous Workday must end
+  at the `site_login_required` human handoff
+  (`passed_expected_human_handoff_without_submit`). Any other outcome fails the
+  run.
+- These wrappers select current public vacancies over the network, so they are
+  supporting external-network evidence about the sealed app. They complement,
+  and never deterministically replace, the internal immutable-snapshot
+  acceptance run.
+
 ## Job Finder exact-build production acceptance (2026-08-20)
 
 - Run `pnpm --filter @unemployed/desktop ui:job-finder-production-acceptance`
@@ -34,17 +290,89 @@ ledger check retains its hard wall-clock budget below 2,000 ms.
   unreachable navigation, unsafe application/account action, cleanup failure,
   or a report from a different build.
 - Required visual/runtime coverage includes the minimum supported width, 1440 px
-  desktop, native 200% zoom, long labels, truthful zero and populated states,
-  errors and recovery, real wheel and keyboard scroll chaining, and at least
-  1,001 persisted jobs after hydration. Cold usable-shell and warm route-switch
-  measurements are hard-gated and tied to renderer timing marks. On Windows,
+  desktop, practical native Electron 125% zoom at a normal desktop window, long
+  labels, truthful zero and populated states, errors and recovery, real wheel
+  and keyboard scroll chaining, and at least 1,001 persisted jobs after
+  hydration. Cold usable-shell and warm route-switch measurements are
+  hard-gated and tied to renderer timing marks. On Windows,
   the canonical cold measurement runs from the actual Electron main-process
   start to the committed interactive opening shell; the report also retains
   Playwright's outer shell/inspector launch duration as a diagnostic so the
   test runner's `cmd.exe` transport is not mistaken for product startup work.
+- Native Electron 200% zoom was removed from current acceptance by user
+  decision on 2026-08-24: at 200% the shell collapses into a mobile-like layout
+  with low diagnostic value for a desktop product. Practical native Electron
+  125% zoom is the current low-vision acceptance point; the minimum supported
+  window stays 1024x720 with normal desktop checks. Historical runs that
+  covered 200% remain truthful historical evidence only. The sealed wrapper's
+  runtime matrix now enforces this bar across every executed component: fresh,
+  scale, and error/recovery all run their zoomed scenarios at native
+  `webContents` zoom factor 1.25 (CSS ~1152x736 at the 1440x920 window,
+  keeping the desktop-like layout), compact desktop coverage stays at normal
+  100% zoom at the minimum supported size, and the accepted-app
+  production-tester probe requests 1280x720 at native zoom factor 1.25. No
+  current acceptance component requests zoom factor 2 or carries a `zoom200`
+  scenario ID; only deliberate validator rejection fixtures reference the
+  removed 2.0 bindings to prove they fail closed.
+- Launch zoom is deterministic regardless of user-data-root history. Chromium
+  persists per-origin zoom levels inside the Electron user-data root and
+  restores them at navigation-commit time — after app binding runs — so a
+  reused root (repeated tester launches, persona workspaces, a previous
+  zoomed wave) would otherwise let a previous session's factor decide the
+  next launch. The desktop shell therefore owns exactly one zoom factor per
+  main window (`apps/desktop/src/main/setup/window-zoom.ts`): an explicit
+  tester request (`UNEMPLOYED_STARTUP_ZOOM_FACTOR` under
+  `UNEMPLOYED_TESTER_SESSION_GEOMETRY=1`) is adopted as that owned factor,
+  asserted natively on first paint, and re-asserted after every completed
+  main-frame load, so requested native 1.0/1.25 beats restored host zoom on
+  fresh loads, reloads, and bounded recovery reloads alike. Without an
+  explicit request every fresh main window deterministically starts at native
+  100% (the documented product default); user zoom remains session-owned with
+  Ctrl/Cmd+0 reset and survives in-session reloads, but no stale host zoom
+  from disk can ever decide launch zoom. This was proven with a minimal
+  isolated Electron probe (2026-08-26, Electron 35.7.5): pre-load
+  normalization alone lost to persisted host zoom (1.25 observed), while
+  post-load reassertion won (1.0 observed) and left no divergent residue.
+- Sealed viewport evidence is internally consistent at every zoom factor: the
+  static contract binds observed CSS geometry to requested physical /
+  expected native zoom within ±1 CSS px (Chromium measures CSS as whole
+  pixels), while physical size and native zoom stay exact. Evidence that is
+  physically exact but carries stale CSS measured at another zoom — for
+  example CSS 1440x920 recorded at native 1.25 where the rendered content area
+  is actually 1152x736 — fails closed instead of passing.
+- The wrapper also fails closed when ANY capture entry from fresh, scale, or
+  error/recovery records a `nativeZoomFactor` outside exactly {1, 1.25}: the
+  shared post-load sweep rejects extra rows (a reintroduced 2.0 row cannot
+  ride beside healthy required rows), non-finite values, and missing viewport
+  metadata, naming the component, scenario, and observed value.
+- The stale-200% source tripwire covers all four current producer surfaces
+  (fresh, scale, error/recovery captures, and the acceptance wrapper): literal
+  `zoom200`/`zoom-200`/`zoom200pct` ID tokens are matched verbatim, numeric
+  bindings are matched whitespace-tolerantly (`zoomFactor:2`,
+  `zoomFactor : 2.0`, `setZoomFactor( 2 )` all fail), while historical docs
+  and non-sealed harnesses stay outside the tripwire.
 - Inspect the newly generated PNGs manually after the JSON gate passes. Prior
   screenshots are historical evidence only and must never be used to accept a
   later source fingerprint.
+- The wrapper builds and runs from an immutable source snapshot, reports any
+  checkout divergence separately, copies the accepted Electron app into the run
+  directory, removes the build snapshot, and then re-verifies the accepted app.
+  A passing run writes read-only `acceptance-report.json` and
+  `acceptance-seal.json`; externally custody the printed expected seal SHA-256.
+  The seal binds the source and artifact inventories, accepted app and Electron
+  identity, runtime probe, final report, and evidence inventory. A report without
+  this separately held digest is not sufficient custody for a later persona wave.
+- Before the snapshot is prepared or the exact build starts, the wrapper
+  preflights its artifact root (`JOB_FINDER_ACCEPTANCE_ARTIFACT_ROOT` or the
+  default `apps/desktop/test-artifacts/ui`) and fails closed when that root is
+  not canonical (a symlinked parent, a `/var`-style alias, or another spelling
+  of its own realpath), naming the variable to fix; an aliased override must
+  fail immediately rather than after hours of build/capture, while downstream
+  canonical assertions stay in force unchanged.
+- The final evidence inventory containment-checks every capture screenshot
+  full path and additional evidence file against the run directory before any
+  stat or hash, so an escaped candidate can never enter the sealed inventory;
+  downstream hardening re-checks remain in force.
 - The static contract check is
   `pnpm --filter @unemployed/desktop test:job-finder-production-acceptance:static`.
   It does not build, launch Electron, or replace the runtime acceptance command.
@@ -52,9 +380,33 @@ ledger check retains its hard wall-clock budget below 2,000 ms.
 ## Historical Job Finder release gate (2026-08-19)
 
 - The integrated repository-wide `pnpm verify` run passed, including guidance/docs/source-generic/structure checks, lint, typecheck, fit calibration, the broad test suite, and the separately scheduled discovery-ledger performance test.
-- The final production scale replay is `apps/desktop/.tmp/production-scale-probe-2026-08-19T05-34-15-991Z/report.json`. It retains 516 jobs, 226 shortlisted jobs, 226 applications, and 511 sources; bounds Find Jobs, Shortlisted, Applications, and Profile source pagination; keeps runtime errors at zero; keeps the More menu inside the viewport; and cleans the isolated profile. The accepted run reached a usable cold shell in 1,780.86 ms and a worst route switch of 307.42 ms.
+- The historical production scale replay recorded 516 jobs, 226 shortlisted jobs, 226 applications, and 511 sources, with a 1,780.86 ms usable cold shell and a 307.42 ms worst route switch. Its former local path was `apps/desktop/.tmp/production-scale-probe-2026-08-19T05-34-15-991Z/report.json`, but that ignored artifact is no longer present in this workspace and cannot be independently inspected or used as current release evidence.
 - Fresh Job Finder source-app screenshots are under `apps/desktop/test-artifacts/ui/release-hardening-2026-08-19/`; the final scale artifact adds the populated 511-source More-menu state. A requested final automated capture replay could not start because the Codex execution allowance was exhausted before Electron launch. Do not represent that unavailable replay as passing evidence.
 - Windows unpacked packaging has been assembled and inspected with `UnEmployed.exe`, `resources/app.asar`, the tracked `.ico`, and `resources/resume-parser-sidecar/{manifest.json,bin/win32-x64/resume_parser_sidecar.exe}` present. The inspected bundle was 585,084,836 bytes and unsigned. Regenerate it after the final CSP cleanup before release, then repeat the isolated packaged-app smoke; signing and publication are separate authorized operations.
+
+## Current durable-capacity and company-identity closeout (2026-08-23)
+
+- Focused coverage must prove paired absent/null/non-null preparation-start
+  semantics, migration 13 with no fabricated legacy JSON backfill, an immutable
+  mark before browser/session execution, exact usage versus `legacyUncertain`,
+  20-per-local-day reset projection, 10-per-run enforcement, process-local
+  reservation races, and guard revalidation before consent continuation.
+- Company coverage must prove canonical or `user_approved_merge` exact-name
+  ownership, unknown legacy aliases, non-owning domain corroboration/conflict,
+  no destructive SavedJob domain migration, stale company-route fail-closed
+  behavior, and transaction-current all-or-nothing evidence validation across
+  company/job/ApplicationRecord with monotonic timestamps. UI coverage must
+  prove exact salary/job and offer/record selection plus retained drafts after
+  failed saves.
+- Application-document coverage must reject stale or crossed exact
+  question/result/ApplicationRecord lineage. CRM UI coverage must keep timeline
+  language preparation-only and prove modal background isolation, focus trap,
+  Escape/backdrop cancellation, and opener focus restoration.
+- A broad non-Electron gate passed before the final source changes. It must be
+  rerun after those changes settle; that earlier pass is not acceptance for the
+  final source. The immutable-snapshot Electron run, live/provider and
+  authenticated-ATS checks, accessibility/user deployment review, and all 14
+  persona sessions remain pending. Do not claim any of them complete.
 
 ## Pick Checks
 
@@ -116,8 +468,9 @@ Common package aliases:
 
 - The final production build was exercised at 1440x920 against an isolated synthetic workspace. The pointer-owned scroll probe records the outer header at `0 -> 177`, center results at `0 -> 600`, right details at `0 -> 600`, a successful left-pane advance, and upward boundary handoff back to outer `0`. Evidence: `apps/desktop/test-artifacts/ui/normal-screen-final-20260813/nested-scroll-report.json` and `nested-scroll-owners.png`.
 - Profile Copilot production geometry must keep both its wrapper and panel at left `16`, right `1424`, and width `1408` in a 1440 px window, then restore to the ordinary 480 px width. Evidence: `apps/desktop/test-artifacts/ui/normal-screen-final-20260813/copilot-maximized.png`.
+- Profile Copilot command coverage is union-exhaustive rather than example-specific. The AI-provider harness must cover every `ProfileCopilotPatchOperation` discriminant, runtime-owned review metadata, grouped operations, invalid-operation repair, every deterministic replacement-field descriptor, safe multi-field parsing, explicit clears, and specialist ownership. The Job Finder service harness must send each operation through proposal, explicit Apply, repository reload, and revision-backed Undo; adding a new operation or descriptor without a matching case must fail typecheck or the coverage test.
 - Final production journey evidence covers Profile setup/import/Copilot, Resume Studio editing/export/approval, apply queue consent/cancel/recovery, and Interview Helper setup/chat/popups/review/export. Run folders: `profile-setup-20260813-final-closeout`, `resume-workspace-20260813-final-closeout`, `apply-queue-controls-20260813-final-closeout`, `applications-queue-recovery-20260813-final-closeout`, and `interview-helper-basic-20260813-final-closeout` under `apps/desktop/test-artifacts/ui/`. Every harness uses isolated synthetic state and leaves final submission untouched.
-- Apply cancellation/restart coverage must prove active browser work observes abort, late results cannot overwrite cancelled state, application page preparation closes prior app-owned tabs, graceful shutdown waits for the active promise, and a hard-restart snapshot converts an orphaned `running` run to `failed` with `completedAt` and explicit no-submit wording.
+- Apply cancellation/restart coverage must prove active browser work observes abort, late results cannot overwrite cancelled state, application page preparation closes prior app-owned tabs, graceful shutdown waits for the active promise, and a hard-restart snapshot converts an orphaned `running` run to `failed` with `completedAt` and explicit no-submit wording, settles every planned result of that run to terminal failed with truthful preparation-stopped-before-review and no-final-submit copy, keeps genuinely begun results' start marks and day-capacity counting while never-begun or legacy rows normalize absent marks to explicit null without becoming legacy-uncertain capacity, leaves `awaiting_review` and already-terminal results untouched, and stays idempotent across repeated recovery.
 - Final integrated production harnesses: `capture-apply-queue-controls.mjs`, `capture-applications-queue-recovery.mjs`, `capture-resume-workspace.mjs`, and `capture-interview-helper-basic.mjs`. Their accepted 2026-08-13 evidence directories use the `*-final-integrated` labels under `apps/desktop/test-artifacts/ui/`.
 
 ### Large Job source libraries (2026-08-11)
@@ -128,7 +481,16 @@ Common package aliases:
 
 ### Production Electron journeys
 
-- Greenhouse original CV: run `node apps/desktop/scripts/test-job-finder-complete-flow.mjs` against the built app in an isolated workspace. Accepted report: `apps/desktop/test-artifacts/job-finder/complete-flow-current-greenhouse/prepare-only-smoke-report.json`. It must prove current public listing selection, real import boundary, unchanged original asset and digest, verified upload/answers, named final control, `finalControl: reached_without_submit`, `submitAuthorized: false`, `submittedNeverOccurred: true`, and workspace cleanup.
+- Greenhouse original CV: post-seal release evidence uses the four-variable
+  bound environment and
+  `pnpm --filter @unemployed/desktop test:job-finder-complete-flow:built`.
+  It launches the sealed accepted app in an isolated workspace. The report
+  must prove current public listing selection, the real import boundary, the
+  unchanged original asset and digest, and either the named final control or
+  a distinctly classified strict intermediate-write blocker. Strict mode does
+  not require upload verification when the site would autosave. In every case,
+  `submitAuthorized` stays false, `submittedNeverOccurred` stays true, and
+  workspace cleanup must pass.
 - Ashby tailored CV: run the same harness with `JOB_FINDER_PREPARE_ONLY_RESUME_MODE=tailored_per_job` and the Ashby flow inputs. Accepted report: `apps/desktop/test-artifacts/job-finder/complete-flow-current-ashby-tailored-final-20260809/prepare-only-smoke-report.json`. It must prove generated draft quality/coverage, exact export and approval, verified upload, named final control, and no submit/account authority or occurrence.
 - Workday anonymous: accepted report `apps/desktop/test-artifacts/job-finder/complete-flow-current-workday-final-20260809/prepare-only-smoke-report.json`. The expected result is `site_login_required` plus a resumable manual sign-in instruction—not a failure, inferred login, credential action, or final-control attempt.
 - Fresh first-run journey: `apps/desktop/test-artifacts/ui/production-user-audit-20260809-final2/` covers import, setup Copilot, direct field review, readiness, completed Profile hierarchy, one-row 1440 px navigation, and the Profile → Find jobs continuation.
@@ -137,6 +499,54 @@ Common package aliases:
 - Original-CV journey: `apps/desktop/test-artifacts/ui/original-cv-flow/` must show the exact imported asset, a per-job native radio choice, a sensitive-detail warning, and an enabled Prepare application action without tailoring.
 - Action Inbox: `apps/desktop/test-artifacts/ui/action-inbox/capture-report.json` covers 1440 px, 900 px, and native 200% zoom. All contextual controls and shell destinations must be visible with zero horizontal overflow; credentials stay browser-only and both authorization flags stay false.
 - Limited Interview Helper regression: `node apps/desktop/scripts/capture-interview-helper-basic.mjs` against the built app. `apps/desktop/test-artifacts/ui/interview-helper-basic/report.json` must prove two visible popup windows, typed send, temporary image attachment, copy, hide/reopen, resize, exact bounds restoration, renderer-reload persistence, configured local STT readiness, and no retained raw image bytes. This harness does not replace a live microphone/system-audio hardware pass.
+
+### Blind persona usability rounds
+
+- Run blind persona testing only after the current fix wave is integrated, the source is stable, and one passing immutable-snapshot production acceptance run owns the accepted app and evidence. Do not use a stale build or let persona sessions rebuild it independently. The final full acceptance run and its externally held seal are pending for the current candidate.
+- Execution-day order is fixed: one passing sealed acceptance run owns the accepted app; the expected seal SHA-256 is custodied outside the repository; one single sequential prepare invocation (`--persona all`) seeds every workspace into a fresh empty destination root plus a fresh custody root; read-only `--verify-all` re-checks the sealed wave; only then may tester launches begin.
+- The canonical version-1 corpus contains 14 fixed personas, `P01` through `P14`, in `apps/desktop/test-fixtures/job-finder/blind-personas/manifest.json`, with referenced resume and job-corpus assets. It covers first-job, junior and experienced technical, career-change/logistics, laid-off management, returning-parent/time-limited, older low-confidence, non-native-English, privacy-cautious, employment-gap, keyboard/low-vision, high-volume returning, marketing-management, and service-management contexts. The final canonical manifest digest is `a8cb5836e830272eea96894a80d2ed4e795d31e0a1d97dea7f05ecd092fd7b7d`; P01–P12 start from fresh empty workspaces and P13–P14 return to persisted workspaces, and an independent tri-model clean-room review returned GO on this framing. The fixtures and seed pipeline are prepared; no workspace is prepared and no persona session has launched or completed.
+- Persona testers receive only: their situation, the visible product promise, a realistic job-search goal, and the authority boundary that credentials, CAPTCHA/MFA, consent, account creation, and final submit remain theirs. They must not read repository source, tests, product docs, route maps, audit findings, or implementation vocabulary before the session.
+- Prepare all sealed workspaces from the accepted run with `node apps/desktop/scripts/prepare-blind-persona-workspaces-cli.mjs --acceptance-run-dir <production-acceptance-run> --expected-seal-sha256 <externally-held-sha256> --destination-root <empty-parent> --custody-root <separate-directory> --persona all`. The command independently verifies the sealed acceptance report, build manifest, source/artifact/evidence inventories, accepted app, runtime probe, and Electron identity; performs exactly one test-only reset per persona; proves normal production restart durability; seals every workspace; and writes a custody index outside all persona roots. Each preparation invocation needs a fresh empty destination root and a fresh custody root: the custody index is written exclusively, so rerunning into a used custody root fails with `EEXIST` instead of overwriting — use a new empty custody directory per preparation. Partial waves remain explicitly incomplete (`waveComplete: false`) and cannot launch testers.
+- Custody is tamper-evident for the seeded state and tolerant of runtime churn: each seed manifest seals a payload inventory (path, byte count, and SHA-256 for every file in the persona root), the external custody index binds that manifest digest plus the sealed-only workspace digest, and verification runs in two modes. Before any tester launch, mode is `strict`: every sealed entry must remain byte-for-byte identical and any post-seal mutation fails as contamination; files Electron creates at runtime are listed as unhashed volatile entries rather than failures. Once an archived launch record exists for a persona, later verification of that root runs in `consumed` mode: sealed entries must still exist as regular files (deletion or replacement stays fail-closed) while byte drift from legitimate use is expected user-owned state evolution, so interrupted sessions and retests relaunch through `--attempt` against the same wave without reseeding. The launcher re-verifies custody, workspace inventory in the correct mode, accepted-build binding, app identity, and test-API absence before every launch, and refuses an attempt claim with no archived evidence.
+- Re-check an already-sealed wave read-only with `node apps/desktop/scripts/prepare-blind-persona-workspaces-cli.mjs --verify-all --custody-index <blind-persona-wave-custody-index.json>`: it verifies the index self-digest, then runs the exact per-persona verification path (seed-manifest digest, payload-inventory byte equality, external custody binding), prints one ok/FAIL line per persona plus a JSON summary, and exits nonzero when any entry fails. Nothing is launched and no state is mutated; sealed-build re-verification is intentionally outside this pass, an empty index refuses, and an incomplete wave reports `waveComplete: false` while launches stay refused.
+- Launch one tester only through `node apps/desktop/scripts/launch-blind-persona-tester-cli.mjs --custody-index <blind-persona-wave-custody-index.json> --persona <P01..P14>`. The launcher rejects incomplete custody, changed app/workspace/manifest identity, test API exposure, and cross-persona data. `--attempt <n>` (integer >= 1, default 1) suffixes the launch record for relaunches and retests: attempt 1 keeps `P##-blind-persona-tester-launch-record.json`, higher attempts write `P##-...-launch-record-attempt-<n>.json`, so retries never hit `EEXIST` and every prior attempt stays archived evidence. `--driver-cdp` is the opt-in parent-only automation channel: the sealed app gets `--remote-debugging-address=127.0.0.1` plus ephemeral `--remote-debugging-port=0` resolved from the workspace `DevToolsActivePort` file (one verified fixed-high-random-port fallback exists, otherwise the launch fails closed), the resolved URL/port and flag provenance are recorded in the launch record, and the zero-network arguments (`--host-resolver-rules=MAP * 0.0.0.0,EXCLUDE localhost`, `--proxy-server=127.0.0.1:9`) stay intact. Tester shells use a minimal allowlisted environment; `UNEMPLOYED_ENABLE_TEST_API` must be absent there (the launcher fails closed if the test preload/API appears), browser agent, live AI, intermediate writes, and network are blocked, and the recorded environment lands in the launch record. The launcher process owns the app lifecycle: stop a session by sending SIGTERM to the launcher process and let it close its owned process tree; never kill the Electron app directly. Drive the accepted app through the visible UI with `agent-browser` or equivalent Electron UI automation; do not call internal IPC or mutate fixture state after launch to bypass a confusing step.
+- Prompts state outcomes rather than procedures, for example: "Set up this app to find suitable local or remote work, save a promising job, prepare a truthful resume for it, and get the application ready for me to review. Do not submit it." Never tell a tester which route, tab, button, or internal feature to use.
+- The viewport/zoom/input matrix comes from the canonical manifest and is applied by the external driver layer, never through tester instructions: `P11` runs keyboard-only, `P12` runs native `webContents` zoom factor 1.25 at a normal desktop window (not CSS zoom or a device-scale flag), and `P06` carries a 25-minute session with one interruption during active work — the supervisor SIGTERMs the launcher process and relaunches the same persona root as attempt 2. Tester isolation rules are unchanged: life context and outcome goal only. Because Chromium persists per-origin zoom inside each persona root, relaunches (including P06 attempt 2 and any zoomed session on a reused root) rely on the desktop shell's post-load zoom reassertion: requested native 1.0/1.25 wins after load, and launches without an explicit request deterministically start at native 100% instead of inheriting a previous session's host zoom.
+- Each tester records: completion or blocker; path taken; time and interaction count by journey stage; first point of confusion; misunderstood terms; backtracking; inaccessible or hidden controls; trust concern; expected next action; screenshots at every blocker; and a concise first-person verdict. Capture renderer errors and horizontal overflow separately from user feedback.
+- The north-star scenario is one uninterrupted `Profile -> Find jobs -> Shortlisted -> resume review/approval -> Prepare application -> user-owned final checkpoint -> Tracker` journey. Also cover returning-user discovery, follow-up, interrupted-work recovery, original-CV choice, and a no-results or blocked-source recovery.
+- Synthesis is independent from the persona testers. Deduplicate findings by root cause, rank P0 core-flow blockers before P1 repeated confusion and P2 polish, and reject suggestions that weaken evidence grounding, recovery truth, source-generic behavior, or user authority.
+- Fix only accepted root causes. An accepted fix rebuilds once, restarts the
+  broad evidence gate and the sealed acceptance run, and begins a completely
+  fresh wave with new blind testers who have not seen the earlier findings. Do
+  not train the same persona through the expected route and call the learned
+  rerun usability evidence; the same tester is never reused.
+- Continue rounds until all of the following hold on a single fresh wave: all
+  14 canonical personas reach their safe expected outcome without hints or
+  facilitator instructions; P0 findings equal zero; unresolved P1 findings
+  involving safety, truthfulness, privacy, durability, or accessibility equal
+  zero even when a single persona hits one; repeated P1 root causes seen by two
+  or more personas equal zero; every P2 finding is documented and triaged; and
+  keyboard/native-125% personas complete the same journey. Record rejected
+  feedback and rationale so later rounds do not repeatedly reopen settled safety decisions.
+- Blind synthetic personas cannot establish live-source relevance, the quality of the user's private resume, configured provider/network availability, authenticated ATS behavior, or personal accessibility. The user-controlled deployment review remains a separate final gate.
+- This wave is the quality-over-speed product bar: it measures whether real people understand the local/model/site boundaries without coaching, whether saves and approvals survive normal use and interruption, and whether the app meets paid-product finish. It supplements, never replaces, the external deployment gates; unchecked items in `docs/audits/JOB_FINDER_PRODUCT_DECISIONS_AND_AUDIT_CHECKLIST.md` stay unchecked until their own evidence lands.
+
+### Blind-persona evidence collection harness (2026-08-24)
+
+- After all 14 tester sessions, collect evidence with `node apps/desktop/scripts/blind-persona-evidence-harness-cli.mjs`: `init --custody-index <index> --evidence-root <empty-dir>` scaffolds one directory per persona with an empty record prefilled `personaId`/`waveCustodyPath`; testers fill their record and the supervisor runs `record --file <record>` to validate and atomically rewrite it (exclusive temp file, rename, mode 0644; failed validation never touches original bytes); `aggregate --custody-index <index> --evidence-root <dir> [--out <file>]` emits the synthesis input.
+- Complete canonical wave only: `init` and `aggregate` fail closed when custody `waveComplete` is not `true`, and both refuse any persona set that is not exactly `P01` through `P14` once each. Incompleteness is reported before canonical-set diagnostics so real partial waves read clearly. `init` requires a fresh non-existing evidence root and rolls back created directories if scaffolding fails midway.
+- Wave binding: aggregation is authoritative. Each record's `waveCustodyPath` must resolve (canonical realpath) to the verified custody index, so wave-A evidence cannot be aggregated under wave B. The `record` command validates shape only.
+- Output containment: the synthesis input is written as a direct child of the evidence root (default `blind-persona-evidence-synthesis-input.json` there); a provided `--out` must also be that direct child and may never target custody data, persona subpaths, an evidence record, or an existing symlink. Missing/invalid records write no synthesis and remove a stale default synthesis so old output cannot masquerade as current.
+- Record schema highlights: verdicts are `complete|blocked|partial`; severity levels are `P0|P1|P2` with free-form supplementary `evidenceRefs` (not filesystem-validated). Structured `blockers[]` entries carry non-empty `summary`, `stage`, and at least one screenshot: a blocked verdict requires at least one blocker and one severity, a complete verdict requires no blockers, and every blocker screenshot must also appear in the top-level `screenshotPaths`. Horizontal overflow is recorded as structured `horizontalOverflowFindings[]` (`surface`, `summary`, `screenshotPath`) instead of a bare boolean; the synthesis derives `horizontalOverflow` per persona from finding count while preserving every occurrence. All screenshot paths are relative to the persona record directory, may nest subdirectories, must exist as regular files, and must not traverse upward or escape through symlinks.
+- Exit codes: aggregate exits nonzero when any record is missing/invalid or any P0 finding exists, so a parent session cannot silently proceed past a blocked wave. Aggregation produces the INPUT to independent synthesis (deduplicate by root cause, rank P0 before P1/P2); it is not final acceptance.
+
+### Blind original-vs-generated resume comparison (2026-08-25)
+
+- Deterministic, privacy-conscious pairwise protocol in `apps/desktop/scripts/blind-resume-comparison-harness-cli.mjs` (`init`/`record`/`aggregate`; same vite ssrLoadModule pattern as the persona CLIs, pure fs + validation). It compares an ORIGINAL resume against a GENERATED variant under hard gates plus blinded human scoring; the user's private CV and real target jobs remain an external later input. A fully synthetic gate-clean corpus lives at `apps/desktop/test-fixtures/job-finder/resume-comparison/synthetic-cases.json` and is exercised end to end (including through the real CLI process) by `apps/desktop/scripts/blind-resume-comparison-harness.test.ts`.
+- Hard gates run before any rater sees anything: factuality (every generated claim lexically supported by the original; fabricated contacts refused), numeric integrity (no invented numbers), omissions (contact data plus declared `criticalAnchors` must survive), and ATS parsing/structure of the generated side (section headers, contact signal, timeline years, line lengths, decorative-glyph/control-char refusal). Any violation aborts `init` with nothing scaffolded.
+- Blinding: which variant is the original is derived per case from `sha256(seed:caseId)` and recorded only in the sealed manifest inside the supervisor work root (`sources/<caseId>.original|.generated.txt` live there too). The rater root carries only `variant-A.txt`/`variant-B.txt`, a case brief, and a record template prefilled with the manifest digest — no identity information, nothing slot-mapping-related on stdout.
+- Ratings: independent 1-5 scores per variant for relevance, credibility, readability, specificity plus a mandatory forced choice (A or B; ties are not an option) for every case. Records may speak only of variants A/B: identity assertions in any text field are refused, as are forbidden claim keys — the protocol encodes NO ATS-score, callback, response-rate, screening, or hiring-outcome claims anywhere.
+- Aggregate verifies the manifest self-digest, re-hashes every source and blinded variant (tampering fails closed), re-verifies recorded gates against sealed sources, refuses stale-bound/incomplete/identity-leaking ratings, lifts the blinding, and writes per-side dimension means, forced-choice tallies, and winners as a direct child of the work root. At least one original-win control case (`isControl:true`) must exist in the seal AND be won by the original; a lost control writes the aggregate yet exits nonzero.
 
 ### Résumé provider comparison
 
@@ -152,7 +562,14 @@ Common package aliases:
 - The first broad run caught 10k identity/ledger index+resolve at 2,119 ms and repeated unchanged-source discovery at 2,435 ms against unchanged 2,000 ms budgets. Single-pass URL normalization, lower-allocation alias matching, and a mutable collision-safe live index reduced three focused runs to 815–1,045 ms and 348–356 ms respectively. The full suite is now green; budgets, corpora, and correctness assertions were not weakened.
 - Computer Use's signed helper could not start on this host (`spawn EPERM`) after bounded retries. Do not claim Computer Use evidence. Current visual evidence came from the real production Electron app controlled by the root-owned Playwright harness; subagents did not launch app copies or GUI worktrees.
 
-## Current Focused Release Evidence (2026-07-31)
+## Historical Focused Release Evidence (2026-07-31, pre-2026-08-24)
+
+Everything in this section is historical evidence and historical harness
+guidance from before 2026-08-24. It predates the removal of native Electron
+200% zoom from current acceptance; its 200% statements describe historical
+harness runs only and must never be cited as current sealed acceptance. The
+current sealed production-acceptance zoom bar is native 125% only (see "Job
+Finder exact-build production acceptance").
 
 - Desktop UI integration: 30 passing tests across 8 files; Job Finder integration: 133 passing tests across 12 files.
 - Focused safety/recovery: 51 human-action tests, 11 catalog no-submit tests, 39 affected Browser Runtime tests, 86 focused Browser Agent tests, and 5 restart-recovery tests pass.
@@ -161,14 +578,14 @@ Common package aliases:
 - Not-interested feedback coverage must prove legacy schema defaults, bounded reason validation, local persistence, scoring isolation, duplicate/alias preservation, explicit undo/reset, and keyboard-reachable reason chips. Hidden jobs are a separate projection and must not disappear without an undo path.
 - Direct TypeScript checks pass for Contracts, AI Providers, Job Finder, Browser Agent, Browser Runtime, and Desktop. Broad lint passes outside Browser Agent; each modified Browser Agent production file passes focused lint.
 - The fresh production Electron build passes with 743 main-process modules, 2 preload modules, and 2,098 renderer modules. Current visual acceptance is recorded in the consolidated 2026-08-09 artifact paths above.
-- Current Computer evidence proves recommendation-card containment at the enforced 1024×720 minimum production window and native Electron 200% zoom. A `webContents` zoom-factor-2 replay shows Profile, Find jobs, Shortlisted, Applications, Needs you, and Settings together and reachable in the reflowed shell. A smaller screenshot crop is not proof of a supported sub-minimum viewport.
+- Historical (pre-2026-08-24) Computer evidence proved recommendation-card containment at the enforced 1024×720 minimum production window and native Electron 200% zoom in historical harness runs. A `webContents` zoom-factor-2 replay showed Profile, Find jobs, Shortlisted, Applications, Needs you, and Settings together and reachable in the reflowed shell. That 200% coverage is historical harness evidence only — current sealed acceptance runs no 200% leg. A smaller screenshot crop is not proof of a supported sub-minimum viewport.
 - Navigation acceptance also verifies that `Needs you` is a separate notification/action group and that all workflow destinations plus the notification control remain visible at high zoom. Discovery layout acceptance compares empty and established states so Current Search cannot change columns after results load.
 - Tailored-résumé progress acceptance requires a readable visible percentage, progressbar semantics, no regression to zero after route revisit while the operation is pending, cleanup after settlement, and reduced-motion-safe transitions.
 - Resume Studio acceptance starts with the preview and export/approval controls visible while job context and claim trust are collapsed but keyboard-accessible. A live tailored path must export an exact PDF, verify its bytes, approve it, return to Shortlisted, and show that exact file ready without granting final-submit authority.
 - Résumé visual acceptance must render the current production-Electron export to PDF and then PNG, inspect every shipped template for readable hierarchy, consistent margins, clean rules, sensible page breaks, no clipping/overlap/broken glyphs, and no card-like application chrome, and compare the integrated result against a current-run baseline. Preview editing hooks must remain editor-only and absent from export markup.
 - Candidate Asset lifecycle coverage must prove `until_deleted` defaulting, opt-in 30/90-day clocks beginning at successful import, immediate application-resolution rejection after removal/expiry, seven-day Trash metadata, explicit-policy restore with a fresh clock, startup/lazy enforcement, ordinary byte-plus-metadata purge, transient purge retry behavior, legacy-record normalization, recent-orphan preservation plus aged-orphan cleanup, typed restore IPC with no raw path exposure, authoritative Settings refresh/retry/disabled controls, and keyboard reachability. Application-flow coverage must prove Candidate Asset artifacts contain no durable path, request verified bytes immediately before `setInputFiles`, reject removal/tampering after initial resolution, retain no external-write receipt for the blocked upload, and never grant final-submit authority.
 - For Computer Use acceptance of the app's own browser runtime, launch the built Electron executable directly with an isolated `UNEMPLOYED_USER_DATA_DIR`; do not nest the app inside Playwright's Electron launcher. Measure `Open browser` through visible `Ready`, verify the dedicated profile and DevTools endpoint, and fail the run if it remains on `Starting browser`.
-- Use native Electron `webContents` zoom factor 2 for true 200% acceptance. `--force-device-scale-factor=2` remains a useful high-DPI stress reproduction, but it is not interchangeable with product zoom acceptance and must be labeled separately.
+- Historical pre-2026-08-24 harness guidance (historical harnesses only, never current sealed acceptance): use native Electron `webContents` zoom factor 2 for true 200% acceptance in those historical runs. `--force-device-scale-factor=2` remains a useful high-DPI stress reproduction, but it is not interchangeable with product zoom acceptance and must be labeled separately. Current sealed acceptance has no 200% leg; native 125% is its only accepted zoomed leg.
 - This is intentionally focused evidence. It does not claim a new `pnpm verify` run.
 
 ## Structure Checks
@@ -224,8 +641,13 @@ Common package aliases:
 - `pnpm --filter @unemployed/desktop test:job-finder-complete-flow`
 - `pnpm --filter @unemployed/desktop test:job-finder-complete-flow:built`
 - `pnpm --filter @unemployed/desktop test:job-finder-ashby-flow`
+- `pnpm --filter @unemployed/desktop test:job-finder-ashby-flow:built`
 - `pnpm --filter @unemployed/desktop test:job-finder-workday-flow`
+- `pnpm --filter @unemployed/desktop test:job-finder-workday-flow:built`
 - `pnpm --filter @unemployed/desktop test:job-finder-ats-matrix`
+- The non-`:built` commands above rebuild and are pre-seal diagnostics only.
+  After acceptance is sealed, use only the bound `:built` commands documented
+  in "Post-seal bound runs"; no post-seal command may rebuild the accepted app.
 - `pnpm --filter @unemployed/desktop ui:interview-helper-protection`
 - `pnpm --filter @unemployed/desktop ui:apply-queue-controls`
 - `pnpm --filter @unemployed/desktop ui:action-inbox:built`
@@ -260,7 +682,7 @@ Common package aliases:
 - `test:job-finder-complete-flow` is the Greenhouse live acceptance gate for the original-CV journey. It queries the configured public board for a current matching vacancy, imports `test-fixtures/job-finder/resume-import-sample.txt` through the real extraction boundary, rediscovers the exact listing, shortlists it, verifies the imported CV remains unchanged, fills the application, and requires the final pre-submit checkpoint.
 - `test:job-finder-ashby-flow` runs the same original-CV safety journey against a dynamically selected current Ashby vacancy. `test:job-finder-workday-flow` uses an exact Workday candidate-experience listing and, when run anonymously, requires the expected `site_login_required` human handoff instead of treating sign-in as a failure or attempting credentials.
 - `test:job-finder-ats-matrix` builds once and runs the current Greenhouse, Ashby, and Workday cases. Every underlying harness keeps final-submit authorization false and fails if any submitted state appears.
-- Current accepted reports live under `apps/desktop/test-artifacts/job-finder/complete-flow-current-{greenhouse,ashby,workday}/prepare-only-smoke-report.json`. Greenhouse and Ashby must reach a named final control with the unchanged resume upload verified and explicitly not clicked; anonymous Workday must stop at the account gate with `submittedNeverOccurred: true`.
+- The pre-2026-08-23 accepted reports under `apps/desktop/test-artifacts/job-finder/complete-flow-current-{greenhouse,ashby,workday}/` were produced by the earlier authorized-write wrappers; they are historical only and must not be cited as current release evidence. Rerun the wrapper commands from the strict ATS wrapper policy instead: Greenhouse and Ashby reach a named final control without submit, anonymous Workday stops at the account gate with `submittedNeverOccurred: true`, and resume-upload verification is not required evidence in strict mode.
 - `ui:source-sign-in-prompts` captures desktop and narrow evidence for source configuration plus the browser-owned `I'm signed in — retry` handoff. The harness must prove that the UI says credentials are never handled and retries only after explicit user confirmation.
 - Action Inbox acceptance must cover a populated real blocker, Open returning control within its bounded navigation timeout, Done producing still_blocked on a visible login page without reading or entering credentials, the three-attempt circuit breaker, and restart persistence. Application coverage must prove exact run/job/result/checkpoint binding and that a login-blocked queue item does not stop an unrelated item from reaching review; every runtime call must keep `submitAuthorized: false`. Authenticated success may be accepted only after a user voluntarily signs in; automated positive-path tests must use synthetic strong account markers.
 - Manual-action-kind coverage must exhaustively render all 11 labels and cover every classified application blocker code. Authentication kinds verify source access; non-authentication kinds verify exact blocker absence. Same blocker/failure/stale stays blocked, no blocker resolves, and a changed blocker resolves the prior request while creating a new pending request. Stable identity must bind kind/code/sorted question IDs/origin/path without being split by prose, query, detail, or evidence changes.
@@ -284,6 +706,7 @@ Common package aliases:
 - Local STT quality should be evaluated with real speech as well as synthesized smoke audio. On the current host, `ggml-base.en` produced a coherent 18-word live sample in about 9.3 seconds end to end; `tiny.en` was faster but materially less accurate and is not the preferred quality baseline.
 - The deeper overlay/protection harnesses remain separate evidence for capture exclusion, layout persistence, interaction mode, and panic-hide; ordinary popup visibility is now part of the default acceptance path.
 - Interview Helper provider changes should include `pnpm validate:package ai-providers`; model-backed cue tests must prove schema validation, bounded transcript payloads rather than raw transcript blobs, one retry before deterministic fallback on provider failure, and service-level quiet fallback cards when generated cue output fails validation. Screenshot vision tests must prove transient screenshot image payloads cross the provider boundary and only normalized observations are retained. Audio transcription tests must prove transient audio chunks are sent through the provider boundary and raw audio is not retained in the Interview Helper workspace; local-command STT tests must also prove temporary audio files are cleaned up.
+- Interview Helper test/acceptance runs must not reach live providers through defaults. `capture-interview-helper.mjs` defaults to deterministic providers with all interview/shared AI credentials blanked; configured/live mode requires the explicit `UI_INTERVIEW_HELPER_PROVIDER_MODE=configured` env request, is announced on stdout, and sets `UNEMPLOYED_INTERVIEW_TEST_USE_LIVE_AI=1` because the desktop test API otherwise forces deterministic Interview Helper providers (see `docs/AI_PROVIDER_SETUP.md`). `acceptanceEnvironment()` in `release-acceptance-harness.mjs` strips every `UNEMPLOYED_INTERVIEW_*_API_KEY` variable plus the shared keys and that opt-in so no ambient credential wins under the enabled test API. `apps/desktop/scripts/interview-helper-provider-guard.test.ts` pins this boundary statically and behaviorally; the Job Finder resume benchmarks keep their documented `--use-configured-ai` exceptions unchanged.
 - validate browser visual evidence changes with contract guard tests, source-generic checks, focused browser-agent/browser-runtime/job-finder tests, and desktop Applications recovery UI evidence when apply surfaces change
 
 Track-specific validation and product-bar requirements live in the handoff layer: `docs/STATUS.md` and `docs/TRACKS.md`. Completed evidence belongs in the linked audit reports, test artifacts, `docs/HISTORY.md`, and git history rather than a completed execution plan.

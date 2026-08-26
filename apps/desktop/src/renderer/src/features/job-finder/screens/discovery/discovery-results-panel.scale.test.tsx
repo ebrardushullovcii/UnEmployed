@@ -104,9 +104,11 @@ describe("DiscoveryResultsPanel workspace scale", () => {
       "dom_scale_job_0049",
     );
     expect(screen.getByText("1–50 of 1000")).toBeTruthy();
-    expect(screen.getAllByText("Review before applying")).toHaveLength(
-      DISCOVERY_RESULTS_PAGE_SIZE,
-    );
+    expect(
+      resultButtons.filter((button) =>
+        button.textContent?.includes("Review before applying"),
+      ),
+    ).toHaveLength(DISCOVERY_RESULTS_PAGE_SIZE);
     expect(
       screen.getAllByLabelText("Overall fit: 70 percent").length,
     ).toBeGreaterThan(0);
@@ -302,6 +304,10 @@ describe("DiscoveryResultsPanel workspace scale", () => {
     expect(resultStack).toBeTruthy();
     expect(resultStack?.className).toContain("overflow-hidden");
     expect(scrollRegion).toBeTruthy();
+    expect(scrollRegion).toBe(
+      screen.getByRole("region", { name: "Job results list" }),
+    );
+    expect(scrollRegion?.getAttribute("tabindex")).toBe("0");
     expect(pagination).toBeTruthy();
     expect(scrollRegion?.contains(pagination)).toBe(false);
     expect(pagination?.className).not.toContain("sticky");
@@ -426,7 +432,7 @@ describe("DiscoveryResultsPanel workspace scale", () => {
       />,
     );
 
-    expect(screen.getByText("0 shown · 3 hidden")).toBeTruthy();
+    expect(screen.getByText("0 shown · 3 mismatches hidden")).toBeTruthy();
     expect(screen.getByText("All results are hidden")).toBeTruthy();
     expect(screen.queryByText("No matches from this search")).toBeNull();
 

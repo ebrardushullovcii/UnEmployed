@@ -140,37 +140,38 @@ async function saveReusableAnswer(input: {
     );
   }
 
-  const profile = await input.ctx.repository.getProfile();
   const normalizedPrompt = normalizeAnswerQuestion(input.prompt);
-  const exactMatches = profile.answerBank.customAnswers.filter((candidate) =>
-    [candidate.question, candidate.label].some(
-      (value) => normalizeAnswerQuestion(value) === normalizedPrompt,
-    ),
-  );
-  if (
-    exactMatches.some((candidate) => candidate.answer.trim() !== input.text)
-  ) {
-    throw new Error(
-      "A different reusable answer already exists for this exact question. This application answer was not saved so nothing was overwritten.",
+  await input.ctx.repository.commitProfileUpdate((current) => {
+    const exactMatches = current.answerBank.customAnswers.filter((candidate) =>
+      [candidate.question, candidate.label].some(
+        (value) => normalizeAnswerQuestion(value) === normalizedPrompt,
+      ),
     );
-  }
-  if (exactMatches.length > 0) {
-    return;
-  }
+    if (
+      exactMatches.some((candidate) => candidate.answer.trim() !== input.text)
+    ) {
+      throw new Error(
+        "A different reusable answer already exists for this exact question. This application answer was not saved so nothing was overwritten.",
+      );
+    }
+    if (exactMatches.length > 0) {
+      return current;
+    }
 
-  await input.ctx.repository.saveProfile({
-    ...profile,
-    answerBank: {
-      ...profile.answerBank,
-      customAnswers: [
-        ...profile.answerBank.customAnswers,
-        createReusableAnswerForQuestion({
-          answer: input.text,
-          prompt: input.prompt,
-          kind: input.questionKind,
-        }),
-      ],
-    },
+    return {
+      ...current,
+      answerBank: {
+        ...current.answerBank,
+        customAnswers: [
+          ...current.answerBank.customAnswers,
+          createReusableAnswerForQuestion({
+            answer: input.text,
+            prompt: input.prompt,
+            kind: input.questionKind,
+          }),
+        ],
+      },
+    };
   });
 }
 
@@ -278,6 +279,7 @@ export function createWorkspaceApplicationAnswerMethods(
       id: `application_answer_${command.commandId}`,
       runId: command.runId,
       jobId: command.jobId,
+      applicationRecordId: question.applicationRecordId,
       resultId: command.resultId,
       questionId: command.questionId,
       status: "suggested",

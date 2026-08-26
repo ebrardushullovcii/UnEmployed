@@ -21,9 +21,17 @@ export default defineConfig({
         "packages/contracts/src/index.ts",
       ),
       "@unemployed/db": path.resolve(currentDir, "packages/db/src/index.ts"),
+      "@unemployed/job-finder/discovery-ordering": path.resolve(
+        currentDir,
+        "packages/job-finder/src/discovery-ordering.ts",
+      ),
       "@unemployed/job-finder/resume-record-identity": path.resolve(
         currentDir,
         "packages/job-finder/src/resume-record-identity.ts",
+      ),
+      "@unemployed/job-finder/source-health": path.resolve(
+        currentDir,
+        "packages/job-finder/src/source-health.ts",
       ),
       "@unemployed/job-finder": path.resolve(
         currentDir,
@@ -36,6 +44,7 @@ export default defineConfig({
     },
   },
   test: {
+    setupFiles: [path.resolve(currentDir, "apps/desktop/src/test/setup.ts")],
     include: ["**/*.test.{ts,tsx}"],
     exclude: [
       "**/node_modules/**",

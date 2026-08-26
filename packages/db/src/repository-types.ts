@@ -57,29 +57,139 @@ import type {
   CommitGroupedManualAnswerInput,
   CommitGroupedManualAnswerResult,
 } from "./grouped-manual-answer-types";
+import type {
+  WorkspaceBackupReconciliationAction,
+  WorkspaceBackupReconciliationWarning,
+} from "./file-repository-backup";
+import type {
+  WorkspaceRecoveryCandidateKind,
+  WorkspaceRecoveryCandidateStatus,
+  WorkspaceRecoveryLossWindowInputs,
+  WorkspaceRecoverySqliteErrorCode,
+  WorkspaceRecoveryValidationOverrides,
+} from "./file-repository-recovery";
 
 export type JobFinderRepositorySeed = JobFinderRepositoryState;
+
+/**
+ * Outcome of a revision-checked profile commit. "applied" carries the
+ * schema-parsed profile that was persisted together with the incremented
+ * revision; "stale" carries the current persisted profile and revision with
+ * nothing written.
+ */
+export type ProfileCommitOutcome =
+  | { status: "applied"; profile: CandidateProfile; revision: number }
+  | { status: "stale"; profile: CandidateProfile; revision: number };
+
+/**
+ * A transaction-current patch-group flag flip for one persisted copilot
+ * message. Unlike whole-message upserts, a delta never carries sibling
+ * groups, so concurrent apply/reject decisions on the same message cannot
+ * overwrite each other.
+ */
+export interface ProfileCopilotMessagePatchFlag {
+  messageId: string;
+  patchGroupId: string;
+  applyMode: ProfileCopilotMessage["patchGroups"][number]["applyMode"];
+}
 
 export type ApplicationAnswerMutationResult = "applied" | "duplicate" | "stale";
 
 export type ApplicationRecordBatchCommitResult =
   | {
       status: "applied";
-      committedRecordIds: readonly string[];
+      committedRecords: readonly ApplicationRecord[];
     }
   | {
       status: "missing" | "stale";
       recordIds: readonly string[];
     };
 
+export interface DiscoveryFeedbackCommitCurrent {
+  job: SavedJob | null;
+  jobIsPending: boolean;
+  searchPreferences: JobSearchPreferences;
+  campaignState: JobSearchCampaignCollection | null;
+  intelligenceState: JobFinderIntelligenceState;
+  discoveryState: JobFinderDiscoveryState;
+}
+
+export interface DiscoveryFeedbackCommitNext<TResult> {
+  result: TResult;
+  savedJob?: SavedJob;
+  searchPreferences: JobSearchPreferences;
+  campaignState: JobSearchCampaignCollection | null;
+  discoveryState: JobFinderDiscoveryState;
+}
+
+export interface CampaignPreferencesCommitCurrent {
+  campaignState: JobSearchCampaignCollection | null;
+  searchPreferences: JobSearchPreferences;
+}
+
+export interface CampaignPreferencesCommitNext<TResult> {
+  result: TResult;
+  campaignState: JobSearchCampaignCollection;
+  searchPreferences: JobSearchPreferences;
+}
+
+export interface CompanyIntelligenceCommitExpected {
+  companyId: string;
+  expectedCompanyUpdatedAt: string;
+  jobId: string | null;
+  applicationRecordId: string | null;
+}
+
+export interface CompanyIntelligenceCommitCurrent {
+  intelligenceState: JobFinderIntelligenceState;
+  savedJob: SavedJob | null;
+  applicationRecord: ApplicationRecord | null;
+}
+
 export interface JobFinderRepository {
   close(): Promise<void>;
   reset(seed: JobFinderRepositorySeed): Promise<void>;
   getProfile(): Promise<CandidateProfile>;
+  /**
+   * Reads the persisted candidate profile together with the profile
+   * singleton's monotonic revision. The revision is the compare-and-swap
+   * epoch for commitProfileUpdate and commitProfileCopilotState, and it
+   * advances whenever the persisted profile, search preferences, or profile
+   * setup state changes, because copilot commits write all three together.
+   */
+  getProfileWithRevision(): Promise<{
+    profile: CandidateProfile;
+    revision: number;
+  }>;
   saveProfile(profile: CandidateProfile): Promise<void>;
+  /**
+   * Atomically applies a synchronous transform to the currently stored
+   * candidate profile. The updater receives the latest persisted profile and
+   * its schema-parsed output replaces it inside one transaction, so concurrent
+   * writers cannot revert each other with stale full-profile snapshots.
+   *
+   * When options.expectedRevision is provided, the transaction first compares
+   * it against the persisted profile revision: a mismatch returns a "stale"
+   * outcome carrying the current profile and revision without writing, while a
+   * match applies the updater and increments the revision exactly once.
+   */
+  commitProfileUpdate(
+    updateProfile: (current: CandidateProfile) => CandidateProfile,
+    options?: { expectedRevision?: number },
+  ): Promise<ProfileCommitOutcome>;
   getSearchPreferences(): Promise<JobSearchPreferences>;
+  /**
+   * Persists search preferences and advances the shared profile revision
+   * epoch, so concurrent compare-and-swap commits that captured preferences
+   * go stale instead of overwriting this write with their snapshot.
+   */
   saveSearchPreferences(searchPreferences: JobSearchPreferences): Promise<void>;
   getProfileSetupState(): Promise<ProfileSetupState>;
+  /**
+   * Persists the profile setup state and advances the shared profile revision
+   * epoch, so concurrent compare-and-swap commits that captured setup state
+   * go stale instead of overwriting this write with their snapshot.
+   */
   saveProfileSetupState(profileSetupState: ProfileSetupState): Promise<void>;
   saveProfileAndSearchPreferences(
     profile: CandidateProfile,
@@ -91,7 +201,33 @@ export interface JobFinderRepository {
     profileSetupState: ProfileSetupState;
     messages?: readonly ProfileCopilotMessage[];
     revisions?: readonly ProfileRevision[];
-  }): Promise<void>;
+    /**
+     * Transaction-current patch-group flag flips applied after `messages`
+     * upserts. Prefer deltas over whole-message snapshots when only one
+     * group's applyMode changes: a snapshot would revert sibling groups that
+     * changed between the caller's read and this commit.
+     */
+    messagePatchFlags?: readonly ProfileCopilotMessagePatchFlag[];
+    /**
+     * Compare-and-swap token for the shared profile revision epoch. When
+     * provided, the whole copilot commit (profile, preferences, setup state,
+     * messages, and revisions) is skipped and a "stale" outcome with the
+     * current profile and revision is returned if any of those three
+     * singletons advanced after the caller captured the token.
+     */
+    expectedProfileRevision?: number;
+  }): Promise<ProfileCommitOutcome>;
+  /**
+   * Flips one patch group's applyMode on its persisted copilot message
+   * inside a single transaction, leaving sibling groups owned by their
+   * concurrent writers. Resolves the owning message from current persisted
+   * state rather than a caller snapshot. Returns false without writing when
+   * no persisted message contains the patch group.
+   */
+  commitProfileCopilotPatchFlagUpdate(input: {
+    patchGroupId: string;
+    applyMode: ProfileCopilotMessage["patchGroups"][number]["applyMode"];
+  }): Promise<boolean>;
   listSavedJobs(options?: {
     limit?: number;
     offset?: number;
@@ -103,13 +239,39 @@ export interface JobFinderRepository {
   commitSavedJobDelta(input: {
     upserts?: readonly SavedJob[];
     update?: (job: SavedJob) => SavedJob;
+    /**
+     * Synchronous transform merged into the latest persisted settings inside
+     * the same transaction as the saved-job changes, so paired settings/job
+     * updates stay atomic against concurrent writers. The updater must merge
+     * its owned fields into the passed current settings; returning a stale
+     * full snapshot would revert concurrent field owners.
+     */
+    updateSettings?: (current: JobFinderSettings) => JobFinderSettings;
     clearResumeApproval?: {
       jobId: string;
       staleReason: string;
       shouldClear: (previousJob: SavedJob, nextJob: SavedJob) => boolean;
     };
-    discoveryState?: JobFinderDiscoveryState;
+    /**
+     * Synchronous transform applied to the latest persisted discovery state
+     * inside the same transaction as the saved-job changes, so paired
+     * job/ledger updates stay atomic against concurrent writers.
+     */
+    updateDiscoveryState?: (
+      current: JobFinderDiscoveryState,
+    ) => JobFinderDiscoveryState;
   }): Promise<void>;
+  /**
+   * Applies discovery feedback against transaction-current job, preference,
+   * campaign, intelligence, and discovery state. A thrown updater or invalid
+   * output leaves every owned value unchanged.
+   */
+  commitDiscoveryFeedbackUpdate<TResult>(
+    jobId: string,
+    update: (
+      current: DiscoveryFeedbackCommitCurrent,
+    ) => DiscoveryFeedbackCommitNext<TResult>,
+  ): Promise<TResult>;
   /**
    * Destructively replaces the complete saved-job collection. The caller must
    * provide an authoritative full snapshot; paged or stale reads are invalid.
@@ -201,8 +363,16 @@ export interface JobFinderRepository {
   listApplyJobResults(options?: {
     runId?: string;
     jobId?: string;
+    applicationRecordId?: string;
   }): Promise<readonly ApplyJobResult[]>;
   upsertApplyJobResult(result: ApplyJobResultInput): Promise<void>;
+  markApplicationPreparationStarted(input: {
+    resultId: string;
+    runId: string;
+    jobId: string;
+    startedAt: string;
+    startedLocalDate: string;
+  }): Promise<{ result: ApplyJobResult; didStart: boolean }>;
   compareAndSwapApplyJobResult(input: {
     expected: ApplyJobResult;
     result: ApplyJobResultInput;
@@ -216,6 +386,7 @@ export interface JobFinderRepository {
     runId?: string;
     jobId?: string;
     resultId?: string;
+    applicationRecordId?: string;
   }): Promise<readonly ApplicationQuestionRecord[]>;
   upsertApplicationQuestionRecord(
     record: ApplicationQuestionRecordInput,
@@ -225,6 +396,7 @@ export interface JobFinderRepository {
     jobId?: string;
     resultId?: string;
     questionId?: string;
+    applicationRecordId?: string;
   }): Promise<readonly ApplicationAnswerRecord[]>;
   upsertApplicationAnswerRecord(record: ApplicationAnswerRecord): Promise<void>;
   /**
@@ -242,12 +414,14 @@ export interface JobFinderRepository {
     runId?: string;
     jobId?: string;
     resultId?: string;
+    applicationRecordId?: string;
   }): Promise<readonly ApplicationArtifactRef[]>;
   upsertApplicationArtifactRef(ref: ApplicationArtifactRefInput): Promise<void>;
   listApplicationReplayCheckpoints(options?: {
     runId?: string;
     jobId?: string;
     resultId?: string;
+    applicationRecordId?: string;
   }): Promise<readonly ApplicationReplayCheckpoint[]>;
   upsertApplicationReplayCheckpoint(
     checkpoint: ApplicationReplayCheckpointInput,
@@ -256,6 +430,7 @@ export interface JobFinderRepository {
     runId?: string;
     jobId?: string;
     resultId?: string;
+    applicationRecordId?: string;
   }): Promise<readonly ApplicationConsentRequest[]>;
   upsertApplicationConsentRequest(
     request: ApplicationConsentRequest,
@@ -302,9 +477,10 @@ export interface JobFinderRepository {
   listApplicationRecords(): Promise<readonly ApplicationRecord[]>;
   upsertApplicationRecord(applicationRecord: ApplicationRecord): Promise<void>;
   /**
-   * Atomically commits a set of application records after checking every
-   * expected revision. Missing or stale records return a failure result and
-   * leave the persisted collection untouched.
+   * Atomically validates every selected CRM revision, then merges the CRM field
+   * from each proposed changed record onto its transaction-current record.
+   * Non-CRM fields remain owned by their concurrent writers. Missing or stale
+   * selected records leave the persisted collection untouched.
    */
   commitApplicationRecordBatch(input: {
     expectedRevisions: readonly {
@@ -313,7 +489,10 @@ export interface JobFinderRepository {
     }[];
     records: readonly ApplicationRecord[];
   }): Promise<ApplicationRecordBatchCommitResult>;
-  listApplicationAttempts(): Promise<readonly ApplicationAttempt[]>;
+  listApplicationAttempts(options?: {
+    jobId?: string;
+    applicationRecordId?: string;
+  }): Promise<readonly ApplicationAttempt[]>;
   upsertApplicationAttempt(
     applicationAttempt: ApplicationAttemptInput,
   ): Promise<void>;
@@ -342,19 +521,165 @@ export interface JobFinderRepository {
   ): Promise<void>;
   getSettings(): Promise<JobFinderSettings>;
   saveSettings(settings: JobFinderSettings): Promise<void>;
+  /**
+   * Atomically applies a synchronous transform to the currently stored
+   * workspace settings. The updater receives a clone of the latest persisted
+   * settings and its schema-parsed output replaces them inside one
+   * transaction, so concurrent writers cannot revert each other with stale
+   * full-settings snapshots. A thrown updater or schema failure leaves the
+   * persisted settings untouched and rejects.
+   */
+  commitSettingsUpdate(
+    update: (current: JobFinderSettings) => JobFinderSettings,
+  ): Promise<JobFinderSettings>;
   getDiscoveryState(): Promise<JobFinderDiscoveryState>;
-  saveDiscoveryState(discoveryState: JobFinderDiscoveryState): Promise<void>;
+  /**
+   * Atomically applies a synchronous transform to the currently stored
+   * discovery state. The updater receives a clone of the latest persisted
+   * state exactly once and its schema-parsed output replaces it inside one
+   * transaction, so concurrent writers cannot revert each other with stale
+   * full-state snapshots. A thrown updater or schema failure leaves the
+   * persisted state untouched and rejects.
+   */
+  commitDiscoveryStateUpdate(
+    update: (current: JobFinderDiscoveryState) => JobFinderDiscoveryState,
+  ): Promise<JobFinderDiscoveryState>;
   getCampaignState(): Promise<JobSearchCampaignCollection | null>;
   saveCampaignState(campaignState: JobSearchCampaignCollection): Promise<void>;
+  /**
+   * Applies a campaign collection and its corresponding global preferences
+   * against transaction-current values. Invalid output or a thrown updater
+   * leaves both singleton values unchanged.
+   */
+  commitCampaignPreferencesUpdate<TResult>(
+    update: (
+      current: CampaignPreferencesCommitCurrent,
+    ) => CampaignPreferencesCommitNext<TResult>,
+  ): Promise<TResult>;
   getIntelligenceState(): Promise<JobFinderIntelligenceState>;
   saveIntelligenceState(state: JobFinderIntelligenceState): Promise<void>;
+  /**
+   * Replaces intelligence state from a synchronous transform of the latest
+   * singleton and the exact currently persisted evidence references. The file
+   * implementation acquires its write lock before reading these values. A
+   * thrown updater or invalid output leaves intelligence unchanged.
+   */
+  commitCompanyIntelligenceUpdate(
+    expected: CompanyIntelligenceCommitExpected,
+    update: (
+      current: CompanyIntelligenceCommitCurrent,
+    ) => JobFinderIntelligenceState,
+  ): Promise<JobFinderIntelligenceState>;
   getActivityControl(): Promise<JobFinderActivityControl>;
   saveActivityControl(activityControl: JobFinderActivityControl): Promise<void>;
+}
+
+export interface AutomaticWorkspaceBackupOptions {
+  /**
+   * Rotate the graceful-close snapshot into `<filePath>.backup` (previous
+   * generation preserved as `<filePath>.backup.prev`) right before the
+   * repository closes its SQLite connection (normal app shutdown).
+   */
+  onClose?: boolean;
+  /**
+   * Snapshot the pre-reset state into the dedicated `<filePath>.reset-backup`
+   * destination right before a destructive full-state reset overwrites it.
+   * Close snapshots use a different destination and can never overwrite it
+   * with post-reset state.
+   */
+  beforeReset?: boolean;
+}
+
+export type WorkspaceBackupReconciliationActionCode =
+  WorkspaceBackupReconciliationAction["code"];
+
+export type WorkspaceBackupReconciliationWarningCode =
+  WorkspaceBackupReconciliationWarning["code"];
+
+/**
+ * Redacted pre-open rotation-reconciliation event. Paths are reduced to
+ * basenames and raw errors are dropped so the payload is safe for desktop
+ * user disclosure.
+ */
+export interface WorkspaceRotationReconciliationEvent {
+  readonly actions: ReadonlyArray<{
+    readonly code: WorkspaceBackupReconciliationActionCode;
+  }>;
+  readonly warnings: ReadonlyArray<{
+    readonly code: WorkspaceBackupReconciliationWarningCode;
+    readonly fileBasename: string;
+  }>;
+}
+
+/** Redacted successful-restore event; carries no paths or row values. */
+export interface WorkspaceDatabaseRestoreTelemetryEvent {
+  readonly incidentId: string;
+  readonly restoredFrom: WorkspaceRecoveryCandidateKind;
+  readonly quarantinedArtifactBasenames: ReadonlyArray<string>;
+  readonly lossWindow: WorkspaceRecoveryLossWindowInputs;
+}
+
+/**
+ * Optional typed telemetry hooks emitted during repository creation.
+ * `onRotationReconciled` fires only when reconciliation performed actions or
+ * retained invalid files; `onRestored` fires once after a corrupted workspace
+ * was recovered from a validated snapshot and reopened.
+ */
+export interface WorkspaceDatabaseStartupRecoveryTelemetry {
+  onRotationReconciled?: (event: WorkspaceRotationReconciliationEvent) => void;
+  onRestored?: (event: WorkspaceDatabaseRestoreTelemetryEvent) => void;
+}
+
+export type WorkspaceDatabaseRecoveryRequiredOutcome =
+  | "no-valid-candidate"
+  | "quarantine-incomplete"
+  | "restore-revalidation-rejected"
+  | "restore-promotion-failed"
+  | "salvage-required";
+
+/**
+ * Redacted incident carried by WorkspaceDatabaseRecoveryRequiredError.
+ * Candidates expose kinds/stages only, quarantined artifacts are basenames,
+ * and the message never contains filesystem paths or persisted row values.
+ */
+export interface WorkspaceDatabaseRecoveryRequiredDetails {
+  readonly incidentId: string;
+  readonly outcome: WorkspaceDatabaseRecoveryRequiredOutcome;
+  readonly failureEvidence:
+    | "reported-error-code"
+    | "failed-integrity-check"
+    | "clean-integrity-check"
+    | "source-missing"
+    | "probe-unavailable"
+    | null;
+  readonly sqliteErrorCode: WorkspaceRecoverySqliteErrorCode | null;
+  readonly candidates: ReadonlyArray<WorkspaceRecoveryCandidateStatus>;
+  readonly quarantineBasenames: ReadonlyArray<string>;
 }
 
 export interface FileJobFinderRepositoryOptions {
   filePath: string;
   seed: JobFinderRepositorySeed;
+  /**
+   * Opt-in database-only recovery snapshots stored next to the live
+   * database. They do not capture generated documents, candidate assets, or
+   * browser profile data, so they cannot restore a full workspace after a
+   * destructive reset; they recover the SQLite database itself. Backup
+   * failures are non-fatal and never block close or reset.
+   */
+  automaticBackup?: AutomaticWorkspaceBackupOptions;
+  /**
+   * Typed startup recovery telemetry: backup-rotation reconciliation
+   * outcomes and successful corruption restores, redacted for user
+   * disclosure. Omitted hooks are skipped.
+   */
+  recoveryTelemetry?: WorkspaceDatabaseStartupRecoveryTelemetry;
+  /**
+   * Narrow validation seam mirroring the recovery core's overrides.
+   * Production callers omit it; startup always applies the strict built-in
+   * restored-snapshot revalidation regardless.
+   */
+  recoveryValidationOverrides?: WorkspaceRecoveryValidationOverrides;
 }
 
 export type StateTableKey =

@@ -19,6 +19,8 @@ import { Button } from "@renderer/components/ui/button";
 import { buildComparableValueFingerprint } from "../lib/profile-editor-review-candidates";
 import { LockedScreenLayout } from "../components/locked-screen-layout";
 import { ProfileActiveSectionContent } from "../components/profile/profile-active-section-content";
+import { DiscoveryRunFeedbackCallout } from "./discovery/discovery-run-feedback-callout";
+import type { DiscoveryRunFeedback } from "./discovery/discovery-run-feedback";
 import { ProfileCopilotRail } from "../components/profile/profile-copilot-rail";
 import {
   PROFILE_SECTION_SCROLL_AREA_ID,
@@ -29,14 +31,15 @@ import {
 import { COPILOT_BOTTOM_OFFSET } from "../components/profile/profile-copilot-rail-layout";
 import { buildProfileSectionStarterQuestion } from "../components/profile/profile-copilot-prompts";
 import { ProfileResumePanel } from "../components/profile/profile-resume-panel";
+import { ProfileReadyBanner } from "../components/profile/profile-ready-banner";
 import {
   focusProfileImportSuggestion,
   getProfileImportSuggestionDestination,
 } from "../components/profile/profile-import-suggestion-navigation";
 import { ProfileSaveFooter } from "../components/profile/profile-save-footer";
 import { ProfileSectionTabs } from "../components/profile/profile-section-tabs";
+import { ProfileSetupReminder } from "../components/profile/profile-setup-reminder";
 import { PageHeader } from "../components/page-header";
-import { JOB_FINDER_ROUTE_HREFS } from "../lib/job-finder-route-hrefs";
 import {
   buildProfilePayload,
   buildSearchPreferencesPayload,
@@ -81,6 +84,7 @@ type ProfileScreenPendingActions = {
 
 export function ProfileScreen(props: {
   actionState: { message: string | null };
+  discoveryRunFeedback?: DiscoveryRunFeedback | null;
   importResumeGuardMessage: string | null;
   pendingActions: ProfileScreenPendingActions;
   onApplyProfileCopilotPatchGroup: (patchGroupId: string) => void;
@@ -94,6 +98,11 @@ export function ProfileScreen(props: {
   ) => Promise<void>;
   onOpenBrowserSessionForTarget: (targetId: string) => void;
   onProfileSurfaceDirtyChange: (dirty: boolean) => void;
+  /**
+   * Reports each user-authored draft edit so the shell can retire an
+   * exact-request save retry captured before the edit.
+   */
+  onProfileSurfaceDraftEdited?: () => void;
   profileCopilotPendingContextKey: string | null;
   onRejectProfileCopilotPatchGroup: (patchGroupId: string) => void;
   onResumeProfileSetup: (
@@ -137,6 +146,7 @@ export function ProfileScreen(props: {
   const {
     importResumeGuardMessage,
     pendingActions,
+    discoveryRunFeedback = null,
     onApplyProfileCopilotPatchGroup,
     onAnalyzeProfileFromResume,
     onGetSourceDebugRunDetails,
@@ -144,6 +154,7 @@ export function ProfileScreen(props: {
     onApplyResumeTimelineRepairAction,
     onOpenBrowserSessionForTarget,
     onProfileSurfaceDirtyChange,
+    onProfileSurfaceDraftEdited,
     profileCopilotPendingContextKey,
     onRejectProfileCopilotPatchGroup,
     onResumeProfileSetup,
@@ -167,7 +178,7 @@ export function ProfileScreen(props: {
     sourceInstructionArtifacts,
   } = props;
 
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const requestedSection = searchParams.get("section");
   const requestedFocus = searchParams.get("focus");
   const [activeSection, setActiveSection] = useState<ProfileSection>(
@@ -179,8 +190,11 @@ export function ProfileScreen(props: {
     useState(0);
   const {
     backgroundArrays,
+    backgroundMergeNotice,
+    discardEditsAndReloadCanonical,
     draftSearchPreferencesResult,
     experienceArray,
+    hasBackgroundConflict,
     hasUnsavedChanges,
     hasUserDraftChanges,
     overviewProfile,
@@ -191,6 +205,9 @@ export function ProfileScreen(props: {
     validationMessage,
   } = useProfileScreenForms({
     latestResumeImportReviewCandidates,
+    ...(onProfileSurfaceDraftEdited
+      ? { onDraftEdited: onProfileSurfaceDraftEdited }
+      : {}),
     profile,
     searchPreferences,
   });
@@ -354,6 +371,22 @@ export function ProfileScreen(props: {
     onRunSourceDebug(targetId);
   }
 
+  // Per-source Search now outcomes are shown next to the source rows that
+  // started them; all-source outcomes stay on the Find jobs screen.
+  const sourceRowFeedbackTargetId =
+    activeSection === "sources" && discoveryRunFeedback?.targetLabel
+      ? (searchPreferences.discovery.targets.find(
+          (target) => target.label === discoveryRunFeedback.targetLabel,
+        )?.id ?? null)
+      : null;
+  const visibleSourceRowFeedback =
+    activeSection === "sources" &&
+    discoveryRunFeedback !== null &&
+    discoveryRunFeedback.targetLabel !== null &&
+    sourceRowFeedbackTargetId !== null
+      ? discoveryRunFeedback
+      : null;
+
   function handleSaveAll() {
     const profileResult = buildProfilePayload(profile, profileForm.getValues());
 
@@ -389,58 +422,37 @@ export function ProfileScreen(props: {
     setImportSuggestionFocusRequest((current) => current + 1);
   }
 
+  function handleSectionChange(section: ProfileSection) {
+    setActiveSection(section);
+    const nextSearchParams = new URLSearchParams(searchParams);
+    nextSearchParams.set("section", section);
+    nextSearchParams.delete("focus");
+    setSearchParams(nextSearchParams, { replace: true });
+  }
+
   return (
     <LockedScreenLayout
-      contentClassName="grid min-h-0 grid-rows-[minmax(0,1fr)_auto] gap-3 pb-2 xl:overflow-hidden"
-      topClassName="grid gap-(--gap-section) pb-(--gap-section) pt-8"
+      contentClassName="grid min-h-0 grid-rows-[minmax(0,1fr)_auto] gap-2 pb-1 xl:overflow-hidden"
+      topClassName="grid gap-2 pb-1 pt-1.5"
       topContent={
         <>
           <PageHeader
             eyebrow="Profile"
             title="Your profile"
-            description="Import your resume, confirm the essentials, and add optional details only when they help."
+            description="Import your resume and confirm the details that matter."
           />
 
           {profileSetupState.status !== "completed" ? (
-            <div className="surface-card-tint flex flex-col gap-3 rounded-(--radius-panel) border border-border/30 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="grid gap-1">
-                <p className="text-(length:--text-tiny) uppercase tracking-[0.18em] text-muted-foreground">
-                  Setup still in progress
-                </p>
-                <p className="text-sm text-foreground-soft">
-                  {pendingSetupItems.length > 0
-                    ? `${pendingSetupItems.length} setup item${pendingSetupItems.length === 1 ? "" : "s"} still need${pendingSetupItems.length === 1 ? "s" : ""} review. Continue from ${profileSetupState.currentStep.replace("_", " ")}.`
-                    : `Continue setup from ${profileSetupState.currentStep.replace("_", " ")}.`}
-                </p>
-              </div>
-              <Button
-                pending={pendingActions.profileSetup}
-                onClick={() =>
-                  onResumeProfileSetup(profileSetupState.currentStep)
-                }
-                type="button"
-                variant="secondary"
-              >
-                Resume guided setup
-              </Button>
-            </div>
+            <ProfileSetupReminder
+              currentStep={profileSetupState.currentStep}
+              isResumePending={pendingActions.profileSetup}
+              onResume={onResumeProfileSetup}
+              pendingItemCount={pendingSetupItems.length}
+            />
           ) : (
-            <div className="surface-card-tint flex flex-col gap-3 rounded-(--radius-panel) border border-border/30 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="grid gap-1">
-                <p className="text-(length:--text-tiny) uppercase tracking-[0.18em] text-muted-foreground">
-                  Profile ready
-                </p>
-                <p className="text-sm text-foreground-soft">
-                  Your saved profile is ready. Continue to Find jobs to run your
-                  configured sources.
-                </p>
-              </div>
-              <Button asChild>
-                <a href={JOB_FINDER_ROUTE_HREFS.discovery}>
-                  Continue to Find jobs
-                </a>
-              </Button>
-            </div>
+            <ProfileReadyBanner
+              completionIdentity={`${profile.id}:${profileSetupState.completedAt ?? "completed"}`}
+            />
           )}
 
           <ProfileResumePanel
@@ -476,7 +488,7 @@ export function ProfileScreen(props: {
               className="rounded-(--radius-field) border border-(--info-border) bg-(--info-surface) px-4 py-3 text-sm leading-6 text-(--info-text)"
               role="status"
             >
-              Profile editing is paused while the résumé update finishes. This
+              Profile editing is paused while the resume update finishes. This
               prevents the completed import from overwriting a draft created at
               the same time.
             </div>
@@ -485,10 +497,10 @@ export function ProfileScreen(props: {
       }
     >
       <section className="grid min-h-124 min-w-0 gap-(--gap-content) xl:h-full xl:min-h-0">
-        <div className="grid min-h-0 min-w-0 gap-(--gap-content) xl:grid-rows-[auto_minmax(0,1fr)]">
+        <div className="grid min-h-0 min-w-0 gap-2 xl:grid-rows-[auto_minmax(0,1fr)]">
           <ProfileSectionTabs
             activeSection={activeSection}
-            onSectionChange={setActiveSection}
+            onSectionChange={handleSectionChange}
             panelId={activeSectionPanelId}
             sections={sections}
           />
@@ -496,14 +508,28 @@ export function ProfileScreen(props: {
           <div className="surface-panel-shell relative flex min-h-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border-active-soft)">
             <div
               className="min-h-0 flex-1 overflow-y-auto"
+              data-locked-pane-scroll-region
               id={PROFILE_SECTION_SCROLL_AREA_ID}
             >
               <div
                 aria-labelledby={`${activeSection}-tab`}
-                className="relative z-0 p-4 sm:p-5"
+                className="relative z-0 p-3 sm:px-4 sm:py-3"
                 id={activeSectionPanelId}
                 role="tabpanel"
               >
+                {visibleSourceRowFeedback && sourceRowFeedbackTargetId ? (
+                  <div className="mb-3">
+                    <DiscoveryRunFeedbackCallout
+                      feedback={visibleSourceRowFeedback}
+                      isRecoveryPending={pendingActions.browserSession(
+                        sourceRowFeedbackTargetId,
+                      )}
+                      onOpenBrowserSession={() => {
+                        handleSignInForTarget(sourceRowFeedbackTargetId);
+                      }}
+                    />
+                  </div>
+                ) : null}
                 <fieldset
                   className="m-0 min-w-0 border-0 p-0 disabled:opacity-80"
                   disabled={resumeAnalysisPending}
@@ -544,15 +570,35 @@ export function ProfileScreen(props: {
               </div>
             </div>
 
-            <ProfileSaveFooter
-              actionMessage={props.actionState.message}
-              hasUnsavedChanges={hasUnsavedChanges}
-              isSavePending={
-                pendingActions.profileMutation || resumeAnalysisPending
-              }
-              onSave={handleSaveAll}
-              validationMessage={validationMessage}
-            />
+            <div className="[&>[data-profile-workspace-actions]]:py-3">
+              {backgroundMergeNotice ? (
+                <div
+                  className="mb-2 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 rounded-(--radius-field) border border-(--info-border) bg-(--info-surface) px-4 py-3 text-sm leading-6 text-(--info-text)"
+                  role="status"
+                >
+                  <span>{backgroundMergeNotice}</span>
+                  {hasBackgroundConflict ? (
+                    <Button
+                      onClick={discardEditsAndReloadCanonical}
+                      size="compact"
+                      type="button"
+                      variant="outline"
+                    >
+                      Discard my edits and reload
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
+              <ProfileSaveFooter
+                actionMessage={props.actionState.message}
+                hasUnsavedChanges={hasUnsavedChanges}
+                isSavePending={
+                  pendingActions.profileMutation || resumeAnalysisPending
+                }
+                onSave={handleSaveAll}
+                validationMessage={validationMessage}
+              />
+            </div>
           </div>
         </div>
       </section>

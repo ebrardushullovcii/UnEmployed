@@ -21,10 +21,15 @@ import {
 } from "../../components/collection-search-toolbar";
 import {
   companyPreferenceLabels,
+  companyPreferenceScopeDescription,
   companyPreferenceTones,
   companySearchTokens,
-  countCompanyOpenings,
 } from "./company-presentation";
+import {
+  indexCompanyJobs,
+  projectCompanyOpenings,
+  type CompanyJobIndex,
+} from "../../lib/company-projections";
 
 interface CompaniesScreenProps {
   actionMessage: string | null;
@@ -55,14 +60,19 @@ function pendingMergeCount(company: CompanyEntity): number {
 
 function CompanyCard(props: {
   company: CompanyEntity;
-  jobsByStatus: ReadonlyMap<string, string>;
+  jobById: CompanyJobIndex;
+  jobs: readonly SavedJob[];
   isMutationPending: boolean;
   isPreferencePending: boolean;
   onNavigate: (path: string) => void;
   onSetPreference: (preference: CompanyPreference) => void;
 }) {
   const { company } = props;
-  const openings = countCompanyOpenings(company, props.jobsByStatus);
+  const openings = projectCompanyOpenings({
+    company,
+    jobs: props.jobs,
+    jobById: props.jobById,
+  });
   const pendingMerges = pendingMergeCount(company);
 
   return (
@@ -102,9 +112,27 @@ function CompanyCard(props: {
       <dl className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
         <div>
           <dt className="text-(length:--text-tiny) uppercase tracking-(--tracking-badge) text-foreground-muted">
-            Openings
+            Last seen available
           </dt>
-          <dd className="text-foreground-soft">{openings.total}</dd>
+          <dd className="text-foreground-soft">
+            {openings.lastSeenAvailableCount}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-(length:--text-tiny) uppercase tracking-(--tracking-badge) text-foreground-muted">
+            Needs verification
+          </dt>
+          <dd className="text-foreground-soft">
+            {openings.needsVerificationCount}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-(length:--text-tiny) uppercase tracking-(--tracking-badge) text-foreground-muted">
+            Reported closed
+          </dt>
+          <dd className="text-foreground-soft">
+            {openings.reportedClosedCount}
+          </dd>
         </div>
         <div>
           <dt className="text-(length:--text-tiny) uppercase tracking-(--tracking-badge) text-foreground-muted">
@@ -114,30 +142,17 @@ function CompanyCard(props: {
             {company.applicationRecordIds.length}
           </dd>
         </div>
-        <div>
-          <dt className="text-(length:--text-tiny) uppercase tracking-(--tracking-badge) text-foreground-muted">
-            Contacts
-          </dt>
-          <dd className="text-foreground-soft">{company.contacts.length}</dd>
-        </div>
-        <div>
-          <dt className="text-(length:--text-tiny) uppercase tracking-(--tracking-badge) text-foreground-muted">
-            Evidence
-          </dt>
-          <dd className="text-foreground-soft">
-            {company.salaryOfferEvidence.length}
-          </dd>
-        </div>
       </dl>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <label className="grid gap-1 text-sm">
           <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-badge) text-foreground-muted">
-            Preference
+            Company tracking
           </span>
           <select
-            aria-label={`Preference for ${company.canonicalName}`}
-            className="h-9 rounded-(--radius-field) border border-input bg-(--surface-panel-raised) px-2 text-sm"
+            aria-describedby={`company-preference-scope-${company.id}`}
+            aria-label={`Company tracking preference for ${company.canonicalName}`}
+            className="h-9 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-2 text-sm outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             disabled={props.isPreferencePending}
             onChange={(event) =>
               props.onSetPreference(event.target.value as CompanyPreference)
@@ -152,6 +167,12 @@ function CompanyCard(props: {
               ),
             )}
           </select>
+          <span
+            className="max-w-72 text-(length:--text-tiny) leading-4 text-foreground-muted"
+            id={`company-preference-scope-${company.id}`}
+          >
+            {companyPreferenceScopeDescription}
+          </span>
         </label>
         <div className="flex flex-wrap gap-2">
           <Button
@@ -326,13 +347,7 @@ export function CompaniesScreen(props: CompaniesScreenProps) {
     );
   }
 
-  const jobsByStatus = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const job of props.discoveryJobs) {
-      map.set(job.id, job.status);
-    }
-    return map;
-  }, [props.discoveryJobs]);
+  const jobById = indexCompanyJobs(props.discoveryJobs);
 
   const filteredCompanies = useMemo(
     () =>
@@ -375,24 +390,22 @@ export function CompaniesScreen(props: CompaniesScreenProps) {
 
   return (
     <section className="grid gap-5 pb-8">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <PageHeader
-          compact
-          eyebrow="Companies"
-          title="Companies"
-          description="Every employer linked to your saved jobs and applications, with openings, outcomes, contacts, notes, salary/offer evidence, source history, and conservative duplicate review."
-        />
-        <div className="flex flex-wrap gap-2">
-          <Button
-            onClick={handleRefresh}
-            pending={props.isRefreshPending}
-            type="button"
-            variant="secondary"
-          >
-            Refresh from jobs and applications
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        actions={
+          props.companies.length > 0 ? (
+            <Button
+              onClick={handleRefresh}
+              pending={props.isRefreshPending}
+              type="button"
+              variant="secondary"
+            >
+              Refresh from jobs and applications
+            </Button>
+          ) : null
+        }
+        description="Review employers, openings, contacts, outcomes, notes, and duplicate records."
+        title="Companies"
+      />
 
       {props.actionMessage ? (
         <p
@@ -424,13 +437,26 @@ export function CompaniesScreen(props: CompaniesScreenProps) {
       />
 
       {props.companies.length === 0 ? (
-        <EmptyState
-          title="No companies yet"
-          description="Companies appear here after jobs are discovered or applications are tracked. Refresh from jobs and applications to reconcile the employers you already have."
-        />
+        <div className="grid gap-3">
+          <EmptyState
+            className="min-h-40 px-5 py-6"
+            title="No companies yet"
+            description="Companies appear here after jobs are discovered or applications are tracked. Reconcile the employers you already have."
+          />
+          <div className="flex justify-center">
+            <Button
+              onClick={handleRefresh}
+              pending={props.isRefreshPending}
+              type="button"
+            >
+              Refresh from jobs and applications
+            </Button>
+          </div>
+        </div>
       ) : (
         <>
           <CollectionSearchToolbar
+            className="px-0"
             label="Search companies"
             onQueryChange={setQuery}
             placeholder="Search name, alias, domain, contact, or preference"
@@ -452,7 +478,8 @@ export function CompaniesScreen(props: CompaniesScreenProps) {
                     company={company}
                     isMutationPending={props.isMutationPending(company.id)}
                     isPreferencePending={props.isPreferencePending(company.id)}
-                    jobsByStatus={jobsByStatus}
+                    jobById={jobById}
+                    jobs={props.discoveryJobs}
                     key={company.id}
                     onNavigate={props.onNavigate}
                     onSetPreference={(preference) => {

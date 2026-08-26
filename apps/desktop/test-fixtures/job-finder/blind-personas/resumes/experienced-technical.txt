@@ -1,0 +1,25 @@
+CASEY ROWAN
+Senior Software Engineer
+casey.rowan@example.test | Portland, Oregon
+
+SUMMARY
+Software engineer with 15 years of experience building accessible web applications, frontend platforms, and design systems. Strong in React, TypeScript, testing, performance, technical leadership, and mentoring.
+
+EXPERIENCE
+Principal Frontend Engineer - Northstar Parcel Software
+March 2021-Present
+- Led architecture for a React and TypeScript platform used by 18 product teams.
+- Built an accessible component system with automated browser and accessibility tests.
+- Mentored senior engineers and guided frontend reliability and performance work.
+
+Senior Software Engineer - Cedar Ledger
+June 2015-February 2021
+- Built account-management workflows and shared frontend infrastructure.
+- Led testing improvements and cross-team technical design reviews.
+
+Software Engineer - Alder Web Studio
+July 2011-May 2015
+- Delivered standards-based web applications for civic and logistics clients.
+
+SKILLS
+React, TypeScript, JavaScript, accessibility, design systems, testing, performance, technical leadership

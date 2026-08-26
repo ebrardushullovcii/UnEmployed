@@ -1,11 +1,13 @@
-import type {
-  AssetStatus,
-  CandidateProfile,
-  ResumeExtractionStatus,
-  ResumeImportFieldCandidateSummary,
-  ResumeImportProgressEvent,
-  ResumeImportRun,
-  ResumeTimelineRepairAction,
+import {
+  PROFILE_SETUP_PLACEHOLDER_HEADLINE,
+  PROFILE_SETUP_PLACEHOLDER_SUMMARY,
+  type AssetStatus,
+  type CandidateProfile,
+  type ResumeExtractionStatus,
+  type ResumeImportFieldCandidateSummary,
+  type ResumeImportProgressEvent,
+  type ResumeImportRun,
+  type ResumeTimelineRepairAction,
 } from "@unemployed/contracts";
 import { Sparkles, Upload } from "lucide-react";
 import { Button } from "@renderer/components/ui/button";
@@ -22,9 +24,8 @@ import { ProfileImportSuggestionList } from "./profile-import-suggestion-list";
 import { ProfileTimelineRepairList } from "./profile-timeline-repair-list";
 import { ResumeImportProgress } from "./resume-import-progress";
 
-const PROFILE_PLACEHOLDER_HEADLINE = "Import your resume to begin";
-const PROFILE_PLACEHOLDER_SUMMARY =
-  "Import a resume or paste resume text to build your profile, targeting, and tailored documents.";
+const PROFILE_PLACEHOLDER_HEADLINE = PROFILE_SETUP_PLACEHOLDER_HEADLINE;
+const PROFILE_PLACEHOLDER_SUMMARY = PROFILE_SETUP_PLACEHOLDER_SUMMARY;
 const RESUME_PLACEHOLDER_FILE_NAME = "No resume imported yet";
 
 function isPlaceholderValue(
@@ -299,13 +300,13 @@ export function ProfileResumePanel({
   })();
   const displayName =
     profile.preferredDisplayName?.trim() ||
-    profile.fullName.trim() ||
+    profile.fullName?.trim() ||
     "Name not set yet";
   const importedIdentityStatus = hasImportedResume
     ? getImportedIdentityStatus({
-        headline: profile.headline,
+        headline: profile.headline ?? "",
         latestResumeImportReviewCandidates,
-        summary: profile.summary,
+        summary: profile.summary ?? "",
       })
     : null;
   const headline =
@@ -316,8 +317,8 @@ export function ProfileResumePanel({
           importedIdentityStatus?.headlinePending &&
           isPlaceholderValue(profile.headline, PROFILE_PLACEHOLDER_HEADLINE)
         ? importedIdentityStatus.headline
-        : profile.headline.trim() || "Headline not set yet";
-  const location = profile.currentLocation.trim() || "Location not set yet";
+        : profile.headline?.trim() || "Headline not set yet";
+  const location = profile.currentLocation?.trim() || "Location not set yet";
   const visibleYearsExperience = getVisibleYearsExperience({
     profileYearsExperience: profile.yearsExperience,
     reviewCandidates: latestResumeImportReviewCandidates,
@@ -359,11 +360,10 @@ export function ProfileResumePanel({
         : "not_started";
 
   return (
-    <section className="relative overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-[linear-gradient(135deg,var(--surface-panel-border-warm),var(--surface-overlay-subtle)_38%,var(--surface-overlay-soft))] p-5 sm:p-6">
-      <div className="absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,transparent,var(--surface-panel-border-warm-strong),transparent)]" />
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(20rem,0.9fr)]">
+    <section className="relative overflow-hidden border-y border-(--surface-panel-border) bg-transparent py-4 sm:py-5">
+      <div className="grid gap-5 xl:items-start xl:grid-cols-[minmax(0,1.1fr)_minmax(20rem,0.9fr)]">
         <div className="grid gap-5">
-          <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
             <div className="grid gap-2">
               <p className="text-(length:--text-eyebrow) font-medium uppercase tracking-(--tracking-mono) text-foreground-muted">
                 Resume
@@ -403,7 +403,7 @@ export function ProfileResumePanel({
                 <span className="text-(length:--text-description) leading-6 text-foreground-muted">
                   {hasImportedResume
                     ? "Refresh your profile suggestions any time you want to pull in changes from the saved resume text."
-                    : "Import a résumé for faster suggestions, or continue entering profile details manually."}
+                    : "Import a resume for faster suggestions, or continue entering profile details manually."}
                 </span>
               )}
             </div>
@@ -450,7 +450,7 @@ export function ProfileResumePanel({
                 className="rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) px-4 py-3 text-sm leading-6 text-(--warning-text)"
                 role="alert"
               >
-                The saved original CV cannot be verified for applications.
+                The saved original resume cannot be verified for applications.
                 Replace it to create a new private copy; your extracted profile
                 details will stay available until the new import finishes.
               </div>
@@ -524,7 +524,7 @@ export function ProfileResumePanel({
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-            <div className="rounded-(--radius-field) border border-(--field-border) bg-(--field) p-4">
+            <div className="rounded-(--radius-field) border border-(--surface-well-border) bg-(--surface-well) p-4">
               <span className="text-(length:--text-eyebrow) font-medium uppercase tracking-(--tracking-mono) text-foreground-muted">
                 Name
               </span>
@@ -532,7 +532,7 @@ export function ProfileResumePanel({
                 {displayName}
               </strong>
             </div>
-            <div className="rounded-(--radius-field) border border-(--field-border) bg-(--field) p-4">
+            <div className="rounded-(--radius-field) border border-(--surface-well-border) bg-(--surface-well) p-4">
               <span className="text-(length:--text-eyebrow) font-medium uppercase tracking-(--tracking-mono) text-foreground-muted">
                 Headline
               </span>
@@ -540,7 +540,7 @@ export function ProfileResumePanel({
                 {headline}
               </strong>
             </div>
-            <div className="rounded-(--radius-field) border border-(--field-border) bg-(--field) p-4">
+            <div className="rounded-(--radius-field) border border-(--surface-well-border) bg-(--surface-well) p-4">
               <span className="text-(length:--text-eyebrow) font-medium uppercase tracking-(--tracking-mono) text-foreground-muted">
                 Location
               </span>
@@ -548,7 +548,7 @@ export function ProfileResumePanel({
                 {location}
               </strong>
             </div>
-            <div className="rounded-(--radius-field) border border-(--field-border) bg-(--field) p-4">
+            <div className="rounded-(--radius-field) border border-(--surface-well-border) bg-(--surface-well) p-4">
               <span className="text-(length:--text-eyebrow) font-medium uppercase tracking-(--tracking-mono) text-foreground-muted">
                 Experience
               </span>

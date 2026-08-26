@@ -8,6 +8,24 @@ import {
   type JobFinderSaveState
 } from './job-finder-save-state'
 
+function assertFailedBlockedState(
+  state: JobFinderSaveState | undefined,
+): asserts state is JobFinderSaveState & {
+  state: 'failed'
+  canRetry: false
+  retryBlockedReason: string
+} {
+  if (state?.state !== 'failed') {
+    throw new Error('Expected failed state')
+  }
+  if (state.canRetry !== false) {
+    throw new Error('Expected blocked retry state')
+  }
+  if (typeof state.retryBlockedReason !== 'string') {
+    throw new Error('Expected retryBlockedReason')
+  }
+}
+
 describe('Job Finder save coordinator', () => {
   it('deduplicates rapid identical saves and versions meaningful changes', async () => {
     const states: JobFinderSaveState[] = []
@@ -165,6 +183,188 @@ describe('Job Finder save coordinator', () => {
 
     expect(states.at(-1)).toMatchObject({ state: 'saved', version: 2, message: 'Newer saved.' })
   })
+
+  it('does not let an older failing completion obscure a newer successful status', async () => {
+    const states: JobFinderSaveState[] = []
+    let rejectOlder: (error: unknown) => void = () => undefined
+    let resolveNewer: () => void = () => undefined
+    const coordinator = createJobFinderSaveCoordinator({ onStateChange: (state) => states.push(state) })
+
+    const older = coordinator.run({
+      dedupeKey: 'profile:older-fail',
+      execute: () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectOlder = reject
+        }),
+      failedMessage: () => 'Older failed.',
+      label: 'Profile',
+      savedMessage: 'Older saved.',
+      surface: 'profile'
+    })
+    const newer = coordinator.run({
+      dedupeKey: 'settings:newer-save',
+      execute: () =>
+        new Promise<void>((resolve) => {
+          resolveNewer = resolve
+        }),
+      failedMessage: () => 'Settings were not saved.',
+      label: 'Settings',
+      savedMessage: 'Newer saved.',
+      surface: 'settings'
+    })
+
+    resolveNewer()
+    const newerResult = await newer
+    rejectOlder(new Error('offline'))
+    const olderResult = await older
+
+    // The newer save keeps both the visible save state and its truth: the
+    // older operation's late failure is reported to its caller as failed but
+    // marked superseded so it can never overwrite newer status anywhere.
+    expect(states.at(-1)).toMatchObject({ state: 'saved', message: 'Newer saved.' })
+    expect(olderResult.status).toBe('failed')
+    expect(olderResult.superseded).toBe(true)
+    expect(newerResult.status).toBe('saved')
+    expect(newerResult.superseded).toBe(false)
+  })
+
+  it('retires exact-request retry when the surface is revised after a failure', async () => {
+    const states: JobFinderSaveState[] = []
+    const execute = vi.fn().mockRejectedValueOnce(new Error('offline'))
+    const coordinator = createJobFinderSaveCoordinator({ onStateChange: (state) => states.push(state) })
+
+    await coordinator.run({
+      dedupeKey: createSaveDedupeKey('profile', { name: 'Casey' }),
+      execute,
+      failedMessage: () => 'Profile was not saved. Check your connection and retry.',
+      label: 'Profile',
+      savedMessage: 'Profile saved.',
+      surface: 'profile'
+    })
+    expect(states.at(-1)).toMatchObject({ state: 'failed', canRetry: true })
+
+    // The user edits the form after the failure: the captured request now
+    // holds stale data, so Retry must disappear with explicit guidance and
+    // refuse to resubmit the old payload.
+    coordinator.markSurfaceRevised('profile')
+
+    const blockedState = states.at(-1)
+    expect(blockedState).toMatchObject({ state: 'failed', canRetry: false })
+    assertFailedBlockedState(blockedState)
+    expect(blockedState.retryBlockedReason).toContain('Use Save on the form')
+    await expect(coordinator.retry()).resolves.toBeNull()
+    expect(execute).toHaveBeenCalledTimes(1)
+  })
+
+  it('retires exact-request retry when the surface is revised while its save runs', async () => {
+    const states: JobFinderSaveState[] = []
+    let rejectSave: (error: unknown) => void = () => undefined
+    const execute = vi.fn(
+      () =>
+        new Promise<string>((_resolve, reject) => {
+          rejectSave = reject
+        })
+    )
+    const coordinator = createJobFinderSaveCoordinator({ onStateChange: (state) => states.push(state) })
+    const pending = coordinator.run({
+      dedupeKey: createSaveDedupeKey('resume', { text: 'draft' }),
+      execute,
+      failedMessage: () => 'Resume draft was not saved.',
+      label: 'Resume draft',
+      savedMessage: 'Draft saved.',
+      surface: 'resume'
+    })
+
+    coordinator.markSurfaceRevised('resume')
+    rejectSave(new Error('offline'))
+    await pending
+
+    expect(states.at(-1)).toMatchObject({ state: 'failed', canRetry: false })
+    await expect(coordinator.retry()).resolves.toBeNull()
+    expect(execute).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps exact-request retry working when revisions touch only other surfaces', async () => {
+    const states: JobFinderSaveState[] = []
+    const execute = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce('saved')
+    const coordinator = createJobFinderSaveCoordinator({ onStateChange: (state) => states.push(state) })
+
+    await coordinator.run({
+      dedupeKey: createSaveDedupeKey('profile', { name: 'Casey' }),
+      execute,
+      failedMessage: () => 'Profile was not saved.',
+      label: 'Profile',
+      savedMessage: 'Profile saved.',
+      surface: 'profile'
+    })
+
+    // Unrelated settings drafts changed; the untouched profile payload stays
+    // exactly what the user asked to save, so Retry remains available.
+    coordinator.markSurfaceRevised('settings')
+
+    expect(states.at(-1)).toMatchObject({ state: 'failed', canRetry: true })
+    await coordinator.retry()
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(states.at(-1)).toMatchObject({ state: 'saved', attempt: 2 })
+  })
+
+  it('keeps same-key dedupe across clearReceipt while an operation stays in flight', async () => {
+    const receipts: unknown[] = []
+    const states: JobFinderSaveState[] = []
+    let resolveSave: () => void = () => undefined
+    const execute = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = resolve
+        })
+    )
+    const coordinator = createJobFinderSaveCoordinator({
+      onReceiptChange: (receipt) => receipts.push(receipt),
+      onStateChange: (state) => states.push(state)
+    })
+    const first = coordinator.run({
+      dedupeKey: 'profile:pending-reset',
+      execute,
+      failedMessage: () => 'Profile was not saved.',
+      label: 'Profile',
+      savedMessage: 'Profile saved.',
+      surface: 'profile'
+    })
+
+    coordinator.clearReceipt()
+
+    // clearReceipt must not open the door to a duplicate same-key execution:
+    // the second run joins the still-executing original instead of starting
+    // a parallel save of the same payload.
+    const second = coordinator.run({
+      dedupeKey: 'profile:pending-reset',
+      execute,
+      failedMessage: () => 'Profile was not saved.',
+      label: 'Profile',
+      savedMessage: 'Profile saved.',
+      surface: 'profile'
+    })
+    expect(second).toBe(first)
+
+    resolveSave()
+    const result = await second
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(result).toEqual({ status: 'saved', result: undefined, superseded: true })
+    expect(receipts).toEqual([null])
+    expect(states.at(-1)).toEqual({ state: 'idle', version: 0 })
+
+    // The settled operation released its slot, so a later save executes for real.
+    await coordinator.run({
+      dedupeKey: 'profile:pending-reset',
+      execute: vi.fn(() => Promise.resolve(undefined)),
+      failedMessage: () => 'Profile was not saved.',
+      label: 'Profile',
+      savedMessage: 'Profile saved.',
+      surface: 'profile'
+    })
+    expect(states.at(-1)).toMatchObject({ state: 'saved', version: 1 })
+  })
+
   it('restores a privacy-safe receipt across restarts and keeps meaningful versions stable', async () => {
     const values = new Map<string, string>()
     const storage = {

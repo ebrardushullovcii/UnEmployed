@@ -10,6 +10,14 @@ export interface DiscoverySearchReadiness {
   reason: string | null;
 }
 
+/**
+ * Visible reason used by every Find-jobs search control while campaign
+ * activity is paused. Non-color, one sentence, and distinct from the source
+ * readiness reason so the two states are never confused.
+ */
+export const DISCOVERY_PAUSED_SEARCH_REASON =
+  "Search is paused, so new searches stay unavailable.";
+
 export function getDiscoverySearchReadiness(
   searchPreferences: JobSearchPreferences,
 ): DiscoverySearchReadiness {

@@ -2,18 +2,21 @@ import { describe, expect, test } from "vitest";
 import { JobSearchPreferencesSchema } from "@unemployed/contracts";
 
 import {
+  assessLocationCompatibility,
   createMatchAssessment,
   buildDiscoveryJobs,
   getBroadLocationCompatibility,
   matchesAnyPhrase,
+  matchesExcludedLocation,
   matchesLocationPreference,
   matchesTitlePreference,
+  type LocationCompatibilityState,
 } from "./matching";
 import { createSeed } from "../workspace-service.test-fixtures";
 import { selectDiscoveryBudgetPostings } from "./workspace-discovery-methods";
 
 describe("matching helpers", () => {
-  test("orders equal-score discovery jobs by recommendation, detail quality, and recency", () => {
+  test("orders equal-score discovery jobs by detail quality and recency", () => {
     const seed = createSeed();
     const base = seed.savedJobs[0]!;
     const jobs = buildDiscoveryJobs([
@@ -68,10 +71,10 @@ describe("matching helpers", () => {
     ]);
 
     expect(jobs.map((job) => job.id)).toEqual([
+      "review_first",
       "newer_enriched",
       "older_enriched",
       "newer_card",
-      "review_first",
     ]);
   });
 
@@ -645,9 +648,6 @@ describe("matching helpers", () => {
     expect(
       matchesLocationPreference("Pristina (On-site)", ["Prishtina, Kosovo"]),
     ).toBe(true);
-    expect(matchesLocationPreference("Remote", ["Prishtina, Kosovo"])).toBe(
-      true,
-    );
     expect(
       matchesLocationPreference("Prishtina, Kosovo (Remote)", [
         "Prishtina, Kosovo",
@@ -678,6 +678,166 @@ describe("matching helpers", () => {
     expect(
       getBroadLocationCompatibility("Remote-APAC", ["Prishtina, Kosovo"]),
     ).toBe(false);
+  });
+
+  test("keeps geographically unspecified listings neutral instead of positively compatible", () => {
+    expect(assessLocationCompatibility("Remote", ["Prishtina, Kosovo"])).toBe(
+      "unknown",
+    );
+    expect(matchesLocationPreference("Remote", ["Prishtina, Kosovo"])).toBe(
+      false,
+    );
+    expect(assessLocationCompatibility("Hybrid", ["Berlin, Germany"])).toBe(
+      "unknown",
+    );
+    expect(assessLocationCompatibility("", ["Berlin, Germany"])).toBe(
+      "unknown",
+    );
+    expect(
+      assessLocationCompatibility("Remote - Worldwide", ["Prishtina, Kosovo"]),
+    ).toBe("compatible");
+    expect(assessLocationCompatibility("Remote", ["Remote", "London"])).toBe(
+      "compatible",
+    );
+    expect(assessLocationCompatibility("Tirana, Albania", ["Remote"])).toBe(
+      "unknown",
+    );
+    expect(
+      assessLocationCompatibility("Remote - United States", [
+        "Berlin, Germany",
+      ]),
+    ).toBe("incompatible");
+  });
+
+  test("applies one location-semantics table across positive fit and exclusion conflict", () => {
+    const table: ReadonlyArray<{
+      listing: string;
+      place: string;
+      positive: LocationCompatibilityState;
+      excluded: boolean;
+      rationale: string;
+    }> = [
+      {
+        listing: "Pristina (On-site)",
+        place: "Prishtina, Kosovo",
+        positive: "compatible",
+        excluded: true,
+        rationale: "normalized alias identity proves both fit and conflict",
+      },
+      {
+        listing: "Bengaluru, India",
+        place: "India",
+        positive: "compatible",
+        excluded: true,
+        rationale: "concrete containment of the named country",
+      },
+      {
+        listing: "Remote",
+        place: "India",
+        positive: "unknown",
+        excluded: false,
+        rationale:
+          "work-mode noise asserts no geography, so it neither fits nor conflicts",
+      },
+      {
+        listing: "Anywhere / Work from home",
+        place: "India",
+        positive: "compatible",
+        excluded: false,
+        rationale:
+          "worldwide coverage includes every saved area but never drives exclusion",
+      },
+      {
+        listing: "Remote - United States",
+        place: "United States",
+        positive: "compatible",
+        excluded: true,
+        rationale: "region-restricted remote respects the matching geography",
+      },
+      {
+        listing: "Remote - United States",
+        place: "Berlin, Germany",
+        positive: "incompatible",
+        excluded: false,
+        rationale: "proven regional separation resolves both directions",
+      },
+      {
+        listing: "Remote - Europe",
+        place: "Germany",
+        positive: "compatible",
+        excluded: true,
+        rationale:
+          "coarse candidate region may contain the compared place, so it fits positively and conflicts under exclusion",
+      },
+      {
+        listing: "Remote - Eastern Europe",
+        place: "Germany",
+        positive: "incompatible",
+        excluded: false,
+        rationale: "proven subregion separation blocks the exclusion",
+      },
+      {
+        listing: "Remote-EMEA",
+        place: "Prishtina, Kosovo",
+        positive: "compatible",
+        excluded: true,
+        rationale:
+          "coarse candidate region may contain the saved area in either direction",
+      },
+      {
+        listing: "Tirana, Albania",
+        place: "Prishtina, Kosovo",
+        positive: "incompatible",
+        excluded: false,
+        rationale:
+          "two fine-grained places in one region are not proof of conflict",
+      },
+      {
+        listing: "Berlin, Germany",
+        place: "India",
+        positive: "incompatible",
+        excluded: false,
+        rationale: "unrelated concrete places stay apart",
+      },
+    ];
+
+    for (const row of table) {
+      const label = `${row.listing} vs ${row.place}`;
+      expect(assessLocationCompatibility(row.listing, [row.place]), label).toBe(
+        row.positive,
+      );
+      expect(matchesExcludedLocation(row.listing, [row.place]), label).toBe(
+        row.excluded,
+      );
+    }
+  });
+
+  test("never lets noise-only locations match arbitrary exclusions while keeping explicit work-mode exclusions", () => {
+    for (const listing of [
+      "Remote",
+      "Hybrid",
+      "Anywhere",
+      "Worldwide",
+      "Work from home",
+      "Remote - Worldwide",
+    ]) {
+      for (const place of [
+        "India",
+        "Berlin, Germany",
+        "Toronto, Canada",
+        "United States",
+      ]) {
+        expect(
+          matchesExcludedLocation(listing, [place]),
+          `${listing}|${place}`,
+        ).toBe(false);
+      }
+    }
+
+    expect(matchesExcludedLocation("Remote", ["Remote"])).toBe(true);
+    expect(matchesExcludedLocation("Fully remote", ["remote"])).toBe(true);
+    expect(matchesExcludedLocation("Hybrid", ["Remote"])).toBe(false);
+    expect(matchesExcludedLocation("Berlin, Germany", ["Remote"])).toBe(false);
   });
 
   test("uses narrative overlap without manufacturing structured requirements", () => {
@@ -826,7 +986,7 @@ describe("matching helpers", () => {
       salaryText: "$90k-$100k/year",
     });
 
-    expect(meetsMinimum.scorerVersion).toBe(4);
+    expect(meetsMinimum.scorerVersion).toBe(6);
     expect(meetsMinimum.compensationFit.state).toBe("meets_minimum");
     expect(belowMinimum.compensationFit.state).toBe("below_minimum");
     expect(belowMinimum.score).toBeLessThan(meetsMinimum.score);
@@ -1598,6 +1758,206 @@ describe("matching helpers", () => {
         "Toronto, Ontario",
       ]),
     ).toBe(true);
+  });
+
+  test("scores unspecified remote geography neutrally between fit and conflict", () => {
+    const seed = createSeed();
+    const profile = {
+      ...seed.profile,
+      headline: "Senior Software Engineer",
+      skills: ["React", "TypeScript"],
+      workEligibility: {
+        ...seed.profile.workEligibility,
+        remoteEligible: true,
+        willingToRelocate: true,
+      },
+    };
+    const preferences = {
+      ...seed.searchPreferences,
+      targetRoles: ["Senior Software Engineer"],
+      locations: ["Berlin, Germany"],
+      workModes: [],
+      minimumSalaryUsd: null,
+      companyWhitelist: [],
+    };
+    const basePosting = {
+      ...seed.savedJobs[0]!,
+      title: "Senior Software Engineer",
+      workMode: ["onsite" as const],
+      salaryText: null,
+      detailQuality: "detail_enriched" as const,
+      description:
+        "Required: 5+ years of experience with TypeScript and React.",
+      keySkills: ["TypeScript", "React"],
+      keywordSignals: [],
+      responsibilities: [],
+      minimumQualifications: [],
+      preferredQualifications: [],
+    };
+    const assessAt = (location: string, label: string) =>
+      createMatchAssessment(profile, preferences, {
+        ...basePosting,
+        sourceJobId: `location_probe_${label}`,
+        location,
+      });
+
+    const compatibleCity = assessAt("Berlin, Germany", "city");
+    const unspecifiedRemote = assessAt("Remote", "bare_remote");
+    const unstatedLocation = assessAt("", "empty");
+    const conflictingRegion = assessAt("Remote - United States", "us_region");
+    const locationRequirement = (assessment: typeof compatibleCity) =>
+      assessment.requirements.find(
+        (requirement) =>
+          requirement.category === "location" &&
+          requirement.label.startsWith("Location:"),
+      );
+
+    expect(compatibleCity.reasons).toContain(
+      "Location fits the saved search preferences.",
+    );
+    expect(locationRequirement(compatibleCity)).toMatchObject({
+      status: "supported",
+    });
+    expect(compatibleCity.score).toBeGreaterThan(unspecifiedRemote.score);
+
+    expect(unspecifiedRemote.reasons).not.toContain(
+      "Location fits the saved search preferences.",
+    );
+    expect(unspecifiedRemote.gaps).not.toContain(
+      "Location falls outside the preferred search areas.",
+    );
+    expect(locationRequirement(unspecifiedRemote)).toMatchObject({
+      importance: "required",
+      status: "unknown",
+    });
+    expect(locationRequirement(unspecifiedRemote)?.explanation).toContain(
+      "does not specify enough geographic detail",
+    );
+    expect(unspecifiedRemote.recommendation).not.toBe("skip");
+    expect(unspecifiedRemote.score).toBe(unstatedLocation.score);
+    expect(unstatedLocation.gaps).not.toContain(
+      "Location falls outside the preferred search areas.",
+    );
+
+    expect(conflictingRegion.gaps).toContain(
+      "Location falls outside the preferred search areas.",
+    );
+    expect(conflictingRegion.score).toBeLessThan(unspecifiedRemote.score);
+  });
+
+  test("keeps geographically unspecified listings out of location evidence claims", () => {
+    const seed = createSeed();
+    const profile = {
+      ...seed.profile,
+      headline: "Senior Software Engineer",
+      skills: ["React", "TypeScript"],
+      workEligibility: {
+        ...seed.profile.workEligibility,
+        willingToRelocate: false,
+        remoteEligible: true,
+      },
+    };
+    const preferences = {
+      ...seed.searchPreferences,
+      targetRoles: ["Senior Software Engineer"],
+      locations: ["Prishtina, Kosovo"],
+      workModes: [],
+      minimumSalaryUsd: null,
+      companyWhitelist: [],
+    };
+    const basePosting = {
+      ...seed.savedJobs[0]!,
+      title: "Senior Software Engineer",
+      workMode: ["onsite" as const],
+      salaryText: null,
+      detailQuality: "detail_enriched" as const,
+      description: "Build software with TypeScript and React.",
+      keySkills: ["TypeScript", "React"],
+      keywordSignals: [],
+      responsibilities: [],
+      minimumQualifications: [],
+      preferredQualifications: [],
+      screeningHints: {
+        ...seed.savedJobs[0]!.screeningHints,
+        remoteGeographies: [],
+        requiresSecurityClearance: null,
+      },
+    };
+    const assessAt = (location: string, label: string) =>
+      createMatchAssessment(profile, preferences, {
+        ...basePosting,
+        sourceJobId: `location_evidence_${label}`,
+        location,
+      });
+    const locationRequirement = (assessment: ReturnType<typeof assessAt>) =>
+      assessment.requirements.find(
+        (requirement) =>
+          requirement.category === "location" &&
+          requirement.label.startsWith("Location:"),
+      );
+
+    for (const [location, label] of [
+      ["Remote", "bare_remote"],
+      ["", "empty_location"],
+    ] as const) {
+      const assessment = assessAt(location, label);
+
+      expect(assessment.reasons, label).not.toContain(
+        "Location fits the saved search preferences.",
+      );
+      expect(assessment.gaps, label).not.toContain(
+        "Location falls outside the preferred search areas.",
+      );
+      expect(assessment.recommendation, label).not.toBe("skip");
+      expect(assessment.score, label).toBeGreaterThan(0);
+      expect(
+        assessment.requirements.some(
+          (requirement) =>
+            requirement.importance === "required" &&
+            requirement.status === "conflict",
+        ),
+        label,
+      ).toBe(false);
+      expect(locationRequirement(assessment), label).toMatchObject({
+        importance: "required",
+        status: "unknown",
+      });
+      expect(locationRequirement(assessment)?.explanation, label).toContain(
+        "does not specify enough geographic detail",
+      );
+    }
+    expect(assessAt("Remote", "bare_remote").score).toBe(
+      assessAt("", "empty_location").score,
+    );
+
+    const concreteMatch = assessAt("Prishtina, Kosovo", "concrete_match");
+    expect(concreteMatch.reasons).toContain(
+      "Location fits the saved search preferences.",
+    );
+    expect(locationRequirement(concreteMatch)).toMatchObject({
+      status: "supported",
+      explanation:
+        "The listing location is compatible with the saved search area.",
+    });
+    expect(concreteMatch.score).toBeGreaterThan(
+      assessAt("Remote", "bare_remote").score,
+    );
+
+    const concreteMismatch = assessAt("Madrid, Spain", "concrete_mismatch");
+    expect(concreteMismatch.gaps).toContain(
+      "Location falls outside the preferred search areas.",
+    );
+    expect(locationRequirement(concreteMismatch)).toMatchObject({
+      status: "conflict",
+      explanation:
+        "The listing location is outside the saved search area and the profile rules out relocation.",
+    });
+    expect(concreteMismatch.score).toBeLessThan(
+      assessAt("Remote", "bare_remote").score,
+    );
+    expect(concreteMismatch.recommendationRationale).toContain(
+      "conflicts with the saved profile or search preferences",
+    );
   });
 
   test("hard-skips explicit non-engineering occupations while preserving ambiguous engineering roles", () => {

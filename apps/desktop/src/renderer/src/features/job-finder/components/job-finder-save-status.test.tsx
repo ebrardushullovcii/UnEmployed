@@ -67,6 +67,36 @@ describe("JobFinderSaveStatus", () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
+  it("replaces Retry with explicit guidance when edits made the captured request stale", () => {
+    const onRetry = vi.fn();
+    render(
+      <JobFinderSaveStatus
+        onRetry={onRetry}
+        saveState={{
+          state: "failed",
+          version: 2,
+          attempt: 1,
+          surface: "profile",
+          label: "Profile",
+          message: "Profile was not saved.",
+          canRetry: false,
+          retryBlockedReason:
+            "This form changed after the save failed, so Retry was removed to keep it from saving your older edits. Use Save on the form to submit your current changes.",
+        }}
+      />,
+    );
+
+    // The stale exact-request retry must be gone, and the guidance must name
+    // the safe alternative instead of leaving an unexplained gap.
+    expect(
+      screen.queryByRole("button", { name: /Retry saving/iu }),
+    ).toBeNull();
+    expect(screen.getByRole("status").textContent).toContain(
+      "Use Save on the form to submit your current changes.",
+    );
+    expect(onRetry).not.toHaveBeenCalled();
+  });
+
   it("dismisses a saved confirmation after its readable interval without hiding failures", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-10T10:00:00.000Z"));

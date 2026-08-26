@@ -161,7 +161,7 @@ describe("createJobFinderWorkspaceService", () => {
     });
     expect(executionInput).toMatchObject({
       mode: "prepare_only",
-      intermediateMutationsAuthorized: true,
+      intermediateMutationsAuthorized: false,
       accountCreationAuthorized: false,
       submitAuthorized: false,
     });
@@ -556,6 +556,8 @@ describe("createJobFinderWorkspaceService", () => {
       previewSections: [],
       generationMethod: "deterministic",
       notes: [],
+      failureMessage: null,
+      failedAt: null,
     });
     seed.resumeDrafts.push({
       id: "resume_draft_job_pause_case",
@@ -566,6 +568,8 @@ describe("createJobFinderWorkspaceService", () => {
       sections: [],
       targetPageCount: 2,
       generationMethod: "deterministic",
+      workHistoryReviewAcknowledgments: [],
+      claimConfirmations: [],
       approvedAt: "2026-03-20T10:04:00.000Z",
       approvedExportId: "resume_export_pause_case",
       staleReason: null,
@@ -885,6 +889,7 @@ describe("createJobFinderWorkspaceService", () => {
               locked: false,
               included: true,
               sourceRefs: [],
+              lastGeneratedContentHash: null,
               updatedAt: new Date().toISOString(),
             },
             {
@@ -894,6 +899,7 @@ describe("createJobFinderWorkspaceService", () => {
               locked: false,
               included: true,
               sourceRefs: [],
+              lastGeneratedContentHash: null,
               updatedAt: new Date().toISOString(),
             },
           ],
@@ -1170,6 +1176,8 @@ describe("createJobFinderWorkspaceService", () => {
       sections: [],
       targetPageCount: 2,
       generationMethod: "deterministic",
+      workHistoryReviewAcknowledgments: [],
+      claimConfirmations: [],
       approvedAt: null,
       approvedExportId: null,
       staleReason: null,
@@ -1752,6 +1760,8 @@ describe("createJobFinderWorkspaceService", () => {
       previewSections: [],
       generationMethod: "deterministic",
       notes: [],
+      failureMessage: null,
+      failedAt: null,
     });
     seed.resumeDrafts.push({
       id: "resume_draft_job_pause_case",
@@ -1762,6 +1772,8 @@ describe("createJobFinderWorkspaceService", () => {
       sections: [],
       targetPageCount: 2,
       generationMethod: "deterministic",
+      workHistoryReviewAcknowledgments: [],
+      claimConfirmations: [],
       approvedAt: "2026-03-20T10:04:00.000Z",
       approvedExportId: "resume_export_pause_case",
       staleReason: null,
@@ -1875,6 +1887,19 @@ describe("createJobFinderWorkspaceService", () => {
         /pending submit approval/i,
       ) as string,
     });
+    const preparationEvent = snapshot.applicationRecords[0]?.events.find(
+      (event) => event.title === "Application preparation approval requested",
+    );
+    expect(preparationEvent).toMatchObject({
+      title: "Application preparation approval requested",
+      detail:
+        "Your review permits opening and filling this application only. It never permits submission.",
+    });
+    expect(
+      snapshot.applicationRecords[0]?.events
+        .map((event) => `${event.title} ${event.detail ?? ""}`)
+        .join(" "),
+    ).not.toMatch(/automatic submit|submit approval/i);
   });
 
   test("records submit approval and exposes it through apply run details", async () => {
@@ -1967,6 +1992,8 @@ describe("createJobFinderWorkspaceService", () => {
         sections: [],
         targetPageCount: 2,
         generationMethod: "deterministic",
+        workHistoryReviewAcknowledgments: [],
+        claimConfirmations: [],
         approvedAt: "2026-03-20T10:04:00.000Z",
         approvedExportId: "resume_export_queue_first",
         staleReason: null,
@@ -1982,6 +2009,8 @@ describe("createJobFinderWorkspaceService", () => {
         sections: [],
         targetPageCount: 2,
         generationMethod: "deterministic",
+        workHistoryReviewAcknowledgments: [],
+        claimConfirmations: [],
         approvedAt: "2026-03-20T10:04:00.000Z",
         approvedExportId: "resume_export_queue_second",
         staleReason: null,
@@ -2159,6 +2188,8 @@ describe("createJobFinderWorkspaceService", () => {
         sections: [],
         targetPageCount: 2,
         generationMethod: "deterministic",
+        workHistoryReviewAcknowledgments: [],
+        claimConfirmations: [],
         approvedAt: "2026-03-20T10:04:00.000Z",
         approvedExportId: "resume_export_consent_queue",
         staleReason: null,
@@ -2174,6 +2205,8 @@ describe("createJobFinderWorkspaceService", () => {
         sections: [],
         targetPageCount: 2,
         generationMethod: "deterministic",
+        workHistoryReviewAcknowledgments: [],
+        claimConfirmations: [],
         approvedAt: "2026-03-20T10:04:00.000Z",
         approvedExportId: "resume_export_job_ready",
         staleReason: null,
@@ -2276,6 +2309,8 @@ describe("createJobFinderWorkspaceService", () => {
         sections: [],
         targetPageCount: 2,
         generationMethod: "deterministic",
+        workHistoryReviewAcknowledgments: [],
+        claimConfirmations: [],
         approvedAt: "2026-03-20T10:04:00.000Z",
         approvedExportId: "resume_export_consent_queue",
         staleReason: null,
@@ -2291,6 +2326,8 @@ describe("createJobFinderWorkspaceService", () => {
         sections: [],
         targetPageCount: 2,
         generationMethod: "deterministic",
+        workHistoryReviewAcknowledgments: [],
+        claimConfirmations: [],
         approvedAt: "2026-03-20T10:04:00.000Z",
         approvedExportId: "resume_export_job_ready",
         staleReason: null,
@@ -2400,6 +2437,8 @@ describe("createJobFinderWorkspaceService", () => {
         sections: [],
         targetPageCount: 2,
         generationMethod: "deterministic",
+        workHistoryReviewAcknowledgments: [],
+        claimConfirmations: [],
         approvedAt: "2026-03-20T10:04:00.000Z",
         approvedExportId: "resume_export_consent_queue",
         staleReason: null,
@@ -2415,6 +2454,8 @@ describe("createJobFinderWorkspaceService", () => {
         sections: [],
         targetPageCount: 2,
         generationMethod: "deterministic",
+        workHistoryReviewAcknowledgments: [],
+        claimConfirmations: [],
         approvedAt: "2026-03-20T10:04:00.000Z",
         approvedExportId: "resume_export_job_ready",
         staleReason: null,
@@ -2550,6 +2591,8 @@ describe("createJobFinderWorkspaceService", () => {
         sections: [],
         targetPageCount: 2,
         generationMethod: "deterministic",
+        workHistoryReviewAcknowledgments: [],
+        claimConfirmations: [],
         approvedAt: "2026-03-20T10:04:00.000Z",
         approvedExportId: "resume_export_consent_queue",
         staleReason: null,
@@ -2565,6 +2608,8 @@ describe("createJobFinderWorkspaceService", () => {
         sections: [],
         targetPageCount: 2,
         generationMethod: "deterministic",
+        workHistoryReviewAcknowledgments: [],
+        claimConfirmations: [],
         approvedAt: "2026-03-20T10:04:00.000Z",
         approvedExportId: "resume_export_job_ready",
         staleReason: null,
@@ -2657,6 +2702,8 @@ describe("createJobFinderWorkspaceService", () => {
         sections: [],
         targetPageCount: 2,
         generationMethod: "deterministic",
+        workHistoryReviewAcknowledgments: [],
+        claimConfirmations: [],
         approvedAt: "2026-03-20T10:04:00.000Z",
         approvedExportId: "resume_export_job_ready",
         staleReason: null,
@@ -3018,6 +3065,8 @@ describe("createJobFinderWorkspaceService", () => {
         ],
         targetPageCount: 2,
         generationMethod: "manual",
+        workHistoryReviewAcknowledgments: [],
+        claimConfirmations: [],
         approvedAt: "2026-04-18T12:00:00.000Z",
         approvedExportId: "resume_export_legacy",
         staleReason: null,
@@ -3138,6 +3187,8 @@ describe("createJobFinderWorkspaceService", () => {
         sections: [],
         targetPageCount: 2,
         generationMethod: "deterministic",
+        workHistoryReviewAcknowledgments: [],
+        claimConfirmations: [],
         approvedAt: "2026-04-18T12:00:00.000Z",
         approvedExportId: "resume_export_share_ready",
         staleReason: null,
@@ -3175,6 +3226,8 @@ describe("createJobFinderWorkspaceService", () => {
         previewSections: [],
         generationMethod: "deterministic",
         notes: [],
+        failureMessage: null,
+        failedAt: null,
       },
     ];
 
@@ -3230,6 +3283,81 @@ describe("createJobFinderWorkspaceService", () => {
     ).rejects.toThrow(/not eligible for automatic apply/i);
   });
 
+  test("keeps approved resume drafts current when a recrawl has weaker job detail", async () => {
+    const seed = createSeed();
+    const richDescription =
+      "Own product design from discovery through measured delivery. Partner with product managers and engineers to define customer problems, evaluate alternatives, and document interaction decisions before build. Test prototypes weekly with real users, synthesize qualitative and quantitative evidence into prioritized recommendations, and improve shipped workflows across onboarding, activation, and retention surfaces. Maintain the design system tokens, document accessibility expectations for every component, and coach teammates through structured design reviews so quality stays high as the platform grows.";
+    seed.savedJobs = seed.savedJobs.map((job) =>
+      job.id === "job_ready"
+        ? SavedJobSchema.parse({
+            ...job,
+            description: richDescription,
+            detailQuality: "detail_enriched",
+            atsProvider: "LinkedIn Jobs",
+          })
+        : job,
+    );
+    const baseRuntime = createBrowserRuntime();
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseRuntime,
+      runDiscovery(source) {
+        return Promise.resolve({
+          source,
+          startedAt: "2026-03-21T10:00:00.000Z",
+          completedAt: "2026-03-21T10:01:00.000Z",
+          querySummary: "Thin recrawl approval test",
+          inventoryCompleteness: "complete",
+          warning: null,
+          agentMetadata: null,
+          jobs: [
+            JobPostingSchema.parse({
+              source: "target_site",
+              sourceJobId: "linkedin_signal_ready",
+              discoveryMethod: "catalog_seed",
+              canonicalUrl:
+                "https://www.linkedin.com/jobs/view/linkedin_signal_ready",
+              title: "Senior Product Designer",
+              company: "Signal Systems",
+              location: "Remote",
+              workMode: ["remote"],
+              applyPath: "easy_apply",
+              easyApplyEligible: true,
+              discoveredAt: "2026-03-21T10:00:00.000Z",
+              lastSeenAt: "2026-03-21T10:00:00.000Z",
+              lastVerifiedActiveAt: "2026-03-21T10:00:00.000Z",
+              salaryText: null,
+              description: "Senior Product Designer role at Signal Systems",
+              detailQuality: "card_only",
+            }),
+          ],
+        });
+      },
+    };
+    const { workspaceService, repository } = createWorkspaceServiceHarness({
+      seed,
+      browserRuntime,
+    });
+
+    await workspaceService.generateResume("job_ready");
+    const exportedSnapshot =
+      await workspaceService.exportResumePdf("job_ready");
+    const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
+      (artifact) => artifact.jobId === "job_ready",
+    );
+    await workspaceService.approveResume("job_ready", approvedExport!.id);
+
+    await workspaceService.runDiscovery();
+    const savedJob = (await repository.listSavedJobs()).find(
+      (job) => job.id === "job_ready",
+    );
+    const workspace = await workspaceService.getResumeWorkspace("job_ready");
+
+    expect(savedJob?.description).toBe(richDescription);
+    expect(savedJob?.lastSeenAt).toBe("2026-03-21T10:00:00.000Z");
+    expect(workspace.draft.status).toBe("approved");
+    expect(workspace.draft.approvedExportId).toBe(approvedExport!.id);
+  });
+
   test("stales approved resume drafts when saved job details change materially", async () => {
     let useChangedDiscovery = false;
     const baseRuntime = createBrowserRuntime();
@@ -3245,6 +3373,7 @@ describe("createJobFinderWorkspaceService", () => {
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:01:00.000Z",
           querySummary: "Changed discovery test run",
+          inventoryCompleteness: "complete",
           warning: null,
           agentMetadata: null,
           jobs: [
@@ -3380,6 +3509,8 @@ describe("createJobFinderWorkspaceService", () => {
       ],
       targetPageCount: 2,
       generationMethod: "ai",
+      workHistoryReviewAcknowledgments: [],
+      claimConfirmations: [],
       approvedAt: null,
       approvedExportId: null,
       staleReason: null,
@@ -3761,6 +3892,7 @@ describe("createJobFinderWorkspaceService", () => {
                           locked: false,
                           included: true,
                           sourceRefs: [],
+                          lastGeneratedContentHash: null,
                           updatedAt: "2026-07-30T12:00:00.000Z",
                         },
                       ],

@@ -1,34 +1,11 @@
-import type {
-  JobFinderResumeWorkspace,
-  ResumeDraft,
-} from "@unemployed/contracts";
-import { StatusBadge } from "../../components/status-badge";
+import type { JobFinderResumeWorkspace } from "@unemployed/contracts";
 import { formatNormalizedCompensation } from "../../lib/normalized-compensation";
 import { ResumeClaimTrustPanel } from "./resume-claim-trust-panel";
-import {
-  formatDraftStatusLabel,
-  formatOptionalDate,
-  toDraftStatusTone,
-} from "./resume-workspace-utils";
+import { formatOptionalDate } from "./resume-workspace-utils";
 
 interface ResumeWorkspaceSidebarProps {
-  draft: ResumeDraft;
   hasUnsavedChanges: boolean;
   workspace: JobFinderResumeWorkspace;
-}
-
-function truncateText(value: string | null | undefined, maxLength: number) {
-  if (!value) {
-    return null;
-  }
-
-  const normalized = value.trim();
-
-  if (normalized.length <= maxLength) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
 }
 
 function formatHostLabel(value: string | null | undefined) {
@@ -39,7 +16,7 @@ function formatHostLabel(value: string | null | undefined) {
   try {
     return new URL(value).hostname.replace(/^www\./, "");
   } catch {
-    return truncateText(value, 42);
+    return value.trim();
   }
 }
 
@@ -58,13 +35,15 @@ function firstNonEmpty(
 }
 
 export function ResumeWorkspaceSidebar({
-  draft,
   hasUnsavedChanges,
   workspace,
 }: ResumeWorkspaceSidebarProps) {
   const { job, research, sharedProfile, validation } = workspace;
   const researchCount = research.length;
-  const validationCount = validation?.issues.length ?? 0;
+  const validationIssues = validation?.issues ?? [];
+  const blockingIssueCount = validationIssues.filter(
+    (issue) => issue.severity === "error",
+  ).length;
   const normalizedCompensation = formatNormalizedCompensation(
     job.normalizedCompensation,
   );
@@ -75,34 +54,25 @@ export function ResumeWorkspaceSidebar({
     job.department ? `Department: ${job.department}` : null,
   ].filter(Boolean) as string[];
   const targetingCues = [
-    ...job.keywordSignals.slice(0, 3).map((signal) => signal.label),
-    ...job.responsibilities.slice(0, 2),
-    ...job.minimumQualifications.slice(0, 2),
+    ...job.keywordSignals.map((signal) => signal.label),
+    ...job.responsibilities,
+    ...job.minimumQualifications,
   ];
-  const profileSummary = truncateText(
-    firstNonEmpty(
-      sharedProfile.narrativeSummary,
-      sharedProfile.selfIntroduction,
-      sharedProfile.nextChapterSummary,
-    ),
-    180,
+  const profileSummary = firstNonEmpty(
+    sharedProfile.narrativeSummary,
+    sharedProfile.selfIntroduction,
+    sharedProfile.nextChapterSummary,
   );
   const highlightedProof = sharedProfile.highlightedProofs[0] ?? null;
-  const screeningSummary = truncateText(
-    firstNonEmpty(
-      job.screeningHints.sponsorshipText,
-      job.screeningHints.relocationText,
-      job.screeningHints.travelText,
-      job.screeningHints.remoteGeographies[0]
-        ? `Remote geography: ${job.screeningHints.remoteGeographies[0]}`
-        : null,
-    ),
-    120,
+  const screeningSummary = firstNonEmpty(
+    job.screeningHints.sponsorshipText,
+    job.screeningHints.relocationText,
+    job.screeningHints.travelText,
+    job.screeningHints.remoteGeographies[0]
+      ? `Remote geography: ${job.screeningHints.remoteGeographies[0]}`
+      : null,
   );
-  const targetingSummary = truncateText(
-    targetingCues.slice(0, 3).join(" • "),
-    145,
-  );
+  const targetingSummary = firstNonEmpty(targetingCues.join(" • "));
   const leadResearch = research[0] ?? null;
   const employerHost = formatHostLabel(job.employerWebsiteUrl);
   const applicationHost = formatHostLabel(job.applicationUrl);
@@ -120,9 +90,6 @@ export function ResumeWorkspaceSidebar({
         >
           Job context
         </p>
-        <StatusBadge tone={toDraftStatusTone(draft.status)}>
-          {formatDraftStatusLabel(draft.status)}
-        </StatusBadge>
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-foreground-soft">
         <p>
@@ -130,9 +97,17 @@ export function ResumeWorkspaceSidebar({
           : {researchCount}
         </p>
         <p>
-          {validationCount === 1 ? "Validation check" : "Validation checks"}:{" "}
-          {validationCount}
+          {validationIssues.length === 1
+            ? "Validation check"
+            : "Validation checks"}
+          : {validationIssues.length}
         </p>
+        {blockingIssueCount > 0 ? (
+          <p className="font-medium text-(--warning-text)">
+            {blockingIssueCount} blocking issue
+            {blockingIssueCount === 1 ? "" : "s"} must be fixed before approval.
+          </p>
+        ) : null}
         {hasUnsavedChanges ? (
           <p className="text-(--warning-text)">
             Unsaved edits stay local until you save or run another action.
@@ -187,18 +162,20 @@ export function ResumeWorkspaceSidebar({
             Shared profile inputs
           </p>
           {profileSummary ? (
-            <p className="text-sm leading-6 text-foreground-soft">
+            <p className="break-words text-sm leading-6 text-foreground-soft">
               {profileSummary}
             </p>
           ) : null}
           {highlightedProof ? (
             <div className="grid gap-1 text-sm text-foreground-soft">
-              <strong className="text-foreground">
+              <strong className="break-words text-foreground">
                 {highlightedProof.title}
               </strong>
-              <p>{truncateText(highlightedProof.claim, 110)}</p>
+              <p className="break-words">{highlightedProof.claim}</p>
               {highlightedProof.heroMetric ? (
-                <p>Metric: {highlightedProof.heroMetric}</p>
+                <p className="break-words">
+                  Metric: {highlightedProof.heroMetric}
+                </p>
               ) : null}
             </div>
           ) : null}
@@ -213,28 +190,33 @@ export function ResumeWorkspaceSidebar({
           <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
             Saved research
           </p>
-          <p className="text-sm text-foreground-soft">
-            {research.length > 0
-              ? `${research.length} saved source${research.length === 1 ? "" : "s"}.`
-              : "No research saved yet."}
-          </p>
+          {research.length === 0 ? (
+            <p className="text-sm text-foreground-soft">
+              No research saved yet.
+            </p>
+          ) : null}
           {leadResearch ? (
             <div className="grid gap-1 text-sm text-foreground-soft">
-              <strong className="text-foreground">
-                {truncateText(
-                  leadResearch.pageTitle ?? leadResearch.sourceUrl,
-                  72,
-                )}
+              <strong className="break-words text-foreground">
+                {leadResearch.pageTitle ?? leadResearch.sourceUrl}
               </strong>
-              <span>{formatHostLabel(leadResearch.sourceUrl)}</span>
+              <span className="break-words">
+                {formatHostLabel(leadResearch.sourceUrl)}
+              </span>
             </div>
           ) : null}
 
           {job.applicationUrl || job.employerWebsiteUrl || job.atsProvider ? (
             <div className="grid gap-1 border-t border-(--surface-panel-border) pt-2 text-(length:--text-small) leading-5 text-foreground-muted">
-              {job.atsProvider ? <p>Provider: {job.atsProvider}</p> : null}
-              {employerHost ? <p>Employer site: {employerHost}</p> : null}
-              {applicationHost ? <p>Apply route: {applicationHost}</p> : null}
+              {job.atsProvider ? (
+                <p className="break-words">Provider: {job.atsProvider}</p>
+              ) : null}
+              {employerHost ? (
+                <p className="break-words">Employer site: {employerHost}</p>
+              ) : null}
+              {applicationHost ? (
+                <p className="break-words">Apply route: {applicationHost}</p>
+              ) : null}
             </div>
           ) : null}
         </div>

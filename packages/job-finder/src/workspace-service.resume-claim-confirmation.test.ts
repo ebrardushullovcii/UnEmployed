@@ -1,0 +1,505 @@
+import type {
+  JobFinderSetResumeClaimConfirmationInput,
+  ResumeClaimAssessment,
+} from "@unemployed/contracts";
+import { resumeClaimOwnershipStatement } from "@unemployed/contracts";
+import { describe, expect, test } from "vitest";
+import { createAiClient } from "./workspace-service.test-runtimes";
+import {
+  createWorkspaceServiceHarness,
+  createSeed,
+} from "./workspace-service.test-support";
+import type { JobFinderWorkspaceService } from "./internal/workspace-service-contracts";
+
+// Weak candidate-only support: shares too few tokens with the stored evidence
+// to paraphrase, but avoids every hard integrity gap, so the v2 verifier maps
+// this generated claim to confirm_needed.
+const WEAK_CLAIM_TEXT =
+  "Championed resilient delivery improvements across organizations.";
+// A quantified metric that appears nowhere in the candidate evidence: a hard
+// integrity gap that must stay unconfirmable.
+const UNSUPPORTED_CLAIM_TEXT =
+  "Increased revenue by 340% within one quarter through delivery improvements.";
+
+function createClaimHarness(input: { bullets: readonly string[] }) {
+  const seed = createSeed();
+  const baseAiClient = createAiClient();
+
+  return createWorkspaceServiceHarness({
+    seed,
+    aiClient: {
+      ...baseAiClient,
+      async createResumeDraft(draftInput) {
+        const base = await baseAiClient.createResumeDraft(draftInput);
+
+        return {
+          ...base,
+          experienceEntries: base.experienceEntries.map((entry, index) =>
+            index === 0 ? { ...entry, bullets: [...input.bullets] } : entry,
+          ),
+        };
+      },
+    },
+  });
+}
+
+type ClaimHarness = ReturnType<typeof createClaimHarness>;
+type AddClaimConfirmationInput = Extract<
+  JobFinderSetResumeClaimConfirmationInput,
+  { intent: "add" }
+>;
+
+function findConfirmNeededAssessment(
+  workspace: Awaited<
+    ReturnType<JobFinderWorkspaceService["getResumeWorkspace"]>
+  >,
+): ResumeClaimAssessment {
+  const assessment = findOutstandingConfirmNeededAssessmentOrNull(workspace);
+
+  if (!assessment) {
+    throw new Error("Expected a confirm_needed claim assessment.");
+  }
+
+  return assessment;
+}
+
+/**
+ * Validation always projects `confirm_needed` rows for weak generated claims —
+ * confirmed or not, because statuses describe content while confirmations live
+ * on the draft. Mirror the export gate's exact matcher so only rows without an
+ * owning confirmation (same draft, locator, and normalized content hash) count
+ * as still outstanding.
+ */
+function findOutstandingConfirmNeededAssessmentOrNull(
+  workspace: Awaited<
+    ReturnType<JobFinderWorkspaceService["getResumeWorkspace"]>
+  >,
+): ResumeClaimAssessment | null {
+  const confirmations = workspace.draft.claimConfirmations;
+  return (
+    workspace.validation?.claimAssessments.find(
+      (candidate) =>
+        candidate.status === "confirm_needed" &&
+        !confirmations.some(
+          (confirmation) =>
+            confirmation.draftId === workspace.draft.id &&
+            confirmation.field === candidate.field &&
+            confirmation.sectionId === candidate.sectionId &&
+            confirmation.entryId === candidate.entryId &&
+            confirmation.bulletId === candidate.bulletId &&
+            confirmation.confirmedClaimContentHash === candidate.contentHash,
+        ),
+    ) ?? null
+  );
+}
+
+/**
+ * Confirms every outstanding `confirm_needed` row one exact command at a time,
+ * always re-reading the monotonic draft revision between commands. Export can
+ * only pass once nothing confirm-needed remains, independent of how many rows
+ * the deterministic generation produced.
+ */
+async function confirmAllOutstandingClaims(
+  harness: ClaimHarness,
+): Promise<ResumeClaimAssessment[]> {
+  const { workspaceService, repository } = harness;
+  let workspace = await workspaceService.getResumeWorkspace("job_ready");
+  const confirmed: ResumeClaimAssessment[] = [];
+
+  for (;;) {
+    const pending = findOutstandingConfirmNeededAssessmentOrNull(workspace);
+    if (!pending) {
+      break;
+    }
+
+    const stored = await repository.getResumeDraftByJobId("job_ready");
+    if (!stored) {
+      throw new Error("Expected the generated draft to persist.");
+    }
+
+    await workspaceService.setResumeClaimConfirmation(
+      buildAddInput({
+        draftUpdatedAt: stored.updatedAt,
+        assessment: pending,
+      }),
+    );
+    confirmed.push(pending);
+
+    workspace = await workspaceService.getResumeWorkspace("job_ready");
+    if (confirmed.length > 100) {
+      throw new Error("Claim confirmations did not converge.");
+    }
+  }
+
+  if (confirmed.length === 0) {
+    throw new Error("Expected at least one confirm_needed claim assessment.");
+  }
+
+  return confirmed;
+}
+
+function buildAddInput(input: {
+  jobId?: string;
+  draftId?: string;
+  draftUpdatedAt: string;
+  assessment: ResumeClaimAssessment;
+}): AddClaimConfirmationInput {
+  return {
+    intent: "add",
+    jobId: input.jobId ?? "job_ready",
+    draftId: input.draftId ?? "resume_draft_job_ready",
+    expectedDraftUpdatedAt: input.draftUpdatedAt,
+    field: input.assessment.field,
+    sectionId: input.assessment.sectionId,
+    entryId: input.assessment.entryId,
+    bulletId: input.assessment.bulletId,
+    confirmedClaimContentHash: input.assessment.contentHash,
+    ownershipStatement: resumeClaimOwnershipStatement,
+  };
+}
+
+describe("resume claim confirmation commands", () => {
+  test("confirm_needed blocks export until exact confirmations land, then export and approval pass", async () => {
+    const harness = createClaimHarness({ bullets: [WEAK_CLAIM_TEXT] });
+    const { workspaceService, repository } = harness;
+
+    await workspaceService.generateResume("job_ready");
+    // Fail fast if the deterministic generation produced no confirm_needed row.
+    findConfirmNeededAssessment(
+      await workspaceService.getResumeWorkspace("job_ready"),
+    );
+    const draftBefore = await repository.getResumeDraftByJobId("job_ready");
+
+    await expect(workspaceService.exportResumePdf("job_ready")).rejects.toThrow(
+      /blocking candidate-claim validation issues/i,
+    );
+
+    const confirmed = await confirmAllOutstandingClaims(harness);
+
+    const confirmedDraft = await repository.getResumeDraftByJobId("job_ready");
+
+    expect(confirmedDraft!.claimConfirmations).toHaveLength(confirmed.length);
+    expect(confirmedDraft!.claimConfirmations[0]).toMatchObject({
+      draftId: draftBefore!.id,
+      field: confirmed[0]!.field,
+      sectionId: confirmed[0]!.sectionId,
+      entryId: confirmed[0]!.entryId,
+      bulletId: confirmed[0]!.bulletId,
+      confirmedClaimContentHash: confirmed[0]!.contentHash,
+      ownershipStatement: resumeClaimOwnershipStatement,
+    });
+    expect(confirmedDraft!.updatedAt > draftBefore!.updatedAt).toBe(true);
+
+    // Multi-reference v2 rows (exact/paraphrase) never blocked; once every
+    // confirm_needed row is explicitly owned, the whole gate passes.
+    const exported = await workspaceService.exportResumePdf("job_ready");
+    const approved = await workspaceService.approveResume(
+      "job_ready",
+      exported.resumeExportArtifacts.find(
+        (artifact) => artifact.jobId === "job_ready",
+      )!.id,
+    );
+
+    expect(
+      approved.resumeDrafts.find((draft) => draft.jobId === "job_ready"),
+    ).toMatchObject({ status: "approved" });
+  });
+
+  test("rejects stale revisions, cross-draft ids, wrong hashes, unknown locators, and forged statements", async () => {
+    const harness = createClaimHarness({ bullets: [WEAK_CLAIM_TEXT] });
+    const { workspaceService, repository } = harness;
+
+    await workspaceService.generateResume("job_ready");
+    const assessment = findConfirmNeededAssessment(
+      await workspaceService.getResumeWorkspace("job_ready"),
+    );
+    const before = await repository.getResumeDraftByJobId("job_ready");
+    const revisionsBefore = await repository.listResumeDraftRevisions(
+      before!.id,
+    );
+    const validInput = buildAddInput({
+      draftUpdatedAt: before!.updatedAt,
+      assessment,
+    });
+
+    const mismatches: Array<[AddClaimConfirmationInput, RegExp]> =
+      [
+        [
+          { ...validInput, expectedDraftUpdatedAt: "2026-03-20T09:00:00.000Z" },
+          /changed before this claim confirmation/i,
+        ],
+        [
+          { ...validInput, draftId: "resume_draft_other" },
+          /Unable to find resume draft/i,
+        ],
+        [
+          { ...validInput, jobId: "job_generating" },
+          /Unable to find resume draft/i,
+        ],
+        [
+          {
+            ...validInput,
+            confirmedClaimContentHash: assessment.contentHash.replace(
+              /.$/,
+              "0",
+            ),
+          },
+          /no longer projected|wording changed/i,
+        ],
+        [
+          { ...validInput, bulletId: "experience_1_bullet_99" },
+          /no longer projected|wording changed/i,
+        ],
+      ];
+
+    for (const [input, pattern] of mismatches) {
+      await expect(
+        workspaceService.setResumeClaimConfirmation(input),
+      ).rejects.toThrow(pattern);
+    }
+
+    // Forged ownership statements are rejected by the typed contract itself.
+    await expect(
+      workspaceService.setResumeClaimConfirmation({
+        ...validInput,
+        ownershipStatement: "I promise this is accurate." as never,
+      }),
+    ).rejects.toThrow();
+
+    const after = await repository.getResumeDraftByJobId("job_ready");
+
+    expect(after!.updatedAt).toBe(before!.updatedAt);
+    expect(after!.claimConfirmations).toEqual([]);
+    expect(await repository.listResumeDraftRevisions(before!.id)).toHaveLength(
+      revisionsBefore.length,
+    );
+  });
+
+  test("duplicate adds are deterministic no-ops", async () => {
+    const harness = createClaimHarness({ bullets: [WEAK_CLAIM_TEXT] });
+    const { workspaceService, repository } = harness;
+
+    await workspaceService.generateResume("job_ready");
+    const assessment = findConfirmNeededAssessment(
+      await workspaceService.getResumeWorkspace("job_ready"),
+    );
+
+    await workspaceService.setResumeClaimConfirmation(
+      buildAddInput({
+        draftUpdatedAt: (
+          await repository.getResumeDraftByJobId("job_ready")
+        )!.updatedAt,
+        assessment,
+      }),
+    );
+    const afterFirst = await repository.getResumeDraftByJobId("job_ready");
+
+    await workspaceService.setResumeClaimConfirmation(
+      buildAddInput({
+        draftUpdatedAt: afterFirst!.updatedAt,
+        assessment,
+      }),
+    );
+    const afterSecond = await repository.getResumeDraftByJobId("job_ready");
+
+    expect(afterSecond!.claimConfirmations).toHaveLength(
+      afterFirst!.claimConfirmations.length,
+    );
+    expect(afterSecond!.claimConfirmations[0]!.id).toBe(
+      afterFirst!.claimConfirmations[0]!.id,
+    );
+    expect(afterSecond!.updatedAt).toBe(afterFirst!.updatedAt);
+  });
+
+  test("hard unsupported claims cannot be confirmed", async () => {
+    const harness = createClaimHarness({ bullets: [UNSUPPORTED_CLAIM_TEXT] });
+    const { workspaceService, repository } = harness;
+
+    await workspaceService.generateResume("job_ready");
+    const workspace = await workspaceService.getResumeWorkspace("job_ready");
+    const unsupported = workspace.validation?.claimAssessments.find(
+      (candidate) =>
+        candidate.status === "unsupported" && candidate.bulletId !== null,
+    );
+
+    if (!unsupported) {
+      throw new Error("Expected an unsupported generated claim assessment.");
+    }
+
+    await expect(
+      workspaceService.setResumeClaimConfirmation(
+        buildAddInput({
+          draftUpdatedAt: workspace.draft.updatedAt,
+          assessment: unsupported,
+        }),
+      ),
+    ).rejects.toThrow(/cannot be confirmed/i);
+
+    expect(
+      (await repository.getResumeDraftByJobId("job_ready"))!
+        .claimConfirmations,
+    ).toEqual([]);
+  });
+
+  test("normalization-only edits cannot escape gating while substantive edits re-block", async () => {
+    const harness = createClaimHarness({ bullets: [WEAK_CLAIM_TEXT] });
+    const { workspaceService, repository } = harness;
+
+    await workspaceService.generateResume("job_ready");
+    const assessment = findConfirmNeededAssessment(
+      await workspaceService.getResumeWorkspace("job_ready"),
+    );
+
+    // A whitespace/punctuation-only user rewrite keeps the generated origin,
+    // so the unconfirmed claim still blocks export. Case-only rewrites are
+    // deliberately avoided here: mid-sentence capital letters change which
+    // tokens the classifier treats as evidence-required named words, which is
+    // a substantive classification change rather than a normalization no-op.
+    await workspaceService.applyResumePatch({
+      id: "patch_normalization_only",
+      draftId: "resume_draft_job_ready",
+      operation: "update_bullet",
+      targetSectionId: assessment.sectionId,
+      targetEntryId: assessment.entryId,
+      anchorEntryId: null,
+      targetBulletId: assessment.bulletId,
+      anchorBulletId: null,
+      position: null,
+      newText: `  ${WEAK_CLAIM_TEXT.replace(/\.$/, "")} `,
+      newIncluded: null,
+      newLocked: null,
+      newBullets: null,
+      appliedAt: "2026-03-20T10:06:00.000Z",
+      origin: "user",
+      conflictReason: null,
+    });
+
+    await expect(workspaceService.exportResumePdf("job_ready")).rejects.toThrow(
+      /blocking candidate-claim validation issues/i,
+    );
+
+    // An exact confirmation of the current wording unblocks everything.
+    await confirmAllOutstandingClaims(harness);
+    const reExported = await workspaceService.exportResumePdf("job_ready");
+    const approved = await workspaceService.approveResume(
+      "job_ready",
+      reExported.resumeExportArtifacts.find(
+        (artifact) => artifact.jobId === "job_ready",
+      )!.id,
+    );
+    expect(
+      approved.resumeDrafts.find((entry) => entry.jobId === "job_ready"),
+    ).toMatchObject({ status: "approved" });
+
+    // A substantive assistant rewrite stays generated-class but produces a
+    // new normalized content hash, so the historical confirmation no longer
+    // matches and export blocks again.
+    const confirmationsBeforeEdit = (
+      await repository.getResumeDraftByJobId("job_ready")
+    )!.claimConfirmations.length;
+
+    await workspaceService.applyResumePatch({
+      id: "patch_substantive_rewrite",
+      draftId: "resume_draft_job_ready",
+      operation: "update_bullet",
+      targetSectionId: assessment.sectionId,
+      targetEntryId: assessment.entryId,
+      anchorEntryId: null,
+      targetBulletId: assessment.bulletId,
+      anchorBulletId: null,
+      position: null,
+      newText:
+        "Championed resilient delivery improvements across several organizations.",
+      newIncluded: null,
+      newLocked: null,
+      newBullets: null,
+      appliedAt: "2026-03-20T10:07:00.000Z",
+      origin: "assistant",
+      conflictReason: null,
+    });
+
+    const editedDraft = await repository.getResumeDraftByJobId("job_ready");
+
+    expect(editedDraft!.status).toBe("stale");
+    expect(editedDraft!.approvedAt).toBeNull();
+    expect(editedDraft!.claimConfirmations).toHaveLength(
+      confirmationsBeforeEdit,
+    );
+
+    await expect(workspaceService.exportResumePdf("job_ready")).rejects.toThrow(
+      /blocking candidate-claim validation issues/i,
+    );
+  });
+
+  test("removing confirmations stales approval and re-blocks export", async () => {
+    const harness = createClaimHarness({ bullets: [WEAK_CLAIM_TEXT] });
+    const { workspaceService, repository } = harness;
+
+    await workspaceService.generateResume("job_ready");
+    await confirmAllOutstandingClaims(harness);
+
+    const exported = await workspaceService.exportResumePdf("job_ready");
+    const approved = await workspaceService.approveResume(
+      "job_ready",
+      exported.resumeExportArtifacts.find(
+        (artifact) => artifact.jobId === "job_ready",
+      )!.id,
+    );
+
+    expect(
+      approved.resumeDrafts.find((draft) => draft.jobId === "job_ready"),
+    ).toMatchObject({ status: "approved" });
+
+    const approvedDraft = await repository.getResumeDraftByJobId("job_ready");
+    const confirmationIds = approvedDraft!.claimConfirmations.map(
+      (confirmation) => confirmation.id,
+    );
+
+    await expect(
+      workspaceService.setResumeClaimConfirmation({
+        intent: "remove",
+        jobId: "job_ready",
+        draftId: approvedDraft!.id,
+        expectedDraftUpdatedAt: "2026-03-20T09:00:00.000Z",
+        confirmationId: confirmationIds[0]!,
+      }),
+    ).rejects.toThrow(/changed before this claim confirmation/i);
+
+    // Removing any one confirmation invalidates the approval whose eligibility
+    // depended on it.
+    for (const confirmationId of confirmationIds) {
+      const current = await repository.getResumeDraftByJobId("job_ready");
+      await workspaceService.setResumeClaimConfirmation({
+        intent: "remove",
+        jobId: "job_ready",
+        draftId: current!.id,
+        expectedDraftUpdatedAt: current!.updatedAt,
+        confirmationId,
+      });
+    }
+
+    const removedDraft = await repository.getResumeDraftByJobId("job_ready");
+
+    expect(removedDraft).toMatchObject({
+      status: "stale",
+      approvedAt: null,
+      approvedExportId: null,
+    });
+    expect(removedDraft!.claimConfirmations).toEqual([]);
+
+    await expect(
+      workspaceService.setResumeClaimConfirmation({
+        intent: "remove",
+        jobId: "job_ready",
+        draftId: approvedDraft!.id,
+        expectedDraftUpdatedAt: removedDraft!.updatedAt,
+        confirmationId: confirmationIds[0]!,
+      }),
+    ).rejects.toThrow(/Unable to find resume claim confirmation/i);
+
+    // Without the confirmations the fresh export blocks again.
+    await expect(workspaceService.exportResumePdf("job_ready")).rejects.toThrow(
+      /blocking candidate-claim validation issues/i,
+    );
+  });
+});

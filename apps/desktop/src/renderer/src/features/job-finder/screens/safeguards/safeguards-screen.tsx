@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import type {
   JobFinderWorkspaceSnapshot,
   SafeguardMutationInput,
@@ -8,6 +8,10 @@ import { Button } from "@renderer/components/ui/button";
 import { EmptyState } from "@renderer/features/job-finder/components/empty-state";
 import { Input } from "@renderer/components/ui/input";
 import { StatusBadge } from "@renderer/features/job-finder/components/status-badge";
+import {
+  formatDailyPreparationCapacityReachedText,
+  isDailyPreparationCapacityExhausted,
+} from "@renderer/features/job-finder/lib/job-finder-daily-capacity";
 import { cn } from "@renderer/lib/utils";
 import {
   buildSafeguardsPresentationModel,
@@ -149,10 +153,6 @@ export function SafeguardsScreen(props: {
   const { actionMessage, isPending, onMutateSafeguards, workspace } = props;
   const [tab, setTab] = useState<SafeguardTabId>("all");
   const [query, setQuery] = useState("");
-  const queryInputRef = useRef<HTMLInputElement | null>(null);
-  const tabButtonRefs = useRef<
-    Partial<Record<SafeguardTabId, HTMLButtonElement | null>>
-  >({});
 
   const model = useMemo(
     () =>
@@ -179,18 +179,12 @@ export function SafeguardsScreen(props: {
   const blockedCount = model.counts.blockers;
   const isEmpty = model.rows.length === 0;
   const isNoMatch = !isEmpty && visibleRows.length === 0;
-
-  function moveTabFrom(currentId: SafeguardTabId, direction: -1 | 1) {
-    const currentIndex = TAB_ORDER.findIndex((entry) => entry.id === currentId);
-    const nextIndex =
-      (currentIndex + direction + TAB_ORDER.length) % TAB_ORDER.length;
-    moveTabTo(TAB_ORDER[nextIndex]!.id);
-  }
-
-  function moveTabTo(nextId: SafeguardTabId) {
-    setTab(nextId);
-    tabButtonRefs.current[nextId]?.focus();
-  }
+  // The fixed local-day preparation limit is a limit, not a blocker: with no
+  // slots left the page must not claim that "preparation is clear".
+  const dailyCapacity =
+    workspace.dashboard?.globalDailyApplicationPreparationCapacity ?? null;
+  const dailyCapacityExhausted =
+    isDailyPreparationCapacityExhausted(dailyCapacity);
 
   return (
     <section aria-label="High-volume safeguards" className="grid gap-4">
@@ -221,6 +215,18 @@ export function SafeguardsScreen(props: {
             application preparation.
           </span>
         </div>
+      ) : dailyCapacityExhausted && dailyCapacity ? (
+        <div
+          className="flex flex-wrap items-center gap-2 rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) px-3 py-2 text-(length:--text-small) text-foreground"
+          data-testid="safeguards-daily-capacity-status"
+          role="status"
+        >
+          <ShieldAlert aria-hidden="true" className="size-4" />
+          <span>
+            No active safeguard blockers.{" "}
+            {formatDailyPreparationCapacityReachedText(dailyCapacity)}
+          </span>
+        </div>
       ) : (
         <div
           className="flex flex-wrap items-center gap-2 rounded-(--radius-field) border border-positive/30 bg-positive/10 px-3 py-2 text-(length:--text-small) text-foreground"
@@ -242,102 +248,83 @@ export function SafeguardsScreen(props: {
         </p>
       ) : null}
 
-      <div
-        className="grid min-w-0 gap-3 lg:grid-cols-[minmax(14rem,1fr)_minmax(0,3fr)] lg:items-start"
-        data-safeguard-toolbar
-      >
-        <div className="relative min-w-0">
-          <Search
-            aria-hidden="true"
-            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-          />
-          <Input
-            aria-label="Search safeguards"
-            className="pl-9"
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search jobs, companies, signals, or reasons…"
-            ref={queryInputRef}
-            type="search"
-            value={query}
-          />
-        </div>
+      {!isEmpty ? (
         <div
-          aria-label="Safeguard categories"
-          className="flex min-w-0 w-full flex-wrap items-center gap-1 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-1"
-          data-safeguard-categories
-          role="tablist"
+          className="grid min-w-0 gap-3 lg:grid-cols-[minmax(14rem,1fr)_minmax(0,3fr)] lg:items-start"
+          data-safeguard-toolbar
         >
-          {TAB_ORDER.map((entry) => {
-            const count =
-              entry.id === "all"
-                ? model.counts.blockers
-                : entry.id === "caps"
-                  ? model.counts.caps
-                  : entry.id === "conflicts"
-                    ? model.counts.conflicts
-                    : entry.id === "signals"
-                      ? model.counts.signals
-                      : entry.id === "pauses"
-                        ? model.counts.pauses
-                        : entry.id === "reviews"
-                          ? model.counts.reviews
-                          : entry.id === "contradictions"
-                            ? model.counts.contradictions
-                            : model.counts.dismissals;
-            return (
-              <button
-                aria-selected={tab === entry.id}
-                className={cn(
-                  "inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-full px-3 text-(length:--text-small) font-medium outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/40",
-                  tab === entry.id
-                    ? "bg-secondary text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-                data-tab-id={entry.id}
-                key={entry.id}
-                onClick={() => setTab(entry.id)}
-                onKeyDown={(event) => {
-                  const currentId = event.currentTarget.dataset.tabId as
-                    | SafeguardTabId
-                    | undefined;
-                  if (!currentId) return;
-                  if (event.key === "ArrowLeft") {
-                    event.preventDefault();
-                    moveTabFrom(currentId, -1);
-                  } else if (event.key === "ArrowRight") {
-                    event.preventDefault();
-                    moveTabFrom(currentId, 1);
-                  } else if (event.key === "Home") {
-                    event.preventDefault();
-                    moveTabTo(TAB_ORDER[0]!.id);
-                  } else if (event.key === "End") {
-                    event.preventDefault();
-                    moveTabTo(TAB_ORDER[TAB_ORDER.length - 1]!.id);
-                  }
-                }}
-                ref={(button) => {
-                  tabButtonRefs.current[entry.id] = button;
-                }}
-                role="tab"
-                type="button"
-              >
-                {entry.label}
-                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-(--input) px-1 text-[0.65rem] tabular-nums text-foreground">
-                  {count}
-                </span>
-              </button>
-            );
-          })}
+          <div className="relative min-w-0">
+            <Search
+              aria-hidden="true"
+              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+            />
+            <Input
+              aria-label="Search safeguards"
+              className="pl-9"
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search safeguards"
+              type="search"
+              value={query}
+            />
+          </div>
+          <div
+            aria-label="Safeguard categories"
+            className="flex min-w-0 w-full flex-wrap items-center gap-1 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-1"
+            data-safeguard-categories
+            role="group"
+          >
+            {TAB_ORDER.map((entry) => {
+              const count =
+                entry.id === "all"
+                  ? model.counts.blockers
+                  : entry.id === "caps"
+                    ? model.counts.caps
+                    : entry.id === "conflicts"
+                      ? model.counts.conflicts
+                      : entry.id === "signals"
+                        ? model.counts.signals
+                        : entry.id === "pauses"
+                          ? model.counts.pauses
+                          : entry.id === "reviews"
+                            ? model.counts.reviews
+                            : entry.id === "contradictions"
+                              ? model.counts.contradictions
+                              : model.counts.dismissals;
+              return (
+                <button
+                  aria-pressed={tab === entry.id}
+                  className={cn(
+                    "inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-full px-3 text-(length:--text-small) font-medium outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                    tab === entry.id
+                      ? "bg-secondary text-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                  key={entry.id}
+                  onClick={() => setTab(entry.id)}
+                  type="button"
+                >
+                  {entry.label}
+                  <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-(--input) px-1 text-[0.65rem] tabular-nums text-foreground">
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      ) : null}
 
       {isEmpty ? (
-        <EmptyState
-          description="No caps, conflicts, listing signals, failure pauses, sample reviews, or contradictory answers have been recorded yet. They appear here automatically when the pipeline detects them."
-          title="No safeguards yet"
-        />
+        <div data-safeguard-empty>
+          <EmptyState
+            className="min-h-40 px-5 py-6"
+            description="No caps, conflicts, listing signals, failure pauses, sample reviews, or contradictory answers have been recorded yet. They appear here automatically when the pipeline detects them."
+            title="No safeguards yet"
+          />
+        </div>
       ) : isNoMatch ? (
         <EmptyState
+          className="min-h-40 px-5 py-6"
           description="Nothing in this category matches your search. Try a different term or clear the search box."
           title="No matching safeguards"
         />

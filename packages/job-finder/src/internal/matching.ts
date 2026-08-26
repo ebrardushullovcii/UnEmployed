@@ -2,14 +2,17 @@ import type { JobFinderAiClient } from "@unemployed/ai-providers";
 import {
   SavedJobDiscoveryProvenanceSchema,
   SavedJobSchema,
+  jobPostingDetailQualityValues,
   type ApplicationStatus,
   type CandidateProfile,
   type JobKeywordSignal,
   type JobSearchPreferences,
   type JobPosting,
+  type JobPostingDetailQuality,
   type MatchAssessment,
   type SavedJob,
   type SavedJobDiscoveryProvenance,
+  type WorkMode,
 } from "@unemployed/contracts";
 import {
   evaluateCompensationFit,
@@ -28,6 +31,7 @@ import {
   createJobIdentityDigest,
   createJobIdentityIndex,
 } from "./job-identity";
+import { assessJobPostingDetailQuality } from "./job-posting-detail-quality";
 import { buildDiscoveryJobs as orderVisibleDiscoveryJobs } from "./matching-review-queue";
 export {
   buildApplicationRecords,
@@ -532,15 +536,44 @@ function tokenizePhraseMatchValue(
   return [...new Set(tokens)];
 }
 
-function isRemoteOnlyLocation(value: string): boolean {
-  const genericTokens = tokenizePhraseMatchValue(value, "generic");
-  const locationTokens = tokenizePhraseMatchValue(value, "location");
+// Noise tokens that assert availability across every geography rather than a
+// work mode alone.
+const worldwideLocationNoiseTokens = new Set([
+  "anywhere",
+  "worldwide",
+  "global",
+]);
 
-  return (
-    locationTokens.length === 0 &&
-    genericTokens.length > 0 &&
-    genericTokens.every((token) => locationNoiseTokens.has(token))
-  );
+const broadRemoteGeographyPattern =
+  /\bremote\b|\bhybrid\b|\bemea\b|\beurope\b|\bapac\b|\blatam\b|\bamericas?\b|\bworldwide\b|\bglobal\b/iu;
+
+type LocationGeographySignal = {
+  rawText: string;
+  tokens: readonly string[];
+  genericTokens: readonly string[];
+  workModeTokens: readonly string[];
+  noiseOnly: boolean;
+  regions: ReadonlySet<BroadLocationRegion>;
+  europeanRegions: ReadonlySet<EuropeanLocationRegion>;
+};
+
+function readLocationGeographySignal(value: string): LocationGeographySignal {
+  // Work-mode phrases normalize into noise tokens ("work from home" reads as
+  // "remote"), so classification and the retained work-mode tokens share one
+  // view of the value.
+  const workModeTokens = tokenize(normalizePhraseMatchInput(value, "location"));
+
+  return {
+    rawText: value,
+    tokens: tokenizePhraseMatchValue(value, "location"),
+    genericTokens: tokenizePhraseMatchValue(value, "generic"),
+    workModeTokens,
+    noiseOnly:
+      workModeTokens.length > 0 &&
+      workModeTokens.every((token) => locationNoiseTokens.has(token)),
+    regions: inferBroadLocationRegions(value),
+    europeanRegions: inferEuropeanLocationRegions(value),
+  };
 }
 
 function isEditDistanceAtMostOne(left: string, right: string): boolean {
@@ -665,33 +698,78 @@ export function clampScore(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
+type AtsProviderHostRule = {
+  provider: string;
+  exact?: readonly string[];
+  suffixes?: readonly string[];
+};
+
+// Metadata taxonomy only: these hosts label saved jobs with the ATS provider
+// that hosted the listing. Discovery routing and workflow policy never branch
+// on them.
+const ATS_PROVIDER_HOST_RULES: readonly AtsProviderHostRule[] = [
+  { provider: "Greenhouse", suffixes: ["greenhouse.io"] },
+  { provider: "Lever", suffixes: ["lever.co"] },
+  { provider: "Workday", suffixes: ["myworkdayjobs.com"] },
+  { provider: "Ashby", suffixes: ["ashbyhq.com"] },
+  { provider: "iCIMS", suffixes: ["icims.com", "icims.eu"] },
+];
+
+function parseHttpUrlHostname(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return null;
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return null;
+  }
+
+  // URL.hostname already lowercases and IDN-encodes special-scheme hosts;
+  // only a trailing root dot survives parsing, so strip it explicitly.
+  const hostname = parsed.hostname.toLowerCase().replace(/\.+$/u, "");
+  return hostname.length > 0 ? hostname : null;
+}
+
+function matchesAtsProviderHostRule(
+  hostname: string,
+  rule: AtsProviderHostRule,
+): boolean {
+  if (rule.exact?.includes(hostname)) {
+    return true;
+  }
+
+  return (
+    rule.suffixes?.some(
+      (suffix) => hostname === suffix || hostname.endsWith(`.${suffix}`),
+    ) ?? false
+  );
+}
+
 function detectAtsProvider(posting: JobPosting): string | null {
   const urlCandidates = [
     posting.applicationUrl,
     posting.canonicalUrl,
     posting.employerWebsiteUrl,
-  ].filter((value): value is string => Boolean(value));
+  ];
 
   for (const value of urlCandidates) {
-    const normalized = value.toLowerCase();
+    const hostname = parseHttpUrlHostname(value);
+    if (hostname === null) {
+      continue;
+    }
 
-    if (normalized.includes("greenhouse.io")) {
-      return "Greenhouse";
-    }
-    if (normalized.includes("lever.co")) {
-      return "Lever";
-    }
-    if (
-      normalized.includes("myworkdayjobs.com") ||
-      normalized.includes("workday")
-    ) {
-      return "Workday";
-    }
-    if (normalized.includes("ashbyhq.com") || normalized.includes("ashby")) {
-      return "Ashby";
-    }
-    if (normalized.includes("icims.com")) {
-      return "iCIMS";
+    const matchedRule = ATS_PROVIDER_HOST_RULES.find((rule) =>
+      matchesAtsProviderHostRule(hostname, rule),
+    );
+    if (matchedRule) {
+      return matchedRule.provider;
     }
   }
 
@@ -823,7 +901,73 @@ function selectLatestProviderUpdate(
   return Date.parse(incoming) >= Date.parse(existing) ? incoming : existing;
 }
 
-function enrichDiscoveredPosting(
+function jobPostingDetailQualityRank(quality: JobPostingDetailQuality): number {
+  return jobPostingDetailQualityValues.indexOf(quality);
+}
+
+function strongestDetailQuality(
+  left: JobPostingDetailQuality,
+  right: JobPostingDetailQuality,
+): JobPostingDetailQuality {
+  return jobPostingDetailQualityRank(left) >= jobPostingDetailQualityRank(right)
+    ? left
+    : right;
+}
+
+// Historical quality metadata remains evidence even if the current rubric
+// cannot reconstruct it. Incoming strength is grounded in current content.
+function hasWeakerIncomingDetailEvidence(
+  posting: JobPosting,
+  existingJob: SavedJob,
+): boolean {
+  const existingQuality = strongestDetailQuality(
+    existingJob.detailQuality,
+    assessJobPostingDetailQuality(existingJob),
+  );
+
+  return (
+    jobPostingDetailQualityRank(assessJobPostingDetailQuality(posting)) <
+    jobPostingDetailQualityRank(existingQuality)
+  );
+}
+
+// Preserved groups cover every resume-affecting content field verbatim so a
+// weaker recrawl leaves the stored resume-staleness signature untouched.
+// Card-level freshness (lastSeenAt, providerUpdatedAt, provenance) still flows;
+// nullable evidence links only fall back when the thinner recrawl dropped them.
+function preserveRicherExistingDetail(
+  enrichedPosting: JobPosting,
+  existingJob: SavedJob,
+): JobPosting {
+  const existingQuality = strongestDetailQuality(
+    existingJob.detailQuality,
+    assessJobPostingDetailQuality(existingJob),
+  );
+
+  return {
+    ...enrichedPosting,
+    summary: existingJob.summary,
+    description: existingJob.description,
+    keySkills: [...existingJob.keySkills],
+    responsibilities: [...existingJob.responsibilities],
+    minimumQualifications: [...existingJob.minimumQualifications],
+    preferredQualifications: [...existingJob.preferredQualifications],
+    benefits: [...existingJob.benefits],
+    seniority: existingJob.seniority,
+    employmentType: existingJob.employmentType,
+    department: existingJob.department,
+    team: existingJob.team,
+    salaryText: enrichedPosting.salaryText ?? existingJob.salaryText,
+    employerWebsiteUrl:
+      enrichedPosting.employerWebsiteUrl ?? existingJob.employerWebsiteUrl,
+    employerDomain:
+      enrichedPosting.employerDomain ?? existingJob.employerDomain,
+    detailQuality: existingQuality,
+    keywordSignals: [...existingJob.keywordSignals],
+  };
+}
+
+export function enrichDiscoveredPosting(
   posting: JobPosting,
   existingJob: SavedJob | undefined,
 ): JobPosting {
@@ -834,7 +978,7 @@ function enrichDiscoveredPosting(
   const existingCompensation = existingJob?.normalizedCompensation;
   const postingKeywordSignals = posting.keywordSignals ?? [];
 
-  return {
+  const enrichedPosting: JobPosting = {
     ...posting,
     providerUpdatedAt: selectLatestProviderUpdate(
       posting.providerUpdatedAt,
@@ -916,6 +1060,12 @@ function enrichDiscoveredPosting(
         : buildKeywordSignals(posting),
     ),
   };
+
+  if (existingJob && hasWeakerIncomingDetailEvidence(posting, existingJob)) {
+    return preserveRicherExistingDetail(enrichedPosting, existingJob);
+  }
+
+  return enrichedPosting;
 }
 
 export function matchesAnyPhrase(
@@ -1022,80 +1172,249 @@ export function matchesTitlePreference(
   });
 }
 
+function matchesLocationPhrase(
+  candidateSignal: LocationGeographySignal,
+  desiredSignal: LocationGeographySignal,
+): boolean {
+  const candidateTokens = candidateSignal.tokens;
+  const normalizedCandidate = candidateTokens.join(" ");
+  const desiredTokens = desiredSignal.tokens;
+
+  if (desiredTokens.length === 0) {
+    const fallbackDesiredTokens = desiredSignal.genericTokens;
+    if (fallbackDesiredTokens.length === 0) {
+      return false;
+    }
+
+    if (fallbackDesiredTokens.length === 1) {
+      return candidateSignal.genericTokens.some((candidateToken) =>
+        phraseMatchTokensEqual(candidateToken, fallbackDesiredTokens[0]!),
+      );
+    }
+
+    return everyPhraseTokenMatches(
+      fallbackDesiredTokens,
+      candidateSignal.genericTokens,
+    );
+  }
+
+  // An empty candidate side cannot match a concrete place; the symmetric
+  // token comparison below would otherwise hold vacuously.
+  if (candidateTokens.length === 0) {
+    return false;
+  }
+
+  if (desiredTokens.length === 1) {
+    return candidateTokens.some((candidateToken) =>
+      phraseMatchTokensEqual(candidateToken, desiredTokens[0]!),
+    );
+  }
+
+  const normalizedDesired = desiredTokens.join(" ");
+  if (
+    new RegExp(`(^|\\s)${escapeRegex(normalizedDesired)}($|\\s)`).test(
+      normalizedCandidate,
+    )
+  ) {
+    return true;
+  }
+
+  return (
+    everyPhraseTokenMatches(desiredTokens, candidateTokens) ||
+    everyPhraseTokenMatches(candidateTokens, desiredTokens)
+  );
+}
+
+function isCoarseRegionalSignal(signal: LocationGeographySignal): boolean {
+  // Only europe has a finer subregion layer; every other broad region is
+  // terminal, so any signal resolving to it is coarse by definition.
+  return signal.europeanRegions.size === 0;
+}
+
+// Conservative containment for exclusion decisions: possible regional overlap
+// conflicts, proven separation does not. Two fine-grained places in the same
+// subregion are not enough evidence; at least one side must stop at the
+// region level.
+function locationRegionsPossiblyOverlap(
+  left: LocationGeographySignal,
+  right: LocationGeographySignal,
+): boolean {
+  if (left.regions.size === 0 || right.regions.size === 0) {
+    return false;
+  }
+
+  if (![...left.regions].some((region) => right.regions.has(region))) {
+    return false;
+  }
+
+  if (!isCoarseRegionalSignal(left) && !isCoarseRegionalSignal(right)) {
+    return false;
+  }
+
+  if (
+    left.regions.has("europe") &&
+    right.regions.has("europe") &&
+    left.europeanRegions.size > 0 &&
+    right.europeanRegions.size > 0 &&
+    ![...left.europeanRegions].some((region) =>
+      right.europeanRegions.has(region),
+    )
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+export type LocationCompatibilityState =
+  | "compatible"
+  | "incompatible"
+  | "unknown";
+
+// Positive preference fit only. Work-mode noise ("Remote", "Hybrid") states
+// how a job is done, never where, so it cannot confirm geographic
+// compatibility; "worldwide"/"anywhere" coverage is the documented exception
+// because it includes every saved area.
+export function assessLocationCompatibility(
+  candidate: string,
+  desiredValues: readonly string[],
+): LocationCompatibilityState {
+  if (desiredValues.length === 0) {
+    return "compatible";
+  }
+
+  const candidateSignal = readLocationGeographySignal(candidate);
+  const desiredSignals = desiredValues.map(readLocationGeographySignal);
+
+  if (candidateSignal.genericTokens.length === 0) {
+    return "unknown";
+  }
+
+  if (candidateSignal.noiseOnly) {
+    if (desiredSignals.some((signal) => signal.noiseOnly)) {
+      return "compatible";
+    }
+
+    if (
+      candidateSignal.genericTokens.some((token) =>
+        worldwideLocationNoiseTokens.has(token),
+      )
+    ) {
+      return "compatible";
+    }
+
+    return "unknown";
+  }
+
+  if (
+    broadRemoteGeographyPattern.test(candidateSignal.rawText) &&
+    getBroadLocationCompatibility(candidate, desiredValues) === true
+  ) {
+    return "compatible";
+  }
+
+  const hasGeographicDesired = desiredSignals.some(
+    (signal) => !signal.noiseOnly,
+  );
+  const matched = desiredSignals.some((desiredSignal) =>
+    matchesLocationPhrase(candidateSignal, desiredSignal),
+  );
+
+  if (matched) {
+    return "compatible";
+  }
+
+  // Without any geographic constraint to compare against, a failed
+  // work-mode token overlap is neutral rather than a conflict.
+  return hasGeographicDesired ? "incompatible" : "unknown";
+}
+
 export function matchesLocationPreference(
   candidate: string,
   desiredValues: readonly string[],
 ): boolean {
   // Location matching is intentionally richer than matchesAnyPhrase and should stay aligned with
   // location semantics unless we explicitly choose to widen or narrow location behavior.
-  if (desiredValues.length === 0) {
-    return true;
-  }
+  return assessLocationCompatibility(candidate, desiredValues) === "compatible";
+}
 
-  const candidateTokens = tokenizePhraseMatchValue(candidate, "location");
-  const fallbackCandidateTokens = tokenizePhraseMatchValue(
-    candidate,
-    "generic",
-  );
-  const normalizedCandidate = candidateTokens.join(" ");
+export type WorkModeCompatibilityState =
+  | "compatible"
+  | "conflict"
+  | "unknown";
 
-  if (isRemoteOnlyLocation(candidate)) {
-    return true;
-  }
-
-  const candidateUsesBroadRemoteGeography =
-    /\bremote\b|\bhybrid\b|\bemea\b|\beurope\b|\bapac\b|\blatam\b|\bamericas?\b|\bworldwide\b|\bglobal\b/iu.test(
-      candidate,
-    );
+/**
+ * Positive preference fit only, from concrete listing evidence. A listing that
+ * names no concrete mode (empty or "flexible" alone) stays unknown rather than
+ * compatible: offered flexibility is not evidence of any specific accepted
+ * mode. The same unknown applies when unpreferred concrete modes are listed
+ * alongside "flexible", so ambiguity is never hardened into a conflict. An
+ * all-concrete mismatch remains a real conflict.
+ */
+export function assessWorkModeCompatibility(
+  listingWorkModes: readonly WorkMode[],
+  preferredWorkModes: readonly WorkMode[],
+): WorkModeCompatibilityState {
   if (
-    candidateUsesBroadRemoteGeography &&
-    getBroadLocationCompatibility(candidate, desiredValues) === true
+    preferredWorkModes.length === 0 ||
+    preferredWorkModes.includes("flexible")
   ) {
-    return true;
+    return "compatible";
   }
 
-  return desiredValues.some((desiredValue) => {
-    const desiredTokens = tokenizePhraseMatchValue(desiredValue, "location");
-    const fallbackDesiredTokens = tokenizePhraseMatchValue(
-      desiredValue,
-      "generic",
+  const concreteListingModes = listingWorkModes.filter(
+    (mode) => mode !== "flexible",
+  );
+  if (concreteListingModes.length === 0) {
+    return "unknown";
+  }
+
+  if (concreteListingModes.some((mode) => preferredWorkModes.includes(mode))) {
+    return "compatible";
+  }
+
+  return listingWorkModes.includes("flexible") ? "unknown" : "conflict";
+}
+
+// Exclusion conflicts are a different question from positive fit: they skip
+// listings and must rest on concrete or conservatively contained geography.
+// Noise-only listings never conflict with an arbitrary excluded place; they
+// can only conflict when an exclusion targets that same work-mode noise.
+export function matchesExcludedLocation(
+  candidate: string,
+  excludedValues: readonly string[],
+): boolean {
+  if (excludedValues.length === 0) {
+    return false;
+  }
+
+  const candidateSignal = readLocationGeographySignal(candidate);
+  const matchesWorkModeExclusion = (excludedSignal: LocationGeographySignal) =>
+    excludedSignal.noiseOnly &&
+    excludedSignal.workModeTokens.length > 0 &&
+    excludedSignal.workModeTokens.every((token) =>
+      candidateSignal.workModeTokens.includes(token),
     );
 
-    if (desiredTokens.length === 0) {
-      if (fallbackDesiredTokens.length === 0) {
-        return false;
-      }
+  if (candidateSignal.noiseOnly) {
+    return excludedValues.some((value) =>
+      matchesWorkModeExclusion(readLocationGeographySignal(value)),
+    );
+  }
 
-      if (fallbackDesiredTokens.length === 1) {
-        return fallbackCandidateTokens.some((candidateToken) =>
-          phraseMatchTokensEqual(candidateToken, fallbackDesiredTokens[0]!),
-        );
-      }
-
-      return everyPhraseTokenMatches(
-        fallbackDesiredTokens,
-        fallbackCandidateTokens,
-      );
+  return excludedValues.some((value) => {
+    const excludedSignal = readLocationGeographySignal(value);
+    if (excludedSignal.noiseOnly) {
+      return matchesWorkModeExclusion(excludedSignal);
     }
 
-    if (desiredTokens.length === 1) {
-      return candidateTokens.some((candidateToken) =>
-        phraseMatchTokensEqual(candidateToken, desiredTokens[0]!),
-      );
-    }
-
-    const normalizedDesired = desiredTokens.join(" ");
-    if (
-      new RegExp(`(^|\\s)${escapeRegex(normalizedDesired)}($|\\s)`).test(
-        normalizedCandidate,
-      )
-    ) {
+    if (matchesLocationPhrase(candidateSignal, excludedSignal)) {
       return true;
     }
 
     return (
-      everyPhraseTokenMatches(desiredTokens, candidateTokens) ||
-      everyPhraseTokenMatches(candidateTokens, desiredTokens)
+      broadRemoteGeographyPattern.test(candidateSignal.rawText) &&
+      locationRegionsPossiblyOverlap(candidateSignal, excludedSignal)
     );
   });
 }
@@ -1202,14 +1521,14 @@ export function createMatchAssessment<
     searchPreferences.targetRoles.some(
       (role) => collectRoleFamilies(role).size > 0,
     ) && collectRoleFamilies(posting.title).size === 0;
-  const matchesLocation = matchesLocationPreference(
+  const locationCompatibility = assessLocationCompatibility(
     posting.location,
     searchPreferences.locations,
   );
-  const matchesWorkMode =
-    searchPreferences.workModes.length === 0 ||
-    searchPreferences.workModes.includes("flexible") ||
-    posting.workMode.some((mode) => searchPreferences.workModes.includes(mode));
+  const workModeCompatibility = assessWorkModeCompatibility(
+    posting.workMode,
+    searchPreferences.workModes,
+  );
   const explicitSeniorityConflict = hasExplicitPreferenceConflict(
     posting.seniority,
     searchPreferences.seniorityLevels,
@@ -1265,8 +1584,8 @@ export function createMatchAssessment<
   const requirements = buildRequirementEvidenceAssessment({
     profile,
     posting,
-    matchesLocation,
-    matchesWorkMode,
+    locationCompatibility,
+    workModeCompatibility,
     hasLocationPreferences: searchPreferences.locations.length > 0,
     hasWorkModePreferences: searchPreferences.workModes.length > 0,
   });
@@ -1316,25 +1635,29 @@ export function createMatchAssessment<
   if (searchPreferences.locations.length === 0) {
     // An unconstrained search is neutral. It is not evidence that the listing
     // matches a location the user explicitly chose.
-  } else if (matchesLocation) {
+  } else if (locationCompatibility === "compatible") {
     score += 10;
     reasons.push("Location fits the saved search preferences.");
-  } else {
+  } else if (locationCompatibility === "incompatible") {
     score -= 10;
     gaps.push("Location falls outside the preferred search areas.");
   }
+  // Geographically unspecified listings stay neutral: work-mode noise alone
+  // is not evidence for or against the saved areas.
 
   if (searchPreferences.workModes.length === 0) {
     // An unconstrained work mode is neutral for the same reason.
-  } else if (matchesWorkMode) {
+  } else if (workModeCompatibility === "compatible") {
     score += 8;
     reasons.push("Work mode matches the preferred operating model.");
-  } else {
+  } else if (workModeCompatibility === "conflict") {
     score -= 8;
     gaps.push(
       "Work mode does not match the saved remote or hybrid preferences.",
     );
   }
+  // Flexible or unspecified listings stay neutral: offered flexibility alone
+  // is not evidence for or against the saved operating model.
 
   const postingRequestsElevatedSeniority =
     /\b(?:staff|principal|director|manager|head)\b/iu.test(posting.title);
@@ -1454,8 +1777,8 @@ export function createMatchAssessment<
     matchesRole,
     roleFamilyMismatch,
     roleFamilyUnclear,
-    matchesLocation,
-    matchesWorkMode,
+    locationCompatibility,
+    workModeCompatibility,
     isPreferredCompany,
   });
   const hasHardConflict = requirements.some(
@@ -1577,7 +1900,23 @@ export function mergeDiscoveredJob(
   posting: JobPosting,
   existingJob: SavedJob | undefined,
 ): SavedJob {
-  const enrichedPosting = enrichDiscoveredPosting(posting, existingJob);
+  return assembleMergedDiscoveredJob({
+    matchAssessment,
+    enrichedPosting: enrichDiscoveredPosting(posting, existingJob),
+    posting,
+    existingJob,
+  });
+}
+
+// Shared assembly so callers that already enriched the posting (the merge
+// pipeline) and the direct helper above stay byte-for-byte identical.
+function assembleMergedDiscoveredJob(input: {
+  matchAssessment: MatchAssessment;
+  enrichedPosting: JobPosting;
+  posting: JobPosting;
+  existingJob: SavedJob | undefined;
+}): SavedJob {
+  const { matchAssessment, enrichedPosting, posting, existingJob } = input;
 
   return SavedJobSchema.parse({
     ...enrichedPosting,
@@ -1664,12 +2003,24 @@ export function mergeDiscoveredPostings(
     validatedCount += 1;
     const existingJob = identityIndex.find(posting) ?? undefined;
 
+    // Enrich before assessing so the stored assessment fingerprint describes
+    // exactly the content this merge persists. Enrichment derives fields the
+    // fingerprint covers (keyword signals, screening hints, ATS provider);
+    // assessing the raw posting instead stamps a fingerprint that can never
+    // match the persisted job, forcing a full re-score of every staged job on
+    // the next discovery run.
+    const enrichedPosting = enrichDiscoveredPosting(posting, existingJob);
     const matchAssessment = assessPosting
-      ? assessPosting(posting)
-      : createMatchAssessment(profile, searchPreferences, posting);
+      ? assessPosting(enrichedPosting)
+      : createMatchAssessment(profile, searchPreferences, enrichedPosting);
     const provenance = provenanceBuilder(posting);
     let mergedJob = SavedJobSchema.parse({
-      ...mergeDiscoveredJob(matchAssessment, posting, existingJob),
+      ...assembleMergedDiscoveredJob({
+        matchAssessment,
+        enrichedPosting,
+        posting,
+        existingJob,
+      }),
       provenance: uniqueProvenance([
         ...(existingJob?.provenance ?? []),
         provenance,

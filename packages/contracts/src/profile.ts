@@ -233,16 +233,19 @@ export const CandidateSkillGroupSchema = z.object({
 });
 export type CandidateSkillGroup = z.infer<typeof CandidateSkillGroupSchema>;
 
+const FreshStartIdentityTextSchema =
+  NonEmptyStringSchema.nullable().default(null);
+
 export const CandidateProfileSchema = z.object({
   id: NonEmptyStringSchema,
-  firstName: NonEmptyStringSchema,
-  lastName: NonEmptyStringSchema,
+  firstName: FreshStartIdentityTextSchema,
+  lastName: FreshStartIdentityTextSchema,
   middleName: NonEmptyStringSchema.nullable().default(null),
-  fullName: NonEmptyStringSchema,
+  fullName: FreshStartIdentityTextSchema,
   preferredDisplayName: NonEmptyStringSchema.nullable().default(null),
-  headline: NonEmptyStringSchema,
-  summary: NonEmptyStringSchema,
-  currentLocation: NonEmptyStringSchema,
+  headline: FreshStartIdentityTextSchema,
+  summary: FreshStartIdentityTextSchema,
+  currentLocation: FreshStartIdentityTextSchema,
   currentCity: NonEmptyStringSchema.nullable().default(null),
   currentRegion: NonEmptyStringSchema.nullable().default(null),
   currentCountry: NonEmptyStringSchema.nullable().default(null),

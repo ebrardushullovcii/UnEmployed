@@ -8,6 +8,7 @@ import { describe, expect, test } from "vitest";
 import {
   buildApplicationBlockerFingerprint,
   isApplicationAuthenticationUserActionKind,
+  isApplicationTechnicalFailureBlocker,
   mapApplicationBlockerToUserActionKind,
 } from "./internal/workspace-application-user-action";
 import { mapExecutionResultToApplyBlockerReason } from "./internal/workspace-apply-run-support";
@@ -21,6 +22,7 @@ const blockerReasonCases = [
   ["external_redirect", "unexpected_navigation"],
   ["unsupported_apply_path", "unexpected_navigation"],
   ["site_login_required", "auth_required"],
+  ["application_page_unreachable", "application_page_unreachable"],
 ] as const;
 
 describe("application blocker manual-action mapping", () => {
@@ -40,6 +42,7 @@ describe("application blocker manual-action mapping", () => {
     ["unsupported_apply_path", "external_redirect"],
     ["requires_manual_review", "other"],
     ["unknown", "other"],
+    ["application_page_unreachable", "other"],
   ] as const)("maps legacy blocker %s to %s", (code, expectedKind) => {
     const blocker = ApplicationAttemptBlockerSchema.parse({
       code,
@@ -47,6 +50,20 @@ describe("application blocker manual-action mapping", () => {
     });
 
     expect(mapApplicationBlockerToUserActionKind(blocker)).toBe(expectedKind);
+  });
+
+  test("treats an unreachable application page as a technical failure without a user action", () => {
+    const blocker = ApplicationAttemptBlockerSchema.parse({
+      code: "application_page_unreachable",
+      summary: "Job Finder could not open the application page.",
+      detail:
+        "The dedicated browser could not load this employer page, so preparation stopped before the page opened.",
+      questionIds: [],
+      sourceDebugEvidenceRefIds: [],
+      url: "https://jobs.example.com/apply/123",
+    });
+
+    expect(isApplicationTechnicalFailureBlocker(blocker)).toBe(true);
   });
 
   test("covers every application blocker code in reason mapping", () => {

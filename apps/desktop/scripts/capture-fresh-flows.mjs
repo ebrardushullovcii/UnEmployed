@@ -1,47 +1,108 @@
 import { mkdir, writeFile } from "node:fs/promises";
-import { execFile } from "node:child_process";
 import path from "node:path";
-import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { _electron as electron } from "playwright";
 import {
   ACCEPTANCE_VERSION,
   acceptanceEnvironment,
+  assertViewportEvidence,
   assertFileRenderer,
   assertPrepareOnly,
   attachProcessOutput,
   cleanupDirectory,
+  createOwnedProcessLedger,
   digestSeed,
   ensureFreshOutputDir,
   finalizeProcessOutput,
   loadAcceptanceContext,
   makeIsolatedUserDataDirectory,
+  PLAYWRIGHT_INSPECTOR_DISCONNECT_STDERR_PATTERN,
+  resolvePrimaryRunError,
+  resolveStartupBrowserWindow,
   screenshotMetadata,
+  stopAndVerifyOwnedElectron,
+  stableJson,
   installPrepareOnlySafetyProbe,
   verifyAcceptanceArtifacts,
 } from "./release-acceptance-harness.mjs";
 
-const execFileAsync = promisify(execFile);
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const desktopDir = path.resolve(currentDir, "..");
 const acceptance = loadAcceptanceContext("fresh");
-const artifactRoot = path.resolve(desktopDir, "test-artifacts", "ui");
 const outputDir = acceptance.outputDir;
 const viewports = [
   { slug: "desktop", width: 1440, height: 920, zoomFactor: 1 },
-  { slug: "zoom-200", width: 1440, height: 920, zoomFactor: 2 },
+  { slug: "native-125", width: 1440, height: 920, zoomFactor: 1.25 },
   { slug: "minimum", width: 1024, height: 768, zoomFactor: 1 },
 ];
-const WIDE_SIDEBAR_DESTINATIONS = Object.freeze([
-  "Search plans",
-  "Resume approaches",
-]);
 const PLANNING_SETTINGS_MENU_LABEL = "Planning and settings";
 const PLANNING_SETTINGS_MENU_DESTINATIONS = Object.freeze([
   "Search plans",
   "Resume approaches",
   "Settings",
 ]);
+const LONG_LABEL_JOB_TITLES = Object.freeze([
+  "Principal Accessibility Platform Engineer For Distributed Realtime Collaboration Infrastructure And Design Tooling",
+  "Staff Machine Learning Infrastructure Engineer Focused On Large Scale Retrieval Evaluation And Offline Replay Systems",
+]);
+const LONG_LABEL_COMPANIES = Object.freeze([
+  "Northwind Consolidated Manufacturing And Robotics Systems International Holdings Public Limited Company",
+  "Mercury Advanced Computational Sciences Laboratory For Applied Research Engineering And Product Development Group",
+]);
+const LONG_LABEL_LOCATIONS = Object.freeze([
+  "Hybrid, London, United Kingdom, with quarterly travel to the Lisbon engineering hub and occasional customer sites",
+  "Remote, European Union, headquartered in Berlin with distributed teammates across Amsterdam, Dublin, and Warsaw",
+]);
+const LONG_LABEL_META_LINES = Object.freeze([
+  `${LONG_LABEL_COMPANIES[0]} • ${LONG_LABEL_LOCATIONS[0]}`,
+  `${LONG_LABEL_COMPANIES[1]} • ${LONG_LABEL_LOCATIONS[1]}`,
+]);
+const LONG_LABEL_SOURCE_NAMES = Object.freeze([
+  "Northwind Consolidated Manufacturing Careers Board With An Extremely Long Organizational Descriptor For Truncation Truth Coverage",
+  "Mercury Advanced Computational Sciences Laboratory Job Listings Portal With A Deliberately Exhaustive Suffix For Ellipsis Coverage",
+]);
+const LONG_LABEL_CAMPAIGN_NAME =
+  "Synthetic Long-Label Campaign With A Deliberately Verbose Name To Exercise Header And Pill Truncation Truth";
+const LONG_LABEL_JOB_TOTAL = 12;
+const LONG_LABEL_SOURCE_TOTAL = 8;
+// Distinct required scenario IDs claim different semantic state, so they must
+// never produce pixel-identical PNG evidence. A deliberate duplicate would have
+// to be declared here as a frozen ["scenario-a", "scenario-b"] pair scoped to
+// exactly those two IDs; none are expected for this component.
+const DECLARED_DUPLICATE_SCREENSHOT_SCENARIO_PAIRS = Object.freeze([]);
+const pngSha256Index = new Map();
+
+function canonicalDuplicatePairKey(leftScenarioId, rightScenarioId) {
+  return [leftScenarioId, rightScenarioId].sort().join("\u0000");
+}
+
+function registerScreenshotCollisionGuard(entry) {
+  const digest = entry.screenshot?.sha256;
+  assert(
+    typeof digest === "string" && /^[0-9a-f]{64}$/.test(digest),
+    `Capture ${entry.scenarioId} (${entry.fileName}) has no usable PNG sha256 for the screenshot collision guard.`,
+  );
+  const priorOwners = pngSha256Index.get(digest) ?? [];
+  for (const owner of priorOwners) {
+    if (owner.scenarioId === entry.scenarioId) continue;
+    const declared = DECLARED_DUPLICATE_SCREENSHOT_SCENARIO_PAIRS.some(
+      (pair) =>
+        Array.isArray(pair) &&
+        pair.length === 2 &&
+        canonicalDuplicatePairKey(pair[0], pair[1]) ===
+          canonicalDuplicatePairKey(owner.scenarioId, entry.scenarioId),
+    );
+    if (declared) continue;
+    throw new Error(
+      `Screenshot collision guard failed: required scenarios "${owner.scenarioId}" (${owner.fileName}) and "${entry.scenarioId}" (${entry.fileName}) produced identical PNG sha256 ${digest}. Distinct required scenarios must not ship pixel-identical evidence; declare a deliberate duplicate pair explicitly if one is ever intended.`,
+    );
+  }
+  pngSha256Index.set(digest, [
+    ...priorOwners,
+    { scenarioId: entry.scenarioId, fileName: entry.fileName },
+  ]);
+  report.screenshotCollisionGuard.checkedCaptures += 1;
+}
 
 const report = {
   startedAt: new Date().toISOString(),
@@ -54,6 +115,7 @@ const report = {
     buildArtifactFingerprint: acceptance.manifest.artifacts?.digest ?? null,
     seedDigest: acceptance.seedDigest,
   },
+  pass: false,
   safety: {
     syntheticCandidateDataOnly: true,
     browserAgentEnabled: false,
@@ -66,26 +128,41 @@ const report = {
   },
   captures: [],
   scenarios: {},
+  screenshotCollisionGuard: {
+    declaredDuplicatePairs: DECLARED_DUPLICATE_SCREENSHOT_SCENARIO_PAIRS,
+    checkedCaptures: 0,
+  },
   requiredScenarioCompletionIds: [
     "home-zero-desktop",
     "home-zero-minimum",
     "guided-setup-empty-desktop",
-    "guided-setup-empty-zoom200",
+    "guided-setup-empty-native125",
     "wide-sidebar-1440",
     "compact-planning-settings-minimum",
     "profile-sources-p1",
     "profile-sources-p2",
     "profile-sources-filtered-empty",
-    "profile-sources-zoom200",
+    "profile-sources-native125",
     "discovery-p1",
     "discovery-filtered-empty",
-    "discovery-zoom200",
-    "planning-settings-menu-zoom200",
-    "home-zero-zoom200",
+    "discovery-native125",
+    "planning-settings-menu-native125",
+    "home-zero-native125",
+    "long-label-desktop",
+    "long-label-minimum",
+    "long-label-native125",
+    "long-label-sources-native125",
   ],
   scenarioCompletionIds: [],
   runtimeErrors: [],
   mainProcess: { pid: null, stdout: "", stderr: "" },
+  processOwnership: {
+    trackedProcesses: [],
+    verifications: [],
+    leftoverPids: [],
+    verified: false,
+    failure: null,
+  },
 };
 let activeBrowserWindow = null;
 
@@ -105,15 +182,23 @@ function completeScenario(scenarioId, evidence) {
       `Unknown required scenario completion ID: ${scenarioId}. Update the manifest before completing it.`,
     );
   if (!evidence || typeof evidence !== "object")
-    throw new Error(`Scenario ${scenarioId} completed without capture evidence.`);
-  if (evidence.pass !== true || evidence.insideViewport !== true || evidence.noClip !== true)
     throw new Error(
-      `Required scenario ${scenarioId} did not pass its capture evidence: ${JSON.stringify({
-        pass: evidence.pass,
-        insideViewport: evidence.insideViewport,
-        noClip: evidence.noClip,
-        failures: evidence.failures ?? [],
-      })}`,
+      `Scenario ${scenarioId} completed without capture evidence.`,
+    );
+  if (
+    evidence.pass !== true ||
+    evidence.insideViewport !== true ||
+    evidence.noClip !== true
+  )
+    throw new Error(
+      `Required scenario ${scenarioId} did not pass its capture evidence: ${JSON.stringify(
+        {
+          pass: evidence.pass,
+          insideViewport: evidence.insideViewport,
+          noClip: evidence.noClip,
+          failures: evidence.failures ?? [],
+        },
+      )}`,
     );
   if (!report.scenarioCompletionIds.includes(scenarioId))
     report.scenarioCompletionIds.push(scenarioId);
@@ -124,7 +209,10 @@ function assertZeroDashboardMetrics(workspace) {
     "Fresh home metrics were read before workspace hydration completed.",
   );
   const dashboard = workspace.dashboard;
-  assert(dashboard && typeof dashboard === "object", "Fresh home has no dashboard snapshot.");
+  assert(
+    dashboard && typeof dashboard === "object",
+    "Fresh home has no dashboard snapshot.",
+  );
   const metrics = {
     jobsFoundToday: dashboard.jobsFoundToday,
     jobsAwaitingReview: dashboard.jobsAwaitingReview,
@@ -136,14 +224,21 @@ function assertZeroDashboardMetrics(workspace) {
     upcomingFollowUps: dashboard.upcomingFollowUps,
     sourceCount: dashboard.sourceHealth?.total,
   };
-  const nonZeroMetrics = Object.entries(metrics).filter(([, value]) => value !== 0);
+  const nonZeroMetrics = Object.entries(metrics).filter(
+    ([, value]) => value !== 0,
+  );
   assert(
     nonZeroMetrics.length === 0,
     `Fresh home did not have zero dashboard metrics: ${JSON.stringify(nonZeroMetrics)}`,
   );
   return metrics;
 }
-function assertHydratedCollectionCount(workspace, collection, expectedCount, label) {
+function assertHydratedCollectionCount(
+  workspace,
+  collection,
+  expectedCount,
+  label,
+) {
   assert(
     workspace?.hydration?.phase === "complete",
     `${label} was read before workspace hydration completed.`,
@@ -163,22 +258,6 @@ async function writeReport() {
     "utf8",
   );
 }
-async function stopOwnedElectronProcessTree(app) {
-  const appProcess = app.process();
-  if (!appProcess?.pid) return;
-  if (process.platform === "win32") {
-    try {
-      await execFileAsync("taskkill", [
-        "/PID",
-        String(appProcess.pid),
-        "/T",
-        "/F",
-      ]);
-    } catch {}
-    return;
-  }
-  appProcess.kill("SIGTERM");
-}
 async function waitForCondition(check, description, timeoutMs = 30000) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
@@ -189,15 +268,6 @@ async function waitForCondition(check, description, timeoutMs = 30000) {
 }
 async function getWorkspace(page) {
   return page.evaluate(() => window.unemployed.jobFinder.getWorkspace());
-}
-async function navigate(page, route, expectedHeading) {
-  await page.evaluate((nextRoute) => {
-    window.location.hash = `#${nextRoute}`;
-  }, route);
-  await page
-    .getByRole("heading", { level: 1, name: expectedHeading })
-    .waitFor({ state: "visible", timeout: 20000 });
-  await page.waitForTimeout(200);
 }
 async function setViewport(page, browserWindow, viewport) {
   await page.setViewportSize({
@@ -421,10 +491,10 @@ async function scanLayout(page) {
       sidebar instanceof HTMLElement && rendered(sidebar) && sidebarRect;
     const sidebarInsideViewport = Boolean(
       sidebarVisible &&
-        sidebarRect.left >= -1 &&
-        sidebarRect.right <= window.innerWidth + 1 &&
-        sidebarRect.top >= -1 &&
-        sidebarRect.bottom <= window.innerHeight + 1,
+      sidebarRect.left >= -1 &&
+      sidebarRect.right <= window.innerWidth + 1 &&
+      sidebarRect.top >= -1 &&
+      sidebarRect.bottom <= window.innerHeight + 1,
     );
     const wideSidebarInfo = {
       exists: sidebar instanceof HTMLElement,
@@ -478,7 +548,7 @@ async function scanLayout(page) {
       compactPlanningInfo.sidebarHidden;
 
     const planningMenu = document.querySelector(
-      '[role="menu"][aria-label="Planning and settings"]',
+      '[role="navigation"][aria-label="Planning and settings"]',
     );
     const planningMenuInfo = planningMenu
       ? (() => {
@@ -489,7 +559,7 @@ async function scanLayout(page) {
             planningMenu.scrollHeight > planningMenu.clientHeight + 2 ||
             /(auto|scroll)/.test(style.overflowY);
           const items = Array.from(
-            planningMenu.querySelectorAll('[role="menuitem"]'),
+            planningMenu.querySelectorAll("button"),
           ).map((item) => {
             const itemRect = item.getBoundingClientRect();
             const itemVisible = rendered(item);
@@ -633,14 +703,36 @@ async function probeNestedScroll(page) {
           b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight,
       );
     const openMenu = document.querySelector(
-      '[role="menu"][aria-label="Planning and settings"]',
+      '[role="navigation"][aria-label="Planning and settings"]',
+    );
+    if (openMenu instanceof HTMLElement && !candidates.includes(openMenu)) {
+      return { available: false };
+    }
+    const lockedPane = candidates.find((candidate) =>
+      candidate.matches("[data-locked-pane-scroll-region]"),
     );
     const target =
       openMenu instanceof HTMLElement && candidates.includes(openMenu)
         ? openMenu
-        : candidates[0];
+        : (lockedPane ?? candidates[0]);
     if (!(target instanceof HTMLElement)) return { available: false };
     for (const candidate of candidates) candidate.scrollTop = 0;
+    if (lockedPane === target) {
+      for (const candidate of candidates) {
+        if (candidate !== target && candidate.contains(target)) {
+          candidate.scrollTop = Math.max(
+            0,
+            candidate.scrollHeight - candidate.clientHeight,
+          );
+        }
+      }
+    }
+    for (const candidate of candidates) {
+      candidate.setAttribute(
+        "data-acceptance-scroll-baseline",
+        String(candidate.scrollTop),
+      );
+    }
     const rect = target.getBoundingClientRect();
     const hadTabIndex = target.hasAttribute("tabindex");
     const previousTabIndex = target.getAttribute("tabindex");
@@ -698,12 +790,28 @@ async function probeNestedScroll(page) {
         el.scrollHeight > el.clientHeight + 2,
     );
     const targetTop = target.scrollTop;
-    const leaked = candidates.some((el) => el !== target && el.scrollTop > 0);
+    const leaked = candidates.some(
+      (el) =>
+        el !== target &&
+        el.contains(target) &&
+        el.scrollTop !==
+          Number(el.getAttribute("data-acceptance-scroll-baseline") ?? "0"),
+    );
     return { moved: targetTop > 0, leaked, targetTop };
   });
   await page.evaluate(() => {
     const target = document.querySelector("[data-acceptance-scroll-target]");
     if (target instanceof HTMLElement) target.scrollTop = 0;
+    for (const candidate of document.querySelectorAll(
+      "[data-acceptance-scroll-baseline]",
+    )) {
+      if (candidate instanceof HTMLElement) {
+        candidate.setAttribute(
+          "data-acceptance-scroll-baseline",
+          String(candidate.scrollTop),
+        );
+      }
+    }
   });
   await page.mouse.move(setup.centerX, setup.centerY);
   await page.keyboard.press("PageDown");
@@ -720,7 +828,13 @@ async function probeNestedScroll(page) {
     );
     return {
       moved: target.scrollTop > 0,
-      leaked: candidates.some((el) => el !== target && el.scrollTop > 0),
+      leaked: candidates.some(
+        (el) =>
+          el !== target &&
+          el.contains(target) &&
+          el.scrollTop !==
+            Number(el.getAttribute("data-acceptance-scroll-baseline") ?? "0"),
+      ),
       targetTop: target.scrollTop,
     };
   });
@@ -728,6 +842,11 @@ async function probeNestedScroll(page) {
     const target = document.querySelector("[data-acceptance-scroll-target]");
     if (!(target instanceof HTMLElement)) return;
     target.removeAttribute("data-acceptance-scroll-target");
+    for (const candidate of document.querySelectorAll(
+      "[data-acceptance-scroll-baseline]",
+    )) {
+      candidate.removeAttribute("data-acceptance-scroll-baseline");
+    }
     if (hadTabIndex) target.setAttribute("tabindex", previousTabIndex ?? "");
     else target.removeAttribute("tabindex");
   }, setup);
@@ -746,9 +865,57 @@ async function probeNestedScroll(page) {
 }
 async function capture(page, label, metadata = {}) {
   await resetScroll(page);
+  let contentTargetScroll = null;
+  let contentTargetEvidence = null;
+  let preScreenshotGeometry = null;
+  let postScreenshotGeometry = null;
+  if (metadata.contentTarget)
+    contentTargetScroll = await scrollCaptureTargetIntoView(
+      page,
+      metadata.contentTarget,
+    );
+  if (metadata.scrollSelector) {
+    const scrollTarget = page.locator(metadata.scrollSelector).first();
+    await scrollTarget.waitFor({ state: "visible", timeout: 10000 });
+    await scrollTarget.scrollIntoViewIfNeeded();
+  }
   const fileName = `${String(report.captures.length + 1).padStart(3, "0")}-${slugify(label)}.png`;
   const fullPath = path.join(outputDir, fileName);
+  // Gating evidence must describe the exact pre-screenshot state, so it is
+  // collected and geometry-bound before the screenshot is taken.
+  if (metadata.contentTarget) {
+    contentTargetEvidence = await collectVisibleContentEvidence(
+      page,
+      metadata.contentTarget,
+    );
+    preScreenshotGeometry = await readContentTargetGeometrySnapshot(
+      page,
+      metadata.contentTarget,
+    );
+  }
   await page.screenshot({ animations: "disabled", path: fullPath });
+  if (metadata.contentTarget) {
+    postScreenshotGeometry = await readContentTargetGeometrySnapshot(
+      page,
+      metadata.contentTarget,
+    );
+    const geometryStableAcrossScreenshot =
+      stableJson(preScreenshotGeometry) === stableJson(postScreenshotGeometry);
+    contentTargetEvidence = {
+      ...contentTargetEvidence,
+      geometryBinding: {
+        preScreenshotGeometry,
+        postScreenshotGeometry,
+        stableAcrossScreenshot: geometryStableAcrossScreenshot,
+      },
+    };
+    if (!geometryStableAcrossScreenshot) {
+      contentTargetEvidence.failures.push(
+        "target geometry moved across the screenshot; evidence does not describe the captured frame",
+      );
+      contentTargetEvidence.pass = contentTargetEvidence.failures.length === 0;
+    }
+  }
   const screenshot = await screenshotMetadata(
     page,
     activeBrowserWindow,
@@ -767,6 +934,7 @@ async function capture(page, label, metadata = {}) {
     height: layout.viewport.height,
     zoomFactor: 1,
   };
+  assertViewportEvidence(screenshot.viewport, viewportInfo);
   const size = {
     bytes: screenshot.screenshot.bytes,
     width: screenshot.screenshot.width,
@@ -799,6 +967,25 @@ async function capture(page, label, metadata = {}) {
     navigationPass =
       navigationPass && metadata.planningMenuKeyboard?.pass === true;
   }
+  if (metadata.expectLongLabelScenario) {
+    navigationPass =
+      navigationPass && metadata.longLabelEvidence?.pass === true;
+  }
+  if (metadata.expectSemanticPaginationEvidence) {
+    navigationPass =
+      navigationPass && metadata.semanticPaginationEvidence?.pass === true;
+  }
+  if (metadata.expectProfileDeepLinkEvidence) {
+    navigationPass =
+      navigationPass &&
+      metadata.profileDeepLinkVisibilityEvidence?.pass === true;
+  }
+  if (metadata.contentTarget) {
+    navigationPass = navigationPass && contentTargetEvidence?.pass === true;
+  }
+  if (screenshot.clickablePointEvidence.pass !== true) {
+    navigationPass = false;
+  }
   const insideViewport = insideViewportBase && navigationPass;
   const noClip = noClipBase && navigationPass;
   const entry = {
@@ -812,6 +999,7 @@ async function capture(page, label, metadata = {}) {
     route: screenshot.route,
     seedDigest: screenshot.seedDigest,
     screenshot: screenshot.screenshot,
+    clickablePointEvidence: screenshot.clickablePointEvidence,
     size,
     insideViewport,
     noClip,
@@ -874,9 +1062,41 @@ async function capture(page, label, metadata = {}) {
     failures.push(
       `Planning and settings menu is not keyboard reachable ${JSON.stringify(metadata.planningMenuKeyboard)}`,
     );
+  if (
+    metadata.expectLongLabelScenario &&
+    metadata.longLabelEvidence?.pass !== true
+  )
+    failures.push(
+      `long-label semantic evidence failed: ${JSON.stringify(metadata.longLabelEvidence?.failures ?? [])}`,
+    );
+  if (
+    metadata.expectSemanticPaginationEvidence &&
+    metadata.semanticPaginationEvidence?.pass !== true
+  )
+    failures.push(
+      `semantic pagination evidence failed: ${JSON.stringify(metadata.semanticPaginationEvidence?.failures ?? [])}`,
+    );
+  if (metadata.contentTarget && contentTargetEvidence?.pass !== true)
+    failures.push(
+      `content-target visible-content evidence failed for ${metadata.contentTarget.selector}: ${JSON.stringify(contentTargetEvidence?.failures ?? [])}`,
+    );
+  if (
+    metadata.expectProfileDeepLinkEvidence &&
+    metadata.profileDeepLinkVisibilityEvidence?.pass !== true
+  )
+    failures.push(
+      `profile deep-link visibility evidence failed: ${JSON.stringify(metadata.profileDeepLinkVisibilityEvidence?.failures ?? [])}`,
+    );
+  if (screenshot.clickablePointEvidence.pass !== true)
+    failures.push(
+      `interactive controls have no unobscured clickable point: ${JSON.stringify(screenshot.clickablePointEvidence.failures)}`,
+    );
   entry.failures = failures;
+  entry.contentTargetScroll = contentTargetScroll;
+  entry.contentTargetEvidence = contentTargetEvidence;
   entry.pass = failures.length === 0;
   report.captures.push(entry);
+  registerScreenshotCollisionGuard(entry);
   completeScenario(entry.scenarioId, entry);
   await writeReport();
   if (failures.length)
@@ -889,7 +1109,7 @@ async function capture(page, label, metadata = {}) {
 }
 
 async function exercisePlanningSettingsKeyboard(page, menu) {
-  const menuItems = menu.getByRole("menuitem");
+  const menuItems = menu.getByRole("button");
   const count = await menuItems.count();
   if (count < PLANNING_SETTINGS_MENU_DESTINATIONS.length)
     throw new Error(
@@ -909,6 +1129,15 @@ async function exercisePlanningSettingsKeyboard(page, menu) {
         `Planning and settings menu did not expose ${requiredLabel}. Labels: ${JSON.stringify(labels)}`,
       );
   }
+  await page.waitForFunction(
+    () =>
+      document.activeElement instanceof HTMLButtonElement &&
+      document.activeElement
+        .closest('[role="navigation"][aria-label="Planning and settings"]') !==
+        null,
+    undefined,
+    { timeout: 10_000 },
+  );
   await page.keyboard.press("Home");
   const first = await page.evaluate(() => {
     const active = document.activeElement;
@@ -917,7 +1146,11 @@ async function exercisePlanningSettingsKeyboard(page, menu) {
         active?.getAttribute("aria-label") ??
         active?.textContent?.replace(/\s+/g, " ").trim() ??
         null,
-      role: active?.getAttribute("role") ?? null,
+      isPlanningDestination:
+        active instanceof HTMLButtonElement &&
+        active.closest(
+          '[role="navigation"][aria-label="Planning and settings"]',
+        ) !== null,
     };
   });
   await page.keyboard.press("End");
@@ -928,13 +1161,17 @@ async function exercisePlanningSettingsKeyboard(page, menu) {
         active?.getAttribute("aria-label") ??
         active?.textContent?.replace(/\s+/g, " ").trim() ??
         null,
-      role: active?.getAttribute("role") ?? null,
+      isPlanningDestination:
+        active instanceof HTMLButtonElement &&
+        active.closest(
+          '[role="navigation"][aria-label="Planning and settings"]',
+        ) !== null,
     };
   });
   const pass =
-    first.role === "menuitem" &&
+    first.isPlanningDestination &&
     first.label === labels[0].trim() &&
-    last.role === "menuitem" &&
+    last.isPlanningDestination &&
     last.label === labels[labels.length - 1].trim();
   if (!pass)
     throw new Error(
@@ -948,6 +1185,995 @@ async function exercisePlanningSettingsKeyboard(page, menu) {
   };
 }
 
+const CAPTURE_SCROLL_BLOCKS = Object.freeze([
+  "start",
+  "center",
+  "end",
+  "nearest",
+]);
+
+async function scrollCaptureTargetIntoView(page, contentTarget) {
+  const block = contentTarget.block ?? "center";
+  const index = contentTarget.index ?? 0;
+  assert(
+    CAPTURE_SCROLL_BLOCKS.includes(block),
+    `Unsupported capture content-target block alignment: ${JSON.stringify(block)}.`,
+  );
+  assert(
+    Number.isInteger(index) && index >= 0,
+    `Capture content-target index must be a non-negative integer: ${JSON.stringify(index)}.`,
+  );
+  const applied = await page.evaluate(
+    ({ selector, block, index }) => {
+      const rendered = (el) => {
+        const closedDetails = el.closest("details:not([open])");
+        if (closedDetails && !el.matches("summary")) return false;
+        const style = getComputedStyle(el);
+        const rect = el.getBoundingClientRect();
+        return (
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          Number.parseFloat(style.opacity || "1") > 0 &&
+          rect.width > 0 &&
+          rect.height > 0
+        );
+      };
+      // Indexing parity with collectVisibleContentEvidence: the same
+      // rendered-element filter selects the scroll target, so the element
+      // scrolled into view and the evidenced element at [index] are identical.
+      const candidates = Array.from(document.querySelectorAll(selector)).filter(
+        (el) => el instanceof HTMLElement && rendered(el),
+      );
+      const element = candidates[index];
+      if (!(element instanceof HTMLElement))
+        return { renderedCount: candidates.length, scrolled: false };
+      element.scrollIntoView({ block, inline: "nearest" });
+      const rect = element.getBoundingClientRect();
+      return {
+        renderedCount: candidates.length,
+        scrolled: true,
+        selectedTarget: {
+          rowId:
+            element.getAttribute("data-job-result-id") ??
+            element.getAttribute("data-compact-source-id") ??
+            element.getAttribute("data-expanded-source-id"),
+          text: (element.textContent ?? "")
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(0, 160),
+          rect: {
+            left: Math.round(rect.left),
+            top: Math.round(rect.top),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+          },
+        },
+      };
+    },
+    { selector: contentTarget.selector, block, index },
+  );
+  assert(
+    applied.scrolled,
+    `Capture content target ${contentTarget.selector}[${index}] did not resolve to a rendered element (${applied.renderedCount} rendered matches).`,
+  );
+  await page.waitForTimeout(150);
+  return {
+    selector: contentTarget.selector,
+    block,
+    index,
+    matched: applied.renderedCount,
+    selectedTarget: applied.selectedTarget,
+  };
+}
+
+async function readContentTargetGeometrySnapshot(page, contentTarget) {
+  return page.evaluate((payload) => {
+    const rendered = (el) => {
+      const closedDetails = el.closest("details:not([open])");
+      if (closedDetails && !el.matches("summary")) return false;
+      const style = getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      return (
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        Number.parseFloat(style.opacity || "1") > 0 &&
+        rect.width > 0 &&
+        rect.height > 0
+      );
+    };
+    const candidates = Array.from(
+      document.querySelectorAll(payload.selector),
+    ).filter((el) => el instanceof HTMLElement && rendered(el));
+    return {
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      rows: candidates.map((el, position) => {
+        const rect = el.getBoundingClientRect();
+        return {
+          position,
+          rowId:
+            el.getAttribute("data-job-result-id") ??
+            el.getAttribute("data-compact-source-id") ??
+            el.getAttribute("data-expanded-source-id"),
+          rect: {
+            left: Math.round(rect.left),
+            top: Math.round(rect.top),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+          },
+        };
+      }),
+    };
+  }, contentTarget);
+}
+
+async function collectVisibleContentEvidence(page, contentTarget) {
+  return page.evaluate((payload) => {
+    const normalize = (value) => (value ?? "").replace(/\s+/g, " ").trim();
+    const rendered = (el) => {
+      const closedDetails = el.closest("details:not([open])");
+      if (closedDetails && !el.matches("summary")) return false;
+      const style = getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      return (
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        Number.parseFloat(style.opacity || "1") > 0 &&
+        rect.width > 0 &&
+        rect.height > 0
+      );
+    };
+    const candidates = Array.from(
+      document.querySelectorAll(payload.selector),
+    ).filter((el) => el instanceof HTMLElement && rendered(el));
+    const rows = candidates.map((el, position) => {
+      const rect = el.getBoundingClientRect();
+      const intersectionHeight =
+        Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0);
+      const coverageRatio =
+        rect.height > 0 ? Math.max(0, intersectionHeight) / rect.height : 0;
+      const horizontallyInside =
+        rect.left >= -1 && rect.right <= window.innerWidth + 1;
+      return {
+        position,
+        rowId:
+          el.getAttribute("data-job-result-id") ??
+          el.getAttribute("data-compact-source-id") ??
+          el.getAttribute("data-expanded-source-id"),
+        text: normalize(el.textContent).slice(0, 160),
+        rect: {
+          left: Math.round(rect.left),
+          top: Math.round(rect.top),
+          right: Math.round(rect.right),
+          bottom: Math.round(rect.bottom),
+          height: Math.round(rect.height),
+        },
+        intersectionHeight,
+        coverageRatio,
+        // Meaningfully inside the CSS viewport requires a majority of the
+        // element box to intersect the viewport; Playwright `visible` alone
+        // accepts elements clipped to a 1px sliver and is not sufficient.
+        inViewport:
+          horizontallyInside &&
+          intersectionHeight >= 16 &&
+          coverageRatio >= 0.5,
+      };
+    });
+    const visibleRows = rows.filter((row) => row.inViewport);
+    const exactTextInViewport = (expected) =>
+      visibleRows.some((row) => {
+        const element = candidates[row.position];
+        const scopes = payload.textSelector
+          ? Array.from(element.querySelectorAll(payload.textSelector))
+          : [element];
+        return scopes.some(
+          (scope) => normalize(scope.textContent) === expected,
+        );
+      });
+    const textEvidence = (payload.requiredTexts ?? []).map((expected) => ({
+      expected,
+      foundInViewport: exactTextInViewport(expected),
+    }));
+    const matchedSeededRowIds = (payload.requiredRowIds ?? []).filter((rowId) =>
+      visibleRows.some((row) => row.rowId === rowId),
+    );
+    const failures = [];
+    const minVisibleRows = payload.minVisibleRows ?? 1;
+    if (candidates.length === 0)
+      failures.push(`no rendered elements match ${payload.selector}`);
+    else if (visibleRows.length < minVisibleRows)
+      failures.push(
+        `${visibleRows.length} of ${candidates.length} rendered ${payload.selector} elements are meaningfully inside the CSS viewport; required at least ${minVisibleRows}`,
+      );
+    if (
+      (payload.requiredTexts ?? []).length > 0 &&
+      !textEvidence.some((item) => item.foundInViewport)
+    )
+      failures.push(
+        `no in-viewport ${payload.selector} element contains an exact seeded label: ${JSON.stringify(textEvidence.map((item) => item.expected))}`,
+      );
+    if (
+      (payload.requiredRowIds ?? []).length > 0 &&
+      matchedSeededRowIds.length === 0
+    )
+      failures.push(
+        `no in-viewport ${payload.selector} row carries a seeded identity: ${JSON.stringify(payload.requiredRowIds)}`,
+      );
+    return {
+      selector: payload.selector,
+      block: payload.block ?? "center",
+      index: payload.index ?? 0,
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      renderedCount: candidates.length,
+      minVisibleRows,
+      inViewportCount: visibleRows.length,
+      inViewportRowIds: visibleRows.map((row) => row.rowId),
+      rows,
+      textEvidence,
+      seededRowEvidence: {
+        requiredRowIds: payload.requiredRowIds ?? [],
+        matchedInViewportRowIds: matchedSeededRowIds,
+      },
+      failures,
+      pass: failures.length === 0,
+    };
+  }, contentTarget);
+}
+
+async function collectLongLabelEvidence(page, expectations) {
+  return page.evaluate((payload) => {
+    const normalize = (value) => (value ?? "").replace(/\s+/g, " ").trim();
+    const rendered = (el) => {
+      const closedDetails = el.closest("details:not([open])");
+      if (closedDetails && !el.matches("summary")) return false;
+      const style = getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      return (
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        Number.parseFloat(style.opacity || "1") > 0 &&
+        rect.width > 0 &&
+        rect.height > 0
+      );
+    };
+    const reachableWithinScrollers = (el) => {
+      const rect = el.getBoundingClientRect();
+      const horizontal = rect.left >= -1 && rect.right <= window.innerWidth + 1;
+      const verticallyVisible =
+        rect.top >= -1 && rect.bottom <= window.innerHeight + 1;
+      const hasScrollableAncestor = (() => {
+        let ancestor = el.parentElement;
+        while (ancestor) {
+          const style = getComputedStyle(ancestor);
+          if (
+            /(auto|scroll)/.test(style.overflowY) &&
+            ancestor.scrollHeight > ancestor.clientHeight + 2
+          )
+            return true;
+          ancestor = ancestor.parentElement;
+        }
+        return false;
+      })();
+      return (
+        rendered(el) &&
+        horizontal &&
+        (verticallyVisible || hasScrollableAncestor)
+      );
+    };
+    const cards = Array.from(
+      document.querySelectorAll("[data-job-result-id]"),
+    ).filter((el) => el instanceof HTMLElement && rendered(el));
+    const cardHasExactText = (expected, selector) =>
+      cards.some((card) =>
+        Array.from(card.querySelectorAll(selector)).some(
+          (el) => normalize(el.textContent) === expected,
+        ),
+      );
+    const labelEvidence = [
+      ...payload.titles.map((expected) => ({
+        field: "job-title",
+        expected,
+        via: cardHasExactText(expected, "strong") ? "text-content" : "missing",
+      })),
+      ...payload.metaLines.map((expected) => ({
+        field: "company-location",
+        expected,
+        via: cardHasExactText(expected, "span") ? "text-content" : "missing",
+      })),
+    ];
+    const shortlistButtons = Array.from(
+      document.querySelectorAll(
+        '[data-testid="discovery-detail-actions"] button',
+      ),
+    ).filter(
+      (el) =>
+        normalize(el.getAttribute("aria-label") ?? el.textContent) ===
+        payload.shortlistActionLabel,
+    );
+    const searchInput = Array.from(document.querySelectorAll("input")).find(
+      (el) =>
+        normalize(el.getAttribute("placeholder")) ===
+        "Search roles or companies",
+    );
+    const controls = [
+      {
+        control: "discovery-search-input",
+        found: Boolean(searchInput),
+        reachable:
+          searchInput instanceof HTMLElement
+            ? reachableWithinScrollers(searchInput)
+            : false,
+      },
+      {
+        control: "result-card-buttons",
+        found: cards.length > 0,
+        count: cards.length,
+        reachable: cards.length > 0 && cards.every(reachableWithinScrollers),
+      },
+      {
+        control: "detail-shortlist-action",
+        found: shortlistButtons.length > 0,
+        count: shortlistButtons.length,
+        reachable:
+          shortlistButtons.length > 0 &&
+          shortlistButtons.every(reachableWithinScrollers),
+      },
+    ];
+    const failures = [];
+    if (cards.length !== payload.expectedRows)
+      failures.push(`renderedRows ${cards.length} !== ${payload.expectedRows}`);
+    for (const item of labelEvidence)
+      if (item.via === "missing")
+        failures.push(`full label missing from rendered text: ${item.field}`);
+    for (const control of controls)
+      if (!control.found || !control.reachable)
+        failures.push(`key control not reachable: ${control.control}`);
+    return {
+      expectedRows: payload.expectedRows,
+      renderedRows: cards.length,
+      shortlistActionLabel: payload.shortlistActionLabel,
+      labels: labelEvidence,
+      controls,
+      failures,
+      pass: failures.length === 0,
+    };
+  }, expectations);
+}
+
+async function collectSourceLabelEvidence(page, expectations) {
+  return page.evaluate((payload) => {
+    const normalize = (value) => (value ?? "").replace(/\s+/g, " ").trim();
+    const rendered = (el) => {
+      const closedDetails = el.closest("details:not([open])");
+      if (closedDetails && !el.matches("summary")) return false;
+      const style = getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      return (
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        Number.parseFloat(style.opacity || "1") > 0 &&
+        rect.width > 0 &&
+        rect.height > 0
+      );
+    };
+    const reachableWithinScrollers = (el) => {
+      const rect = el.getBoundingClientRect();
+      const horizontal = rect.left >= -1 && rect.right <= window.innerWidth + 1;
+      const verticallyVisible =
+        rect.top >= -1 && rect.bottom <= window.innerHeight + 1;
+      const hasScrollableAncestor = (() => {
+        let ancestor = el.parentElement;
+        while (ancestor) {
+          const style = getComputedStyle(ancestor);
+          if (
+            /(auto|scroll)/.test(style.overflowY) &&
+            ancestor.scrollHeight > ancestor.clientHeight + 2
+          )
+            return true;
+          ancestor = ancestor.parentElement;
+        }
+        return false;
+      })();
+      return (
+        rendered(el) &&
+        horizontal &&
+        (verticallyVisible || hasScrollableAncestor)
+      );
+    };
+    const rows = Array.from(
+      document.querySelectorAll("[data-compact-source-id]"),
+    ).filter((el) => el instanceof HTMLElement && rendered(el));
+    const rowEvidence = payload.names.map((name) => {
+      const heading = rows
+        .map((row) => row.querySelector("h4"))
+        .find(
+          (el) =>
+            el instanceof HTMLElement &&
+            normalize(el.textContent) === name &&
+            normalize(el.getAttribute("title")) === name,
+        );
+      if (!(heading instanceof HTMLElement))
+        return { name, found: false, truncatedPx: null, controls: [] };
+      const includeControl = rows
+        .flatMap((row) =>
+          Array.from(row.querySelectorAll("input, [role=checkbox]")),
+        )
+        .find(
+          (el) =>
+            normalize(el.getAttribute("aria-label")) ===
+            `Include ${name} in searches`,
+        );
+      const editControl = rows
+        .flatMap((row) => Array.from(row.querySelectorAll("button")))
+        .find(
+          (el) => normalize(el.getAttribute("aria-label")) === `Edit ${name}`,
+        );
+      return {
+        name,
+        found: true,
+        truthSource: "text-content-and-title-attribute",
+        truncatedPx: Math.max(0, heading.scrollWidth - heading.clientWidth),
+        controls: [
+          {
+            control: "include-in-search-checkbox",
+            found: Boolean(includeControl),
+            reachable:
+              includeControl instanceof HTMLElement
+                ? reachableWithinScrollers(includeControl)
+                : false,
+          },
+          {
+            control: "edit-source-button",
+            found: Boolean(editControl),
+            reachable:
+              editControl instanceof HTMLElement
+                ? reachableWithinScrollers(editControl)
+                : false,
+          },
+        ],
+      };
+    });
+    const failures = [];
+    if (rows.length !== payload.expectedRows)
+      failures.push(
+        `renderedSourceRows ${rows.length} !== ${payload.expectedRows}`,
+      );
+    for (const item of rowEvidence) {
+      if (!item.found)
+        failures.push(
+          `truthful compact source row missing: ${item.name.slice(0, 48)}…`,
+        );
+      for (const control of item.controls)
+        if (!control.found || !control.reachable)
+          failures.push(
+            `key control not reachable for long source label: ${control.control}`,
+          );
+    }
+    const truncatedRowCount = rowEvidence.filter(
+      (item) => (item.truncatedPx ?? 0) > 1,
+    ).length;
+    return {
+      expectedRows: payload.expectedRows,
+      renderedRows: rows.length,
+      truncatedRowCount,
+      rows: rowEvidence,
+      failures,
+      pass: failures.length === 0,
+    };
+  }, expectations);
+}
+
+async function collectProfileDeepLinkVisibilityEvidence(page) {
+  return page.evaluate(() => {
+    const failures = [];
+    const viewport = { width: window.innerWidth, height: window.innerHeight };
+    const cssWidthBand = { min: 640, max: 1279 };
+    const cssWidthInBand =
+      viewport.width >= cssWidthBand.min && viewport.width <= cssWidthBand.max;
+    if (!cssWidthInBand)
+      failures.push(
+        `CSS viewport width ${viewport.width} is outside the ${cssWidthBand.min}-${cssWidthBand.max} deep-link alignment band`,
+      );
+    const headerSelector = "[data-job-finder-shell-header]";
+    const header = document.querySelector(headerSelector);
+    const headerRect =
+      header instanceof HTMLElement ? header.getBoundingClientRect() : null;
+    const headerFound =
+      header instanceof HTMLElement &&
+      headerRect !== null &&
+      headerRect.height > 0;
+    if (!headerFound)
+      failures.push(`fixed shell chrome not measurable via ${headerSelector}`);
+    const headerBottom = headerRect ? headerRect.bottom : null;
+    const headingSelector = "#profile-job-sources-heading";
+    const heading = document.querySelector(headingSelector);
+    const headingRect =
+      heading instanceof HTMLElement ? heading.getBoundingClientRect() : null;
+    const headingStyle =
+      heading instanceof HTMLElement ? getComputedStyle(heading) : null;
+    const headingRendered =
+      heading instanceof HTMLElement &&
+      headingStyle !== null &&
+      headingStyle.display !== "none" &&
+      headingStyle.visibility !== "hidden" &&
+      Number.parseFloat(headingStyle.opacity || "1") > 0 &&
+      headingRect !== null &&
+      headingRect.width > 0 &&
+      headingRect.height > 0;
+    if (!headingRendered)
+      failures.push(
+        `owned Job sources heading not rendered via ${headingSelector}`,
+      );
+    const headingTextMatches =
+      heading instanceof HTMLElement &&
+      heading.textContent?.replace(/\s+/g, " ").trim() === "Job sources";
+    if (!headingTextMatches)
+      failures.push(
+        `element at ${headingSelector} does not carry the exact Job sources heading text`,
+      );
+    const intersectionHeight = headingRect
+      ? Math.max(
+          0,
+          Math.min(headingRect.bottom, viewport.height) -
+            Math.max(headingRect.top, 0),
+        )
+      : 0;
+    const coverageRatio =
+      headingRect && headingRect.height > 0
+        ? intersectionHeight / headingRect.height
+        : 0;
+    const meaningfulVisibleHeight =
+      intersectionHeight >= 16 && coverageRatio >= 0.6;
+    if (headingRendered && !meaningfulVisibleHeight)
+      failures.push(
+        `heading visible height ${intersectionHeight.toFixed(1)}px (coverage ${(coverageRatio * 100).toFixed(0)}%) is not meaningful`,
+      );
+    const horizontalContained = headingRect
+      ? headingRect.left >= -1 && headingRect.right <= window.innerWidth + 1
+      : false;
+    if (headingRendered && !horizontalContained)
+      failures.push(
+        `heading horizontally outside the viewport: left ${headingRect.left.toFixed(1)} right ${headingRect.right.toFixed(1)}`,
+      );
+    const alignmentBelowChrome =
+      headingRect && headerBottom !== null
+        ? headingRect.top >= headerBottom - 1
+        : null;
+    if (alignmentBelowChrome === false)
+      failures.push(
+        `heading top ${headingRect.top.toFixed(1)} sits above measured shell header bottom ${headerBottom.toFixed(1)}; the app landed it under fixed chrome`,
+      );
+    const visibleTop = headingRect
+      ? Math.max(headingRect.top, headerBottom ?? 0)
+      : 0;
+    const visibleBottom = headingRect
+      ? Math.min(headingRect.bottom, viewport.height)
+      : 0;
+    const hitTest = {
+      point: null,
+      resolvedDescriptor: null,
+      resolvedInsideTarget: null,
+    };
+    if (
+      headingRendered &&
+      headerFound &&
+      meaningfulVisibleHeight &&
+      horizontalContained
+    ) {
+      const x = Math.min(
+        Math.max(headingRect.left + headingRect.width / 2, 2),
+        window.innerWidth - 2,
+      );
+      const y = Math.min(
+        Math.max((visibleTop + visibleBottom) / 2, 2),
+        window.innerHeight - 2,
+      );
+      const hit = document.elementFromPoint(x, y);
+      const resolvedInsideTarget =
+        hit instanceof Node && (hit === heading || heading.contains(hit));
+      hitTest.point = { x: Math.round(x), y: Math.round(y) };
+      hitTest.resolvedDescriptor =
+        hit instanceof Element
+          ? `${hit.tagName.toLowerCase()}${hit.getAttribute("data-testid") ? `[data-testid=${hit.getAttribute("data-testid")}]` : ""}`
+          : String(hit);
+      hitTest.resolvedInsideTarget = resolvedInsideTarget;
+      if (!resolvedInsideTarget)
+        failures.push(
+          `elementFromPoint at (${x.toFixed(0)},${y.toFixed(0)}) resolved outside the Job sources heading: ${hitTest.resolvedDescriptor}`,
+        );
+    }
+    // Supplemental container/library geometry only; it cannot substitute for
+    // any heading gate above and contributes no pass/fail signal here.
+    const librarySelector = "[data-job-sources-library]";
+    const library = document.querySelector(librarySelector);
+    const libraryRect =
+      library instanceof HTMLElement ? library.getBoundingClientRect() : null;
+    const supplementalLibrary = {
+      selector: librarySelector,
+      found: library instanceof HTMLElement,
+      rect: libraryRect
+        ? {
+            left: Math.round(libraryRect.left),
+            top: Math.round(libraryRect.top),
+            width: Math.round(libraryRect.width),
+            height: Math.round(libraryRect.height),
+          }
+        : null,
+      intersectsViewportBelowChrome:
+        libraryRect && headerBottom !== null
+          ? Math.min(libraryRect.bottom, viewport.height) -
+              Math.max(libraryRect.top, headerBottom) >
+            0
+          : false,
+    };
+    return {
+      route: window.location.hash,
+      sampledBeforeHarnessCentering: true,
+      viewport,
+      cssWidthBand: { ...cssWidthBand, inBand: cssWidthInBand },
+      header: {
+        selector: headerSelector,
+        found: headerFound,
+        measuredFrom: "element-rect",
+        bottom: headerBottom,
+      },
+      target: {
+        selector: headingSelector,
+        kind: "owned-heading",
+        headingTextMatches,
+        found: headingRendered,
+        rect: headingRect
+          ? {
+              left: Math.round(headingRect.left),
+              top: Math.round(headingRect.top),
+              width: Math.round(headingRect.width),
+              height: Math.round(headingRect.height),
+            }
+          : null,
+        intersectionHeight,
+        coverageRatio,
+        meaningfulVisibleHeight,
+        horizontalContained,
+      },
+      alignmentBelowChrome,
+      hitTest,
+      supplementalLibrary,
+      failures,
+      pass: failures.length === 0,
+    };
+  });
+}
+
+function sameIdentityList(left, right) {
+  return (
+    Array.isArray(left) &&
+    Array.isArray(right) &&
+    left.length === right.length &&
+    [...left].sort().join("\u0000") === [...right].sort().join("\u0000")
+  );
+}
+
+async function observeProfileSourcesPageState(page, rangePatternSource) {
+  return page.evaluate((patternSource) => {
+    const normalize = (value) => (value ?? "").replace(/\s+/g, " ").trim();
+    const rendered = (el) => {
+      const closedDetails = el.closest("details:not([open])");
+      if (closedDetails && !el.matches("summary")) return false;
+      const style = getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      return (
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        Number.parseFloat(style.opacity || "1") > 0 &&
+        rect.width > 0 &&
+        rect.height > 0
+      );
+    };
+    const pattern = new RegExp(patternSource);
+    const pagesNav = document.querySelector(
+      'nav[aria-label="Job source pages"]',
+    );
+    const rangeCandidates =
+      pagesNav instanceof HTMLElement && rendered(pagesNav)
+        ? Array.from(pagesNav.querySelectorAll("*")).filter(
+            (el) =>
+              el instanceof HTMLElement &&
+              rendered(el) &&
+              pattern.test(normalize(el.textContent)),
+          )
+        : [];
+    const rangeElement = rangeCandidates.find(
+      (el) =>
+        !rangeCandidates.some((other) => other !== el && el.contains(other)),
+    );
+    const rows = Array.from(
+      document.querySelectorAll(
+        "[data-compact-source-id], [data-expanded-source-id]",
+      ),
+    ).filter((el) => el instanceof HTMLElement && rendered(el));
+    return {
+      observedRangeText: rangeElement
+        ? normalize(rangeElement.textContent)
+        : null,
+      observedRowIds: rows.map(
+        (row) =>
+          row.getAttribute("data-compact-source-id") ??
+          row.getAttribute("data-expanded-source-id"),
+      ),
+      observedRowLabels: rows.map((row) =>
+        normalize(
+          row.querySelector("h4")?.textContent ??
+            row.getAttribute("title") ??
+            "",
+        ),
+      ),
+      scrollHeights: {
+        document: document.documentElement.scrollHeight,
+        main:
+          document.querySelector("main") instanceof HTMLElement
+            ? document.querySelector("main").scrollHeight
+            : null,
+        jobFinderShell: (() => {
+          const shell = document.querySelector("[data-job-finder-shell]");
+          return shell instanceof HTMLElement ? shell.scrollHeight : null;
+        })(),
+        jobSourcesLibrary: (() => {
+          const library = document.querySelector("[data-job-sources-library]");
+          return library instanceof HTMLElement ? library.scrollHeight : null;
+        })(),
+      },
+    };
+  }, rangePatternSource);
+}
+
+async function readAnimationFrameGeometrySample(page) {
+  return page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const readGeometry = () => ({
+          document: document.documentElement.scrollHeight,
+          main:
+            document.querySelector("main") instanceof HTMLElement
+              ? document.querySelector("main").scrollHeight
+              : null,
+          jobFinderShell: (() => {
+            const shell = document.querySelector("[data-job-finder-shell]");
+            return shell instanceof HTMLElement ? shell.scrollHeight : null;
+          })(),
+          jobSourcesLibrary: (() => {
+            const library = document.querySelector(
+              "[data-job-sources-library]",
+            );
+            return library instanceof HTMLElement ? library.scrollHeight : null;
+          })(),
+        });
+        requestAnimationFrame(() => {
+          const firstFrame = readGeometry();
+          requestAnimationFrame(() =>
+            resolve({ firstFrame, secondFrame: readGeometry() }),
+          );
+        });
+      }),
+  );
+}
+
+async function waitForSemanticSourcesPagination(
+  page,
+  { phase, rangePatternSource, expectedRowIds },
+) {
+  await waitForCondition(
+    async () => {
+      const state = await observeProfileSourcesPageState(
+        page,
+        rangePatternSource,
+      );
+      return (
+        state.observedRangeText !== null &&
+        new RegExp(rangePatternSource).test(state.observedRangeText) &&
+        sameIdentityList(state.observedRowIds, expectedRowIds)
+      );
+    },
+    `${phase} observed page/range text and visible row identities`,
+    15000,
+  );
+  let geometryFrames = null;
+  await waitForCondition(
+    async () => {
+      geometryFrames = await readAnimationFrameGeometrySample(page);
+      return (
+        stableJson(geometryFrames.firstFrame) ===
+        stableJson(geometryFrames.secondFrame)
+      );
+    },
+    `${phase} scrollHeight/geometry stability across two animation frames`,
+    10000,
+  );
+  const finalState = await observeProfileSourcesPageState(
+    page,
+    rangePatternSource,
+  );
+  const failures = [];
+  if (
+    finalState.observedRangeText === null ||
+    !new RegExp(rangePatternSource).test(finalState.observedRangeText)
+  )
+    failures.push(
+      `observed page/range ${JSON.stringify(finalState.observedRangeText)} does not prove ${phase} (pattern ${rangePatternSource})`,
+    );
+  if (!sameIdentityList(finalState.observedRowIds, expectedRowIds))
+    failures.push(
+      `visible row identities ${JSON.stringify(finalState.observedRowIds)} do not match expected ${JSON.stringify(expectedRowIds)}`,
+    );
+  if (finalState.observedRowLabels.some((label) => label.length === 0))
+    failures.push(
+      `visible rows are missing labels: ${JSON.stringify(finalState.observedRowLabels)}`,
+    );
+  if (
+    stableJson(geometryFrames.firstFrame) !==
+    stableJson(geometryFrames.secondFrame)
+  )
+    failures.push(
+      "scrollHeight/geometry did not settle across two animation frames",
+    );
+  return {
+    phase,
+    expectedRangePatternSource: rangePatternSource,
+    observedRangeText: finalState.observedRangeText,
+    expectedRowIds,
+    expectedRowCount: expectedRowIds.length,
+    observedRowIds: finalState.observedRowIds,
+    observedRowLabels: finalState.observedRowLabels,
+    observedRowCount: finalState.observedRowIds.length,
+    geometryFrames,
+    geometryStableAcrossAnimationFrames:
+      stableJson(geometryFrames.firstFrame) ===
+      stableJson(geometryFrames.secondFrame),
+    scrollHeightsAtSettlement: finalState.scrollHeights,
+    failures,
+    pass: failures.length === 0,
+  };
+}
+
+function resolveConfiguredDiscoveryTarget(state) {
+  const targets =
+    state?.searchPreferences?.discovery?.targets ??
+    state?.searchPreferences?.discoveryTargets ??
+    [];
+  assert(
+    Array.isArray(targets) && targets.length > 0,
+    "Discovery fixture provenance requires a configured discovery target in the seeded state.",
+  );
+  const preferred =
+    targets.find(
+      (target) =>
+        target.id === "target_linkedin_default" && target.enabled !== false,
+    ) ?? targets.find((target) => target.enabled !== false);
+  assert(
+    Boolean(preferred),
+    "Discovery fixture provenance requires a runnable (enabled) configured discovery target.",
+  );
+  return preferred;
+}
+
+function buildFixtureJobProvenance(target, discoveredAt) {
+  assert(
+    typeof discoveredAt === "string" && discoveredAt.length > 0,
+    "Fixture job provenance requires the job's discoveredAt timestamp.",
+  );
+  return {
+    targetId: target.id,
+    adapterKind: target.adapterKind ?? "auto",
+    resolvedAdapterKind: "target_site",
+    startingUrl: target.startingUrl,
+    collectionMethod: "fallback_search",
+    discoveredAt,
+  };
+}
+
+function assertSyntheticProvenanceClosure(
+  jobs,
+  configuredTargets,
+  label,
+  expectedJobs = null,
+) {
+  assert(
+    Array.isArray(jobs) && jobs.length > 0,
+    `${label} exposed no jobs to verify provenance closure.`,
+  );
+  const targetsById = new Map(
+    (Array.isArray(configuredTargets) ? configuredTargets : []).map(
+      (target) => [target.id, target],
+    ),
+  );
+  assert(
+    targetsById.size > 0,
+    `${label} provenance closure requires configured discovery targets.`,
+  );
+  const expectedById = expectedJobs
+    ? new Map(expectedJobs.map((job) => [job.id, job]))
+    : null;
+  if (expectedById)
+    assert(
+      jobs.length === expectedById.size,
+      `${label} job count ${jobs.length} does not match the ${expectedById.size} synthetic fixture jobs; provenance closure cannot be verified across dropped or duplicated jobs.`,
+    );
+  const unattributedJobs = [];
+  const linkedTargetIds = new Set();
+  for (const job of jobs) {
+    const expected =
+      expectedById && typeof job?.id === "string"
+        ? expectedById.get(job.id)
+        : null;
+    if (expectedById && !expected) {
+      unattributedJobs.push(`${job.id ?? "<unknown>"}:unexpected-hydrated-id`);
+      continue;
+    }
+    const expectedEntry =
+      expected && Array.isArray(expected.provenance)
+        ? expected.provenance[0]
+        : null;
+    if (expectedById && !expectedEntry) {
+      unattributedJobs.push(`${job.id}:fixture-provenance-missing`);
+      continue;
+    }
+    const entries = Array.isArray(job.provenance) ? job.provenance : [];
+    const match = entries.find((entry) => {
+      if (
+        !entry ||
+        typeof entry !== "object" ||
+        typeof entry.targetId !== "string" ||
+        entry.targetId.length === 0 ||
+        typeof entry.adapterKind !== "string" ||
+        entry.adapterKind.length === 0 ||
+        typeof entry.startingUrl !== "string" ||
+        entry.startingUrl.length === 0 ||
+        typeof entry.discoveredAt !== "string" ||
+        entry.discoveredAt.length === 0 ||
+        (entry.collectionMethod != null &&
+          !["api", "listing_route", "careers_page", "fallback_search"].includes(
+            entry.collectionMethod,
+          )) ||
+        !(
+          entry.resolvedAdapterKind == null ||
+          typeof entry.resolvedAdapterKind === "string"
+        )
+      )
+        return false;
+      // Mutated target linkage: the hydrated entry must still reference the
+      // exact configured target the fixture was built against.
+      if (expectedEntry && entry.targetId !== expectedEntry.targetId)
+        return false;
+      const configured = targetsById.get(entry.targetId);
+      if (!configured) return false;
+      return (
+        entry.adapterKind === (configured.adapterKind ?? "auto") &&
+        entry.startingUrl === configured.startingUrl &&
+        entry.discoveredAt === job.discoveredAt &&
+        (!expected || entry.discoveredAt === expected.discoveredAt)
+      );
+    });
+    if (!match) {
+      unattributedJobs.push(job.id);
+      continue;
+    }
+    linkedTargetIds.add(match.targetId);
+  }
+  assert(
+    unattributedJobs.length === 0,
+    `${label} jobs lack schema-shaped attributable provenance resolving to the configured fixture target (dropped, defaulted, mutated linkage, or timestamp drift): ${JSON.stringify(unattributedJobs.slice(0, 5))}`,
+  );
+  assert(
+    linkedTargetIds.size > 0,
+    `${label} provenance did not resolve to any configured target.`,
+  );
+  return {
+    verified: true,
+    jobCount: jobs.length,
+    attributedJobCount: jobs.length,
+    resolvedTargetIds: [...linkedTargetIds].sort(),
+    ...(expectedJobs ? { matchedFixtureJobCount: expectedById.size } : {}),
+  };
+}
+
 function buildSyntheticTargets(baseTargets, count) {
   const template = baseTargets?.[0] ?? {
     id: "target_template",
@@ -955,7 +2181,7 @@ function buildSyntheticTargets(baseTargets, count) {
     startingUrl: "https://example.com/jobs",
     enabled: true,
     adapterKind: "auto",
-    customInstructions: "",
+    customInstructions: null,
     instructionStatus: "missing",
     validatedInstructionId: null,
     draftInstructionId: null,
@@ -1009,11 +2235,12 @@ function buildSyntheticTargets(baseTargets, count) {
     targets[2].startingUrl =
       "https://jobs.example.test/source/example-eu-board";
     targets[2].label =
-      "EU Lever EU Board With Very Long Title To Test Truncate At 200 Percent Zoom Effectively";
+      "EU Lever EU Board With Very Long Title To Test Truncate At 125 Percent Zoom Effectively";
   }
   return targets;
 }
-function buildSyntheticJobs(baseJobs, count) {
+function buildSyntheticJobs(baseJobs, count, options = {}) {
+  const { provenanceTarget = null } = options;
   const template = baseJobs?.[0] ??
     baseJobs?.find(Boolean) ?? {
       id: "job_template",
@@ -1087,7 +2314,7 @@ function buildSyntheticJobs(baseJobs, count) {
     "Lead UX Strategist",
     "Senior Systems Designer",
     "Platform Engineer",
-    "Very Long Job Title That Should Truncate In Pill And Not Overflow The Card At 200 Percent Zoom For Verification Purposes With Extra Long Descriptor To Test Pill Ellipsis",
+    "Very Long Job Title That Should Truncate In Pill And Not Overflow The Card At 125 Percent Zoom For Verification Purposes With Extra Long Descriptor To Test Pill Ellipsis",
   ];
   const companies = [
     "Signal Systems",
@@ -1101,6 +2328,9 @@ function buildSyntheticJobs(baseJobs, count) {
   for (let i = 0; i < count; i++) {
     const base = structuredClone(template);
     const ordinal = i + 1;
+    const discoveredAt = new Date(
+      Date.now() - (count - i) * 60000,
+    ).toISOString();
     const title =
       titles[i % titles.length] +
       (i % 10 === 0
@@ -1124,7 +2354,10 @@ function buildSyntheticJobs(baseJobs, count) {
       summary: `Synthetic job ${ordinal} for deterministic UI coverage.`,
       description: `Synthetic listing content for coverage ${ordinal}; no external source opened.`,
       status: "ready_for_review",
-      discoveredAt: new Date(Date.now() - (count - i) * 60000).toISOString(),
+      provenance: provenanceTarget
+        ? [buildFixtureJobProvenance(provenanceTarget, discoveredAt)]
+        : [],
+      discoveredAt,
       lastSeenAt: new Date().toISOString(),
       firstSeenAt: new Date(Date.now() - (count - i) * 60000).toISOString(),
       lastVerifiedActiveAt: new Date().toISOString(),
@@ -1167,6 +2400,13 @@ async function run() {
   });
   let app;
   let processOutputState = null;
+  let scenarioSucceeded = false;
+  let primaryScenarioError = null;
+  let finalizationError = null;
+  let ownershipError = null;
+  let cleanupError = null;
+  let reportPersistenceError = null;
+  const ownedProcesses = createOwnedProcessLedger();
   const observedSafetyEvents = [];
   try {
     app = await electron.launch({
@@ -1197,7 +2437,7 @@ async function run() {
       undefined,
       { timeout: 30000 },
     );
-    const browserWindow = await app.browserWindow(page);
+    const browserWindow = await resolveStartupBrowserWindow(app, page);
     activeBrowserWindow = browserWindow;
     await page.evaluate(() =>
       window.unemployed.jobFinder.test.setSystemThemeOverride("dark"),
@@ -1217,7 +2457,7 @@ async function run() {
       window.location.hash = "#/job-finder/home";
     });
     await page
-      .getByRole("heading", { name: /Today/ })
+      .getByRole("heading", { level: 1, name: "Home" })
       .first()
       .waitFor({ state: "visible", timeout: 10000 });
     const freshHomeDesktop = await capture(
@@ -1233,17 +2473,23 @@ async function run() {
     const freshHomeWorkspace = await getWorkspace(page);
     const freshHomeMetrics = assertZeroDashboardMetrics(freshHomeWorkspace);
     await setViewport(page, browserWindow, viewports[2]);
-    const freshHomeMinimum = await capture(page, "fresh-home-minimum-width-0-metrics", {
-      viewport: viewports[2],
-      scenario: "fresh-home-minimum-width",
-      scenarioId: "home-zero-minimum",
-      expectCompactPlanningButton: true,
-    });
+    const freshHomeMinimum = await capture(
+      page,
+      "fresh-home-minimum-width-0-metrics",
+      {
+        viewport: viewports[2],
+        scenario: "fresh-home-minimum-width",
+        scenarioId: "home-zero-minimum",
+        expectCompactPlanningButton: true,
+      },
+    );
     completeScenario("wide-sidebar-1440", freshHomeDesktop);
     completeScenario("compact-planning-settings-minimum", freshHomeMinimum);
     await setViewport(page, browserWindow, viewports[0]);
     report.scenarios.freshHome = {
-      metricsZero: Object.values(freshHomeMetrics).every((value) => value === 0),
+      metricsZero: Object.values(freshHomeMetrics).every(
+        (value) => value === 0,
+      ),
       metrics: freshHomeMetrics,
       viewport: viewports[0].slug,
       minimumWidth: viewports[2].width,
@@ -1266,16 +2512,16 @@ async function run() {
     await page.evaluate(() => {
       window.location.hash = "#/job-finder/profile/setup";
     });
-    await capture(page, "guided-setup-empty-zoom200", {
+    await capture(page, "guided-setup-empty-native125", {
       viewport: viewports[1],
-      scenario: "guided-setup-empty-zoom200",
-      scenarioId: "guided-setup-empty-zoom200",
+      scenario: "guided-setup-empty-native125",
+      scenarioId: "guided-setup-empty-native125",
     });
     await setViewport(page, browserWindow, viewports[0]);
     report.scenarios.guidedSetup = { empty: true };
 
     console.log(
-      "=== Profile sources 25 rows p1/p2/filtered empty at 200% pill truncate ===",
+      "=== Profile sources 25 rows p1/p2/filtered empty at native 125% pill truncate ===",
     );
     let sourceState = structuredClone(baseResumeSnapshot);
     const syntheticTargets = buildSyntheticTargets(
@@ -1332,18 +2578,37 @@ async function run() {
       .getByRole("heading", { name: "Your profile" })
       .waitFor({ state: "visible", timeout: 10000 });
     await page
-      .getByText("Job sources", { exact: true })
-      .first()
+      .locator("#profile-job-sources-heading")
       .waitFor({ state: "visible", timeout: 10000 });
     await page
       .locator("[data-job-sources-library]")
       .waitFor({ state: "visible", timeout: 10000 });
+    const jobSourcesPageSize = 25;
+    assert(
+      syntheticTargets.length > jobSourcesPageSize,
+      `Profile sources pagination needs more than ${jobSourcesPageSize} synthetic targets to exercise page 2.`,
+    );
+    const profileSourcesRangePatternSource = (first, last) =>
+      `(^|\\D)${first}[–-]${last} of ${syntheticTargets.length}(?:\\D|$)`;
+    const profileP1Settlement = await waitForSemanticSourcesPagination(page, {
+      phase: "profile-sources page 1",
+      rangePatternSource: profileSourcesRangePatternSource(
+        1,
+        Math.min(jobSourcesPageSize, syntheticTargets.length),
+      ),
+      expectedRowIds: syntheticTargets
+        .slice(0, jobSourcesPageSize)
+        .map((target) => target.id),
+    });
     await capture(page, "profile-sources-25rows-p1-desktop", {
       viewport: viewports[0],
       scenario: "profile-sources-p1",
       scenarioId: "profile-sources-p1",
       totalSources: syntheticTargets.length,
-      expectedRows: 25,
+      expectedRows: jobSourcesPageSize,
+      expectSemanticPaginationEvidence: true,
+      semanticPaginationEvidence: profileP1Settlement,
+      scrollSelector: "[data-job-sources-library]",
     });
     const profileP1Rows = await page
       .locator("[data-compact-source-id], [data-expanded-source-id]")
@@ -1361,14 +2626,24 @@ async function run() {
         "Profile source pagination did not expose an enabled Next button for page 2.",
       );
     await nextBtn.click();
-    await page
-      .getByText(/26[–-]32 of 32/, { exact: false })
-      .waitFor({ state: "visible", timeout: 10000 });
+    const profileP2Settlement = await waitForSemanticSourcesPagination(page, {
+      phase: "profile-sources page 2",
+      rangePatternSource: profileSourcesRangePatternSource(
+        jobSourcesPageSize + 1,
+        syntheticTargets.length,
+      ),
+      expectedRowIds: syntheticTargets
+        .slice(jobSourcesPageSize)
+        .map((target) => target.id),
+    });
     await capture(page, "profile-sources-25rows-p2-desktop", {
       viewport: viewports[0],
       scenario: "profile-sources-p2",
       scenarioId: "profile-sources-p2",
-      expectedRows: 7,
+      expectedRows: syntheticTargets.length - jobSourcesPageSize,
+      expectSemanticPaginationEvidence: true,
+      semanticPaginationEvidence: profileP2Settlement,
+      scrollSelector: "[data-job-sources-library]",
     });
     const profileP2Rows = await page
       .locator("[data-compact-source-id], [data-expanded-source-id]")
@@ -1384,114 +2659,74 @@ async function run() {
     await searchInput.waitFor({ state: "visible", timeout: 10000 });
     await searchInput.fill("zzznonexistentquery999");
     await page
-      .getByText(/No sources match/i)
+      .getByText("No sources match this view", { exact: true })
       .waitFor({ state: "visible", timeout: 10000 });
     await capture(page, "profile-sources-filtered-empty-desktop", {
       viewport: viewports[0],
       scenario: "profile-filtered-empty",
       scenarioId: "profile-sources-filtered-empty",
       emptyUnified: true,
+      scrollSelector: "[data-job-sources-library]",
     });
     await searchInput.fill("");
-    // 200% pill truncate
+    // Native 125% pill truncate
     await setViewport(page, browserWindow, viewports[1]);
     await page.evaluate(() => {
-      window.location.hash = "#/job-finder/profile?section=sources";
+      window.location.hash =
+        "#/job-finder/profile?section=sources&focus=job-sources";
     });
-    await page.waitForTimeout(700);
-    await capture(page, "profile-sources-25rows-zoom200", {
+    await page
+      .getByRole("heading", { name: "Your profile" })
+      .waitFor({ state: "visible", timeout: 10000 });
+    await page
+      .locator("#profile-job-sources-heading")
+      .waitFor({ state: "visible", timeout: 10000 });
+    await page
+      .locator("[data-job-sources-library]")
+      .waitFor({ state: "visible", timeout: 10000 });
+    const profileDeepLinkVisibilityEvidence =
+      await collectProfileDeepLinkVisibilityEvidence(page);
+    await capture(page, "profile-sources-25rows-native125", {
       viewport: viewports[1],
-      scenario: "profile-sources-zoom200",
-      scenarioId: "profile-sources-zoom200",
+      scenario: "profile-sources-native125",
+      scenarioId: "profile-sources-native125",
       pillsTruncate: true,
+      expectProfileDeepLinkEvidence: true,
+      profileDeepLinkVisibilityEvidence,
+      contentTarget: {
+        selector: "[data-compact-source-id]",
+        block: "center",
+        minVisibleRows: 2,
+        requiredRowIds: syntheticTargets.slice(0, 2).map((target) => target.id),
+      },
     });
     await setViewport(page, browserWindow, viewports[0]);
     report.scenarios.profileSources = {
       total: profileSourceTargets.length,
-      pageSize: 25,
+      pageSize: jobSourcesPageSize,
       renderedRows: { page1: profileP1Rows, page2: profileP2Rows },
+      pageEvidence: {
+        page1: {
+          observedRangeText: profileP1Settlement.observedRangeText,
+          observedRowIds: profileP1Settlement.observedRowIds,
+          observedRowCount: profileP1Settlement.observedRowCount,
+          geometryStableAcrossAnimationFrames:
+            profileP1Settlement.geometryStableAcrossAnimationFrames,
+        },
+        page2: {
+          observedRangeText: profileP2Settlement.observedRangeText,
+          observedRowIds: profileP2Settlement.observedRowIds,
+          observedRowCount: profileP2Settlement.observedRowCount,
+          geometryStableAcrossAnimationFrames:
+            profileP2Settlement.geometryStableAcrossAnimationFrames,
+        },
+      },
     };
 
     console.log("=== Discovery 50 rows + filtered empty ===");
     let discoveryState = structuredClone(baseApplySnapshot);
-    const discoveryJobs = buildSyntheticJobs(
-      discoveryState.savedJobs ?? discoveryState.discoveryJobs ?? [],
-      50,
-    );
-    // Set both savedJobs and discoveryJobs if field exists
-    discoveryState.savedJobs = discoveryJobs;
-    if ("discoveryJobs" in discoveryState)
-      discoveryState.discoveryJobs = discoveryJobs;
-    // Also ensure recentDiscoveryJobs includes Completed?
-    // Ensure campaign
-    let campaign = discoveryState.campaigns?.[0];
-    if (!campaign) {
-      campaign = {
-        id: "campaign_synth_1",
-        name: "Synthetic Campaign 50",
-        description: "Synthetic campaign for fresh flows",
-        status: "active",
-        mode: "precision",
-        jobIds: discoveryJobs.map((j) => j.id),
-        sourceTargetIds: syntheticTargets.slice(0, 3).map((t) => t.id),
-        rules: [],
-        schedule: {
-          mode: "manual",
-          enabled: false,
-          daysOfWeek: [],
-          localStartTime: "09:00",
-          timeZone: "UTC",
-          pauseWindows: [],
-          runFacts: {
-            nextRunAt: null,
-            lastRunAt: null,
-            lastRunOutcome: null,
-            lastRunSummary: null,
-            consecutiveFailures: 0,
-          },
-        },
-        latestDigest: null,
-        progress: {
-          jobsFound: discoveryJobs.length,
-          jobsRetained: discoveryJobs.length,
-          applicationsPrepared: 0,
-          applicationsApplied: 0,
-          currentBatchCompleted: 0,
-          currentBatchTotal: 0,
-          blockedCount: 0,
-          remainingQueueSize: 0,
-          lastRunAt: null,
-          lastUpdatedAt: new Date().toISOString(),
-        },
-        history: [],
-        applicationPolicy: {
-          requireReviewBeforeExternalWrite: true,
-          finalSubmitAuthorized: false,
-          defaultResumeStrategyId: null,
-        },
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      discoveryState.campaigns = [campaign];
-      discoveryState.activeCampaignId = campaign.id;
-    } else {
-      campaign.jobIds = discoveryJobs.map((j) => j.id);
-      campaign.progress = {
-        ...campaign.progress,
-        jobsFound: discoveryJobs.length,
-        jobsRetained: discoveryJobs.length,
-      };
-      discoveryState.activeCampaignId = campaign.id;
-    }
-    discoveryState.profileSetupState = {
-      status: "completed",
-      currentStep: "ready_check",
-      completedAt: new Date().toISOString(),
-      reviewItems: [],
-      lastResumedAt: new Date().toISOString(),
-    };
-    // Ensure discoveryJobs visible: also need to ensure savedJobs leads to snapshot discoveryJobs
-    // For discovery filtering, ensure at least one source enabled
+    // For discovery filtering, ensure at least one source enabled before
+    // deriving fixture provenance from the runnable configured target.
     if (discoveryState.searchPreferences?.discovery?.targets) {
       // enable first target if none enabled
       const hasEnabled =
@@ -1501,6 +2736,40 @@ async function run() {
       if (!hasEnabled && discoveryState.searchPreferences.discovery.targets[0])
         discoveryState.searchPreferences.discovery.targets[0].enabled = true;
     }
+    const discoveryProvenanceTarget =
+      resolveConfiguredDiscoveryTarget(discoveryState);
+    const discoveryJobs = buildSyntheticJobs(
+      discoveryState.savedJobs ?? discoveryState.discoveryJobs ?? [],
+      50,
+      { provenanceTarget: discoveryProvenanceTarget },
+    );
+    // Set both savedJobs and discoveryJobs if field exists
+    discoveryState.savedJobs = discoveryJobs;
+    if ("discoveryJobs" in discoveryState)
+      discoveryState.discoveryJobs = discoveryJobs;
+    // Also ensure recentDiscoveryJobs includes Completed?
+    // The apply-queue demo snapshot always contains at least one campaign;
+    // binding to it is the only valid path. Fabricating a replacement here
+    // would drift from the schema, so fail fast when the invariant breaks.
+    const campaign = discoveryState.campaigns?.[0];
+    assert(
+      campaign,
+      "Discovery scenario found no existing campaign in the apply-queue demo snapshot.",
+    );
+    campaign.jobIds = discoveryJobs.map((j) => j.id);
+    campaign.progress = {
+      ...campaign.progress,
+      jobsFound: discoveryJobs.length,
+      jobsRetained: discoveryJobs.length,
+    };
+    discoveryState.activeCampaignId = campaign.id;
+    discoveryState.profileSetupState = {
+      status: "completed",
+      currentStep: "ready_check",
+      completedAt: new Date().toISOString(),
+      reviewItems: [],
+      lastResumedAt: new Date().toISOString(),
+    };
     await page.evaluate(
       (state) => window.unemployed.jobFinder.test.resetWorkspaceState(state),
       discoveryState,
@@ -1528,6 +2797,21 @@ async function run() {
             candidate.jobIds.length === discoveryJobs.length,
         ),
       "Discovery workspace did not hydrate a populated active campaign with all synthetic jobs.",
+    );
+    const discoveryProvenanceAttribution = assertSyntheticProvenanceClosure(
+      discoveryJobs,
+      discoveryState.searchPreferences?.discovery?.targets ??
+        discoveryState.searchPreferences?.discoveryTargets ??
+        [],
+      "Fresh discovery",
+    );
+    const hydratedDiscoveryProvenance = assertSyntheticProvenanceClosure(
+      discoveryWorkspace.discoveryJobs ?? [],
+      discoveryWorkspace.searchPreferences?.discovery?.targets ??
+        discoveryWorkspace.searchPreferences?.discoveryTargets ??
+        [],
+      "Fresh discovery hydrated",
+      discoveryJobs,
     );
     await setViewport(page, browserWindow, viewports[0]);
     await page.evaluate(() => {
@@ -1559,6 +2843,13 @@ async function run() {
     await page
       .getByText(/No matching jobs|No jobs/i)
       .waitFor({ state: "visible", timeout: 10000 });
+    await page
+      .getByText("Choose a job to review", { exact: true })
+      .waitFor({ state: "visible", timeout: 10000 });
+    assert(
+      (await page.getByRole("button", { name: /^Shortlist / }).count()) === 0,
+      "Discovery inspector retained actions for a job outside the filtered result set.",
+    );
     await capture(page, "discovery-filtered-empty-desktop", {
       viewport: viewports[0],
       scenario: "discovery-filtered-empty",
@@ -1575,27 +2866,268 @@ async function run() {
       window.location.hash = "#/job-finder/discovery";
     });
     await page.waitForTimeout(700);
-    await capture(page, "discovery-50rows-zoom200", {
+    await capture(page, "discovery-50rows-native125", {
       viewport: viewports[1],
-      scenario: "discovery-zoom200",
-      scenarioId: "discovery-zoom200",
+      scenario: "discovery-native125",
+      scenarioId: "discovery-native125",
     });
     await setViewport(page, browserWindow, viewports[0]);
     report.scenarios.discovery = {
       jobCount: hydratedDiscoveryJobs,
       renderedRows: discoveryP1Rows,
       filteredRenderedRows: 0,
+      provenanceAttribution: {
+        ...discoveryProvenanceAttribution,
+        hydrated: hydratedDiscoveryProvenance,
+        provenanceTargetId: discoveryProvenanceTarget.id,
+      },
     };
 
     console.log(
-      "=== Planning and settings menu at 200% inside viewport + keyboard ===",
+      "=== Long-label truth at desktop, minimum width, and native 125% zoom ===",
+    );
+    const longLabelJobs = buildSyntheticJobs(
+      discoveryState.savedJobs ?? discoveryState.discoveryJobs ?? [],
+      LONG_LABEL_JOB_TOTAL,
+      { provenanceTarget: discoveryProvenanceTarget },
+    ).map((job, index) => ({
+      ...job,
+      // The discovery detail panel exposes its primary "Shortlist job" action
+      // only for undiscovered results (`status !== "discovered"` renders an
+      // "Open in Shortlisted" link instead), so these synthetic rows must stay
+      // in the discovered state for the shortlist-action reachability
+      // evidence below to describe a real control.
+      status: "discovered",
+      title: LONG_LABEL_JOB_TITLES[index % LONG_LABEL_JOB_TITLES.length],
+      company: LONG_LABEL_COMPANIES[index % LONG_LABEL_COMPANIES.length],
+      location: LONG_LABEL_LOCATIONS[index % LONG_LABEL_LOCATIONS.length],
+    }));
+    const longLabelState = structuredClone(discoveryState);
+    longLabelState.savedJobs = longLabelJobs;
+    if ("discoveryJobs" in longLabelState)
+      longLabelState.discoveryJobs = longLabelJobs;
+    if (
+      Array.isArray(longLabelState.campaigns) &&
+      longLabelState.campaigns[0]
+    ) {
+      longLabelState.campaigns[0] = {
+        ...longLabelState.campaigns[0],
+        id: "campaign_long_label_truth",
+        name: LONG_LABEL_CAMPAIGN_NAME,
+        jobIds: longLabelJobs.map((job) => job.id),
+        progress: {
+          ...longLabelState.campaigns[0].progress,
+          jobsFound: longLabelJobs.length,
+          jobsRetained: longLabelJobs.length,
+        },
+      };
+      longLabelState.activeCampaignId = "campaign_long_label_truth";
+    }
+    await page.evaluate(
+      (state) => window.unemployed.jobFinder.test.resetWorkspaceState(state),
+      longLabelState,
+    );
+    await page.reload();
+    await page.waitForLoadState("domcontentloaded");
+    await page.waitForFunction(
+      () => Boolean(window.unemployed?.jobFinder?.getWorkspace),
+      undefined,
+      { timeout: 10000 },
+    );
+    await waitForWorkspaceHydrated(page, 20000);
+    const longLabelWorkspace = await getWorkspace(page);
+    assertHydratedCollectionCount(
+      longLabelWorkspace,
+      "discoveryJobs",
+      longLabelJobs.length,
+      "Long-label jobs",
+    );
+    const longLabelProvenanceAttribution = assertSyntheticProvenanceClosure(
+      longLabelJobs,
+      discoveryState.searchPreferences?.discovery?.targets ??
+        discoveryState.searchPreferences?.discoveryTargets ??
+        [],
+      "Long-label",
+    );
+    const longLabelHydratedProvenance = assertSyntheticProvenanceClosure(
+      longLabelWorkspace.discoveryJobs ?? [],
+      longLabelWorkspace.searchPreferences?.discovery?.targets ??
+        longLabelWorkspace.searchPreferences?.discoveryTargets ??
+        [],
+      "Long-label hydrated",
+      longLabelJobs,
+    );
+    const longLabelViewports = [
+      {
+        key: "desktop",
+        viewport: viewports[0],
+        scenarioId: "long-label-desktop",
+      },
+      {
+        key: "minimum",
+        viewport: viewports[2],
+        scenarioId: "long-label-minimum",
+      },
+      {
+        key: "native125",
+        viewport: viewports[1],
+        scenarioId: "long-label-native125",
+      },
+    ];
+    for (const target of longLabelViewports) {
+      await setViewport(page, browserWindow, target.viewport);
+      await page.evaluate(() => {
+        window.location.hash = "#/job-finder/discovery";
+      });
+      await page
+        .getByRole("heading", { name: "Find jobs" })
+        .first()
+        .waitFor({ state: "visible", timeout: 10000 });
+      await page
+        .locator('[aria-labelledby="discovery-job-results-heading"]')
+        .waitFor({ state: "visible", timeout: 10000 });
+      const longLabelSearchInput = page
+        .getByPlaceholder("Search roles or companies", { exact: true })
+        .first();
+      await longLabelSearchInput.waitFor({ state: "visible", timeout: 10000 });
+      if ((await longLabelSearchInput.inputValue()) !== "")
+        await longLabelSearchInput.fill("");
+      await page.locator("[data-job-result-id]").first().click();
+      const firstCardTitle = await page.evaluate(() => {
+        const heading = document
+          .querySelector("[data-job-result-id]")
+          ?.querySelector("strong");
+        return heading ? heading.textContent.replace(/\s+/g, " ").trim() : null;
+      });
+      assert(
+        typeof firstCardTitle === "string" &&
+          LONG_LABEL_JOB_TITLES.includes(firstCardTitle),
+        `First long-label result card did not render a known deterministic title: ${JSON.stringify(firstCardTitle)}`,
+      );
+      const longLabelEvidence = await collectLongLabelEvidence(page, {
+        expectedRows: longLabelJobs.length,
+        titles: LONG_LABEL_JOB_TITLES,
+        metaLines: LONG_LABEL_META_LINES,
+        shortlistActionLabel: "Shortlist job",
+      });
+      await capture(page, `long-labels-find-jobs-${target.key}`, {
+        viewport: target.viewport,
+        scenario: "job-finder-long-labels",
+        scenarioId: target.scenarioId,
+        expectLongLabelScenario: true,
+        longLabelEvidence,
+        contentTarget: {
+          selector: "[data-job-result-id]",
+          block: "center",
+          textSelector: "strong",
+          requiredTexts: LONG_LABEL_JOB_TITLES,
+        },
+      });
+    }
+    report.scenarios.longLabelsFindJobs = {
+      jobCount: longLabelJobs.length,
+      scenarioIds: [
+        "long-label-desktop",
+        "long-label-minimum",
+        "long-label-native125",
+      ],
+      viewports: longLabelViewports.map((target) => target.viewport.slug),
+      provenanceAttribution: {
+        ...longLabelProvenanceAttribution,
+        hydrated: longLabelHydratedProvenance,
+        provenanceTargetId: discoveryProvenanceTarget.id,
+      },
+    };
+
+    console.log(
+      "=== Long-label job sources truncation truth at native 125% zoom ===",
+    );
+    const longLabelSources = buildSyntheticTargets(
+      discoveryState.searchPreferences?.discovery?.targets ?? [],
+      LONG_LABEL_SOURCE_TOTAL,
+    ).map((target, index) => ({
+      ...target,
+      label: LONG_LABEL_SOURCE_NAMES[index % LONG_LABEL_SOURCE_NAMES.length],
+    }));
+    const longLabelSourcesState = structuredClone(longLabelState);
+    if (longLabelSourcesState.searchPreferences?.discovery) {
+      longLabelSourcesState.searchPreferences.discovery.targets =
+        longLabelSources;
+    } else if (longLabelSourcesState.searchPreferences) {
+      longLabelSourcesState.searchPreferences.discoveryTargets =
+        longLabelSources;
+    }
+    await page.evaluate(
+      (state) => window.unemployed.jobFinder.test.resetWorkspaceState(state),
+      longLabelSourcesState,
+    );
+    await page.reload();
+    await page.waitForLoadState("domcontentloaded");
+    await page.waitForFunction(
+      () => Boolean(window.unemployed?.jobFinder?.getWorkspace),
+      undefined,
+      { timeout: 10000 },
+    );
+    await waitForWorkspaceHydrated(page, 20000);
+    const longLabelSourcesWorkspace = await getWorkspace(page);
+    const hydratedLongLabelSources =
+      longLabelSourcesWorkspace?.searchPreferences?.discovery?.targets ??
+      longLabelSourcesWorkspace?.searchPreferences?.discoveryTargets;
+    assert(
+      Array.isArray(hydratedLongLabelSources) &&
+        hydratedLongLabelSources.length === longLabelSources.length,
+      `Long-label sources did not hydrate the expected populated state: expected ${longLabelSources.length}, received ${Array.isArray(hydratedLongLabelSources) ? hydratedLongLabelSources.length : "missing"}.`,
+    );
+    await setViewport(page, browserWindow, viewports[1]);
+    await page.evaluate(() => {
+      window.location.hash =
+        "#/job-finder/profile?section=sources&focus=job-sources";
+    });
+    await page
+      .getByRole("heading", { name: "Your profile" })
+      .waitFor({ state: "visible", timeout: 10000 });
+    await page
+      .locator("#profile-job-sources-heading")
+      .waitFor({ state: "visible", timeout: 10000 });
+    await page
+      .locator("[data-job-sources-library]")
+      .waitFor({ state: "visible", timeout: 10000 });
+    const sourceLabelEvidence = await collectSourceLabelEvidence(page, {
+      expectedRows: longLabelSources.length,
+      names: LONG_LABEL_SOURCE_NAMES,
+    });
+    assert(
+      sourceLabelEvidence.truncatedRowCount >= 1,
+      "Intended ellipsis truncation did not engage for any long source label at native 125% zoom.",
+    );
+    await capture(page, "long-labels-job-sources-native125", {
+      viewport: viewports[1],
+      scenario: "job-finder-long-labels",
+      scenarioId: "long-label-sources-native125",
+      expectLongLabelScenario: true,
+      longLabelEvidence: sourceLabelEvidence,
+      contentTarget: {
+        selector: "[data-compact-source-id]",
+        block: "center",
+        textSelector: "h4",
+        requiredTexts: LONG_LABEL_SOURCE_NAMES,
+      },
+    });
+    await setViewport(page, browserWindow, viewports[0]);
+    report.scenarios.longLabelsJobSources = {
+      sourceCount: longLabelSources.length,
+      scenarioIds: ["long-label-sources-native125"],
+    };
+
+    console.log(
+      "=== Planning and settings menu at native 125% inside viewport + keyboard ===",
     );
     await setViewport(page, browserWindow, viewports[1]);
     await page.evaluate(() => {
       window.location.hash = "#/job-finder/home";
     });
     await page
-      .getByRole("heading", { name: /Today/ })
+      .getByRole("heading", { level: 1, name: "Home" })
       .first()
       .waitFor({ state: "visible", timeout: 10000 });
     const planningSettingsButton = page.getByRole("button", {
@@ -1604,7 +3136,7 @@ async function run() {
     });
     await planningSettingsButton.waitFor({ state: "visible", timeout: 8000 });
     await planningSettingsButton.click();
-    const planningSettingsMenu = page.getByRole("menu", {
+    const planningSettingsMenu = page.getByRole("navigation", {
       name: PLANNING_SETTINGS_MENU_LABEL,
       exact: true,
     });
@@ -1613,30 +3145,37 @@ async function run() {
       page,
       planningSettingsMenu,
     );
-    const planningSettingsCapture = await capture(page, "planning-settings-menu-zoom200", {
-      viewport: viewports[1],
-      scenario: "planning-settings-menu",
-      scenarioId: "planning-settings-menu-zoom200",
-      expectPlanningMenu: true,
-      expectPlanningMenuKeyboard: true,
-      planningMenuKeyboard,
-    });
+    const planningSettingsCapture = await capture(
+      page,
+      "planning-settings-menu-native125",
+      {
+        viewport: viewports[1],
+        scenario: "planning-settings-menu",
+        scenarioId: "planning-settings-menu-native125",
+        expectPlanningMenu: true,
+        expectPlanningMenuKeyboard: true,
+        planningMenuKeyboard,
+      },
+    );
     const planningMenuLayout = report.captures.at(-1)?.navigation?.planningMenu;
     if (
       !planningMenuLayout?.requiredDestinationsVisible ||
       !planningMenuLayout.labels?.includes("Settings")
     )
       throw new Error(
-        `Planning and settings menu did not retain Settings at 200%: ${JSON.stringify(planningMenuLayout)}`,
+        `Planning and settings menu did not retain Settings at native 125%: ${JSON.stringify(planningMenuLayout)}`,
       );
-    completeScenario("planning-settings-menu-zoom200", planningSettingsCapture);
+    completeScenario(
+      "planning-settings-menu-native125",
+      planningSettingsCapture,
+    );
     await page.keyboard.press("Escape");
     await planningSettingsMenu.waitFor({ state: "hidden", timeout: 5000 });
-    // Also capture zoom200 home for final sweep sanity
-    await capture(page, "fresh-home-zoom200", {
+    // Also capture the native 125% home for final sweep sanity
+    await capture(page, "fresh-home-native125", {
       viewport: viewports[1],
-      scenario: "fresh-home-zoom200",
-      scenarioId: "home-zero-zoom200",
+      scenario: "fresh-home-native125",
+      scenarioId: "home-zero-native125",
     });
     await setViewport(page, browserWindow, viewports[0]);
 
@@ -1661,7 +3200,10 @@ async function run() {
       );
       report.safety.submitAuthorized = submitFlags.some(Boolean);
       report.safety.accountCreationAuthorized = acctFlags.some(Boolean);
-      assertPrepareOnly(finalWorkspace, observedSafetyEvents);
+      report.safety.authoritativePersistedFacts = assertPrepareOnly(
+        finalWorkspace,
+        observedSafetyEvents,
+      );
       assert(
         report.safety.applicationActionsExecuted === false &&
           report.safety.finalSubmissionClicked === false &&
@@ -1702,7 +3244,7 @@ async function run() {
       allInsideViewport: report.captures.every((c) => c.insideViewport),
       allNoClip: report.captures.every((c) => c.noClip),
     };
-    report.completedAt = new Date().toISOString();
+    scenarioSucceeded = true;
     await writeReport();
     console.log(
       `Saved ${report.captures.length} fresh-flow captures to ${outputDir}`,
@@ -1713,38 +3255,89 @@ async function run() {
         `  ${c.id}: ${c.fileName} viewport=${c.viewport.slug} insideViewport=${c.insideViewport} noClip=${c.noClip} pass=${c.pass}`,
       );
     }
+  } catch (error) {
+    primaryScenarioError = error;
   } finally {
-    let finalizationError = null;
     if (app) {
       try {
-        await stopOwnedElectronProcessTree(app);
-      } catch {}
+        const verification = await stopAndVerifyOwnedElectron(
+          app,
+          ownedProcesses,
+          "fresh",
+        );
+        report.processOwnership.verifications.push(verification);
+      } catch (error) {
+        ownershipError = error;
+        // The diagnostic is persisted even when exit precedence later picks
+        // the primary scenario error, so an ownership teardown failure can
+        // never disappear from the report.
+        report.processOwnership.failure =
+          error instanceof Error
+            ? (error.stack ?? error.message)
+            : String(error);
+      }
     }
+    report.processOwnership.trackedProcesses = ownedProcesses.entries();
+    report.processOwnership.leftoverPids =
+      report.processOwnership.verifications.flatMap(
+        (verification) => verification.leftoverPids,
+      );
+    report.processOwnership.verified =
+      !ownershipError &&
+      report.processOwnership.trackedProcesses.length > 0 &&
+      report.processOwnership.leftoverPids.length === 0;
     if (processOutputState) {
       try {
-        finalizeProcessOutput(processOutputState, report);
+        finalizeProcessOutput(processOutputState, report, {
+          acceptedStderrPatterns: [
+            PLAYWRIGHT_INSPECTOR_DISCONNECT_STDERR_PATTERN,
+          ],
+        });
       } catch (error) {
         finalizationError = error;
       }
     }
-    const cleanupError = await cleanupDirectory(userDataDirectory);
+    cleanupError = await cleanupDirectory(userDataDirectory);
     report.safety.cleanedUp = !cleanupError;
     if (cleanupError) report.safety.cleanupError = String(cleanupError);
+    if (
+      scenarioSucceeded &&
+      !finalizationError &&
+      !ownershipError &&
+      !cleanupError
+    ) {
+      report.pass = true;
+      report.completedAt = new Date().toISOString();
+    }
     try {
       await writeReport();
-    } catch {}
-    if (finalizationError) throw finalizationError;
-    if (cleanupError)
-      throw new Error(
-        `Unable to clean isolated user data directory: ${cleanupError}`,
-      );
+    } catch (error) {
+      reportPersistenceError = error;
+    }
   }
+  const teardownFailure = resolvePrimaryRunError(
+    primaryScenarioError,
+    finalizationError,
+  );
+  if (teardownFailure) throw teardownFailure;
+  if (ownershipError) throw ownershipError;
+  if (cleanupError)
+    throw new Error(
+      `Unable to clean isolated user data directory: ${cleanupError}`,
+    );
+  if (reportPersistenceError) throw reportPersistenceError;
 }
+
 run().catch(async (err) => {
   console.error(err);
   report.failedAt = new Date().toISOString();
   report.failure =
     err instanceof Error ? (err.stack ?? err.message) : String(err);
+  // Truthful failure completion: even when the in-run persistence attempt
+  // failed and this outer retry succeeds, the persisted artifact must never
+  // claim pass:true or a completed run alongside failure.
+  report.pass = false;
+  report.completedAt = null;
   await writeReport();
   process.exitCode = 1;
 });

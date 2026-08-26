@@ -12,6 +12,24 @@ import type { ApplicationCrmSettings } from "@unemployed/contracts";
 
 import { ApplicationsCrmSettingsEditor } from "./applications-crm-settings";
 
+const canonicalFieldTokens = [
+  "border-(--field-border)",
+  "bg-(--field)",
+  "outline-none",
+  "focus-visible:border-(--field-focus-border)",
+  "focus-visible:bg-(--field-strong)",
+  "focus-visible:shadow-[var(--field-focus-shadow)]",
+];
+
+function expectCanonicalFieldClasses(control: HTMLElement) {
+  for (const token of canonicalFieldTokens) {
+    expect(control.className).toContain(token);
+  }
+  expect(control.className).not.toContain("border-input");
+  expect(control.className).not.toContain("bg-background");
+  expect(control.className).not.toContain("ring-[3px]");
+}
+
 describe("ApplicationsCrmSettingsEditor", () => {
   afterEach(cleanup);
 
@@ -109,5 +127,50 @@ describe("ApplicationsCrmSettingsEditor", () => {
     expect(screen.getByDisplayValue("Screening call").className).toContain(
       "min-w-0",
     );
+  });
+
+  it("applies the canonical field recipe to editable controls and leaves checkboxes and hidden inputs untouched", () => {
+    render(
+      <ApplicationsCrmSettingsEditor
+        onSave={vi.fn<(settings: ApplicationCrmSettings) => Promise<void>>()}
+        settings={{
+          noResponseAutomation: { enabled: true, afterDays: 14 },
+          customStages: [
+            {
+              id: "custom_screening",
+              label: "Screening call",
+              baseStage: "recruiter_contact",
+              color: "cyan",
+              position: 0,
+              isTerminal: false,
+            },
+          ],
+        }}
+      />,
+    );
+
+    const editableControls = [
+      screen.getByLabelText("After days"),
+      screen.getByDisplayValue("Screening call"),
+      screen.getByLabelText("Reports as"),
+      screen.getByLabelText("Color"),
+    ];
+    for (const control of editableControls) {
+      expectCanonicalFieldClasses(control);
+    }
+
+    // Protected native controls: checkbox styling stays untouched and hidden
+    // RHF registrations carry no field classes.
+    const checkboxes = [
+      ...document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
+    ];
+    const hiddenInputs = [
+      ...document.querySelectorAll<HTMLInputElement>('input[type="hidden"]'),
+    ];
+    expect(checkboxes).toHaveLength(2);
+    expect(hiddenInputs.length).toBeGreaterThan(0);
+    for (const control of [...checkboxes, ...hiddenInputs]) {
+      expect(control.className).toBe("");
+    }
   });
 });

@@ -3,6 +3,7 @@ import type {
   ApplicationCrmExportFormat,
   ApplicationCrmMutationInput,
   ApplicationCrmSettings,
+  AppearanceTheme,
   ApplyGroupedManualAnswerInput,
   ApplyRunDetails,
   CampaignRuleFunnelProjection,
@@ -12,12 +13,16 @@ import type {
   DiscoveryActivityEvent,
   DiscoveryFeedbackReason,
   EditableSourceInstructionArtifact,
+  EmployerExclusionPreview,
   JobFinderApplyConsentActionInput,
   JobFinderApplyQueueActionInput,
+  JobFinderApplyRunActionInput,
+  JobFinderApplyRunDetailsQuery,
+  JobFinderApplicationStartTarget,
   JobFinderOpenBrowserSessionInput,
   JobFinderResumePreview,
   JobFinderResumeWorkspace,
-  JobFinderSettings,
+  JobFinderSetResumeClaimConfirmationInput,
   JobFinderWorkspaceSnapshot,
   JobSearchPreferences,
   ProfileCopilotContext,
@@ -27,6 +32,7 @@ import type {
   RapidReviewMutationInput,
   RecommendResumeStrategyInput,
   RecordOutcomeInput,
+  RemoveEmployerExclusionInput,
   ResumeStrategyRecommendation,
   ResumeImportProgressEvent,
   ResumeApplicationMode,
@@ -41,6 +47,8 @@ import type {
   SetJobFinderActivityControlInput,
   SetOutcomeSuggestionEnabledInput,
   SnoozeGroupedDecisionInput,
+  UpdateApplicationDefaultsInput,
+  UpdateWorkspaceBehaviorInput,
   ResumeAssistantMessage,
   ResumeDraft,
   ResumeDraftPatch,
@@ -48,34 +56,44 @@ import type {
   UserActionCommandInput,
 } from "@unemployed/contracts";
 import type { PendingActionScope } from "./job-finder-pending-actions";
-import type { ActionState } from "@renderer/features/job-finder/lib/job-finder-types";
+import type {
+  ActionState,
+  JobFinderAutoApplyQueueStartOutcome,
+  JobFinderQueuedJobOutcome,
+} from "@renderer/features/job-finder/lib/job-finder-types";
+import type { DiscoveryRunFeedback } from "@renderer/features/job-finder/screens/discovery/discovery-run-feedback";
+import type { TailoredDraftPreparationViewState } from "@renderer/features/job-finder/screens/review-queue/review-queue-status";
+import type { ResumeWorkHistoryDecisionRequest } from "@renderer/features/job-finder/screens/review-queue/resume-workspace-work-history-decisions";
 import type { JobFinderSaveState } from "./job-finder-save-state";
 
 export interface JobFinderPageContext {
   actionState: ActionState;
   canImportResume: boolean;
+  discoveryRunFeedback: DiscoveryRunFeedback | null;
   importResumeGuardMessage: string | null;
   isPending: (scope: PendingActionScope) => boolean;
   isAnyPending: (scopes: readonly PendingActionScope[]) => boolean;
+  onPrepareTailoredDrafts: () => void;
+  onStopTailoredDraftPreparation: () => void;
+  tailoredDraftPreparation: TailoredDraftPreparationViewState;
   profileCopilotBusy: boolean;
   resumeImportProgress: ResumeImportProgressEvent | null;
   saveState: JobFinderSaveState;
   liveDiscoveryEvents: readonly DiscoveryActivityEvent[];
   onAnalyzeProfileFromResume: () => void;
   onApplyGroupedManualAnswer: (input: ApplyGroupedManualAnswerInput) => void;
-  onApproveApplyRun: (runId: string) => void;
+  onApproveApplyRun: (input: JobFinderApplyRunActionInput) => void;
   onApproveApply: (jobId: string) => void;
-  onCancelApplyRun: (runId: string) => Promise<boolean>;
-  onRevokeApplyRunApproval: (runId: string) => void;
+  onCancelApplyRun: (input: JobFinderApplyRunActionInput) => Promise<boolean>;
+  onRevokeApplyRunApproval: (input: JobFinderApplyRunActionInput) => void;
   onResolveApplyConsentRequest: (
-    requestId: string,
-    action: JobFinderApplyConsentActionInput["action"],
+    input: JobFinderApplyConsentActionInput,
   ) => void;
-  onStartAutoApply: (jobId: string) => void;
+  onStartAutoApply: (input: JobFinderApplicationStartTarget) => void;
   onStartAutoApplyQueue: (
     jobIds: JobFinderApplyQueueActionInput["jobIds"],
-  ) => void;
-  onStartApplyCopilot: (jobId: string) => void;
+  ) => Promise<JobFinderAutoApplyQueueStartOutcome>;
+  onStartApplyCopilot: (input: JobFinderApplicationStartTarget) => void;
   onApplyProfileCopilotPatchGroup: (patchGroupId: string) => void;
   onApplyProfileSetupReviewAction: (
     reviewItemId: string,
@@ -91,23 +109,42 @@ export interface JobFinderPageContext {
   onDismissJob: (
     jobId: string,
     reasons: readonly DiscoveryFeedbackReason[],
-  ) => void;
+    action?: "hide_job" | "hide_and_exclude_employer",
+    expectedNormalizedCompanyName?: string | null,
+  ) => Promise<void>;
+  onPreviewEmployerExclusion: (
+    jobId: string,
+  ) => Promise<EmployerExclusionPreview>;
+  onRemoveEmployerExclusion: (input: RemoveEmployerExclusionInput) => void;
   onRestoreDismissedJob: (jobId: string) => void;
   onEditResumeWorkspace: (jobId: string) => void;
-  onGenerateResume: (jobId: string) => Promise<boolean>;
+  onGenerateResume: (
+    jobId: string,
+    options?: { selectAfter?: boolean },
+  ) => Promise<boolean>;
   onRemoveReviewJob: (jobId: string) => void;
   onMutateRapidReview: (input: RapidReviewMutationInput) => Promise<void>;
   onMutateSafeguards: (input: SafeguardMutationInput) => Promise<boolean>;
   onApproveResume: (jobId: string, exportId: string) => void;
   onClearResumeApproval: (jobId: string) => void;
+  onSetWorkHistoryReviewAcknowledgment: (
+    jobId: string,
+    decision: ResumeWorkHistoryDecisionRequest,
+  ) => void;
+  /**
+   * Typed passthrough to the fenced shell command; the Resume workspace owns
+   * pending state and feedback for this action.
+   */
+  onSetResumeClaimConfirmation: (
+    input: JobFinderSetResumeClaimConfirmationInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
   onExportResumePdf: (jobId: string) => void;
   onPreviewResumeDraft: (
     draft: ResumeDraft,
     requestId?: string,
   ) => Promise<JobFinderResumePreview>;
   onGetApplyRunDetails: (
-    runId: string,
-    jobId: string,
+    input: JobFinderApplyRunDetailsQuery,
   ) => Promise<ApplyRunDetails>;
   onSaveApplicationAnswer: (
     command: SaveApplicationAnswerCommandInput,
@@ -115,7 +152,9 @@ export interface JobFinderPageContext {
   onClearApplicationAnswer: (
     command: ClearApplicationAnswerCommandInput,
   ) => Promise<ApplyRunDetails>;
-  onExportApplicationPacket: (runId: string, jobId: string) => Promise<void>;
+  onExportApplicationPacket: (
+    input: JobFinderApplyRunDetailsQuery,
+  ) => Promise<void>;
   onExportApplicationCrm: (
     format: ApplicationCrmExportFormat,
     recordId: string,
@@ -149,8 +188,16 @@ export interface JobFinderPageContext {
     command: ProjectGroupedManualAnswerCommand,
   ) => void;
   onProfileSurfaceDirtyChange: (dirty: boolean) => void;
+  /**
+   * Reports each user-authored Profile or setup draft edit — including edits
+   * made while the surface was already dirty, when no dirty transition
+   * fires — so the shell's exact-request save retry stays truthful.
+   */
+  onProfileSurfaceDraftEdited: () => void;
+  /** Reports staged settings edits so the shell save retry stays truthful. */
+  onSettingsDraftEdited: () => void;
   profileCopilotPendingContextKey: string | null;
-  onQueueJob: (jobId: string) => void;
+  onQueueJob: (jobId: string) => Promise<JobFinderQueuedJobOutcome>;
   onSetJobResumeApplicationMode: (
     jobId: string,
     resumeApplicationMode: ResumeApplicationMode,
@@ -159,9 +206,20 @@ export interface JobFinderPageContext {
   onResetWorkspace: () => void;
   onResumeProfileSetup: (step?: ProfileSetupStep) => void;
   onRunAgentDiscovery?: () => void;
+  /**
+   * Cancels the active discovery run through the same fenced preload request
+   * the shell Task Center uses; when absent, no surface offers a stop action.
+   */
+  onCancelDiscovery?: () => void;
   onRunDiscoveryForTarget?: (targetId: string) => void;
   onRefreshResumeWorkspace: (jobId: string) => void;
   onResumeWorkspaceDirtyChange: (dirty: boolean) => void;
+  /**
+   * Reports each user-authored Resume Studio draft edit — including edits
+   * made while the workspace was already dirty, when no dirty transition
+   * fires — so the shell's exact-request save retry stays truthful.
+   */
+  onResumeWorkspaceDraftEdited: () => void;
   onRegenerateResumeDraft: (jobId: string) => void;
   onRegenerateResumeSection: (jobId: string, sectionId: string) => void;
   onRestoreResumeDraftRevision: (jobId: string, revisionId: string) => void;
@@ -217,6 +275,7 @@ export interface JobFinderPageContext {
   ) => void;
   onSaveCampaign: (campaign: SaveJobSearchCampaignInput) => Promise<boolean>;
   onRunCampaignNow: (campaignId?: string | null) => Promise<boolean>;
+  onDeleteCampaign: (campaignId: string) => Promise<boolean>;
   onMarkCampaignNotificationRead: (notificationId: string) => void;
   onMarkAllCampaignNotificationsRead: () => void;
   onSaveCampaignRule: (
@@ -237,10 +296,18 @@ export interface JobFinderPageContext {
   ) => Promise<CampaignRuleFunnelProjection>;
   onSaveProfile: (profile: CandidateProfile) => void;
   onSaveSearchPreferences: (searchPreferences: JobSearchPreferences) => void;
-  onSaveApplicationCrmSettings: (
-    settings: ApplicationCrmSettings,
-  ) => Promise<void>;
-  onSaveSettings: (settings: JobFinderSettings) => Promise<boolean>;
+  onUpdateApplicationDefaults: (
+    input: UpdateApplicationDefaultsInput,
+  ) => Promise<boolean>;
+  onUpdateWorkspaceBehavior: (
+    input: UpdateWorkspaceBehaviorInput,
+  ) => Promise<boolean>;
+  onUpdateAppearanceTheme: (
+    appearanceTheme: AppearanceTheme,
+  ) => Promise<boolean>;
+  onUpdateTrackerCrm: (
+    applicationCrm: ApplicationCrmSettings,
+  ) => Promise<boolean>;
   onSaveSourceInstructionArtifact: (
     targetId: string,
     artifact: EditableSourceInstructionArtifact,

@@ -1,17 +1,33 @@
 // @vitest-environment jsdom
 
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import type {
   JobSearchCampaign,
   SaveJobSearchCampaignInput,
 } from "@unemployed/contracts";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { resetJobFinderOverlaysForTests } from "../../lib/job-finder-overlay-ownership";
 import { CampaignsScreen } from "./campaigns-screen";
 
 afterEach(() => {
   cleanup();
   window.localStorage.clear();
+  resetJobFinderOverlaysForTests();
+  // Every production campaigns flow must resolve destructive decisions
+  // in-app; the native confirm stays uncalled for the whole suite.
+  expect(confirmNeverSpy).not.toHaveBeenCalled();
 });
+
+const confirmNeverSpy = vi
+  .spyOn(window, "confirm")
+  .mockImplementation(() => false);
 
 function campaign(id: string, name: string, mode: "precision" | "scale") {
   return {
@@ -162,7 +178,7 @@ describe("CampaignsScreen", () => {
     expect(onSelectCampaign).not.toHaveBeenCalled();
   });
 
-  it("explains that plans are optional and distinguishes precision, scale, and preparation", () => {
+  it("explains that plans are optional and discovery-only", () => {
     render(
       <CampaignsScreen
         activeCampaignId="one"
@@ -178,20 +194,19 @@ describe("CampaignsScreen", () => {
 
     expect(screen.getByRole("heading", { name: "Search plans" })).toBeTruthy();
     expect(screen.getByText(/Search plans are optional\./)).toBeTruthy();
-    expect(screen.getByText("a smaller set for deeper review.")).toBeTruthy();
     expect(
-      screen.getByText(
-        "a larger pool prepared in controlled batches with safeguards.",
-      ),
+      screen.getByText("a smaller discovery pool focused on stronger matches."),
     ).toBeTruthy();
     expect(
       screen.getByText(
-        "neither volume sends applications; every resume and application stays review-controlled.",
+        "a larger discovery pool with a higher retained-job target.",
       ),
     ).toBeTruthy();
+    expect(screen.queryByText(/Prepare only/)).toBeNull();
+    expect(screen.queryByText(/application/)).toBeNull();
   });
 
-  it("explains the selected volume and keeps preparation review-controlled", () => {
+  it("explains the selected discovery volume", () => {
     render(
       <CampaignsScreen
         activeCampaignId="one"
@@ -205,7 +220,7 @@ describe("CampaignsScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     expect(
       screen.getByText(
-        /Use Precision for a smaller set that gets deeper review/,
+        /Use Precision for a smaller discovery pool focused on the strongest matches/,
       ),
     ).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Volume"), {
@@ -213,15 +228,51 @@ describe("CampaignsScreen", () => {
     });
     expect(
       screen.getByText(
-        /Use Scale when you want more jobs prepared in reviewable batches/,
+        /Use Scale to discover and retain a larger pool of matching jobs/,
       ),
     ).toBeTruthy();
-    expect(screen.getByText(/Final submission remains locked/)).toBeTruthy();
+  });
+
+  it("hides legacy application policy and preserves it when discovery volume changes", () => {
+    const onSaveCampaign =
+      vi.fn<(campaign: SaveJobSearchCampaignInput) => Promise<boolean>>();
+    const existing = campaign("one", "Remote TypeScript", "precision");
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[existing]}
+        onSaveCampaign={onSaveCampaign}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.queryByText("Preparation batch")).toBeNull();
+    expect(screen.queryByText("Daily preparation limit")).toBeNull();
+    expect(screen.queryByText("Resume policy")).toBeNull();
+    expect(
+      screen.queryByText(
+        "Require review before preparing application material",
+      ),
+    ).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Volume"), {
+      target: { value: "scale" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save search plan" }));
+
+    const saved = onSaveCampaign.mock.calls.at(-1)?.[0];
+    expect(saved?.limits.retainedJobTarget).toBe(1_000);
+    expect(saved?.limits.preparationBatchSize).toBe(5);
+    expect(saved?.limits.dailyPreparationLimit).toBe(20);
+    expect(saved?.stopRules).toEqual(existing.stopRules);
+    expect(saved?.applicationPolicy).toEqual(existing.applicationPolicy);
   });
 
   it("creates a precision search plan from the current search scope", () => {
     const onSaveCampaign =
-      vi.fn<(campaign: SaveJobSearchCampaignInput) => void>();
+      vi.fn<(campaign: SaveJobSearchCampaignInput) => Promise<boolean>>();
     render(
       <CampaignsScreen
         activeCampaignId="one"
@@ -314,6 +365,27 @@ describe("CampaignsScreen", () => {
     fireEvent.click(runNowButtons[1]!);
     expect(onRunCampaignNow).toHaveBeenCalledWith("two");
     expect(onSelectCampaign).not.toHaveBeenCalled();
+  });
+
+  it("marks only the active plan with a filled Current badge", () => {
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[
+          campaign("one", "Remote TypeScript", "precision"),
+          campaign("two", "Broad engineering", "scale"),
+        ]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    const badges = screen.getAllByText("Current");
+    expect(badges).toHaveLength(1);
+    expect(badges[0]?.className).toContain("bg-primary");
+    expect(badges[0]?.className).toContain("text-primary-foreground");
+    expect(badges[0]?.className).not.toContain("text-accent");
   });
 
   it("wraps long campaign titles while exposing the complete name", () => {
@@ -422,7 +494,7 @@ describe("CampaignsScreen", () => {
 
   it("edits daily schedules, selected-day schedules, and pause windows", () => {
     const onSaveCampaign =
-      vi.fn<(campaign: SaveJobSearchCampaignInput) => void>();
+      vi.fn<(campaign: SaveJobSearchCampaignInput) => Promise<boolean>>();
     render(
       <CampaignsScreen
         activeCampaignId="one"
@@ -477,9 +549,9 @@ describe("CampaignsScreen", () => {
     expect(window?.enabled).toBe(true);
   });
 
-  it("says schedules and stop rules are enforced and keeps final-submit locked", () => {
+  it("says schedules and existing stop rules are enforced", () => {
     const onSaveCampaign =
-      vi.fn<(campaign: SaveJobSearchCampaignInput) => void>();
+      vi.fn<(campaign: SaveJobSearchCampaignInput) => Promise<boolean>>();
     render(
       <CampaignsScreen
         activeCampaignId="one"
@@ -508,8 +580,8 @@ describe("CampaignsScreen", () => {
     ).toBeTruthy();
     expect(screen.getByText(/stop rules are enforced/)).toBeTruthy();
     expect(
-      screen.getByText(/cannot authorize an external submit/),
-    ).toBeTruthy();
+      screen.queryByText(/cannot authorize an external submit/),
+    ).toBeNull();
   });
 
   it("keeps pause-window controls keyboard accessible", () => {
@@ -553,5 +625,850 @@ describe("CampaignsScreen", () => {
     expect(ends.getAttribute("aria-invalid")).toBe("true");
     fireEvent.click(addButton);
     expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+  });
+
+  it("archives the current plan and reports success through the boolean save path", async () => {
+    const onSaveCampaign =
+      vi.fn<(campaign: SaveJobSearchCampaignInput) => Promise<boolean>>();
+    onSaveCampaign.mockResolvedValue(true);
+    const onSelectCampaign = vi.fn();
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[
+          campaign("one", "Remote TypeScript", "precision"),
+          campaign("two", "Broad engineering", "scale"),
+        ]}
+        onSaveCampaign={onSaveCampaign}
+        onSelectCampaign={onSelectCampaign}
+        pending={false}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]!);
+    fireEvent.change(screen.getByLabelText("Status"), {
+      target: { value: "archived" },
+    });
+    expect(
+      screen.getByText(/one of them becomes your current plan automatically/),
+    ).toBeTruthy();
+
+    const saveButton = screen.getByRole<HTMLButtonElement>("button", {
+      name: "Save search plan",
+    });
+    expect(saveButton.disabled).toBe(false);
+    fireEvent.click(saveButton);
+
+    const saved = onSaveCampaign.mock.calls.at(-1)?.[0];
+    expect(saved?.id).toBe("one");
+    expect(saved?.status).toBe("archived");
+    // The backend performs the active-plan switch; the screen never selects.
+    expect(onSelectCampaign).not.toHaveBeenCalled();
+    expect(await screen.findByText("Search plan archived.")).toBeTruthy();
+  });
+
+  it("shows the inline archive error when saving the current plan fails", async () => {
+    const onSaveCampaign =
+      vi.fn<(campaign: SaveJobSearchCampaignInput) => Promise<boolean>>();
+    onSaveCampaign.mockResolvedValue(false);
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[campaign("one", "Remote TypeScript", "precision")]}
+        onSaveCampaign={onSaveCampaign}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByLabelText("Status"), {
+      target: { value: "archived" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save search plan" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Archiving failed");
+    expect(onSaveCampaign).toHaveBeenCalledTimes(1);
+  });
+
+  it("archives a non-current plan through the editor status", () => {
+    const onSaveCampaign =
+      vi.fn<(campaign: SaveJobSearchCampaignInput) => Promise<boolean>>();
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[
+          campaign("one", "Remote TypeScript", "precision"),
+          campaign("two", "Broad engineering", "scale"),
+        ]}
+        onSaveCampaign={onSaveCampaign}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[1]!);
+    expect(screen.getByLabelText<HTMLInputElement>("Name").value).toBe(
+      "Broad engineering",
+    );
+    fireEvent.change(screen.getByLabelText("Status"), {
+      target: { value: "archived" },
+    });
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    const saveButton = screen.getByRole<HTMLButtonElement>("button", {
+      name: "Save search plan",
+    });
+    expect(saveButton.disabled).toBe(false);
+    fireEvent.click(saveButton);
+    const saved = onSaveCampaign.mock.calls.at(-1)?.[0];
+    expect(saved?.id).toBe("two");
+    expect(saved?.status).toBe("archived");
+  });
+
+  it("binds the editor to the selected plan when switching between plans", () => {
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[
+          campaign("one", "Remote TypeScript", "precision"),
+          campaign("two", "Broad engineering", "scale"),
+        ]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]!);
+    expect(screen.getByLabelText<HTMLInputElement>("Name").value).toBe(
+      "Remote TypeScript",
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[1]!);
+    expect(screen.getByLabelText<HTMLInputElement>("Name").value).toBe(
+      "Broad engineering",
+    );
+  });
+
+  it("asks through the app-owned dialog before a dirty switch to New", () => {
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[campaign("one", "Remote TypeScript", "precision")]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Dirty draft" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "New search plan" }));
+
+    const dialog = screen.getByRole("alertdialog", {
+      name: "Discard unsaved search-plan changes?",
+    });
+    expect(dialog.textContent).toContain("cannot be undone");
+    expect(confirmNeverSpy).not.toHaveBeenCalled();
+    // Focus moves into the dialog; staying owns the first (initially
+    // focused) tab position as the safe default.
+    expect(document.activeElement).toBe(dialog);
+    expect(dialog.querySelector("button")?.textContent).toBe("Keep editing");
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Keep editing" }),
+    );
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.getByLabelText<HTMLInputElement>("Name").value).toBe(
+      "Dirty draft",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "New search plan" }));
+    fireEvent.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", {
+        name: "Discard changes",
+      }),
+    );
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(
+      screen.getByRole("heading", { name: "Create search plan" }),
+    ).toBeTruthy();
+    expect(screen.getByLabelText<HTMLInputElement>("Name").value).toBe(
+      "New search plan",
+    );
+  });
+
+  it("keeps the open editor when discarding unsaved changes is declined", () => {
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[
+          campaign("one", "Remote TypeScript", "precision"),
+          campaign("two", "Broad engineering", "scale"),
+        ]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]!);
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Dirty draft" },
+    });
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[1]!);
+
+    // The dialog names the plan the editor would switch to.
+    const dialog = screen.getByRole("alertdialog");
+    expect(dialog.textContent).toContain("Broad engineering");
+    expect(confirmNeverSpy).not.toHaveBeenCalled();
+
+    // The backdrop resolves to staying, keeping the dirty draft intact.
+    fireEvent.click(dialog.parentElement!);
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.getByLabelText<HTMLInputElement>("Name").value).toBe(
+      "Dirty draft",
+    );
+  });
+
+  it("warns before discarding unsaved changes when cancelling the editor", () => {
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[campaign("one", "Remote TypeScript", "precision")]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Dirty draft" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    const dialog = screen.getByRole("alertdialog", {
+      name: "Discard unsaved search-plan changes?",
+    });
+    expect(dialog.textContent).toContain(
+      "still has edits that were not saved",
+    );
+    expect(confirmNeverSpy).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("heading", { name: "Edit search plan" }),
+    ).toBeTruthy();
+
+    // Staying keeps the dirty editor open.
+    fireEvent.click(within(dialog).getByRole("button", { name: "Keep editing" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(
+      screen.getByRole("heading", { name: "Edit search plan" }),
+    ).toBeTruthy();
+
+    // Explicit discard closes the editor exactly once.
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", {
+        name: "Discard changes",
+      }),
+    );
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(
+      screen.queryByRole("heading", { name: "Edit search plan" }),
+    ).toBeNull();
+  });
+
+  it("confirms a created plan without switching the active plan until asked", async () => {
+    const onSaveCampaign =
+      vi.fn<(campaign: SaveJobSearchCampaignInput) => Promise<boolean>>();
+    onSaveCampaign.mockResolvedValue(true);
+    const onSelectCampaign = vi.fn();
+    const view = render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[campaign("one", "Remote TypeScript", "precision")]}
+        onSaveCampaign={onSaveCampaign}
+        onSelectCampaign={onSelectCampaign}
+        pending={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "New search plan" }));
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Focused frontend" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save search plan" }));
+
+    expect(
+      await screen.findByText('Search plan "Focused frontend" created.'),
+    ).toBeTruthy();
+    expect(onSelectCampaign).not.toHaveBeenCalled();
+
+    view.rerender(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[
+          campaign("one", "Remote TypeScript", "precision"),
+          campaign("two", "Focused frontend", "precision"),
+        ]}
+        onSaveCampaign={onSaveCampaign}
+        onSelectCampaign={onSelectCampaign}
+        pending={false}
+      />,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Switch to it" }),
+    );
+    expect(onSelectCampaign).toHaveBeenCalledWith("two");
+    expect(screen.queryByText(/created\./)).toBeNull();
+  });
+
+  it("keeps archived plans out of switch-active controls and tags them", () => {
+    const archivedPlan = {
+      ...campaign("three", "Old broad", "scale"),
+      status: "archived",
+    } as unknown as JobSearchCampaign;
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[
+          campaign("one", "Remote TypeScript", "precision"),
+          campaign("two", "Broad engineering", "scale"),
+          archivedPlan,
+        ]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    expect(
+      screen.getAllByRole("button", { name: "Make current" }),
+    ).toHaveLength(1);
+    const archivedArticle = screen.getByText("Old broad").closest("article");
+    expect(archivedArticle).toBeTruthy();
+    expect(archivedArticle?.className).toContain("opacity-60");
+    expect(
+      within(archivedArticle!).queryByRole("button", {
+        name: "Make current",
+      }),
+    ).toBeNull();
+    expect(within(archivedArticle!).getByText("Archived")).toBeTruthy();
+  });
+
+  it("reports successful saves through a status message", async () => {
+    const onSaveCampaign =
+      vi.fn<(campaign: SaveJobSearchCampaignInput) => Promise<boolean>>();
+    onSaveCampaign.mockResolvedValue(true);
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[campaign("one", "Remote TypeScript", "precision")]}
+        onSaveCampaign={onSaveCampaign}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Renamed plan" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save search plan" }));
+
+    expect(await screen.findByText("Search plan saved.")).toBeTruthy();
+  });
+
+  it("guards Escape like cancel while the editor has unsaved changes", () => {
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[campaign("one", "Remote TypeScript", "precision")]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Dirty draft" },
+    });
+    // The form-level Escape opens the app-owned confirmation.
+    fireEvent.keyDown(screen.getByLabelText("Name"), { key: "Escape" });
+    expect(confirmNeverSpy).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("alertdialog", {
+        name: "Discard unsaved search-plan changes?",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "Edit search plan" }),
+    ).toBeTruthy();
+
+    // With the dialog open, Escape is addressed to it and resolves to
+    // staying, keeping the dirty editor intact.
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(
+      screen.getByRole("heading", { name: "Edit search plan" }),
+    ).toBeTruthy();
+
+    fireEvent.keyDown(screen.getByLabelText("Name"), { key: "Escape" });
+    fireEvent.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", {
+        name: "Discard changes",
+      }),
+    );
+    expect(
+      screen.queryByRole("heading", { name: "Edit search plan" }),
+    ).toBeNull();
+  });
+
+  it("closes a clean editor on Escape without asking", () => {
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[campaign("one", "Remote TypeScript", "precision")]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.keyDown(screen.getByLabelText("Name"), { key: "Escape" });
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(confirmNeverSpy).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("heading", { name: "Edit search plan" }),
+    ).toBeNull();
+  });
+
+  it("offers no delete action until an onDeleteCampaign handler is provided", () => {
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[
+          campaign("one", "Remote TypeScript", "precision"),
+          campaign("two", "Broad engineering", "scale"),
+        ]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+  });
+
+  it("deletes a non-current plan only after confirmation", async () => {
+    const onDeleteCampaign = vi.fn<(campaignId: string) => Promise<boolean>>();
+    onDeleteCampaign.mockResolvedValue(true);
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[
+          campaign("one", "Remote TypeScript", "precision"),
+          campaign("two", "Broad engineering", "scale"),
+        ]}
+        onDeleteCampaign={onDeleteCampaign}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete" })[1]!);
+    const region = screen.getByRole("group", {
+      name: "Confirm deleting Broad engineering",
+    });
+    expect(within(region).getByText(/Permanently delete/)).toBeTruthy();
+
+    fireEvent.click(within(region).getByRole("button", { name: "Cancel" }));
+    expect(onDeleteCampaign).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("group", {
+        name: "Confirm deleting Broad engineering",
+      }),
+    ).toBeNull();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete" })[1]!);
+    fireEvent.click(
+      within(
+        screen.getByRole("group", {
+          name: "Confirm deleting Broad engineering",
+        }),
+      ).getByRole("button", { name: "Delete plan" }),
+    );
+    await waitFor(() => expect(onDeleteCampaign).toHaveBeenCalledWith("two"));
+    expect(
+      screen.queryByRole("group", {
+        name: "Confirm deleting Broad engineering",
+      }),
+    ).toBeNull();
+  });
+
+  it("explains automatic handoff when deleting the current plan with alternatives", () => {
+    const onDeleteCampaign = vi.fn<(campaignId: string) => Promise<boolean>>();
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[
+          campaign("one", "Remote TypeScript", "precision"),
+          campaign("two", "Broad engineering", "scale"),
+        ]}
+        onDeleteCampaign={onDeleteCampaign}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete" })[0]!);
+    const region = screen.getByRole("group", {
+      name: "Confirm deleting Remote TypeScript",
+    });
+    expect(
+      within(region).getByText(
+        /switches automatically to another non-archived plan/,
+      ),
+    ).toBeTruthy();
+  });
+
+  it("requires an informed confirmation when no other usable plan exists", () => {
+    const onDeleteCampaign = vi.fn<(campaignId: string) => Promise<boolean>>();
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[campaign("one", "Remote TypeScript", "precision")]}
+        onDeleteCampaign={onDeleteCampaign}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    const region = screen.getByRole("group", {
+      name: "Confirm deleting Remote TypeScript",
+    });
+    expect(
+      within(region).getByText(/no other non-archived plan exists/),
+    ).toBeTruthy();
+  });
+
+  it("reports failed deletion inline and keeps the confirmation open", async () => {
+    const onDeleteCampaign = vi.fn<(campaignId: string) => Promise<boolean>>();
+    onDeleteCampaign.mockResolvedValue(false);
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[
+          campaign("one", "Remote TypeScript", "precision"),
+          campaign("two", "Broad engineering", "scale"),
+        ]}
+        onDeleteCampaign={onDeleteCampaign}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete" })[1]!);
+    fireEvent.click(
+      within(
+        screen.getByRole("group", {
+          name: "Confirm deleting Broad engineering",
+        }),
+      ).getByRole("button", { name: "Delete plan" }),
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("failed");
+    expect(
+      screen.getByRole("group", {
+        name: "Confirm deleting Broad engineering",
+      }),
+    ).toBeTruthy();
+  });
+
+  it("keeps the volume guide collapsed by default on returning visits", () => {
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[campaign("one", "Remote TypeScript", "precision")]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    const guide = screen
+      .getByText(/Search plans are optional\./)
+      .closest("details");
+    expect(guide).toBeTruthy();
+    expect(guide?.hasAttribute("open")).toBe(false);
+    // The mode explanations stay reachable behind one toggle.
+    expect(screen.getByText("How volumes differ")).toBeTruthy();
+    // Collapsed content remains available for assistive tech queries.
+    expect(
+      screen.getByText("a smaller discovery pool focused on stronger matches."),
+    ).toBeTruthy();
+  });
+
+  it("aligns saved views with the density controls in the toolbar controls row", () => {
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[campaign("one", "Remote TypeScript", "precision")]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    const densityGroup = screen.getByRole("group", { name: "List density" });
+    const savedViewsSlot = screen
+      .getByRole("button", { name: /Saved views/ })
+      .closest("div");
+    expect(savedViewsSlot).toBeTruthy();
+    expect(densityGroup.parentElement).toBe(savedViewsSlot?.parentElement);
+  });
+
+  it("spans a lone plan across the full row instead of a dead half column", () => {
+    const view = render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[campaign("one", "Remote TypeScript", "precision")]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    const grid = screen
+      .getByText("Remote TypeScript")
+      .closest("article")?.parentElement;
+    expect(grid?.className).not.toContain("xl:grid-cols-2");
+
+    view.rerender(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[
+          campaign("one", "Remote TypeScript", "precision"),
+          campaign("two", "Broad engineering", "scale"),
+        ]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    expect(grid?.className).toContain("xl:grid-cols-2");
+  });
+
+  it("styles every editor field with canonical tokens, focus hierarchy, and preserved geometry", () => {
+    const { container } = render(
+      <CampaignsScreen
+        activeCampaignId="missing"
+        campaigns={[]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "New search plan" }));
+
+    const selects = Array.from(container.querySelectorAll("select"));
+    const textareas = Array.from(container.querySelectorAll("textarea"));
+    // Volume, Status, Pay interval (inside the closed compensation section),
+    // and Schedule mode.
+    expect(selects).toHaveLength(4);
+    // Plan purpose.
+    expect(textareas).toHaveLength(1);
+
+    for (const control of [...selects, ...textareas]) {
+      for (const className of [
+        "border-(--field-border)",
+        "bg-(--field)",
+        "outline-none",
+        "focus-visible:border-(--field-focus-border)",
+        "focus-visible:bg-(--field-strong)",
+        "focus-visible:shadow-[var(--field-focus-shadow)]",
+      ]) {
+        expect(control.className).toContain(className);
+      }
+      expect(control.className).not.toContain("border-input");
+      expect(control.className).not.toContain("--surface-panel-raised");
+      expect(control.className).not.toContain("focus-visible:ring");
+    }
+    for (const select of selects) {
+      expect(select.className).toContain("h-10");
+      expect(select.className).toContain("rounded-(--radius-field)");
+      expect(select.className).toContain("px-3");
+    }
+    expect(textareas[0]?.className).toContain("min-h-20");
+
+    // Protected selection controls stay bare native checkboxes without field
+    // styling.
+    const checkboxes = Array.from(
+      container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
+    );
+    expect(checkboxes.length).toBeGreaterThanOrEqual(4);
+    for (const checkbox of checkboxes) {
+      expect(checkbox.className).not.toContain("field-");
+      expect(checkbox.className).not.toContain("focus-visible");
+      expect(checkbox.getAttribute("type")).toBe("checkbox");
+    }
+  });
+
+  function planWithTwoTargets(
+    base: JobSearchCampaign,
+    options: {
+      firstEnabled: boolean;
+      secondEnabled: boolean;
+      sourceTargetIds?: string[];
+    },
+  ): JobSearchCampaign {
+    const template = base.searchPreferences.discovery.targets[0];
+    if (!template) throw new Error("Expected a seeded target.");
+    return {
+      ...base,
+      sourceTargetIds: options.sourceTargetIds ?? [],
+      searchPreferences: {
+        ...base.searchPreferences,
+        discovery: {
+          ...base.searchPreferences.discovery,
+          targets: [
+            {
+              ...template,
+              id: "source-1",
+              label: "Example jobs",
+              enabled: options.firstEnabled,
+            },
+            {
+              ...template,
+              id: "source-2",
+              label: "Second careers",
+              enabled: options.secondEnabled,
+            },
+          ],
+        },
+      },
+    } as unknown as JobSearchCampaign;
+  }
+
+  it("persists Included sources toggles into the plan's enabled targets and derives the saved source ids", () => {
+    const onSaveCampaign =
+      vi.fn<(campaign: SaveJobSearchCampaignInput) => Promise<boolean>>();
+    onSaveCampaign.mockResolvedValue(true);
+    const existing = planWithTwoTargets(
+      campaign("one", "Remote TypeScript", "precision"),
+      { firstEnabled: true, secondEnabled: false },
+    );
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[existing]}
+        onSaveCampaign={onSaveCampaign}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    const first = screen.getByLabelText<HTMLInputElement>("Example jobs");
+    const second = screen.getByLabelText<HTMLInputElement>("Second careers");
+    expect(first.checked).toBe(true);
+    expect(second.checked).toBe(false);
+
+    fireEvent.click(first);
+    fireEvent.click(second);
+
+    expect(
+      screen.getByText(
+        (content, element) =>
+          element?.tagName === "P" && /^Uses 1 sources/.test(content),
+      ),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save search plan" }));
+
+    const saved = onSaveCampaign.mock.calls.at(-1)?.[0];
+    if (!saved) throw new Error("Expected a save.");
+    expect(
+      saved.searchPreferences.discovery.targets.map((target) => target.enabled),
+    ).toEqual([false, true]);
+    // The ids sent for save are derived from `target.enabled`.
+    expect(saved.sourceTargetIds).toEqual(["source-2"]);
+  });
+
+  it("restores Included sources checkboxes from enabled targets after save and reopen", () => {
+    const onSaveCampaign =
+      vi.fn<(campaign: SaveJobSearchCampaignInput) => Promise<boolean>>();
+    onSaveCampaign.mockResolvedValue(true);
+    // The stored enabled flags are the truth even when the legacy
+    // `sourceTargetIds` projection disagrees with them.
+    const existing = planWithTwoTargets(
+      campaign("one", "Remote TypeScript", "precision"),
+      {
+        firstEnabled: false,
+        secondEnabled: true,
+        sourceTargetIds: ["source-1"],
+      },
+    );
+    const view = render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[existing]}
+        onSaveCampaign={onSaveCampaign}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(
+      screen.getByLabelText<HTMLInputElement>("Example jobs").checked,
+    ).toBe(false);
+    expect(
+      screen.getByLabelText<HTMLInputElement>("Second careers").checked,
+    ).toBe(true);
+
+    fireEvent.click(screen.getByLabelText("Second careers"));
+    fireEvent.click(screen.getByRole("button", { name: "Save search plan" }));
+    const saved = onSaveCampaign.mock.calls.at(-1)?.[0];
+    if (!saved) throw new Error("Expected a save.");
+
+    view.unmount();
+    const persisted = {
+      ...existing,
+      sourceTargetIds: saved.sourceTargetIds,
+      searchPreferences: saved.searchPreferences,
+    } as unknown as JobSearchCampaign;
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[persisted]}
+        onSaveCampaign={onSaveCampaign}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(
+      screen.getByLabelText<HTMLInputElement>("Example jobs").checked,
+    ).toBe(false);
+    expect(
+      screen.getByLabelText<HTMLInputElement>("Second careers").checked,
+    ).toBe(false);
   });
 });

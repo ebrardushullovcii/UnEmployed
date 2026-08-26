@@ -7,9 +7,11 @@ import type {
   CandidateAsset,
   ClearApplicationAnswerCommandInput,
   JobFinderWorkspaceSnapshot,
+  JobFinderApplyConsentActionInput,
   SaveApplicationAnswerCommandInput,
 } from "@unemployed/contracts";
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { Button } from "@renderer/components/ui";
 import {
   formatTimestamp,
@@ -22,15 +24,14 @@ import {
   getApplyDetailsStatusBadge,
   getConsentTone,
 } from "./applications-detail-panel-helpers";
-import { buildJobFinderContextHashHref } from "../../lib/job-finder-context-navigation";
+import { buildJobFinderContextRoute } from "../../lib/job-finder-context-navigation";
 
 export function ApplicationsDetailPanelReviewDataSection(props: {
   applyRunDetailsError: string | null;
   applyRunDetailsStatus: "idle" | "loading" | "ready" | "error";
   isApplyRequestPending: (requestId: string) => boolean;
   onResolveApplyConsentRequest: (
-    requestId: string,
-    action: "approve" | "decline",
+    input: JobFinderApplyConsentActionInput,
   ) => void;
   onSaveApplicationAnswer: (
     command: SaveApplicationAnswerCommandInput,
@@ -81,8 +82,8 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
       </div>
       {applyRunDetailsStatus === "loading" ? (
         <p className="text-(length:--text-body) leading-7 text-foreground-soft">
-          Loading persisted questions, grounded answers, artifacts, and
-          checkpoints for this apply run.
+          Loading saved questions, grounded answers, artifacts, and checkpoints
+          for this run.
         </p>
       ) : null}
       {applyRunDetailsStatus === "error" ? (
@@ -357,6 +358,11 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
           {selectedApplyRunDetails.consentRequests.length ? (
             <div className="grid gap-2">
               <p className="label-mono-xs">Consent requests</p>
+              <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+                Consent requests and the Needs you list are two views of the
+                same paused preparation. Resolving it here also clears it in
+                Needs you.
+              </p>
               {selectedApplyRunDetails.consentRequests.map((request) => (
                 <div
                   key={request.id}
@@ -376,24 +382,44 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
                   selectedApplyRunDetails.run.state === "paused_for_consent" ? (
                     <div className="mt-3 flex flex-wrap gap-2">
                       <Button
-                        onClick={() =>
-                          onResolveApplyConsentRequest(request.id, "approve")
-                        }
+                        onClick={() => {
+                          if (!request.applicationRecordId) return;
+                          onResolveApplyConsentRequest({
+                            requestId: request.id,
+                            runId: request.runId,
+                            jobId: request.jobId,
+                            applicationRecordId: request.applicationRecordId,
+                            action: "approve",
+                          });
+                        }}
                         pending={isApplyRequestPending(request.id)}
                         type="button"
                         variant="secondary"
-                        disabled={isApplyRequestPending(request.id)}
+                        disabled={
+                          isApplyRequestPending(request.id) ||
+                          request.applicationRecordId === null
+                        }
                       >
                         Continue safely
                       </Button>
                       <Button
-                        onClick={() =>
-                          onResolveApplyConsentRequest(request.id, "decline")
-                        }
+                        onClick={() => {
+                          if (!request.applicationRecordId) return;
+                          onResolveApplyConsentRequest({
+                            requestId: request.id,
+                            runId: request.runId,
+                            jobId: request.jobId,
+                            applicationRecordId: request.applicationRecordId,
+                            action: "decline",
+                          });
+                        }}
                         pending={isApplyRequestPending(request.id)}
                         type="button"
                         variant="ghost"
-                        disabled={isApplyRequestPending(request.id)}
+                        disabled={
+                          isApplyRequestPending(request.id) ||
+                          request.applicationRecordId === null
+                        }
                       >
                         Skip this job
                       </Button>
@@ -663,7 +689,7 @@ function ApplicationQuestionAnswerEditor(props: {
       {question.answerControlType === "single_choice" ? (
         <select
           aria-label={`Answer for ${question.prompt}`}
-          className="h-10 w-full rounded-(--radius-field) border border-input bg-background px-3 text-(length:--text-small) text-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+          className="h-10 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 text-(length:--text-small) text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
           disabled={isPending}
           onChange={(event) => setValue(event.target.value)}
           value={value}
@@ -703,7 +729,7 @@ function ApplicationQuestionAnswerEditor(props: {
         ) : (
           <textarea
             aria-label={`Answer for ${question.prompt}`}
-            className="min-h-20 w-full resize-y rounded-(--radius-field) border border-input bg-background px-3 py-2 text-(length:--text-small) leading-6 text-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+            className="min-h-20 w-full resize-y rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 py-2 text-(length:--text-small) leading-6 text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             disabled={isPending}
             onChange={(event) =>
               setSelectedValues(
@@ -720,7 +746,7 @@ function ApplicationQuestionAnswerEditor(props: {
       ) : question.answerControlType === "boolean" ? (
         <select
           aria-label={`Answer for ${question.prompt}`}
-          className="h-10 w-full rounded-(--radius-field) border border-input bg-background px-3 text-(length:--text-small) text-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+          className="h-10 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 text-(length:--text-small) text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
           disabled={isPending}
           onChange={(event) => setValue(event.target.value)}
           value={value}
@@ -732,7 +758,7 @@ function ApplicationQuestionAnswerEditor(props: {
       ) : question.answerControlType === "date" ? (
         <input
           aria-label={`Answer for ${question.prompt}`}
-          className="h-10 w-full rounded-(--radius-field) border border-input bg-background px-3 text-(length:--text-small) text-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+          className="h-10 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 text-(length:--text-small) text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
           disabled={isPending}
           onChange={(event) => setValue(event.target.value)}
           type="date"
@@ -742,8 +768,9 @@ function ApplicationQuestionAnswerEditor(props: {
         <div className="grid gap-2">
           {question.kind === "resume" ? (
             <p className="rounded-(--radius-field) border border-dashed border-border/50 px-3 py-3 text-(length:--text-small) leading-6 text-foreground-soft">
-              Resume uploads use the approved CV selected for this job. Return
-              to Shortlisted to change its CV mode or approved export.
+              Resume uploads use the approved resume selected for this job.
+              Return to Shortlisted to change its resume mode or approved
+              export.
             </p>
           ) : candidateAssetStatus === "loading" ? (
             <p className="text-(length:--text-small) text-foreground-soft">
@@ -757,7 +784,7 @@ function ApplicationQuestionAnswerEditor(props: {
           ) : candidateAssets.length > 0 ? (
             <select
               aria-label={`Answer for ${question.prompt}`}
-              className="h-10 w-full rounded-(--radius-field) border border-input bg-background px-3 text-(length:--text-small) text-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+              className="h-10 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 text-(length:--text-small) text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
               disabled={isPending}
               onChange={(event) => setSelectedAssetId(event.target.value)}
               value={selectedAssetId}
@@ -774,25 +801,25 @@ function ApplicationQuestionAnswerEditor(props: {
               No files are approved for application attachment yet.
             </p>
           )}
-          <a
+          <Link
             className="text-(length:--text-small) font-semibold text-foreground underline underline-offset-4"
-            href={
+            to={
               question.kind === "resume"
-                ? buildJobFinderContextHashHref("/job-finder/review-queue", {
+                ? buildJobFinderContextRoute("/job-finder/review-queue", {
                     jobId,
                   })
-                : "#/job-finder/settings"
+                : "/job-finder/settings"
             }
           >
             {question.kind === "resume"
               ? "Open this job in Shortlisted"
               : "Open Documents & assets in Settings"}
-          </a>
+          </Link>
         </div>
       ) : (
         <textarea
           aria-label={`Answer for ${question.prompt}`}
-          className="min-h-24 w-full resize-y rounded-(--radius-field) border border-input bg-background px-3 py-2 text-(length:--text-small) leading-6 text-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+          className="min-h-24 w-full resize-y rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 py-2 text-(length:--text-small) leading-6 text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
           disabled={isPending}
           maxLength={4_000}
           onChange={(event) => setValue(event.target.value)}
@@ -853,12 +880,12 @@ function ApplicationQuestionAnswerEditor(props: {
         <p className="text-(length:--text-small) leading-6 text-foreground-soft">
           Answer saved for this exact application. To retry the paused safe
           preparation, open{" "}
-          <a
+          <Link
             className="font-semibold text-foreground underline underline-offset-4"
-            href="#/job-finder/actions"
+            to="/job-finder/actions"
           >
             Needs you
-          </a>{" "}
+          </Link>{" "}
           and choose Done on its action. Final submission and account creation
           remain disabled.
         </p>

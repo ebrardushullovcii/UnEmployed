@@ -1,61 +1,18 @@
 import {
-  CandidateProfileSchema,
   JobFinderIntelligenceStateSchema,
   JobFinderSettingsSchema,
   JobSearchPreferencesSchema,
   ProfileSetupStateSchema,
+  createFreshStartCandidateProfile,
+  createStarterJobDiscoveryTargets,
   type JobFinderRepositoryState,
 } from "@unemployed/contracts";
 
 export function createEmptyJobFinderRepositoryState(): JobFinderRepositoryState {
   return {
-    profile: CandidateProfileSchema.parse({
-      id: "candidate_fresh_start",
-      firstName: "New",
-      lastName: "Candidate",
-      middleName: null,
-      fullName: "New Candidate",
-      preferredDisplayName: null,
-      headline: "Import your resume to begin",
-      summary:
-        "Import a resume or paste resume text to build your profile, targeting, and tailored documents.",
-      currentLocation: "Set your preferred location",
-      currentCity: null,
-      currentRegion: null,
-      currentCountry: null,
-      timeZone: null,
-      yearsExperience: 0,
-      email: null,
-      secondaryEmail: null,
-      phone: null,
-      portfolioUrl: null,
-      linkedinUrl: null,
-      githubUrl: null,
-      personalWebsiteUrl: null,
-      baseResume: {
-        id: "resume_fresh_start",
-        fileName: "No resume imported yet",
-        uploadedAt: new Date(0).toISOString(),
-        storagePath: null,
-        textContent: null,
-        textUpdatedAt: null,
-        extractionStatus: "needs_text",
-        lastAnalyzedAt: null,
-        analysisWarnings: [],
-      },
-      workEligibility: {},
-      professionalSummary: {},
-      skillGroups: {},
-      targetRoles: [],
-      locations: [],
-      skills: [],
-      experiences: [],
-      education: [],
-      certifications: [],
-      links: [],
-      projects: [],
-      spokenLanguages: [],
-    }),
+    // Canonical first-run seed: identity facts stay null until a real value
+    // exists, so no instructional placeholder is persisted as a fact.
+    profile: createFreshStartCandidateProfile(),
     searchPreferences: JobSearchPreferencesSchema.parse({
       targetRoles: [],
       jobFamilies: [],
@@ -75,7 +32,10 @@ export function createEmptyJobFinderRepositoryState(): JobFinderRepositoryState 
       companyWhitelist: [],
       discovery: {
         historyLimit: 5,
-        targets: [],
+        // Starter sources give a first-run user understandable choices without
+        // requiring URL knowledge. They seed disabled and never enable
+        // themselves; setup readiness still requires one explicit enable.
+        targets: createStarterJobDiscoveryTargets(),
       },
     }),
     profileSetupState: ProfileSetupStateSchema.parse({

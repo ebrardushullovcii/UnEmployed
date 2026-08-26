@@ -9,8 +9,8 @@ import {
   type MatchAssessmentPostingInput,
 } from "./match-assessment-posting-input";
 
-export const MATCH_ASSESSMENT_SCORER_VERSION = 4;
-const MATCH_ASSESSMENT_LOGIC_REVISION = 4;
+export const MATCH_ASSESSMENT_SCORER_VERSION = 6;
+const MATCH_ASSESSMENT_LOGIC_REVISION = 5;
 
 function stableSerialize(value: unknown): string {
   if (value === null || typeof value !== "object") {

@@ -156,6 +156,7 @@ describe("unified user action request contracts", () => {
     expect(request.verification.type).toBe(verification.type);
     expect(request.scope).toMatchObject({
       type: "application",
+      applicationRecordId: null,
       resultId: null,
       replayCheckpointId: null,
     });

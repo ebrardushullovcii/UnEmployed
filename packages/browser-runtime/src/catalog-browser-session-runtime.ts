@@ -29,6 +29,7 @@ import {
   cloneValue,
   matchesAnyPhrase,
   meetsCompensationMinimum,
+  normalizeText,
 } from "./catalog-runtime-utils";
 
 let catalogVisualSnapshotSequence = 0;
@@ -44,7 +45,7 @@ function filterCatalogDiscoveryJobs(
 
     if (
       searchPreferences.companyBlacklist.some(
-        (company) => company.toLowerCase() === job.company.toLowerCase(),
+        (company) => normalizeText(company) === normalizeText(job.company),
       )
     ) {
       return false;
@@ -61,6 +62,8 @@ function filterCatalogDiscoveryJobs(
     const matchesWorkMode =
       searchPreferences.workModes.length === 0 ||
       searchPreferences.workModes.includes("flexible") ||
+      job.workMode.length === 0 ||
+      job.workMode.includes("flexible") ||
       job.workMode.some((mode) => searchPreferences.workModes.includes(mode));
     const meetsSalaryExpectation = meetsCompensationMinimum(
       job.salaryText,
@@ -917,6 +920,7 @@ export function createCatalogBrowserSessionRuntime(
             filteredJobs.length === 0
               ? "No supported listings matched the current preferences in the configured discovery target."
               : null,
+          inventoryCompleteness: "complete",
           jobs: filteredJobs,
         }),
       );
@@ -1024,6 +1028,7 @@ export function createCatalogBrowserSessionRuntime(
             filteredJobs.length === 0
               ? `No catalog jobs matched the current ${options.siteLabel} target.`
               : null,
+          inventoryCompleteness: "partial",
           jobs: filteredJobs,
           agentMetadata: {
             steps: 2,

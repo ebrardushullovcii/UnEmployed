@@ -3,6 +3,9 @@ import {
   type BrowserSessionRuntime,
 } from "@unemployed/browser-runtime";
 import {
+  ApplicationRecordSchema,
+  ApplyJobResultSchema,
+  ApplyRunSchema,
   UserActionRequestSchema,
   type BrowserSourceAccessProbeResult,
   type UserActionRequest,
@@ -19,20 +22,20 @@ function createRequest(
 ): UserActionRequest {
   return UserActionRequestSchema.parse({
     id: "action_login",
-    dedupeKey: "discovery:target_remote:login",
+    dedupeKey: "discovery:target_linkedin_default:login",
     revision: 1,
     kind: "login",
     state: "pending",
     scope: {
       type: "discovery_source",
-      targetId: "target_remote",
+      targetId: "target_linkedin_default",
       source: "target_site",
       sourceDebugRunId: null,
       sourceDebugAttemptId: null,
     },
     verification: {
       type: "source_access",
-      targetId: "target_remote",
+      targetId: "target_linkedin_default",
       blockerFingerprint: "login-wall-v1",
       expectedOrigin: "https://boards.example.com/",
     },
@@ -163,12 +166,54 @@ describe("workspace user action inbox operations", () => {
 
   test("verifies an application-scoped login request with the same browser-only probe", async () => {
     const seed = createSeed();
+    seed.applicationRecords = [
+      ApplicationRecordSchema.parse({
+        id: "application_job_ready",
+        jobId: "job_ready",
+        title: "Senior Product Designer",
+        company: "Signal Systems",
+        status: "ready_for_review",
+        lastActionLabel: "Application started",
+        nextActionLabel: "Complete sign-in",
+        lastUpdatedAt: "2026-07-30T08:00:00.000Z",
+      }),
+    ];
+    seed.applyRuns = [
+      ApplyRunSchema.parse({
+        id: "apply_run_1",
+        campaignId: null,
+        state: "completed",
+        jobIds: ["job_ready"],
+        currentJobId: null,
+        createdAt: "2026-07-30T08:00:00.000Z",
+        updatedAt: "2026-07-30T08:00:00.000Z",
+        completedAt: "2026-07-30T08:00:00.000Z",
+        summary: "Application preparation paused for sign-in.",
+        detail: "The exact application remains resumable.",
+        totalJobs: 1,
+        pendingJobs: 0,
+      }),
+    ];
+    seed.applyJobResults = [
+      ApplyJobResultSchema.parse({
+        id: "apply_result_1",
+        runId: "apply_run_1",
+        jobId: "job_ready",
+        applicationRecordId: "application_job_ready",
+        state: "blocked",
+        summary: "Sign in to continue.",
+        detail: "The browser is waiting for user-owned authentication.",
+        startedAt: "2026-07-30T08:00:00.000Z",
+        updatedAt: "2026-07-30T08:00:00.000Z",
+      }),
+    ];
     seed.userActionRequests = [
       createRequest({
         scope: {
           type: "application",
           runId: "apply_run_1",
           jobId: "job_ready",
+          applicationRecordId: "application_job_ready",
           resultId: "apply_result_1",
           replayCheckpointId: "apply_checkpoint_1",
           source: "target_site",

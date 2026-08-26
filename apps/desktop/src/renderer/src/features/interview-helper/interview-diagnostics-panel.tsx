@@ -27,7 +27,7 @@ export function InterviewDiagnosticsPanel(props: {
       {diagnostics.length > 0 ? (
         diagnostics.map((event) => (
           <div
-            className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3"
+            className="rounded-(--radius-small) border border-border-subtle bg-(--surface-fill-subtle) p-3"
             key={event.id}
           >
             <div className="flex items-start gap-2">
@@ -47,7 +47,7 @@ export function InterviewDiagnosticsPanel(props: {
           </div>
         ))
       ) : (
-        <div className="rounded-(--radius-small) border border-border-subtle bg-black/20 p-3 text-[0.78rem] text-muted-foreground">
+        <div className="rounded-(--radius-small) border border-border-subtle bg-(--surface-fill-subtle) p-3 text-[0.78rem] text-muted-foreground">
           No diagnostics recorded.
         </div>
       )}

@@ -9,7 +9,6 @@ import {
   dedupeExtractedCardCandidates,
   MAX_GENERIC_PRIORITIZED_CARD_CANDIDATES,
   prioritizeExtractedCardCandidates,
-  shouldUseSearchSurfaceJobViewCardCapture,
 } from "./tooling/extraction-tools";
 
 describe("interactive element helpers", () => {
@@ -67,37 +66,6 @@ describe("interactive element helpers", () => {
 });
 
 describe("LinkedIn extraction helpers", () => {
-  test("prefers job-view card capture on LinkedIn search results pages", () => {
-    expect(
-      shouldUseSearchSurfaceJobViewCardCapture(
-        "https://www.linkedin.com/jobs/search/?keywords=Senior+Engineer&location=Prishtina",
-      ),
-    ).toBe(true);
-    expect(
-      shouldUseSearchSurfaceJobViewCardCapture(
-        "https://www.linkedin.com/jobs/search-results/?keywords=Senior+Engineer&location=Prishtina",
-      ),
-    ).toBe(true);
-    expect(
-      shouldUseSearchSurfaceJobViewCardCapture(
-        "https://www.linkedin.com/jobs/collections/recommended/",
-      ),
-    ).toBe(true);
-  });
-
-  test("does not enable job-view card capture outside LinkedIn search results pages", () => {
-    expect(
-      shouldUseSearchSurfaceJobViewCardCapture(
-        "https://jobs.example.com/search",
-      ),
-    ).toBe(false);
-    expect(
-      shouldUseSearchSurfaceJobViewCardCapture(
-        "https://www.linkedin.com/feed/",
-      ),
-    ).toBe(false);
-  });
-
   test("prioritizes likely LinkedIn results-list cards above detail-pane or aside captures", () => {
     const candidates = prioritizeExtractedCardCandidates(
       "https://www.linkedin.com/jobs/search/?keywords=Senior+Engineer&location=Prishtina",
@@ -1208,10 +1176,15 @@ describe("LinkedIn extraction helpers", () => {
   });
 
   test("keeps strong LinkedIn cards beyond the old top-20 carry-forward cap", () => {
+    const pageUrl =
+      "https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo";
     const fillerCandidates = Array.from(
       { length: MAX_GENERIC_PRIORITIZED_CARD_CANDIDATES },
       (_, index) => ({
-        canonicalUrl: `https://www.linkedin.com/jobs/view/filler-${index}/`,
+        canonicalUrl:
+          index === 0
+            ? pageUrl
+            : `https://www.linkedin.com/jobs/view/filler-${index}/`,
         anchorText: `Software Engineer ${index}`,
         headingText: `Software Engineer ${index}`,
         lines: [`Software Engineer ${index}`, "Broad Co", "Kosovo"],
@@ -1237,7 +1210,7 @@ describe("LinkedIn extraction helpers", () => {
     );
 
     const candidates = prioritizeExtractedCardCandidates(
-      "https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo",
+      pageUrl,
       [
         ...fillerCandidates,
         {

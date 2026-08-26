@@ -283,6 +283,19 @@ export type ProjectCampaignRuleFunnelInput = z.infer<
 >;
 
 /**
+ * Deletes one whole search plan. The active-pointer hand-off (first remaining
+ * non-archived plan, sole-plan refusal) is owned by the workspace method.
+ */
+export const DeleteJobSearchCampaignInputSchema = z
+  .object({
+    campaignId: NonEmptyStringSchema,
+  })
+  .strict();
+export type DeleteJobSearchCampaignInput = z.infer<
+  typeof DeleteJobSearchCampaignInputSchema
+>;
+
+/**
  * Aggregate funnel counts derived ONLY from the real persisted job sample
  * retained by the campaign. Every count is produced by
  * `estimateCampaignFunnel`; a campaign with no retained jobs yields a

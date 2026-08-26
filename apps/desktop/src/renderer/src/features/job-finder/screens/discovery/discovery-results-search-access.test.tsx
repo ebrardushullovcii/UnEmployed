@@ -13,6 +13,7 @@ import type { SavedJob } from "@unemployed/contracts";
 import {
   DISCOVERY_DETAIL_HEADING_ID,
   DISCOVERY_DETAIL_REGION_ID,
+  DISCOVERY_STACKED_LAYOUT_MEDIA_QUERY,
 } from "./discovery-accessibility";
 import { DiscoveryResultsPanel } from "./discovery-results-panel";
 
@@ -46,69 +47,79 @@ const resultJob = {
 
 afterEach(() => {
   cleanup();
-  window.localStorage.clear();
+  window.localStorage?.clear();
+  Reflect.deleteProperty(window, "matchMedia");
   vi.clearAllMocks();
 });
 
+function renderResultsWithDetailRegion(input: {
+  onSelectJob: (jobId: string) => void;
+}) {
+  return render(
+    <>
+      <DiscoveryResultsPanel
+        browserSession={browserSession}
+        hasCompletedSearch
+        jobs={[resultJob]}
+        onSelectJob={input.onSelectJob}
+        selectedJob={resultJob}
+      />
+      <section aria-label="Job details" id={DISCOVERY_DETAIL_REGION_ID}>
+        <h2 id={DISCOVERY_DETAIL_HEADING_ID} tabIndex={-1}>
+          Senior Product Designer
+        </h2>
+      </section>
+    </>,
+  );
+}
+
+function getDetailRegion(): HTMLElement {
+  const detailRegion = document.getElementById(DISCOVERY_DETAIL_REGION_ID);
+  if (!detailRegion) {
+    throw new Error("Expected discovery detail region.");
+  }
+  return detailRegion;
+}
+
 describe("DiscoveryResultsPanel narrow search access", () => {
-  it("keeps a compact search-again action beside existing results", () => {
-    const onSearchAgain = vi.fn();
+  it("keeps mismatch controls inside the aligned results panel", () => {
+    const onToggleHiddenJobs = vi.fn();
 
+    render(
+      <DiscoveryResultsPanel
+        browserSession={browserSession}
+        hiddenJobCount={6}
+        jobs={[resultJob]}
+        mismatchJobCount={6}
+        onSelectJob={vi.fn()}
+        onToggleHiddenJobs={onToggleHiddenJobs}
+        selectedJob={resultJob}
+      />,
+    );
+
+    const resultsPanel = screen.getByRole("region", { name: "Job results" });
+    expect(
+      within(resultsPanel).getByText("1 shown · 6 mismatches hidden"),
+    ).toBeTruthy();
+    fireEvent.click(
+      within(resultsPanel).getByRole("button", { name: /Show mismatches/ }),
+    );
+    expect(onToggleHiddenJobs).toHaveBeenCalledOnce();
+  });
+
+  it("leaves the route-level search action to the page header", () => {
     render(
       <DiscoveryResultsPanel
         browserSession={browserSession}
         hasCompletedSearch
         jobs={[resultJob]}
-        onSearchAgain={onSearchAgain}
         onSelectJob={vi.fn()}
         selectedJob={resultJob}
-      />,
-    );
-
-    const searchAgain = screen.getByRole("button", { name: "Search again" });
-
-    expect(searchAgain.className).toContain("xl:hidden");
-    fireEvent.click(searchAgain);
-    expect(onSearchAgain).toHaveBeenCalledTimes(1);
-  });
-
-  it("truthfully disables the compact action while a search is pending", () => {
-    const onSearchAgain = vi.fn();
-
-    render(
-      <DiscoveryResultsPanel
-        browserSession={browserSession}
-        hasCompletedSearch
-        jobs={[resultJob]}
-        onSearchAgain={onSearchAgain}
-        onSelectJob={vi.fn()}
-        searchAgainPending
-        selectedJob={resultJob}
-      />,
-    );
-
-    const searching = screen.getByRole<HTMLButtonElement>("button", {
-      name: "Searching",
-    });
-
-    expect(searching.disabled).toBe(true);
-    expect(searching.getAttribute("aria-busy")).toBe("true");
-    fireEvent.click(searching);
-    expect(onSearchAgain).not.toHaveBeenCalled();
-  });
-
-  it("does not duplicate the search action in empty results", () => {
-    render(
-      <DiscoveryResultsPanel
-        browserSession={browserSession}
-        jobs={[]}
-        onSearchAgain={vi.fn()}
-        onSelectJob={vi.fn()}
-        selectedJob={null}
       />,
     );
 
     expect(screen.queryByRole("button", { name: "Search again" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Search now" })).toBeNull();
   });
 
   it("hands keyboard result activation directly to the related job detail without moving mouse focus", async () => {
@@ -151,6 +162,96 @@ describe("DiscoveryResultsPanel narrow search access", () => {
       expect(document.activeElement).toBe(detailHeading);
     });
     expect(onSelectJob).toHaveBeenCalledTimes(2);
+  });
+
+  it("claims keyboard detail focus with preventScroll and reveals instantly inside the stacked layout", async () => {
+    const onSelectJob = vi.fn();
+    const matchMediaMock = vi.fn(() => ({ matches: true }));
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: matchMediaMock,
+    });
+
+    renderResultsWithDetailRegion({ onSelectJob });
+
+    const detailHeading = screen.getByRole("heading", {
+      name: "Senior Product Designer",
+    });
+    const detailRegion = getDetailRegion();
+    const headingFocusSpy = vi.spyOn(detailHeading, "focus");
+    const regionScrollIntoViewMock = vi.fn();
+    detailRegion.scrollIntoView = regionScrollIntoViewMock;
+
+    const resultButton = screen.getByRole("button", {
+      name: /Senior Product Designer/i,
+    });
+    resultButton.focus();
+    fireEvent.click(resultButton, { detail: 0 });
+
+    await vi.waitFor(() => {
+      expect(document.activeElement).toBe(detailHeading);
+    });
+    // Controlled claim: the browser must not perform its own ancestor jumps.
+    expect(headingFocusSpy).toHaveBeenCalledWith({ preventScroll: true });
+    // Stacked reveal stays instant for reduced motion: no smooth behavior is
+    // ever requested anywhere on this path.
+    expect(regionScrollIntoViewMock).not.toHaveBeenCalled();
+    expect(matchMediaMock).toHaveBeenCalledWith(
+      DISCOVERY_STACKED_LAYOUT_MEDIA_QUERY,
+    );
+  });
+
+  it("reveals the job detail region after pointer activation below the two-pane breakpoint without moving focus", async () => {
+    const onSelectJob = vi.fn();
+    const matchMediaMock = vi.fn(() => ({ matches: true }));
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: matchMediaMock,
+    });
+
+    renderResultsWithDetailRegion({ onSelectJob });
+
+    const scrollIntoViewMock = vi.fn();
+    getDetailRegion().scrollIntoView = scrollIntoViewMock;
+    const resultButton = screen.getByRole("button", {
+      name: /Senior Product Designer/i,
+    });
+    resultButton.focus();
+
+    fireEvent.click(resultButton, { detail: 1 });
+
+    await vi.waitFor(() => {
+      expect(scrollIntoViewMock).toHaveBeenCalledWith({ block: "start" });
+    });
+    expect(matchMediaMock).toHaveBeenCalledWith(
+      DISCOVERY_STACKED_LAYOUT_MEDIA_QUERY,
+    );
+    expect(document.activeElement).toBe(resultButton);
+    expect(onSelectJob).toHaveBeenCalledWith("job_search_again");
+  });
+
+  it("keeps pointer activation from scrolling at the wide two-pane breakpoint", async () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false })),
+    });
+
+    renderResultsWithDetailRegion({ onSelectJob: vi.fn() });
+
+    const scrollIntoViewMock = vi.fn();
+    getDetailRegion().scrollIntoView = scrollIntoViewMock;
+    const resultButton = screen.getByRole("button", {
+      name: /Senior Product Designer/i,
+    });
+    resultButton.focus();
+
+    fireEvent.click(resultButton, { detail: 1 });
+    await new Promise<void>((resolve) => {
+      queueMicrotask(resolve);
+    });
+
+    expect(scrollIntoViewMock).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(resultButton);
   });
 
   it("searches the current result pool without changing the selected job", () => {
@@ -207,7 +308,7 @@ describe("DiscoveryResultsPanel narrow search access", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Compare top jobs" }));
+    fireEvent.click(screen.getByRole("button", { name: "Compare" }));
     const comparison = screen.getByRole("region", {
       name: "Top job comparison",
     });

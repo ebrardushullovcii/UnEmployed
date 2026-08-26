@@ -75,7 +75,7 @@ function TimelineRepairCard(props: {
   const isPending = pendingAction !== null;
 
   return (
-    <li className="grid gap-4 rounded-(--radius-field) border border-(--field-border) bg-(--field) p-4">
+    <li className="grid gap-4 rounded-(--radius-field) border border-(--surface-well-border) bg-(--surface-well) p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="grid min-w-0 gap-1">
           <strong className="text-sm text-(--text-headline)">

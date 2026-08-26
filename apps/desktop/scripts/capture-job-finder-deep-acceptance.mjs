@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -43,6 +44,76 @@ const viewportMatrix = [
   { slug: "zoom-200", width: 1440, height: 900, zoomFactor: 2 },
   { slug: "zoom-400", width: 1280, height: 900, zoomFactor: 4 },
 ];
+
+// Mirrors DISCOVERY_STACKED_LAYOUT_MEDIA_QUERY in discovery-accessibility.ts:
+// below 80rem the results list and the job inspector share one page scroller,
+// so pointer selection owes a block:start reveal. The literal is pinned to the
+// renderer source at probe time via getStackedMediaQueryConsistency().
+const DISCOVERY_STACKED_MEDIA_QUERY = "(width < 80rem)";
+const DISCOVERY_ACCESSIBILITY_SOURCE_PATH = path.join(
+  desktopDir,
+  "src",
+  "renderer",
+  "src",
+  "features",
+  "job-finder",
+  "screens",
+  "discovery",
+  "discovery-accessibility.ts",
+);
+const DISCOVERY_RESULTS_SECTION_SELECTOR =
+  'section[aria-labelledby="discovery-job-results-heading"]';
+const DISCOVERY_RESULT_ROW_SELECTOR =
+  'section[aria-labelledby="discovery-job-results-heading"] button[data-job-result-id]';
+const DISCOVERY_DETAIL_REGION_SELECTOR = "#discovery-selected-job-detail";
+const DISCOVERY_DETAIL_HEADING_SELECTOR = "#discovery-selected-job-heading";
+const DISCOVERY_DETAIL_ACTIONS_SELECTOR =
+  '[data-testid="discovery-detail-actions"]';
+const DISCOVERY_EXCLUDED_ACTION_TEST_ID = "discovery-detail-open-shortlisted";
+const DISCOVERY_PRIMARY_ACTION_NAMES = [
+  "Shortlist job",
+  "Shortlist anyway",
+  "Not interested",
+];
+const DISCOVERY_REVEAL_THRESHOLDS = {
+  minIntersectionPx: 16,
+  meaningfulShare: 0.5,
+  blockStartTolerancePx: 8,
+};
+
+const discoveryRevealMeasurementPayload = {
+  resultsSectionSelector: DISCOVERY_RESULTS_SECTION_SELECTOR,
+  rowSelector: "button[data-job-result-id]",
+  regionSelector: DISCOVERY_DETAIL_REGION_SELECTOR,
+  headingId: DISCOVERY_DETAIL_HEADING_SELECTOR.slice(1),
+  actionsRegionSelector: DISCOVERY_DETAIL_ACTIONS_SELECTOR,
+  excludedActionTestId: DISCOVERY_EXCLUDED_ACTION_TEST_ID,
+  primaryActionNames: DISCOVERY_PRIMARY_ACTION_NAMES,
+  thresholds: DISCOVERY_REVEAL_THRESHOLDS,
+};
+
+let stackedMediaQueryConsistency = null;
+function getStackedMediaQueryConsistency() {
+  if (!stackedMediaQueryConsistency) {
+    try {
+      const source = readFileSync(DISCOVERY_ACCESSIBILITY_SOURCE_PATH, "utf8");
+      const observed = source.match(
+        /DISCOVERY_STACKED_LAYOUT_MEDIA_QUERY\s*=\s*"([^"]+)"/,
+      )?.[1];
+      stackedMediaQueryConsistency = {
+        matched: observed === DISCOVERY_STACKED_MEDIA_QUERY,
+        observedQuery: observed ?? null,
+      };
+    } catch (error) {
+      stackedMediaQueryConsistency = {
+        matched: false,
+        observedQuery: null,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+  return stackedMediaQueryConsistency;
+}
 
 const report = {
   capturedAt: new Date().toISOString(),
@@ -680,6 +751,505 @@ async function captureRouteScrollerMatrix(page, route, labelPrefix) {
   }
 }
 
+async function measureDiscoveryRevealSurface(page) {
+  return page.evaluate(async (payload) => {
+    const primaryNames = new Set(payload.primaryActionNames);
+    const normText = (value) => (value ?? "").replace(/\s+/g, " ").trim();
+    function describeEl(element) {
+      const testId = element.getAttribute("data-testid");
+      const resultId = element.getAttribute("data-job-result-id");
+      return `${element.tagName.toLowerCase()}${
+        element.id ? `#${element.id}` : ""
+      }${testId ? `[data-testid=${testId}]` : ""}${
+        resultId ? `[data-job-result-id=${resultId}]` : ""
+      }`;
+    }
+    // Playwright `visible` accepts a one-pixel clipped sliver, so meaningful
+    // viewport intersection is derived from DOM geometry instead: a majority
+    // of the smaller of (element, viewport) per axis must intersect.
+    function meaningfullyIntersects(rect) {
+      const height =
+        Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0);
+      const width =
+        Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0);
+      const requiredHeight = Math.max(
+        payload.thresholds.minIntersectionPx,
+        payload.thresholds.meaningfulShare *
+          Math.min(rect.height, window.innerHeight),
+      );
+      const requiredWidth = Math.max(
+        payload.thresholds.minIntersectionPx,
+        payload.thresholds.meaningfulShare *
+          Math.min(rect.width, window.innerWidth),
+      );
+      return {
+        intersection: {
+          top: Math.round(Math.max(rect.top, 0)),
+          left: Math.round(Math.max(rect.left, 0)),
+          height: Math.round(Math.max(0, height)),
+          width: Math.round(Math.max(0, width)),
+        },
+        pass: height >= requiredHeight && width >= requiredWidth,
+      };
+    }
+    function clippedVisibleBox(element) {
+      const rect = element.getBoundingClientRect();
+      let left = Math.max(0, rect.left);
+      let top = Math.max(0, rect.top);
+      let right = Math.min(window.innerWidth, rect.right);
+      let bottom = Math.min(window.innerHeight, rect.bottom);
+      const clippingValues = new Set(["auto", "scroll", "hidden", "clip"]);
+      for (
+        let ancestor = element.parentElement;
+        ancestor;
+        ancestor = ancestor.parentElement
+      ) {
+        const style = getComputedStyle(ancestor);
+        const ancestorRect = ancestor.getBoundingClientRect();
+        if (clippingValues.has(style.overflowX)) {
+          left = Math.max(left, ancestorRect.left);
+          right = Math.min(right, ancestorRect.right);
+        }
+        if (clippingValues.has(style.overflowY)) {
+          top = Math.max(top, ancestorRect.top);
+          bottom = Math.min(bottom, ancestorRect.bottom);
+        }
+      }
+      return {
+        left,
+        top,
+        right,
+        bottom,
+        width: right - left,
+        height: bottom - top,
+      };
+    }
+    function clickableCenterPoint(element) {
+      const box = clippedVisibleBox(element);
+      if (box.width < 2 || box.height < 2) {
+        return null;
+      }
+      const candidatePoints = [
+        [box.left + box.width / 2, box.top + box.height / 2],
+        [
+          box.left + Math.min(4, box.width / 2),
+          box.top + Math.min(4, box.height / 2),
+        ],
+        [
+          box.right - Math.min(4, box.width / 2),
+          box.bottom - Math.min(4, box.height / 2),
+        ],
+      ];
+      for (const [x, y] of candidatePoints) {
+        const owner = document.elementFromPoint(x, y);
+        if (
+          owner === element ||
+          (owner instanceof Node && element.contains(owner))
+        ) {
+          return { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 };
+        }
+      }
+      return null;
+    }
+
+    const section = document.querySelector(payload.resultsSectionSelector);
+    const rows = section
+      ? Array.from(section.querySelectorAll("button[data-job-result-id]")).map(
+          (element) => ({
+            jobId: element.getAttribute("data-job-result-id"),
+            title:
+              normText(element.querySelector("strong")?.textContent) || null,
+            isSelected: element.getAttribute("aria-current") === "true",
+            meaningfullyVisible: meaningfullyIntersects(
+              element.getBoundingClientRect(),
+            ).pass,
+            clickablePoint: clickableCenterPoint(element),
+          }),
+        )
+      : [];
+
+    // scrollIntoView({ block: "start" }) aligns the region top with the top
+    // of the nearest owning scrollport (its client-box top, below any fixed
+    // chrome outside it).
+    const region = document.querySelector(payload.regionSelector);
+    let detail = null;
+    if (region) {
+      const regionRect = region.getBoundingClientRect();
+      const detailMetrics = meaningfullyIntersects(regionRect);
+      let scroller = null;
+      for (
+        let node = region.parentElement;
+        node && !scroller;
+        node = node.parentElement
+      ) {
+        if (
+          node instanceof HTMLElement &&
+          /(auto|scroll)/.test(getComputedStyle(node).overflowY) &&
+          node.scrollHeight > node.clientHeight + 2
+        ) {
+          scroller = node;
+        }
+      }
+      let alignment = {
+        scroller: null,
+        deltaPx: null,
+        aligned: false,
+        clampedAtMaximum: false,
+        reason: "no-scrollable-ancestor",
+      };
+      if (scroller) {
+        const scrollerRect = scroller.getBoundingClientRect();
+        const scrollPortTop = scrollerRect.top + scroller.clientTop;
+        const maximumScrollTop = Math.max(
+          0,
+          scroller.scrollHeight - scroller.clientHeight,
+        );
+        const deltaPx = Math.round((regionRect.top - scrollPortTop) * 10) / 10;
+        alignment = {
+          scroller: {
+            selector: describeEl(scroller),
+            clientRectTop: Math.round(scrollerRect.top),
+            scrollPortTop: Math.round(scrollPortTop),
+            scrollTop: Math.round(scroller.scrollTop),
+            maximumScrollTop: Math.round(maximumScrollTop),
+          },
+          regionViewportTop: Math.round(regionRect.top * 10) / 10,
+          deltaPx,
+          tolerancePx: payload.thresholds.blockStartTolerancePx,
+          aligned:
+            Math.abs(deltaPx) <= payload.thresholds.blockStartTolerancePx,
+          clampedAtMaximum: scroller.scrollTop >= maximumScrollTop - 1,
+          reason: null,
+        };
+      }
+      detail = {
+        exists: true,
+        rect: {
+          left: Math.round(regionRect.left),
+          top: Math.round(regionRect.top),
+          right: Math.round(regionRect.right),
+          bottom: Math.round(regionRect.bottom),
+          width: Math.round(regionRect.width),
+          height: Math.round(regionRect.height),
+        },
+        viewportIntersection: detailMetrics.intersection,
+        meaningfullyVisible: detailMetrics.pass,
+        blockStart: alignment,
+      };
+    } else {
+      detail = { exists: false };
+    }
+
+    const actionsRegion = document.querySelector(payload.actionsRegionSelector);
+    let actionControlCount = 0;
+    let excludedNavigationLinkPresent = false;
+    const matchedPrimaryActions = [];
+    if (actionsRegion) {
+      for (const element of actionsRegion.querySelectorAll(
+        'button:not([disabled]), button:not([aria-disabled="true"]), a[href]',
+      )) {
+        actionControlCount += 1;
+        if (
+          element.getAttribute("data-testid") === payload.excludedActionTestId
+        ) {
+          excludedNavigationLinkPresent = true;
+          continue;
+        }
+        const label = normText(
+          element.getAttribute("aria-label") ?? element.textContent,
+        );
+        if (!primaryNames.has(label)) {
+          continue;
+        }
+        matchedPrimaryActions.push({
+          tag: element.tagName.toLowerCase(),
+          label,
+          meaningfullyVisible: meaningfullyIntersects(
+            element.getBoundingClientRect(),
+          ).pass,
+          clickablePoint: clickableCenterPoint(element),
+        });
+      }
+    }
+
+    const active =
+      document.activeElement instanceof Element &&
+      document.activeElement !== document.body
+        ? document.activeElement
+        : null;
+    const workspace = await window.unemployed.jobFinder.getWorkspace();
+
+    return {
+      viewport: {
+        innerWidth: window.innerWidth,
+        innerHeight: window.innerHeight,
+        devicePixelRatio: window.devicePixelRatio,
+      },
+      rowCount: rows.length,
+      rows,
+      workspaceSelectedDiscoveryJobId: workspace.selectedDiscoveryJobId ?? null,
+      headingText: normText(
+        document.getElementById(payload.headingId)?.textContent,
+      ),
+      detail,
+      primaryActions: {
+        actionControlCount,
+        excludedNavigationLinkPresent,
+        matched: matchedPrimaryActions,
+      },
+      focus: {
+        activeDescriptor: active ? describeEl(active) : null,
+        headingFocused: Boolean(active?.id === payload.headingId),
+        detailActionFocused: Boolean(active && actionsRegion?.contains(active)),
+      },
+    };
+  }, discoveryRevealMeasurementPayload);
+}
+
+async function probeDiscoverySelectionReveal(page, viewport, baseCapture) {
+  const consistency = getStackedMediaQueryConsistency();
+  const stackedMediaQueryMatches = await page.evaluate((query) => {
+    return window.matchMedia?.(query)?.matches ?? false;
+  }, DISCOVERY_STACKED_MEDIA_QUERY);
+  if (!stackedMediaQueryMatches) {
+    return null;
+  }
+
+  const failures = [];
+  if (!consistency.matched) {
+    failures.push(
+      `stacked media query does not mirror discovery-accessibility.ts: expected ${DISCOVERY_STACKED_MEDIA_QUERY} observed ${JSON.stringify(consistency.observedQuery ?? consistency.error ?? null)}`,
+    );
+  }
+
+  let chosen = null;
+  let preClick = null;
+  let postReveal = null;
+  const arrangedRowJobIds = [];
+  try {
+    const initial = await measureDiscoveryRevealSurface(page);
+    if (initial.rowCount === 0) {
+      failures.push("no discovery result rows were rendered to click");
+    }
+    const differentRows = initial.rows
+      .map((row, index) => ({ index, row }))
+      .filter(
+        ({ row }) =>
+          Boolean(row.jobId) &&
+          row.jobId !== initial.workspaceSelectedDiscoveryJobId,
+      )
+      .sort((left, right) => right.index - left.index);
+    let pool = differentRows.filter(
+      ({ row }) => row.meaningfullyVisible && row.clickablePoint !== null,
+    );
+    if (pool.length === 0) {
+      pool = differentRows.slice(0, 2);
+    }
+    for (const candidate of pool) {
+      await page
+        .locator(DISCOVERY_RESULT_ROW_SELECTOR)
+        .nth(candidate.index)
+        .scrollIntoViewIfNeeded({ timeout: 1_500 })
+        .catch(() => {});
+      await page.waitForTimeout(100);
+      const measured = await measureDiscoveryRevealSurface(page);
+      const row = measured.rows[candidate.index];
+      if (
+        row &&
+        row.jobId === candidate.row.jobId &&
+        row.meaningfullyVisible &&
+        row.clickablePoint !== null
+      ) {
+        chosen = {
+          jobId: row.jobId,
+          title: row.title,
+          clickPoint: row.clickablePoint,
+        };
+        preClick = measured;
+        break;
+      }
+      arrangedRowJobIds.push(candidate.row.jobId);
+    }
+    if (!chosen) {
+      failures.push(
+        "no unselected result row was meaningfully visible with an unobscured clickable center point",
+      );
+    } else {
+      await page.mouse.click(chosen.clickPoint.x, chosen.clickPoint.y);
+
+      // Deterministically settle the product's queued microtask reveal plus
+      // scroll/layout: double rAF, then two identical geometry+identity
+      // samples with the clicked identity everywhere required.
+      await page.evaluate(
+        () =>
+          new Promise((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(resolve));
+          }),
+      );
+      let signature = null;
+      let stableSamples = 0;
+      await waitForCondition(
+        async () => {
+          const measurement = await measureDiscoveryRevealSurface(page);
+          const nextSignature = JSON.stringify({
+            jobId: measurement.workspaceSelectedDiscoveryJobId,
+            heading: measurement.headingText,
+            detailRect: measurement.detail?.rect ?? null,
+            scrollTop:
+              measurement.detail?.blockStart?.scroller?.scrollTop ?? null,
+            selectedRowIds: measurement.rows
+              .filter((row) => row.isSelected)
+              .map((row) => row.jobId),
+          });
+          stableSamples = nextSignature === signature ? stableSamples + 1 : 1;
+          signature = nextSignature;
+          return (
+            stableSamples >= 2 &&
+            measurement.workspaceSelectedDiscoveryJobId === chosen.jobId &&
+            measurement.headingText === chosen.title &&
+            measurement.rows.some(
+              (row) => row.isSelected && row.jobId === chosen.jobId,
+            )
+          );
+        },
+        `discovery selection reveal to settle on job ${chosen.jobId}`,
+        10_000,
+        120,
+      );
+      postReveal = await measureDiscoveryRevealSurface(page);
+
+      if (postReveal.workspaceSelectedDiscoveryJobId !== chosen.jobId) {
+        failures.push(
+          `workspace selection did not update to ${chosen.jobId}: ${String(postReveal.workspaceSelectedDiscoveryJobId)}`,
+        );
+      }
+      if (postReveal.headingText !== chosen.title) {
+        failures.push(
+          `detail heading mismatch after selection: expected ${JSON.stringify(chosen.title)} observed ${JSON.stringify(postReveal.headingText)}`,
+        );
+      }
+      if (
+        !postReveal.rows.some(
+          (row) => row.isSelected && row.jobId === chosen.jobId,
+        )
+      ) {
+        failures.push(`clicked row ${chosen.jobId} is not aria-current`);
+      }
+
+      if (
+        postReveal.focus.headingFocused ||
+        postReveal.focus.detailActionFocused
+      ) {
+        failures.push(
+          `pointer selection stole focus to heading/action: activeElement=${JSON.stringify(postReveal.focus.activeDescriptor)}`,
+        );
+      }
+
+      if (!postReveal.detail.exists) {
+        failures.push(`${DISCOVERY_DETAIL_REGION_SELECTOR} was not rendered`);
+      } else if (!postReveal.detail.blockStart.aligned) {
+        failures.push(
+          `${DISCOVERY_DETAIL_REGION_SELECTOR} did not top-align with the owning scrollport within ${postReveal.detail.blockStart.tolerancePx}px of block:start: delta=${postReveal.detail.blockStart.deltaPx}px clampedAtMaximum=${postReveal.detail.blockStart.clampedAtMaximum} scroller=${JSON.stringify(postReveal.detail.blockStart.scroller)} reason=${postReveal.detail.blockStart.reason}`,
+        );
+      } else if (!postReveal.detail.meaningfullyVisible) {
+        failures.push(
+          `${DISCOVERY_DETAIL_REGION_SELECTOR} does not meaningfully intersect the CSS viewport: ${JSON.stringify(postReveal.detail.viewportIntersection)}`,
+        );
+      }
+
+      const actionableActions = postReveal.primaryActions.matched.filter(
+        (action) =>
+          action.meaningfullyVisible && action.clickablePoint !== null,
+      );
+      if (postReveal.primaryActions.matched.length === 0) {
+        failures.push(
+          `no genuine primary job action ${JSON.stringify(DISCOVERY_PRIMARY_ACTION_NAMES)} inside ${DISCOVERY_DETAIL_ACTIONS_SELECTOR}: controls=${postReveal.primaryActions.actionControlCount} excludedNavigationLinkPresent=${postReveal.primaryActions.excludedNavigationLinkPresent}`,
+        );
+      } else if (actionableActions.length === 0) {
+        failures.push(
+          `product pointer click alone exposed no primary job action with meaningful intersection and a clickable center point: ${JSON.stringify(postReveal.primaryActions.matched.map(({ label, meaningfullyVisible }) => ({ label, meaningfullyVisible })))}`,
+        );
+      }
+    }
+  } catch (error) {
+    failures.push(
+      `unexpected discovery reveal probe failure: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+
+  const entry = {
+    scenarioId: "discovery-selection-reveal",
+    viewportSlug: viewport.slug,
+    viewport: postReveal?.viewport ?? preClick?.viewport ?? null,
+    stackedMediaQuery: DISCOVERY_STACKED_MEDIA_QUERY,
+    stackedMediaQueryMatches,
+    mediaQueryConsistency: consistency,
+    selectors: {
+      resultsSection: DISCOVERY_RESULTS_SECTION_SELECTOR,
+      resultRow: DISCOVERY_RESULT_ROW_SELECTOR,
+      detailRegion: DISCOVERY_DETAIL_REGION_SELECTOR,
+      detailHeading: DISCOVERY_DETAIL_HEADING_SELECTOR,
+      actionsRegion: DISCOVERY_DETAIL_ACTIONS_SELECTOR,
+      excludedActionTestId: DISCOVERY_EXCLUDED_ACTION_TEST_ID,
+      primaryActionNames: DISCOVERY_PRIMARY_ACTION_NAMES,
+    },
+    thresholds: DISCOVERY_REVEAL_THRESHOLDS,
+    click: {
+      method: "page.mouse.click",
+      point: chosen?.clickPoint ?? null,
+      jobId: chosen?.jobId ?? null,
+      rowTitle: chosen?.title ?? null,
+    },
+    rowSummary: {
+      rowCount: preClick?.rowCount ?? null,
+      meaningfullyVisibleRowCount:
+        preClick?.rows.filter((row) => row.meaningfullyVisible).length ?? null,
+      skippedRowJobIdsAfterArrange: arrangedRowJobIds,
+    },
+    identity: {
+      workspaceBefore: preClick?.workspaceSelectedDiscoveryJobId ?? null,
+      workspaceAfter: postReveal?.workspaceSelectedDiscoveryJobId ?? null,
+      domHeadingAfter: postReveal?.headingText ?? null,
+      ariaCurrentRowJobIdAfter:
+        postReveal?.rows.find((row) => row.isSelected)?.jobId ?? null,
+    },
+    focus: {
+      before: preClick?.focus.activeDescriptor ?? null,
+      after: postReveal?.focus.activeDescriptor ?? null,
+      headingFocusedAfter: postReveal?.focus.headingFocused ?? null,
+      detailActionFocusedAfter: postReveal?.focus.detailActionFocused ?? null,
+      clickedRowRetainedFocus: postReveal
+        ? postReveal.focus.activeDescriptor ===
+          `button[data-job-result-id=${chosen.jobId}]`
+        : null,
+    },
+    detailRegion: postReveal?.detail ?? null,
+    primaryActions: postReveal?.primaryActions ?? null,
+    failures,
+    pass: failures.length === 0,
+  };
+
+  report.scenarios.discoverySelectionRevealEvidence ??= [];
+  report.scenarios.discoverySelectionRevealEvidence.push(entry);
+  if (baseCapture) {
+    baseCapture.discoverySelectionReveal = {
+      viewportSlug: entry.viewportSlug,
+      clickedJobId: entry.click.jobId,
+      pass: entry.pass,
+      failures: entry.failures,
+    };
+  }
+  await writeJson("capture-report.json", report);
+  if (!entry.pass) {
+    throw new Error(
+      `Discovery selection reveal evidence failed for viewport ${viewport.slug}: ${entry.failures.join("; ")}`,
+    );
+  }
+  return entry;
+}
+
 async function run() {
   await mkdir(outputDir, { recursive: true });
   const userDataDirectory = await mkdtemp(
@@ -1221,10 +1791,14 @@ async function run() {
       ]) {
         await navigate(page, route);
         await resetScroll(page);
-        await capture(page, `${viewport.slug}-${route.split("/").at(-1)}`, {
-          viewport,
-          route,
-        });
+        const routeCapture = await capture(
+          page,
+          `${viewport.slug}-${route.split("/").at(-1)}`,
+          {
+            viewport,
+            route,
+          },
+        );
         if (viewport.zoomFactor === 4) {
           const shellActionsVisible = await page.evaluate(() => {
             const actions = document.querySelector(
@@ -1291,6 +1865,9 @@ async function run() {
               reflowSurface: "content",
             },
           );
+        }
+        if (route === "/job-finder/discovery") {
+          await probeDiscoverySelectionReveal(page, viewport, routeCapture);
         }
       }
     }

@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import type { ResumeDraft } from "@unemployed/contracts";
+import type { TailoredResumeDraft } from "@unemployed/ai-providers";
+import type {
+  ResumeDraft,
+  WorkHistoryReviewAcknowledgment,
+} from "@unemployed/contracts";
+import { fnv1a32 } from "@unemployed/core";
 import {
   buildResumeRenderDocument,
   buildResumeDraftFromTailoredDraft,
@@ -90,6 +95,7 @@ describe("buildResumeRenderDocument", () => {
                   locked: false,
                   included: true,
                   sourceRefs: [],
+                  lastGeneratedContentHash: null,
                   updatedAt: "2026-03-20T10:04:00.000Z",
                 },
               ],
@@ -117,6 +123,8 @@ describe("buildResumeRenderDocument", () => {
       approvedAt: null,
       approvedExportId: null,
       staleReason: null,
+      workHistoryReviewAcknowledgments: [],
+      claimConfirmations: [],
       createdAt: "2026-03-20T10:04:00.000Z",
       updatedAt: "2026-03-20T10:04:00.000Z",
     };
@@ -957,5 +965,151 @@ describe("buildResumeRenderDocument", () => {
       field: "phone",
       text: "+1 555 0100",
     });
+  });
+});
+
+describe("buildResumeDraftFromTailoredDraft work-history acknowledgment carry-forward", () => {
+  const acknowledgedAt = "2026-03-20T09:00:00.000Z";
+  const hiddenRoleGuidance = "Hidden for review.";
+
+  const hiddenRoleMetadata: TailoredResumeDraft["coverageMetadata"][number] = {
+    profileRecordId: "hidden_middle",
+    classification: "suggested_hidden",
+    careerFamilyFit: "weak",
+    reasons: ["weak fit"],
+    reviewGuidance: [hiddenRoleGuidance],
+    coversMeaningfulGap: false,
+  };
+
+  function createTailoredDraft(
+    coverageMetadata: TailoredResumeDraft["coverageMetadata"],
+  ): TailoredResumeDraft {
+    return {
+      label: "Tailored Resume",
+      summary: "Grounded software summary.",
+      experienceHighlights: [],
+      coreSkills: [],
+      targetedKeywords: [],
+      experienceEntries: [],
+      projectEntries: [],
+      educationEntries: [],
+      certificationEntries: [],
+      coverageMetadata,
+      additionalSkills: [],
+      languages: [],
+      fullText: "Grounded software summary.",
+      compatibilityScore: 80,
+      notes: [],
+    };
+  }
+
+  function createOmissionAcknowledgment(
+    overrides?: Partial<WorkHistoryReviewAcknowledgment>,
+  ): WorkHistoryReviewAcknowledgment {
+    return {
+      id: "work_history_ack_hidden_middle_1",
+      draftId: "resume_draft_job_ready",
+      profileRecordId: "hidden_middle",
+      kind: "weak_fit",
+      action: "consider_showing",
+      messageContentHash: fnv1a32(hiddenRoleGuidance),
+      reason: "intentional_omission",
+      acknowledgedAt,
+      ...overrides,
+    };
+  }
+
+  test("keeps an acknowledgment whose omission suggestion is reprojected identically", () => {
+    const seed = createSeed();
+    const job = seed.savedJobs[0]!;
+    const acknowledgment = createOmissionAcknowledgment({
+      draftId: `resume_draft_${job.id}`,
+    });
+    const draft = buildResumeDraftFromTailoredDraft({
+      job,
+      templateId: seed.settings.resumeTemplateId,
+      createdAt: "2026-03-20T10:04:00.000Z",
+      generationMethod: "deterministic",
+      draft: createTailoredDraft([hiddenRoleMetadata]),
+      previousWorkHistoryReviewAcknowledgments: [acknowledgment],
+    });
+
+    expect(draft.workHistoryReviewAcknowledgments).toEqual([acknowledgment]);
+  });
+
+  test("drops an acknowledgment when the regenerated guidance text changed", () => {
+    const seed = createSeed();
+    const job = seed.savedJobs[0]!;
+    const draft = buildResumeDraftFromTailoredDraft({
+      job,
+      templateId: seed.settings.resumeTemplateId,
+      createdAt: "2026-03-20T10:04:00.000Z",
+      generationMethod: "deterministic",
+      draft: createTailoredDraft([
+        {
+          ...hiddenRoleMetadata,
+          reviewGuidance: ["Hidden for review after regeneration."],
+        },
+      ]),
+      previousWorkHistoryReviewAcknowledgments: [
+        createOmissionAcknowledgment({ draftId: `resume_draft_${job.id}` }),
+      ],
+    });
+
+    expect(draft.workHistoryReviewAcknowledgments).toEqual([]);
+  });
+
+  test("drops an acknowledgment when the suggestion is no longer projected", () => {
+    const seed = createSeed();
+    const job = seed.savedJobs[0]!;
+    const draft = buildResumeDraftFromTailoredDraft({
+      job,
+      templateId: seed.settings.resumeTemplateId,
+      createdAt: "2026-03-20T10:04:00.000Z",
+      generationMethod: "deterministic",
+      draft: createTailoredDraft([
+        { ...hiddenRoleMetadata, classification: "detailed" },
+      ]),
+      previousWorkHistoryReviewAcknowledgments: [
+        createOmissionAcknowledgment({ draftId: `resume_draft_${job.id}` }),
+      ],
+    });
+
+    expect(draft.workHistoryReviewAcknowledgments).toEqual([]);
+  });
+
+  test("keeps only acknowledgments bound to the regenerated draft id", () => {
+    const seed = createSeed();
+    const currentAck = createOmissionAcknowledgment({
+      draftId: "resume_draft_regenerated",
+    });
+    const staleDraftAck = createOmissionAcknowledgment({
+      id: "work_history_ack_hidden_middle_2",
+      draftId: "resume_draft_previous_generation",
+    });
+    const draft = buildResumeDraftFromTailoredDraft({
+      job: seed.savedJobs[0]!,
+      templateId: seed.settings.resumeTemplateId,
+      createdAt: "2026-03-20T10:04:00.000Z",
+      generationMethod: "deterministic",
+      existingDraftId: "resume_draft_regenerated",
+      draft: createTailoredDraft([hiddenRoleMetadata]),
+      previousWorkHistoryReviewAcknowledgments: [staleDraftAck, currentAck],
+    });
+
+    expect(draft.workHistoryReviewAcknowledgments).toEqual([currentAck]);
+  });
+
+  test("still resets to no acknowledgments when none are carried in", () => {
+    const seed = createSeed();
+    const draft = buildResumeDraftFromTailoredDraft({
+      job: seed.savedJobs[0]!,
+      templateId: seed.settings.resumeTemplateId,
+      createdAt: "2026-03-20T10:04:00.000Z",
+      generationMethod: "deterministic",
+      draft: createTailoredDraft([hiddenRoleMetadata]),
+    });
+
+    expect(draft.workHistoryReviewAcknowledgments).toEqual([]);
   });
 });

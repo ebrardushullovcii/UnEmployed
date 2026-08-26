@@ -1518,20 +1518,20 @@ async function run() {
       await setViewport(page, browserWindow, viewport);
       if (viewport.slug === "zoom-200") {
         const moreButton = page.getByRole("button", {
-          name: "More Job Finder sections",
-          exact: true,
+          name: /^Planning and settings/,
+          exact: false,
         });
         await moreButton.waitFor({ state: "visible", timeout: 10_000 });
         await moreButton.click();
-        const moreMenu = page.getByRole("menu", {
-          name: "More Job Finder sections",
+        const moreMenu = page.getByRole("navigation", {
+          name: "Planning and settings",
           exact: true,
         });
         await moreMenu.waitFor({ state: "visible", timeout: 10_000 });
         const moreMenuLayout = await moreMenu.evaluate((element) => {
           const rect = element.getBoundingClientRect();
           const items = Array.from(
-            element.querySelectorAll('[role="menuitem"]'),
+            element.querySelectorAll("button"),
           ).map((item) => {
             const itemRect = item.getBoundingClientRect();
             return {
@@ -1556,7 +1556,7 @@ async function run() {
           moreMenuLayout.visible &&
             moreMenuLayout.items.length > 0 &&
             moreMenuLayout.items.every((item) => item.visible),
-          "200% More menu is clipped or has unreachable items.",
+          "200% Planning and settings menu is clipped or has unreachable items.",
         );
         await capture(page, "zoom-200-more-menu", {
           surface: "shell-navigation",

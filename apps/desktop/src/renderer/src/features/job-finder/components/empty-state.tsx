@@ -1,12 +1,14 @@
+import type { ReactNode } from 'react'
 import { cn } from '@renderer/lib/utils'
 
 interface EmptyStateProps {
+  children?: ReactNode
   className?: string
   description: string
   title: string
 }
 
-export function EmptyState({ className, description, title }: EmptyStateProps) {
+export function EmptyState({ children, className, description, title }: EmptyStateProps) {
   return (
     <div
       className={cn(
@@ -17,6 +19,7 @@ export function EmptyState({ className, description, title }: EmptyStateProps) {
       <div className="grid max-w-136 gap-3">
         <h2 className="font-display text-(length:--text-section-title) font-semibold tracking-(--tracking-page-title-compact) text-(--text-headline) break-words [overflow-wrap:anywhere]">{title}</h2>
         <p className="text-(length:--text-description) leading-6 text-foreground-soft break-words [overflow-wrap:anywhere]">{description}</p>
+        {children}
       </div>
     </div>
   )

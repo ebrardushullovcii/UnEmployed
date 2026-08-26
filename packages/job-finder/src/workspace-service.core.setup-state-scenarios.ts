@@ -17,18 +17,19 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.profileSetupState.status).toBe("completed");
   });
 
-  test("derives fresh setup state for seeded first-run workspaces", async () => {
+  test("derives fresh setup state for seeded first-run workspaces without placeholder facts", async () => {
     const { workspaceService } = createWorkspaceServiceHarness({
       seed: {
         ...createSeed(),
         profile: {
           ...createSeed().profile,
           id: "candidate_fresh_start",
-          firstName: "New",
-          lastName: "Candidate",
-          fullName: "New Candidate",
-          headline: "Import your resume to begin",
-          currentLocation: "Set your preferred location",
+          firstName: null,
+          lastName: null,
+          fullName: null,
+          headline: null,
+          summary: null,
+          currentLocation: null,
           email: null,
           phone: null,
           narrative: {
@@ -84,8 +85,89 @@ describe("createJobFinderWorkspaceService", () => {
 
     const snapshot = await workspaceService.getWorkspaceSnapshot();
 
+    // A first-run workspace persists no fake candidate facts.
+    expect(snapshot.profile.firstName).toBeNull();
+    expect(snapshot.profile.lastName).toBeNull();
+    expect(snapshot.profile.fullName).toBeNull();
+    expect(snapshot.profile.headline).toBeNull();
+    expect(snapshot.profile.summary).toBeNull();
+    expect(snapshot.profile.currentLocation).toBeNull();
     expect(snapshot.profileSetupState.status).toBe("not_started");
     expect(snapshot.profileSetupState.currentStep).toBe("import");
+  });
+
+  test("keeps legacy placeholder identity strings parseable but not ready", async () => {
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...createSeed(),
+        profile: {
+          ...createSeed().profile,
+          id: "candidate_legacy_seed",
+          firstName: "New",
+          lastName: "Candidate",
+          fullName: "New Candidate",
+          headline: "Import your resume to begin",
+          summary:
+            "Import a resume or paste resume text to build your profile, targeting, and tailored documents.",
+          currentLocation: "Set your preferred location",
+          email: null,
+          phone: null,
+        },
+        profileSetupState: {
+          status: "not_started",
+          currentStep: "import",
+          completedAt: null,
+          reviewItems: [],
+          lastResumedAt: null,
+        },
+      },
+    });
+
+    const snapshot = await workspaceService.getWorkspaceSnapshot();
+
+    // Legacy data still parses; the shared placeholder rule keeps it from
+    // counting as a real core identity.
+    expect(snapshot.profile.fullName).toBe("New Candidate");
+    expect(snapshot.profileSetupState.status).not.toBe("completed");
+  });
+
+  test("cannot complete setup while the work-mode preference is missing", async () => {
+    const baseSeed: ReturnType<typeof createSeed> = {
+      ...createSeed(),
+      searchPreferences: {
+        ...createSeed().searchPreferences,
+        workModes: [],
+      },
+      profileSetupState: {
+        status: "not_started",
+        currentStep: "import",
+        completedAt: null,
+        reviewItems: [],
+        lastResumedAt: null,
+      },
+    };
+
+    // Without a chosen work mode the canonical blockers keep setup open even
+    // though every other readiness signal is present.
+    const blockedHarness = createWorkspaceServiceHarness({ seed: baseSeed });
+    const blockedSnapshot =
+      await blockedHarness.workspaceService.getWorkspaceSnapshot();
+    expect(blockedSnapshot.profileSetupState.status).toBe("in_progress");
+    expect(blockedSnapshot.profileSetupState.currentStep).toBe("targeting");
+
+    // Adding the work mode clears the last canonical blocker.
+    const readyHarness = createWorkspaceServiceHarness({
+      seed: {
+        ...baseSeed,
+        searchPreferences: {
+          ...baseSeed.searchPreferences,
+          workModes: ["remote"],
+        },
+      },
+    });
+    const readySnapshot =
+      await readyHarness.workspaceService.getWorkspaceSnapshot();
+    expect(readySnapshot.profileSetupState.status).toBe("completed");
   });
 
   test("persists an explicit in-progress setup step while the profile remains incomplete", async () => {
@@ -169,10 +251,14 @@ describe("createJobFinderWorkspaceService", () => {
     const snapshot = await workspaceService.analyzeProfileFromResume();
 
     expect(snapshot.profileSetupState.status).toBe("in_progress");
-    expect(snapshot.profileSetupState.reviewItems.some((item) => item.status === "pending")).toBe(true);
-    expect(snapshot.profileSetupState.reviewItems.map((item) => item.label)).toEqual(
-      expect.arrayContaining(["Headline", "Work history"]),
-    );
+    expect(
+      snapshot.profileSetupState.reviewItems.some(
+        (item) => item.status === "pending",
+      ),
+    ).toBe(true);
+    expect(
+      snapshot.profileSetupState.reviewItems.map((item) => item.label),
+    ).toEqual(expect.arrayContaining(["Headline", "Work history"]));
   });
 
   test("reopens setup after completion when a later import produces blocking review items", async () => {
@@ -261,6 +347,10 @@ describe("createJobFinderWorkspaceService", () => {
 
     expect(snapshot.profileSetupState.status).toBe("in_progress");
     expect(snapshot.profileSetupState.currentStep).toBe("essentials");
-    expect(snapshot.profileSetupState.reviewItems.some((item) => item.status === "pending")).toBe(true);
+    expect(
+      snapshot.profileSetupState.reviewItems.some(
+        (item) => item.status === "pending",
+      ),
+    ).toBe(true);
   });
 });

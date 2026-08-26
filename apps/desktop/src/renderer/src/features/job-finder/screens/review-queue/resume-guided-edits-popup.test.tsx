@@ -1,6 +1,11 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type {
+  ResumeAssistantMessage,
+  ResumeDraft,
+  ResumeDraftPatch,
+} from "@unemployed/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ResumeGuidedEditsPopup } from "./resume-guided-edits-popup";
 
@@ -280,6 +285,133 @@ describe("ResumeGuidedEditsPopup", () => {
     expect(dialog.className).toContain("surface-popover-solid");
     expect(dialog.className).not.toContain("surface-panel-shell");
     expect(dialog.className).not.toContain("backdrop-blur");
+  });
+
+  it("passes saved validation through to proposal grounding disclosures", () => {
+    const updatedAt = "2026-04-27T00:00:00.000Z";
+    const savedSummaryText =
+      "Systems-focused product designer with deep workflow automation experience.";
+    const draft: ResumeDraft = {
+      id: "draft demo",
+      jobId: "job demo",
+      status: "draft",
+      templateId: "classic_ats",
+      identity: null,
+      sections: [
+        {
+          id: "sec summary",
+          kind: "summary",
+          label: "Summary",
+          text: savedSummaryText,
+          bullets: [],
+          entries: [],
+          origin: "ai_generated",
+          locked: false,
+          included: true,
+          sortOrder: 0,
+          entryOrderMode: "chronology",
+          profileRecordId: null,
+          sourceRefs: [
+            {
+              id: "ref job demo",
+              sourceKind: "job",
+              sourceId: null,
+              snippet: "Own the workflow automation surface end to end.",
+            },
+          ],
+          updatedAt,
+        },
+      ],
+      targetPageCount: 2,
+      generationMethod: "ai",
+      approvedAt: null,
+      approvedExportId: null,
+      staleReason: null,
+      workHistoryReviewAcknowledgments: [],
+      claimConfirmations: [],
+      createdAt: updatedAt,
+      updatedAt,
+    };
+    const patch: ResumeDraftPatch = {
+      id: "patch one",
+      draftId: draft.id,
+      operation: "replace_section_text",
+      targetSectionId: "sec summary",
+      targetEntryId: null,
+      anchorEntryId: null,
+      targetBulletId: null,
+      anchorBulletId: null,
+      position: null,
+      newText: "A tighter proposed summary.",
+      newIncluded: null,
+      newLocked: null,
+      newBullets: null,
+      appliedAt: updatedAt,
+      origin: "assistant",
+      conflictReason: null,
+    };
+    const message: ResumeAssistantMessage = {
+      id: "assistant one",
+      jobId: "job demo",
+      role: "assistant",
+      content: "Here is a grounded edit.",
+      patches: [patch],
+      proposalStatus: "pending",
+      baseDraftUpdatedAt: null,
+      resolvedPatchIds: [],
+      resolvedAt: null,
+      proposalError: null,
+      createdAt: updatedAt,
+    };
+
+    render(
+      <ResumeGuidedEditsPopup
+        assistantMessages={[message]}
+        assistantPending={false}
+        draft={draft}
+        isWorkspacePending={false}
+        onResolveProposal={vi.fn()}
+        onSendAssistantMessage={vi.fn()}
+        validation={{
+          id: "validation one",
+          draftId: draft.id,
+          issues: [],
+          draftContentHash: null,
+          claimAssessments: [
+            {
+              id: "assessment one",
+              field: "section_text",
+              sectionId: "sec summary",
+              entryId: null,
+              bulletId: null,
+              claimText: savedSummaryText,
+              claimOrigin: "ai_generated",
+              contentHash: "fnv1a32:00000000",
+              status: "exact",
+              evidenceRefs: [],
+              verifier: "deterministic_candidate_evidence_v1",
+              assessedAt: updatedAt,
+            },
+          ],
+          coverageComparison: null,
+          pageCount: null,
+          validatedAt: updatedAt,
+        }}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Open guided edits, continue thread",
+      }),
+    );
+
+    fireEvent.click(screen.getByText("Why this edit is grounded"));
+
+    expect(screen.getByText("Current saved text: Exact evidence.")).toBeTruthy();
+    expect(
+      screen.getByText("New wording is checked after you accept and save."),
+    ).toBeTruthy();
   });
 
   it("moves the expanded panel by its header while keeping it in the viewport", () => {

@@ -1,6 +1,12 @@
 import { describe, expect, test } from "vitest";
 import {
+  ApplyJobResultSchema,
   ApplicationRecordSchema,
+  CampaignNotificationSchema,
+  getDefaultCampaignConfiguration,
+  GroupedManualAnswerDecisionSchema,
+  JobFinderIntelligenceStateSchema,
+  JobSearchCampaignSchema,
   ResumeDraftRevisionSchema,
   ResumeDraftSchema,
   ResumeValidationResultSchema,
@@ -100,6 +106,9 @@ describe("createInMemoryJobFinderRepository", () => {
         },
       }),
     );
+    const committed = current.map((record, index) =>
+      ApplicationRecordSchema.parse({ ...record, crm: next[index]?.crm }),
+    );
 
     await expect(
       repository.commitApplicationRecordBatch({
@@ -125,15 +134,102 @@ describe("createInMemoryJobFinderRepository", () => {
         ],
         records: next,
       }),
-    ).resolves.toMatchObject({
+    ).resolves.toEqual({
       status: "applied",
-      committedRecordIds: ["application_1", "application_2"],
+      committedRecords: committed,
     });
     expect(
       (await repository.listApplicationRecords()).map(
         (record) => record.crm?.stage,
       ),
     ).toEqual(["reviewing", "reviewing"]);
+  });
+
+  test("merges CRM onto current records and validates unchanged selected rows", async () => {
+    const seed = createSeed();
+    const first = ApplicationRecordSchema.parse({
+      id: "application_1",
+      jobId: "job_1",
+      title: "Frontend Engineer",
+      company: "Acme",
+      status: "submitted",
+      lastActionLabel: "Applied",
+      nextActionLabel: null,
+      lastUpdatedAt: "2026-08-15T10:00:00.000Z",
+      crm: {
+        revision: 2,
+        stage: "applied",
+        stageChangedAt: "2026-08-15T10:00:00.000Z",
+      },
+    });
+    const second = ApplicationRecordSchema.parse({
+      ...first,
+      id: "application_2",
+      jobId: "job_2",
+      title: "Backend Engineer",
+      company: "Beta",
+      crm: { ...first.crm, revision: 1 },
+    });
+    seed.applicationRecords = [first, second];
+    const repository = createInMemoryJobFinderRepository(seed);
+    const proposedFirst = ApplicationRecordSchema.parse({
+      ...first,
+      crm: {
+        ...first.crm,
+        revision: 3,
+        stage: "reviewing",
+        stageChangedAt: "2026-08-15T10:05:00.000Z",
+      },
+    });
+    const concurrentFirst = ApplicationRecordSchema.parse({
+      ...first,
+      lastActionLabel: "Application flow resumed",
+      nextActionLabel: "Answer employer question",
+      lastUpdatedAt: "2026-08-15T10:04:00.000Z",
+    });
+    await repository.upsertApplicationRecord(concurrentFirst);
+
+    const applied = await repository.commitApplicationRecordBatch({
+      expectedRevisions: [
+        { applicationRecordId: first.id, expectedRevision: 2 },
+        { applicationRecordId: second.id, expectedRevision: 1 },
+      ],
+      records: [proposedFirst],
+    });
+    const committedFirst = ApplicationRecordSchema.parse({
+      ...concurrentFirst,
+      crm: proposedFirst.crm,
+    });
+    expect(applied).toEqual({
+      status: "applied",
+      committedRecords: [committedFirst],
+    });
+    expect((await repository.listApplicationRecords())[0]).toEqual(
+      committedFirst,
+    );
+
+    const nextFirst = ApplicationRecordSchema.parse({
+      ...committedFirst,
+      crm: { ...committedFirst.crm, revision: 4, stage: "interview" },
+    });
+    await repository.upsertApplicationRecord(
+      ApplicationRecordSchema.parse({
+        ...second,
+        crm: { ...second.crm, revision: 2, stage: "recruiter_contact" },
+      }),
+    );
+    await expect(
+      repository.commitApplicationRecordBatch({
+        expectedRevisions: [
+          { applicationRecordId: first.id, expectedRevision: 3 },
+          { applicationRecordId: second.id, expectedRevision: 1 },
+        ],
+        records: [nextFirst],
+      }),
+    ).resolves.toEqual({ status: "stale", recordIds: [second.id] });
+    expect((await repository.listApplicationRecords())[0]).toEqual(
+      committedFirst,
+    );
   });
 
   test("returns cloned values and supports asset and attempt upserts", async () => {
@@ -162,6 +258,8 @@ describe("createInMemoryJobFinderRepository", () => {
       previewSections: [],
       generationMethod: "deterministic",
       notes: [],
+      failureMessage: null,
+      failedAt: null,
     });
 
     await repository.upsertApplicationAttempt({
@@ -262,6 +360,8 @@ describe("createInMemoryJobFinderRepository", () => {
       approvedAt: null,
       approvedExportId: null,
       staleReason: null,
+      workHistoryReviewAcknowledgments: [],
+      claimConfirmations: [],
       createdAt: "2026-03-20T10:00:00.000Z",
       updatedAt: "2026-03-20T10:00:00.000Z",
     });
@@ -277,6 +377,8 @@ describe("createInMemoryJobFinderRepository", () => {
       approvedAt: null,
       approvedExportId: null,
       staleReason: null,
+      workHistoryReviewAcknowledgments: [],
+      claimConfirmations: [],
       createdAt: "2026-03-20T10:05:00.000Z",
       updatedAt: "2026-03-20T10:06:00.000Z",
     });
@@ -496,6 +598,7 @@ describe("createInMemoryJobFinderRepository", () => {
       id: "answer_1",
       runId: "apply_run_1",
       jobId: "job_1",
+      applicationRecordId: null,
       resultId: "apply_result_1",
       questionId: "question_1",
       status: "filled",
@@ -543,6 +646,7 @@ describe("createInMemoryJobFinderRepository", () => {
       id: "consent_1",
       runId: "apply_run_1",
       jobId: "job_1",
+      applicationRecordId: null,
       resultId: "apply_result_1",
       kind: "resume_use",
       linkedConsentKind: "resume_use",
@@ -578,6 +682,196 @@ describe("createInMemoryJobFinderRepository", () => {
     await expect(
       repository.listApplicationConsentRequests({ runId: "apply_run_1" }),
     ).resolves.toEqual([expect.objectContaining({ id: "consent_1" })]);
+  });
+
+  test("marks application preparation once and preserves it across result writes", async () => {
+    const repository = createInMemoryJobFinderRepository(createSeed());
+    const baseline = ApplyJobResultSchema.parse({
+      id: "result_preparation",
+      runId: "run_preparation",
+      jobId: "job_1",
+      state: "planned",
+      summary: "Application planned.",
+      detail: "Waiting to prepare.",
+      startedAt: "2026-08-23T09:00:00.000Z",
+      updatedAt: "2026-08-23T09:00:00.000Z",
+      applicationPreparationStartedAt: null,
+      applicationPreparationStartedLocalDate: null,
+    });
+    await repository.upsertApplyJobResult(baseline);
+
+    await expect(
+      repository.markApplicationPreparationStarted({
+        resultId: "missing_result",
+        runId: baseline.runId,
+        jobId: baseline.jobId,
+        startedAt: "2026-08-23T10:00:00.000Z",
+        startedLocalDate: "2026-08-23",
+      }),
+    ).rejects.toThrow("does not exist");
+
+    const first = await repository.markApplicationPreparationStarted({
+      resultId: baseline.id,
+      runId: baseline.runId,
+      jobId: baseline.jobId,
+      startedAt: "2026-08-23T10:00:00.000Z",
+      startedLocalDate: "2026-08-23",
+    });
+    const repeat = await repository.markApplicationPreparationStarted({
+      resultId: baseline.id,
+      runId: baseline.runId,
+      jobId: baseline.jobId,
+      startedAt: "2026-08-24T10:00:00.000Z",
+      startedLocalDate: "2026-08-24",
+    });
+    expect(first.didStart).toBe(true);
+    expect(repeat).toEqual({ result: first.result, didStart: false });
+
+    const concurrentBaseline = ApplyJobResultSchema.parse({
+      ...baseline,
+      id: "result_preparation_concurrent",
+      jobId: "job_concurrent",
+    });
+    await repository.upsertApplyJobResult(concurrentBaseline);
+    const concurrent = await Promise.all([
+      repository.markApplicationPreparationStarted({
+        resultId: concurrentBaseline.id,
+        runId: concurrentBaseline.runId,
+        jobId: concurrentBaseline.jobId,
+        startedAt: "2026-08-23T11:00:00.000Z",
+        startedLocalDate: "2026-08-23",
+      }),
+      repository.markApplicationPreparationStarted({
+        resultId: concurrentBaseline.id,
+        runId: concurrentBaseline.runId,
+        jobId: concurrentBaseline.jobId,
+        startedAt: "2026-08-24T11:00:00.000Z",
+        startedLocalDate: "2026-08-24",
+      }),
+    ]);
+    expect(concurrent.filter((outcome) => outcome.didStart)).toHaveLength(1);
+    expect(concurrent[0]?.result).toEqual(concurrent[1]?.result);
+
+    await expect(
+      repository.markApplicationPreparationStarted({
+        resultId: baseline.id,
+        runId: "wrong_run",
+        jobId: baseline.jobId,
+        startedAt: "2026-08-25T10:00:00.000Z",
+        startedLocalDate: "2026-08-25",
+      }),
+    ).rejects.toThrow("lineage");
+    expect(() =>
+      repository.upsertApplyJobResult({
+        ...first.result,
+        applicationPreparationStartedAt: null,
+        applicationPreparationStartedLocalDate: null,
+      }),
+    ).toThrow("immutable");
+    expect(() =>
+      repository.compareAndSwapApplyJobResult({
+        expected: first.result,
+        result: {
+          ...first.result,
+          applicationPreparationStartedAt: "2026-08-25T10:00:00.000Z",
+          applicationPreparationStartedLocalDate: "2026-08-25",
+        },
+      }),
+    ).toThrow("immutable");
+
+    await expect(
+      repository.compareAndSwapApplyJobResult({
+        expected: baseline,
+        result: {
+          ...baseline,
+          state: "failed",
+          completedAt: "2026-08-23T10:04:00.000Z",
+          updatedAt: "2026-08-23T10:04:00.000Z",
+        },
+      }),
+    ).resolves.toBe(false);
+
+    await expect(
+      repository.compareAndSwapApplyJobResult({
+        expected: first.result,
+        result: {
+          ...first.result,
+          state: "failed",
+          completedAt: "2026-08-23T10:05:00.000Z",
+          updatedAt: "2026-08-23T10:05:00.000Z",
+        },
+      }),
+    ).resolves.toBe(true);
+  });
+
+  test("filters application persistence by exact application record lineage", async () => {
+    const repository = createInMemoryJobFinderRepository(createSeed());
+    const resultBase = {
+      jobId: "job_shared",
+      queuePosition: 0,
+      state: "planned" as const,
+      summary: "Application planned.",
+      detail: "Waiting to prepare.",
+      startedAt: "2026-08-23T10:00:00.000Z",
+      updatedAt: "2026-08-23T10:00:00.000Z",
+    };
+    await repository.upsertApplyJobResult({
+      ...resultBase,
+      id: "result_a",
+      runId: "run_a",
+      applicationRecordId: "application_a",
+    });
+    await repository.upsertApplyJobResult({
+      ...resultBase,
+      id: "result_b",
+      runId: "run_b",
+      applicationRecordId: "application_b",
+    });
+    await repository.upsertApplicationQuestionRecord({
+      id: "question_a",
+      runId: "run_a",
+      jobId: "job_shared",
+      applicationRecordId: "application_a",
+      resultId: "result_a",
+      prompt: "Question A",
+      detectedAt: "2026-08-23T10:01:00.000Z",
+    });
+    await repository.upsertApplicationQuestionRecord({
+      id: "question_b",
+      runId: "run_b",
+      jobId: "job_shared",
+      applicationRecordId: "application_b",
+      resultId: "result_b",
+      prompt: "Question B",
+      detectedAt: "2026-08-23T10:01:01.000Z",
+    });
+    await repository.upsertApplicationAttempt({
+      id: "attempt_a",
+      jobId: "job_shared",
+      applicationRecordId: "application_a",
+      state: "in_progress",
+      summary: "Preparing A",
+      detail: "Preparing A",
+      startedAt: "2026-08-23T10:00:00.000Z",
+      updatedAt: "2026-08-23T10:01:00.000Z",
+      completedAt: null,
+      outcome: null,
+      nextActionLabel: null,
+    });
+
+    await expect(
+      repository.listApplyJobResults({ applicationRecordId: "application_a" }),
+    ).resolves.toEqual([expect.objectContaining({ id: "result_a" })]);
+    await expect(
+      repository.listApplicationQuestionRecords({
+        applicationRecordId: "application_b",
+      }),
+    ).resolves.toEqual([expect.objectContaining({ id: "question_b" })]);
+    await expect(
+      repository.listApplicationAttempts({
+        applicationRecordId: "application_a",
+      }),
+    ).resolves.toEqual([expect.objectContaining({ id: "attempt_a" })]);
   });
 
   test("stores profile copilot messages and revisions with the expected ordering", async () => {
@@ -764,6 +1058,8 @@ describe("createInMemoryJobFinderRepository", () => {
         approvedAt: "2026-03-20T10:07:00.000Z",
         approvedExportId: "resume_export_new",
         staleReason: null,
+        workHistoryReviewAcknowledgments: [],
+        claimConfirmations: [],
         createdAt: "2026-03-20T10:00:00.000Z",
         updatedAt: "2026-03-20T10:07:00.000Z",
       },
@@ -804,6 +1100,8 @@ describe("createInMemoryJobFinderRepository", () => {
         previewSections: [],
         generationMethod: "ai_assisted",
         notes: [],
+        failureMessage: null,
+        failedAt: null,
       },
     });
 
@@ -851,6 +1149,8 @@ describe("createInMemoryJobFinderRepository", () => {
         approvedAt: null,
         approvedExportId: null,
         staleReason: "Draft changed after approval and needs a fresh review.",
+        workHistoryReviewAcknowledgments: [],
+        claimConfirmations: [],
         createdAt: "2026-03-20T10:00:00.000Z",
         updatedAt: "2026-03-20T10:08:00.000Z",
       },
@@ -880,6 +1180,8 @@ describe("createInMemoryJobFinderRepository", () => {
         previewSections: [],
         generationMethod: "ai_assisted",
         notes: [],
+        failureMessage: null,
+        failedAt: null,
       },
     });
 
@@ -1073,6 +1375,8 @@ describe("createInMemoryJobFinderRepository", () => {
       approvedAt: "2026-03-20T10:07:00.000Z",
       approvedExportId: "resume_export_old",
       staleReason: null,
+      workHistoryReviewAcknowledgments: [],
+      claimConfirmations: [],
       createdAt: "2026-03-20T10:00:00.000Z",
       updatedAt: "2026-03-20T10:07:00.000Z",
     });
@@ -1110,6 +1414,8 @@ describe("createInMemoryJobFinderRepository", () => {
         approvedExportId: null,
         staleReason:
           "Saved job details changed after approval and the resume needs a fresh review.",
+        workHistoryReviewAcknowledgments: [],
+        claimConfirmations: [],
         createdAt: "2026-03-20T10:00:00.000Z",
         updatedAt: "2026-03-20T10:08:00.000Z",
       },
@@ -1131,6 +1437,8 @@ describe("createInMemoryJobFinderRepository", () => {
         previewSections: [],
         generationMethod: "deterministic",
         notes: [],
+        failureMessage: null,
+        failedAt: null,
       },
     });
 
@@ -1152,5 +1460,115 @@ describe("createInMemoryJobFinderRepository", () => {
     expect(
       assets.find((asset) => asset.jobId === "job_ready")?.storagePath,
     ).toBeNull();
+  });
+
+  test("reset restores intelligence and campaign notifications exactly from the provided seed", async () => {
+    const now = "2026-08-15T10:00:00.000Z";
+    const later = "2026-08-15T11:00:00.000Z";
+    const baseSeed = createSeed();
+    const campaign = JobSearchCampaignSchema.parse({
+      id: "campaign_seed",
+      name: "Seed campaign",
+      mode: "precision",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+      searchPreferences: baseSeed.searchPreferences,
+      sourceTargetIds: [],
+      ...getDefaultCampaignConfiguration("precision"),
+      schedule: {},
+      progress: { lastUpdatedAt: now },
+    });
+    const createDecision = (input: {
+      answerValue: string;
+      updatedAt: string;
+    }) =>
+      GroupedManualAnswerDecisionSchema.parse({
+        id: "decision_shared",
+        groupKey: "group_shared",
+        requestId: "request_1",
+        applicationRecordId: "application_1",
+        jobId: "job_1",
+        questionId: "question_1",
+        expectedRevision: 1,
+        expectedQuestionRevision: 1,
+        expectedAnswerRevision: 0,
+        fingerprints: {
+          questionMeaning: "a".repeat(64),
+          answerPolicy: "b".repeat(64),
+        },
+        answer: { type: "text", value: input.answerValue },
+        createdAt: now,
+        updatedAt: input.updatedAt,
+        lineage: [],
+      });
+    const createNotification = (input: {
+      title: string;
+      readAt: string | null;
+    }) =>
+      CampaignNotificationSchema.parse({
+        id: "notification_shared",
+        campaignId: campaign.id,
+        kind: "strong_match",
+        title: input.title,
+        body: null,
+        createdAt: now,
+        readAt: input.readAt,
+        unread: input.readAt === null,
+      });
+
+    const mutatedSeed = createSeed();
+    mutatedSeed.campaigns = [campaign];
+    mutatedSeed.activeCampaignId = campaign.id;
+    mutatedSeed.campaignNotifications = [
+      createNotification({ title: "Seeded strong match", readAt: null }),
+    ];
+    mutatedSeed.intelligence = JobFinderIntelligenceStateSchema.parse({
+      groupedDecisions: [
+        createDecision({ answerValue: "5 years", updatedAt: now }),
+      ],
+      updatedAt: now,
+    });
+    const repository = createInMemoryJobFinderRepository(mutatedSeed);
+
+    await repository.saveIntelligenceState(
+      JobFinderIntelligenceStateSchema.parse({
+        groupedDecisions: [
+          createDecision({ answerValue: "7 years", updatedAt: later }),
+        ],
+        updatedAt: later,
+      }),
+    );
+    await repository.saveCampaignState({
+      activeCampaignId: campaign.id,
+      campaigns: [campaign],
+      notifications: [
+        createNotification({ title: "Mutated strong match", readAt: later }),
+      ],
+    });
+
+    const resetSeed = createSeed();
+    resetSeed.campaigns = [campaign];
+    resetSeed.activeCampaignId = campaign.id;
+    resetSeed.campaignNotifications = [
+      createNotification({ title: "Reset strong match", readAt: null }),
+    ];
+    resetSeed.intelligence = JobFinderIntelligenceStateSchema.parse({
+      groupedDecisions: [
+        createDecision({ answerValue: "10 years", updatedAt: now }),
+      ],
+      updatedAt: now,
+    });
+
+    await repository.reset(resetSeed);
+
+    await expect(repository.getIntelligenceState()).resolves.toEqual(
+      resetSeed.intelligence,
+    );
+    await expect(repository.getCampaignState()).resolves.toEqual({
+      campaigns: resetSeed.campaigns,
+      activeCampaignId: resetSeed.activeCampaignId,
+      notifications: resetSeed.campaignNotifications,
+    });
   });
 });

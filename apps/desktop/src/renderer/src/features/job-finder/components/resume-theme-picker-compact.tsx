@@ -18,7 +18,7 @@ import {
 
 export function ResumeThemePickerCompact(props: {
   disabled: boolean;
-  id?: string | undefined;
+  labelledBy: string;
   onChange: (themeId: ResumeTemplateId) => void;
   recommendationReasons: ReadonlyMap<ResumeTemplateId, string>;
   selectedThemeId: ResumeTemplateId;
@@ -26,7 +26,7 @@ export function ResumeThemePickerCompact(props: {
 }) {
   const {
     disabled,
-    id,
+    labelledBy,
     onChange,
     recommendationReasons,
     selectedThemeId,
@@ -34,7 +34,11 @@ export function ResumeThemePickerCompact(props: {
   } = props;
 
   return (
-    <div className="grid min-w-0 gap-3" aria-labelledby={id}>
+    <div
+      className="grid min-w-0 gap-3"
+      aria-labelledby={labelledBy}
+      role="group"
+    >
       <section className="surface-panel-shell relative min-w-0 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border)">
         <div className="grid min-w-0 content-start gap-3 p-3">
           <div className="grid min-w-0 gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/55 px-3 py-2.5">
@@ -112,7 +116,7 @@ function CompactVariantCard(props: {
           onClick={() => onChange(theme.id)}
           size="compact"
           type="button"
-          variant={selected ? "primary" : "secondary"}
+          variant="secondary"
         >
           {selected ? "Selected template" : "Use this template"}
         </Button>

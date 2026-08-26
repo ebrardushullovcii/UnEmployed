@@ -15,7 +15,7 @@
     "prepare:resume-parser-sidecar": "node ./scripts/prepare-resume-parser-sidecar.mjs --mode required",
     "prepare:resume-parser-sidecar:matrix": "node ./scripts/prepare-resume-parser-sidecar.mjs --mode required --target win32-x64,darwin-arm64,darwin-x64,linux-x64",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run --passWithNoTests && node ./scripts/validate-job-finder-prepare-only-report-binding.mjs",
     "benchmark:resume-import": "pnpm build && node ./scripts/run-resume-import-benchmark.mjs",
     "benchmark:resume-quality": "pnpm build && node ./scripts/run-resume-quality-benchmark.mjs",
     "ui:capture": "pnpm build && node ./scripts/capture-ui.mjs",

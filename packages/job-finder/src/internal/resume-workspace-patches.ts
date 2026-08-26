@@ -1,10 +1,11 @@
-import { ResumeDraftSchema, type ResumeDraft, type ResumeDraftBullet, type ResumeDraftPatch, type ResumeDraftSection } from "@unemployed/contracts";
+import { ResumeDraftSchema, type ResumeDraft, type ResumeDraftBullet, type ResumeDraftOrigin, type ResumeDraftPatch, type ResumeDraftSection } from "@unemployed/contracts";
 import {
   moveSectionEntry,
   resetSectionEntryOrderToChronology,
 } from "./resume-entry-ordering";
 import { createBullet } from "./resume-workspace-primitives";
-import { createUniqueId } from "./shared";
+import { stampGeneratedBulletContentHash } from "./resume-workspace-structure";
+import { createUniqueId, normalizeText } from "./shared";
 
 function requireTargetEntry(
   section: ResumeDraftSection,
@@ -56,6 +57,27 @@ function updateSectionMeta(
     origin: patch.origin === "assistant" ? "assistant_edited" : "user_edited",
     updatedAt,
   };
+}
+
+function resolvePatchOrigin(patch: ResumeDraftPatch): ResumeDraftOrigin {
+  return patch.origin === "assistant" ? "assistant_edited" : "user_edited";
+}
+
+/**
+ * Approved anti-flip rule for generated claim provenance. A
+ * normalization-equivalent text rewrite (whitespace/case/punctuation-only
+ * under `normalizeText`) keeps the edited content's existing origin — and,
+ * for generated bullets, the stamped `lastGeneratedContentHash` — so a
+ * trivial edit cannot reclassify a generated claim as user-authored to
+ * escape confirmation gating. Substantive rewrites may take the patch's
+ * origin, but spreads preserve the historical generated hash so provenance
+ * is never deleted in a way that could bypass helper blocking semantics.
+ */
+function isNormalizationEquivalentTextUpdate(
+  currentText: string | null | undefined,
+  nextText: string | null | undefined,
+): boolean {
+  return normalizeText(currentText ?? "") === normalizeText(nextText ?? "");
 }
 
 function requireTargetBullet(
@@ -137,6 +159,18 @@ export function applyPatchToResumeDraft(input: {
           return section;
         }
         sectionsChanged = true;
+        // Normalization-equivalent section text rewrites keep the section's
+        // generated origin; substantive rewrites flip it via updateSectionMeta
+        // semantics below.
+        if (
+          isNormalizationEquivalentTextUpdate(section.text, patch.newText)
+        ) {
+          return {
+            ...section,
+            text: patch.newText,
+            updatedAt,
+          };
+        }
         return updateSectionMeta(
           {
             ...section,
@@ -155,6 +189,28 @@ export function applyPatchToResumeDraft(input: {
           return section;
         }
         sectionsChanged = true;
+        // Normalization-equivalent summary rewrites keep both the entry's and
+        // the section's generated origin; only substantive rewrites flip.
+        if (
+          isNormalizationEquivalentTextUpdate(
+            targetEntry.summary,
+            patch.newText,
+          )
+        ) {
+          return {
+            ...section,
+            entries: section.entries.map((entry) =>
+              entry.id === targetEntry.id
+                ? {
+                    ...entry,
+                    summary: patch.newText,
+                    updatedAt,
+                  }
+                : entry,
+            ),
+            updatedAt,
+          };
+        }
         return updateSectionMeta(
           {
             ...section,
@@ -189,11 +245,13 @@ export function applyPatchToResumeDraft(input: {
           return section;
         }
 
-        const newBullet = createBullet(
-          createInsertedBulletId(section, patch.targetEntryId, patch.targetBulletId),
-          patch.newText,
-          updatedAt,
-          patch.origin === "assistant" ? "assistant_edited" : "user_edited",
+        const newBullet = stampGeneratedBulletContentHash(
+          createBullet(
+            createInsertedBulletId(section, patch.targetEntryId, patch.targetBulletId),
+            patch.newText,
+            updatedAt,
+            patch.origin === "assistant" ? "assistant_edited" : "user_edited",
+          ),
         );
         const bullets = [...bulletCollection];
 
@@ -253,6 +311,50 @@ export function applyPatchToResumeDraft(input: {
         }
 
         sectionsChanged = true;
+        // Anti-flip: normalization-equivalent bullet rewrites keep every
+        // generated origin in the chain (bullet, entry, section); substantive
+        // rewrites take the patch origin while spreads preserve the
+        // historical lastGeneratedContentHash.
+        const normalizationEquivalentUpdate =
+          isNormalizationEquivalentTextUpdate(currentBullet.text, patch.newText);
+        if (normalizationEquivalentUpdate) {
+          if (targetEntry) {
+            return {
+              ...section,
+              entries: section.entries.map((entry) =>
+                entry.id === targetEntry.id
+                  ? {
+                      ...entry,
+                      bullets: entry.bullets.map((bullet) =>
+                        bullet.id === patch.targetBulletId
+                          ? {
+                              ...bullet,
+                              text: patch.newText ?? bullet.text,
+                              updatedAt,
+                            }
+                          : bullet,
+                      ),
+                      updatedAt,
+                    }
+                  : entry,
+              ),
+              updatedAt,
+            };
+          }
+          return {
+            ...section,
+            bullets: section.bullets.map((bullet) =>
+              bullet.id === patch.targetBulletId
+                ? {
+                    ...bullet,
+                    text: patch.newText ?? bullet.text,
+                    updatedAt,
+                  }
+                : bullet,
+            ),
+            updatedAt,
+          };
+        }
         if (targetEntry) {
           return updateSectionMeta(
             {
@@ -268,11 +370,11 @@ export function applyPatchToResumeDraft(input: {
                         return {
                           ...bullet,
                           text: patch.newText ?? bullet.text,
-                          origin: patch.origin === "assistant" ? "assistant_edited" : "user_edited",
+                          origin: resolvePatchOrigin(patch),
                           updatedAt,
                         };
                       }),
-                      origin: patch.origin === "assistant" ? "assistant_edited" : "user_edited",
+                      origin: resolvePatchOrigin(patch),
                       updatedAt,
                     }
                   : entry,
@@ -292,10 +394,7 @@ export function applyPatchToResumeDraft(input: {
               return {
                 ...bullet,
                 text: patch.newText ?? bullet.text,
-                origin:
-                  patch.origin === "assistant"
-                    ? "assistant_edited"
-                    : "user_edited",
+                origin: resolvePatchOrigin(patch),
                 updatedAt,
               };
             }),

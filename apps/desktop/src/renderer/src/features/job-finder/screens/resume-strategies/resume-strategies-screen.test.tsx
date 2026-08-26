@@ -166,7 +166,36 @@ describe("ResumeStrategiesScreen", () => {
       />,
     );
 
-    expect(screen.getByText("No resume strategies yet")).toBeTruthy();
+    expect(screen.getByText("No resume approaches yet")).toBeTruthy();
+  });
+
+  it("repeats the New strategy action inside the strategies empty state", () => {
+    render(
+      <ResumeStrategiesScreen
+        actionMessage={null}
+        baseResumeDocumentId="resume_1"
+        campaigns={[]}
+        candidateDocumentIds={[]}
+        isCampaignDefaultPending={() => false}
+        isDisablePending={() => false}
+        isLoading={false}
+        isSavePending={false}
+        onDisableStrategy={vi.fn()}
+        onSaveStrategy={vi.fn()}
+        onSetCampaignDefault={vi.fn()}
+        strategies={[]}
+      />,
+    );
+
+    const newStrategyButtons = screen.getAllByRole("button", {
+      name: "New resume approach",
+    });
+    expect(newStrategyButtons.length).toBe(2);
+
+    fireEvent.click(newStrategyButtons[1]!);
+    expect(
+      screen.getByRole("heading", { name: "Create resume approach" }),
+    ).toBeTruthy();
   });
 
   it("offers a safe return to the shortlisted job", () => {
@@ -241,7 +270,7 @@ describe("ResumeStrategiesScreen", () => {
       />,
     );
 
-    expect(screen.getByText("Loading resume strategies")).toBeTruthy();
+    expect(screen.getByText("Loading resume approaches")).toBeTruthy();
   });
 
   it("searches strategies by role family and shows a no-match state", () => {
@@ -270,7 +299,7 @@ describe("ResumeStrategiesScreen", () => {
     );
 
     fireEvent.change(
-      screen.getByRole("searchbox", { name: "Search strategies" }),
+      screen.getByRole("searchbox", { name: "Search approaches" }),
       {
         target: { value: "data" },
       },
@@ -279,7 +308,7 @@ describe("ResumeStrategiesScreen", () => {
     expect(screen.queryByText("Backend engineering")).toBeNull();
 
     fireEvent.change(
-      screen.getByRole("searchbox", { name: "Search strategies" }),
+      screen.getByRole("searchbox", { name: "Search approaches" }),
       {
         target: { value: "design" },
       },
@@ -287,7 +316,7 @@ describe("ResumeStrategiesScreen", () => {
     expect(
       screen.getByText(
         (_content, element) =>
-          element?.textContent === "No strategies match “design”",
+          element?.textContent === "No approaches match “design”",
       ),
     ).toBeTruthy();
   });
@@ -365,7 +394,9 @@ describe("ResumeStrategiesScreen", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "New strategy" }));
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "New resume approach" })[0]!,
+    );
     fireEvent.change(screen.getByLabelText("Name"), {
       target: { value: "Frontend engineering" },
     });
@@ -381,7 +412,7 @@ describe("ResumeStrategiesScreen", () => {
     fireEvent.click(
       screen.getByLabelText("Allow paraphrased claims grounded in evidence"),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Create strategy" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create resume approach" }));
 
     const saved = onSaveStrategy.mock.calls[0]?.[0];
     expect(saved?.id).toBeNull();
@@ -473,7 +504,7 @@ describe("ResumeStrategiesScreen", () => {
     expect(disabledOption).toBeTruthy();
     expect((disabledOption as HTMLOptionElement).disabled).toBe(true);
     expect(screen.getByRole("status").textContent).toContain(
-      "Legacy remains persisted as this campaign's default, but it will not be recommended while disabled.",
+      "Legacy is still this search plan's default, but it will not be recommended while disabled.",
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Clear default" }));
@@ -504,18 +535,20 @@ describe("ResumeStrategiesScreen", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "New strategy" }));
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "New resume approach" })[0]!,
+    );
     fireEvent.change(screen.getByLabelText("Name"), {
       target: { value: "Frontend engineering" },
     });
     fireEvent.change(screen.getByLabelText("Role family"), {
       target: { value: "Frontend Engineering" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Create strategy" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create resume approach" }));
 
     await waitFor(() => expect(onSaveStrategy).toHaveBeenCalledTimes(1));
     expect(
-      screen.getByRole("heading", { name: "Create strategy" }),
+      screen.getByRole("heading", { name: "Create resume approach" }),
     ).toBeTruthy();
     expect(screen.getByDisplayValue("Frontend engineering")).toBeTruthy();
   });
@@ -541,18 +574,20 @@ describe("ResumeStrategiesScreen", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "New strategy" }));
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "New resume approach" })[0]!,
+    );
     fireEvent.change(screen.getByLabelText("Name"), {
       target: { value: "Frontend engineering" },
     });
     fireEvent.change(screen.getByLabelText("Role family"), {
       target: { value: "Frontend Engineering" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Create strategy" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create resume approach" }));
 
     await waitFor(() =>
       expect(
-        screen.queryByRole("heading", { name: "Create strategy" }),
+        screen.queryByRole("heading", { name: "Create resume approach" }),
       ).toBeNull(),
     );
   });
@@ -579,5 +614,168 @@ describe("ResumeStrategiesScreen", () => {
     // Native controls used throughout are keyboard reachable.
     expect(screen.getByRole("button", { name: "Disable" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Edit" })).toBeTruthy();
+  });
+
+  it("styles native strategy selects with canonical field tokens and focus hierarchy", () => {
+    const { container } = render(
+      <ResumeStrategiesScreen
+        actionMessage={null}
+        baseResumeDocumentId="resume_1"
+        campaigns={[campaign()]}
+        candidateDocumentIds={[]}
+        isCampaignDefaultPending={() => false}
+        isDisablePending={() => false}
+        isLoading={false}
+        isSavePending={false}
+        onDisableStrategy={vi.fn()}
+        onSaveStrategy={vi.fn()}
+        onSetCampaignDefault={vi.fn()}
+        strategies={[]}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "New resume approach" })[0]!,
+    );
+
+    // Five editor policy selects plus the campaign default select.
+    const selects = Array.from(container.querySelectorAll("select"));
+    expect(selects.length).toBe(6);
+    for (const select of selects) {
+      for (const className of [
+        "border-(--field-border)",
+        "bg-(--field)",
+        "outline-none",
+        "focus-visible:border-(--field-focus-border)",
+        "focus-visible:bg-(--field-strong)",
+        "focus-visible:shadow-[var(--field-focus-shadow)]",
+      ]) {
+        expect(select.classList.contains(className)).toBe(true);
+      }
+      expect(select.className).not.toContain("border-input");
+      expect(select.className).not.toContain("--surface-panel-raised");
+    }
+    expect(container.innerHTML).not.toContain("border-input");
+  });
+
+  it("shows a truthful unavailable state with a working retry instead of a false empty success", () => {
+    const onRetry = vi.fn();
+    render(
+      <ResumeStrategiesScreen
+        actionMessage={null}
+        baseResumeDocumentId="resume_1"
+        campaigns={[]}
+        candidateDocumentIds={[]}
+        isCampaignDefaultPending={() => false}
+        isDisablePending={() => false}
+        isLoading={false}
+        isSavePending={false}
+        loadError="Strategies could not be loaded. Check your connection and try again."
+        onDisableStrategy={vi.fn()}
+        onRetry={onRetry}
+        onSaveStrategy={vi.fn()}
+        onSetCampaignDefault={vi.fn()}
+        strategies={[]}
+      />,
+    );
+
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(screen.getByText("Resume approaches unavailable")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Strategies could not be loaded. Check your connection and try again.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Your saved approaches are safe. You can retry loading them now.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("No resume strategies yet")).toBeNull();
+    const retryButton = screen.getByRole("button", { name: "Try again" });
+    fireEvent.click(retryButton);
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps stored strategies visible alongside the unavailable banner when a refresh fails", () => {
+    const onRetry = vi.fn();
+    render(
+      <ResumeStrategiesScreen
+        actionMessage={null}
+        baseResumeDocumentId="resume_1"
+        campaigns={[]}
+        candidateDocumentIds={[]}
+        isCampaignDefaultPending={() => false}
+        isDisablePending={() => false}
+        isLoading={false}
+        isSavePending={false}
+        loadError="Could not refresh strategies."
+        onDisableStrategy={vi.fn()}
+        onRetry={onRetry}
+        onSaveStrategy={vi.fn()}
+        onSetCampaignDefault={vi.fn()}
+        strategies={[strategy()]}
+      />,
+    );
+
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(screen.getByText("Backend engineering")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
+
+  it("offers a safe return to the shortlisted job from the unavailable state", () => {
+    render(
+      <ResumeStrategiesScreen
+        actionMessage={null}
+        baseResumeDocumentId="resume_1"
+        campaigns={[]}
+        candidateDocumentIds={[]}
+        isCampaignDefaultPending={() => false}
+        isDisablePending={() => false}
+        isLoading={false}
+        isSavePending={false}
+        loadError="Strategies could not be loaded."
+        onDisableStrategy={vi.fn()}
+        onSaveStrategy={vi.fn()}
+        onSetCampaignDefault={vi.fn()}
+        strategies={[]}
+      />,
+      ["/job-finder/resume-strategies?returnTo=%2Fjob-finder%2Freview-queue%3FjobId%3Djob_1"],
+    );
+
+    expect(screen.getByRole("alert")).toBeTruthy();
+    const backLinks = screen.getAllByRole("link", {
+      name: "Back to shortlisted job",
+    });
+    expect(backLinks.length).toBeGreaterThanOrEqual(1);
+    expect(
+      backLinks.some(
+        (link) =>
+          link.getAttribute("href") === "/job-finder/review-queue?jobId=job_1",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not show a retry action when no retry handler is owned", () => {
+    render(
+      <ResumeStrategiesScreen
+        actionMessage={null}
+        baseResumeDocumentId="resume_1"
+        campaigns={[]}
+        candidateDocumentIds={[]}
+        isCampaignDefaultPending={() => false}
+        isDisablePending={() => false}
+        isLoading={false}
+        isSavePending={false}
+        loadError="Strategies could not be loaded."
+        onDisableStrategy={vi.fn()}
+        onSaveStrategy={vi.fn()}
+        onSetCampaignDefault={vi.fn()}
+        strategies={[]}
+      />,
+    );
+
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 });

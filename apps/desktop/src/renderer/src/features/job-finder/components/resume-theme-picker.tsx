@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 import type {
   ResumeTemplateDefinition,
   ResumeTemplateId,
@@ -16,7 +16,7 @@ export { buildResumeThemePickerRecommendations } from "./resume-theme-picker-hel
 
 interface ResumeThemePickerProps {
   disabled?: boolean;
-  id?: string;
+  labelledBy?: string;
   mode?: "full" | "compact";
   recommendationContext?: ResumeThemePickerRecommendationContext | null;
   selectedThemeId: ResumeTemplateId;
@@ -26,17 +26,22 @@ interface ResumeThemePickerProps {
 
 export function ResumeThemePicker({
   disabled = false,
-  id,
+  labelledBy,
   mode = "full",
   recommendationContext = null,
   selectedThemeId,
   themes,
   onChange,
 }: ResumeThemePickerProps) {
+  const fallbackLabelId = useId();
+  const resolvedLabelId = labelledBy ?? fallbackLabelId;
   const sortedThemes = useMemo(() => sortResumeThemeOptions(themes), [themes]);
   const recommendations = useMemo(
     () =>
-      buildResumeThemePickerRecommendations({ recommendationContext, themes: sortedThemes }),
+      buildResumeThemePickerRecommendations({
+        recommendationContext,
+        themes: sortedThemes,
+      }),
     [recommendationContext, sortedThemes],
   );
   const recommendationReasons = useMemo(
@@ -50,11 +55,16 @@ export function ResumeThemePicker({
     [recommendations],
   );
   const recommendedThemeIds = useMemo(
-    () => new Set(recommendations.map((recommendation) => recommendation.templateId)),
+    () =>
+      new Set(
+        recommendations.map((recommendation) => recommendation.templateId),
+      ),
     [recommendations],
   );
   const selectedTemplate =
-    sortedThemes.find((theme) => theme.id === selectedThemeId) ?? sortedThemes[0] ?? null;
+    sortedThemes.find((theme) => theme.id === selectedThemeId) ??
+    sortedThemes[0] ??
+    null;
   const effectiveSelectedThemeId = selectedTemplate?.id ?? selectedThemeId;
   const heroTemplate = selectedTemplate;
   const heroReason = heroTemplate
@@ -62,31 +72,51 @@ export function ResumeThemePicker({
     : null;
   if (!heroTemplate) {
     return (
-      <div className="rounded-(--radius-field) border border-dashed border-(--surface-panel-border) bg-background/55 px-4 py-5 text-sm leading-6 text-foreground-soft">
-        No templates are available right now.
-      </div>
+      <>
+        {labelledBy ? null : (
+          <span className="sr-only" id={fallbackLabelId}>
+            Resume template
+          </span>
+        )}
+        <div
+          aria-labelledby={resolvedLabelId}
+          className="rounded-(--radius-field) border border-dashed border-(--surface-panel-border) bg-background/55 px-4 py-5 text-sm leading-6 text-foreground-soft"
+          role="group"
+        >
+          No templates are available right now.
+        </div>
+      </>
     );
   }
 
-  return mode === "compact" ? (
-    <ResumeThemePickerCompact
-      disabled={disabled}
-      id={id}
-      onChange={onChange}
-      recommendationReasons={recommendationReasons}
-      selectedThemeId={effectiveSelectedThemeId}
-      themes={sortedThemes}
-    />
-  ) : (
-    <ResumeThemePickerFull
-      disabled={disabled}
-      heroReason={heroReason}
-      heroTemplate={heroTemplate}
-      id={id}
-      onChange={onChange}
-      recommendedThemeIds={recommendedThemeIds}
-      selectedThemeId={effectiveSelectedThemeId}
-      themes={sortedThemes}
-    />
+  return (
+    <>
+      {labelledBy ? null : (
+        <span className="sr-only" id={fallbackLabelId}>
+          Resume template
+        </span>
+      )}
+      {mode === "compact" ? (
+        <ResumeThemePickerCompact
+          disabled={disabled}
+          labelledBy={resolvedLabelId}
+          onChange={onChange}
+          recommendationReasons={recommendationReasons}
+          selectedThemeId={effectiveSelectedThemeId}
+          themes={sortedThemes}
+        />
+      ) : (
+        <ResumeThemePickerFull
+          disabled={disabled}
+          heroReason={heroReason}
+          heroTemplate={heroTemplate}
+          labelledBy={resolvedLabelId}
+          onChange={onChange}
+          recommendedThemeIds={recommendedThemeIds}
+          selectedThemeId={effectiveSelectedThemeId}
+          themes={sortedThemes}
+        />
+      )}
+    </>
   );
 }

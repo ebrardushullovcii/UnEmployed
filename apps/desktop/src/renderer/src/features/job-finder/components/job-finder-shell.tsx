@@ -1,22 +1,32 @@
 import type { CSSProperties, ReactNode } from "react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import {
   BarChart3,
   BellRing,
   Building2,
+  Menu,
   ClipboardCheck,
   Compass,
   FileText,
   House,
   Layers3,
   Minus,
+  Search,
   Settings,
   ShieldCheck,
   Square,
   UserRound,
   X,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import type {
   DesktopWindowControlsState,
   DiscoveryActivityEvent,
@@ -27,12 +37,33 @@ import type {
 import { suiteModules } from "@unemployed/contracts";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@renderer/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@renderer/components/ui/tooltip";
 import { cn } from "@renderer/lib/cn";
 import type { JobFinderScreen } from "../lib/job-finder-types";
 import type { JobFinderSaveState } from "@renderer/pages/job-finder-save-state";
+import type { TailoredDraftPreparationViewState } from "../screens/review-queue/review-queue-status";
 import { JobFinderSaveStatus } from "./job-finder-save-status";
+import {
+  JOB_FINDER_GLOBAL_SEARCH_LABEL,
+  JobFinderGlobalSearchDialog,
+} from "./job-finder-global-search";
 import { JobFinderTaskCenter } from "./task-center/job-finder-task-center";
+import { StartupResetRecoveryBanner } from "./startup-reset-recovery-banner";
 import { countActiveSafeguardBlockers } from "../lib/safeguards-blocker-count";
+import { buildJobFinderGlobalSearchEntries } from "../lib/build-job-finder-global-search-entries";
+import type { JobFinderGlobalSearchEntry } from "../lib/job-finder-global-search";
+import {
+  buildJobFinderShortcutHelp,
+  formatJobFinderShortcutCombo,
+  getJobFinderAriaKeyshortcuts,
+} from "../lib/job-finder-shortcuts";
+import { isImeComposingEvent } from "../lib/job-finder-shortcuts";
+import { useJobFinderOverlayOwnership } from "../lib/job-finder-overlay-ownership";
+import { useJobFinderShellShortcuts } from "../lib/use-job-finder-shell-shortcuts";
 import {
   formatStatusLabel,
   getDefaultProfileRoute,
@@ -48,9 +79,11 @@ interface JobFinderShellProps {
   onDismissSavedStatus?: () => void;
   onNavigate?: (path: string) => void;
   onRetrySave?: () => void;
+  onStopTailoredDraftPreparation?: () => void;
   platform: "darwin" | "linux" | "win32";
   resumeImportProgress?: ResumeImportProgressEvent | null;
   saveState?: JobFinderSaveState;
+  tailoredDraftPreparation?: TailoredDraftPreparationViewState | null;
   workspace: JobFinderWorkspaceSnapshot;
 }
 
@@ -68,6 +101,7 @@ const screenRouteMap: Record<
   campaigns: "/job-finder/campaigns",
   actions: "/job-finder/actions",
   analytics: "/job-finder/analytics",
+  documents: "/job-finder/documents",
   settings: "/job-finder/settings",
   companies: "/job-finder/companies",
 };
@@ -80,7 +114,8 @@ const screenLabelMap: Record<JobFinderScreen, string> = {
   applications: "Applications",
   campaigns: "Search plans",
   actions: "Needs you",
-  analytics: "Analytics",
+  analytics: "Outcomes",
+  documents: "Documents",
   settings: "Settings",
   "rapid-review": "Rapid review",
   "resume-strategies": "Resume approaches",
@@ -115,12 +150,100 @@ export function countUnresolvedUserActions(
   return unrepresentedRequests.length + pendingDecisions.length;
 }
 
+export function countUnreadCampaignNotifications(
+  notifications:
+    | JobFinderWorkspaceSnapshot["campaignNotifications"]
+    | undefined,
+): number {
+  return (notifications ?? []).filter((notification) => notification.unread)
+    .length;
+}
+
 const LOCKED_LAYOUT_SCREENS: readonly JobFinderScreen[] = [
   "profile",
   "discovery",
   "review-queue",
   "applications",
 ];
+
+// Below this computed planning-menu height the expanded shortcuts list always
+// severs its header from its rows at the menu's scroll cut, so the section
+// collapses into a native disclosure instead of leaving an orphan label.
+const MORE_MENU_COMPACT_SHORTCUTS_MAX_HEIGHT_PX = 480;
+
+interface CompactRouteScrollEdges {
+  end: boolean;
+  start: boolean;
+}
+
+function readCompactRouteScrollEdges(
+  element: HTMLDivElement,
+): CompactRouteScrollEdges {
+  const maxScrollLeft = element.scrollWidth - element.clientWidth;
+  return {
+    start: element.scrollLeft > 1,
+    end: element.scrollLeft < maxScrollLeft - 1,
+  };
+}
+
+const NO_ROUTE_SCROLL_EDGES: CompactRouteScrollEdges = {
+  end: false,
+  start: false,
+};
+
+const SIDEBAR_COLLAPSED_STORAGE_KEY =
+  "unemployed.job-finder.sidebar-collapsed.v1";
+
+function toCountBadge(count: number): number | null {
+  return count > 0 ? count : null;
+}
+
+/**
+ * Inventory counts describe workspace volume and stay label-only; attention
+ * counts describe work waiting on the user and stay announced to assistive
+ * technology in every navigation surface.
+ */
+type ScreenCountKind = "attention" | "inventory";
+
+interface ScreenCountBadgeProps {
+  className?: string;
+  count: number;
+  kind: ScreenCountKind;
+}
+
+function ScreenCountBadge({ className, count, kind }: ScreenCountBadgeProps) {
+  return (
+    <span
+      aria-hidden={kind === "inventory" ? true : undefined}
+      className={className}
+    >
+      {count}
+    </span>
+  );
+}
+
+function getScreenAccessibleName(
+  label: string,
+  count: number | null,
+  kind: ScreenCountKind,
+): string {
+  return kind === "attention" && count !== null && count > 0
+    ? `${label}: ${count} need attention`
+    : label;
+}
+
+const NAV_PILL_COUNT_BADGE_CLASS =
+  "inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-(--input) px-1.5 text-[0.65rem] text-foreground";
+
+function getInitialSidebarCollapsedState(): boolean {
+  try {
+    return (
+      window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true"
+    );
+  } catch {
+    return false;
+  }
+}
 
 function getFocusableElements(excludedRoot: HTMLElement | null): HTMLElement[] {
   return Array.from(
@@ -179,6 +302,10 @@ function getActiveScreen(pathname: string): JobFinderScreen {
     return "settings";
   }
 
+  if (pathname.endsWith("/documents")) {
+    return "documents";
+  }
+
   if (pathname.endsWith("/resume-strategies")) {
     return "resume-strategies";
   }
@@ -204,9 +331,11 @@ export function JobFinderShell({
   onDismissSavedStatus,
   onNavigate,
   onRetrySave,
+  onStopTailoredDraftPreparation,
   platform,
   resumeImportProgress = null,
   saveState,
+  tailoredDraftPreparation = null,
   workspace,
 }: JobFinderShellProps) {
   const isMac = platform === "darwin";
@@ -222,6 +351,11 @@ export function JobFinderShell({
       isMinimizable: true,
     });
   const [routeAnnouncement, setRouteAnnouncement] = useState("");
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(
+    getInitialSidebarCollapsedState,
+  );
+  const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
+  const [globalSearchFocusRequest, setGlobalSearchFocusRequest] = useState(0);
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [focusedMoreMenuItemIndex, setFocusedMoreMenuItemIndex] = useState(0);
   const [moreMenuPosition, setMoreMenuPosition] = useState<{
@@ -232,8 +366,25 @@ export function JobFinderShell({
   } | null>(null);
   const moreButtonRef = useRef<HTMLButtonElement | null>(null);
   const moreMenuRef = useRef<HTMLDivElement | null>(null);
-  const moreMenuItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const moreMenuItemRefs = useRef<Array<HTMLElement | null>>([]);
   const moreMenuInitialFocusRef = useRef<"first" | "last">("first");
+  const compactRouteScrollRef = useRef<HTMLDivElement | null>(null);
+  const [compactRouteScrollEdges, setCompactRouteScrollEdges] =
+    useState<CompactRouteScrollEdges>(NO_ROUTE_SCROLL_EDGES);
+  const [isShortcutsDisclosureOpen, setIsShortcutsDisclosureOpen] =
+    useState(false);
+  const globalSearchEntries = useMemo(
+    () => buildJobFinderGlobalSearchEntries(workspace),
+    [workspace],
+  );
+  const shortcutHelpEntries = useMemo(
+    () => buildJobFinderShortcutHelp(platform),
+    [platform],
+  );
+  const isMoreMenuShortcutsCollapsed =
+    moreMenuPosition !== null &&
+    moreMenuPosition.maxHeight > 0 &&
+    moreMenuPosition.maxHeight < MORE_MENU_COMPACT_SHORTCUTS_MAX_HEIGHT_PX;
 
   const activeScreen = useMemo(
     () => getActiveScreen(location.pathname),
@@ -244,7 +395,15 @@ export function JobFinderShell({
     () => LOCKED_LAYOUT_SCREENS.includes(activeScreen),
     [activeScreen],
   );
-  const screenDefinitions = useMemo(() => {
+  interface ShellScreenDefinition {
+    id: string;
+    label: string;
+    count: number | null;
+    countKind: ScreenCountKind;
+    icon: LucideIcon;
+  }
+
+  const screenDefinitions = useMemo<readonly ShellScreenDefinition[]>(() => {
     const activeCampaign = workspace.campaigns?.find(
       (campaign) => campaign.id === workspace.activeCampaignId,
     );
@@ -253,56 +412,78 @@ export function JobFinderShell({
     );
 
     return [
-      { id: "home", label: "Home", count: null, icon: House },
-      { id: "profile", label: "Profile", count: null, icon: UserRound },
+      {
+        id: "home",
+        label: "Home",
+        count: null,
+        countKind: "inventory",
+        icon: House,
+      },
+      {
+        id: "profile",
+        label: "Profile",
+        count: null,
+        countKind: "inventory",
+        icon: UserRound,
+      },
       {
         id: "discovery",
         label: "Find jobs",
-        count: workspace.discoveryJobs.filter((job) =>
-          campaignJobIds.has(job.id),
-        ).length,
+        count: toCountBadge(
+          workspace.discoveryJobs.filter((job) => campaignJobIds.has(job.id))
+            .length,
+        ),
+        countKind: "inventory",
         icon: Compass,
       },
       {
         id: "review-queue",
         label: "Shortlisted",
-        count: workspace.reviewQueue.filter((item) =>
-          campaignJobIds.has(item.jobId),
-        ).length,
+        count: toCountBadge(
+          workspace.reviewQueue.filter((item) => campaignJobIds.has(item.jobId))
+            .length,
+        ),
+        countKind: "inventory",
         icon: ClipboardCheck,
       },
       {
         id: "applications",
         label: "Applications",
-        count: workspace.applicationRecords.filter((record) =>
-          campaignJobIds.has(record.jobId),
-        ).length,
+        count: toCountBadge(
+          workspace.applicationRecords.filter((record) =>
+            campaignJobIds.has(record.jobId),
+          ).length,
+        ),
+        countKind: "inventory",
         icon: FileText,
       },
       {
         id: "campaigns",
         label: "Search plans",
-        count: (workspace.campaignNotifications ?? []).filter(
-          (notification) => notification.unread,
-        ).length,
+        count: toCountBadge((workspace.campaigns ?? []).length),
+        countKind: "inventory",
         icon: Layers3,
       },
       {
         id: "actions",
         label: "Needs you",
-        count: countUnresolvedUserActions(
-          workspace.userActionRequests,
-          workspace.intelligence?.groupedDecisions ?? [],
+        count: toCountBadge(
+          countUnresolvedUserActions(
+            workspace.userActionRequests,
+            workspace.intelligence?.groupedDecisions ?? [],
+          ),
         ),
+        countKind: "attention",
         icon: BellRing,
       },
       {
         id: "analytics",
-        label: "Analytics",
+        label: "Outcomes",
         count:
           (workspace.intelligence?.outcomeEvents ?? []).length > 0
             ? (workspace.intelligence?.outcomeEvents ?? []).length
             : null,
+        countKind: "inventory",
         icon: BarChart3,
       },
       {
@@ -312,6 +493,7 @@ export function JobFinderShell({
           (workspace.intelligence?.resumeStrategies ?? []).length > 0
             ? (workspace.intelligence?.resumeStrategies ?? []).length
             : null,
+        countKind: "inventory",
         icon: Layers3,
       },
       {
@@ -323,6 +505,7 @@ export function JobFinderShell({
               (candidate) => candidate.decision === "pending",
             ),
           ).length || null,
+        countKind: "attention",
         icon: Building2,
       },
       {
@@ -341,15 +524,28 @@ export function JobFinderShell({
               updatedAt: null,
             },
           ) || null,
+        countKind: "attention",
         icon: ShieldCheck,
       },
-      { id: "settings", label: "Settings", count: null, icon: Settings },
+      {
+        id: "documents",
+        label: "Documents",
+        count: null,
+        countKind: "inventory",
+        icon: FileText,
+      },
+      {
+        id: "settings",
+        label: "Settings",
+        count: null,
+        countKind: "inventory",
+        icon: Settings,
+      },
     ];
   }, [
     workspace.activeCampaignId,
     workspace.applicationRecords,
     workspace.campaigns ?? [],
-    workspace.campaignNotifications ?? [],
     workspace.discoveryJobs,
     workspace.intelligence?.groupedDecisions ?? [],
     workspace.intelligence?.outcomeEvents ?? [],
@@ -380,7 +576,7 @@ export function JobFinderShell({
     {
       label: "Safety and setup",
       screens: screenDefinitions.filter((screen) =>
-        ["safeguards", "settings"].includes(screen.id),
+        ["safeguards", "documents", "settings"].includes(screen.id),
       ),
     },
   ];
@@ -394,8 +590,7 @@ export function JobFinderShell({
       .map((screen, index) => [screen.id, index] as const),
   );
   const hiddenAttentionCount =
-    (screenDefinitions.find((screen) => screen.id === "campaigns")?.count ??
-      0) +
+    countUnreadCampaignNotifications(workspace.campaignNotifications) +
     (screenDefinitions.find((screen) => screen.id === "companies")?.count ??
       0) +
     (screenDefinitions.find((screen) => screen.id === "safeguards")?.count ??
@@ -424,20 +619,22 @@ export function JobFinderShell({
     {
       label: "Safety and setup",
       screens: screenDefinitions.filter((screen) =>
-        ["actions", "safeguards", "settings"].includes(screen.id),
+        ["safeguards", "documents", "settings"].includes(screen.id),
       ),
     },
   ];
-  const sidebarWorkflowNumbers = new Map(
-    ["profile", "discovery", "review-queue", "applications"].map(
-      (screenId, index) => [screenId, index + 1] as const,
-    ),
-  );
-  const sidebarDisplayLabels: Record<string, string> = {
-    campaigns: "Search plans",
-    "resume-strategies": "Resume approaches",
-    analytics: "Results",
-  };
+
+  const moreMenuClose = useCallback(() => {
+    setIsMoreOpen(false);
+    moreButtonRef.current?.focus();
+  }, []);
+
+  // Register the Planning popover on the shared LIFO stack while it is open so
+  // stacked surfaces close one per Escape and shell aliases stay blocked.
+  const { isTopmost: isMoreMenuTopmost } = useJobFinderOverlayOwnership({
+    active: isMoreOpen,
+    close: moreMenuClose,
+  });
 
   useEffect(() => {
     const handleOutsidePointerDown = (event: PointerEvent) => {
@@ -451,12 +648,15 @@ export function JobFinderShell({
       }
     };
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || !isMoreOpen) {
+      // Inner controls and overlays above this menu keep first claim.
+      if (event.defaultPrevented || isImeComposingEvent(event)) {
+        return;
+      }
+      if (event.key !== "Escape" || !isMoreMenuTopmost()) {
         return;
       }
       event.preventDefault();
-      setIsMoreOpen(false);
-      moreButtonRef.current?.focus();
+      moreMenuClose();
     };
 
     document.addEventListener("pointerdown", handleOutsidePointerDown);
@@ -465,10 +665,11 @@ export function JobFinderShell({
       document.removeEventListener("pointerdown", handleOutsidePointerDown);
       document.removeEventListener("keydown", handleEscape);
     };
-  }, [isMoreOpen]);
+  }, [isMoreMenuTopmost, isMoreOpen, moreMenuClose]);
 
   useEffect(() => {
     if (!isMoreOpen) {
+      setIsShortcutsDisclosureOpen(false);
       return;
     }
     const initialIndex =
@@ -519,10 +720,42 @@ export function JobFinderShell({
       });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [
-    isMoreOpen,
-    moreMenuPosition,
-  ]);
+  }, [isMoreOpen, moreMenuPosition]);
+
+  useLayoutEffect(() => {
+    compactRouteScrollRef.current
+      ?.querySelector<HTMLElement>('[aria-current="page"]')
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [activeScreen]);
+
+  useLayoutEffect(() => {
+    const element = compactRouteScrollRef.current;
+    if (!element) {
+      return;
+    }
+    setCompactRouteScrollEdges(readCompactRouteScrollEdges(element));
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(() => {
+            setCompactRouteScrollEdges(readCompactRouteScrollEdges(element));
+          });
+    const handleWindowResize = () => {
+      setCompactRouteScrollEdges(readCompactRouteScrollEdges(element));
+    };
+    observer?.observe(element);
+    // Route buttons and badges resize without resizing the scrollport box,
+    // so the content wrapper is observed too or fades drift out of truth.
+    const contentElement = element.firstElementChild;
+    if (contentElement instanceof HTMLElement) {
+      observer?.observe(contentElement);
+    }
+    window.addEventListener("resize", handleWindowResize);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", handleWindowResize);
+    };
+  }, []);
 
   useLayoutEffect(() => {
     const main = mainRef.current;
@@ -652,32 +885,108 @@ export function JobFinderShell({
     requestAnimationFrame(() => target?.focus());
   }
 
+  function toggleSidebar() {
+    setIsSidebarCollapsed((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem(
+          SIDEBAR_COLLAPSED_STORAGE_KEY,
+          String(next),
+        );
+      } catch {
+        // The layout still works when persistence is unavailable.
+      }
+      return next;
+    });
+  }
+
+  function openGlobalSearch() {
+    setIsMoreOpen(false);
+    setIsGlobalSearchOpen(true);
+    setGlobalSearchFocusRequest((request) => request + 1);
+  }
+
+  function handleGlobalSearchNavigate(entry: JobFinderGlobalSearchEntry) {
+    if (onNavigate) {
+      onNavigate(entry.href);
+      return;
+    }
+    void navigate(entry.href);
+  }
+
+  useJobFinderShellShortcuts({
+    isOverlayOpen: isMoreOpen || isGlobalSearchOpen,
+    isSearchOpen: isGlobalSearchOpen,
+    onOpenGlobalSearch: openGlobalSearch,
+    onToggleSidebar: toggleSidebar,
+  });
+
+  const shortcutHelpRows = shortcutHelpEntries.map((entry) => (
+    <div
+      className="flex items-start justify-between gap-3 px-3 py-1 text-[0.72rem] text-muted-foreground"
+      key={entry.id}
+    >
+      <span className="grid min-w-0 gap-0.5">
+        <span>{entry.label}</span>
+        {/* The scope line keeps the help honest about where each combo fires. */}
+        <span className="text-[0.65rem] leading-4 opacity-80">
+          {entry.scope}
+        </span>
+      </span>
+      <span className="mt-0.5 flex shrink-0 items-center gap-1">
+        {entry.combos.map((combo) => (
+          <kbd
+            className="rounded-(--radius-field) bg-(--input) px-1.5 py-0.5 text-[0.65rem] font-medium text-foreground"
+            key={combo}
+          >
+            {combo}
+          </kbd>
+        ))}
+      </span>
+    </div>
+  ));
+
   return (
     <div
       data-job-finder-shell
+      data-sidebar-collapsed={isSidebarCollapsed ? "true" : "false"}
       className={cn(
         "h-screen overflow-x-hidden overflow-y-auto text-foreground sm:overflow-hidden",
         `platform-${platform}`,
       )}
+      style={
+        {
+          "--job-finder-side-width": isSidebarCollapsed ? "4rem" : "17rem",
+          "--job-finder-side-width-sm": isSidebarCollapsed ? "4rem" : "17rem",
+        } as CSSProperties
+      }
     >
       <header
         data-job-finder-shell-header
         className="relative z-50 overflow-visible border-b border-border/15 bg-(--shell-header-bg) backdrop-blur-sm sm:fixed sm:inset-x-0 sm:top-0 min-[1440px]:h-14"
         style={dragRegionStyle}
       >
-        <div className="job-finder-shell-grid grid grid-rows-[3.5rem_auto_auto] items-stretch overflow-visible pl-2 pr-2 sm:grid-rows-[3.5rem_3.75rem] sm:pl-3 sm:pr-3 min-[1440px]:grid-rows-[3.5rem]">
+        <div className="job-finder-shell-grid grid grid-rows-[3.5rem_auto_auto] items-stretch overflow-visible pl-2 pr-2 sm:grid-rows-[3.5rem_3.75rem] sm:pl-3 sm:pr-3 min-[1440px]:!grid-rows-[3.5rem]">
           <div
-            className="col-start-1 row-start-1 flex min-w-0 items-center pl-2 sm:pl-3"
+            className="col-start-1 row-start-1 flex min-w-0 flex-wrap items-center justify-between gap-3 gap-y-1 pl-2 pr-2 sm:pl-3 sm:pr-3"
             data-desktop-brand
             style={{
               ...dragRegionStyle,
-              paddingInlineStart: isMac ? "5.5rem" : undefined,
+              paddingInlineStart:
+                isMac && !windowControlsState.isMaximized
+                  ? "5.5rem"
+                  : undefined,
             }}
           >
-            <div className="flex min-w-0 flex-col">
+            <div
+              className={cn(
+                "flex min-w-0 flex-col",
+                isSidebarCollapsed && "min-[1440px]:hidden",
+              )}
+            >
               <span
                 className={cn(
-                  "font-display text-[1.45rem] font-black leading-none tracking-[-0.08em] text-(var(--headline-primary)) sm:text-[2rem]",
+                  "font-display text-[1.45rem] font-black leading-none tracking-[-0.08em] text-(var(--headline-primary)) max-[639px]:hidden sm:text-[2rem]",
                   isMac ? "xl:text-[2rem]" : "xl:text-[2rem]",
                 )}
               >
@@ -687,64 +996,67 @@ export function JobFinderShell({
                 Job Finder
               </span>
             </div>
-          </div>
 
-          <div
-            className="absolute inset-x-0 top-0 z-10 flex h-14 items-center justify-center"
-            data-desktop-module-navigation
-            style={dragRegionStyle}
-          >
-            <div
-              className="flex items-center gap-6"
-              role="list"
-              style={noDragRegionStyle}
+            <nav
+              aria-label="UnEmployed modules"
+              className={cn(
+                "hidden h-14 min-w-0 items-center justify-center",
+                "min-[900px]:!absolute min-[900px]:inset-x-0 min-[900px]:top-0 min-[900px]:z-10 min-[900px]:flex",
+              )}
+              data-desktop-module-navigation
+              style={dragRegionStyle}
             >
-              {suiteModules.map((moduleName, index) => (
-                <div
-                  key={moduleName}
-                  className="flex items-center gap-6"
-                  role="listitem"
-                >
-                  {index > 0 ? (
-                    <span
-                      aria-hidden="true"
-                      className="h-4 w-px bg-border/50"
-                    />
-                  ) : null}
-                  <button
-                    aria-current={
-                      moduleName === "job-finder" ? "page" : undefined
-                    }
-                    aria-label={
-                      moduleName === "interview-helper"
-                        ? "Open Interview Helper"
-                        : "Job Finder"
-                    }
-                    onClick={() => {
-                      if (moduleName === "interview-helper") {
-                        if (onNavigate) {
-                          onNavigate("/interview-helper");
-                        } else {
-                          void navigate("/interview-helper");
-                        }
-                      }
-                    }}
-                    className={cn(
-                      "h-auto rounded-sm border-0 bg-transparent px-0 py-0 text-[14px] font-semibold tracking-(--tracking-badge) shadow-none outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:text-[15px]",
-                      moduleName === "interview-helper"
-                        ? "cursor-pointer hover:text-foreground"
-                        : "",
-                      moduleName === "job-finder"
-                        ? "text-(--text-headline)"
-                        : "text-muted-foreground",
-                    )}
-                    type="button"
+              <div
+                className="flex items-center gap-6"
+                role="list"
+                style={noDragRegionStyle}
+              >
+                {suiteModules.map((moduleName, index) => (
+                  <div
+                    key={moduleName}
+                    className="flex items-center gap-6"
+                    role="listitem"
                   >
-                    {formatStatusLabel(moduleName)}
-                  </button>
-                </div>
-              ))}
-            </div>
+                    {index > 0 ? (
+                      <span
+                        aria-hidden="true"
+                        className="h-4 w-px bg-border/50"
+                      />
+                    ) : null}
+                    {moduleName === "job-finder" ? (
+                      // The current module is where the user already is: it
+                      // must not be a focusable button that does nothing.
+                      // aria-current carries the state; styling is unchanged.
+                      <span
+                        aria-current="page"
+                        className="text-[14px] font-semibold tracking-(--tracking-badge) text-(--text-headline) sm:text-[15px]"
+                      >
+                        {formatStatusLabel(moduleName)}
+                      </span>
+                    ) : (
+                      <button
+                        aria-label="Open Interview Helper"
+                        onClick={() => {
+                          if (onNavigate) {
+                            onNavigate("/interview-helper");
+                          } else {
+                            void navigate("/interview-helper");
+                          }
+                        }}
+                        className={cn(
+                          "h-auto rounded-sm border-0 bg-transparent px-0 py-0 text-[14px] font-semibold tracking-(--tracking-badge) shadow-none outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:text-[15px]",
+                          "cursor-pointer hover:text-foreground",
+                          "text-muted-foreground",
+                        )}
+                        type="button"
+                      >
+                        {formatStatusLabel(moduleName)}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </nav>
           </div>
 
           <div
@@ -800,46 +1112,93 @@ export function JobFinderShell({
 
           <nav
             aria-label="Job Finder sections"
-            className="col-span-2 col-start-1 row-start-2 flex min-w-0 items-center justify-center overflow-visible px-1 sm:col-span-1 sm:col-start-1 sm:justify-start sm:pr-56 max-[899px]:pr-28 min-[1440px]:hidden"
+            className="col-span-2 col-start-1 row-start-2 flex min-w-0 items-center justify-center overflow-visible px-1 sm:col-span-1 sm:col-start-1 sm:justify-start sm:pr-64 max-[899px]:pr-40 min-[1440px]:hidden"
             style={noDragRegionStyle}
           >
-            <div className="relative flex w-full min-w-0 max-w-5xl items-center gap-1 overflow-x-auto overscroll-x-contain rounded-3xl border border-(--surface-panel-border) bg-(--surface-panel) p-1 [scrollbar-width:thin] sm:gap-1.5">
-              {primaryScreens.map((screen) => (
-                <button
-                  aria-current={activeScreen === screen.id ? "page" : undefined}
-                  key={screen.id}
-                  className={cn(
-                    "inline-flex h-9 min-h-9 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-full px-2 py-2 text-[0.72rem] font-medium text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:gap-2 sm:px-3 sm:text-[0.76rem]",
-                    activeScreen === screen.id
-                      ? "bg-secondary text-foreground"
-                      : "",
-                  )}
-                  onClick={() => handleScreenChange(screen.id)}
-                  type="button"
+            <div
+              className="relative flex w-full min-w-0 max-w-5xl flex-nowrap items-center gap-1 overflow-visible rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel) p-1 sm:gap-1.5"
+              data-job-finder-compact-navigation
+            >
+              <div className="relative min-w-0 flex-1">
+                <div
+                  className="overflow-x-auto overscroll-x-contain px-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                  data-job-finder-compact-navigation-scroll
+                  onScroll={(event) => {
+                    setCompactRouteScrollEdges(
+                      readCompactRouteScrollEdges(event.currentTarget),
+                    );
+                  }}
+                  ref={compactRouteScrollRef}
                 >
-                  <span className="shrink-0 whitespace-nowrap leading-tight">
-                    {screen.label}
-                  </span>
-                  {screen.count !== null ? (
-                    <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-(--input) px-1.5 text-[0.65rem] text-foreground">
-                      {screen.count}
-                    </span>
-                  ) : null}
-                </button>
-              ))}
-              <div className="relative shrink-0">
+                  <div
+                    className="flex min-w-max flex-nowrap items-center gap-1 sm:gap-1.5"
+                    data-job-finder-compact-navigation-content
+                  >
+                    {primaryScreens.map((screen) => (
+                      <button
+                        aria-current={
+                          activeScreen === screen.id ? "page" : undefined
+                        }
+                        key={screen.id}
+                        className={cn(
+                          "inline-flex h-9 min-h-9 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-(--radius-button) px-2 py-2 text-[0.72rem] font-medium text-muted-foreground transition-colors outline-none hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:gap-2 sm:px-3 sm:text-[0.76rem]",
+                          activeScreen === screen.id
+                            ? "bg-accent text-accent-foreground"
+                            : "",
+                        )}
+                        onClick={() => handleScreenChange(screen.id)}
+                        onFocus={(event) => {
+                          event.currentTarget.scrollIntoView({
+                            block: "nearest",
+                            inline: "nearest",
+                          });
+                        }}
+                        type="button"
+                      >
+                        <span className="shrink-0 whitespace-nowrap leading-tight">
+                          {screen.label}
+                        </span>
+                        {screen.count !== null ? (
+                          <ScreenCountBadge
+                            className={NAV_PILL_COUNT_BADGE_CLASS}
+                            count={screen.count}
+                            kind={screen.countKind}
+                          />
+                        ) : null}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {/* Edge fades assume LTR; the product ships LTR-only today. */}
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-(--surface-panel) to-transparent",
+                    compactRouteScrollEdges.start ? "opacity-100" : "opacity-0",
+                  )}
+                  data-job-finder-compact-navigation-fade-start
+                />
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-(--surface-panel) to-transparent",
+                    compactRouteScrollEdges.end ? "opacity-100" : "opacity-0",
+                  )}
+                  data-job-finder-compact-navigation-fade-end
+                />
+              </div>
+              <div className="relative z-10 shrink-0">
                 <button
                   aria-expanded={isMoreOpen}
-                  aria-haspopup="menu"
-                  aria-label={`Planning and settings${hiddenAttentionCount > 0 ? `: ${hiddenAttentionCount} need attention` : ""}`}
+                  aria-label={`More${hiddenAttentionCount > 0 ? `: ${hiddenAttentionCount} need attention` : ""}`}
                   className={cn(
-                    "inline-flex min-h-10 shrink-0 items-center justify-center gap-1 rounded-full px-2.5 py-2 text-[0.72rem] font-medium text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:min-h-9 sm:gap-2 sm:px-3 sm:text-[0.76rem] max-[899px]:sticky max-[899px]:right-0 max-[899px]:z-10 max-[899px]:border max-[899px]:border-(--surface-panel-border) max-[899px]:bg-(--surface-panel-raised)",
+                    "inline-flex min-h-10 shrink-0 items-center justify-center gap-1 rounded-(--radius-button) px-2.5 py-2 text-[0.72rem] font-medium text-muted-foreground transition-colors outline-none hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:min-h-9 sm:gap-2 sm:px-3 sm:text-[0.76rem] border border-(--surface-panel-border) bg-(--surface-panel-raised)",
                     menuGroups.some((group) =>
                       group.screens.some(
                         (screen) => activeScreen === screen.id,
                       ),
                     )
-                      ? "bg-secondary text-foreground"
+                      ? "bg-accent text-accent-foreground"
                       : "",
                   )}
                   onClick={() => {
@@ -858,13 +1217,11 @@ export function JobFinderShell({
                     }
                   }}
                   ref={moreButtonRef}
-                  title="Planning & settings"
+                  title="More"
                   type="button"
                 >
                   <Layers3 aria-hidden="true" className="size-3.5" />
-                  <span className="max-[899px]:sr-only">
-                    Planning &amp; settings
-                  </span>
+                  <span className="sr-only">More</span>
                   {hiddenAttentionCount > 0 ? (
                     <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[0.65rem] text-primary-foreground">
                       {hiddenAttentionCount}
@@ -874,8 +1231,7 @@ export function JobFinderShell({
                 {isMoreOpen
                   ? createPortal(
                       <div
-                        aria-label="Planning and settings"
-                        aria-orientation="vertical"
+                        aria-label="More"
                         className="fixed z-[60] grid max-h-[min(80vh,24rem)] min-w-0 max-w-[calc(100vw-1rem)] gap-2 overflow-y-auto rounded-2xl border border-(--surface-panel-border) bg-(--surface-panel-raised) p-2 shadow-xl max-[899px]:gap-1"
                         style={
                           moreMenuPosition
@@ -902,11 +1258,14 @@ export function JobFinderShell({
                             return;
                           }
 
-                          const menuItems = Array.from(
-                            moreMenuRef.current?.querySelectorAll<HTMLButtonElement>(
-                              '[role="menuitem"]',
-                            ) ?? [],
-                          );
+                          // Roving order comes from the managed refs so the
+                          // popover never needs menu semantics to stay
+                          // keyboard-navigable.
+                          const menuItems =
+                            moreMenuItemRefs.current.filter(
+                              (element): element is HTMLElement =>
+                                element instanceof HTMLElement,
+                            );
                           if (menuItems.length === 0) {
                             return;
                           }
@@ -932,7 +1291,7 @@ export function JobFinderShell({
                           menuItems[nextIndex]?.focus();
                         }}
                         ref={moreMenuRef}
-                        role="menu"
+                        role="navigation"
                       >
                         <p className="px-3 pt-1 text-xs leading-relaxed text-muted-foreground max-[899px]:sr-only">
                           Set up search plans and resume approaches after your
@@ -954,7 +1313,11 @@ export function JobFinderShell({
                                 moreMenuItemIndexes.get(screen.id) ?? 0;
                               return (
                                 <button
-                                  aria-label={screen.label}
+                                  aria-label={getScreenAccessibleName(
+                                    screen.label,
+                                    screen.count,
+                                    screen.countKind,
+                                  )}
                                   aria-current={
                                     activeScreen === screen.id
                                       ? "page"
@@ -978,7 +1341,6 @@ export function JobFinderShell({
                                     moreMenuItemRefs.current[menuItemIndex] =
                                       element;
                                   }}
-                                  role="menuitem"
                                   tabIndex={
                                     menuItemIndex === focusedMoreMenuItemIndex
                                       ? 0
@@ -996,29 +1358,121 @@ export function JobFinderShell({
                                     </span>
                                   </span>
                                   {screen.count !== null ? (
-                                    <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-(--input) px-1.5 text-[0.65rem] text-foreground">
-                                      {screen.count}
-                                    </span>
+                                    <ScreenCountBadge
+                                      className={NAV_PILL_COUNT_BADGE_CLASS}
+                                      count={screen.count}
+                                      kind={screen.countKind}
+                                    />
                                   ) : null}
                                 </button>
                               );
                             })}
                           </div>
                         ))}
+                        {isMoreMenuShortcutsCollapsed ? (
+                          <details
+                            className="mt-1 border-t border-(--surface-panel-border) pt-2"
+                            data-job-finder-planning-shortcuts-disclosure
+                            onToggle={(event) => {
+                              setIsShortcutsDisclosureOpen(
+                                event.currentTarget.open,
+                              );
+                            }}
+                          >
+                            <summary
+                              aria-expanded={isShortcutsDisclosureOpen}
+                              className="cursor-pointer list-none rounded-sm px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-(--tracking-caps) text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 [&::-webkit-details-marker]:hidden"
+                              onClick={(event) => {
+                                // Activation behavior flips `open` after
+                                // dispatch, so mirror the incoming state now;
+                                // the async toggle event reconciles below.
+                                const details =
+                                  event.currentTarget.closest("details");
+                                setIsShortcutsDisclosureOpen(
+                                  !(details?.open ?? false),
+                                );
+                              }}
+                              onFocus={() => setFocusedMoreMenuItemIndex(-1)}
+                              ref={(element) => {
+                                moreMenuItemRefs.current[moreMenuItemCount] =
+                                  element;
+                              }}
+                              tabIndex={
+                                focusedMoreMenuItemIndex === -1 ? 0 : -1
+                              }
+                            >
+                              Shortcuts
+                            </summary>
+                            <div className="grid gap-1">{shortcutHelpRows}</div>
+                          </details>
+                        ) : (
+                          <div
+                            aria-label="Keyboard shortcuts"
+                            className="mt-1 grid gap-1 border-t border-(--surface-panel-border) pt-2"
+                            role="group"
+                          >
+                            <span className="px-3 pt-1 text-[0.65rem] font-semibold uppercase tracking-(--tracking-caps) text-muted-foreground">
+                              Shortcuts
+                            </span>
+                            {shortcutHelpRows}
+                          </div>
+                        )}
                       </div>,
                       document.body,
                     )
                   : null}
               </div>
+              <a
+                aria-label="Open Interview Helper"
+                className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-(--radius-button) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-2.5 py-2 text-[0.72rem] font-medium text-muted-foreground outline-none transition-colors hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:min-h-9 sm:text-[0.76rem] min-[900px]:hidden"
+                href="#/interview-helper"
+                onClick={(event) => {
+                  if (
+                    event.button !== 0 ||
+                    event.metaKey ||
+                    event.ctrlKey ||
+                    event.shiftKey ||
+                    event.altKey
+                  ) {
+                    return;
+                  }
+                  event.preventDefault();
+                  if (onNavigate) {
+                    onNavigate("/interview-helper");
+                  } else {
+                    void navigate("/interview-helper");
+                  }
+                }}
+              >
+                Interview Helper
+              </a>
             </div>
           </nav>
 
           <div
             aria-label="Notifications and actions"
-            className="col-span-2 col-start-1 row-start-3 flex min-w-0 items-center justify-center gap-2 pr-2 sm:absolute sm:right-0 sm:top-14 sm:z-10 sm:h-[3.75rem] sm:w-auto sm:justify-end max-[899px]:gap-1 max-[899px]:pr-1 min-[1440px]:right-36 min-[1440px]:top-0 min-[1440px]:z-40 min-[1440px]:h-14"
+            className={cn(
+              "col-span-2 col-start-1 row-start-3 flex min-w-0 items-center justify-center gap-2 pr-2 max-[899px]:gap-1 max-[899px]:pr-1 sm:absolute sm:z-10 sm:w-auto sm:justify-end",
+              isMac
+                ? "sm:right-0 sm:top-14 sm:h-[3.75rem] min-[900px]:!top-0 min-[900px]:!h-14"
+                : "sm:right-0 sm:top-14 sm:h-[3.75rem] min-[1440px]:!right-36 min-[1440px]:!top-0 min-[1440px]:!h-14 min-[1440px]:!z-40",
+            )}
             role="group"
             style={noDragRegionStyle}
           >
+            <button
+              aria-keyshortcuts={getJobFinderAriaKeyshortcuts(
+                "mod+k",
+                platform,
+              )}
+              aria-label={JOB_FINDER_GLOBAL_SEARCH_LABEL}
+              className="inline-flex h-10 min-h-10 min-w-10 items-center justify-center rounded-(--radius-button) border border-(--surface-panel-border) bg-(--surface-panel) px-2 text-muted-foreground outline-none transition-colors hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 max-[899px]:min-w-9 max-[899px]:px-1.5"
+              onClick={openGlobalSearch}
+              title={`${JOB_FINDER_GLOBAL_SEARCH_LABEL} (${formatJobFinderShortcutCombo("mod+k", platform)})`}
+              type="button"
+            >
+              <Search aria-hidden="true" className="size-4 shrink-0" />
+            </button>
             <JobFinderTaskCenter
               isDiscoveryPending={isDiscoveryPending}
               isResumeImportPending={isResumeImportPending}
@@ -1032,7 +1486,9 @@ export function JobFinderShell({
                   void navigate(path);
                 }
               }}
+              onStopTailoredDraftPreparation={onStopTailoredDraftPreparation}
               resumeImportProgress={resumeImportProgress}
+              tailoredDraftPreparation={tailoredDraftPreparation}
               workspace={workspace}
             />
             {actionScreen ? (
@@ -1040,28 +1496,23 @@ export function JobFinderShell({
                 aria-current={activeScreen === "actions" ? "page" : undefined}
                 aria-label={`Needs you: ${actionScreen.count ?? 0} unresolved`}
                 className={cn(
-                  "inline-flex h-[3.125rem] min-h-[3.125rem] min-w-10 items-center justify-center gap-2 rounded-full border border-(--surface-panel-border) bg-(--surface-panel) px-3 py-2 text-[0.72rem] font-medium text-muted-foreground outline-none transition-colors hover:border-primary/30 hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:px-4 sm:text-[0.76rem] max-[899px]:gap-1 max-[899px]:px-2",
+                  "inline-flex h-10 min-h-10 min-w-10 items-center justify-center gap-2 rounded-(--radius-button) border border-(--surface-panel-border) bg-(--surface-panel) px-3 py-2 text-[0.72rem] font-medium text-muted-foreground outline-none transition-colors hover:border-primary/50 hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:px-4 sm:text-[0.76rem] max-[899px]:gap-1 max-[899px]:px-2",
                   activeScreen === "actions"
-                    ? "border-primary/30 bg-primary/10 text-foreground"
+                    ? "border-primary/55 bg-accent text-accent-foreground"
                     : "",
                 )}
                 onClick={() => handleScreenChange("actions")}
                 type="button"
               >
                 <BellRing aria-hidden="true" className="size-4 shrink-0" />
-                <span className="hidden whitespace-nowrap min-[900px]:inline min-[1024px]:hidden min-[1440px]:inline">
+                <span className="hidden whitespace-nowrap min-[1440px]:inline">
                   Needs you
                 </span>
-                <span
-                  className={cn(
-                    "inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[0.65rem]",
-                    (actionScreen.count ?? 0) > 0
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-(--input) text-foreground",
-                  )}
-                >
-                  {actionScreen.count}
-                </span>
+                {(actionScreen.count ?? 0) > 0 ? (
+                  <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-[0.65rem] text-primary-foreground">
+                    {actionScreen.count}
+                  </span>
+                ) : null}
               </button>
             ) : null}
           </div>
@@ -1070,70 +1521,113 @@ export function JobFinderShell({
 
       <aside
         aria-label="Job Finder sidebar"
-        className="fixed inset-y-14 left-0 z-40 hidden w-[15.5rem] overflow-x-hidden overflow-y-auto border-r border-border/15 bg-(--shell-header-bg) px-3 py-5 min-[1440px]:block"
+        className={cn(
+          "fixed bottom-0 left-0 top-14 z-40 hidden w-(--job-finder-side-width) overflow-x-hidden overflow-y-auto border-r border-border/15 bg-(--shell-header-bg) min-[1440px]:block",
+          isSidebarCollapsed ? "px-2 py-3" : "px-4 py-4",
+        )}
         data-job-finder-sidebar
       >
+        <div
+          className={cn(
+            "mb-1 flex h-10 shrink-0 items-center",
+            isSidebarCollapsed ? "justify-center" : "justify-start",
+          )}
+          data-job-finder-sidebar-toggle
+          style={{ ...noDragRegionStyle }}
+        >
+          <Tooltip delayDuration={0}>
+            <TooltipTrigger asChild>
+              <button
+                aria-keyshortcuts={getJobFinderAriaKeyshortcuts(
+                  "mod+b",
+                  platform,
+                )}
+                aria-label={
+                  isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"
+                }
+                className="flex size-9 items-center justify-center rounded-(--radius-field) text-foreground-muted outline-none transition-colors hover:bg-(--surface-panel-raised) hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40"
+                onClick={toggleSidebar}
+                type="button"
+              >
+                <Menu aria-hidden="true" className="size-5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side={isSidebarCollapsed ? "right" : "bottom"}>
+              {`${isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} · ${formatJobFinderShortcutCombo("mod+b", platform)}`}
+            </TooltipContent>
+          </Tooltip>
+        </div>
         <nav
           aria-label="Job Finder sidebar destinations"
-          className="grid gap-5"
+          className={cn("grid min-w-0", isSidebarCollapsed ? "gap-2" : "gap-4")}
         >
           {sidebarGroups.map((group) => (
-            <section key={group.label} className="grid gap-1">
-              <h2 className="whitespace-nowrap px-3 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            <section key={group.label} className="grid min-w-0 gap-1">
+              <h2
+                className={cn(
+                  "whitespace-nowrap px-2 text-[0.64rem] font-semibold uppercase tracking-[0.1em] text-muted-foreground",
+                  isSidebarCollapsed && "sr-only",
+                )}
+              >
                 {group.label}
               </h2>
-              <div className="grid gap-0.5">
+              <div className="grid min-w-0 gap-0.5 overflow-hidden">
                 {group.screens.map((screen) => {
-                  const workflowNumber = sidebarWorkflowNumbers.get(screen.id);
-                  const displayLabel =
-                    sidebarDisplayLabels[screen.id] ?? screen.label;
-                  const accessibleLabel =
-                    displayLabel === screen.label
-                      ? screen.label
-                      : `${screen.label}: ${displayLabel}`;
                   return (
-                    <button
-                      aria-current={
-                        activeScreen === screen.id ? "page" : undefined
-                      }
-                      aria-label={accessibleLabel}
-                      className={cn(
-                        "inline-flex min-h-10 min-w-0 items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium text-muted-foreground outline-none transition-colors hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40",
-                        activeScreen === screen.id
-                          ? "bg-secondary text-foreground"
-                          : "",
-                      )}
-                      key={screen.id}
-                      onClick={() => handleScreenChange(screen.id)}
-                      type="button"
-                    >
-                      {workflowNumber ? (
-                        <span
-                          aria-hidden="true"
-                          className="inline-flex size-5 shrink-0 items-center justify-center rounded-full border border-border/60 text-[0.65rem] font-semibold"
-                        >
-                          {workflowNumber}
-                        </span>
-                      ) : (
-                        <screen.icon
-                          aria-hidden="true"
-                          className="size-4 shrink-0"
-                        />
-                      )}
-                      <span className="min-w-0 truncate">{displayLabel}</span>
-                      {screen.count !== null ? (
-                        <span
-                          className={cn(
-                            "ml-auto inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[0.65rem]",
-                            screen.id === "actions" && screen.count > 0
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-(--input) text-foreground",
+                    <Tooltip delayDuration={0} key={screen.id}>
+                      <TooltipTrigger asChild>
+                        <button
+                          aria-current={
+                            activeScreen === screen.id ? "page" : undefined
+                          }
+                          aria-label={getScreenAccessibleName(
+                            screen.label,
+                            screen.count,
+                            screen.countKind,
                           )}
+                          className={cn(
+                            "inline-flex min-h-9 w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-(--radius-button) border-l-2 border-transparent px-2 py-1.5 text-left text-sm font-medium text-muted-foreground outline-none transition-colors hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                            isSidebarCollapsed &&
+                              "relative justify-center border-l-0 px-0 text-center",
+                            activeScreen === screen.id
+                              ? "border-l-primary bg-accent text-accent-foreground"
+                              : "",
+                          )}
+                          onClick={() => handleScreenChange(screen.id)}
+                          type="button"
                         >
-                          {screen.count}
-                        </span>
-                      ) : null}
-                    </button>
+                          <screen.icon
+                            aria-hidden="true"
+                            className="size-4 shrink-0"
+                          />
+                          <span
+                            className={cn(
+                              "min-w-0 truncate",
+                              isSidebarCollapsed && "sr-only",
+                            )}
+                          >
+                            {screen.label}
+                          </span>
+                          {screen.count !== null ? (
+                            <ScreenCountBadge
+                              className={cn(
+                                "mr-1 ml-auto inline-flex h-5 min-w-7 shrink-0 items-center justify-end px-0 text-[0.65rem] tabular-nums",
+                                isSidebarCollapsed &&
+                                  "absolute bottom-0 right-0 mr-0 ml-0 h-4 min-w-4 justify-center rounded-full bg-(--input) px-1 text-[0.58rem]",
+                                screen.id === "actions" && screen.count > 0
+                                  ? "bg-primary text-primary-foreground"
+                                  : "bg-transparent text-foreground-muted",
+                              )}
+                              count={screen.count}
+                              kind={screen.countKind}
+                            />
+                          ) : null}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="right">
+                        {screen.label}
+                      </TooltipContent>
+                    </Tooltip>
                   );
                 })}
               </div>
@@ -1150,6 +1644,15 @@ export function JobFinderShell({
         />
       ) : null}
 
+      {isGlobalSearchOpen ? (
+        <JobFinderGlobalSearchDialog
+          entries={globalSearchEntries}
+          focusRequest={globalSearchFocusRequest}
+          onClose={() => setIsGlobalSearchOpen(false)}
+          onNavigate={handleGlobalSearchNavigate}
+        />
+      ) : null}
+
       <span
         aria-atomic="true"
         aria-live="polite"
@@ -1160,7 +1663,7 @@ export function JobFinderShell({
       </span>
 
       <div
-        className="flex min-h-screen flex-col sm:h-full sm:min-h-0 sm:pt-[7.25rem] min-[1440px]:pt-14 min-[1440px]:pl-[15.5rem]"
+        className="flex min-h-screen flex-col sm:h-full sm:min-h-0 sm:pt-[7.25rem] min-[1440px]:!pt-14 min-[1440px]:pl-(--job-finder-side-width)"
         data-job-finder-shell-content
       >
         <main
@@ -1168,8 +1671,8 @@ export function JobFinderShell({
           className={cn(
             "flex-1 overflow-x-hidden outline-none",
             usesLockedScreenLayout
-              ? "overflow-hidden px-2 pb-4 pt-0 sm:px-4 min-[1440px]:px-6"
-              : "screen-scroll-area overflow-y-auto px-4 pb-12 pt-8 sm:px-6 min-[1440px]:px-6",
+              ? "overflow-hidden px-2 pb-3 pt-0 sm:px-3 min-[1440px]:px-4"
+              : "screen-scroll-area overflow-y-auto px-3 pb-10 pt-3 min-[1440px]:px-4",
           )}
           ref={mainRef}
           tabIndex={-1}
@@ -1181,6 +1684,7 @@ export function JobFinderShell({
             )}
             key={location.pathname}
           >
+            <StartupResetRecoveryBanner />
             {children}
           </div>
         </main>

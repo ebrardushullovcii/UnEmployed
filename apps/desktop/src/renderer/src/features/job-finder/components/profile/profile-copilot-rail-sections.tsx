@@ -73,6 +73,7 @@ export function ProfileCopilotTranscript(props: {
   suggestedPrompts?: readonly string[] | undefined;
   starterQuestion?: string | null | undefined;
   transcriptRef: React.RefObject<HTMLDivElement | null>;
+  revisions?: readonly ProfileRevision[] | undefined;
 }) {
   return (
     <ScrollArea className="min-h-0 flex-1">
@@ -110,7 +111,7 @@ export function ProfileCopilotTranscript(props: {
                   </div>
                   {isAssistant ? (
                     <ProfileCopilotMessageContent
-                      content={getProfileCopilotDisplayContent(message)}
+                      content={getProfileCopilotDisplayContent(message, props.revisions)}
                     />
                   ) : (
                     <p className="whitespace-pre-wrap break-words">
@@ -218,6 +219,7 @@ export function ProfileCopilotTranscript(props: {
                 <div className="flex flex-wrap justify-center gap-2">
                   {props.suggestedPrompts?.map((prompt) => (
                     <Button
+                      className="h-auto min-h-8 whitespace-normal py-1.5 text-left"
                       key={prompt}
                       onClick={() => props.onUsePrompt(prompt)}
                       size="sm"
